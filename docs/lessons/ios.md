@@ -52,6 +52,8 @@ Keep `LocalizedStringResource` and `LocalizedStringKey` arguments as localizatio
 
 Source percent signs are literal text, while catalog `%%` is an escaped percent. Parsing `% left` as a printf specifier (`% le`) falsely rejects a valid key. Source-key checks must not run printf normalization twice. Compiler-free checks complement, but do not replace, Apple builds, Swift tests and three-language screenshots.
 
+A catalog can be valid JSON and still fail every Apple consumer (#1123): inserting a complete string entry inside another entry's `localizations` makes the new key look like a locale with no `stringUnit`. The required en / zh-Hans / ja entries may remain valid, so checking only those languages misses it. Reject nested string entries in every locale object, keep new entries as siblings under `strings`, and verify that moving them preserves all translations.
+
 
 ## Asynchronous HTML sandbox loading and teardown (#2025)
 

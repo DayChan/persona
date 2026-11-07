@@ -206,6 +206,9 @@ def catalog_problems(data, rel="catalog", infoplist=False):
         if CJK.search(key):
             problems.append(f"{rel}: {key!r}: Chinese/Japanese catalog key")
         locs, by_lang = entry.get("localizations", {}), {}
+        for lang, locale in locs.items():
+            if isinstance(locale, dict) and "localizations" in locale:
+                problems.append(f"{rel}: {key!r}: {lang!r} contains a nested string entry, not a locale")
         for lang in LANGS:
             report = lambda message, lang=lang: problems.append(f"{rel}: {key!r}: {lang} {message}")
             if lang not in locs:
