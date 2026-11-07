@@ -59,7 +59,7 @@ Pitfalls, odd behavior and the trade-offs made at the time (formerly in `CLAUDE.
 
 ## Portable JavaScript test output
 
-Node 24 removed `--experimental-default-type=module`; a portable SDK driver that works on Node 22 can therefore fail before running any assertions (#1163). Give freshly compiled temporary `.js` output its own `package.json` with `"type": "module"` instead of depending on an experimental CLI flag or on the caller's package scope. Run both the UI and transport suites on the supported Node versions, retain the temporary-directory cleanup, and fix the official SDK before resynchronizing downstream copies.
+Node 24 removed `--experimental-default-type=module`; a portable SDK driver that works on Node 22 can therefore fail before running any assertions (#1163). Give freshly compiled temporary `.js` output its own `package.json` with `"type": "module"` instead of depending on an experimental CLI flag or on the caller's package scope. Run both the UI and transport suites on the supported Node versions, retain the temporary-directory cleanup, and fix the official SDK before resynchronizing downstream copies. Changes under `sdk/ts`, including its test scripts, also require regenerating the embedded `sdk/go/bundle/sdk.tar.gz` with `python3 scripts/gen/sdk_bundle.py`; the portable suites alone do not exercise that distribution check.
 
 ## Hosted CI path aggregation
 
