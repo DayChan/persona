@@ -115,8 +115,8 @@ final class AgentSync {
     private var stallChecks: [SessionKey: Date] = [:]
     private var catchingUp = Set<SessionKey>()
 
-    /// A chat on screen whose session is newer than its newest line while nothing came over its subscription for a
-    /// while: the stream has stopped (a node whose transcript watch ended, a lost push). Asks for what came after the
+    /// A chat on screen whose session is newer than its last arrival's update while its subscription stays quiet:
+    /// the stream has stopped (a node whose transcript watch ended, a lost push). Asks for what came after the
     /// chat's `covered` and merges it (`AgentSyncPacing.catchUpAt`); looks again when its quiet or pacing ends. Not while
     /// its group's socket is down (in the background, offline): no push is due then, and the subscription asks for what
     /// it missed (`since_seq`) when the socket is back, whose next list looks again.
@@ -126,7 +126,7 @@ final class AgentSync {
               !catchingUp.contains(key)
         else { return }
         let updatedAt = model.latest(key)?.updatedAt // `session(_:)` keeps an older one on purpose
-        guard let at = AgentSyncPacing.catchUpAt(updatedAt: updatedAt, newestLine: store.newestLineAt,
+        guard let at = AgentSyncPacing.catchUpAt(updatedAt: updatedAt, arrivedUpdatedAt: store.arrivedUpdatedAt,
                                                 lastArrival: store.arrivedAt, lastPull: lastCatchUp[key],
                                                 pulledFor: caughtUpFor[key])
         else { return }
@@ -212,8 +212,10 @@ final class AgentSync {
     /// says so). Returns what the first batch left to do.
     @discardableResult
     private static func pullInto(_ store: ChatStore, _ key: SessionKey, _ api: APIClient) async throws -> ChatStore.Gap {
+        let asked = AppModel.shared.latest(key)?.updatedAt
         let r = try await api.items(key, afterSeq: store.covered)
         let gap = store.apply(r.items, span: r.span, moreAfter: r.moreAfter == true)
+        if !r.items.isEmpty { store.arrivedUpdatedAt = asked }
         switch gap {
         case .none: break
         case .fill: await AppModel.shared.fill(key)

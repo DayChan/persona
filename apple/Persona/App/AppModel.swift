@@ -1183,8 +1183,12 @@ final class AppModel {
     func loadInitial(_ key: SessionKey) async {
         guard let api = api(key.group) else { return }
         do {
+            let asked = latest(key)?.updatedAt
             let res = try await api.items(key, beforeSeq: nil)
-            settle(key, chat(key).apply(res.items, span: res.span, backlog: true, hasMore: res.hasMore))
+            let store = chat(key)
+            let gap = store.apply(res.items, span: res.span, backlog: true, hasMore: res.hasMore)
+            store.arrivedUpdatedAt = asked
+            settle(key, gap)
         } catch {
             chat(key).error = error.shown
         }
@@ -1213,8 +1217,11 @@ final class AppModel {
         defer { filling.remove(key) }
         let store = chat(key)
         for _ in 0..<8 {
+            let asked = latest(key)?.updatedAt
             guard let r = try? await api.items(key, afterSeq: store.covered) else { return }
-            switch store.apply(r.items, span: r.span, moreAfter: r.moreAfter == true) {
+            let gap = store.apply(r.items, span: r.span, moreAfter: r.moreAfter == true)
+            if !r.items.isEmpty { store.arrivedUpdatedAt = asked }
+            switch gap {
             case .none: return
             case .fill: continue
             case .reload: await reload(key); return
@@ -1225,8 +1232,11 @@ final class AppModel {
 
     /// Starts the chat over from the latest page (the hole was too big, or the transcript was replaced).
     func reload(_ key: SessionKey) async {
-        guard let api = api(key.group), let page = try? await api.items(key, beforeSeq: nil) else { return }
+        guard let api = api(key.group) else { return }
+        let asked = latest(key)?.updatedAt
+        guard let page = try? await api.items(key, beforeSeq: nil) else { return }
         chat(key).replace(with: page.items, hasMore: page.hasMore, span: page.span)
+        chat(key).arrivedUpdatedAt = asked
         ChatTrace.shared.note(key, "reload n=\(page.items.count) to=\(page.span.to.map(String.init) ?? "?") kept=\(chat(key).items.count - page.items.count)")
     }
 
@@ -1596,6 +1606,7 @@ final class AppModel {
             if backlog { connection.caughtUp(Self.catchUpPart(key)) }
             let store = chat(key)
             let gap = store.apply(items, span: span, backlog: backlog, hasMore: hasMore, moreAfter: moreAfter)
+            if !items.isEmpty { store.arrivedUpdatedAt = latest(key)?.updatedAt }
             ChatTrace.shared.note(key, ChatTrace.batch(items, span: span, backlog: backlog, gap: gap, resets: store.resets, covered: store.covered))
             settle(key, gap)
             // The streamed message landed in the transcript: stop drawing its live copy (and the newer one kept back).

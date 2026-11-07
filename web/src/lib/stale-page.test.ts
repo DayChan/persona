@@ -15,7 +15,7 @@ import {
 const T0 = Date.parse("2026-11-05T10:00:00Z");
 const behind = (over: Partial<StaleView> = {}): StaleView => ({
   updatedAt: new Date(T0 + 60_000).toISOString(),
-  lastItemAt: T0 + 20_000,
+  arrivedUpdatedAt: new Date(T0 + 20_000).toISOString(),
   lastArrival: T0,
   lastPull: 0,
   now: T0 + STALE_QUIET_MS + 1,
@@ -25,13 +25,21 @@ const behind = (over: Partial<StaleView> = {}): StaleView => ({
 });
 
 describe("shouldPull", () => {
-  it("asks when the list is newer than the newest item and nothing has come for a while", () => {
+  it("asks when a burst write 0.3 s later lost its push", () => {
+    expect(shouldPull(behind({ updatedAt: new Date(T0 + 300).toISOString(), arrivedUpdatedAt: new Date(T0).toISOString() }))).toBe(true);
+  });
+
+  it("does not let an invalid arrival timestamp suppress recovery", () => {
+    expect(shouldPull(behind({ arrivedUpdatedAt: "invalid" }))).toBe(true);
+  });
+
+  it("asks when the list is newer than the last arrival baseline and nothing has come for a while", () => {
     expect(shouldPull(behind())).toBe(true);
   });
 
   it("does not while the page is caught up, or the write is the item's own", () => {
-    expect(shouldPull(behind({ lastItemAt: T0 + 60_000 }))).toBe(false);
-    expect(shouldPull(behind({ lastItemAt: T0 + 59_500 }))).toBe(false); // mtime a moment after the line's clock
+    expect(shouldPull(behind({ arrivedUpdatedAt: new Date(T0 + 60_000).toISOString() }))).toBe(false);
+    expect(shouldPull(behind({ arrivedUpdatedAt: new Date(T0 + 61_000).toISOString() }))).toBe(false); // an older list cannot make the page stale
     expect(shouldPull(behind({ updatedAt: undefined }))).toBe(false);
     expect(shouldPull(behind({ updatedAt: "not a time" }))).toBe(false);
   });
@@ -58,8 +66,8 @@ describe("shouldPull", () => {
     expect(shouldPull({ ...v, checkedFor: new Date(T0 + 30_000).toISOString() })).toBe(true); // it moved on since
   });
 
-  it("a page with no timed item asks once per write", () => {
-    expect(shouldPull(behind({ lastItemAt: 0 }))).toBe(true);
+  it("a page with no arrival baseline asks once per write", () => {
+    expect(shouldPull(behind({ arrivedUpdatedAt: undefined }))).toBe(true);
   });
 });
 

@@ -1,5 +1,7 @@
 # Lessons: web UI and interactions
 
+- A transcript line clock is not an acknowledgement of a session update (#1179). Comparing them with one second of slack hides lost lines in a burst. Track the session timestamp observed on arrival instead, and capture it before HTTP requests so a later list update remains eligible for catch-up. Keep quiet and pacing limits unchanged.
+
 ## A word turned into an icon at a row's end (2026-11-07, sidebar source marks)
 
 - Everything at a sidebar row's end steps aside while the row is hovered (`group-hover/row:invisible`, for the ⋯). An icon's own `title` therefore never shows to a mouse user: the pointer that would hover the icon has already hidden it. Put the icon's name into the row's own tooltip as well, and keep `role=img` + `aria-label` on the icon for screen readers.

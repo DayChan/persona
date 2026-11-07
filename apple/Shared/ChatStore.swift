@@ -440,6 +440,8 @@ final class ChatStore {
     /// (`heardStream`): a subscription that stays quiet while its session moves on has stopped
     /// (`AgentSyncPacing.catchUpAt`). Nil before any.
     @ObservationIgnored private(set) var arrivedAt: Date?
+    /// The session update known when items arrived, independent of individual lines' clocks.
+    @ObservationIgnored var arrivedUpdatedAt: Date?
     /// Folds opened here (`unfold`), as far as each reached. A page with one of them again (the latest page can come
     /// twice as a chat opens) leaves its work open: folded again, its row had already fetched it and stayed on
     /// "Loading N steps…" (#6038). Starting over forgets them.
@@ -514,6 +516,7 @@ final class ChatStore {
     }
 
     private func reset() {
+        arrivedUpdatedAt = nil
         resets += 1
         items = []
         ids = []
@@ -761,6 +764,7 @@ final class ChatStore {
     /// Starts over from the latest page: what came in between was too much to fetch, and a hole would never fill.
     func replace(with latest: [Item], hasMore: Bool, span: ItemSpan = ItemSpan()) {
         arrivedAt = .now
+        arrivedUpdatedAt = nil
         // Pushes that came in while the page was on its way, past what it holds, stay (the next push finds the hole
         // between, if any). Not after another history: those seqs belong to the old file.
         let keep = span.history == nil || span.history == history ? items.filter { $0.seq > (span.to ?? .max) } : []

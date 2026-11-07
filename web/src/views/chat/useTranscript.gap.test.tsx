@@ -29,6 +29,7 @@ vi.mock("../../lib/store", async (orig) => ({
 }));
 
 const { useTranscript } = await import("./useTranscript");
+const { api } = await import("../../lib/api");
 
 function item(seq: number): Item {
   return { id: `i${seq}`, seq, role: "assistant", kind: "text", text: `row ${seq}`, ts: "2026-11-06T00:00:00Z" } as Item;
@@ -37,8 +38,8 @@ function item(seq: number): Item {
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let seqs: number[] = [];
-function Probe({ sid }: { sid: string }) {
-  seqs = useTranscript("m1", sid).items.map((i) => i.seq);
+function Probe({ sid, updatedAt }: { sid: string; updatedAt?: string }) {
+  seqs = useTranscript("m1", sid, { updatedAt }).items.map((i) => i.seq);
   return null;
 }
 
@@ -84,4 +85,53 @@ describe("a gap in the pushed items", () => {
     await act(async () => void vi.advanceTimersByTime(1600));
     expect(fills()).toBe(1);
   });
+});
+
+
+it("catches a lost burst push and records subsequent item arrivals", async () => {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const at = (ms: number) => new Date(Date.parse("2026-11-06T00:00:00Z") + ms).toISOString();
+  const render = (ms: number) => root.render(<Probe sid="burst-lost" updatedAt={at(ms)} />);
+  try {
+    await act(async () => render(0));
+    await act(async () => void vi.advanceTimersByTime(6000));
+    expect(fills()).toBe(0); // the initial page established this session's baseline
+    await act(async () => render(300)); // a newer list, but no items push
+    await act(async () => void vi.advanceTimersByTime(4000));
+    expect(fills()).toBe(1);
+    expect(calls.find((c) => c.includes("after_seq="))).toContain("after_seq=100");
+    expect(seqs).toEqual([100, 101, 102]);
+
+    await act(async () => render(600));
+    push({ from_seq: 140, to_seq: 141, items: [item(141)] } as ItemsEvent);
+    await act(async () => void vi.advanceTimersByTime(12000));
+    expect(fills()).toBe(1); // a delivered push advances the arrival baseline
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+
+it("does not acknowledge a newer list while a catch-up request is in flight", async () => {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const at = (ms: number) => new Date(Date.parse("2026-11-06T00:00:00Z") + ms).toISOString();
+  const render = (ms: number) => root.render(<Probe sid="burst-inflight" updatedAt={at(ms)} />);
+  try {
+    await act(async () => render(0));
+    let finish!: (page: ItemsPage) => void;
+    vi.mocked(api).mockImplementationOnce((path) => {
+      calls.push(path);
+      return new Promise<ItemsPage>((resolve) => { finish = resolve; });
+    });
+    await act(async () => render(300));
+    await act(async () => void vi.advanceTimersByTime(6000));
+    expect(fills()).toBe(1);
+    await act(async () => render(600));
+    await act(async () => finish({ items: [item(101)], to_seq: 101 } as ItemsPage));
+    await act(async () => void vi.advanceTimersByTime(12000));
+    expect(fills()).toBe(2);
+    expect(calls.filter((c) => c.includes("after_seq="))[1]).toContain("after_seq=101");
+  } finally {
+    vi.restoreAllMocks();
+  }
 });

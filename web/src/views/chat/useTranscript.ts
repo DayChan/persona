@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, isAbort, sessionPath } from "../../lib/api";
 import { sessionLoadError } from "../../lib/session-link";
 import { getState, listenSession, send, type ItemsEvent } from "../../lib/store";
-import { afterPull, afterPush, FRESH_TALLY, newestItemAt, notLive as tallyNotLive, shouldPull, type StaleTally } from "../../lib/stale-page";
+import { afterPull, afterPush, FRESH_TALLY, notLive as tallyNotLive, shouldPull, type StaleTally } from "../../lib/stale-page";
 import { mergeItems } from "../../lib/turns";
 import { chosenManager } from "../../lib/manager-choice";
 import { discardFeedCache, readFeedCache, writeFeedCache, type FeedCache } from "../../lib/feed-cache";
@@ -111,6 +111,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
     setNotLive(false);
     let tally: StaleTally = FRESH_TALLY;
     let lastArrival = Date.now();
+    let arrivedUpdatedAt = updatedAt.current;
     let ready = false; // the first page is in
     let pulling = false;
     let checkedFor: string | undefined;
@@ -146,6 +147,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
 
     // Items after what we have, a page at a time (past 8 the newest page is cheaper); how many of them were new.
     const pull = async (): Promise<number> => {
+      const asked = updatedAt.current;
       let fresh = 0;
       for (let n = 0; n < 8 && !dead; n++) {
         const p = await api<ItemsPage>(`${sessionPath(mid, sid)}/items?after_seq=${covered.current}&lazy_images=1`, { signal: ctl.signal });
@@ -157,6 +159,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
         const got = p.items ?? [];
         // Not what the stream brought while this was on its way: those are merged as they are, and not a miss.
         fresh += got.filter((i) => i.seq > covered.current).length;
+        if (fresh > 0) arrivedUpdatedAt = asked;
         apply(got);
         remember(got);
         if (p.to_seq) covered.current = Math.max(covered.current, p.to_seq);
@@ -173,7 +176,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       if (dead || !ready) return;
       const now = Date.now();
       const asked = updatedAt.current;
-      if (!shouldPull({ updatedAt: asked, lastItemAt: newestItemAt(itemsRef.current), lastArrival, lastPull: lastPulls.get(pullKey) ?? 0, checkedFor, now, visible: document.visibilityState === "visible", pulling })) return;
+      if (!shouldPull({ updatedAt: asked, arrivedUpdatedAt, lastArrival, lastPull: lastPulls.get(pullKey) ?? 0, checkedFor, now, visible: document.visibilityState === "visible", pulling })) return;
       lastPulls.set(pullKey, now);
       pulling = true;
       pull()
@@ -202,6 +205,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       if (!ready && e.history) pendingHistory = e.history;
       remember(e.items ?? []);
       lastArrival = Date.now();
+      if (e.items?.length) arrivedUpdatedAt = updatedAt.current;
       if (e.items?.length && tally !== FRESH_TALLY) {
         tally = afterPush(tally); // the stream works
         setNotLive(false);
@@ -227,6 +231,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
     });
 
     (async () => {
+      const asked = updatedAt.current;
       try {
         const p = await api<ItemsPage>(`${sessionPath(mid, sid)}/items?${PAGE}`, { signal: ctl.signal });
         if (dead) return;
@@ -251,6 +256,8 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       } finally {
         if (!dead) setLoading(false);
         lastArrival = Date.now();
+        // A newer list may have arrived while this page was in flight. Leave it eligible for catch-up.
+        if (!pendingItems.length) arrivedUpdatedAt = asked;
         ready = true;
       }
       if (!dead) subscribe();
