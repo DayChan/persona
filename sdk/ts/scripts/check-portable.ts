@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -16,6 +16,8 @@ try {
     "--moduleResolution", "bundler", "--strict", "--skipLibCheck", "--types", "bun", "--rewriteRelativeImportExtensions",
     "--rootDir", root, "--outDir", output]);
   copyFileSync(join(output, "src/index.js"), join(output, "src/index-copy.js"));
-  run(["node", "--experimental-default-type=module", resolve(root, "scripts/portable-ui.mjs"), join(output, "src/ui.js")]);
-  run(["node", "--experimental-default-type=module", resolve(root, "scripts/portable-transport.mjs"), join(output, "src/index.js")]);
+  // Declare the temporary output as ESM without Node's removed experimental flag.
+  writeFileSync(join(output, "package.json"), '{"type":"module"}\n');
+  run(["node", resolve(root, "scripts/portable-ui.mjs"), join(output, "src/ui.js")]);
+  run(["node", resolve(root, "scripts/portable-transport.mjs"), join(output, "src/index.js")]);
 } finally { rmSync(output, { recursive: true, force: true }); }
