@@ -10,6 +10,7 @@ vi.hoisted(() => {
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: unknown) => void };
 const hub = vi.hoisted(() => ({ path: "", pending: [] as Pending[] }));
+vi.mock("./settings/ConfigurationManager", () => ({ ConfigurationManager: ({ children }: { children: (id: string) => unknown }) => children("assistant") }));
 vi.mock("../lib/api", async (original) => ({
   ...(await original<typeof import("../lib/api")>()),
   api: (path: string) => {
