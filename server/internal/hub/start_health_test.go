@@ -98,3 +98,17 @@ func TestRowKeepsACodedStartErrorWhole(t *testing.T) {
 		t.Errorf("plain: %d runes kept", len([]rune(got)))
 	}
 }
+
+// A row says when a subscription's usage limit resets and whether the agent goes on by itself (#1710).
+func TestRowKeepsTheUsageLimitReset(t *testing.T) {
+	reset := time.Date(2026, 9, 25, 8, 20, 0, 0, time.UTC)
+	row := runtimeSummary(proto.Session{TurnError: "You've hit your session limit", TurnErrorKind: proto.TurnErrorUsageLimit,
+		TurnErrorResetsAt: &reset, TurnErrorResumes: true,
+		Work: &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitExternal, ResetsAt: &reset}})
+	if row.TurnErrorResetsAt == nil || !row.TurnErrorResetsAt.Equal(reset) || !row.TurnErrorResumes {
+		t.Errorf("turn error: %+v %v", row.TurnErrorResetsAt, row.TurnErrorResumes)
+	}
+	if row.Work == nil || row.Work.ResetsAt == nil || !row.Work.ResetsAt.Equal(reset) {
+		t.Errorf("work: %+v", row.Work)
+	}
+}

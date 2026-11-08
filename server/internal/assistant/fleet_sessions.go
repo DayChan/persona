@@ -209,9 +209,13 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 		list[i].State, list[i].BackgroundWorking = stateWithBackground(agentState(list[i], list[i].SeenAt), list[i])
 		list[i].BackgroundWaiting = backgroundWaiting(list[i])
 		list[i].TurnError, list[i].TurnErrorKind = turnError(list[i])
+		decorateLimit(&list[i]) // a subscription's usage limit and when it resets (usage_limit.go)
 		list[i].TurnErrorCode = ""
 		if list[i].TurnError != "" {
-			list[i].TurnErrorCode = turnErrorCode(list[i].TurnError)
+			list[i].TurnErrorCode = proto.TurnErrorRateLimited
+			if list[i].TurnErrorKind != proto.TurnErrorUsageLimit {
+				list[i].TurnErrorCode = turnErrorCode(list[i].TurnError)
+			}
 			// Not worth a "Continue": the user signs in, fixes the key or the model. Only where agents_work would not retry it
 			// anyway: a gateway's 5xx that mentions the model stays transient.
 			if list[i].TurnErrorKind == "" && userTurnError(list[i].TurnErrorCode) && !transientError(list[i].TurnError) {

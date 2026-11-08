@@ -441,8 +441,12 @@ func (t *Tail) Skipped(line []byte) {
 
 // Settle puts into meta the agent's last words on the lines still in the conversation, when words on an abandoned
 // branch were among them (meta is left as it is otherwise). It says whether it changed them; LastText is "" then when
-// no words in the lines read are left.
+// no words in the lines read are left. A turn error said on such a branch goes too: the conversation that is left did
+// not fail there, and nothing older comes back (the user went back to start over).
 func (t *Tail) Settle(meta *Meta) bool {
+	if meta.turnErrorLine != "" && t.tree.hidden[meta.turnErrorLine] {
+		meta.clearTurnError()
+	}
 	dropped := false
 	for _, w := range t.words {
 		if t.tree.hidden[w.uuid] {

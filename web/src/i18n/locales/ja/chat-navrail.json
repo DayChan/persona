@@ -1,0 +1,6 @@
+{
+  "rail": "質問ナビゲーション",
+  "jump": "質問 {index} へ移動：{preview}",
+  "attachments_other": "添付ファイル {count} 件",
+  "earlier": "さらに前の質問が {count} 件あります"
+}

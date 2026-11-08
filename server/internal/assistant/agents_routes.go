@@ -133,7 +133,7 @@ func summarizeWork(hours int, events []db.WorkEvent) workStats {
 			s.By[str("by")]++
 		case "failed":
 			s.Triaged["failed"]++
-		case "continued", "woke", "asked", "answered", "withdrawn":
+		case "continued", "limit_continued", "woke", "asked", "answered", "withdrawn":
 			s.Actions[e.Kind]++
 		case "resumed", "seen":
 			if e.Kind == "resumed" {

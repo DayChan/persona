@@ -428,7 +428,7 @@ func (n *Node) codexSessions(seen map[string]bool) []proto.Session {
 				}
 				s.Cwd, s.Model, s.LastText, s.UpdatedAt, s.Rev = m.cwd, m.model, snippet(m.lastText), lastUsed(m, st), st.Size()
 				s.AgentSurface = m.surface
-				s.TurnError, s.TurnErrorKind = m.turnError, m.turnErrorKind
+				m.turnErr.set(&s)
 				setContext(&s, m)
 				s.Title = threadTitle(src.home, src.thread)
 				untitled(&s, m)
@@ -449,7 +449,7 @@ func (n *Node) codexSessions(seen map[string]bool) []proto.Session {
 		if c, t, err := n.codexOwner(id); err == nil {
 			s.SourceKind, s.SourceInstanceID, s.Status, s.Attached = "codex_app_server", c.spec.ID, t.status, t.joined
 			if t.failure != "" { // turn/completed said it failed: before the rollout read has it
-				s.TurnError, s.TurnErrorKind = t.failure, t.failureKind
+				reported(t.failure, t.failureKind, m.turnErr).set(&s)
 			}
 			if c.spec.Name != "" {
 				s.AgentName = c.spec.Name

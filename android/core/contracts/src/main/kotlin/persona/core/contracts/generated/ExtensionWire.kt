@@ -1237,6 +1237,10 @@ data class ExtensionInitializeResult(
      * A subset of the manifest's.
      */
     val contributes: Map<String, JsonElement>? = null,
+    /**
+     * Request-ID scoped rpc.cancel for mounted page lifecycle calls only.
+     */
+    @SerialName("ui_page_cancellation") val uiPageCancellation: Int? = null,
 )
 
 /**

@@ -13,9 +13,11 @@ const CodexTurnFailed = "Codex 这一轮出错了"
 // CodexTurnError reads what failed a Codex turn into the turn's error text and its kind (#2185): a rollout's
 // task_complete.error ({message, codex_error_info}) or an app-server turn's error ({message, codexErrorInfo}).
 // Kind is proto.TurnErrorTransient when the model service failed for a moment (overloaded, a 5xx, rate limited, the
-// connection or the response stream lost), proto.TurnErrorUser when the user has to act (sign-in, usage limit, context
-// window, the model, a policy, any kind this does not know), and "" when Codex gives no kind (the text is read then,
-// docs/assistant/agent-work.md "Rules first, then the model"). Null or empty: the turn did not fail.
+// connection or the response stream lost), proto.TurnErrorUsageLimit when the subscription's usage limit is used up
+// (it goes on once the limit resets, #1710), proto.TurnErrorUser when the user has to act (sign-in, context window,
+// the model, a policy, any kind this does not know), and "" when Codex gives no kind (the text is read then,
+// docs/assistant/agent-work.md "Rules first, then the model"). Null or empty: the turn did not fail. The message's
+// "try again at 3:05 PM" is never read for the reset: it names no time zone (the rollout's rate limits do, codex.go).
 func CodexTurnError(raw json.RawMessage) (text, kind string) {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 || string(raw) == "null" {
@@ -78,6 +80,8 @@ func codexErrorKind(info json.RawMessage) string {
 		return ""
 	case "serveroverloaded", "internalservererror", "ratelimitexceeded":
 		return proto.TurnErrorTransient
+	case "usagelimitexceeded", "usagelimitreached":
+		return proto.TurnErrorUsageLimit
 	case "httpconnectionfailed", "responsestreamconnectionfailed", "responsestreamdisconnected", "responsetoomanyfailedattempts":
 		// No status: the connection itself failed. 401 / 403 and the other 4xx are the user's to fix.
 		if status == 0 || status == 408 || status == 429 || status >= 500 {
@@ -85,8 +89,8 @@ func codexErrorKind(info json.RawMessage) string {
 		}
 		return proto.TurnErrorUser
 	default:
-		// usage_limit_exceeded, context_window_exceeded, unauthorized, model_not_found, bad_request, a policy… and kinds
-		// newer Codex adds: no "continue" would get past them.
+		// context_window_exceeded, unauthorized, model_not_found, bad_request, a policy… and kinds newer Codex adds: no
+		// "continue" would get past them.
 		return proto.TurnErrorUser
 	}
 }

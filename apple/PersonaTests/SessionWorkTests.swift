@@ -82,9 +82,9 @@ struct SessionWorkTests {
         let order = AgentListOrder(isPinned: { _ in false }, isMuted: { _ in false })
         let wake = try session(work: #"{"phase":"blocked","on":"transient","line":"模型出错","wake_at":"\#(at(1))"}"#)
         let done = try session(work: #"{"phase":"done","line":"做完了"}"#)
-        #expect(order.rank(wake) == 4)
+        #expect(order.rank(wake) == AgentListOrder.stateKeys.firstIndex(of: "waiting"))
         #expect(order.stays(wake))
-        #expect(order.rank(done) == 6)
+        #expect(order.rank(done) == AgentListOrder.stateKeys.firstIndex(of: "idle"))
         #expect(!order.stays(done))
     }
 }

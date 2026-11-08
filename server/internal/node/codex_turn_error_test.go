@@ -98,7 +98,7 @@ func TestCodexRemoteTurnFailed(t *testing.T) {
 		t.Fatalf("a new turn keeps the old failure: %q", th.failure)
 	}
 	end("t2", "failed", map[string]any{"message": "You've hit your usage limit.", "codexErrorInfo": "usageLimitExceeded"})
-	if th := threadOf(c, remoteRaw); th.failureKind != proto.TurnErrorUser {
+	if th := threadOf(c, remoteRaw); th.failureKind != proto.TurnErrorUsageLimit {
 		t.Fatalf("usage limit: %q, %q", th.failure, th.failureKind)
 	}
 	turn("t3")

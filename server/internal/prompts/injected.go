@@ -9,7 +9,8 @@ import (
 )
 
 // The hub types some messages into conversations as the user would, for the model: a quiet task's notice
-// (assistant/task_notice), a scheduled task's run (assistant/task_run), a wake-up (agents/wake), the background tasks
+// (assistant/task_notice), a scheduled task's run (assistant/task_run), a wake-up (agents/wake), the continue after a
+// usage limit reset (agents/limit_continue), the background tasks
 // a node restart stopped (assistant/lost_tasks), news of an inbox item for a conversation it was handed to
 // (inbox/handoff_note). The model reads them as they are; the apps show one line instead
 // (docs/protocol/protocol.md "Messages Persona injects"). ParseInjected reads them back off the transcript's text, so old lines are
@@ -32,6 +33,9 @@ const superviseMarker = "这是 Persona 的督办消息"
 
 // inboxMarker is in every inbox note for a conversation an item was handed to (inbox/handoff_note, #1194).
 const inboxMarker = "这是 Persona 的收件箱通知"
+
+// limitContinueHead starts agents/limit_continue: the manager continues an agent once its usage limit reset.
+const limitContinueHead = "⏰（Persona 叫你接着做）订阅的用量额度已经重置了"
 
 // lostTasksHead starts assistant/lost_tasks.
 const lostTasksHead = "⚠️ 运行你的 node 刚重启过"
@@ -64,6 +68,9 @@ func ParseInjected(text string) *proto.Injected {
 		state := noticeStates[m[2]]
 		return &proto.Injected{Kind: proto.InjectedTaskNotice, State: state, Title: m[1], Machine: m[3],
 			Line: "任务「" + m[1] + "」" + noticeLines[state]}
+	case strings.HasPrefix(head, limitContinueHead):
+		// Only hubs that write it mark it: it is not in the shared fixtures the apps' own recognition runs.
+		return &proto.Injected{Kind: proto.InjectedFollowup, State: "limit_continue", Line: "用量额度重置了，Persona 让它接着做"}
 	case strings.HasPrefix(head, "⏰（"):
 		m := wakeHeadRe.FindStringSubmatch(head)
 		if m == nil {

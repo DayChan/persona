@@ -8,5 +8,6 @@
   "routine_started": "定时任务「{title}」开始运行",
   "lost_tasks": "node 重启过，后台任务停了",
   "lost_tasks_n_other": "node 重启过，{count} 个后台任务停了",
-  "inbox_update": "收件箱「{title}」有了下文"
+  "inbox_update": "收件箱「{title}」有了下文",
+  "limit_continue": "用量额度重置了，Persona 让它接着做"
 }

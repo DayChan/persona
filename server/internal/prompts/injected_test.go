@@ -134,6 +134,17 @@ func TestInjectedTemplatesKeepTheirHead(t *testing.T) {
 	}
 }
 
+// The continue after a usage limit reset (#1710) is one line, as a wake is.
+func TestParseInjectedLimitContinue(t *testing.T) {
+	got := ParseInjected(RenderAgentLimitContinue())
+	if got == nil || got.Kind != proto.InjectedFollowup || got.State != "limit_continue" || got.Line != "用量额度重置了，Persona 让它接着做" {
+		t.Fatalf("ParseInjected = %+v", got)
+	}
+	if ParseInjected("⏰（Persona 叫你接着做）") != nil {
+		t.Fatal("a bare head taken for the continue")
+	}
+}
+
 // A follow-up (supervision) message (#3124) is a system line, read off its head and marker; a user's line that looks like its head is not.
 func TestParseInjectedSupervise(t *testing.T) {
 	text := RenderSupervise(Supervise{Entries: []SuperviseEntry{{ID: "todo_1", Title: "部署", Kind: "review"}, {ID: "todo_2", Title: "修崩溃", Kind: "idle"}}})

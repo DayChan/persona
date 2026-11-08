@@ -17,6 +17,8 @@ export interface EffectHook {
   effect: Effect;
   deps: Dependencies | undefined;
   changed: boolean;
+  /** Only explicitly finite loading effects participate in snapshot readiness. */
+  snapshot?: boolean;
   stop?: Cleanup;
 }
 interface LatestHook { kind: "latest"; value: unknown }
@@ -80,11 +82,21 @@ export function useState<T>(initial: T | (() => T)): [T, (value: T | ((previous:
 function equalDeps(a: Dependencies | undefined, b: Dependencies | undefined): boolean {
   return a !== undefined && b !== undefined && a.length === b.length && a.every((item, index) => Object.is(item, b[index]));
 }
-export function useEffect(effect: Effect, dependencies?: Dependencies): void {
-  const [slot] = hook<EffectHook>("effect", () => ({ kind: "effect", effect, deps: dependencies?.slice(), changed: true }));
-  if (!equalDeps(slot.deps, dependencies)) slot.changed = true;
+function effectHook(effect: Effect, dependencies: Dependencies | undefined, snapshot: boolean): void {
+  const [slot] = hook<EffectHook>("effect", () => ({ kind: "effect", effect, deps: dependencies?.slice(), changed: true, snapshot }));
+  if (!equalDeps(slot.deps, dependencies) || slot.snapshot !== snapshot) slot.changed = true;
   slot.effect = effect;
   slot.deps = dependencies?.slice();
+  slot.snapshot = snapshot;
+}
+export function useEffect(effect: Effect, dependencies?: Dependencies): void {
+  effectHook(effect, dependencies, false);
+}
+/** Finite UI loading only: snapshot transports wait for the returned promise, within a host bound.
+ * Return all loading work; handle failures as UI state and honor signal before writing state.
+ * Subscriptions, timers and detached background work belong in useEffect instead. */
+export function useLoadEffect(effect: Effect, dependencies?: Dependencies): void {
+  effectHook(effect, dependencies, true);
 }
 function useLatest<T>(value: T): LatestHook & { value: T } {
   const [slot] = hook<LatestHook>("latest", () => ({ kind: "latest", value }));
@@ -98,6 +110,8 @@ export interface FetchOptions<T> {
   decode?: (response: Response) => T | Promise<T>;
   /** Include every request/decode input other than the URL that can change. */
   dependencies?: Dependencies;
+  /** Opt in to finite snapshot loading; streaming behavior is unchanged. */
+  snapshot?: "wait";
 }
 export function useFetch<T = unknown>(input: string | null, options: FetchOptions<T> = {}): FetchState<T> {
   if (!context) throw new Error("hooks require a mounted function component");
@@ -111,7 +125,8 @@ export function useFetch<T = unknown>(input: string | null, options: FetchOption
   const setResult = (result: FetchState<T>) => {
     if (resource.identity === identity) setSaved({ identity, result });
   };
-  useEffect(async (signal) => {
+  const loadEffect = options.snapshot === "wait" ? useLoadEffect : useEffect;
+  loadEffect(async (signal) => {
     if (input === null) { setResult({ status: "idle" }); return; }
     setResult({ status: "loading" });
     try {

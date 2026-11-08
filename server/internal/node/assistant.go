@@ -99,8 +99,8 @@ type assistantProc struct {
 	// (assistant_usage.go); 0: from the start.
 	usageChecked int64
 
-	turnError     string // the latest turn failed on the model service (#2571)
-	turnErrorKind string // proto.TurnErrorTransient or proto.TurnErrorUser
+	turnError     string // the latest turn failed on the model service, as Codex's app-server said it (#2571)
+	turnErrorKind string // proto.TurnErrorTransient, User or UsageLimit
 
 	// owner: the Node that took it over from an earlier connection of a resident node (assistant_keep.go); nil: the
 	// one that started it.
@@ -714,13 +714,10 @@ func (n *Node) assistantSessions() []proto.Session {
 		p.mu.Unlock()
 		s := proto.Session{SessionID: p.id, Cwd: p.cwd, Status: status, Launcher: p.launcher, UpdatedAt: updated.UTC(),
 			Runtime: p.runtime, RuntimeFallback: p.fallback}
-		if !busy {
-			s.TurnError = turnError
-			s.TurnErrorKind = turnErrorKind
-		}
 		if p.agent == "codex" {
 			s.Agent = "codex"
 		}
+		var record turnFailure // the transcript's word on a failed turn
 		if path := n.transcriptPath(p.id); path != "" {
 			if st, err := os.Stat(path); err == nil {
 				m := n.meta(path, st)
@@ -730,12 +727,15 @@ func (n *Node) assistantSessions() []proto.Session {
 				untitled(&s, m)
 				if !busy {
 					s.UpdatedAt = lastUsed(m, st)
-					if s.TurnError == "" && m.turnError != "" {
-						s.TurnError = m.turnError
-						s.TurnErrorKind = m.turnErrorKind
-					}
+					record = m.turnErr
 				}
 			}
+		}
+		if !busy { // a finished turn's failure: what Codex's app-server said, else the transcript's (Claude Code's, a rollout's)
+			if turnError != "" {
+				record = reported(turnError, turnErrorKind, record)
+			}
+			record.set(&s)
 		}
 		n.decorate(&s)
 		out = append(out, s)

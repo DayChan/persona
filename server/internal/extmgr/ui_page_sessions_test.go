@@ -41,15 +41,15 @@ func (p *pageTestHub) all() []extwire.UITarget {
 
 // Real SDK source process and manager integration under a sanctioned injected
 // host. This deliberately does not claim production sandbox or renderer E2E.
-func pageProcessManager(t *testing.T) (*Manager, *host.Proc, *pageTestHub) {
+func pageProcessManager(t *testing.T, configure ...func(*host.Spec)) (*Manager, *host.Proc, *pageTestHub) {
 	t.Helper()
 	bun, err := exec.LookPath("bun")
 	if err != nil {
-		t.Skip("Bun is required to build the real source fixture")
+		t.Fatal("Bun is required to build the real source fixture")
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("Node is required for the injected source host")
+		t.Fatal("Node is required for the injected source host")
 	}
 	root := shortTempDir(t)
 	program := filepath.Join(root, "program.mjs")
@@ -57,7 +57,9 @@ func pageProcessManager(t *testing.T) (*Manager, *host.Proc, *pageTestHub) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bun, "build", source, "--target=node", "--outfile="+program)
+	buildCtx, stopBuild := context.WithTimeout(t.Context(), 30*time.Second)
+	defer stopBuild()
+	cmd := exec.CommandContext(buildCtx, bun, "build", source, "--target=node", "--outfile="+program)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build source: %v %s", err, output)
 	}
@@ -69,7 +71,7 @@ func pageProcessManager(t *testing.T) (*Manager, *host.Proc, *pageTestHub) {
 		t.Fatal(err)
 	}
 	var process *host.Proc
-	process = host.Start(t.Context(), host.Spec{ID: "example-page", Command: node, Args: []string{program}, Dir: root, CleanEnv: true, RPC: true, OnCall: true,
+	spec := host.Spec{ID: "example-page", Command: node, Args: []string{program}, Dir: root, CleanEnv: true, RPC: true, OnCall: true,
 		Init: func(context.Context) (extension.InitializeParams, error) {
 			return extension.InitializeParams{Protocol: 1}, nil
 		},
@@ -78,7 +80,11 @@ func pageProcessManager(t *testing.T) (*Manager, *host.Proc, *pageTestHub) {
 				h.pageSnapshot("example-page", process, raw)
 			}
 		},
-	})
+	}
+	for _, configure := range configure {
+		configure(&spec)
+	}
+	process = host.Start(t.Context(), spec)
 	h.extensions.byID[manifest.ID] = &hubExtension{id: manifest.ID, proc: process}
 	t.Cleanup(func() { h.pageDropExtension(""); process.Stop(); h.pageStopDelivery() })
 	return h, process, output

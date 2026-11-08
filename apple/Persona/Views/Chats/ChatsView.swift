@@ -18,7 +18,7 @@ nonisolated struct SpaceGroup: Identifiable, Sendable {
     var aggregate: SessionListCounts? = nil
     var bounded = false
 
-    var state: AgentState { sessions.map(\.state).min { $0.priority < $1.priority } ?? .idle }
+    var state: AgentState { sessions.map(\.countedState).min { $0.priority < $1.priority } ?? .idle }
     var updatedAt: Date { sessions.compactMap(\.updatedAt).max() ?? .distantPast }
     /// The same from the rows' times while the Agents list follows them (`AgentsFeed.time`): the list's structure
     /// does not change for time passing, so its agents' `updatedAt` may be older (docs/apple/ios-state.md「第 3 步」).
@@ -31,7 +31,10 @@ nonisolated struct SpaceGroup: Identifiable, Sendable {
     /// Nothing going on: every agent quiet and none waiting on a /loop or background work.
     var isQuiet: Bool { sessions.allSatisfy { $0.isQuiet && !$0.isWaiting } }
 
-    func count(_ s: AgentState) -> Int { bounded ? aggregate?.state[s.rawValue] ?? 0 : sessions.filter { $0.state == s }.count }
+    /// Its agents in a state as counted (`Session.countedState`: Waiting in the Background is not Working).
+    func count(_ s: AgentState) -> Int { bounded ? aggregate?.state[s.rawValue] ?? 0 : sessions.filter { $0.countedState == s }.count }
+    /// Its agents that only wait in the background (#6045): counted apart, with a clock (`StateCounts`).
+    var waitingInBackground: Int { sessions.filter(\.waitsInBackground).count }
 
     static func build(_ sessions: [Session]) -> [SpaceGroup] {
         var groups: [String: SpaceGroup] = [:]
@@ -135,6 +138,8 @@ enum AgentSort: String, CaseIterable, Identifiable {
 /// The quick filters over the Agents list (the bar under the search field): one tap, stacked on the machine menu.
 nonisolated enum AgentFilter: String, CaseIterable, Identifiable, Sendable {
     case all, needsYou, unread, working
+    /// Working, but only waiting on background commands (#6045): its own chip, as on the web.
+    case backgroundWaiting
     /// Where the agent was opened (#2526): a botmux session (Lark Group) or a herdr pane (Terminal).
     case feishu, terminal
     var id: String { rawValue }
@@ -144,18 +149,23 @@ nonisolated enum AgentFilter: String, CaseIterable, Identifiable, Sendable {
         case .needsYou: StateName.needsYou.text
         case .unread: StateName.unread.text
         case .working: StateName.working.text
+        case .backgroundWaiting: String(localized: "Waiting in the background")
         case .feishu: SessionSource.feishu.label
         case .terminal: SessionSource.terminal.label
         }
     }
     var state: AgentState? {
         switch self {
-        case .all, .feishu, .terminal: nil
+        case .all, .feishu, .terminal, .backgroundWaiting: nil
         case .needsYou: .needsYou
         case .unread: .unread
         case .working: .working
         }
     }
+    /// The chip's colors: the state's, or Waiting in the Background's lighter amber.
+    @MainActor var tone: StatusTone? { self == .backgroundWaiting ? StatusPalette.backgroundWaiting : state?.tone }
+    /// A mark in place of the chip's dot: Waiting in the Background's clock.
+    var symbol: String? { self == .backgroundWaiting ? Theme.Icon.backgroundWaiting : nil }
     var source: SessionSource? {
         switch self {
         case .feishu: .feishu
@@ -167,8 +177,10 @@ nonisolated enum AgentFilter: String, CaseIterable, Identifiable, Sendable {
     /// Muted); one that needs you still is, the same as the list's order (`AgentListOrder.rank`).
     func matches(_ s: Session, muted: Bool = false) -> Bool {
         if let source { return s.source == source }
+        if self == .backgroundWaiting { return s.waitsInBackground && !muted }
         guard let state else { return true }
-        return s.state == state && (state == .needsYou || !muted)
+        // One that only waits in the background is not Working (#6045).
+        return s.countedState == state && (state == .needsYou || !muted)
     }
 }
 
@@ -1710,6 +1722,7 @@ private struct AgentsList: View {
         ("needs", StateName.needsYou.text, StatusPalette.needsYou), ("unread", StateName.unread.text, StatusPalette.unread),
         ("awaiting", StateName.awaitsReply.text, StatusPalette.awaitingReply),
         ("working", StateName.working.text, StatusPalette.working),
+        ("background", String(localized: "Waiting in the background"), StatusPalette.backgroundWaiting),
         ("waiting", StateName.waiting.text, StatusTone(dot: Theme.loop, text: Theme.loop)),
         ("muted", String(localized: "Muted [Chats View b66705]"), StatusPalette.idle), ("idle", StateName.seen.text, StatusPalette.idle),
     ]
@@ -1743,7 +1756,8 @@ private struct AgentsList: View {
                     }
                 } header: {
                     FoldButton(title: b.title, folded: isFolded(id), detail: String(localized: "\(stateSectionCount(b.key, loaded: rows.count)) [Chats View cb60bd]")) { toggleFold(id) } label: {
-                        SectionHeader(title: b.title, count: stateSectionCount(b.key, loaded: rows.count), tone: b.tint)
+                        SectionHeader(title: b.title, count: stateSectionCount(b.key, loaded: rows.count), tone: b.tint,
+                                      symbol: b.key == "background" ? Theme.Icon.backgroundWaiting : nil)
                     }
                     .modifier(FoldAnchor(id: id, reader: feed.reader))
                 }
@@ -2668,11 +2682,15 @@ struct QuickFilterBar: View, Equatable {
     @ViewBuilder private func plainChips(padding: CGFloat) -> some View {
         ForEach(shown) { f in
             let on = f == selection
-            let tone = f.state?.tone
+            let tone = f.tone
             let tint = tone?.text ?? Theme.accent
             Button { if !on { choose(f) } } label: {
                 HStack(spacing: Theme.Space.sm) {
-                    if let tone { Circle().fill(tone.dot).scaledFrame(width: Theme.Size.dotS, height: Theme.Size.dotS) }
+                    if let symbol = f.symbol, let tone {
+                        ThemedIcon(symbol).font(Theme.Font.label).foregroundStyle(tone.dot)
+                    } else if let tone {
+                        Circle().fill(tone.dot).scaledFrame(width: Theme.Size.dotS, height: Theme.Size.dotS)
+                    }
                     Text(f.title)
                     if let n = counts[f] {
                         Text("\(n)").monospacedDigit().foregroundStyle(on ? tint : Color.secondary)
@@ -2700,7 +2718,7 @@ struct QuickFilterBar: View, Equatable {
     @ViewBuilder private var chips: some View {
         ForEach(shown) { f in
             let on = f == selection
-            BUIFilterChip(f.title, dot: f.state?.tone.dot, count: counts[f], isActive: on) { if !on { choose(f) } }
+            BUIFilterChip(f.title, dot: f.tone?.dot, count: counts[f], isActive: on) { if !on { choose(f) } }
                 .accessibilityIdentifier("agents.filter." + f.rawValue)
                 .accessibilityLabel(counts[f].map { "\(f.title) \($0)" } ?? f.title)
         }
@@ -2750,10 +2768,13 @@ struct SectionHeader: View {
     var count: Int?
     /// The count's color: a state's tone, or StatusPalette.idle for a plain count.
     var tone: StatusTone
+    /// A mark before the title in the tone's color: Waiting in the Background's clock (#6045).
+    var symbol: String? = nil
     @Environment(\.compactList) private var compact
 
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
+            if let symbol { ThemedIcon(symbol).foregroundStyle(tone.dot).accessibilityHidden(true) }
             if compact {
                 // Color.primary: a section header dims hierarchical styles a level (docs/lessons/ios.md).
                 Text(title).font(CompactList.sectionTitle).foregroundStyle(Color.primary).textCase(nil).lineLimit(1)
@@ -2819,8 +2840,10 @@ struct StateCounts: View {
 
     /// "3 need you, 12 working, 35 unread, 4 idle" for VoiceOver (and the UI tests).
     static func spoken(_ group: SpaceGroup) -> String {
-        let idle = group.count(.idle) + group.count(.unknown)
+        let waiting = group.waitingInBackground
+        let idle = group.count(.idle) + group.count(.unknown) - waiting
         return ([AgentState.needsYou, .working, .unread].compactMap { st in group.count(st) > 0 ? String(localized: "\(group.count(st)) \(st.label)") : nil }
+            + (waiting > 0 ? ["\(waiting) \(String(localized: "Waiting in the background"))"] : [])
             + (idle > 0 ? [String(localized: "\(idle) idle")] : [])).joined(separator: String(localized: ", ", comment: "Separator between parts of an accessibility label"))
     }
 
@@ -2842,8 +2865,21 @@ struct StateCounts: View {
                     .accessibilityLabel("\(n) \(st.label)")
                 }
             }
+            // Waiting in the Background (#6045): its clock and a number, after Working's.
+            let waiting = group.waitingInBackground
+            if waiting > 0 {
+                HStack(spacing: Theme.Space.xs) {
+                    ThemedIcon(Theme.Icon.backgroundWaiting).font(Theme.Font.caption).imageScale(.small)
+                        .foregroundStyle(StatusPalette.backgroundWaiting.dot)
+                    Text("\(waiting)").font((compact ? CompactList.metaStrong : Theme.Font.labelHeavy).monospacedDigit())
+                        .foregroundStyle(Color.secondary)
+                        .contentTransition(.numericText(value: Double(waiting)))
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(waiting) \(String(localized: "Waiting in the background"))")
+            }
             // Idle as a gray dot and a number like the others: "4 idle" wrapped to two lines in a busy header.
-            let idle = group.count(.idle) + group.count(.unknown)
+            let idle = group.count(.idle) + group.count(.unknown) - waiting
             if idle > 0 {
                 HStack(spacing: Theme.Space.xs) {
                     Circle().fill(Color.secondary.opacity(0.45)).scaledFrame(width: Theme.Size.dotXS, height: Theme.Size.dotXS)
@@ -2942,7 +2978,7 @@ nonisolated struct SlotRow: View, Equatable {
                         shape: taskShape(), isOpen: session.leadWorkflow != nil,
                         accessory: surface == .none || more ? .none : .disclosure, titleLines: 2, subtitleLines: 1) {
                     // The badge's column is 24 pt: only the badge goes there (#3004); the source tag is under the time (#3043).
-                    if dot { AgentStateBadge(state: session.state).padding(.leading, indented ? Theme.Space.l : 0) }
+                    if dot { AgentStateBadge(state: session.state, waiting: session.waitsInBackground).padding(.leading, indented ? Theme.Space.l : 0) }
                 } trailing: {
                     HStack(alignment: .top, spacing: Theme.Space.s) {
                         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
@@ -2955,6 +2991,10 @@ nonisolated struct SlotRow: View, Equatable {
                             if awaitingWord {
                                 let tone = StatusPalette.awaitingReply
                                 BUIPill(session.stateLabel(muted: muted), tone: .custom(ink: tone.text, fill: tone.tint))
+                            }
+                            if waitingWord {
+                                let tone = StatusPalette.backgroundWaiting
+                                BUIPill(session.stateLabel, tone: .custom(ink: tone.text, fill: tone.tint))
                             }
                             if muted {
                                 ThemedIcon(Theme.Icon.muted).font(Theme.Font.label).foregroundStyle(.secondary).accessibilityLabel("Notifications muted")
@@ -2982,7 +3022,7 @@ nonisolated struct SlotRow: View, Equatable {
                     if dot {
                         HStack(spacing: Theme.Space.s) {
                             if !session.assistant { AgentMark(session) }
-                            StatusDot(state: session.state, size: 9)
+                            StatusDot(state: session.state, size: 9, waiting: session.waitsInBackground)
                         }
                         .padding(.top, Theme.Space.xs)
                     }
@@ -3063,6 +3103,9 @@ nonisolated struct SlotRow: View, Equatable {
     /// Awaiting Reply spelled out (#5096), as Needs You is: a seen agent's gray dot does not say it waits on the user.
     /// Not for a muted one (it folds with the idle ones), nor where the section already says it.
     private var awaitingWord: Bool { session.awaitsYourReply(muted: muted) && !hideState }
+    /// Waiting in the Background spelled out (#6045): its clock alone is a small mark. Not where the section
+    /// already says it waits.
+    private var waitingWord: Bool { session.waitsInBackground && !hideState }
 
     /// Persona' own row's line: "Needs You · Claude · app › tests · MacBook": the end gives way when the line is short.
     /// Something typed or quoted in its composer and not sent (#4578), as Telegram's and Signal's lists say.
@@ -3076,6 +3119,7 @@ nonisolated struct SlotRow: View, Equatable {
         if awaitingWord {
             parts.append(Text(session.stateLabel(muted: muted)).fontWeight(.semibold).foregroundStyle(StatusPalette.awaitingReply.text))
         }
+        if waitingWord { parts.append(Text(session.stateLabel).fontWeight(.semibold).foregroundStyle(StatusPalette.backgroundWaiting.text)) }
         if hasDraft { parts.append(Text("Draft").fontWeight(.semibold).foregroundStyle(Theme.needsYou)) }
         parts.append(Text(pane?.name ?? session.sourceSubtitle ?? session.agentLabel))
         if pane?.launcher == true { parts.append(Text("Started It").fontWeight(.semibold)) }
@@ -3162,7 +3206,11 @@ nonisolated struct CompactSlotRow: View, Equatable {
             // The agent's mark before its state (#6390).
             if !session.assistant { AgentMark(session) }
             Group {
-                if AppStyle.current.usesBeautifulUI { AgentStateBadge(state: session.state).scaleEffect(0.8) } else { StatusDot(state: session.state, size: Theme.Size.dot) }
+                if AppStyle.current.usesBeautifulUI {
+                    AgentStateBadge(state: session.state, waiting: session.waitsInBackground).scaleEffect(0.8)
+                } else {
+                    StatusDot(state: session.state, size: Theme.Size.dot, waiting: session.waitsInBackground)
+                }
             }
             .scaledFrame(width: CompactList.mark)
             HStack(alignment: .firstTextBaseline, spacing: CompactList.gap) {

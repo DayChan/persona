@@ -38,5 +38,9 @@ jobs:
           restore-keys: |
             server-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ matrix.shard }}-${{ hashFiles('server/go.sum', 'sdk/go/go.sum') }}-
             server-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ matrix.shard }}-
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.shard == 'other'
+        with:
+          bun-version: '1.4.2'
       - name: Server checks
         run: scripts/ci/server.sh "$CI_SERVER_SHARD"

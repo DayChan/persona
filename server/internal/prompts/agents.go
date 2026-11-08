@@ -42,6 +42,10 @@ type AgentWake struct {
 
 func RenderAgentWake(w AgentWake) string { return render("agents/wake", w) }
 
+// RenderAgentLimitContinue is what the manager sends an agent a subscription's usage limit stopped, once the limit has
+// reset and its CLI did not say it goes on by itself (agents/limit_continue, docs/assistant/agent-work.md "Usage limits").
+func RenderAgentLimitContinue() string { return render("agents/limit_continue", nil) }
+
 // AgentAnswer is the user's answers to the hub's decision card, sent on to the agent (agents/answer).
 type AgentAnswer struct {
 	Items []AgentAnswerItem

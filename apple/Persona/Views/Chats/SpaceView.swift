@@ -90,7 +90,7 @@ struct SiblingTabs: View {
 
     private func tab(_ s: Session, role: TabPanes.Role?) -> some View {
         let on = s.key == current
-        let tone = s.state.tone
+        let tone = s.stateTone
         let quiet = s.state == .idle || s.state == .unknown || s.state == .offline
         let label = TabPanes.tabLabel(s, role: role)
         let launcher = role?.launcher == true
@@ -287,7 +287,7 @@ private struct SiblingList: View {
                     let label = TabPanes.tabLabel(s, role: role)
                     Button { pick(s.key) } label: {
                         HStack(spacing: Theme.Space.m) {
-                            Circle().fill(s.state.color).scaledFrame(width: Theme.Size.dotL, height: Theme.Size.dotL).scaledFrame(width: Theme.Size.iconS) // a still dot
+                            Circle().fill(s.stateTone.dot).scaledFrame(width: Theme.Size.dotL, height: Theme.Size.dotL).scaledFrame(width: Theme.Size.iconS) // a still dot
                             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                 Text(label).font(on ? Theme.Font.secondaryStrong : Theme.Font.secondary).lineLimit(1)
                                 // The state in its color, then the model the tab runs on (2026-10-31: which tab is which model).
@@ -472,7 +472,7 @@ struct SlotCard: View {
                         .padding(.vertical, 2.5)
                         .background(tone.tint, in: .capsule)
                     Spacer(minLength: 4)
-                    StatusDot(state: session.state, size: 9)
+                    StatusDot(state: session.state, size: 9, waiting: session.waitsInBackground)
                 }
             }
             Text(session.displayTitle).font(Theme.Font.secondaryStrong).lineLimit(2)
@@ -495,11 +495,11 @@ struct SlotCard: View {
 
     private func header(agent: Bool) -> some View {
         HStack {
-            Chip(text: tabChip, look: .tone(session.state.tone))
+            Chip(text: tabChip, look: .tone(session.stateTone))
             // Beside its tab mates the tab's chip names the agent already.
             if agent, pane == nil { Chip(text: session.agentLabel, look: .outline) }
             Spacer(minLength: 4)
-            StatusDot(state: session.state, size: 9)
+            StatusDot(state: session.state, size: 9, waiting: session.waitsInBackground)
         }
     }
 }

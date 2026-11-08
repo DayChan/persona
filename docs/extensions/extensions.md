@@ -1028,6 +1028,16 @@ Open retries keep the original request ID and complete request payload. While it
 - Config, secrets, scoped tokens, grants, idle reclamation, timeout strikes and selective shutdown remain manager/`host.Proc` responsibilities. Full hub access, command-line tools, agent-runtime sockets, remote process sockets and source-runtime node programs are not supported by this stage. Existing executable node programs remain unchanged; no source program silently falls back to an unsandboxed node.
 - CLI source `test` verifies the package but refuses to label a bare engine launch as runtime acceptance. Actual-engine/namespace tests are separate from full resource acceptance; tests requiring unavailable enforcement explicitly report unavailable rather than passing via a developer bypass.
 
+### Finite source-page snapshot loading (#1184)
+
+Use `useLoadEffect(effect, dependencies)` from `@persona/extension/ui` for finite initial or navigation loads. It accepts the same abort-aware effect/cleanup forms as `useEffect`; ordinary subscriptions and long-lived effects stay on `useEffect` and are not awaited for a snapshot.
+
+The official `componentPage` factory advertises `snapshotReadiness: 1`. For an owner-bound snapshot-only HTTP session, the manager supplies `transport: "snapshot"` and waits within the existing deadline for those finite loads and their synchronous state updates. It selects this from the session's legacy transport, not from `ui_version`. Native stream sessions and old factories without the readiness contract retain immediate loading snapshots and asynchronous deltas. A caller must not turn all effects into finite loads or increase budgets to hide a nonterminating effect.
+
+Canonical `initialize` replies advertise `ui_page_cancellation: 1` for component pages. The host negotiates cancellation only for page mount/event/resume requests; SDK `rpc.cancel` targets that request's scoped `AbortSignal`, not service namespaces or a later invocation with another identity. Request cancellation, visibility and allocation-generation fences are rechecked after snapshot flushing. A canceled or suspended page cannot return a late success, and ambiguous callback receipts cannot authorize a replayed write. This does not promise preemption of arbitrary JavaScript or global serialization across independent allocations.
+
+These are SDK/manager lifecycle contracts, not new pages, permissions, source release defaults or production isolation acceptance. An installed package must include the matching official SDK and be rebuilt; native JSON remains the only UI content sent to clients.
+
 ### Opt-in exact JSON integer request params (#1201)
 
 The TypeScript SDK keeps `Handler(method, params)` and its default `JSON.parse` / `Number` behavior. A namespace that needs the original request tokens explicitly wraps its handler with `withExactParams`. Only inbound namespace RPC requests get the third `ExactCall` argument; events get `undefined`. This does not change tool schemas, replies, outbound calls/events, state, HTTP response parsing, authorization, egress or resource gates.

@@ -141,7 +141,8 @@
         "protocol": {"type": "integer", "const": 1},
         "id": {"type": "string"},
         "version": {"type": "string"},
-        "contributes": {"type": "object", "additionalProperties": {}, "description": "A subset of the manifest's."}
+        "contributes": {"type": "object", "additionalProperties": {}, "description": "A subset of the manifest's."},
+        "ui_page_cancellation": {"type": "integer", "const": 1, "description": "Request-ID scoped rpc.cancel for mounted page lifecycle calls only."}
       },
       "required": ["protocol", "id", "version"]
     },

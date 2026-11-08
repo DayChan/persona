@@ -1,0 +1,6 @@
+{
+  "rail": "问题导航",
+  "jump": "跳到第 {index} 个问题：{preview}",
+  "attachments_other": "{count} 个附件",
+  "earlier": "更早的问题还有 {count} 个"
+}

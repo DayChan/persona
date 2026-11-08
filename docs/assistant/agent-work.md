@@ -101,6 +101,7 @@ Apply in order; on a match, do not call the model:
      `task_complete.error` (rollout) or `turn/completed` with `status: failed` + `turn.error` (app-server). The node reads and reports `turn_error` directly,
      plus `turn_error_kind` based on the Codex error type (`codex_error_info`) (#2185, "Codex error types" below).
    - Use `turn_error_kind` when present; otherwise use the text:
+   - A subscription's usage limit (`usage_limit`) → an `external` wait for its reset, or a card when the reset is not known ("Usage limits" below); never `transient`;
    - Transient (5xx, `overloaded`, `Connection error`, `timed out`, `socket hang up`, `ECONNRESET`, `fetch failed`, `no eligible upstream`, 429) → `transient`, schedule automatic continuation;
    - Other errors (`Failed to authenticate`, `OAuth token has expired`, `Invalid API key`, `Not logged in · Please run /login`—Claude Code's synthetic reply when not logged in—401 / 403, selected model unavailable) → `blocked · user`, with a card "The model service needs your attention: <original text>" and options "Fixed, continue" / "Leave it for now".
 
@@ -111,7 +112,8 @@ Apply in order; on a match, do not call the model:
    | `server_overloaded`, `internal_server_error`, `rate_limit_exceeded` | `transient` |
    | `http_connection_failed`, `response_stream_connection_failed`, `response_stream_disconnected`, `response_too_many_failed_attempts`: no status code, or 408 / 429 / 5xx | `transient` |
    | Same types, other status codes (401, 403, 400…) | `user` |
-   | `usage_limit_exceeded`, `context_window_exceeded`, `unauthorized`, `model_not_found`, policy errors, and future new types | `user` (continuation cannot resolve them) |
+   | `usage_limit_exceeded` | `usage_limit` ("Usage limits" below) |
+   | `context_window_exceeded`, `unauthorized`, `model_not_found`, policy errors, and future new types | `user` (continuation cannot resolve them) |
    | `other`, no type | Not reported; use text |
 
    Stopping with Esc (`turn_aborted`, `status: interrupted`) is not an error. The node rereads a changing rollout at most every 3 seconds. If the file is written again during throttling,
@@ -154,6 +156,10 @@ Apply in order; on a match, do not call the model:
 - If all 3 fail: a `blocked · user` card, "The model service keeps failing after 3 automatic retries: <original text>", with options "Try Again" / "Leave it for now".
 - Send exactly `继续` ("Continue"), the same text sent by "Retry" on the App's error card (`continueText`).
 
+### Usage limits: continue at the reset
+
+A subscription's usage limit gets no backoff "Continue" (each would be refused at once): Persona continues the work about a minute after the limit resets, unless the CLI goes on by itself ("Usage limits" below).
+
 ### Waiting: scheduled wakeups
 
 - `external`: register `wake_at` using the model's `check_minutes` (2 minutes to 4 hours, default 10 minutes); double the interval for each further wait (up to 1 hour), with at most 6 wakeups (`max_wakes`).
@@ -171,11 +177,26 @@ Apply in order; on a match, do not call the model:
 - For authorization links (`link`), the auth relay goes first ([auth-relay.md](../operations/auth-relay.md)): when an extension's `auth_relay` contribution names the link and it was printed by the Agent's own command on one of your computers, the extension completes it with the account it is signed in with, the Agent is told to go on and no card goes up. Otherwise the card's first question contains the link and validity period (plus one line on why Persona didn't do it, when it tried), with options "Authorized, continue" / "Not now". Push as soon as triage finishes (15 seconds after the turn stops plus a second or two for the model), not after the 60-second "Completed" push delay.
 - Remove a card (without sending anything) when the Agent resumes work (you replied directly on the computer or in the App), a new turn starts, the session disappears, or 24 hours pass without an answer.
 
+## Usage limits
+
+A subscription's 5-hour or weekly usage limit (#1710) is no failure to report and nothing for the user to fix: the turn waits for the limit to reset, then goes on.
+
+- **Where the facts come from** (`proto.Session`: `turn_error_kind: "usage_limit"`, `turn_error_resets_at`, `turn_error_resumes`, `turn_error_after_work`): the agent's own record first (Claude Code's refused reply with `error: "rate_limit"` and `quotaLimits.resetsAt`; the reset of a Codex rollout's own rate-limit window), the words as the fallback for an older node or CLI (`transcript.UsageLimitText` / `UsageLimitReset`, completed on the session lists by `decorateLimit`): Claude Code's "You've hit your … limit · resets 4:20pm (Area/City)". A time without a time zone is never read (Codex's "try again at 3:05 PM" is some machine's local time), and a subagent's limit line (`isSidechain`) says nothing of the session.
+- **Only a subscription's limit has a reset.** A gateway's or an API key's 429 (no `quotaLimits`, "Request rejected (429) · … quota reached") keeps its old handling: transient, "Continue" with backoff.
+- **Triage** (a rule, before transient errors): with its reset known, `blocked · external` with `resets_at` and no `wait` (the error is the session's `turn_error`; an external wait with nothing named is one that ends by itself, as every client's list reads it); the line says when: "continues by itself at 16:20" when the CLI said so, else "resets at 16:20" (the user's time zone; with month and day, `01-02 16:20`, when the reset is on another day). Without a known reset: a card, "The subscription's usage limit is used up, and it didn't say when it resets: …", with options "Try again" / "Leave it". Never `transient`.
+- **The CLI goes on by itself** (Claude Code's "Usage limit reached · continuing automatically at …"): no wake and no card, also when its reset is not known (the line then says it goes on after the reset). Typing into the session would cancel its own continuation. Claude Code writes the notice once, at the first refused turn; the node keeps its word while nothing in the transcript's tail took it back (a message typed, a reply, its "Automatic continue …" notices), however far the wait's request lines push the notice out of the tail it reads.
+- **Otherwise Persona continues it** about a minute after the reset, spread over 30 seconds so that the agents of one account do not all start in the same second (`limitContinueAt`), with `prompts/agents/limit_continue.md`; event `limit_continued`. It is the `auto_continue` switch's, not `wake`'s: off (or turned off before the continuation went), the line stays and nothing is sent; the lists then name the line as the wait's `wait`, so they keep the session for the user instead of showing a wait that ends by itself. The apps show the continuation as one line ("Usage limit reset: Persona told it to go on", `injected` state `limit_continue`). None of a wait's other checks apply (risky next step, `check_minutes`): it goes on with what the limit stopped. Right before sending, the session is read again: when it now says it goes on by itself, nothing is sent; when its limit now resets later, the continuation moves to then.
+- **At most 3 continuations without a productive turn** (`maxLimitContinues`): a reset read too early is refused again at once. Then a card, "It was continued automatically 3 times after the usage limit reset, and hit the limit again each time", with options "Try again" / "Leave it"; the card keeps `resets_at`, so a turn refused again while it is up (a background task's report woke it) is the user's too. A turn that did some work before the limit refused it again (`turn_error_after_work`), or a later reset (the next window: the earlier reset was read right), starts the count again; an ordinary external wait never takes over a usage limit's count, nor the other way round.
+- **The user's actions cancel it** as any automatic action ("Avoid conflicting with manual user actions"): a message, looking at it in herdr, queued input, a pending card.
+- **No misleading notices while it waits** (`limitTakenUp`: the reset is known and at most 10 minutes past, and the CLI said it goes on by itself, or Persona's continuation or its card is set): no "Completed" or "Interrupted" push for the turn. The turn stays followed, so the end after the reset is the one pushed, timed from the turn's start. A task dispatched from the main chat gets no receipt meanwhile; it is looked at again when the wait is over, so a turn that did not go on after all (its continuation cancelled) still gets its "Interrupted" receipt. A limit nothing takes up (the switches off and a CLI that does not go on by itself, or no reset known) is told as the turn ends, as a usage limit ("Usage limit reached; continue it once the limit resets: …"), never as "the model service failed". For the main assistant, a task waiting for the reset reads as `usage_limit` in its snapshot, not `interrupted`. A sign-in that is gone ("Please run /login · …", "Login expired · …") is no usage limit: it reads as interrupted (`turn_error_code` `auth_failed` / `not_logged_in`), never as "Completed".
+- **Scheduled tasks** (`watchScheduledRun`): a run whose conversation stopped on a usage limit with a known reset is retried a minute or so after the reset instead of after 3 minutes; that wait is not cut by the watcher's 30 minutes, and `retryStillDue` decides at that time as before (a retry that fails again is not retried); a conversation that went on meanwhile (its turn is no longer the one the limit stopped) is not retried, so what the run does is not done twice. A conversation that goes on by itself is not retried. The failure push is unchanged.
+- **Known limits**: the waits are kept in `session_work` like any wakeup and come back after a restart, but only for turns that ended within the last two days (a weekly limit can be longer); a scheduled run's retry waits in memory and is lost when the manager restarts.
+
 ## Safety boundary
 
 Persona **sends to Agents on its own** only four kinds of message, none introducing new intent:
 
-1. Continuation after a transient error: like "Retry" on the App's error card, it resumes the interrupted task;
+1. Continuation after a transient error: like "Retry" on the App's error card, it resumes the interrupted task; likewise the continuation once a subscription's usage limit reset (`prompts/agents/limit_continue.md`: go on with what you were doing, without redoing what is done);
 2. A wakeup after a registered wait: asks only whether the awaited event is ready, and explicitly says `接下来要推代码、部署、给别人发消息、合并或改别人的 MR 时先停下来问用户，不要自己做` ("Before pushing code, deploying, messaging others, or merging / modifying someone else's MR, stop and ask the user; do not do it yourself");
 3. The answer the user selected on a card;
 4. After the auth relay completed the authorization link it stopped at ([auth-relay.md](../operations/auth-relay.md)): go on with what it was doing.
@@ -206,7 +227,7 @@ Users enable them under **Settings › Session Triage** (web, Android, iOS / Mac
 | --- | --- | --- |
 | `enabled` Session Triage | Main switch: triage after a turn stops, show what it is waiting for, and stop counting completed work as Unread | Triage model (**Settings › Model Settings › Session Triage**, `agent.triage`, defaults to the Inbox triage model) |
 | `decide` Create decision cards | Turn user decisions into "Needs you" cards | No extra tokens |
-| `auto_continue` Continue automatically on errors | Automatically send continuation after transient model API errors | Agent's model (resumes the interrupted turn) |
+| `auto_continue` Continue automatically on errors | Automatically send continuation after transient model API errors, and once a subscription's usage limit resets | Agent's model (resumes the interrupted turn) |
 | `wake` Scheduled wakeups | Wake Agents waiting for deployment / CI / another Agent so they check for themselves | Agent's model (one turn per wakeup) |
 | `reply_reminder` Remind when seen, unanswered (#5096) | One push when an Agent asking the user has waited `reply_reminder_minutes` (default 30) since they looked ([agent-states.md](../protocol/agent-states.md) "Awaiting your reply") | None: rules only. **On by default**, independent of the main switch |
 
@@ -232,7 +253,7 @@ The main chat's live snapshot (`prompts/assistant/snapshot*.md`):
 - Adds "Waiting" (Persona is waiting for it: retrying, deployment, another Agent) and "Done (within 24 hours)": name + conclusion;
 - "Unread" contains only sessions not yet successfully triaged.
 
-For tasks dispatched from the main chat (`internal/assistant/tasks_follow.go`), if the Agent stops on a transient error and Persona will still continue automatically (`work.on = transient` with `wake_at`), do not yet write an "Interrupted" receipt. Wait until retries are exhausted.
+For tasks dispatched from the main chat (`internal/assistant/tasks_follow.go`), if the Agent stops on a transient error and Persona will still continue automatically (`work.on = transient` with `wake_at`), do not yet write an "Interrupted" receipt. Wait until retries are exhausted. The same holds while an Agent waits for a usage limit to reset ("Usage limits"); the snapshot shows its task as waiting for the reset, not as interrupted.
 
 ## Protocol
 
@@ -248,6 +269,7 @@ For tasks dispatched from the main chat (`internal/assistant/tasks_follow.go`), 
 ```
 
 - While working, only `{"phase":"working"}`; pending interactions use `{"phase":"blocked","on":"user","line":<question>}`; sessions not triaged omit `work`.
+- `resets_at`: the turn stopped on a subscription's usage limit that resets then ("Usage limits"): on `external` the wait for it, on the card after the automatic continuations when it resets.
 - `GET /api/v1/agents/work/stats?hours=24`: evaluation metrics (below).
 
 ## Evaluation

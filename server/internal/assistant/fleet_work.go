@@ -60,6 +60,11 @@ func workOf(l i18n.Lang, sess proto.Session, reported *proto.WorkState, asking m
 	if w.WakeAt != nil && time.Since(*w.WakeAt) > wakeGrace {
 		w.WakeAt = nil // long overdue: nobody is waking it, it is no wait that ends by itself
 	}
+	if w.ResetsAt != nil && w.On == proto.WaitExternal && w.WakeAt == nil && !sess.TurnErrorResumes && w.Wait == "" {
+		// A usage-limit wait nothing ends (no continue set: auto_continue off, or dropped; a CLI that does not go on by
+		// itself): it names what it waits for, so the lists keep it for the user, not as a wait that ends by itself.
+		w.Wait = w.Line
+	}
 	return &w
 }
 

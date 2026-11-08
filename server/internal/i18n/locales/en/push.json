@@ -16,5 +16,6 @@
   "delegate_recommend_suffix": "\nThe assistant suggests: {answer}",
   "question_more_options": " and {count} more",
   "question_more_one": "{count} more question",
-  "question_more_other": "{count} more questions"
+  "question_more_other": "{count} more questions",
+  "usage_limit": "Usage limit reached; continue it once the limit resets: {error}"
 }

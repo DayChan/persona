@@ -160,6 +160,8 @@ type InitializeResult struct {
 	ID          string                     `json:"id"`
 	Version     string                     `json:"version"`
 	Contributes map[string]json.RawMessage `json:"contributes,omitempty"`
+	// UIPageCancellation negotiates request-ID scoped rpc.cancel for page lifecycle calls only.
+	UIPageCancellation int `json:"ui_page_cancellation,omitempty"`
 }
 
 // Target is the field every namespaced call carries: which of the plugin's contributions to that extension point it

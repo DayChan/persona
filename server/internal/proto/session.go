@@ -209,9 +209,22 @@ type Session struct {
 	// while it works or when the turn ended normally. The task it works for is interrupted, not done
 	// (docs/assistant/todos.md "How the state is computed", #1516).
 	TurnError string `json:"turn_error,omitempty"`
-	// TurnErrorKind is what the agent's record says of TurnError, when it says (Codex's error kinds):
-	// TurnErrorTransient (worth a "Continue") or TurnErrorUser (the user must act); empty: read off the text.
+	// TurnErrorKind is what the agent's record says of TurnError, when it says (Claude Code's error field, Codex's
+	// error kinds): TurnErrorTransient (worth a "Continue"), TurnErrorUser (the user must act) or TurnErrorUsageLimit
+	// (a subscription's usage limit, until it resets); empty: read off the text.
 	TurnErrorKind string `json:"turn_error_kind,omitempty"`
+	// TurnErrorResetsAt is when the subscription usage limit that ended the turn resets (TurnErrorKind
+	// TurnErrorUsageLimit): what the agent's record says (Claude Code's quotaLimits.resetsAt, the full window of a Codex
+	// rollout's own rate limits), else what the hub reads off Claude Code's words when they name a time zone. Nil: not
+	// known, and nothing waits for it. Only a subscription's limit has one: a gateway's or an API key's 429 never does.
+	TurnErrorResetsAt *time.Time `json:"turn_error_resets_at,omitempty"`
+	// TurnErrorResumes: the CLI said it goes on by itself once the limit resets (Claude Code's "Usage limit reached ·
+	// continuing automatically at …") and nothing cancelled that since. Typing into the session cancels it, so nothing
+	// is sent to it while it waits.
+	TurnErrorResumes bool `json:"turn_error_resumes,omitempty"`
+	// TurnErrorAfterWork: the turn did some work (a reply, a tool call) before the error ended it; false when the error
+	// was all it did (a continuation the limit turned down again).
+	TurnErrorAfterWork bool `json:"turn_error_after_work,omitempty"`
 	// TurnErrorCode says what is wrong when the hub can tell from TurnError (docs/assistant/onboarding.md 5.2): one of the
 	// TurnErrorCode* values, for a card that says what to fix (sign in, the key, the model). Empty: not known.
 	TurnErrorCode string `json:"turn_error_code,omitempty"`
@@ -279,8 +292,9 @@ type Session struct {
 
 // Session.TurnErrorKind values.
 const (
-	TurnErrorTransient = "transient" // the model service failed for a moment: worth a "Continue"
-	TurnErrorUser      = "user"      // sign-in, usage limit, context window, the model…: the user must act
+	TurnErrorTransient  = "transient"   // the model service failed for a moment: worth a "Continue"
+	TurnErrorUser       = "user"        // sign-in, context window, the model…: the user must act
+	TurnErrorUsageLimit = "usage_limit" // a subscription's usage limit: it goes on once the limit resets (TurnErrorResetsAt)
 )
 
 // Session.TurnErrorCode values (docs/assistant/onboarding.md 4.6).

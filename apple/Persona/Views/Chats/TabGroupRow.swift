@@ -11,7 +11,7 @@ struct TabGroupRow: View {
     var body: some View {
         let lead = group.lead
         HStack(spacing: compact ? CompactList.gap : Theme.Space.s) {
-            StatusDot(state: lead.state, size: Theme.Size.dot)
+            StatusDot(state: lead.state, size: Theme.Size.dot, waiting: lead.waitsInBackground)
                 .scaledFrame(width: compact ? CompactList.mark : Theme.Size.iconXS)
             HStack(alignment: .firstTextBaseline, spacing: compact ? CompactList.gap : Theme.Space.sm) {
                 Text(name)

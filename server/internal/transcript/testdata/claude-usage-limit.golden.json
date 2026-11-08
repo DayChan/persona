@@ -1,0 +1,215 @@
+{
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001#0",
+      "seq": 1,
+      "ts": "2026-01-01T12:10:00Z",
+      "role": "user",
+      "kind": "text",
+      "text": "Run the checks and fix what fails"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002#0",
+      "seq": 2,
+      "ts": "2026-01-01T12:10:04Z",
+      "role": "assistant",
+      "kind": "thinking",
+      "text": "Run the checks first."
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003#0",
+      "seq": 3,
+      "ts": "2026-01-01T12:10:05Z",
+      "role": "assistant",
+      "kind": "tool_use",
+      "tool_use_id": "toolu_000000000000000000000003",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "make check",
+        "description": "Run the checks",
+        "run_in_background": true
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004#0",
+      "seq": 4,
+      "ts": "2026-01-01T12:10:05.1Z",
+      "role": "user",
+      "kind": "tool_result",
+      "text": "Command running in background with ID: b0000001x. Output is being written to: /tmp/example/tasks/b0000001x.output",
+      "tool_use_id": "toolu_000000000000000000000003"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005#0",
+      "seq": 5,
+      "ts": "2026-01-01T12:14:24.566Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "You've hit your session limit · resets 4:20pm (UTC)"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006#0",
+      "seq": 6,
+      "ts": "2026-01-01T12:14:24.567Z",
+      "role": "system",
+      "kind": "notice",
+      "text": "Usage limit reached · continuing automatically at 4:20pm · esc or type to cancel"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000007#0",
+      "seq": 7,
+      "ts": "2026-01-01T12:14:24.569Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 264569,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000006"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000008#0",
+      "seq": 10,
+      "ts": "2026-01-01T12:14:26.585Z",
+      "role": "system",
+      "kind": "notice",
+      "text": "后台命令完成 · make check",
+      "wake": true,
+      "task": {
+        "kind": "shell",
+        "status": "completed",
+        "title": "make check",
+        "task_id": "b0000001x",
+        "tool_use_id": "toolu_000000000000000000000001",
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000009#0",
+      "seq": 11,
+      "ts": "2026-01-01T12:14:27.144Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "You've hit your session limit · resets 4:20pm (UTC)"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000010#0",
+      "seq": 12,
+      "ts": "2026-01-01T12:14:27.147Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 562,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000009"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000013#0",
+      "seq": 17,
+      "ts": "2026-01-01T12:15:10.901Z",
+      "role": "system",
+      "kind": "notice",
+      "text": "后台命令完成 · make check",
+      "wake": true,
+      "task": {
+        "kind": "shell",
+        "status": "completed",
+        "title": "make check",
+        "task_id": "b0000002x",
+        "tool_use_id": "toolu_000000000000000000000002",
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000014#0",
+      "seq": 18,
+      "ts": "2026-01-01T12:15:11.291Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "You've hit your session limit · resets 4:20pm (UTC)"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000015#0",
+      "seq": 19,
+      "ts": "2026-01-01T12:15:11.294Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 393,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000014"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000016#0",
+      "seq": 22,
+      "ts": "2026-01-01T16:21:24.713Z",
+      "role": "system",
+      "kind": "notice",
+      "text": "Usage limit reset · continuing automatically"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000018#0",
+      "seq": 24,
+      "ts": "2026-01-01T16:21:31.117Z",
+      "role": "assistant",
+      "kind": "thinking",
+      "text": "Look at the check output."
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000019#0",
+      "seq": 25,
+      "ts": "2026-01-01T16:21:31.481Z",
+      "role": "assistant",
+      "kind": "tool_use",
+      "tool_use_id": "toolu_000000000000000000000019",
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "/tmp/example/tasks/b0000001x.output"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000020#0",
+      "seq": 26,
+      "ts": "2026-01-01T16:21:31.501Z",
+      "role": "user",
+      "kind": "tool_result",
+      "text": "1\tok",
+      "tool_use_id": "toolu_000000000000000000000019"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000021#0",
+      "seq": 27,
+      "ts": "2026-01-01T16:21:40Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "The checks pass now."
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000022#0",
+      "seq": 28,
+      "ts": "2026-01-01T16:21:40.1Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 15387,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000021"
+      }
+    }
+  ],
+  "meta": {
+    "first_user": "Run the checks and fix what fails",
+    "last_text": "The checks pass now.",
+    "model": "claude-opus-5-5",
+    "cwd": "/work/project/f1",
+    "permission_mode": "default",
+    "turns": 1,
+    "compactions": 0,
+    "context_tokens": 31206,
+    "output_tokens": 240,
+    "last_turn_wake": true,
+    "last_activity": "2026-01-01T16:21:40Z"
+  }
+}

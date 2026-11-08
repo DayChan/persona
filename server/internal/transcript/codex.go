@@ -57,6 +57,35 @@ type codexPayload struct {
 		} `json:"last_token_usage"`
 		ModelContextWindow int `json:"model_context_window"`
 	} `json:"info"`
+	RateLimits *codexRateLimits `json:"rate_limits"` // token_count: the account's limits as the last response gave them
+}
+
+// codexRateLimits is a token_count's rate_limits (node/usagewindows.go reads the same for the usage windows).
+type codexRateLimits struct {
+	LimitID   *string           `json:"limit_id"` // "codex", or a model's own limit ("premium")
+	Primary   *codexLimitWindow `json:"primary"`
+	Secondary *codexLimitWindow `json:"secondary"`
+}
+
+type codexLimitWindow struct {
+	UsedPercent *float64 `json:"used_percent"`
+	ResetsAt    *int64   `json:"resets_at"` // epoch seconds
+}
+
+// fullUntil is when the full windows (used to 100%) reset, the latest of them: the limit lifts when all have; zero when
+// none is full. ok is false for a model's own limit, which says nothing of the account's.
+func (rl *codexRateLimits) fullUntil() (until time.Time, ok bool) {
+	if rl.LimitID != nil && *rl.LimitID != "" && *rl.LimitID != "codex" {
+		return time.Time{}, false
+	}
+	for _, w := range [...]*codexLimitWindow{rl.Primary, rl.Secondary} {
+		if w != nil && w.UsedPercent != nil && *w.UsedPercent >= 100 && w.ResetsAt != nil && *w.ResetsAt > 0 {
+			if t := time.Unix(*w.ResetsAt, 0).UTC(); t.After(until) {
+				until = t
+			}
+		}
+	}
+	return until, true
 }
 
 type codexItem struct {
@@ -145,6 +174,7 @@ func parseCodexLine(seq int, line []byte, meta *Meta) []proto.Item {
 				out = append(out, codexItemLines(seq, l.Timestamp, c.Item, meta)...)
 			}
 		}
+		meta.codexWorked(out)
 		return out
 	}
 	var p codexPayload
@@ -185,16 +215,31 @@ func parseCodexLine(seq int, line []byte, meta *Meta) []proto.Item {
 				meta.ContextWindow = p.Info.ModelContextWindow
 			}
 		}
+		if p.RateLimits != nil { // none: the provider gave none this time, the last ones stand
+			if until, ok := p.RateLimits.fullUntil(); ok {
+				meta.codexLimitFull = until
+			}
+		}
 		return nil
 	case "task_started":
 		meta.TurnOpen, meta.TurnClosed = true, false
 		meta.codexTurnID, meta.codexUserID = p.TurnID, ""
-		meta.TurnError, meta.TurnErrorKind = "", ""
+		meta.clearTurnError()
+		meta.turnWorked = false
 		return nil
 	case "task_complete":
 		meta.TurnOpen, meta.TurnClosed = false, true
 		// A turn the model service failed writes no answer: its error is here (Codex 0.166, #2185).
-		meta.TurnError, meta.TurnErrorKind = CodexTurnError(p.Error)
+		meta.clearTurnError()
+		if meta.TurnError, meta.TurnErrorKind = CodexTurnError(p.Error); meta.TurnError != "" {
+			meta.TurnErrorAfterWork = meta.turnWorked
+			// A usage limit lifts when the windows the rollout last saw full reset; one that reset before this turn
+			// ended is an old sample, not why it failed.
+			if meta.TurnErrorKind == proto.TurnErrorUsageLimit && meta.codexLimitFull.After(l.Timestamp) {
+				meta.TurnErrorResetsAt = meta.codexLimitFull
+			}
+		}
+		meta.turnWorked = false
 		ms, ok := recordedMilliseconds(p.DurationMS)
 		if !ok || strings.TrimSpace(p.TurnID) == "" || (meta.codexTurnID != "" && meta.codexTurnID != p.TurnID) {
 			return nil
@@ -204,7 +249,8 @@ func parseCodexLine(seq int, line []byte, meta *Meta) []proto.Item {
 		return []proto.Item{it}
 	case "turn_aborted":
 		meta.TurnOpen, meta.TurnClosed = false, true
-		meta.TurnError, meta.TurnErrorKind = "", "" // stopped by the user: no failure
+		meta.clearTurnError() // stopped by the user: no failure
+		meta.turnWorked = false
 		it := mk(0, "", "system", proto.KindNotice)
 		it.Text = InterruptedNotice
 		return []proto.Item{it}
@@ -217,7 +263,20 @@ func parseCodexLine(seq int, line []byte, meta *Meta) []proto.Item {
 	if p.Item == nil {
 		return nil
 	}
-	return codexItemLines(seq, l.Timestamp, p.Item, meta)
+	out := codexItemLines(seq, l.Timestamp, p.Item, meta)
+	meta.codexWorked(out)
+	return out
+}
+
+// codexWorked notes the turn did some work when the items are the agent's (a message, reasoning, a tool call):
+// TurnErrorAfterWork of a turn that then fails.
+func (m *Meta) codexWorked(items []proto.Item) {
+	for _, it := range items {
+		if it.Role == "assistant" {
+			m.turnWorked = true
+			return
+		}
+	}
 }
 
 // codexItemLines maps one finished item (UserMessage, AgentMessage, CommandExecution…) to chat items, once per id.

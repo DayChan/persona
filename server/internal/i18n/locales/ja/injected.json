@@ -8,5 +8,6 @@
   "routine_started": "定期タスク「{title}」を開始しました",
   "lost_tasks": "ノードが再起動し、バックグラウンドタスクが停止しました",
   "lost_tasks_n_other": "ノードが再起動し、{count}件のバックグラウンドタスクが停止しました",
-  "inbox_update": "受信箱：「{title}」に動きがありました"
+  "inbox_update": "受信箱：「{title}」に動きがありました",
+  "limit_continue": "利用上限がリセットされたので、Personaが続きを頼みました"
 }

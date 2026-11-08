@@ -172,7 +172,7 @@ func (n *Node) claudeSessions(procs []claudeProc, seen map[string]bool) []proto.
 		setContext(&s, m)
 		s.Activity, s.ActivityAt = m.activityOf()
 		s.PermissionMode, s.Effort = n.currentModes(id, m)
-		s.TurnError, s.TurnErrorKind = m.turnError, m.turnErrorKind
+		m.turnErr.set(&s)
 		if status == proto.StatusWorking || status == proto.StatusBlocked {
 			s.Queued = m.queue
 		}

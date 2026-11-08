@@ -129,7 +129,9 @@ func taskLead(st string, agents []proto.Session) proto.Session {
 		case "needs_you":
 			makes = c.State == proto.StateNeedsYou || c.PendingInteractions > 0
 		case "interrupted":
-			makes = c.TurnError != ""
+			makes = c.TurnError != "" && !usageLimitWaiting(c, time.Now())
+		case "usage_limit":
+			makes = usageLimitWaiting(c, time.Now())
 		case "unread":
 			makes = c.State == proto.StateUnread
 		case "working":
@@ -145,7 +147,9 @@ func taskLead(st string, agents []proto.Session) proto.Session {
 	return latest
 }
 
-// taskState follows docs/assistant/todos.md "How the state is computed"(clients compute the same).
+// taskState follows docs/assistant/todos.md "How the state is computed"(clients compute the same). One more for the
+// assistant: an agent a usage limit stopped until its reset (usage_limit.go) is not interrupted for the user to
+// continue. It waits for the reset (its CLI or the manager goes on then), and a "Continue" before it is refused at once.
 func taskState(t Todo, agents []proto.Session) string {
 	if t.DoneAt != nil && t.StartError != "" {
 		return "failed"
@@ -154,16 +158,23 @@ func taskState(t Todo, agents []proto.Session) string {
 		return "done"
 	}
 	has := map[string]bool{}
-	interrupted := false
+	interrupted, limited := false, false
+	now := time.Now()
 	for _, c := range agents {
 		has[c.State] = true
-		interrupted = interrupted || c.TurnError != ""
+		if usageLimitWaiting(c, now) {
+			limited = true
+		} else {
+			interrupted = interrupted || c.TurnError != ""
+		}
 	}
 	switch {
 	case has[proto.StateNeedsYou]:
 		return "needs_you"
 	case interrupted: // stopped on a model API error: not done, waiting for "Continue" (#1516)
 		return "interrupted"
+	case limited:
+		return "usage_limit"
 	case has[proto.StateUnread]:
 		return "unread"
 	case has[proto.StateWorking]:
@@ -177,5 +188,6 @@ func taskState(t Todo, agents []proto.Session) string {
 func taskStateLabel(st string) string {
 	return map[string]string{"done": "已完成", "auto_done": "已完成（hub 判断做完了，自动关的）", "failed": "没开起来", "needs_you": "等用户",
 		"interrupted": "模型服务出错，中断了（没做完，等用户让它继续）", "unread": "做完了（用户还没看）", "working": "在做",
-		"followup": "停着", "not_started": "还没开始"}[st]
+		"followup": "停着", "not_started": "还没开始",
+		"usage_limit": "订阅的用量额度用完了，等额度重置（没做完；重置前发「继续」也会被拒）"}[st] // i18n-ignore: the model reads it
 }

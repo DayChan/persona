@@ -40,7 +40,8 @@ enum MachineConcern: Int, Comparable {
     }
 }
 
-/// A machine's live agents by what they need: Needs You, Working, and Idle for the rest (finished, seen, unknown).
+/// A machine's live agents by what they need: Needs You, Working, and Idle for the rest (finished, seen, unknown, and
+/// waiting in the background: `Session.countedState`).
 struct AgentTally: Equatable {
     var needsYou = 0
     var working = 0
@@ -48,7 +49,7 @@ struct AgentTally: Equatable {
 
     init(_ sessions: [Session]) {
         for s in sessions {
-            switch s.state {
+            switch s.countedState {
             case .needsYou: needsYou += 1
             case .working: working += 1
             default: idle += 1

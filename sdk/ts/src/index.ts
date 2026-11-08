@@ -72,6 +72,10 @@ export interface Page {
 /** A ui.render or ui.action, and the hub to call while drawing. */
 export interface UIRequest extends wire.UIParams {
   hub: Hub;
+  /** Derived by the host page lifecycle, never inferred from ui_version. Absent on ordinary snapshots. */
+  transport?: "snapshot" | "stream";
+  /** Mounted root factory lifetime; disposal or suspension aborts pending preparation. */
+  signal?: AbortSignal;
 }
 
 /** A shortcut.run: its params' values (strings), for whom; and the hub to call while running. */
@@ -242,11 +246,14 @@ export function connect(prog: Program, write: Write) {
   let initialized = false;
   let contributes: Record<string, unknown> | undefined;
   const inflight = new Set<Promise<unknown>>();
+  // Only negotiated page lifecycle calls are cancelable; services retain legacy semantics.
+  const pageCalls = new Map<string, AbortController>();
+  const cancelablePage = (method: string) => ["ui.page.mount", "ui.page.event", "ui.page.resume"].includes(method);
   let initializing: Promise<void> | undefined;
   let accepting = true;
   let shuttingDown: Promise<unknown[]> | undefined;
 
-  async function request(method: string, params: any, rawFrame: string): Promise<unknown> {
+  async function request(method: string, params: any, rawFrame: string, signal?: AbortSignal): Promise<unknown> {
     if (method === "initialize") {
       if (params?.protocol !== PROTOCOL) {
         throw new ExtError(`protocol ${params?.protocol}, not ${PROTOCOL}`, "wrong_protocol");
@@ -265,7 +272,9 @@ export function connect(prog: Program, write: Write) {
           throw e;
         }
       }
-      return { protocol: PROTOCOL, id: prog.id, version: prog.version, ...(contributes ? { contributes } : {}) };
+      return { protocol: PROTOCOL, id: prog.id, version: prog.version,
+        ...(Object.values(prog.ui ?? {}).some(isComponentPage) ? { ui_page_cancellation: 1 } : {}),
+        ...(contributes ? { contributes } : {}) };
     }
     if (method === "manifest") {
       if (prog.manifest === undefined) throw new ExtError("no manifest here: it is in the package", "unknown_method");
@@ -276,7 +285,7 @@ export function connect(prog: Program, write: Write) {
     if (!initialized) throw new ExtError("not initialized", "not_initialized");
     if (method === "ping") return {};
     if (method === "ui.page.supported") return { contributions: Object.entries(prog.ui ?? {}).filter(([, page]) => isComponentPage(page)).map(([id]) => id) };
-    if (method.startsWith("ui.page.")) return pageBridge.call(method.slice(8), params ?? {});
+    if (method.startsWith("ui.page.")) return pageBridge.call(method.slice(8), params ?? {}, signal);
     const dot = method.indexOf(".");
     if (dot < 0) throw unknownMethod(method);
     const ns = method.slice(0, dot);
@@ -373,14 +382,21 @@ export function connect(prog: Program, write: Write) {
     }
     if (f.method) {
       const id = f.id;
+      if (id && pageCalls.has(id)) { write(answer(id, { error: { message: "duplicate active page request ID" } })); return; }
+      const controller = id && cancelablePage(f.method) ? new AbortController() : undefined;
+      if (controller && pageCalls.size >= 256) { write(answer(id, { error: { message: "page request quota" } })); return; }
+      if (id && controller) pageCalls.set(id, controller);
       const done = Promise.resolve()
-        .then(() => request(f.method!, f.params, text))
+        .then(() => request(f.method!, f.params, text, controller?.signal))
         .then(
           (result) => write(answer(id, { result: result ?? {} })),
           (err) => write(answer(id, { error: wireError(err) })),
         );
       inflight.add(done);
-      done.finally(() => inflight.delete(done));
+      done.finally(() => { inflight.delete(done); if (id && pageCalls.get(id) === controller) pageCalls.delete(id); });
+    } else if (f.event === "rpc.cancel") {
+      const id = (f.params as { id?: unknown } | undefined)?.id;
+      if (typeof id === "string") pageCalls.get(id)?.abort();
     } else if (f.event) {
       const dot = f.event.indexOf(".");
       const h = initialized && dot > 0 ? prog.namespaces?.[f.event.slice(0, dot)] : undefined;

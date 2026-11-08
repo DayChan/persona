@@ -159,10 +159,7 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 	s.applyApproval(k, w, same)
 	w.TurnAt, w.At, w.By = c.UpdatedAt, time.Now().UTC(), by
 	e := db.SessionWork{MachineID: machine, SessionID: c.SessionID, TurnAt: c.UpdatedAt, Work: *w}
-	// The same wait goes on (the manager woke it, it still waits): its counts carry over.
-	if had && last.Work.Phase == proto.WorkBlocked && w.Phase == proto.WorkBlocked && last.Work.On == w.On {
-		e.Retries, e.Wakes = last.Retries, last.Wakes
-	}
+	carryCounts(&e, last, c)
 	if now, ok := s.session(ctx, machine, c.SessionID); ok && !sameTurn(now, e.TurnAt) {
 		return // it went on while the model read it: the next end decides
 	}
@@ -172,6 +169,25 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 		time.Since(start).Seconds(), e.Work.Line)
 	s.workEvent(machine, c.SessionID, "triaged", map[string]any{"phase": w.Phase, "on": e.Work.On, "by": by,
 		"line": e.Work.Line, "ms": time.Since(start).Milliseconds()})
+}
+
+// carryCounts: the same wait goes on (the manager woke or continued it, it still waits), so e's counts are last's
+// (none: a zero last). A usage limit's count is its own: it carries from the turn before only when that one stopped
+// on a usage limit too (its card after the continues included), with no later reset (a later one is the next window),
+// and this one did no work before the limit refused it again; a turn that did work starts it again. An ordinary wait never takes a usage limit's count, nor the other way.
+func carryCounts(e *db.SessionWork, last db.SessionWork, c proto.Session) {
+	w := &e.Work
+	switch limit := w.ResetsAt != nil; {
+	case last.Work.Phase != proto.WorkBlocked || w.Phase != proto.WorkBlocked:
+	case limit != (last.Work.ResetsAt != nil):
+	case limit:
+		// The same reset still (a later one is another window: the earlier was read right) and no work since.
+		if !c.TurnErrorAfterWork && !w.ResetsAt.After(*last.Work.ResetsAt) {
+			e.Retries = last.Retries
+		}
+	case last.Work.On == w.On:
+		e.Retries, e.Wakes = last.Retries, last.Wakes
+	}
 }
 
 // applyApproval: a turn still waiting on the step the user already said yes to (same: the model says so, and the
@@ -207,6 +223,9 @@ func triageRules(c proto.Session, loc *time.Location, l i18n.Lang) (w *proto.Wor
 		return nil, "", true
 	}
 	if e := c.TurnError; e != "" {
+		if c.TurnErrorKind == proto.TurnErrorUsageLimit {
+			return limitWork(c, time.Now(), loc, l), "rule", false
+		}
 		if turnErrorTransient(c) {
 			return &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitTransient, Line: workT(l, "transient_retrying"),
 				Wait: clip(oneLine(e), 200)}, "rule", false
@@ -229,6 +248,45 @@ func triageRules(c proto.Session, loc *time.Location, l i18n.Lang) (w *proto.Wor
 	return nil, "", false
 }
 
+// limitWork is where c stands after a subscription's usage limit ended its turn (docs/assistant/agent-work.md "Usage
+// limits"): with its reset known, an external wait for it (ResetsAt), the CLI going on by itself then or the manager
+// continuing it (actOn); without, the user's, as other errors they must see to are.
+func limitWork(c proto.Session, now time.Time, loc *time.Location, l i18n.Lang) *proto.WorkState {
+	e := c.TurnError
+	reset, ok := usageLimitReset(c)
+	if !ok && c.TurnErrorResumes {
+		// Its CLI goes on by itself after the reset, whenever that is: nothing to ask, and nothing may be typed into it.
+		return &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitExternal, Line: workT(l, "limit_resumes_later")}
+	}
+	if !ok {
+		return &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitUser, Line: clip(oneLine(workT(l, "limit_line", i18n.Args{"error": e})), 60),
+			Questions: []proto.Question{{Question: workT(l, "limit_ask", i18n.Args{"error": clip(oneLine(e), 300)}), Header: workT(l, "header_limit"),
+				Options: []proto.QuestionOption{{Label: answerLabel(l, answerRetry)}, {Label: answerLabel(l, answerSkip)}}}}}
+	}
+	// No Wait: the error is the session's (TurnError), and an external wait without one is one that ends by itself, as
+	// the apps list it (their hubWaits): the CLI goes on, or the manager continues it (wake_at).
+	return &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitExternal, ResetsAt: &reset,
+		Line: limitLine(l, reset, c.TurnErrorResumes, now, loc)}
+}
+
+// limitLine is a usage-limit wait's line in l: when it goes on by itself (resumes), else when the limit resets.
+func limitLine(l i18n.Lang, reset time.Time, resumes bool, now time.Time, loc *time.Location) string {
+	if resumes {
+		return workT(l, "limit_resumes", i18n.Args{"time": limitClock(reset, now, loc)})
+	}
+	return workT(l, "limit_resets", i18n.Args{"time": limitClock(reset, now, loc)})
+}
+
+// limitClock is when a usage limit resets, as a line says it in loc: the time of day when that is today, with the
+// month and day when it is another day (tomorrow morning, a weekly limit). The same in every language.
+func limitClock(reset, now time.Time, loc *time.Location) string {
+	r, n := reset.In(loc), now.In(loc)
+	if r.YearDay() == n.YearDay() && r.Year() == n.Year() {
+		return r.Format("15:04")
+	}
+	return r.Format("01-02 15:04")
+}
+
 func runningInBackground(c proto.Session) int {
 	n := len(c.Background)
 	for _, a := range c.Subagents {
@@ -240,12 +298,12 @@ func runningInBackground(c proto.Session) int {
 }
 
 // turnErrorTransient: c's turn error is worth a "Continue". The agent's record says so when it gives a kind (Codex's error
-// kinds, #2185); otherwise the text does.
+// kinds, #2185); otherwise the text does. A usage limit never is: a "Continue" before its reset is refused at once.
 func turnErrorTransient(c proto.Session) bool {
 	switch c.TurnErrorKind {
 	case proto.TurnErrorTransient:
 		return true
-	case proto.TurnErrorUser:
+	case proto.TurnErrorUser, proto.TurnErrorUsageLimit:
 		return false
 	}
 	return transientError(c.TurnError)

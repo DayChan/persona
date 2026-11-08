@@ -1,7 +1,12 @@
-import { Button, Text, View, Section, Row, Field, Grid, Fragment, callback, useState, type Node } from "@persona/extension/ui";
+import { Button, Text, View, Section, Row, Field, Grid, Fragment, callback, useState, useLoadEffect, useFetch, type Node } from "@persona/extension/ui";
+
+const initializeCapability: import("@persona/extension/wire").InitializeResult = { protocol: 1, id: "example", version: "1", ui_page_cancellation: 1 };
+void initializeCapability;
 
 function Counter({ label }: { label: string }): Node {
   const [count, setCount] = useState(0);
+  useLoadEffect(async signal => { if (!signal.aborted) setCount(value => value); }, []);
+  useFetch("https://example.com/data", { snapshot: "wait" });
   return <Section key="counter-section"><Text key="count" text={String(count)} /><Button key="increment" title={label} action={callback(() => setCount((value) => value + 1))} /></Section>;
 }
 export const fragments = <View key="fragments"><><Fragment key="fragment"><Section key="section" /></Fragment></></View>;

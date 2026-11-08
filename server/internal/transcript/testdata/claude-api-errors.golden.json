@@ -1,0 +1,81 @@
+{
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001#0",
+      "seq": 1,
+      "ts": "2026-01-01T09:00:00Z",
+      "role": "user",
+      "kind": "text",
+      "text": "Summarize the change"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002#0",
+      "seq": 2,
+      "ts": "2026-01-01T09:00:03Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "Looking at the diff."
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003#0",
+      "seq": 3,
+      "ts": "2026-01-01T09:00:04Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "Please run /login · API Error: 403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004#0",
+      "seq": 4,
+      "ts": "2026-01-01T09:00:04.1Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 4100,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000003"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005#0",
+      "seq": 5,
+      "ts": "2026-01-01T09:30:00Z",
+      "role": "user",
+      "kind": "text",
+      "text": "Try again"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006#0",
+      "seq": 6,
+      "ts": "2026-01-01T09:30:01Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "API Error: Request rejected (429) · Example gateway: quota reached. Try again later."
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000007#0",
+      "seq": 7,
+      "ts": "2026-01-01T09:30:01.1Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 1100,
+        "source": "claude_turn_duration",
+        "parent_uuid": "00000000-0000-4000-8000-000000000006"
+      }
+    }
+  ],
+  "meta": {
+    "first_user": "Summarize the change",
+    "last_text": "API Error: Request rejected (429) · Example gateway: quota reached. Try again later.",
+    "model": "claude-opus-5-5",
+    "cwd": "/work/project/f1",
+    "permission_mode": "default",
+    "turns": 2,
+    "compactions": 0,
+    "context_tokens": 31206,
+    "output_tokens": 80,
+    "turn_error": "API Error: Request rejected (429) · Example gateway: quota reached. Try again later.",
+    "last_activity": "2026-01-01T09:30:01Z"
+  }
+}

@@ -85,7 +85,13 @@ export class Renderer implements HookOwner {
   private scheduled = false;
   private rendering = false;
   private ticket = 0;
+  private visibility = 0;
   private pendingEffects = 0;
+  private pendingLoads = new Set<AbortController>();
+  private dirtyLoads = new Set<EffectHook>();
+  private loadFailed = false;
+  private readiness?: () => void;
+  private readinessGuard?: () => void;
   private limits: Required<NonNullable<RendererOptions["limits"]>>;
 
   constructor(private options: RendererOptions) {
@@ -246,7 +252,10 @@ export class Renderer implements HookOwner {
       for (const [path, instance] of this.instances) if (!visited.has(path)) { this.remove(instance); this.instances.delete(path); }
       for (const [controller, id] of this.activeEvents) if (!registrations.has(id)) controller.abort();
       for (const instance of this.instances.values()) for (const hook of instance.hooks) {
-        if (hook.kind === "effect" && hook.changed) hook.stop?.();
+        if (hook.kind === "effect") {
+          if (hook.snapshot && hook.changed) this.dirtyLoads.add(hook); else this.dirtyLoads.delete(hook);
+          if (hook.changed) hook.stop?.();
+        }
       }
       this.registrations = registrations;
       this.callbackIDs = new Map([...registrations].map(([id, registration]) => [registration.identity, id]));
@@ -258,12 +267,81 @@ export class Renderer implements HookOwner {
     } catch (error) {
       this.dispose();
       throw error;
-    } finally { this.rendering = false; }
+    } finally { this.rendering = false; this.readiness?.(); }
   }
   /** Read the latest immutable snapshot without triggering rendering or advancing its version. */
   current(): Snapshot {
     if (!this.snapshot || this.disposed) throw new Error("UI session is not mounted");
     return this.snapshot;
+  }
+  /** Drain only opted-in finite loads and already scheduled renders, never invalidate a cached view.
+   * A timeout is a failure, not a successful loading snapshot. One bounded waiter per renderer. */
+  async settle(signal: AbortSignal, timeoutMs = 10_000): Promise<Snapshot> {
+    if (this.readiness) throw new Error("snapshot readiness already running");
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 10_000) throw new Error("invalid snapshot readiness timeout");
+    const visibility = this.visibility;
+    const deadline = performance.now() + timeoutMs;
+    // Bound uninterrupted render work, not the total number of finite resources.
+    // Real asynchronous completion gives the next event-loop turn a fresh allowance.
+    const workLimit = 512;
+    let drains = 0, renders = 0;
+    let turnTimer: ReturnType<typeof setTimeout> | undefined;
+    let resolve: (() => void) | undefined;
+    let failure: Error | undefined;
+    const wake = () => resolve?.();
+    const check = () => {
+      if (signal.aborted || failure) throw failure ?? new Error("snapshot readiness canceled");
+      if (this.disposed || this.suspended || this.visibility !== visibility) throw new Error("inactive snapshot readiness");
+      if (performance.now() >= deadline) throw new Error("snapshot readiness timeout");
+    };
+    const guard = () => {
+      try {
+        check();
+        if (++renders > workLimit) throw new Error("snapshot readiness work limit");
+        turnTimer ??= globalThis.setTimeout(() => { renders = 0; turnTimer = undefined; }, 0);
+      } catch (error) {
+        failure = error as Error;
+        if (this.visibility === visibility) this.suspend();
+        wake();
+        throw error;
+      }
+    };
+    const abort = () => { failure = new Error("snapshot readiness canceled"); wake(); };
+    const timer = globalThis.setTimeout(() => { failure = new Error("snapshot readiness timeout"); wake(); }, timeoutMs);
+    this.readiness = wake;
+    this.readinessGuard = guard;
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      for (;;) {
+        if (drains > workLimit) throw new Error("snapshot readiness work limit");
+        check();
+        // Register before rendering/checking: synchronous load effects can wake and
+        // queue another render in this turn, even when the scheduler never drains itself.
+        const waiting = new Promise<void>(done => { resolve = done; });
+        // Flush an existing invalidation, including custom schedulers, without an extra revision.
+        if (this.scheduled) { drains++; this.render(); }
+        if (drains > workLimit) throw new Error("snapshot readiness work limit");
+        // Effects and publication callbacks can synchronously change visibility.
+        // Never return a snapshot from the epoch that was just suspended/resumed.
+        check();
+        if (this.loadFailed) throw new Error("snapshot loading effect failed");
+        if (!this.pendingLoads.size && !this.dirtyLoads.size && !this.scheduled && !this.activeEvents.size) return this.current();
+        // Runnable work needs no external wake. The turn ceiling bounds self-invalidation.
+        if (this.scheduled) continue;
+        await waiting;
+        resolve = undefined;
+        drains = 0;
+      }
+    } catch (error) {
+      if (this.visibility === visibility) this.suspend();
+      throw error;
+    } finally {
+      globalThis.clearTimeout(timer);
+      globalThis.clearTimeout(turnTimer);
+      signal.removeEventListener("abort", abort);
+      this.readiness = undefined;
+      this.readinessGuard = undefined;
+    }
   }
   invalidate(): void {
     if (this.disposed || this.suspended || this.scheduled) return;
@@ -272,8 +350,9 @@ export class Renderer implements HookOwner {
     (this.options.schedule ?? queueMicrotask)(() => {
       if (ticket !== this.ticket || this.disposed || this.suspended) return;
       this.scheduled = false;
-      try { this.render(); } catch (error) { this.report(error); }
+      try { this.readinessGuard?.(); this.render(); } catch (error) { this.report(error); }
     });
+    this.readiness?.();
   }
   private commitEffects(): void {
     // Commit effects after the published snapshot, independently of invalidation tickets.
@@ -292,27 +371,40 @@ export class Renderer implements HookOwner {
       return;
     }
     hook.changed = false;
+    this.dirtyLoads.delete(hook);
+    const snapshot = hook.snapshot;
     const controller = new AbortController();
     let cleanup: (() => void) | undefined;
     let stopped = false;
     const clean = () => { if (cleanup) { const fn = cleanup; cleanup = undefined; try { fn(); } catch (error) { this.report(error); } } };
-    const stop = () => { if (!stopped) { stopped = true; controller.abort(); clean(); } };
+    const stop = () => {
+      if (!stopped) { stopped = true; controller.abort(); clean(); }
+      this.pendingLoads.delete(controller);
+      this.readiness?.();
+    };
     hook.stop = stop;
     const resolved = (result: void | (() => void)) => {
       if (result !== undefined && typeof result !== "function") throw new Error("invalid effect cleanup");
       cleanup = result || undefined;
       if (stopped) clean();
     };
+    const failed = (error: unknown) => {
+      if (snapshot && !controller.signal.aborted) this.loadFailed = true;
+      stop(); this.report(error);
+    };
     try {
       const result = hook.effect(controller.signal);
       if (result && typeof (result as Promise<unknown>).then === "function") {
         ++this.pendingEffects;
-        Promise.resolve(result).then(resolved).catch((error) => { stop(); this.report(error); }).finally(() => {
+        if (snapshot && !stopped) this.pendingLoads.add(controller);
+        Promise.resolve(result).then(resolved).catch(failed).finally(() => {
           --this.pendingEffects;
+          this.pendingLoads.delete(controller);
           this.commitEffects();
+          this.readiness?.();
         });
       } else resolved(result as void | (() => void));
-    } catch (error) { stop(); this.report(error); }
+    } catch (error) { failed(error); }
   }
   /** Returns and clears bounded local diagnostics. Errors never become user UI text automatically. */
   takeErrors(): unknown[] { const errors = this.errors; this.errors = []; return errors; }
@@ -322,7 +414,7 @@ export class Renderer implements HookOwner {
   }
   private remove(instance: Instance): void {
     instance.active = false;
-    for (const hook of instance.hooks) if (hook.kind === "effect") hook.stop?.();
+    for (const hook of instance.hooks) if (hook.kind === "effect") { this.dirtyLoads.delete(hook); hook.stop?.(); }
   }
   private cancelEvents(): void { for (const controller of this.activeEvents.keys()) controller.abort(); }
   /** Only accepts saved callbacks. The manager first authenticates owner/extension/contribution/session.
@@ -330,7 +422,7 @@ export class Renderer implements HookOwner {
    * Every invoked/ambiguous callback consumes a native revision. Bounded receipts
    * can then be evicted safely: their old revisions never execute again.
    */
-  event(event: UIEvent): Promise<unknown> {
+  event(event: UIEvent, controller = new AbortController()): Promise<unknown> {
     try {
       if (this.disposed || this.suspended || !this.snapshot) throw new Error("inactive UI session");
       if (event.generation !== this.generation) throw new Error("stale UI event generation");
@@ -352,7 +444,6 @@ export class Renderer implements HookOwner {
       // Old receipts can be evicted safely: every invoked callback consumes a native
       // revision even when it throws or changes no UI. An old body then fails stale.
       while (this.receipts.size >= this.limits.events) this.receipts.delete(this.receipts.keys().next().value!);
-      const controller = new AbortController();
       this.activeEvents.set(controller, saved.actionId);
       let invoked = false;
       const result = Promise.resolve().then(async () => {
@@ -381,6 +472,7 @@ export class Renderer implements HookOwner {
           }
         }
         this.activeEvents.delete(controller);
+        this.readiness?.();
       });
       this.receipts.set(saved.eventId, { fingerprint, result });
       return result;
@@ -419,6 +511,9 @@ export class Renderer implements HookOwner {
   suspend(): void {
     if (this.disposed || this.suspended) return;
     this.suspended = true;
+    this.visibility++;
+    this.loadFailed = false;
+    this.readiness?.();
     this.scheduled = false;
     ++this.ticket;
     this.cancelEvents();
@@ -434,6 +529,7 @@ export class Renderer implements HookOwner {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.readiness?.();
     this.scheduled = false;
     ++this.ticket;
     this.cancelEvents();

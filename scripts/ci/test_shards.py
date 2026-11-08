@@ -41,6 +41,20 @@ class ShardTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 python.select_suites(suites, index, count)
 
+    def test_source_server_shard_installs_the_pinned_bundler(self):
+        workflow = (ROOT / ".github/workflows/server-test.yml").read_text()
+        setup = """      - uses: oven-sh/setup-bun@v2
+        if: matrix.shard == 'other'
+        with:
+          bun-version: '1.4.2'
+"""
+        self.assertIn(setup, workflow)
+        self.assertLess(workflow.index(setup), workflow.index("      - name: Server checks"))
+        for filename in ("ci.yml", "runtimes-test.yml"):
+            self.assertIn("bun-version: '1.4.2'", (ROOT / ".github/workflows" / filename).read_text())
+        source_packages = ["example/server/internal/extension/denohost", "example/server/internal/extmgr"]
+        self.assertEqual(server.select_packages(source_packages, "other"), source_packages)
+
     def test_server_workflow_covers_build_and_every_test_shard(self):
         workflow = (ROOT / ".github/workflows/server-test.yml").read_text()
         self.assertIn("shard: [node, managers, other, build]", workflow)

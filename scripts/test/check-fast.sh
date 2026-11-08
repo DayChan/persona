@@ -24,6 +24,11 @@
 #                              python3 scripts/ci/migration_freeze.py (a migration already on the base must not be
 #                              edited, deleted or renamed; comment- and whitespace-only edits pass; a new file may be
 #                              added). A rename out of the directory counts too. --all runs it when the script is present.
+#   server/**/*_test.go, sdk/go/**/*_test.go, scripts/ci/sleep_ratchet.py, scripts/ci/sleep_baseline.json
+#                              python3 scripts/ci/sleep_ratchet.py (each Go test file's time.Sleep count may stay or
+#                              fall, never rise; comments, strings and a // sleep-ok: reason line do not count; a new
+#                              file starts at zero; --update only lowers). A rename out of those trees counts too.
+#                              --all runs it when the script is present.
 #   spec/fixtures/**, schema/extension/**, integrations/**, docs/<file>, scripts/test/server_test_env.py
 #                              also go test on each server package whose _test.go names that input (server-test.yml's
 #                              path filter), found at run time with git grep (comment lines are ignored)
@@ -417,6 +422,18 @@ job_migration_freeze() {
   fi
 }
 
+# job_sleep_ratchet counts fixed time.Sleep calls in Go tests. In diff mode the base is the merge-base check-fast
+# already resolved (so --base agrees); --all resolves the default branch itself.
+job_sleep_ratchet() {
+  [ "$HAVE_PY" -eq 1 ] || skip "python3 not found"
+  if [ "$ALL" -eq 1 ]; then
+    step "$TIMEOUT_OTHER" "python3 scripts/ci/sleep_ratchet.py" python3 scripts/ci/sleep_ratchet.py || return $?
+  else
+    step "$TIMEOUT_OTHER" "python3 scripts/ci/sleep_ratchet.py --base $MB" \
+      python3 scripts/ci/sleep_ratchet.py --base "$MB" || return $?
+  fi
+}
+
 # migration_freeze_wanted is true when a migration already on the base might have changed, or when the checker itself
 # changed. --name-only lists a rename's destination only, so a file moved out of the directory shows up in the
 # name-status scan (status, then the old path, then the new path).
@@ -439,6 +456,37 @@ migration_freeze_wanted() {
     esac
     case "$path" in
       server/internal/db/migrations/*|scripts/ci/migration_freeze.py) return 0 ;;
+    esac
+  done < <(git diff --name-status --find-renames -z "$MB" HEAD
+           git diff --name-status --find-renames -z
+           git diff --cached --name-status --find-renames -z)
+  return 1
+}
+
+# sleep_ratchet_wanted is true when a Go test's fixed sleeps might have changed, or when the checker or its baseline
+# changed. --name-only lists a rename's destination only, so a test file moved out of server/ or sdk/go/ shows up in
+# the name-status scan (status, then the old path, then the new path).
+sleep_ratchet_wanted() {
+  [ "$ALL" -eq 1 ] && return 0
+  local f status path newpath
+  while IFS= read -r f; do
+    case "$f" in
+      server/*_test.go|sdk/go/*_test.go|scripts/ci/sleep_ratchet.py|scripts/ci/sleep_baseline.json) return 0 ;;
+    esac
+  done <<< "$CHANGED"
+  while IFS= read -r -d '' status; do
+    IFS= read -r -d '' path || return 1
+    case "$status" in
+      R*|C*)
+        IFS= read -r -d '' newpath || return 1
+        case "$path" in
+          server/*_test.go|sdk/go/*_test.go) return 0 ;;
+        esac
+        path=$newpath
+        ;;
+    esac
+    case "$path" in
+      server/*_test.go|sdk/go/*_test.go|scripts/ci/sleep_ratchet.py|scripts/ci/sleep_baseline.json) return 0 ;;
     esac
   done < <(git diff --name-status --find-renames -z "$MB" HEAD
            git diff --name-status --find-renames -z
@@ -752,6 +800,16 @@ if [ -f scripts/ci/migration_freeze.py ] && migration_freeze_wanted; then
     core_missing "python3 not found; frozen migration check skipped"
   else
     INFO+=("SKIP  frozen migrations: python3 not found")
+  fi
+fi
+
+if [ -f scripts/ci/sleep_ratchet.py ] && sleep_ratchet_wanted; then
+  if [ "$HAVE_PY" -eq 1 ]; then
+    schedule "fixed sleeps" job_sleep_ratchet ""
+  elif [ "$ALL" -eq 1 ]; then
+    core_missing "python3 not found; fixed sleep check skipped"
+  else
+    INFO+=("SKIP  fixed sleeps: python3 not found")
   fi
 fi
 

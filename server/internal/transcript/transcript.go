@@ -79,10 +79,17 @@ type entry struct {
 	// toolUseResult, a tool's own copy of its output (often as long as the tool_result itself), is not read: items take
 	// a result from the message, and a field here would copy every one of them for nothing.
 
-	// system/api_error: {message, formatted} (raw: other lines may carry a plain string here), and which retry this is.
-	Error        json.RawMessage `json:"error"`
-	RetryAttempt int             `json:"retryAttempt"`
-	MaxRetries   int             `json:"maxRetries"`
+	// system/api_error: {message, formatted}, and which retry this is. An assistant line Claude Code wrote itself for a
+	// request that failed (isApiErrorMessage) carries the error's kind here as a string (rate_limit,
+	// authentication_failed…), and a subscription's limit the account's quota (quotaLimits; claudeErrorKind).
+	Error             json.RawMessage `json:"error"`
+	RetryAttempt      int             `json:"retryAttempt"`
+	MaxRetries        int             `json:"maxRetries"`
+	IsAPIErrorMessage bool            `json:"isApiErrorMessage"`
+	QuotaLimits       *struct {
+		Status   string          `json:"status"`   // "rejected": the limit refused the request
+		ResetsAt json.RawMessage `json:"resetsAt"` // epoch seconds
+	} `json:"quotaLimits"`
 	// system/scheduled_task_fire: the /loop prompt that is about to run.
 	Prompt string `json:"prompt"`
 }
@@ -176,10 +183,29 @@ type Meta struct {
 	// (a tail read from mid-turn).
 	TurnClosed bool
 	// TurnError / TurnErrorKind: the latest turn failed on the model service, as the agent's own record says it
-	// (Codex: task_complete's error, #2185); empty when it ended well, or when the record does not say (Claude Code
-	// writes its error as the answer: the hub reads that off LastText). Kind is proto.TurnErrorTransient / User, or
-	// "" when the record gives no kind to go by.
+	// (Codex: task_complete's error, #2185; Claude Code: the reply it writes itself for a failed request,
+	// isApiErrorMessage, #1710); empty when it ended well or the model answered since. Kind is
+	// proto.TurnErrorTransient / User / UsageLimit, or "" when the record gives no kind to go by (an older Claude Code,
+	// a gateway's 429): the hub reads the text then.
 	TurnError, TurnErrorKind string
+	// TurnErrorResetsAt: when the subscription usage limit that failed the turn resets, as the record says (Claude
+	// Code's quotaLimits.resetsAt; for Codex the full window of the rollout's latest rate limits); zero when it does not.
+	TurnErrorResetsAt time.Time
+	// TurnErrorResumes: Claude Code said it goes on by itself once the limit resets, and nothing took that back since
+	// (claudeLimitNotice). It outlasts the turns background tasks wake the session for while it waits (each fails
+	// again at once, with no new notice), not a message: typing cancels Claude Code's own continuation.
+	TurnErrorResumes bool
+	// resumesSaid: a line read said whether Claude Code goes on by itself (TurnErrorResumesSaid).
+	resumesSaid bool
+	// TurnErrorAfterWork: the failed turn did some work (a reply, a tool call, thinking) before the error ended it.
+	TurnErrorAfterWork bool
+	// turnWorked: the turn under way did some work so far (TurnErrorAfterWork when it fails); its end or the next
+	// turn's start sets it back. turnErrorLine: the uuid of the line that said TurnError (Tail.Settle).
+	turnWorked    bool
+	turnErrorLine string
+	// codexLimitFull: when the full windows of a rollout's latest rate limits (Codex's own limit, at 100%) reset, the
+	// latest of them; zero when none is full. A usage-limit failure resets then (TurnErrorResetsAt).
+	codexLimitFull time.Time
 	// codexSeen: newer rollouts record an item both as event_msg/item_completed and in history_mutation.
 	codexSeen   map[string]bool
 	codexTurnID string
@@ -320,10 +346,13 @@ func ParseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			}
 		}
 		if !meta.Codex && (it.Wake || it.Role == "user" && it.Kind == proto.KindText && !it.Queued) {
-			if local := meta.localInput && !it.Wake; local && !meta.localTurn {
+			local := meta.localInput && !it.Wake
+			if local && !meta.localTurn {
 				meta.localTurn, meta.beforeLocal = true, [2]bool{meta.TurnOpen, meta.TurnClosed}
 			} else if !local {
 				meta.localTurn = false
+				// A local command (a slash command, "! cmd") is not sent to the model: it does not end a limit.
+				meta.ClaudeTurnStarted(it.Wake)
 			}
 			meta.TurnOpen, meta.TurnClosed = true, false // a Claude turn starts; parseLine closes it
 		}
@@ -489,6 +518,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 		switch e.Subtype {
 		case "turn_duration":
 			meta.TurnOpen, meta.TurnClosed = false, true
+			meta.turnWorked = false // the turn's work is done: Claude Code's own continuation after a limit opens with no prompt
 			ms, ok := recordedMilliseconds(e.DurationMS)
 			if !ok || strings.TrimSpace(e.ParentUUID) == "" {
 				return nil
@@ -534,6 +564,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			return []proto.Item{it}
 		case "informational":
 			text = rawString(e.Content)
+			meta.claudeLimitNotice(text)
 		default:
 			return nil
 		}
@@ -691,6 +722,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 				meta.trackBackground(b.ID, b.Name, b.Input, e.Timestamp)
 			}
 		}
+		meta.claudeReply(&e, blocks, len(out) > 0)
 		return out
 	}
 	return nil

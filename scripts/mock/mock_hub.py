@@ -2710,6 +2710,23 @@ if MOCK_WORKFLOW_CARDS:
         for _a in _w["agents"]:
             ITEMS[_a["session_id"]] = [it("user", "text", 9, text="%s：审这一块，列出问题" % _a["label"]),
                                        it("assistant", "text", 8, text=_a.get("last_text") or "这一块看完了，没有发现问题。")]
+# MOCK_BACKGROUND_WAITING=1 (#6045): an agent whose turn ended with only a `gh run watch` left in the background: Waiting
+# in the Background, apart from Working.
+BGWAIT = "a1f3c2d4-0000-4000-8000-0000000000f1"
+if os.environ.get("MOCK_BACKGROUND_WAITING") == "1":
+    SESSIONS.append(sess("macbook", BGWAIT, "等 CI 跑完再合并", "/Users/me/code/weather", "done", "working", "weather", 1, "ci", 6, 3,
+                         "PR 已推上去，CI 在跑，我在后台盯着，绿了就合并。", state_since=ago(minutes=3), background_working=True,
+                         background_waiting=True,
+                         background=[{"id": "b9", "kind": "shell", "description": "等 CI 结果", "command": "gh run watch --exit-status",
+                                      "started_at": ago(minutes=3)}]))
+    ITEMS[BGWAIT] = (
+        [it("user", "text", 6, text="推上去，CI 绿了就合并")]
+        + tool("Bash", {"command": "git push -u origin feat/widget", "description": "推送分支"},
+               "branch 'feat/widget' set up to track 'origin/feat/widget'.", 5)
+        + tool("Bash", {"command": "gh run watch --exit-status", "description": "等 CI 结果", "run_in_background": True},
+               "Command running in background with ID: b9.", 3)
+        + [it("assistant", "text", 3, text="PR 已推上去，CI 在跑，我在后台盯着，绿了就合并。")]
+    )
 ITEMS[TESTS] = (
     [it("user", "text", 5, text="给网络层补单元测试，覆盖重试和超时")]
     + tool("Glob", {"pattern": "Sources/Weather/API/*.swift"}, "Sources/Weather/API/Client.swift\nSources/Weather/API/Retry.swift\nSources/Weather/API/Forecast.swift", 4)

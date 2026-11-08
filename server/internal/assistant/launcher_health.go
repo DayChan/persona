@@ -19,6 +19,7 @@ import (
 	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
+	"github.com/nwverse/persona/server/internal/transcript"
 )
 
 // Launcher health (docs/server/launcher-health.md): every launcher on every machine is checked now and then with the same
@@ -44,6 +45,9 @@ const (
 	errKindCLIOutdated = "cli_outdated"
 	errKindTimeout     = "timeout"
 	errKindOther       = "other"
+	// errKindUsageLimit: the subscription's usage limit is used up (LauncherHealth.ResetsAt, when known). Unusable until
+	// it resets, then checked again; never repaired: nothing on the machine is broken.
+	errKindUsageLimit = "usage_limit"
 	// errKindNotInTerminal: a start's new terminal tab could not run the launcher, or its claude (node/shellmiss.go,
 	// #1642): the terminal reads other startup files than the login shell the launchers are listed and checked in, so
 	// a check passing says nothing of it, and no repair the manager has reaches it. Blocked at once; a start with it
@@ -57,8 +61,12 @@ var (
 	// healthOnlineRecheck: a machine that comes online gets its launchers checked unless checked this recently (the
 	// hub's restarts would otherwise check everything each time).
 	healthOnlineRecheck = 10 * time.Minute
-	// healthStale: a failure older than this no longer keeps a launcher from being used.
+	// healthStale: a failure older than this no longer keeps a launcher from being used (a usage limit with a known
+	// reset: until the reset instead).
 	healthStale = 6 * time.Hour
+	// healthLimitMax: a usage limit said to reset further ahead than this was misread (a weekly limit resets within 7
+	// days): the record counts as one without a reset.
+	healthLimitMax = 8 * 24 * time.Hour
 	// healthMaxRepairs: repair rounds for one run of failures before the launcher is blocked.
 	healthMaxRepairs = 2
 	// repairSettle and repairDeadline: a repair agent that stopped is rechecked once it has run this long; one that
@@ -86,12 +94,15 @@ type LauncherHealth struct {
 	Model     string    `json:"model,omitempty"` // which model answered
 	Millis    int       `json:"millis,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
-	Source    string    `json:"source"`          // check | start (an agent's start failed)
+	Source    string    `json:"source"`          // check | start (an agent's start failed) | session (an agent's turn met a usage limit)
 	Fails     int       `json:"fails,omitempty"` // failures in a row
 	// Repairs are this run of failures' repair rounds; BlockedReason says why it was given up on.
 	Repairs       int            `json:"repairs,omitempty"`
 	Repair        *LauncherFixed `json:"repair,omitempty"`
 	BlockedReason string         `json:"blocked_reason,omitempty"`
+	// ResetsAt: Kind is errKindUsageLimit and this is when the limit resets (read off the check's words when they name a
+	// time zone, or an agent's own record of the limit): the launcher counts as unusable until then, and no longer after.
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
 }
 
 // LauncherFixed is the latest repair of a launcher.
@@ -264,9 +275,35 @@ func (s *Service) launcherHealth(ctx context.Context, machine, launcher string) 
 	return LauncherHealth{}, false
 }
 
-// unusable: the record says the launcher does not work (its latest result, failed within healthStale).
+// unusable: the record says the launcher does not work (its latest result, failed within healthStale). A usage limit
+// whose reset is known holds until that reset, however far off, and no longer.
 func (r LauncherHealth) unusable() bool {
-	return r.State != "" && r.State != healthOK && time.Since(r.CheckedAt) < healthStale
+	if r.State == "" || r.State == healthOK {
+		return false
+	}
+	if reset, ok := r.limitReset(); ok {
+		return time.Now().Before(reset)
+	}
+	return time.Since(r.CheckedAt) < healthStale
+}
+
+// limitReset is when the usage limit r records resets: r failed on the subscription's usage limit, and its reset is
+// known and not past healthLimitMax from when it was recorded.
+func (r LauncherHealth) limitReset() (time.Time, bool) {
+	if r.Kind != errKindUsageLimit || r.ResetsAt == nil || r.State == healthOK || r.ResetsAt.Sub(r.CheckedAt) > healthLimitMax {
+		return time.Time{}, false
+	}
+	return *r.ResetsAt, true
+}
+
+// resetNote is how agents_list's lines and a detour's reason say when r's usage limit resets ("" without one):
+// machine-readable, and how far off.
+func (r LauncherHealth) resetNote() string {
+	reset, ok := r.limitReset()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("resets_at=%s, %s", reset.UTC().Format(time.RFC3339), until(reset))
 }
 
 // launcherUnusable is launcher's record on machine when it does not work.
@@ -285,12 +322,18 @@ type healthResult struct {
 	err          string
 	source       string
 	kind         string // the error's class when the outcome says it (a start's coded refusal); "": classifyLauncherError
+	// resetsAt: a usage limit's reset as the outcome's source knew it (an agent's own record of the limit); nil: read
+	// off err's words when they name a time zone.
+	resetsAt *time.Time
 }
 
 // Where a result comes from (LauncherHealth.Source).
 const (
 	healthSourceCheck = "check" // launchers.check, in the node's login shell
 	healthSourceStart = "start" // an agent's start, in a terminal tab
+	// healthSourceSession: an agent's own turn with the launcher ended on the subscription's usage limit, its reset
+	// known (launcherLimitTurnEnded). Nothing was run for it: no check, no repair.
+	healthSourceSession = "session"
 )
 
 // terminalBlockedReason is why a launcher the terminal cannot run is blocked: no repair reaches the terminal's startup files.
@@ -310,9 +353,9 @@ func (s *Service) recordHealth(ctx context.Context, machine, launcher string, r 
 		b.recs[key] = rec
 	}
 	before := rec.State
-	if r.source == healthSourceCheck && rec.Kind == errKindNotInTerminal && rec.unusable() {
+	if r.source != healthSourceStart && rec.Kind == errKindNotInTerminal && rec.unusable() {
 		// The check runs in the login shell, where the launcher works; the terminal is what cannot run it. Only a
-		// start says otherwise (#1642).
+		// start says otherwise (#1642): a session already running says nothing of a new terminal tab.
 		out := *rec
 		b.mu.Unlock()
 		return out
@@ -321,6 +364,7 @@ func (s *Service) recordHealth(ctx context.Context, machine, launcher string, r 
 	if r.agent != "" {
 		rec.Agent = r.agent
 	}
+	rec.ResetsAt = nil
 	if r.ok {
 		rec.State, rec.Kind, rec.Error, rec.Fails, rec.Repairs, rec.BlockedReason = healthOK, "", "", 0, 0, ""
 		rec.Model = r.model
@@ -334,6 +378,10 @@ func (s *Service) recordHealth(ctx context.Context, machine, launcher string, r 
 		switch {
 		case rec.Kind == errKindNotInTerminal:
 			rec.State, rec.BlockedReason = healthBlocked, terminalBlockedReason // no repair round (repairMachine takes failing ones)
+		case rec.Kind == errKindUsageLimit:
+			// The request got through to the subscription, whose limit is used up: nothing is broken, so no repair
+			// is due (repairNow) and a block for an earlier error no longer stands. The reset clears it.
+			rec.State, rec.BlockedReason, rec.ResetsAt = healthFailing, "", limitResetOf(r, rec.CheckedAt)
 		case rec.State == "" || rec.State == healthOK:
 			rec.State = healthFailing
 		}
@@ -348,13 +396,14 @@ func (s *Service) recordHealth(ctx context.Context, machine, launcher string, r 
 }
 
 // setHealthState moves launcher on machine to state ("": it stays; why: the blocked reason) and keeps fixed as its
-// latest repair, one more round of this run of failures. Nothing changes once a check passed meanwhile.
+// latest repair, one more round of this run of failures. Nothing changes once a check passed meanwhile, nor for a
+// usage limit met meanwhile: it is neither repaired nor blocked, its reset clears it.
 func (s *Service) setHealthState(ctx context.Context, machine, launcher, state, why string, fixed *LauncherFixed) {
 	b := &s.health
 	b.mu.Lock()
 	s.healthLoadLocked(ctx)
 	rec := b.recs[healthKey(machine, launcher)]
-	if rec == nil || rec.State == healthOK {
+	if rec == nil || rec.State == healthOK || rec.Kind == errKindUsageLimit {
 		b.mu.Unlock()
 		return
 	}
@@ -438,6 +487,63 @@ func (s *Service) recordStartSuccess(ctx context.Context, machine, launcher stri
 	s.recordHealth(ctx, machine, launcher, healthResult{ok: true, source: healthSourceStart})
 }
 
+// limitResetOf is when the usage limit r failed on resets, as r's source knew it or as its words say (at: when it
+// was recorded); nil when unknown or further off than healthLimitMax.
+func limitResetOf(r healthResult, at time.Time) *time.Time {
+	reset := time.Time{}
+	if r.resetsAt != nil {
+		reset = *r.resetsAt
+	} else if t, ok := transcript.UsageLimitReset(r.err, at); ok {
+		reset = t
+	}
+	if reset.IsZero() || reset.Sub(at) > healthLimitMax {
+		return nil
+	}
+	reset = reset.UTC()
+	return &reset
+}
+
+// launcherLimitTurnEnded: a turn of machine's session sid ended. When it ended on the subscription's usage limit,
+// with a reset still ahead, the launcher the session names counts as usage-limited on machine until then (source
+// healthSourceSession): an agent started with it there would be refused at once too. Nothing runs for it, no check
+// (it would spend a request to be refused) and no repair. The assistant's conversations count as well: the main
+// chat runs the machine's launcher under the same sign-in, so its limit is the launcher's.
+func (s *Service) launcherLimitTurnEnded(ctx context.Context, machine, sid string) {
+	// Once the turn stayed still, as a task's end is judged (settleDelay): right after a write the node's list may not
+	// have read the transcript yet (its meta is read again at most every few seconds), and says no error meanwhile.
+	time.Sleep(s.settleDelay(ctx))
+	// As the node lists it, when the fleet is here: the fields below are the node's, and the decorated copy
+	// session.get answers with costs a pass over the machine's whole list.
+	sess, ok := s.nodeSession(machine, sid)
+	if !s.fleetOn() {
+		sess, ok = s.session(ctx, machine, sid)
+	}
+	if !ok || sess.Launcher == "" {
+		return
+	}
+	lim := limitOfTurn(sess)
+	reset, ok := usageLimitReset(lim)
+	if now := time.Now(); !ok || !reset.After(now) || reset.Sub(now) > healthLimitMax {
+		return
+	}
+	if r, found := s.launcherHealth(ctx, machine, sess.Launcher); found {
+		if at, limited := r.limitReset(); limited && !at.Before(reset) {
+			return // known already (each turn a background task wakes meets it again)
+		}
+	}
+	s.recordHealth(ctx, machine, sess.Launcher, healthResult{err: lim.TurnError, source: healthSourceSession, kind: errKindUsageLimit, resetsAt: &reset})
+}
+
+// limitOfTurn is sess's latest turn error decorated with what it says of a usage limit (decorateLimit): the node's
+// word, else Claude Code's last words when they are the error. Whatever sess's state now, unlike the lists'
+// turnError: a background task wakes an agent its limit stopped again and again, and it counts as working meanwhile.
+func limitOfTurn(sess proto.Session) proto.Session {
+	out := proto.Session{TurnErrorResetsAt: sess.TurnErrorResetsAt, UpdatedAt: sess.UpdatedAt}
+	out.TurnError, out.TurnErrorKind = latestTurnError(sess)
+	decorateLimit(&out)
+	return out
+}
+
 // terminalMissing: err is the node's refusal of a start whose new terminal tab could not run the launcher or its claude
 // (launcher_missing / claude_missing with where "terminal", node/shellmiss.go, #1642).
 func terminalMissing(err error) bool {
@@ -480,6 +586,11 @@ var launcherErrorKinds = []struct {
 	kind string
 	re   *lazyre.Regexp
 }{
+	// First: the limit's words name no other cause, and its line may carry a prefix ("Error: …"). Claude Code's own
+	// line ("You've hit your session limit · resets 4:20pm (…)", an older "Claude AI usage limit reached|…") and
+	// Codex's (its message, its error kinds in a rollout and the app-server). A gateway's 429, "rate limit" or "quota"
+	// is not a subscription's limit and stays in its class.
+	{errKindUsageLimit, lazyre.New(`(?i)\byou(?:'|’)ve hit your [^·\n.]{0,40}\blimit\b|usage limit reached|usage_limit_exceeded|usageLimitExceeded`)},
 	{errKindModelRoute, lazyre.New(`(?i)bare claude model name|cannot be routed|no account match|model[^.\n]{0,60}(not found|not supported|not available|does not exist|unknown)|unknown model|invalid model`)},
 	{errKindAuth, lazyre.New(`(?i)\b40[13]\b|invalid (or missing )?(api[ _-]?key|x-api-key|token|bearer)|authentication_error|unauthori[sz]ed|not logged in|please run /login|token (has )?expired|permission_error|forbidden|requires \w+ auth|no \w+ auth token|auth login`)},
 	{errKindCLIOutdated, lazyre.New(`(?i)unknown option|unrecognized option|unexpected argument|please (update|upgrade)|(update|upgrade) (claude|codex|your)|version[^.\n]{0,40}(too old|no longer supported|not supported|outdated)|minimum (required )?version|requires (a )?newer`)},
@@ -496,9 +607,12 @@ func classifyLauncherError(text string) string {
 	return errKindOther
 }
 
-// repairNow: a failure the repairs know right away; the others wait for a second one in a row.
+// repairNow: a failure the repairs know right away; the others wait for a second one in a row. Never a usage limit,
+// however many in a row: nothing on the machine is broken, it waits for the reset.
 func (r LauncherHealth) repairNow() bool {
 	switch r.Kind {
+	case errKindUsageLimit:
+		return false
 	case errKindModelRoute, errKindAuth, errKindCLIOutdated:
 		return true
 	}
@@ -617,7 +731,14 @@ func (s *Service) checkMachine(ctx context.Context, d Device, cfg healthConfig, 
 		if only == "" {
 			r, ok := s.launcherHealth(ctx, d.ID, name)
 			since := time.Since(r.CheckedAt)
-			if ok && since < cfg.interval && !(cameOnline && since >= healthOnlineRecheck) {
+			if reset, limited := r.limitReset(); limited {
+				// A check before the reset is refused too, and spends a request for it; the first round after it
+				// checks, whatever the interval. From a minute after, as the manager continues a turn its limit
+				// stopped (limitContinueAfter): one right at the reset may still be refused.
+				if time.Now().Before(reset.Add(limitContinueAfter)) {
+					continue
+				}
+			} else if ok && since < cfg.interval && !(cameOnline && since >= healthOnlineRecheck) {
 				continue
 			}
 			if ok && r.Kind == errKindNotInTerminal && r.unusable() {
@@ -684,14 +805,22 @@ func rehome(dir string, from, to Device) string {
 
 // healthDetour is where a start with launcher on machine m goes instead: another machine when its last check failed
 // there and another has it healthy (moved), with a line saying so for whoever started it; no other: m, and the line
-// says it may fail.
+// says it may fail. A usage limit with a known reset says when that is.
 func (s *Service) healthDetour(ctx context.Context, m Device, launcher string) (Device, string, bool) {
 	r, bad := s.launcherUnusable(ctx, m.ID, launcher)
 	if !bad {
 		return m, "", false
 	}
+	alt, moved := s.healthyMachine(ctx, launcher, m.ID)
+	if note := r.resetNote(); note != "" {
+		what := fmt.Sprintf("launcher %s is at its subscription usage limit on %s (%s)", launcher, m.ID, note)
+		if moved {
+			return alt, fmt.Sprintf("%s, so this runs on %s instead", what, alt.ID), true
+		}
+		return m, what + " and no other machine has it healthy; started there anyway", false
+	}
 	why := fmt.Sprintf("%s: %s", r.Kind, clip(r.Error, 160))
-	if alt, ok := s.healthyMachine(ctx, launcher, m.ID); ok {
+	if moved {
 		return alt, fmt.Sprintf("launcher %s failed its health check on %s (%s), so this runs on %s instead", launcher, m.ID, why, alt.ID), true
 	}
 	return m, fmt.Sprintf("launcher %s failed its last health check on %s (%s) and no other machine has it healthy; started there anyway", launcher, m.ID, why), false
@@ -707,7 +836,11 @@ func (s *Service) healthLines(ctx context.Context, machine string) string {
 		if b.Len() == 0 {
 			b.WriteString("Launchers that do not work now (agent_start / task_plan move off them):\n")
 		}
-		fmt.Fprintf(&b, "- machine=%s launcher=%s · %s · %s: %s · checked %s\n", r.Machine, r.Launcher, r.State, r.Kind, clip(r.Error, 200), ago(r.CheckedAt))
+		fmt.Fprintf(&b, "- machine=%s launcher=%s · %s · %s: %s · checked %s", r.Machine, r.Launcher, r.State, r.Kind, clip(r.Error, 200), ago(r.CheckedAt))
+		if note := r.resetNote(); note != "" {
+			b.WriteString(" · " + note)
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -719,10 +852,11 @@ type launcherWithHealth struct {
 }
 
 type launcherHealthView struct {
-	State     string    `json:"state"`
-	Kind      string    `json:"kind,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
+	State     string     `json:"state"`
+	Kind      string     `json:"kind,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	CheckedAt time.Time  `json:"checked_at"`
+	ResetsAt  *time.Time `json:"resets_at,omitempty"` // a usage limit's reset: unusable until then
 }
 
 // withHealth puts machine's health records on its launchers (none: never checked).
@@ -732,6 +866,9 @@ func (s *Service) withHealth(ctx context.Context, machine string, list []Configu
 		v := launcherWithHealth{ConfiguredLauncher: l}
 		if r, ok := s.launcherHealth(ctx, machine, l.Name); ok && (r.State == healthOK || r.unusable()) { // not a failure too old to count
 			v.Health = &launcherHealthView{State: r.State, Kind: r.Kind, Error: r.Error, CheckedAt: r.CheckedAt}
+			if reset, limited := r.limitReset(); limited {
+				v.Health.ResetsAt = &reset
+			}
 		}
 		out = append(out, v)
 	}

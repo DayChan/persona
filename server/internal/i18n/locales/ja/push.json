@@ -16,5 +16,6 @@
   "delegate_recommend_suffix": "\nアシスタントのおすすめ：{answer}",
   "question_more_options": " ほか {count} 個",
   "question_more_one": "ほかに {count} 問",
-  "question_more_other": "ほかに {count} 問"
+  "question_more_other": "ほかに {count} 問",
+  "usage_limit": "利用上限に達しました。リセット後に続けさせてください：{error}"
 }

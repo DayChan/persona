@@ -43,6 +43,12 @@ func (s *Service) actOn(ctx context.Context, v *workView, machine string, c prot
 		e.WakeAt, w.WakeAt, w.Attempts, w.Max = &at, &at, e.Retries, maxRetries(cfg)
 		return
 	case proto.WaitExternal, proto.WaitAgent:
+		if w.ResetsAt != nil {
+			if !actOnLimit(c, e, sw.AutoContinue, l, now) {
+				return
+			}
+			break
+		}
 		if w.Wait == "" && w.Agent == nil {
 			return // a background task or a /loop: it wakes itself
 		}
@@ -93,6 +99,28 @@ func (s *Service) actOn(ctx context.Context, v *workView, machine string, c prot
 	}
 	e.InteractionID = s.openCard(machine, c, *w)
 	w.InteractionID = e.InteractionID
+}
+
+// actOnLimit decides about a usage-limit wait (docs/assistant/agent-work.md "Usage limits"): none of a wait's risky
+// checks or wakes, nothing its next step could set off — it goes on with what the limit stopped. The CLI that goes on
+// by itself at the reset is left to it: typing into it would cancel that. Otherwise, with auto_continue on, the
+// manager continues it a minute or so after the reset, up to maxLimitContinues times with no productive turn between
+// (a reset read too early is refused again at once); then the user is asked. card: e's work is the user's now.
+func actOnLimit(c proto.Session, e *db.SessionWork, autoContinue bool, l i18n.Lang, now time.Time) (card bool) {
+	w := &e.Work
+	if c.TurnErrorResumes || !autoContinue {
+		return false
+	}
+	if e.Retries >= maxLimitContinues {
+		*w = proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitUser, TurnAt: w.TurnAt, At: w.At, By: w.By, ResetsAt: w.ResetsAt,
+			Line: clip(oneLine(workT(l, "limit_again_line", i18n.Args{"n": e.Retries})), 60),
+			Questions: []proto.Question{{Question: workT(l, "limit_again_ask", i18n.Args{"n": e.Retries, "error": clip(oneLine(c.TurnError), 300)}),
+				Header: workT(l, "header_limit"), Options: []proto.QuestionOption{{Label: answerLabel(l, answerRetry)}, {Label: answerLabel(l, answerSkip)}}}}}
+		return true
+	}
+	at := limitContinueAt(*w.ResetsAt, now)
+	e.WakeAt, w.WakeAt, w.Attempts, w.Max = &at, &at, e.Retries, maxLimitContinues
+	return false
 }
 
 // wakeAfter: the first wake after checkMinutes (2–240, else 10), then each one twice as late, at most an hour (or

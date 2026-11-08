@@ -122,6 +122,9 @@ type tasksState struct {
 	receipted map[string]time.Time
 	// awaitingAnswer remembers a stopped status whose transcript still ends in a tool.
 	awaitingAnswer map[SessionRef]bool
+	// limitLooks: when a task agent's usage-limit wait is looked at again (taskTurnEndedAfter), one look per agent
+	// however many turns the wait's wakes end.
+	limitLooks map[SessionRef]time.Time
 	// retrying: the tasks whose agent is starting again after a failed start (one start at a time, #1396).
 	retrying map[string]bool
 	// outcomes: the completions whose outcome was recorded (todo_outcome.go, outcomeKey).

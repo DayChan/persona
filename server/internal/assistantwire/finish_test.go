@@ -63,3 +63,20 @@ func TestQuietTaskFinish(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code's own lines for a refused request are cut-offs at the start of an answer, and only there; a reply
+// that only starts like one is a reply (#1710).
+func TestCutOffRefusals(t *testing.T) {
+	for text, want := range map[string]bool{
+		"You've hit your session limit · resets 4:20pm (UTC)":                      true,
+		"You’ve hit your weekly limit · resets Sep 28, 4pm (UTC)":                  true,
+		"Please run /login · API Error: 403 forbidden":                             true,
+		"Login expired · Please run /login":                                        true,
+		"You've hit your target of 90% coverage; next I'll look at the rate limit": false,
+		"Fixed it. If you see \"Please run /login\", sign in again.":               false,
+	} {
+		if got := CutOff(text); got != want {
+			t.Errorf("CutOff(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

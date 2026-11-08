@@ -3,10 +3,12 @@ import SwiftUI
 
 /// Agent state dot (docs/protocol/agent-states.md): needs you breathes — the one dot that moves, and not with Reduce Motion;
 /// working has a still ring around it (its spinner is in the work and tool rows); finished-unseen solid green, seen
-/// muted gray.
+/// muted gray. Waiting in the background (#6045): a clock in Working's amber, lighter.
 struct StatusDot: View {
     var state: AgentState
     var size: CGFloat = 9
+    /// It only waits in the background (`Session.waitsInBackground`).
+    var waiting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The needs-you ring: one breath every `breath` seconds, out to `1 + breathScale` times the dot as it fades.
@@ -17,7 +19,13 @@ struct StatusDot: View {
 
     var body: some View {
         Group {
-            if state == .working {
+            if state == .working, waiting {
+                // As wide as the working ring around a dot.
+                Theme.Icon.image(Theme.Icon.backgroundWaiting) // resizable: an Image, not ThemedIcon
+                    .resizable().scaledToFit()
+                    .frame(width: size * 1.7, height: size * 1.7)
+                    .foregroundStyle(StatusPalette.backgroundWaiting.dot)
+            } else if state == .working {
                 StrokeShapeView(shape: Circle().scale(1.7), style: state.color.opacity(0.45),
                                 strokeStyle: StrokeStyle(lineWidth: 1.5 * 1.7), isAntialiased: true,
                                 background: Circle().fill(state.color))
@@ -47,7 +55,7 @@ struct StatusDot: View {
             }
         }
         .frame(width: size, height: size)
-        .accessibilityLabel(state.label)
+        .accessibilityLabel(state == .working && waiting ? String(localized: "Waiting in the background") : state.label)
     }
 }
 
@@ -82,13 +90,25 @@ struct SessionAvatar: View {
     }
 }
 
+/// The BeautifulUI style's mark for an agent's state, its task badge (docs/protocol/agent-states.md): Needs You a red badge with "!", working the
+/// turning ring, Unread the green check, seen an empty ring; offline and unknown a gray dot. Still, apart from the
+/// working ring: the red badge says Needs You without the breathing dot's 30 fps redraw. Waiting in the background
+/// (#6045): a clock in Working's amber, lighter.
 struct AgentStateBadge: View {
     var state: AgentState
+    /// It only waits in the background (`Session.waitsInBackground`).
+    var waiting = false
     private static let attention = BUIGlyph("M12 6v8M12 18.5v.01")
 
     var body: some View {
         switch state {
         case .needsYou: badge(Theme.needsYou, Self.attention)
+        case .working where waiting:
+            Theme.Icon.image(Theme.Icon.backgroundWaiting) // resizable: an Image, not ThemedIcon
+                .resizable().scaledToFit()
+                .frame(width: Theme.Size.badge, height: Theme.Size.badge)
+                .foregroundStyle(StatusPalette.backgroundWaiting.dot)
+                .accessibilityLabel(String(localized: "Waiting in the background"))
         case .working: BUISpinner(size: Theme.Size.badge, lineWidth: Theme.Size.rule)
         case .unread: badge(Theme.positive, .check)
         case .idle: Circle().strokeBorder(Theme.cardStroke, lineWidth: Theme.Size.rule).frame(width: Theme.Size.badge, height: Theme.Size.badge)

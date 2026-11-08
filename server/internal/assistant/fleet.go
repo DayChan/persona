@@ -266,6 +266,11 @@ func turnError(sess proto.Session) (text, kind string) {
 	if sess.State != proto.StateUnread && sess.State != proto.StateIdle {
 		return "", ""
 	}
+	return latestTurnError(sess)
+}
+
+// latestTurnError is turnError whatever sess's state now: the node's word, else its last words when they are the error.
+func latestTurnError(sess proto.Session) (text, kind string) {
 	if text := strings.TrimSpace(sess.TurnError); text != "" {
 		return text, sess.TurnErrorKind
 	}
@@ -289,6 +294,8 @@ func turnErrorCode(text string) string {
 		return proto.TurnErrorModelRoute
 	}
 	switch classifyLauncherError(t) { // the launcher health checks' classes (launcher_health.go)
+	case errKindUsageLimit:
+		return proto.TurnErrorRateLimited
 	case errKindAuth:
 		return proto.TurnErrorAuthFailed
 	case errKindModelRoute:

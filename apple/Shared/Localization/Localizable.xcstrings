@@ -20441,6 +20441,29 @@
         }
       }
     },
+    "Waiting in the background": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting in the background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドで待機中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台等待中"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Running %lld agents [Subagent Grid]": {
       "localizations": {
         "en": {

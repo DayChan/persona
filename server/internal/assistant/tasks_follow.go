@@ -200,6 +200,13 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 		if w := c.Work; w != nil && w.Phase == proto.WorkBlocked && w.On == proto.WaitTransient && w.WakeAt != nil {
 			return // "Continue" goes by itself (agents_work.go): the receipt waits for how that ends
 		}
+		if now := time.Now(); limitTakenUp(c, now) {
+			// A usage limit stopped it until the reset, and its CLI or the manager goes on then (usage_limit.go): the
+			// receipt waits for how that ends. Looked at again once the wait is over, so a turn that did not go on after
+			// all (the continue cancelled) still gets its receipt.
+			s.taskTurnEndedAfter(ctx, machine, sid, limitLookAgain(c, now))
+			return
+		}
 		if c.UpdatedAt.After(last.UpdatedAt) {
 			last = c
 		}
@@ -318,6 +325,32 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	}
 	s.taskReport(t, reportDone, name, [2]string{last.MachineID, last.SessionID}, text, nil)
 	s.autoFinishTask(t, since, worked) // the work may be finished: then the todo is done (done.go)
+}
+
+// taskTurnEndedAfter has taskTurnEnded look at sid's task again at at. What happened meanwhile decides as ever: a turn
+// that went on and ended had its own receipt, one that works again has none yet. A look already set for as early is
+// enough (one still waiting then sets the next): the wait's wakes (a background task reporting, a /loop) end a turn
+// each, and each comes here.
+func (s *Service) taskTurnEndedAfter(ctx context.Context, machine, sid string, at time.Time) {
+	ref := SessionRef{MachineID: machine, SessionID: sid}
+	s.tasks.mu.Lock()
+	if s.tasks.limitLooks == nil {
+		s.tasks.limitLooks = map[SessionRef]time.Time{}
+	}
+	if pending, ok := s.tasks.limitLooks[ref]; ok && !pending.After(at) { // one as early is set: it looks again if need be
+		s.tasks.mu.Unlock()
+		return
+	}
+	s.tasks.limitLooks[ref] = at
+	s.tasks.mu.Unlock()
+	time.AfterFunc(time.Until(at), func() {
+		s.tasks.mu.Lock()
+		if s.tasks.limitLooks[ref].Equal(at) {
+			delete(s.tasks.limitLooks, ref)
+		}
+		s.tasks.mu.Unlock()
+		s.taskTurnEnded(ctx, machine, sid)
+	})
 }
 
 // routeToTask sends text straight to the agent of task todoID that most needs it, and keeps it in the conversation as

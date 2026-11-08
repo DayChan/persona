@@ -854,6 +854,8 @@ export interface InitializeResult {
   version: string;
   /** A subset of the manifest's. */
   contributes?: Record<string, unknown>;
+  /** Request-ID scoped rpc.cancel for mounted page lifecycle calls only. */
+  ui_page_cancellation?: 1;
 }
 
 /**

@@ -335,6 +335,7 @@ func (h *Manager) uiStream(ctx context.Context, call extwire.UIStreamCall) (json
 		// The native render revision is independent of the emitted wire revision.
 		err = s.process.Call(cctx, "ui.page.event", map[string]any{"session": s.id, "ticket": randomHex(16), "interaction": map[string]any{"generation": nativeGeneration, "version": nativeVersion, "eventId": event.EventID, "key": event.Key, "actionId": event.Action, "values": event.Value}}, &result)
 		cancel()
+		callErr := err
 		var presentation json.RawMessage
 		if err == nil && result.Status == "accepted" {
 			presentation, err = pageResult(s, result.Result)
@@ -371,6 +372,10 @@ func (h *Manager) uiStream(ctx context.Context, call extwire.UIStreamCall) (json
 		}
 		s.order = append(s.order, event.EventID)
 		s.receipts[event.EventID] = pageReceipt{body: body, frame: frame}
+		// Keep the ambiguous write receipt, but a failed HTTP load is not a ready View.
+		if s.legacy && callErr != nil {
+			return nil, callErr
+		}
 		return frame, nil
 	}
 	if req.Request == "suspend" {
@@ -579,7 +584,12 @@ func (h *Manager) pageMount(ctx context.Context, s *pageSession) (pageNative, er
 	s.mountCancel = cancel
 	h.uiPages.mu.Unlock()
 	defer close(done)
-	err := s.process.Call(ctx, "ui.page.mount", map[string]any{"session": s.id, "params": s.params}, &native)
+	// Transport is a host lifecycle decision, not an app-supplied UI version hint.
+	transport := "stream"
+	if s.legacy {
+		transport = "snapshot"
+	}
+	err := s.process.Call(ctx, "ui.page.mount", map[string]any{"session": s.id, "params": s.params, "transport": transport}, &native)
 	return native, err
 }
 

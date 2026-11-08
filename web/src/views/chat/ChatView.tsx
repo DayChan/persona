@@ -60,6 +60,8 @@ import { publishPlan } from "../../lib/plan-store";
 import { ChatContext, FreshWords, LiveClockContext, type ChatContextValue } from "./chat-context";
 import { backgroundLine, backgroundWaitLine, waitingOnWorkflow, workflowCalls, workflowCallsKey } from "../../lib/workflows";
 import { seekCall } from "./jump";
+import { navRailTicks } from "../../lib/nav-rail";
+import { NavRail } from "./NavRail";
 import { ChatLineView, closedRecap, closeRecap, OpenRecapLine } from "./Lines";
 import { useTranscript } from "./useTranscript";
 import { ArchiveCloseDialog, CloseAgentDialog, DeleteSessionDialog, ModeChips, RenameDialog, RenameSpaceDialog, SessionInfoDialog } from "./SessionDialogs";
@@ -681,6 +683,30 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const lastTasks = useRef<TaskIndex | undefined>(undefined);
   const tasks = useMemo(() => stableValue(lastTasks.current, buildTaskIndex(tr.items)), [tr.items]);
   lastTasks.current = tasks;
+  // the question rail (#1739): one tick per question of yours among the loaded lines — the model picks them, NavRail
+  // draws them in the side margin and this view jumps (only what is loaded counts; the rail never pages history in)
+  const railTicks = useMemo(() => navRailTicks(lines), [lines]);
+  /** Brings a row into view in the chat's own scroller (scrollIntoView would also scroll an opening group's clipped
+   *  box): following the end stops, and the jump's first frames do not pick it up again (`jumping`). */
+  const landRow = useCallback(
+    (row: HTMLElement, topOffset: number) => {
+      const sc = scroller.current;
+      if (!sc) return;
+      follow(false);
+      clearTimeout(jumping.current);
+      jumping.current = window.setTimeout(() => (jumping.current = 0), 1200);
+      sc.scrollTo({ top: sc.scrollTop + row.getBoundingClientRect().top - sc.getBoundingClientRect().top + topOffset, behavior: scrollBehavior() });
+    },
+    [follow],
+  );
+  const railJump = useCallback(
+    (lineId: string) => {
+      // the question lands a little under the top, its answer below it
+      const row = scroller.current?.querySelector<HTMLElement>(`[data-line="${CSS.escape(lineId)}"]`)?.firstElementChild;
+      if (row instanceof HTMLElement) landRow(row, -12);
+    },
+    [landRow],
+  );
   // the subagents the agent is waiting on (#5602): running, launched in the foreground, their calls not answered yet
   const callsAnswered = useMemo(() => new Set(tr.items.filter((i) => i.kind === "tool_result" && i.tool_use_id).map((i) => i.tool_use_id!)), [tr.items]);
   const waitingOn = useMemo(() => (assistant ? null : agentsWorking(subagents, callsAnswered)), [assistant, subagents, callsAnswered]);
@@ -713,14 +739,10 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
       }
       const sc = scroller.current;
       if (!row || !sc) return void toast(t("chat-chatview.call_not_loaded"));
-      const s = sc.getBoundingClientRect();
-      const r = row.getBoundingClientRect();
-      clearTimeout(jumping.current);
-      jumping.current = window.setTimeout(() => (jumping.current = 0), 1200);
-      sc.scrollTo({ top: sc.scrollTop + (r.top - s.top) - (sc.clientHeight - r.height) / 2, behavior: "smooth" });
+      landRow(row, -(sc.clientHeight - row.getBoundingClientRect().height) / 2);
       row.animate?.([{ backgroundColor: "var(--accent-tint)" }, { backgroundColor: "transparent" }], { duration: 1800, easing: "ease-out" });
     },
-    [mid, sid, follow, expandFold],
+    [mid, sid, follow, expandFold, landRow],
   );
   const jump = useCallback((call: string) => void jumpToCall(call), [jumpToCall]);
   // its workflow runs by the Workflow call that launched each (#3434): rebuilt only when a run starts or goes, not with
@@ -1061,6 +1083,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           {!readOnly && <CommentMarks scroller={scroller} />}
           </ChatActionsContext.Provider>
         </div>
+        {/* the rail sits in the chat area's side margin; it renders nothing when the chat is narrow or short */}
+        <NavRail ticks={railTicks} scroller={scrollEl} onJump={railJump} reset={`${mid}/${sid}`} />
         {away && !jumpInDock && <JumpPill label={jumpLabel(newSince)} onClick={toEnd} />}
         {picked && !search.open && <ReturnPill onClick={backToOrigin} />}
       </div>

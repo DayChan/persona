@@ -901,6 +901,10 @@ func (p *Proc) initialize(ctx context.Context, s *session) error {
 		}
 	}
 	s.result = res
+	if res.UIPageCancellation == 1 {
+		// Negotiate before readiness; older installed SDKs never receive rpc.cancel.
+		s.peer.Cancels = map[string]bool{"ui.page.mount": true, "ui.page.event": true, "ui.page.resume": true}
+	}
 	return nil
 }
 

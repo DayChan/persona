@@ -2629,7 +2629,7 @@ struct ChatView: View {
                     } else {
                         if let s = session {
                             if !s.assistant { AgentMark(s, side: Theme.Size.markXS) } // its agent before its state (#6390)
-                            StatusDot(state: s.state, size: 7)
+                            StatusDot(state: s.state, size: 7, waiting: s.waitsInBackground)
                         }
                         Text(compactPlace).lineLimit(1).truncationMode(.middle)
                     }
@@ -2680,15 +2680,17 @@ struct ChatView: View {
     }
 
     /// The folded header's sign of a loop / background tasks: a gear with the count, or the loop arrows (still: only
-    /// Needs You and the work spinner move). The same symbols and tints as the open header's pill (`ActivityChips`).
+    /// Needs You and the work spinner move). The same symbols and tints as the open header's pill (`ActivityChips`):
+    /// a clock, lighter, when all of it only waits (#6045).
     private var activityMark: some View {
         let bg = session?.background?.count ?? 0
+        let waiting = bg > 0 && session?.waitsInBackground == true
         return HStack(spacing: Theme.Space.xxs) {
-            ThemedIcon(bg > 0 ? ActivityChips.backgroundSymbol : ActivityChips.loopSymbol)
+            ThemedIcon(waiting ? Theme.Icon.backgroundWaiting : bg > 0 ? ActivityChips.backgroundSymbol : ActivityChips.loopSymbol)
                 .font(Theme.Font.labelHeavy)
             if bg > 0 { Text("\(bg)").font(Theme.Font.labelHeavy.monospacedDigit()) }
         }
-        .foregroundStyle(bg > 0 ? Theme.busy : Theme.loop)
+        .foregroundStyle(waiting ? StatusPalette.backgroundWaiting.dot : bg > 0 ? Theme.busy : Theme.loop)
         .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.wellM)
         .contentShape(.rect)
     }
@@ -2883,7 +2885,7 @@ struct ChatView: View {
             let machine = model.namedMachine(s.machineRef)?.title ?? s.machineID
             HStack(spacing: Theme.Space.xs) {
                 AgentMark(s, side: Theme.Size.markXS) // its agent before its state (#6390); this line is an agent's only
-                StatusDot(state: s.state, size: 7)
+                StatusDot(state: s.state, size: 7, waiting: s.waitsInBackground)
                 // Not ViewThatFits: that measured both lines again at every width of a window resize (#1337).
                 FirstFitting {
                     subtitleLine(s, words, [machine, place])
@@ -2903,7 +2905,7 @@ struct ChatView: View {
         }
         let tail = parts.map { " · " + $0 }.joined()
         return (Text(words).fontWeight(.semibold)
-            .foregroundStyle(s.state == .idle || s.state == .offline || s.state == .unknown ? Color.secondary : s.state.tone.text)
+            .foregroundStyle(s.state == .idle || s.state == .offline || s.state == .unknown ? Color.secondary : s.stateTone.text)
             + Text(tail).foregroundStyle(.secondary))
             .lineLimit(1) // FirstFitting picks by the ideal (one-line) width; the last one truncates
     }
@@ -2923,8 +2925,9 @@ struct ChatView: View {
 
     /// "Working 22 min" while a turn runs (minutes: the work line in the chat has the seconds), else the state's name.
     private func stateWords(_ s: Session, now: Date) -> String {
-        // Its turn ended and a workflow / background work keeps it going (#2935): 「工作中（后台）」, not the turn's time.
-        if s.isBackgroundWorking { return s.stateLabel }
+        // Its turn ended and a workflow / background work keeps it going (#2935): 「工作中（后台）」, not the turn's time;
+        // or all it runs only waits (#6045): 「后台等待中」.
+        if s.isBackgroundWorking || s.waitsInBackground { return s.stateLabel }
         guard s.state == .working, status.isActive, case .turn(let t)? = store.blocks.last, let start = t.startedAt else { return s.state.label }
         let m = Int(now.timeIntervalSince(start)) / 60
         if m < 1 { return s.state.label }
@@ -3107,7 +3110,7 @@ struct ChatView: View {
                 Spacer(minLength: 0)
             }
             if activity {
-                ActivityChips(loop: session?.loop, background: session?.background ?? []) { showActivity = true }
+                ActivityChips(loop: session?.loop, background: session?.background ?? [], waiting: session?.waitsInBackground == true) { showActivity = true }
             }
         }
     }

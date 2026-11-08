@@ -458,6 +458,8 @@ func (s *Service) TurnEnded(ctx context.Context, r SessionRef) {
 	go s.taskTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)
 	go s.workTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)    // its triage (agents_work_turns.go)
 	go s.channelTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID) // a channel's answer, the sync mirror
+	// A usage limit marks the launcher there until it resets (launcher_health.go).
+	go s.launcherLimitTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)
 	s.titleAfterTurn(ctx, r.MachineID, r.SessionID)
 }
 

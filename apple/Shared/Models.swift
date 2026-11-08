@@ -670,6 +670,10 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
     /// the hub on a Unread or Seen one; an Seen one is listed as Awaiting Reply, not folded with the idle ones. False from
     /// older hubs.
     var awaitsReply: Bool = false
+    /// Its turn has ended and all it still runs in the background only waits (`sleep`, `gh … --watch`, `tail -f`; the
+    /// hub's `background_waiting`, #6045): set only with `state` working, never while a subagent or workflow runs. False
+    /// from older hubs. The rule is `waitsInBackground`.
+    var backgroundWaiting: Bool = false
     /// What it is doing when its latest step is a tool call no words came after (「在跑测试」「在读 tasks.go」), and since
     /// when; nil once it writes again. The hub's `activity` / `activity_at` (docs/protocol/protocol.md); older hubs send neither.
     var activity: String? = nil
@@ -728,6 +732,12 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
     /// for the lists' order and folds (`AgentListOrder.awaitsReply`) and for every word, color and question a row shows:
     /// a muted one is plain Seen everywhere, so callers say whether it is muted.
     func awaitsYourReply(muted: Bool) -> Bool { state == .idle && awaitsReply && !muted }
+    /// Waiting in the background (#6045): working, but all it runs is waiting. Shown apart from Working and lighter, and
+    /// left out of Working's counts and filter; whatever acts on a working agent (stop, queue) still treats it as one.
+    var waitsInBackground: Bool { state == .working && backgroundWaiting }
+    /// The state counts and the quick filters go by: one that only waits in the background is counted with the quiet
+    /// ones, not as Working (#6045).
+    var countedState: AgentState { waitsInBackground ? .idle : state }
     /// Unique across groups; for the default group exactly what it always was.
     var id: String { (hubGroup.map { $0 + "|" } ?? "") + machineID + "/" + sessionID }
     /// What lists sort by, newest first: a working agent's updated_at moves on every step, so working ones keep
@@ -844,7 +854,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
              assistantSpace = "space",
              spaceKind = "space_kind", spaceID = "space_id", spaceName = "space_name", spaceIndex = "space_index", parentSpaceID = "parent_space_id",
              slotID = "slot_id", slotName = "slot_name", slotIndex = "slot_index", paneIndex = "pane_index", seenAt = "seen_at", stateSince = "state_since", queued, background, loop, goal, subagents, workflows, ports,
-             updatedAt = "updated_at", lastText = "last_text", asks, awaitsReply = "awaits_reply", activity, activityAt = "activity_at", pendingInteractions = "pending_interactions", rev, suggestion,
+             updatedAt = "updated_at", lastText = "last_text", asks, awaitsReply = "awaits_reply", backgroundWaiting = "background_waiting", activity, activityAt = "activity_at", pendingInteractions = "pending_interactions", rev, suggestion,
              starting, startError = "start_error", todo, quiet, hubGroup = "app_hub_group",
              attentionReason = "attention_reason", failureReason = "failure_reason",
              turnError = "turn_error", turnErrorKind = "turn_error_kind", turnErrorCode = "turn_error_code", externalURL = "external_url", channels, origin, compaction, work,
@@ -925,6 +935,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
         lastText = try c.decodeIfPresent(String.self, forKey: .lastText)
         asks = (try? c.decodeIfPresent(String.self, forKey: .asks)).flatMap { $0 } // an odd one never drops the session
         awaitsReply = (try? c.decodeIfPresent(Bool.self, forKey: .awaitsReply)).flatMap { $0 } ?? false
+        backgroundWaiting = (try? c.decodeIfPresent(Bool.self, forKey: .backgroundWaiting)).flatMap { $0 } ?? false
         activity = try c.decodeIfPresent(String.self, forKey: .activity)
         activityAt = try c.decodeIfPresent(Date.self, forKey: .activityAt)
         pendingInteractions = try c.decodeIfPresent(Int.self, forKey: .pendingInteractions) ?? 0

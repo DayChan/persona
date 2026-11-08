@@ -787,7 +787,7 @@ func TestAssistantCodexTurnError(t *testing.T) {
 		t.Fatalf("new turn still has error: %q, %q", s.TurnError, s.TurnErrorKind)
 	}
 	end("t2", "failed", map[string]any{"message": "You've hit your usage limit.", "codexErrorInfo": "usageLimitExceeded"})
-	if s := session(); s.TurnError != "You've hit your usage limit." || s.TurnErrorKind != proto.TurnErrorUser {
+	if s := session(); s.TurnError != "You've hit your usage limit." || s.TurnErrorKind != proto.TurnErrorUsageLimit {
 		t.Fatalf("usage limit error: %q, %q", s.TurnError, s.TurnErrorKind)
 	}
 

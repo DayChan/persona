@@ -81,7 +81,7 @@ func (s *Service) repairMachine(ctx context.Context, d Device, cfg healthConfig)
 	}
 	var left []LauncherHealth
 	for _, r := range todo {
-		if now, ok := s.launcherHealth(ctx, d.ID, r.Launcher); ok && now.State == healthFailing {
+		if now, ok := s.launcherHealth(ctx, d.ID, r.Launcher); ok && now.State == healthFailing && now.repairNow() { // not a usage limit met since
 			left = append(left, now)
 		}
 	}

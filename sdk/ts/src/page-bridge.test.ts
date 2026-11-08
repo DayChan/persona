@@ -89,16 +89,20 @@ test("a separately bundled page uses its own Renderer, symbols and hook context"
   };
   try {
    await call("init", "initialize", {protocol: 1});
-   const mounted = await call("mount", "ui.page.mount", {session: "separate", params: {contribution: "home"}});
-   expect(mounted.error).toBeUndefined();
-   const snapshot = mounted.result;
-   const action = snapshot.view.sections[0].items[1].action.id;
-   const reply = await call("event", "ui.page.event", {session: "separate", ticket: "host-issued", interaction: {
-    generation: snapshot.generation, version: snapshot.version, eventId: "one", key: "change", actionId: action, values: {},
-   }});
-   expect(reply.result.status).toBe("accepted");
-   expect(reply.result.snapshot.view.sections[0].items[0].text).toBe("1");
-   expect(reply.result.result).toEqual({toast: "Saved"});
+   for (const transport of ["stream", "snapshot"]) {
+    const mounted = await call(`mount-${transport}`, "ui.page.mount", {session: transport, transport, params: {contribution: "home"}});
+    expect(mounted.error).toBeUndefined();
+    const snapshot = mounted.result;
+    const action = snapshot.view.sections[0].items[1].action.id;
+    const params = {session: transport, ticket: "host-issued", interaction: {
+     generation: snapshot.generation, version: snapshot.version, eventId: "one", key: "change", actionId: action, values: {},
+    }};
+    const reply = await call(`event-${transport}`, "ui.page.event", params);
+    expect(reply.result.status).toBe("accepted");
+    expect(reply.result.snapshot.view.sections[0].items[0].text).toBe("1");
+    expect(reply.result.result).toEqual({toast: "Saved"});
+    expect((await call(`replay-${transport}`, "ui.page.event", params)).result).toEqual(reply.result);
+   }
   } finally { connection.close(); }
  } finally { await rm(dir, {recursive: true, force: true}); }
 });

@@ -13,7 +13,7 @@ nonisolated struct AgentListOrder {
     var held: SessionKey? = nil
 
     /// The sections of By Status, in rank order.
-    static let stateKeys = ["needs", "unread", "awaiting", "working", "waiting", "muted", "idle"]
+    static let stateKeys = ["needs", "unread", "awaiting", "working", "background", "waiting", "muted", "idle"]
 
     /// Awaiting Reply (#5096): seen, stopped on a question nobody answered yet, and not muted (a muted one folds with
     /// the idle ones, as it did before). The one rule is `Session.awaitsYourReply(muted:)`, which the rows use too.
@@ -26,19 +26,20 @@ nonisolated struct AgentListOrder {
     }
 
     /// One order for every grouping (inside a space, a machine, and the sections of By Status):
-    /// Needs You → Unread → Awaiting Reply → Working → Waiting → Muted → Seen. Muted agents that are working,
-    /// finished-unread or waiting rank as Muted; one that needs you stays first. The index into `stateKeys`.
+    /// Needs You → Unread → Awaiting Reply → Working → Waiting in the Background (`Session.waitsInBackground`, #6045) →
+    /// Waiting → Muted → Seen. Muted agents that are working, finished-unread or waiting rank as Muted; one that needs
+    /// you stays first. The index into `stateKeys`.
     func rank(_ s: Session) -> Int {
         if s.state == .needsYou { return 0 }
         let unread = s.state == .unread || (s.key == held && s.isQuiet)
         let live = s.state == .working || unread || s.isWaiting
-        if live && isMuted(s) { return 5 }
+        if live && isMuted(s) { return 6 }
         if unread { return 1 }
         if awaitsReply(s) { return 2 }
         switch s.state {
         case .unread: return 1
-        case .working: return 3
-        default: return s.isWaiting ? 4 : 6
+        case .working: return s.waitsInBackground ? 4 : 3
+        default: return s.isWaiting ? 5 : 7
         }
     }
 

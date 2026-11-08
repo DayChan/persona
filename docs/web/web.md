@@ -82,6 +82,8 @@ The browser check opens Overview, permission/plan cards, green/orange/AI workflo
   serve the web app with `npx vite preview` (the dev server occasionally breaks module loading on reload), run `python3 scripts/test/web_sidebar_collapse_e2e.py <web URL> [--shots <dir>]`.
   End-to-end check that the chat stays at the latest message (first open, reload, switching in the sidebar, content arriving in chunks, the input growing taller, not pulled back after scrolling up, paging on a slow network; main chat and Agent chats, wide and narrow; #1340):
   start the mock hub with `MOCK_TASKS=1 MOCK_LONG_ASSISTANT=1 MOCK_LONG_HISTORY=1`, then run `python3 scripts/test/web_chat_scroll_e2e.py <web URL> [--hub <mock hub URL>] [--shots <dir>]`.
+  End-to-end check of the question rail (#1739: a tick per question, hover preview, click jump, keyboard focus, idle dim, nothing on a narrow or short chat): start the mock hub with `MOCK_LONG_HISTORY=1 MOCK_STALE_DONE=1` (the long chat idle, so its own animation does not blur the comparison), run
+  `python3 scripts/test/web_nav_rail_e2e.py <web URL> [--base-url <origin/main's web URL>] [--shots <dir>]`; `--base-url` pixel-compares the no-rail states (a phone-width long chat, a short chat) against origin/main served against the same mock hub.
   End-to-end check that new content shows up in a chat without reloading (#3036: new replies appear in the chat view, after switching terminal ⇄ chat several times, when pushed while on the terminal page, and after the page refetches because the `history` token changed): start the mock hub with `MOCK_TERMINAL_STREAM=1 MOCK_TERMINAL_CONTROL=1 MOCK_TERMINAL_PANES=1` (`GET /mock/say?user=…&text=…[&history=<token>]` adds a reply to every chat a page is subscribed to and can also change `history`), run `python3 scripts/test/web_chat_live_e2e.py <web URL> --hub <mock hub URL> [--shots <dir>]`.
   End-to-end check of the main chat's task dock ("All N" is the same height as the pills with top and bottom edges aligned; the pill row has no scrollbar but still scrolls sideways; Chrome runs with always-visible scrollbars, WebKit optional): start the mock hub with
   `MOCK_TASKS=1 MOCK_TASKS_DOCK=pair|many`, then run `python3 scripts/test/web_task_dock_e2e.py <web URL> [--browser chromium|webkit|all] [--shots <dir>]`.
@@ -744,6 +746,16 @@ Refetch on page entry, machine online / offline / confirmed, and window return t
   The avatar empty state follows #3871 (links to Settings › Extensions). The Overview no-computer case is handled by #3729.
 
 Screenshots use an isolated test hub (real readiness for zero computers) plus Playwright API substitutes (offline, not signed in, wrong Key, everything ready, rejected chat open).
+
+### Question rail (#1739)
+
+A long chat is read in turns, and going back to "the question where we discussed X" was scrolling and squinting. On a wide screen with free margin beside the centered chat column, a slim rail of ticks sits in that margin — one per question you asked in the loaded conversation (`src/views/chat/NavRail.tsx`; which turns become ticks, the thresholds and the excerpt trimming are `src/lib/nav-rail.ts`, pure and tested there):
+
+- **Only questions you wrote yourself** become ticks (`isOwnMessage`: not Persona's injected lines, not other sessions' or conversations' messages, not `/loop` wake-ups); a question that is only pictures or picked contexts keeps a tick with a count label. Only what is loaded counts — the rail never pages history in, it fills as you scroll up.
+- **It shows when both hold**: at least 4 questions, and at least 44px of free margin beside the 880px column (`hasNavRailRoom`, measured live — a side panel or a narrow window takes the margin away and the rail goes with it). Narrow screens and short chats render nothing at all, so they look exactly as before.
+- **Hovering or keyboard-focusing a tick previews the question and the start of its answer** (Markdown stripped, one line, capped) in a card by the rail; **clicking jumps to that turn**, the question landing a little under the top with its answer below (`ChatView.railJump`; following the end pauses until you come back). The tick of the turn you are reading is the long, dark one (`aria-current`).
+- **Ticks stay legible at any length**: the 9px pitch compresses to 5px when the rail is short of room, and beyond that only the newest run is kept — a `…` placeholder stands for the dropped ones, with its count on hover.
+- **It dims after 2s of quiet** (never fully hides; a dimmed tick still jumps) and wakes on scrolling, the pointer near the chat's left edge, hover or focus. The wheel over the ticks still scrolls the chat. The rail's container takes no pointer events, so the margin stays free for text selection; strings are `chat-navrail.*` in en / zh-Hans / ja.
 
 ### Terminal ⇄ chat (#2419)
 

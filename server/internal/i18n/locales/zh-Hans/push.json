@@ -16,5 +16,6 @@
   "delegate_recommend_suffix": "\n助手建议：{answer}",
   "question_more_options": " 等 {count} 个",
   "question_more_one": "还有 {count} 个问题",
-  "question_more_other": "还有 {count} 个问题"
+  "question_more_other": "还有 {count} 个问题",
+  "usage_limit": "订阅的用量额度用完了，重置后再让它继续：{error}"
 }

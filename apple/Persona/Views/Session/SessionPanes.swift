@@ -1090,6 +1090,8 @@ struct BackgroundTasksStrip: View {
 struct ActivityChips: View {
     var loop: LoopInfo?
     var background: [BackgroundTask]
+    /// All that background work only waits (`Session.waitsInBackground`, #6045): the clock, lighter, for the gear.
+    var waiting = false
     var open: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -1114,7 +1116,8 @@ struct ActivityChips: View {
                 }
                 if !background.isEmpty {
                     HStack(spacing: Theme.Space.xxs) {
-                        ThemedIcon(Self.backgroundSymbol).font(Theme.Font.labelHeavy).foregroundStyle(Theme.busy)
+                        ThemedIcon(waiting ? Theme.Icon.backgroundWaiting : Self.backgroundSymbol).font(Theme.Font.labelHeavy)
+                            .foregroundStyle(waiting ? StatusPalette.backgroundWaiting.dot : Theme.busy)
                         Text("\(background.count)").monospacedDigit().lineLimit(1)
                     }
                 }

@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/proto"
+	"github.com/nwverse/persona/server/internal/transcript"
 )
 
 // Subscription rate-limit windows of the agents on this machine (#2432, docs/server/usage-windows.md): how much of an
@@ -340,7 +340,7 @@ func parseClaudeStatusLimits(data []byte, mod, now time.Time) (proto.UsageAccoun
 			continue
 		}
 		win := proto.UsageWindow{Label: proto.WindowLabel(def.minutes), WindowMinutes: def.minutes, UsedPercent: clampPercent(*w.UsedPercentage)}
-		if t, ok := parseResetsAt(w.ResetsAt); ok {
+		if t, ok := transcript.ParseResetsAt(w.ResetsAt); ok {
 			win.ResetsAt = &t
 		}
 		wins = append(wins, win)
@@ -350,23 +350,4 @@ func parseClaudeStatusLimits(data []byte, mod, now time.Time) (proto.UsageAccoun
 		return proto.UsageAccount{}, false
 	}
 	return proto.UsageAccount{Provider: "claude", Name: "Claude", Windows: wins, SampledAt: mod.UTC()}, true
-}
-
-// parseResetsAt reads a reset time given as a number (epoch seconds, or milliseconds when it is that large), a
-// numeric string or an RFC 3339 string.
-func parseResetsAt(raw json.RawMessage) (time.Time, bool) {
-	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
-	if s == "" || s == "null" {
-		return time.Time{}, false
-	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 {
-		if f > 1e11 {
-			return time.UnixMilli(int64(f)).UTC(), true
-		}
-		return time.Unix(int64(f), 0).UTC(), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
-	}
-	return time.Time{}, false
 }

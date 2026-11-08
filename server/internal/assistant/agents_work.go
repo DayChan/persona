@@ -31,7 +31,7 @@ import (
 // agent on its own model (docs/assistant/agent-work.md "Switches").
 type TriageSwitches struct {
 	Enabled      bool `json:"enabled"`       // triage stopped turns: the lists' line, done no longer unread
-	AutoContinue bool `json:"auto_continue"` // "Continue" after a transient model error
+	AutoContinue bool `json:"auto_continue"` // "Continue" after a transient model error, and once a usage limit reset
 	Wake         bool `json:"wake"`          // wake agents whose wait should be over
 	Decide       bool `json:"decide"`        // cards for what the user is to decide
 	// ReplyReminder: push once when an agent the user looked at still waits on their answer (agents_reply.go,
@@ -264,8 +264,8 @@ func (s *Service) putTriageSwitches(ctx context.Context, sw TriageSwitches) erro
 	s.work.switches = &sw
 	var stale []db.SessionWork
 	for _, e := range s.work.entries {
-		off := !sw.Enabled || e.Work.On == proto.WaitTransient && !sw.AutoContinue ||
-			(e.Work.On == proto.WaitExternal || e.Work.On == proto.WaitAgent) && !sw.Wake
+		off := !sw.Enabled || continues(e.Work) && !sw.AutoContinue ||
+			!continues(e.Work) && (e.Work.On == proto.WaitExternal || e.Work.On == proto.WaitAgent) && !sw.Wake
 		if e.InteractionID != "" && (!sw.Enabled || !sw.Decide) {
 			delete(s.work.cards, e.InteractionID)
 			e.InteractionID, e.Work.InteractionID = "", ""

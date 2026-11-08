@@ -888,6 +888,8 @@ type InitializeResult struct {
 	Version  string `json:"version"`
 	// A subset of the manifest's.
 	Contributes map[string]json.RawMessage `json:"contributes,omitempty"`
+	// Request-ID scoped rpc.cancel for mounted page lifecycle calls only.
+	UIPageCancellation int `json:"ui_page_cancellation,omitempty"`
 }
 
 // UIParams: ui.render's and ui.action's parameters: what to draw, where, for whom.

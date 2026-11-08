@@ -219,6 +219,12 @@ func (s *Service) notifyFinished(machine, id string, gen int) {
 		// Only the completion decision uses this copy; session state and reports stay intact.
 		sess.Background = append([]proto.BackgroundTask{{ID: "completion-children", Kind: "agent"}}, sess.Background...)
 	}
+	if ok && limitTakenUp(sess, time.Now()) {
+		// A usage limit stopped it until the reset, and its CLI or the manager goes on with it then (usage_limit.go): the
+		// work did not finish, and nothing is the user's to do. The turn stays followed, so the end after the reset is
+		// the one pushed, timed from this start. One nothing takes up is pushed below, as a usage limit (doneAlert).
+		return
+	}
 	if ok && !sess.Assistant && sess.Status != proto.StatusWorking {
 		s.kbAgentDone(machine, sess)
 	}
@@ -385,7 +391,10 @@ func doneAlert(l i18n.Lang, sess proto.Session) (head, text string) {
 	}
 	// The model service cut the turn off: marked ⚠️, not told as done (#1516). A Codex turn's error is no words of its
 	// answer: the session says it (#2185).
-	if e := strings.TrimSpace(sess.TurnError); e != "" {
+	if e := strings.TrimSpace(sess.TurnError); e != "" && sess.TurnErrorKind == proto.TurnErrorUsageLimit {
+		// Not "the model service failed": the subscription's limit, which the user goes on from after it resets.
+		head, text = "⚠️ "+title, i18n.T(l, "push.usage_limit", i18n.Args{"error": e})
+	} else if e != "" {
 		head, text = "⚠️ "+title, interruptedSummary+"："+e
 	} else if assistantwire.CutOff(text) {
 		head, text = "⚠️ "+title, interruptedSummary+"："+strings.TrimSpace(text)

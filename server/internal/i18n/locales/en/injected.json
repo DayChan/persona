@@ -9,5 +9,6 @@
   "lost_tasks": "The node restarted and background tasks stopped",
   "lost_tasks_n_one": "The node restarted and {count} background task stopped",
   "lost_tasks_n_other": "The node restarted and {count} background tasks stopped",
-  "inbox_update": "Inbox: an update on “{title}”"
+  "inbox_update": "Inbox: an update on “{title}”",
+  "limit_continue": "Usage limit reset: Persona told it to go on"
 }

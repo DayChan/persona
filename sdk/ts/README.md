@@ -26,6 +26,20 @@ Program example are in `docs/extensions/extensions.md` ("Opt-in exact JSON integ
 request params"). The portable suite tests raw input against independently
 bundled official host and default Program modules under Node without Bun globals.
 
+## Finite page loading
+
+Use `useLoadEffect` from `@persona/extension/ui` for finite data loads. Keep
+subscriptions and long-lived effects on `useEffect`. The official component-page
+factory advertises snapshot readiness; owner-bound HTTP snapshot sessions wait
+for finite loads within the existing deadline, while native streams retain
+immediate loading and asynchronous updates. The manager selects the transport,
+not the page's UI version.
+
+Page cancellation is negotiated through canonical initialization and stays scoped
+to its mount/event/resume request. Service handlers, exact namespace metadata,
+permissions and resource budgets are unchanged. Cancellation/visibility/generation
+fences suppress late success; arbitrary uncooperative JavaScript is not preempted.
+
 ## Offline CLI
 
 Install this official SDK copy's development dependencies with `npm ci`. The
