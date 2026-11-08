@@ -220,8 +220,9 @@ nonisolated private final class ProxyPipe: @unchecked Sendable {
 }
 
 extension LocalProxyRoute {
-    /// How the forward for `hub` dials: this proxy, its login, and the hub's address from there.
-    func dial(for hub: URL) -> LocalProxyForward.Dial {
+    /// How the forward for `hub` dials: this proxy, its login, and the hub's address from there. Nonisolated like the
+    /// route itself: the tests call it off the main actor, which Swift 6.4 refuses for the app target's default isolation.
+    nonisolated func dial(for hub: URL) -> LocalProxyForward.Dial {
         LocalProxyForward.Dial(proxyHost: host.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "[]")), proxyPort: port,
                                targetHost: targetHost(for: hub), targetPort: targetPort(for: hub),
                                username: login?.username, password: login?.password ?? "")
