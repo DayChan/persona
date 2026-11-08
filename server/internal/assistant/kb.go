@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -130,7 +131,8 @@ func (s *Service) kbGet(ctx context.Context) (*kb.Engine, error) {
 }
 
 func sameKBSettings(a, b assistantwire.KBSettings) bool {
-	return a.ReadOnly == b.ReadOnly && a.Off == b.Off && a.TextDays == b.TextDays && a.AttachmentDays == b.AttachmentDays && slices.Equal(a.ExtraDirs, b.ExtraDirs)
+	return a.ReadOnly == b.ReadOnly && a.Off == b.Off && a.TextDays == b.TextDays && a.AttachmentDays == b.AttachmentDays && slices.Equal(a.ExtraDirs, b.ExtraDirs) &&
+		maps.Equal(a.AttachmentDaysBySource, b.AttachmentDaysBySource)
 }
 
 // kbOpen opens the knowledge base with set: the data directory's lock, the store put into the user's zone, the
@@ -162,7 +164,7 @@ func (s *Service) kbOpenLocked(ctx context.Context, set assistantwire.KBSettings
 		if err != nil {
 			return nil, err
 		}
-		e := &kb.Engine{Store: st, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, RecordingDaysFunc: s.recordingDaysNow, ExtraDirs: kbReadDirs(set.ExtraDirs)}
+		e := &kb.Engine{Store: st, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, RecordingDaysFunc: s.recordingDaysNow, ExtraDirs: kbReadDirs(set.ExtraDirs)}
 		k.cur.Store(&kbOpened{eng: e, set: set})
 		return e, nil
 	}
@@ -197,7 +199,7 @@ func (s *Service) kbOpenLocked(ctx context.Context, set assistantwire.KBSettings
 	}
 	s.kbRezone(k.store, loc)
 	e := &kb.Engine{Store: k.store, Model: s.kbModel("inbox.triage"), ModelFor: func(id string) kb.Model { return s.kbModel(id) },
-		Owner: s.owner(ctx), Logf: s.logf, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, HandleKey: k.key, Index: s.kbIndexEntity, Unindex: s.kbUnindex, RecordingDaysFunc: s.recordingDaysNow, Changed: s.kbChanged, MineObserved: s.kbObserveOwner}
+		Owner: s.owner(ctx), Logf: s.logf, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, HandleKey: k.key, Index: s.kbIndexEntity, Unindex: s.kbUnindex, RecordingDaysFunc: s.recordingDaysNow, Changed: s.kbChanged, MineObserved: s.kbObserveOwner}
 	e.ObserveChanges()
 	e.ExtraDirs = kbReadDirs(set.ExtraDirs)
 	if !k.passed {

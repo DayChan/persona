@@ -3,7 +3,6 @@ package kb
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,68 +343,6 @@ func TestHasPeople(t *testing.T) {
 	}
 	if HasPeople(&Chat{Kind: "bot"}) || !HasPeople(&Chat{Kind: "group"}) {
 		t.Error("kinds")
-	}
-}
-
-// backSource serves one chat whose history goes further back than the first archive run read.
-type backSource struct{ fakeSource }
-
-func (b *backSource) Older(_ context.Context, c SourceChat, before string, limit int) ([]SourceMessage, string, bool, error) {
-	all := b.msgs[c.ID]
-	end := len(all)
-	if before != "" {
-		for i, m := range all {
-			if m.Position == before {
-				end = i
-			}
-		}
-	}
-	start := max(0, end-limit)
-	page := all[start:end]
-	older := ""
-	if len(page) > 0 {
-		older = page[0].Position
-	}
-	return page, older, start > 0, nil
-}
-
-func TestBackfill(t *testing.T) {
-	st, _ := NewStore(t.TempDir())
-	day := time.Now().AddDate(0, 0, -3).Truncate(24 * time.Hour).Add(10 * time.Hour)
-	var msgs []SourceMessage
-	for i := 0; i < 5; i++ {
-		msgs = append(msgs, msg(i, "张三", fmt.Sprintf("第%d条", i), day.Add(time.Duration(i)*time.Minute)))
-	}
-	msgs = append([]SourceMessage{msg(9, "张三", "太旧了", time.Now().AddDate(-2, 0, 0))}, msgs...)
-	src := &backSource{fakeSource{chats: []SourceChat{{ID: "f", Name: "群", Kind: "group", UpdatedAt: day.Add(4 * time.Minute)}},
-		msgs: map[string][]SourceMessage{"f": msgs}}}
-	e := &Engine{Store: st, Sources: []Source{src}, FirstPage: 2}
-	if _, err := e.Archive(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	// More relevant chats of a source that cannot go back (a connector's archive) do not take the run's one place.
-	for _, id := range []string{"github-a", "github-b"} {
-		if err := st.PutChat(&Chat{ID: id, Source: "github", SourceID: id, Kind: "pr", Relevance: 9}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	n, err := e.Backfill(context.Background(), 1, 1)
-	if err != nil || n != 3 {
-		t.Fatalf("backfilled %d %v", n, err)
-	}
-	raw, _ := os.ReadFile(st.Path(KindChat, "lark-f", "messages", day.Local().Format("2006-01-02")+".md"))
-	text := string(raw)
-	if strings.Count(text, "# 群") != 1 || strings.Index(text, "第0条") > strings.Index(text, "第4条") || strings.Contains(text, "太旧了") {
-		t.Fatalf("day file:\n%s", text)
-	}
-	for i := 0; i < 5; i++ {
-		if strings.Count(text, fmt.Sprintf("第%d条", i)) != 1 {
-			t.Fatalf("line %d missing or doubled:\n%s", i, text)
-		}
-	}
-	c, _ := st.Chat("lark-f")
-	if !c.BackfillDone || c.Messages != 5 {
-		t.Fatalf("chat: %+v", c)
 	}
 }
 

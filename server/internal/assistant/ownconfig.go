@@ -32,6 +32,8 @@ type ownConfig struct {
 		AttachmentDays int            `json:"attachment_days"`
 		AI             *aiwire.Config `json:"ai"`
 		ExtraDirs      []string       `json:"extra_dirs"`
+		// AttachmentDaysBySource: attachment_days per source, e.g. years for a chat source whose history is imported.
+		AttachmentDaysBySource map[string]int `json:"attachment_days_by_source"`
 	} `json:"kb"`
 	AI *aiwire.Config `json:"ai"`
 	// Inbox: of it the hello carried the models and the AI twin's machine, each replaced only when it is there (the
@@ -93,7 +95,7 @@ func (c ownConfig) over(h Hello) Hello {
 	}
 	if k := c.KB; k != nil {
 		h.KB = &assistantwire.KBSettings{Off: k.Enabled != nil && !*k.Enabled, ReadOnly: k.ReadOnly, TextDays: k.TextDays,
-			AttachmentDays: k.AttachmentDays, ExtraDirs: k.ExtraDirs}
+			AttachmentDays: k.AttachmentDays, ExtraDirs: k.ExtraDirs, AttachmentDaysBySource: positiveDays(k.AttachmentDaysBySource)}
 		h.Models.KBAI = k.AI
 	}
 	if c.AI != nil {
@@ -127,4 +129,19 @@ func (c ownConfig) over(h Hello) Hello {
 		h.KB = &assistantwire.KBSettings{}
 	}
 	return h
+}
+
+// positiveDays is m without its non-positive values (a source with 0 days keeps attachment_days); nil when none is
+// left, so a section without the setting compares equal to one with an empty map.
+func positiveDays(m map[string]int) map[string]int {
+	var out map[string]int
+	for k, v := range m {
+		if v > 0 {
+			if out == nil {
+				out = map[string]int{}
+			}
+			out[k] = v
+		}
+	}
+	return out
 }

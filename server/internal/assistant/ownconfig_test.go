@@ -16,7 +16,7 @@ import (
 func TestOwnConfigOverTheHello(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "manager.json")
 	mine := `{"id":"x","token":"bus","assistant":{"owner":" Example ","machine":"laptop","launcher":"codex"},
-		"agents":{"triage":{"max_retries":2}},"kb":{"enabled":false,"read_only":true,"text_days":30,"ai":{"model":"k"}},
+		"agents":{"triage":{"max_retries":2}},"kb":{"enabled":false,"read_only":true,"text_days":30,"ai":{"model":"k"},"attachment_days_by_source":{"chat":3650,"off":0,"neg":-1}},
 		"ai":{"base_url":"https://gateway.example.com","model":"m"},
 		"inbox":{"triage_ai":{"model":"t"},"agent":{"machine":"gone"}},"hook_timeout_minutes":0}`
 	if err := os.WriteFile(file, []byte(mine), 0o600); err != nil {
@@ -36,6 +36,9 @@ func TestOwnConfigOverTheHello(t *testing.T) {
 	if h.Agents.Triage.MaxRetries != 2 || h.KB == nil || !h.KB.Off || !h.KB.ReadOnly || h.KB.TextDays != 30 || h.Models.KBAI == nil || h.Models.KBAI.Model != "k" {
 		t.Fatalf("agents/kb %+v %+v %+v", h.Agents, h.KB, h.Models.KBAI)
 	}
+	if len(h.KB.AttachmentDaysBySource) != 1 || h.KB.AttachmentDaysBySource["chat"] != 3650 || h.KB.AttachmentDays != 0 {
+		t.Fatalf("attachment days by source %+v", h.KB)
+	}
 	// Of inbox each of the hello's keys is replaced only when manager.json has it: its judge model stays the hello's.
 	if h.Models.AI.Model != "m" || h.Models.TriageAI == nil || h.Models.TriageAI.Model != "t" || h.Models.JudgeAI == nil ||
 		h.Models.JudgeAI.Model != "old" || h.Models.InboxAgentMachine != "" {
@@ -46,7 +49,7 @@ func TestOwnConfigOverTheHello(t *testing.T) {
 	}
 	// Nothing in manager.json: the hello as it came, with the knowledge base's defaults.
 	none, _ := readOwnConfig(filepath.Join(t.TempDir(), "manager.json"))
-	if h := none.over(hub); h.OwnerNotes != "the hub's notes" || h.Models.JudgeAI.Model != "old" || h.KB == nil || h.KB.Off {
+	if h := none.over(hub); h.OwnerNotes != "the hub's notes" || h.Models.JudgeAI.Model != "old" || h.KB == nil || h.KB.Off || h.KB.AttachmentDaysBySource != nil {
 		t.Fatalf("empty %+v", h)
 	}
 	// A machine the hub doesn't have keeps the hub's default.

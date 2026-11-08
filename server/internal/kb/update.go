@@ -16,31 +16,41 @@ import (
 
 // Ingest appends messages of one chat that a source pushes (mail), creating the chat. Same lines, people and
 // links as Archive, and the same retention (the first read of a quiet mailbox reaches back years).
+//
+// The lines (and their attachments) are made first; only then is the chat read, changed and written, under chatMu,
+// so a history import of the same chat (WriteHistory) never writes back counters older than these.
 func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []SourceMessage) (int, error) {
 	id := ChatID(src.Name(), sc.ID)
-	c, ok := e.Store.Chat(id)
-	if !ok {
-		c = &Chat{ID: id, Source: src.Name(), SourceID: sc.ID, Kind: sc.Kind, Name: sc.Name, Created: time.Now().UTC()}
-	}
 	cut := e.textCutoff()
+	probe := &Chat{ID: id, Source: src.Name()} // what line needs: where attachments go, how long they are kept
 	var lines []Line
+	var kept []SourceMessage
 	for _, m := range msgs {
 		if m.At.Before(cut) {
 			continue
 		}
-		l := e.line(ctx, src, c, m)
+		l := e.line(ctx, src.Download, probe, m)
 		if l.Text == "" {
 			continue
 		}
 		lines = append(lines, l)
+		kept = append(kept, m)
+	}
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	e.Store.chatMu.Lock()
+	defer e.Store.chatMu.Unlock()
+	c, ok := e.Store.Chat(id)
+	if !ok {
+		c = &Chat{ID: id, Source: src.Name(), SourceID: sc.ID, Kind: sc.Kind, Name: sc.Name, Created: time.Now().UTC()}
+	}
+	for _, m := range kept {
 		e.notePerson(c, src.Name(), m)
 		c.Mine = c.Mine || m.Mine
 		if m.At.After(c.LastAt) {
 			c.LastAt = m.At
 		}
-	}
-	if len(lines) == 0 {
-		return 0, nil
 	}
 	if err := e.Store.AppendMessages(c, lines); err != nil {
 		return 0, err

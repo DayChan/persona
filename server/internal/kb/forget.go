@@ -14,9 +14,10 @@ type Forgotten struct {
 
 // ForgetSource removes what came from source (a connector's id, "imessage") from the knowledge base, when the user
 // takes it back: its chats with their messages and summaries, its people, their places in projects and the lines of
-// project timelines its chats wrote, and the connector's cursor (cursors/<source>.json: archiving again starts
-// over). A project that had them is marked dirty, so its summary is written again from what is left. Nothing else
-// is touched. Callers stop the source first: a chat ingested meanwhile would come back.
+// project timelines its chats wrote, the connector's cursor (cursors/<source>.json: archiving again starts over) and
+// its chats' history import states (history/state/, HistoryState: importing again starts over too). A project that
+// had them is marked dirty, so its summary is written again from what is left. Nothing else is touched. Callers stop
+// the source first: a chat ingested meanwhile would come back.
 func (e *Engine) ForgetSource(source string) (Forgotten, error) {
 	if e.Store.ReadOnly() {
 		return Forgotten{}, ErrReadOnly
@@ -65,6 +66,9 @@ func (e *Engine) ForgetSource(source string) (Forgotten, error) {
 		}
 	}
 	if err := os.Remove(filepath.Join(e.Store.Dir, "cursors", source+".json")); err != nil && !os.IsNotExist(err) {
+		return out, err
+	}
+	if err := e.Store.forgetHistory(source); err != nil {
 		return out, err
 	}
 	return out, nil

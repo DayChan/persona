@@ -90,6 +90,9 @@ type KBSettings struct {
 	TextDays       int      `json:"text_days,omitempty"`       // 0: 365
 	AttachmentDays int      `json:"attachment_days,omitempty"` // 0: 30
 	ExtraDirs      []string `json:"extra_dirs,omitempty"`      // as written; "~/" is the assistant's home
+	// AttachmentDaysBySource: attachment_days for the chats of one source (kb.attachment_days_by_source); the sources
+	// not in it, and non-positive values, keep attachment_days.
+	AttachmentDaysBySource map[string]int `json:"attachment_days_by_source,omitempty"`
 }
 
 // CodeKBUnavailable: the knowledge base is not open yet (the user's time zone not known yet, another assistant process
