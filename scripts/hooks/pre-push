@@ -1,17 +1,23 @@
 #!/bin/bash
-# Refuse a push whose commits would bring private values (scripts/privacy_check.py --range) toward master: what each
-# pushed branch adds on top of origin/master, with the commit messages. Install: git config core.hooksPath scripts/hooks
+# Refuse a push whose commits would bring private values (scripts/privacy_check.py --range): what each pushed branch
+# adds on top of the tracked default branch, with the commit messages. Install: git config core.hooksPath scripts/hooks
 # Only this machine's values are known (its config, private-words.txt, CLAUDE.local.md): see docs/operations/testing.md "Privacy scan".
 set -u
 root="$(git rev-parse --show-toplevel)"
-base="$(git rev-parse --verify -q refs/remotes/origin/master || true)"
+base="$(git rev-parse --verify -q refs/remotes/origin/HEAD ||
+  git rev-parse --verify -q refs/remotes/origin/main ||
+  git rev-parse --verify -q refs/remotes/origin/master || true)"
 zero="0000000000000000000000000000000000000000"
 status=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue # a deletion
   from="$base"
   [ -n "$from" ] || from="$remote_sha"
-  [ -n "$from" ] && [ "$from" != "$zero" ] || continue # nothing to compare with: the full scan in release.sh still runs
+  if [ -z "$from" ] || [ "$from" = "$zero" ]; then
+    echo "pre-push: cannot find a scan base for a new branch; fetch origin and set origin/HEAD" >&2
+    status=1
+    continue
+  fi
   python3 "$root/scripts/privacy_check.py" --range "$from..$local_sha" >&2 || status=1
 done
 [ $status -eq 0 ] || echo "pre-push: refused (${remote_ref:-push}); fix the hits above, or see docs/operations/testing.md「隐私扫描」" >&2

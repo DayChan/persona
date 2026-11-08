@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/identity"
@@ -147,15 +148,21 @@ func TestUploadNames(t *testing.T) {
 func TestUploadIdleRemovesPart(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
-	var u uploads
-	id, _ := u.begin("a.txt", 4)
-	u.mu.Lock()
-	u.open[id].idle.Reset(time.Millisecond)
-	u.mu.Unlock()
-	time.Sleep(50 * time.Millisecond)
-	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
-		t.Fatalf("left %v", ents)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		var u uploads
+		id, err := u.begin("a.txt", 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(uploadIdle) // virtual time reaches the real idle callback
+		synctest.Wait()
+		if u.lookup(id) != nil {
+			t.Fatal("expired upload remains in registry")
+		}
+		if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+			t.Fatalf("left %v", ents)
+		}
+	})
 }
 
 // callUpload runs a whole terminal upload through the RPC the hub speaks.

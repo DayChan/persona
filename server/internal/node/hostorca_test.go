@@ -30,14 +30,24 @@ func TestMain(m *testing.M) {
 		runTestPlugin(mode)
 	}
 	if os.Getenv("NODE_TEST_PREFLIGHT") == "1" { // the test binary as the preflight's child (preflight_test.go)
+		// NODE_TEST_PREFLIGHT_SLOW: start that much later, as on a busy machine; NODE_TEST_PREFLIGHT_STARTED: a file
+		// to write the time to once running, for a test that times the run without the start.
+		if d, err := time.ParseDuration(os.Getenv("NODE_TEST_PREFLIGHT_SLOW")); err == nil {
+			time.Sleep(d)
+		}
+		if f := os.Getenv("NODE_TEST_PREFLIGHT_STARTED"); f != "" {
+			_ = os.WriteFile(f, []byte(time.Now().Format(time.RFC3339Nano)), 0o600)
+		}
 		preflightChild(os.Args[1:], os.Stdout)
 		os.Exit(0)
 	}
-	// Nor `node doctor` as the preflight's child: the test binary again, in that mode.
+	// Nor `node doctor` as the preflight's child: the test binary again, in that mode, given long enough to come up
+	// under the whole server suite's load (#1110); only a child that never starts waits that long.
 	preflightChildCmd = func(string) ([]string, []string) {
 		self, _ := os.Executable()
 		return []string{self}, []string{"NODE_TEST_PREFLIGHT=1"}
 	}
+	preflightStart = 30 * time.Second
 	// No test may reach the user's running Orca: the default metadata path points nowhere.
 	os.Setenv("ORCA_USER_DATA_PATH", "/tmp/persona-test-no-orca")
 	// Nor the user's botmux: a node registers no botmux host unless a test gives it one.

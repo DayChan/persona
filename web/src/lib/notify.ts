@@ -4,7 +4,8 @@
 // notification when it is not in front, as the Mac app does (MacAttention.swift). The prefs also decide the sounds.
 import { useSyncExternalStore } from "react";
 import { t } from "../i18n";
-import { api, enc } from "./api";
+import { api, credentialOwner, enc, onCredentialChange } from "./api";
+import { isDelegating } from "./delegate";
 import { sessionTitle } from "./format";
 import { interactionAsk } from "./inbox";
 import { plainMarkdown } from "./plain-markdown";
@@ -151,39 +152,66 @@ export function managerMuted(prefs: NotifyPrefs, manager: string | undefined, fa
 
 /** Turns one manager's pushes on or off for this device: optimistic, as saveNotifyPrefs; only the list is sent. */
 export async function saveManagerPush(manager: string, on: boolean): Promise<void> {
-  const before = prefs;
-  const mine = ++saveSeq;
-  const list = (prefs.muted_managers ?? []).filter((x) => x !== manager);
-  set({ ...prefs, muted_managers: on ? list : [...list, manager] });
-  const { id, kept } = deviceId();
-  if (!kept) return;
-  try {
-    const answer = normalize(await api<Partial<NotifyPrefs>>(`/devices/${enc(id)}/prefs`, { method: "PUT", json: { muted_managers: prefs.muted_managers } }));
-    if (mine === saveSeq) set(answer);
-  } catch (e) {
-    if (mine === saveSeq) set(before);
-    throw e;
-  }
+  return savePrefs((current) => {
+    const list = (current.muted_managers ?? []).filter((x) => x !== manager);
+    return { muted_managers: on ? list : [...list, manager] };
+  });
 }
 
 let prefs: NotifyPrefs = typeof localStorage === "undefined" ? DEFAULT_PREFS : readCached();
 const listeners = new Set<() => void>();
+type PrefsPatch = Partial<Pick<NotifyPrefs, "input" | "done" | "quiet" | "muted_managers">>;
+type PrefsChange = (current: NotifyPrefs) => PrefsPatch;
+type PendingSave = { change: PrefsChange; path: string; controller: AbortController; resolve: () => void; reject: (error: unknown) => void };
+
+function prefsCredentialOwner() {
+  try { return credentialOwner(); } catch { /* Without storage, preferences remain local to this page. */ }
+}
+
+function createPrefsSession(owner: string | undefined, confirmed = DEFAULT_PREFS) {
+  return { owner, confirmed, pending: [] as PendingSave[], loads: new Set<AbortController>(), saving: false, revision: 0, loadSeq: 0 };
+}
+let prefsSession = createPrefsSession(prefsCredentialOwner(), prefs);
+const cancelledPrefs = () => new DOMException("Notification preference session ended", "AbortError");
+
+onCredentialChange((owner) => {
+  if (owner === prefsSession.owner) return;
+  const retired = prefsSession;
+  prefsSession = createPrefsSession(owner);
+  retired.pending.splice(0).forEach((save) => {
+    save.controller.abort();
+    save.reject(cancelledPrefs());
+  });
+  retired.loads.forEach((controller) => controller.abort());
+  // A previous login's optimistic cache is not a baseline for the next login. Its reads will populate this session.
+  try { localStorage.removeItem(PREFS_KEY); } catch { /* Storage may be unavailable. */ }
+  set(DEFAULT_PREFS, false);
+});
+
+function currentPrefsSession() {
+  prefsCredentialOwner(); // Also observe credentials replaced directly in storage, without setToken().
+  return prefsSession;
+}
 
 // Another tab of the app changed them (its own save or load): this one follows at once, sounds and notifications too.
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
+    const session = currentPrefsSession();
     if (e.key !== PREFS_KEY) return;
-    prefs = readCached();
-    listeners.forEach((l) => l());
+    session.confirmed = readCached();
+    session.revision++;
+    publishPrefs(session, false);
   });
 }
 
-function set(next: NotifyPrefs) {
+function set(next: NotifyPrefs, cache = true) {
   prefs = next;
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(next));
-  } catch {
-    // storage unavailable: kept for this page only
+  if (cache) {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+    } catch {
+      // storage unavailable: kept for this page only
+    }
   }
   listeners.forEach((l) => l());
 }
@@ -192,34 +220,84 @@ export function notifyPrefs(): NotifyPrefs {
   return prefs;
 }
 
-// Each save takes a number; only the latest one's answer (or failure) is applied, so two quick changes whose answers
-// land out of order never show a state without the second.
-let saveSeq = 0;
+function publishPrefs(session: ReturnType<typeof createPrefsSession>, cache = true) {
+  if (session !== currentPrefsSession()) return;
+  set(session.pending.reduce((current, save) => ({ ...current, ...save.change(current) }), session.confirmed), cache);
+}
+
+// One PUT at a time: response fencing alone cannot stop the hub committing older snapshots last. Reapply queued
+// intents over each confirmed answer; a rejected edit must not become another field's implicit retry.
+async function flushSaves(session: ReturnType<typeof createPrefsSession>) {
+  session.saving = true;
+  try {
+    while (session.pending.length && session === currentPrefsSession()) {
+      const save = session.pending[0];
+      let failed = false;
+      let error: unknown;
+      try {
+        const answer = await api<Partial<NotifyPrefs>>(save.path, { method: "PUT", json: save.change(session.confirmed), signal: save.controller.signal });
+        if (session !== currentPrefsSession()) return;
+        session.confirmed = normalize(answer);
+      } catch (e) {
+        if (session !== currentPrefsSession()) return;
+        failed = true;
+        error = e;
+      }
+      session.pending.shift();
+      session.revision++;
+      publishPrefs(session);
+      if (failed) save.reject(error);
+      else save.resolve();
+    }
+  } finally {
+    session.saving = false;
+  }
+}
+
+function savePrefs(change: PrefsChange): Promise<void> {
+  const session = currentPrefsSession();
+  const { id, kept } = deviceId();
+  session.revision++;
+  if (!kept) {
+    session.confirmed = { ...prefs, ...change(prefs) };
+    set(session.confirmed);
+    return Promise.resolve();
+  }
+  const result = new Promise<void>((resolve, reject) => session.pending.push({ change, path: `/devices/${enc(id)}/prefs`, controller: new AbortController(), resolve, reject }));
+  publishPrefs(session);
+  if (!session.saving) void flushSaves(session);
+  return result;
+}
 
 /** The hub's prefs for this browser; the cached copy until it answers (and if it can't). */
 export async function loadNotifyPrefs(): Promise<NotifyPrefs> {
+  const session = currentPrefsSession();
   const { id, kept } = deviceId();
   if (!kept) return prefs;
-  const seq = saveSeq;
-  const p = normalize(await api<Partial<NotifyPrefs>>(`/devices/${enc(id)}/prefs`));
-  if (seq === saveSeq) set(p); // a save went out meanwhile: its answer is newer
-  return prefs;
+  const seq = ++session.loadSeq;
+  const revision = session.revision;
+  const controller = new AbortController();
+  session.loads.add(controller);
+  try {
+    const p = normalize(await api<Partial<NotifyPrefs>>(`/devices/${enc(id)}/prefs`, { signal: controller.signal }));
+    if (session !== currentPrefsSession()) throw cancelledPrefs();
+    if (seq === session.loadSeq && revision === session.revision && !session.pending.length) {
+      session.confirmed = p;
+      set(p);
+    }
+    return prefs;
+  } catch (e) {
+    if (session !== currentPrefsSession()) throw cancelledPrefs();
+    throw e;
+  } finally {
+    session.loads.delete(controller);
+  }
 }
 
 /** Optimistic: the control moves at once and goes back if the hub says no (the error is the caller's to show). */
 export async function saveNotifyPrefs(patch: Partial<Pick<NotifyPrefs, "input" | "done" | "quiet">>): Promise<void> {
-  const before = prefs;
-  const mine = ++saveSeq;
-  set({ ...prefs, ...patch });
-  const { id, kept } = deviceId();
-  if (!kept) return; // this page's own: nothing to keep them on the hub by
-  try {
-    const answer = normalize(await api<Partial<NotifyPrefs>>(`/devices/${enc(id)}/prefs`, { method: "PUT", json: { input: prefs.input, done: prefs.done, ...(prefs.quiet && { quiet: prefs.quiet }) } }));
-    if (mine === saveSeq) set(answer);
-  } catch (e) {
-    if (mine === saveSeq) set(before);
-    throw e;
-  }
+  const intent = { ...patch, ...(patch.quiet && { quiet: { ...patch.quiet } }) };
+  return savePrefs(() => intent);
 }
 
 function subscribe(l: () => void) {
@@ -229,6 +307,15 @@ function subscribe(l: () => void) {
 
 export function useNotifyPrefs(): NotifyPrefs {
   return useSyncExternalStore(subscribe, notifyPrefs, () => DEFAULT_PREFS);
+}
+
+/** Mounted consumers must reread when pairing changes, even when both generations have identical default prefs. */
+export function notifyPrefsGeneration() {
+  return prefsSession.owner;
+}
+
+export function useNotifyPrefsGeneration() {
+  return useSyncExternalStore(subscribe, notifyPrefsGeneration, () => undefined);
 }
 
 // ── the browser's system notifications ───────────────────
@@ -385,10 +472,11 @@ export interface Waiting {
   reason?: string;
 }
 
-/** The session's card the notification is about: the oldest one pending for it (the one the overview lists first). */
+/** The session's card the notification is about: the oldest one pending for it (the one the overview lists first), not
+ *  one the assistant is still looking at (nothing is pushed for those). */
 export function waitingCard(interactions: readonly Interaction[], s: Pick<Session, "machine_id" | "session_id">): Interaction | undefined {
   return interactions
-    .filter((ix) => ix.machine_id === s.machine_id && ix.session_id === s.session_id)
+    .filter((ix) => ix.machine_id === s.machine_id && ix.session_id === s.session_id && !isDelegating(ix))
     .sort((a, b) => byTime(a.created_at, b.created_at) || a.id.localeCompare(b.id))[0];
 }
 

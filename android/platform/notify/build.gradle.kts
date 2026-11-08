@@ -28,6 +28,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.serialization.json)
+    testImplementation("androidx.work:work-testing:${libs.versions.work.get()}")
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test.ext:junit:1.3.0")
 }

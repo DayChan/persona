@@ -7,6 +7,10 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,21 +58,30 @@ internal fun LazyListScope.machineControls(
     onBotmux: (Boolean) -> Unit = {},
     /** Move to… with several managers (the manager it is with now as the value); null: no row, as with one manager. */
     move: MachineMoveRow? = null,
+    /** Rename, on a hub that renames computers (feature `machine_rename`); null: no row. */
+    rename: MachineRenameRow? = null,
 ) {
-    val rows = 1 + (if (botmux != null) 1 else 0) + (if (move != null) 1 else 0) + (if (canReconnect) 1 else 0)
+    val rows = 1 + (if (rename != null) 1 else 0) + (if (botmux != null) 1 else 0) + (if (move != null) 1 else 0) + (if (canReconnect) 1 else 0)
+    val first = if (rename != null) 1 else 0
     item("controls-title") { JSectionHeader(stringResource(R.string.machines_controls_title)) }
-    item("engine") {
+    if (rename != null) item("rename") {
         JGroupItem(GroupPosition.of(0, rows)) {
+            JRow(stringResource(R.string.machines_rename), leadingIcon = PhIcons.PencilSimple, value = machine.displayName, enabled = !rename.busy,
+                onClick = rename.onClick, trailing = if (rename.busy) ({ JSpinner() }) else null)
+        }
+    }
+    item("engine") {
+        JGroupItem(GroupPosition.of(first, rows)) {
             JRow(stringResource(R.string.machines_engine), leadingIcon = PhIcons.TerminalWindow, value = Engines.currentName(machine), onClick = onEngine)
         }
     }
     if (botmux != null) item("botmux") {
-        JGroupItem(GroupPosition.of(1, rows)) {
+        JGroupItem(GroupPosition.of(first + 1, rows)) {
             JSwitchRow(stringResource(R.string.machines_botmux), botmux, onBotmux, leadingIcon = PhIcons.Stack, enabled = !botmuxSaving)
         }
     }
     if (move != null) item("move") {
-        JGroupItem(GroupPosition.of(if (botmux != null) 2 else 1, rows)) {
+        JGroupItem(GroupPosition.of(first + if (botmux != null) 2 else 1, rows)) {
             JRow(stringResource(R.string.machines_move), leadingIcon = PhIcons.Robot, value = move.current, enabled = !move.busy,
                 onClick = move.onClick, trailing = if (move.busy) ({ JSpinner() }) else null)
         }
@@ -85,6 +98,28 @@ internal fun LazyListScope.machineControls(
             MachineCaption(if (machine.kind == "local") stringResource(R.string.machines_local_note)
                 else stringResource(R.string.machines_ssh_note, machine.sshHost?.takeIf { it.isNotBlank() } ?: machine.id))
         }
+    }
+}
+
+/** The hub's feature for renaming computers (docs/protocol/protocol.md "Renaming a computer"). */
+internal const val MachineRenameFeature = "machine_rename"
+
+/** The Rename row: whether a rename is on its way. */
+internal data class MachineRenameRow(val busy: Boolean, val onClick: () -> Unit)
+
+/**
+ * Rename: what the hub calls the computer (docs/protocol/protocol.md "Renaming a computer"); empty is its id again.
+ */
+@Composable
+internal fun RenameMachineDialog(machine: Machine, onRename: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable(machine.id) { mutableStateOf(machine.name.takeIf { it != machine.id }.orEmpty()) }
+    val unchanged = name.trim() == machine.name.takeIf { it != machine.id }.orEmpty() || name.trim().length > 40
+    JDialog(
+        onDismiss = onDismiss, title = stringResource(R.string.machines_rename_title),
+        confirm = stringResource(R.string.machines_rename_save) to { onRename(name); onDismiss() }, confirmEnabled = !unchanged,
+    ) {
+        JTextField(name, { name = it }, placeholder = machine.id, singleLine = true,
+            supportingText = stringResource(R.string.machines_rename_hint))
     }
 }
 

@@ -14,11 +14,17 @@ vi.mock("../lib/api", async (original) => ({
   ...(await original<typeof import("../lib/api")>()),
   api: (path: string) => {
     if (path === hub.path) return new Promise((resolve, reject) => hub.pending.push({ resolve, reject }));
+    if (path === "/managers") return Promise.reject(new ApiError(404, "not found", {}));
+    // The hub page's download mirrors load on their own; answer them so only the updater is under test.
+    if (path.startsWith("/extensions/-/market-settings")) return Promise.resolve({ registry_mirror: "", catalog_mirror: "" });
     return Promise.resolve(path === "/looks" ? { looks: [], current: {} } : {});
   },
 }));
 
 import { ApiError } from "../lib/api";
+import { resetManagerChoice } from "../lib/manager-choice";
+import { resetRoster } from "../lib/managers";
+import { settleRosterDefault } from "../lib/manager-choice";
 import { t } from "../i18n";
 import { Settings } from "./Settings";
 
@@ -28,6 +34,9 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
   localStorage.clear();
+  resetManagerChoice();
+  resetRoster();
+  settleRosterDefault();
   hub.pending = [];
   host = document.createElement("div");
   document.body.append(host);

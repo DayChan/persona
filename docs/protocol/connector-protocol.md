@@ -96,6 +96,9 @@ Taking back a sent message (#5278): a connector that declares the capability `re
 Since 2026-11-04, assistant-manager process groups / sorts Inbox (`docs/assistant/inbox.md` “Who owns what”). Connectors still talk only to hub; hub forwards `inbox.collect` unchanged and proxies `inbox.reply`, `inbox.settle`, `group.*` for manager. **Protocol unchanged**.
 
 Each messages entry: id, position, `sender_id`, `sender_name`, mine, type, text, at, media, `sender_handles: [{kind, value}]` (raw identity clues; hub stores HMAC only, `docs/assistant/knowledge.md` “Identity clues”).
+For `archive.changes`, nonempty `id` is stable within the batch source and chat: live ingestion keeps its first durable version and ignores replay, including edited
+bodies with that ID. Distinct IDs remain distinct even when their text is identical. `position` is pagination only. Missing IDs retain legacy append behavior
+without replay protection; existing Markdown cannot reconstruct old IDs (`docs/assistant/knowledge.md` "Connector replay and recovery").
 
 Prompt: step, `fields: [{name, label, secret?, placeholder?}]`, hint, error (user-correctable, repeat same step), done, account. Two no-field steps: `kind: "device_code"` (url, `user_code`, interval: show code for website), `kind: "qr"` (url, interval: URL is QR contents scanned by another app, e.g. WeChat #1351). Both clients poll same step without values every interval seconds until new step / done. Expired QR returns new URL in same step. Program supplies URL only; hub generates QR bitmap, replacing any supplied bitmap.
 
@@ -188,7 +191,7 @@ Without Go implementation to compare, `conformance.CheckProgram(t, manifest, run
 | `inbox.collect` | `serve.CollectResult` | Twice: nonempty unique stable threads, declared kinds, known tier / done; unfinished has at / last; `can_reply` has `reply_to`; tags key / value |
 | `thread.page` | `connector.ThreadPage` | First Inbox thread, oldest first, ≤limit; unique nonempty IDs / at; non-event non-mine has sender name; text or media; `chat.reply` own action with chat / text. If before, earlier page no duplicates / newer messages |
 | `thread.media` | `connector.Media` | Once only if page has ref |
-| `archive.changes` | `serve.ChangesResult` | Follow next until more false, then query final cursor again. With data next nonempty, never resets empty / stalls; no duplicate message IDs per chat; id / at / text or media (knowledge append-only, no dedup, drops undated / empty); `sender_handles` kind / value |
+| `archive.changes` | `serve.ChangesResult` | Follow next until more false, then query final cursor again. With data next nonempty, never resets empty / stalls; no duplicate message IDs per chat; id / at / text or media (knowledge append-only, live replay dedup by source/chat/id, drops undated / empty); `sender_handles` kind / value |
 | `items.list` | `serve.ItemsResult` | Kind docs / meetings / events, id / title |
 | `login.step` | `connector.Prompt` | Fields, done, `device_code`, or qr; QR url / interval / step, `WithLogin` polls until done. Input step nonempty name (empty restarts); done requires account |
 | logout | `{}` | Only last after `WithLogin`; status no longer ok, secrets deleted via `secrets.delete` |

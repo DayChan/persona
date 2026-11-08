@@ -33,5 +33,22 @@
   "nodes_footer": "ハブはアップデート後、お使いのコンピューターの personad も同じバージョンに更新します。更新されなかったものは開いて「再デプロイ」を選んでください。",
   "version_differs": "バージョン不一致",
   "unknown": "不明",
-  "offline": "オフライン"
+  "offline": "オフライン",
+  "mirrors": "拡張機能のダウンロードミラー",
+  "mirror_manager": "拡張機能マネージャー",
+  "mirror_manager_row": "マネージャー",
+  "mirror_manager_hint": "拡張機能のダウンロードを設定するマネージャーを選びます。設定はマネージャーごとに保存されます。",
+  "mirror_scope": "この設定は現在の拡張機能マネージャーだけに適用され、そのデータベースに保存されます。空欄にすると元の配信元を使います。",
+  "registry_mirror": "OCI registry ミラー",
+  "registry_mirror_hint": "HTTPS の registry ベース URL を入力します。https://registry.example.com/persona のようにパスの接頭辞も指定できます。パッケージやカタログの URL ではありません。",
+  "catalog_mirror": "公式カタログミラー",
+  "catalog_mirror_hint": "https://catalog.example.com/persona-extensions.json のように、公式カタログファイルの完全な HTTPS URL を入力します。他のマーケットは転送されません。",
+  "mirror_security": "マネージャーはまずミラーを試し、失敗すると元の配信元に戻ります。公式署名とパッケージの SHA256 ダイジェストは引き続き検証します。マーケットの token はミラーに送信しません。",
+  "mirror_read_failed": "ミラー設定を読み込めませんでした：{error}",
+  "mirror_write_failed": "ミラー設定を保存できませんでした：{error}",
+  "mirror_invalid": "認証情報、クエリ、フラグメントを含まない HTTPS URL を使ってください。",
+  "mirror_response_invalid": "マネージャーから無効なミラー設定が返されました。変更する前に読み込みを再試行してください。",
+  "mirror_saved": "ミラー設定を保存しました。",
+  "mirror_clear": "ミラーを解除",
+  "mirror_save": "保存"
 }

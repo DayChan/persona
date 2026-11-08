@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -9,84 +10,97 @@ import (
 	"testing"
 )
 
-// testKey is a market key: its signing_key text and a signer of index bytes.
+// testKey signs the payload string, returning the complete catalog document.
 func testKey(t *testing.T) (string, func([]byte) []byte) {
+	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return "ed25519:" + base64.StdEncoding.EncodeToString(pub), func(index []byte) []byte {
-		b, _ := json.Marshal(map[string]string{"alg": "ed25519", "key_id": KeyID(pub), "sig": base64.StdEncoding.EncodeToString(ed25519.Sign(priv, index))})
+	return "ed25519:" + base64.StdEncoding.EncodeToString(pub), func(payload []byte) []byte {
+		b, _ := json.Marshal(map[string]any{"payload": string(payload), "signatures": []catalogSignature{{Alg: "ed25519", KeyID: KeyID(pub), Sig: base64.StdEncoding.EncodeToString(ed25519.Sign(priv, payload))}}})
 		return b
 	}
 }
 
-func TestCheckSignature(t *testing.T) {
-	a, signA := testKey(t)
-	b, signB := testKey(t)
-	index := []byte(`{"market_version": 1, "name": "x"}`)
-	keyA, _ := ParseSigningKey(a)
-
-	cases := []struct {
-		name          string
-		sig           []byte
-		trusted, hint string
-		state, trust  string
-		refused       bool
-		pending       string
-	}{
-		{"unsigned, nothing trusted", nil, "", "", SigUnsigned, "", false, ""},
-		{"first signature: trust on first use", signA(index), "", a, SigSigned, a, false, ""},
-		{"first signature by a key the index does not name", signA(index), "", b, SigInvalid, "", true, ""},
-		{"first signature without a hint", signA(index), "", "", SigInvalid, "", true, ""},
-		{"signed by the trusted key", signA(index), a, a, SigSigned, a, false, ""},
-		{"the hint is never the trust: a wrong hint changes nothing", signA(index), a, b, SigSigned, a, false, ""},
-		{"tampered", signA([]byte(`{"other": 1}`)), a, a, SigInvalid, a, true, ""},
-		{"signature gone", nil, a, a, SigInvalid, a, true, ""},
-		{"key changed, the index names the new one", signB(index), a, b, SigKeyChanged, a, true, b},
-		{"key changed, the index names another", signB(index), a, a, SigKeyChanged, a, true, ""},
-		{"garbage", []byte("not json"), a, a, SigInvalid, a, true, ""},
-		{"not a signature, nothing trusted yet: invalid", []byte(`{"market_version": 1}`), "", a, SigInvalid, "", true, ""},
+func TestCatalogSignatureExactPayload(t *testing.T) {
+	key, sign := testKey(t)
+	payload := []byte(" \n{\"market_version\":1,\"name\":\"Example 日本語\",\"extensions\":[]}\t\n")
+	raw := sign(payload)
+	f, err := ParseCatalog(raw, key)
+	if err != nil || !bytes.Equal(f.Payload, payload) || !bytes.Equal(f.Raw, raw) {
+		t.Fatalf("exact payload: %v", err)
 	}
-	for _, c := range cases {
-		s, trust, why := CheckSignature(index, c.sig, c.trusted, c.hint)
-		if s.State != c.state || trust != c.trust || (why != "") != c.refused || s.Pending != c.pending || s.Bad() != c.refused {
-			t.Errorf("%s: %+v trust=%q why=%q", c.name, s, trust, why)
-		}
+	var formatted bytes.Buffer
+	if err := json.Indent(&formatted, raw, "", "  "); err != nil {
+		t.Fatal(err)
 	}
-	if s, _, _ := CheckSignature(index, nil, a, a); !s.Unsign {
-		t.Error("a signature gone may be accepted by the owner")
+	if _, err := ParseCatalog(formatted.Bytes(), key); err != nil {
+		t.Fatal(err)
 	}
-	if s, _, _ := CheckSignature(index, signA(index), a, a); s.KeyID != KeyID(keyA) || len(s.KeyID) != 16 {
-		t.Errorf("key id %q", s.KeyID)
+	if _, err := ParseCatalog(bytes.Replace(raw, []byte("Example"), []byte("Changed"), 1), key); err == nil {
+		t.Fatal("tampered payload accepted")
+	}
+	other, _ := testKey(t)
+	if _, err := ParseCatalog(raw, other); err == nil {
+		t.Fatal("wrong pin accepted")
+	}
+	if _, err := ParseCatalog(payload, key); err == nil {
+		t.Fatal("official unsigned catalog accepted")
+	}
+	if _, err := ParseCatalog(payload, ""); err != nil {
+		t.Fatal("unsigned private catalog refused")
+	}
+	// Unofficial signatures are metadata, never TOFU, even if the hint is absent.
+	if _, err := ParseCatalog(raw, ""); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestCheckSignatureMalformed(t *testing.T) {
-	key, _ := testKey(t)
-	index := []byte(`{"market_version": 1, "name": "x"}`)
-	cases := []struct {
-		name string
-		sig  []byte
-	}{
-		{"empty file", []byte{}},
-		{"invalid JSON", []byte("not json")},
-		{"null", []byte("null")},
-		{"wrong algorithm", []byte(`{"alg":"rsa","key_id":"example","sig":"AA=="}`)},
-		{"missing key id", []byte(`{"alg":"ed25519","sig":"AA=="}`)},
-		{"missing signature", []byte(`{"alg":"ed25519","key_id":"example"}`)},
-		{"too large", []byte(strings.Repeat(" ", sigFileMost+1))},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			for _, trusted := range []string{"", key} {
-				for _, hint := range []string{"", key} {
-					s, trust, why := CheckSignature(index, c.sig, trusted, hint)
-					if !s.Bad() || trust != trusted || why == "" || s.Pending != "" || s.Unsign {
-						t.Errorf("trusted=%q hint=%q: %+v trust=%q why=%q", trusted, hint, s, trust, why)
-					}
-				}
+func TestCatalogRejectsAmbiguousDocuments(t *testing.T) {
+	key, sign := testKey(t)
+	valid := []byte(`{"market_version":1,"name":"Example","extensions":[]}`)
+	for _, raw := range [][]byte{
+		[]byte(`{"payload":"{}"}`),
+		[]byte(`{"signatures":[]}`),
+		[]byte(`{"payload":null,"signatures":[]}`),
+		[]byte(`{"payload":"{}","payload":"{}","signatures":[]}`),
+		[]byte(`{"market_version":1,"Market_Version":1,"name":"Example"}`),
+		[]byte(`{"market_version":1,"name":"\ud800"}`),
+		[]byte(`{"market_version":1,"name":"\udfff"}`),
+		append([]byte(`{"market_version":1,"name":"`), append([]byte{0xff}, []byte(`"}`)...)...),
+		sign([]byte(`{"market_version":1,"name":"First","name":"Second"}`)),
+		[]byte(strings.Replace(string(sign(valid)), `"ed25519"`, `"rsa"`, 1)),
+		[]byte(strings.Replace(string(sign(valid)), `"alg":"ed25519"`, `"alg":"ed25519","alg":"ed25519"`, 1)),
+		append(sign(valid), []byte(`{}`)...),
+	} {
+		for _, pin := range []string{"", key} {
+			if _, err := ParseCatalog(raw, pin); err == nil {
+				t.Fatalf("ambiguous document accepted: %q", raw)
 			}
-		})
+		}
+	}
+	if _, err := ParseCatalog([]byte(`{"market_version":1,"name":"😀","extensions":[]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOfficialCatalogAliases(t *testing.T) {
+	for _, spec := range []string{
+		"github:nwverse/persona-extensions@branch",
+		"git:https://github.com/nwverse/persona-extensions.git#branch",
+		"git:https://github.com:443/nwverse/persona-extensions.git",
+		"https://github.com/nwverse/persona-extensions/blob/main/persona-extensions.json",
+		"https://raw.githubusercontent.com/nwverse/persona-extensions/branch/persona-extensions.json",
+		"https://api.github.com/repos/nwverse/persona-extensions/contents/persona-extensions.json?ref=branch",
+	} {
+		if !IsOfficialMarket(spec) {
+			t.Errorf("official alias not recognized: %s", spec)
+		}
+	}
+	for _, spec := range []string{"github:other/persona-extensions", "https://raw.githubusercontent.com/other/persona-extensions/main/persona-extensions.json", "https://example.com/persona-extensions.json"} {
+		if IsOfficialMarket(spec) {
+			t.Errorf("unofficial alias recognized: %s", spec)
+		}
 	}
 }

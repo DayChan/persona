@@ -97,8 +97,22 @@ func TestAssistantDefaultPermissionsThroughManagerRouting(t *testing.T) {
 			if code != 200 || out["manager"] != id || out["default_permission_mode"] != modes[i] {
 				t.Fatalf("pass %d read %s: %d %v", pass, id, code, out)
 			}
+			contract, ok := out["permission_defaults"].(map[string]any)
+			if !ok || contract["manager"] != id || contract["version"] != float64(1) || len(contract["modes"].([]any)) != 5 {
+				t.Fatalf("manager capability was lost or changed by hub: %v", out)
+			}
 			permissionReloads[id]()
 		}
+	}
+	// A newer hub must not manufacture a capability for a connected older manager.
+	connectGuardManager(t, h, srv.URL, "m-legacy", func(method string, params json.RawMessage) (any, error) {
+		if method != assistantwire.MethodHTTP {
+			return map[string]any{}, nil
+		}
+		return assistantwire.HTTPResponse{Status: http.StatusOK, Body: json.RawMessage(`{"manager":"m-legacy","default_permission_mode":"plan"}`)}, nil
+	})
+	if code, out := do("GET", "", "m-legacy", h.cfg.Token, ""); code != http.StatusOK || out["permission_defaults"] != nil {
+		t.Fatalf("hub synthesized old manager capability: %d %v", code, out)
 	}
 	// A change to the roster's default cannot redirect a delayed request with a captured explicit owner.
 	h.owners.mu.Lock()

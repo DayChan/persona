@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -256,5 +258,233 @@ func TestConnectorCommandLines(t *testing.T) {
 	}
 	if _, err := os.Stat(gate); err != nil {
 		t.Fatal("a command the node did not write was taken away")
+	}
+}
+
+// mcpRelay is a node socket served by n and the hub end of n's connection: ask sends one of the MCP server's requests
+// and gives what the node relayed to the hub for it (assistant, session_id…).
+func mcpRelay(t *testing.T, n *Node, hub *runtimeHub) (ask func(req map[string]any) map[string]any) {
+	t.Helper()
+	var mu sync.Mutex
+	var relayed []map[string]any
+	hub.mu.Lock()
+	hub.answer = func(method string, params json.RawMessage) (any, error, bool) {
+		var p map[string]any
+		_ = json.Unmarshal(params, &p)
+		mu.Lock()
+		defer mu.Unlock()
+		switch method {
+		case "mcp.tools":
+			relayed = append(relayed, p)
+			return map[string]any{"tools": []proto.Tool{}}, nil, true
+		case "mcp.call":
+			relayed = append(relayed, p)
+			return proto.TextResult("ok", false), nil, true
+		}
+		return nil, nil, false
+	}
+	hub.mu.Unlock()
+	dir, err := os.MkdirTemp("/tmp", "mcp") // unix socket paths are short on macOS
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	ln, err := net.Listen("unix", filepath.Join(dir, "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go n.serveSock(ctx, c)
+		}
+	}()
+	return func(req map[string]any) map[string]any {
+		t.Helper()
+		mu.Lock()
+		before := len(relayed)
+		mu.Unlock()
+		c, err := net.Dial("unix", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		b, _ := json.Marshal(req)
+		_, _ = c.Write(append(b, '\n'))
+		if _, err := bufio.NewReader(c).ReadBytes('\n'); err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(relayed) != before+1 {
+			t.Fatalf("%v: the hub was asked %d times", req, len(relayed)-before)
+		}
+		return relayed[before]
+	}
+}
+
+func mcpTools(assistant bool, session string) map[string]any {
+	return map[string]any{"kind": "mcp.tools", "assistant": assistant, "session_id": session}
+}
+
+func mcpCall(assistant bool, session string) map[string]any {
+	return map[string]any{"kind": "mcp.call", "name": "kb_search", "args": map[string]any{}, "assistant": assistant, "session_id": session}
+}
+
+// An MCP server's word that it is the assistant's (PERSONA_ASSISTANT, which every process started with the
+// assistant's environment repeats) reaches the hub only from a process the node runs for the assistant, with that
+// conversation's session. Any other caller's request goes as an agent's; one that does not say so is not made one.
+func TestMCPAssistantOnlyFromTheAssistantsProcesses(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("no peer process here: TestMCPAssistantWithoutPeer")
+	}
+	n, hub := runtimeNode(t)
+	ask := mcpRelay(t, n, hub)
+	check := func(req map[string]any, assistant bool, session string) {
+		t.Helper()
+		if got := ask(req); got["assistant"] != assistant || got["session_id"] != session {
+			t.Errorf("%v: relayed %v, want assistant %v and session %q", req, got, assistant, session)
+		}
+	}
+	self := &exec.Cmd{Process: &os.Process{Pid: os.Getpid()}}
+
+	// This test is no assistant process, whatever its server says: an agent with the assistant's environment.
+	check(mcpTools(true, ""), false, "")
+	check(mcpTools(true, "s1"), false, "s1")
+	check(mcpCall(true, "s1"), false, "s1")
+
+	n.mu.Lock()
+	n.procs["s1"] = &assistantProc{id: "s1", cmd: self}
+	n.mu.Unlock()
+	check(mcpTools(true, "s1"), true, "s1")
+	check(mcpTools(true, ""), true, "s1") // the conversation's session, whatever the server names
+	check(mcpCall(true, "other"), true, "s1")
+	check(mcpTools(false, "x"), false, "x")
+
+	// The warm spare's server lists the tools as it starts, before a conversation adopts it.
+	n.mu.Lock()
+	delete(n.procs, "s1")
+	n.spare = &assistantProc{id: "spare-1", cmd: self}
+	n.mu.Unlock()
+	check(mcpTools(true, "spare-1"), true, "spare-1")
+
+	// A Codex process's server says the process's key until its thread exists.
+	n.mu.Lock()
+	n.spare = nil
+	n.akeys = map[string]*assistantProc{"proc-k": {cmd: self, cx: &codexConn{key: "proc-k"}}}
+	n.mu.Unlock()
+	check(mcpTools(true, "proc-k"), true, "proc-k")
+
+	n.mu.Lock()
+	n.akeys = map[string]*assistantProc{}
+	n.mu.Unlock()
+	check(mcpCall(true, "proc-k"), false, "proc-k")
+}
+
+// A runtime's assistant conversations run in its own processes (assistant_runtime.go): a connected runtime that runs
+// them (caps.assistant) vouches for its descendants' word, with the session they name; one that does not, for nothing.
+func TestMCPAssistantFromARuntime(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("no peer process here")
+	}
+	// This test is the process at the other end of the runtime socket, and the MCP server's. It is the node's too,
+	// which a runtime is not (TestMCPAssistantNotFromARelay). Swapped before the node listens: its connections read it.
+	lineageWas := nodeLineage
+	t.Cleanup(func() { nodeLineage = lineageWas })
+	nodeLineage = func() []int { return nil }
+	n, hub := runtimeNode(t)
+	ask := mcpRelay(t, n, hub)
+	check := func(req map[string]any, assistant bool) {
+		t.Helper()
+		if got := ask(req); got["assistant"] != assistant || got["session_id"] != "session-a" {
+			t.Errorf("%v: relayed %v, want assistant %v", req, got, assistant)
+		}
+	}
+	dialRuntime(t, n, map[string]any{"runtime": "plain", "caps": map[string]any{"start": true, "send": true}})
+	check(mcpTools(true, "session-a"), false)
+	check(mcpCall(true, "session-a"), false)
+	dialRuntime(t, n, assistantRuntimeHello())
+	check(mcpTools(true, "session-a"), true) // no runtime lists it yet: a chat lists the tools as it starts
+	check(mcpCall(true, "session-a"), true)
+
+	// Only a session that can be one of this runtime's assistant chats.
+	conn := func(rt string) *runtimeConn {
+		n.runtimes.mu.Lock()
+		defer n.runtimes.mu.Unlock()
+		return n.runtimes.byRuntime(rt)
+	}
+	n.runtimes.claim(conn("plain"), "session-p")
+	n.runtimes.claim(conn("dsh"), "session-w") // the runtime's, an agent's chat
+	n.runtimes.claim(conn("dsh"), "session-r")
+	n.state.put("session-r", sessionState{Cwd: identity.AssistantDir(n.home)})
+	n.mu.Lock()
+	n.akeys = map[string]*assistantProc{"proc-k": {cmd: &exec.Cmd{Process: &os.Process{Pid: 1 << 22}}, cx: &codexConn{key: "proc-k"}}}
+	n.mu.Unlock()
+	for _, c := range []struct {
+		session string
+		ok      bool
+	}{{"session-r", true}, {"", false}, {"0d000000-0000-4000-8000-00000000000a", false}, {"session-p", false}, {"session-w", false}, {"proc-k", false}} {
+		if got := ask(mcpTools(true, c.session)); got["assistant"] != c.ok || got["session_id"] != c.session {
+			t.Errorf("%q: relayed %v, want assistant %v", c.session, got, c.ok)
+		}
+	}
+}
+
+// A connection into the runtime socket from the node's own process or an ancestor of it is a relay (the manager's
+// egress proxy leading an extension's sandbox there; the manager runs the node), not the runtime's process: it
+// vouches for nothing, or everything the node runs would be the assistant.
+func TestMCPAssistantNotFromARelay(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("no peer process here")
+	}
+	n, hub := runtimeNode(t)
+	ask := mcpRelay(t, n, hub)
+	dialRuntime(t, n, assistantRuntimeHello()) // from this test: the node's process
+	if got := ask(mcpTools(true, "session-a")); got["assistant"] != false {
+		t.Fatalf("relayed %v", got)
+	}
+}
+
+// Where the system does not tell who is at the other end of the socket (Windows), the request must name a session
+// the node runs for the assistant, or an assistant conversation of a connected runtime that runs them.
+func TestMCPAssistantWithoutPeer(t *testing.T) {
+	n, _ := testNode(t)
+	n.procs["s1"] = &assistantProc{id: "s1", cmd: &exec.Cmd{Process: &os.Process{Pid: 100}}}
+	n.akeys = map[string]*assistantProc{"proc-k": {cmd: &exec.Cmd{Process: &os.Process{Pid: 200}}, cx: &codexConn{key: "proc-k"}}}
+	n.state.put("session-r", sessionState{Cwd: identity.AssistantDir(n.home)})
+	n.state.put("session-w", sessionState{Cwd: filepath.Join(n.home, "work")})
+	check := func(cases map[string]bool) {
+		t.Helper()
+		for session, want := range cases {
+			if got, ok := n.mcpAssistantOf(0, errNoPeer, nil, session); ok != want || ok && got != session {
+				t.Errorf("%q: %q %v, want %v", session, got, ok, want)
+			}
+		}
+	}
+	// session-r is an assistant conversation by its directory, but no connected runtime has it.
+	check(map[string]bool{"s1": true, "proc-k": true, "session-r": false, "session-w": false, "other": false, "": false})
+
+	n.runtimes = newRuntimeRegistry()
+	connect := func(rt string, assistant bool) *runtimeConn {
+		h := n.runtimes.add(nil)
+		h.mu.Lock()
+		h.ready, h.hello.Runtime, h.hello.Caps.Assistant = true, rt, assistant
+		h.mu.Unlock()
+		return h
+	}
+	n.state.put("session-p", sessionState{Cwd: identity.AssistantDir(n.home)})
+	n.runtimes.claim(connect("plain", false), "session-p") // a runtime that runs no assistant
+	n.runtimes.claim(connect("dsh", true), "session-r")
+	n.runtimes.claim(connect("dsh2", true), "session-w") // not an assistant conversation
+	check(map[string]bool{"session-r": true, "session-p": false, "session-w": false})
+	// Any other reason the peer is not known (not a unix socket) is no assistant's.
+	if got, ok := n.mcpAssistantOf(0, errors.New("not a unix socket"), nil, "s1"); ok {
+		t.Errorf("a peer not known for another reason: %q", got)
 	}
 }

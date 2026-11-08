@@ -284,3 +284,62 @@ func TestFileCacheHitsKeepADownloadGoing(t *testing.T) {
 		}
 	}
 }
+
+// The preview browser's profile keeps the dev app's sign-ins: without a user cache folder it is this process's own
+// folder, never the fixed persona/preview-browser in the shared temp folder that another local user could make first.
+func TestPreviewProfileWithoutUserCacheIsThisProcesss(t *testing.T) {
+	_, tmp := cacheEnv(t, false)
+	shared := filepath.Join(tmp, "persona", "preview-browser")
+	if err := os.MkdirAll(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{filepath.Dir(shared), shared} {
+		if err := os.Chmod(dir, 0o777); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir, err := previewProfileDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir == shared || filepath.Dir(dir) != tmp || !strings.HasPrefix(filepath.Base(dir), "persona-preview-browser-") {
+		t.Fatalf("profile at %s, want a folder of this process's own in %s", dir, tmp)
+	}
+	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("profile folder %v (%v), want 0700", st, err)
+	}
+}
+
+// With a user cache folder the profile stays at <user cache>/persona/preview-browser (sign-ins kept from before), and
+// a symlink planted there stops the browser from starting rather than writing the profile through it.
+func TestPreviewProfileInTheUserCacheRefusesASymlink(t *testing.T) {
+	cache, _ := cacheEnv(t, true)
+	want := filepath.Join(cache, "persona", "preview-browser")
+	if dir, err := previewProfileDir(); err != nil || dir != want {
+		t.Fatalf("profile at %s (%v), want %s", dir, err, want)
+	}
+	if err := os.RemoveAll(want); err != nil {
+		t.Fatal(err)
+	}
+	theirs := t.TempDir()
+	if err := os.Symlink(theirs, want); err != nil {
+		t.Fatal(err)
+	}
+	if dir, err := previewProfileDir(); err == nil {
+		t.Fatalf("profile at %s through a symlink", dir)
+	}
+	bin := filepath.Join(t.TempDir(), "my-chrome")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ntouch \"$0.ran\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(previewBrowserEnv, bin)
+	if _, err := startPreviewBrowser(context.Background()); err == nil || !strings.Contains(err.Error(), "profile folder") {
+		t.Fatalf("started with the profile behind a symlink: %v", err)
+	}
+	if _, err := os.Stat(bin + ".ran"); err == nil {
+		t.Fatal("ran the browser with the profile behind a symlink")
+	}
+	if ents, err := os.ReadDir(theirs); err != nil || len(ents) != 0 {
+		t.Fatalf("wrote into the symlink's target: %v (%v)", ents, err)
+	}
+}

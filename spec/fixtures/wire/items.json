@@ -3,7 +3,7 @@
     "name": "items_all_kinds",
     "description": "历史页覆盖文本、工具、图片占位、通知和任务通知。",
     "source": [
-      "server/internal/proto/proto.go: Item, WithoutImageData",
+      "server/internal/proto/item.go: Item, WithoutImageData",
       "server/internal/hub/http.go: Hub.sessionItems",
       "apple/Shared/Models.swift: Item, ImagePayload, TaskNote"
     ],
@@ -215,7 +215,7 @@
     "description": "折叠的任务快照保留成功结果与原调用位置，旧 iOS 忽略新增字段。",
     "source": [
       "server/internal/transcript/fold.go: FoldWork",
-      "server/internal/proto/proto.go: FoldTaskSnapshot",
+      "server/internal/proto/item.go: FoldTaskSnapshot",
       "apple/Shared/Models.swift: Fold",
       "docs/protocol/protocol.md: 折叠的工作"
     ],
@@ -295,7 +295,7 @@
     "name": "items_inline_image",
     "description": "未启用懒加载时图片保留内联数据。",
     "source": [
-      "server/internal/proto/proto.go: Image",
+      "server/internal/proto/item.go: Image",
       "apple/Shared/Models.swift: ImagePayload"
     ],
     "derived": true,
@@ -329,7 +329,7 @@
     "name": "items_task_notifications",
     "description": "监控事件和子任务结果都作为带 task 的 notice 传输。",
     "source": [
-      "server/internal/proto/proto.go: TaskNote",
+      "server/internal/proto/item.go: TaskNote",
       "apple/Shared/Models.swift: TaskNote"
     ],
     "derived": true,
@@ -468,7 +468,7 @@
     "description": "轮次耗时保留来源及原生关联；旧客户端忽略未知内容类型和可选字段。",
     "source": [
       "server/internal/transcript/transcript.go: ParseLine",
-      "server/internal/proto/proto.go: TurnDuration",
+      "server/internal/proto/item.go: TurnDuration",
       "apple/Shared/Models.swift: ItemKind.init"
     ],
     "derived": true,

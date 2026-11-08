@@ -40,7 +40,7 @@ Create `~/.config/persona/android-release.json` with mode 0600:
 {
   "repository": "owner/repository",
   "git_url": "https://github.com/owner/repository.git",
-  "branch": "master",
+  "branch": "main",
   "checkout": "/absolute/project/.claude/worktrees/automation-android-release",
   "state_directory": "/absolute/private/android-release",
   "signing_queue": "/absolute/private/android-release/signing",

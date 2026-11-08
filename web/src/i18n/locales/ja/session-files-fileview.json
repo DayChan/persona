@@ -51,5 +51,10 @@
   "hub_too_old_media": "ハブのバージョンが古いため、大きなファイルを再生できません",
   "hub_too_old_media_detail": "{size}・ハブを更新すると直接再生できます。先にダウンロードすることもできます。",
   "empty_folder": "空のフォルダ",
-  "folder_truncated": "最初の500項目のみ表示しています"
+  "folder_truncated": "最初の500項目のみ表示しています",
+  "file_changed": "読み込み中にファイルが変更されました",
+  "file_changed_detail": "ページの読み込み中にファイルが変更されました。再読み込みして最初から読み直してください。",
+  "reload": "ファイルを再読み込み",
+  "read_incomplete": "ファイルを完全に読み込めませんでした。再試行するか、再読み込みしてください。",
+  "download_failed": "ファイルをダウンロードできませんでした：{error}"
 }

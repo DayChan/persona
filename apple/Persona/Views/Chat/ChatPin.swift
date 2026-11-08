@@ -11,6 +11,11 @@ import SwiftUI
     /// The chat list's scroll view (`ChatPin.Finder` in its content). Moved directly: asking `ScrollPosition` for a
     /// point landed on it, then 10 pt off a moment later (the content margin), and back, frame after frame.
     weak var list: UIScrollView?
+    /// The flipped list's actual distance from its newest end; SwiftUI geometry can lag a completed jump.
+    var measuredNewestGap: CGFloat? {
+        guard let list else { return nil }
+        return list.contentOffset.y + list.adjustedContentInset.top
+    }
     /// Set by the chat: forget the position it last asked its list for. At the newest that is the newest end, and the
     /// list went back to it for a frame when a work line's steps arrived.
     var letGo: () -> Void = {}

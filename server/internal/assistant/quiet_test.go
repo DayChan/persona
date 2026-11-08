@@ -13,7 +13,7 @@ import (
 )
 
 // newQuietService is newTaskService with the main conversation conv1 (idle, on machine server), a short notice
-// delay and supervision messages (supervise.go) that come at once and often.
+// delay and supervision messages (supervise_digest.go) that come at once and often.
 func newQuietService(t *testing.T) (*Service, *fakeHub) {
 	t.Helper()
 	old := quietNoticeDelay

@@ -1,3 +1,4 @@
+import PersonaKit
 import SwiftUI
 
 /// The machine pages are pushed by value (MachineListRoute, MachineDetailRoute) and so are the chats they open
@@ -451,10 +452,12 @@ struct TodayTokensCard: View {
             }
             if today.total > 0 {
                 GeometryReader { g in
+                    // A small share's minimum width comes out of the large ones, so the bar ends at the card's edge.
+                    let widths = ShareBar.widths(ranked.map { Double($0.usage.today.total) }, width: g.size.width,
+                                                 gap: Theme.Space.xxs, minimum: Theme.Size.dotXS)
                     HStack(spacing: Theme.Space.xxs) {
-                        ForEach(Array(ranked.enumerated()), id: \.offset) { i, s in
-                            Capsule().fill(Color.primary.opacity(Self.shade(i)))
-                                .frame(width: max(Theme.Size.dotXS, g.size.width * Double(s.usage.today.total) / Double(today.total)))
+                        ForEach(Array(widths.enumerated()), id: \.offset) { i, w in
+                            Capsule().fill(Color.primary.opacity(Self.shade(i))).frame(width: w)
                         }
                     }
                 }

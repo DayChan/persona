@@ -26,7 +26,7 @@ func (s *Service) oauthToken(ctx context.Context, a *MailAccount) (string, error
 	if a.Auth != AuthOAuth2 {
 		return "", nil
 	}
-	return s.accessToken(ctx, a.OAuth)
+	return s.accessToken(ctx, a.ID, a.OAuth)
 }
 
 // loginIMAP authenticates an IMAP client with the account's credentials (token for OAuth accounts).
@@ -101,7 +101,7 @@ func serverText(s string) string {
 func (s *Service) smtpAuth(ctx context.Context, a *MailAccount) (sasl.Client, error) {
 	switch a.Auth {
 	case AuthOAuth2:
-		token, err := s.accessToken(ctx, a.OAuth)
+		token, err := s.oauthToken(ctx, a)
 		if err != nil {
 			return nil, err
 		}

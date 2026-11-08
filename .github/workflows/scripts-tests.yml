@@ -6,9 +6,16 @@ permissions:
   contents: read
 jobs:
   scripts:
-    name: Scripts, docs and repository guards
+    name: Scripts and guards shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    env:
+      CI_PYTHON_SHARD_INDEX: ${{ matrix.shard }}
+      CI_PYTHON_SHARD_COUNT: '2'
     steps:
       - uses: actions/checkout@v4
         with:

@@ -18,6 +18,8 @@
   "also_done": "同时标为已处理",
   "ask_label": "要它做什么",
   "target_label": "交给谁",
+  "target_main": "Persona（主对话）",
+  "target_main_sub": "发到 Persona 的主对话",
   "target_persona": "Persona（新对话）",
   "target_persona_sub": "开一段新的 Persona 对话"
 }

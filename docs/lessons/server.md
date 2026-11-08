@@ -10,11 +10,32 @@
 - A finite teardown timeout is a failure report, not reap. Keep one `cmd.Wait` owner and disposal/capacity ownership until actual completion; do not start replacements after failed cleanup. Invoke transport hooks outside lifecycle locks and `sync.Once` callbacks so reentrant closure is safe. Real owned-process startup/ping tests establish more than a pure pipe test; a stalled post-Wait disposal fixture is not evidence of a kernel refusing termination.
 - Publish teardown-budget failure from the independent watcher, idempotently, rather than wait for a blocked initialization callback to return. Keep `Done`, disposal and admission owned until actual completion; then balance each emitted `RunStart` exactly once, including explicit Stop. Observer run counts and resource holds measure different things. A stalled Accept plus stalled disposal counterexample catches the reporting dependency.
 - Keep a localized typed error outermost. Joining it with a transport sentinel adds English wrapper text that prevents `i18n.Localize` from recognizing the summary. Join underlying causes inside `callFailure` instead: the English/Chinese/Japanese summary, RPC timeout code, context identity and `ErrDropped` must all survive.
-- Test deadlines are reporting budgets, not scheduler guarantees. After a deliberately tiny startup teardown budget expires, assert the typed failure and retained ownership, then separately await actual `Done` and reap; do not label the first error as completed cleanup. Success-only observer tests need enough scheduling headroom. Go's `GOTMPDIR` also affects child test temporary paths: keep Unix-socket fixture paths short (a private short link to owned build storage works), or every group case fails before spawning any process.
+- Test deadlines are reporting budgets, not scheduler guarantees. After a deliberately tiny startup or active-cancellation teardown budget expires, assert the typed failure and retained ownership, then separately await actual `Done`, group absence, reap and disposal; do not label the first error as completed cleanup. A gated post-reap disposal must still hold `active_runs`, emit no terminal event and admit no replacement until released. Accept only the expected budget failure, not an observer/ownership error, and verify that late completion retains the failure and balances the terminal event exactly once. Success-only observer tests need enough scheduling headroom. Go's `GOTMPDIR` also affects child test temporary paths: keep Unix-socket fixture paths short (a private short link to owned build storage works), or every group case fails before spawning any process.
 - Pipe/socket `Stat` is not proof that an inherited Go file is pollable. A real child with blocking inherited stdout admitted a request prefix, then remained in `Write`/`Close` beyond a 400 ms deadline and 700 ms observation when its parent stopped reading; this also fails before #1204. Owned stdio must explicitly take ownership of exclusive open descriptions, duplicate them, enable shared nonblocking flags, create fresh pollable Go files and check deadline support before I/O. Closing duplicates alone releases local writes but leaves original stdout open, hiding EOF from pending remote approvals: terminal closure must close every transferred endpoint. Prove EOF while the child is still alive behind an independent acknowledgement, not by letting process exit rescue the test. `dup` shares status flags, and `File.Fd` can silently switch a pollable file back to blocking; use `SyscallConn` during setup and never call `Fd` on active owned duplicates. Borrowed files, arbitrary Closers and regular files must not acquire a hard-interrupt promise from their type. Test actual inherited pipe and aliased socket descriptors, not just `os.Pipe`/`os.NewFile` fixtures; Linux runtime evidence is not portable runtime acceptance.
 - Teardown is a typed, hub-owned failure reason, not an English string to hide inside raw diagnostic details. Preserve `errors.Is`/coded identity while rendering catalog summaries and nested platform reasons in all three languages. Separate raw external diagnostics without losing the shutdown explanation, and test the real double-gated Proc status as well as pure projection.
 - In a gated-writer fixture, close the actual endpoint before releasing the gate if the assertion requires the blocked frame to fail. Releasing first can legitimately finish that frame before concurrent Close, even though the connection is retired and approval withdrawal succeeds. A finite teardown failure likewise does not mean SIGKILL/Wait has already been scheduled: separately await actual member exit and leader reap, checking retained ownership throughout, without extending the reporting budget. Unknown diagnostic lines containing colons must not be treated as a translatable generic host envelope; keep raw details intact while translating recognized owned shutdown reasons.
 - Leader reap is not group completion. The TERM-ignoring group-member counterexample also fails before #1204; it is an outstanding acceptance gap, not a new regression. Keep the original leader unreaped while the single Wait owner signals its group. After reap, query only; do not signal a potentially reused numeric PGID, even directly after Wait. Require group absence before disposal/capacity release. Zombies, an occupied/reused PGID, query errors and unsupported platforms fail closed with a finite failure report, retained ownership and no replacement. A same-session joined helper is not a true fork descendant; test both, and do not force PID reuse on a shared host. Linux runtime evidence does not verify macOS/Windows or production sandbox resource enforcement.
+
+## Mail account writes publish only committed candidates (#1302)
+
+Whole-account snapshots need one guard covering candidate capture, storage and publication across adds, OAuth
+upserts, imports, deletes and refresh-token rotation. Publishing first and rolling back later lets an unrelated
+successful write persist rejected credentials or a failed deletion. Copy nested OAuth credentials, keep network
+verification outside that guard, and retire health and cached connections only after the write succeeds. Concurrency
+regressions should park a second writer at the guard and check restart agreement, rather than require it to enter storage.
+
+## Distant spreadsheet dates exceed time.Duration (#1061)
+
+`time.Time.Sub` saturates at roughly 290 years, so XLSX dates after the duration limit all became the same serial. Subtract Unix seconds for parsed calendar dates, retaining the existing wall-clock normalization. Verify the emitted worksheet XML, including distant leap years, time fractions, offsets and text cells; a valid ZIP/XML structure alone does not prove date values are correct.
+
+The 1900 date system also has a calendar boundary (#1310): January 1 is serial 1, February 28 is 59, and March 1 is 61 because Excel reserves 60 for a fictitious leap day. Apply that adjustment only to January/February 1900, and leave earlier dates as text. Check the range after wall-clock normalization, so an offset cannot move a written date across the boundary.
+
+## Installed provenance is not a mutable source identity (#1227)
+
+- A marketplace ID survives address moves. Its newly verified official catalog cannot authorize previously installed unsigned code, including code absent from that catalog. Capture an unforgeable entry-verification snapshot before downloading, bind it to the unchanged manifest and package fields, and save the verified key with the installed row in the same transaction. Clear it on unsigned upgrades; never backfill it from the current market. Owner sandbox choices remain independent.
+- A successful catalog mirror has not synchronized a git checkout. Fetch repository-relative packages lazily from the original git source/ref, keeping credential restrictions and time budgets; do not clone for OCI or HTTPS package downloads. Package hashes still check the downloaded bytes.
+- Recursive JSON duplicate checks must distinguish case-sensitive maps from protocol structs. Compare arbitrary map keys exactly; reject known struct-field aliases using Unicode simple folding (`strings.EqualFold`, as in `encoding/json`). Lowercasing every object both rejects valid configuration keys and misses long-s signature aliases.
+- Address migration must repeat target uniqueness checks after network reads under the final state lock, including the one official identity across branch and transport aliases. This was a pre-existing migration defect, not an embedded-signature regression.
 
 ## Completion reads must belong to the current turn (#6525)
 
@@ -26,6 +47,25 @@ not replace a live session notification received while that RPC was in flight. A
 and a local session revision protect that boundary without changing the node protocol.
 
 Pitfalls, odd behavior, and the trade-offs made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
+
+## One silent address must not take the whole dial (2026-11-08, #1181)
+
+A name with several addresses, dialed one at a time with one long timeout, fails as soon as the first address drops SYNs: the attempt sits until the
+caller's budget runs out and the working addresses are never tried. curl and browsers move on, so the same URL "works everywhere else". On one host a
+news site's first IPv4 addresses often never answered while its IPv6 one always did, and most reads through the source runtime broker failed at the
+extension's own 15-second request budget. Race the already checked addresses (`dialRace`): interleave families, a short attempt delay, bounded
+attempts, losers closed. Do not reach for `net.Dialer.FallbackDelay` here: it resolves the name itself, which would dial addresses the egress checks
+never saw. Making room by canceling an old attempt must give its address another turn later, or the only address that answers slowly is lost. A real
+dialer's own timeout at the request's deadline can arrive before the context reports it, as an "i/o timeout" that is not `context.DeadlineExceeded`:
+decide by the deadline, not by the attempts' errors. Test the scheduling with a fake dialer in a `testing/synctest` bubble, whose clock makes the
+order and timing of attempts exact; it proves nothing about real sockets' error identities, so keep a real-socket test for those (a loopback listener
+with a full accept queue never answers a SYN on Linux).
+
+## Approved official-market pins outlive built-in constants (#1157)
+
+Changing a compiled public key does not update a pin already saved in Postgres, and the registration marker can hide that difference. Migrate only explicitly recognized retired official pins, including every recognized repository or HTTPS alias; never infer trust from a downloaded catalog or replace an unknown owner choice. Save the legacy registration marker before migration so a removed market stays removed. A failed pin write must keep loading retryable.
+
+For embedded signatures, retain the complete envelope and verify the exact decoded payload bytes on restart. Postgres JSONB may normalize the outer envelope without changing those bytes; compare the decoded payload, not the envelope's formatting. A legacy detached payload or stale cached signed flag must not authorize installation. Cache quarantine can legitimately write the old record before pin migration: inject failure specifically on the new-pin write, rather than claiming a generic cache-write error proves migration retry. Keep every HTTP fixture local, including automatic refreshes of quarantined caches. Observe successful catalog delivery in rejection tests as well as `errors.Is(err, extension.ErrCatalogUnverified)`. `ErrCatalogUnavailable` must not lift a rotated cache's quarantine, and it must preserve the new key's catalog once that envelope has genuinely verified. Never infer these categories from localized message text.
 
 ## A fixed name in the temp folder is shared on Linux (2026-11-07, #66)
 
@@ -55,6 +95,7 @@ Revocation ended pairing codes with `expires_at = now()` (Postgres's clock) whil
 - Keep custom JSON methods off an anonymously embedded DTO. A method promoted from the embedded launcher swallowed its surrounding health and agent-type fields on both encode and decode. Use an explicit root transport envelope and test that embedding the plain DTO preserves sibling fields.
 - Child-process environment updates must mirror both names with current-name presence taking priority. Updating only one test database or manager root variable leaves old child binaries attached to the parent's previous value. Real node verification belongs in isolated PID/network/home containers: a node scans process environments and must not inspect other agents on the development host.
 - Preserve an existing service, executable and data store instead of creating a second identity. Refuse independent installations; permit verified aliases. Atomic binary replacement must target the real file so both executable names remain attached. A discovery goodbye removes one service record, not a hub still advertised by the other service.
+- A Compose fallback between two spellings takes no `?` check in its default (2026-11-07): Compose before 5.0.2 (2.x included) evaluates `${NEW-${OLD:?…}}`'s default even when `NEW` is set, so installs that set only the new name failed. Leave the default empty and let Compose's own error for a missing value stop it (an empty image: "neither an image nor a build context"). `scripts/test/test_docker_entrypoint.py` rejects a nested check.
 
 ## Retired look IDs are still reserved (#6219)
 
@@ -68,6 +109,10 @@ Revocation ended pairing codes with `expires_at = now()` (Postgres's clock) whil
 
 - The write gate reads a call's arguments into a map and compares field names exactly. A connector that decodes the same bytes into a struct with `encoding/json` matches a name without regard to its case (Unicode simple folding), and a field given more than once does not simply resolve to its last value: a `null` is ignored, and an object or an array is decoded onto what the earlier one left. A rule judged on the gate's reading can therefore be wrong about what the connector will do, so the two have to compare names, and resolve repeats, the same way.
 - When a decision is made on arguments that another decoder reads later, compare names the way that decoder does, and refuse the call where the readings can still differ rather than ranking them rule by rule. `connector.Decide` refuses a call that gives a field more than once, the same name or one that folds to it (`repeatedField`, top level only), and a deny or confirm compares names without regard to capitals (`matchFieldsAny`) while an allow keeps the exact reading, so a rule that lets a call through is never wider than one that refuses or asks. Test the folding against `encoding/json` itself (`TestTwoSpellingsAreWhatTheDecoderFolds`), not against a list of cases. A gate that matches a body before some other service decodes it (the node's Feishu gate) depends on that service's rules and is not covered.
+
+## Bracketed registry hosts (#1324)
+
+Splitting a registry at its first colon reads `[::1]:5000` as `[`, selecting HTTPS for a local HTTP registry. Extract the hostname with `url.URL.Hostname` and compare IPv6 addresses with `net.IP.Equal`; keep the original registry spelling and port in the request. Test compressed/expanded loopback, a real TCP6 request, and controls retaining external HTTPS and existing IPv4 behavior.
 
 ## Scrubbing patterns: Go tries regexp alternatives in order
 
@@ -408,6 +453,8 @@ home volume (docs/operations/link.md "Without systemd").
 
 ## Unified model configuration
 
+- A managed-provider read failure is not an empty list (#1365). Read the whole raw setting reliably before changing providers, deciding assignments or resolving deletion dependencies; preserve readable sealed records so users can explicitly replace or remove corrupt credentials. Keep the confirmed snapshot through nested model resolution under the configuration lock, and publish that same committed snapshot to nodes. Decrypt only where import matching or node publication needs credentials. Reconnects and profile/trust notifications must omit a replacement on read or credential errors, and a safe committed edit must log and defer unsafe publication; only a genuinely missing setting permits first creation. Regress with selective failures at individual reads while writes remain available, full sealed-record equality, zero writes or node pushes on rejection, and a healthy retry.
+
 - A "provider" isn't necessarily a runnable launcher: direct API configurations can't be sent to nodes or listed for new sessions; filter purpose selections by API / launcher / plugin capabilities. UI or `ANTHROPIC_MODEL` changes alone don't guarantee the model is used; shell launchers may clear environment variables. Verify argument forwarding and pass the model to the actual executor.
 - Model caches and process reuse must include an effective-config fingerprint: changing URL, credentials, or model under the same provider name must invalidate old translation results and warmed processes. Test both same-config hits and changed-config misses; a changed fake API endpoint isn't the same config.
 - Exact node model metadata and `node_sessions` must save atomically; use Postgres `settings` key `node_model.<machine>.<session>` with SQL CTE, no local JSON state. Single-purpose edits use database revision-conditional updates; PATCH read-modify-write isn't concurrency-safe by itself.
@@ -453,13 +500,28 @@ home volume (docs/operations/link.md "Without systemd").
 ## Knowledge base (docs/assistant/knowledge.md)
 
 - An asynchronous dedupe answer must recheck a user's split, record its verdict and merge under the same project-mutation lock as unmerge. The verdict-file mutex prevents lost JSON updates but cannot stop an already queued merge from reversing a completed split. A verdict write failure must stop the merge.
+- A checkpoint after append is a replay window (#1343): connector pages can repeat after a cursor failure, a later batch failure or a process interruption.
+  Preserve stable message IDs scoped by exact source and chat, including IDs such as `body` reused across threads. Formatted-text matching loses distinct messages;
+  in-memory sets and atomic cursors do not repair append/receipt/counter failures. Journal the intended file replacements before changing text, then recover them
+  before another writer reads counters or changes the same files. Test failure before and after every replacement with a fresh Store, and expire identities with
+  retained text and source deletion. Legacy text and missing IDs cannot supply identities they never recorded. Compression must compare pending counts too:
+  new IDs can share a timestamp or minute, so advancing coverage from time alone can skip concurrent messages. Success and refusal must share the snapshot gate,
+  and a new ID in an already settled minute must reopen it for processing. Acquire metadata before message files:
+  the existing project commit holds metadata while its frozen input reads the timeline under the message mutex, so the opposite order deadlocks ingestion.
+  Attachment filenames must hash the full raw ID, not sanitize or truncate it: punctuation, case and long suffixes can otherwise overwrite an earlier message's
+  attachment even when receipts correctly keep both IDs. Put new files in a separate day subdirectory so hash-shaped legacy names stay intact, keep legacy
+  links/files, and use separate anonymous filenames when no stable ID is supplied.
 - Enforce retention at write entry points, not only daily cleanup: initial archive reads "latest 100 messages", which in quiet sessions can reach years back;
-  after cleanup, 47 expired day files reappeared 6 seconds later (production 2026-11-02). All day-file writes (`Archive`, `Ingest`, `Backfill`) share
+  after cleanup, 47 expired day files reappeared 6 seconds later (production 2026-11-02). All day-file writes (`Archive`, `Ingest`, `WriteHistory`) share
   `Engine.textCutoff()` (midnight of the earliest retained day); cleanup uses `Engine.Prune`, with the same retention days. New write paths use it too. `TestArchiveKeepsToTheTextRetention` checks "cleanup immediately after writing should delete 0 days".
 - For slow search, measure traversal first (#2632): with 37,000 archived files, caching contents improved only 1.6×; most remaining cost was serial `filepath.WalkDir` (~70 ms,
   more than 8-way parallel `stat` on all files at ~30 ms). Directory mtime changes for entry additions/deletions/renames, not content appends; cache directory listings by directory mtime,
   file contents by mtime + size. Together, warm search improves ~360 ms → 85 ms (~4.2×, docs/assistant/knowledge.md). Skip "just changed" entries for mtime caches (another same-tick write with unchanged size is invisible).
   Tests age files/directories with `os.Chtimes`, or never exercise the cache path.
+- Rewriting a day file (`Store.MergeMessages`, imported history) must keep what readers cannot parse: split on `\n` only, keep `\r`, hand edits, odd lines and a missing final
+  newline as they are, and test it as a property (original lines an exact subsequence of the result, count included) plus a fuzz target. The fuzzer found within seconds that a
+  sender name with a line break formatted into two physical lines no reader took for one message, so its duplicate was written again; `Line.Format` now folds line breaks in
+  the sender. Day files have no message ids: duplicates are "same minute, sender and text", which is exactly the formatted line.
 
 ## Port forwarding (docs/operations/ports.md)
 
@@ -616,7 +678,8 @@ home volume (docs/operations/link.md "Without systemd").
 - **Resident node systemd units need the same PATH as hub**: local node formerly inherited hub unit `PATH=%h/.local/bin:…` as a child;
   separate `personad-node` used systemd's default PATH and missed herdr / claude in `~/.local/bin`. `node-launchd.sh` now writes the same PATH.
 - **Signal only the resident node's main process**: `systemctl --user kill -s HUP personad-node` defaults to the whole cgroup, sending SIGHUP to assistant claude and background commands too.
-  Use `--kill-whom=main` (`node-launchd.sh restart-idle`).
+  Use `--kill-who=main` (`node-launchd.sh restart-idle`): `--kill-whom=` is only systemd 252's new name, and systemd 241 / 245 reject it as an unknown option,
+  so the signal never goes out; deploy.sh ignores that failure, and the resident node stays on its old binary. Every version reads `--kill-who=`.
 - **During resident-node `exec`, `node --stdio` could take over the connection**: the socket file remains (`SetUnlinkOnClose(false)`) but refuses connections; old `Relay` interpreted this as no resident node,
   serving the connection itself and putting assistant chats back in hub's cgroup, killed on next restart. Now wait up to 8 s on refusal (`dialResident`).
 - **Shutdown "offline" broadcasts are false**: hub canceled ctx on SIGTERM, then disconnected machines broadcast offline `machines` and ended questions, so clients saw an offline cascade before disconnect.
@@ -641,6 +704,12 @@ home volume (docs/operations/link.md "Without systemd").
 
 - **Name limits differ by file system**: Linux takes 255 bytes per name, APFS 255 characters, so a 100-character Chinese name (300 bytes) lands on a Mac and is refused on Linux. A folder upload keeps the file's own name, so `beginInto` probes with `Lstat` and, on `ENAMETOOLONG`, shortens with `splitName` before any byte is sent (and refuses at begin if the shortened name is still too long for that file system). Before, begin accepted the name and the node only refused after the whole body (up to 2 GB) had been received. Windows is unchanged: Go does not surface `ENAMETOOLONG` there.
 - **Test with more than 255 characters**: a shorter multibyte name passes on a Mac and fails on Linux, so the test would mean different things locally and in CI.
+
+## Upload cancellation owns a terminal lifecycle (#1348)
+
+- Keep a busy upload in the registry: removing it during a chunk or finalization hides it from abort. Mark cancellation terminal under a per-upload lock, then let the active file owner close/remove the part after its I/O settles. Completion must never reinsert retired state, and disk I/O must stay outside the registry lock.
+- Stop idle timers when work starts and bind each new idle period to a generation. A callback already running when its timer is stopped must not cancel fresh activity. A short write is a failed upload, even when the writer returns no error.
+- Serialize cancellation with the final rename on that upload. Abort winning first prevents publication and removes any empty reservation; a successful rename commits the upload, so a later abort leaves it intact. Test chunk cancellation and end cancellation separately through real RPC with gated regular files. The hub returns after a canceled chunk and sends deferred abort; it does not normally send end afterward.
 
 ## ego cookies (2026-11-04, #1304)
 
@@ -714,8 +783,17 @@ and add that directory to image workflow PR paths.
 
 ## Reject corrupt signatures on first verification too (2026-11-05, #2214)
 
-Extension markets accept unsigned indexes only when the signature file is absent. An existing malformed file must be rejected even on first registration, not allowed for compatibility with sites returning the same page for every path.
-Fake unsigned markets return 404 for `.sig`; test both first read and an already-trusted public key, distinguishing empty files from missing files.
+Official extension catalogs embed payload and signatures in one document. Reject malformed envelopes, duplicate fields and invalid UTF-8 before verification; verify the decoded payload string without trimming or regenerating JSON. No detached signature fetch or unsigned fallback is permitted for any official alias, including cached catalogs and manual re-registration. Nonofficial TOFU metadata is no longer a trust grant or an installation lock.
+
+## Catalog mirrors must not carry credentials or partial download state (#1227)
+
+- A mirror changes transport, never a source spec, package digest or signing key. Give it an independent bounded timeout, no market credential and a separate origin-bound bearer session. On every validation or transport failure, retry upstream with a fresh staging file, hash and watchdog; a partial mirror archive cannot contaminate the fallback.
+- GHCR authorization is derived from a registered GitHub owner and marketplace-repository prefix, not catalog hints. Bind realm, service, pull scope and every redirect; both the initial market credential and issued bearer are secrets. A git clone token never authorizes a registry.
+- Persist the complete signed envelope in JSONB and verify its payload again after restart. Saving a parsed index destroys signed whitespace; a stored signed flag is not verification. Quarantine unverifiable official caches and unrecognized pins while preserving retryable database errors and the deleted-market marker.
+- Keep mirror settings in each extension manager's existing setting store. Opening settings must not initialize markets or start network reads. A settings screen on the hub is not evidence of cross-manager distribution.
+- A rollback is a version change like any other: whatever is captured per installed version (here the verified market key and origin) must be snapshotted next to `previous_version` at upgrade and restored by the rollback, never copied from the row being left. Without a snapshot, drop the trust-bearing field rather than inherit it.
+- Do not quarantine a signed market because the network failed. Tell "could not read the catalog" from "read a catalog that does not verify" with typed errors (`errors.Is`), not message text: only the second may mark it invalid; the first keeps the last verified catalog installable. A negative signature test must prove it received an HTTP 200 catalog, or a 404 passes for the wrong reason.
+- The final official sandbox allowlist and compiled-in signing key must ship together. A fixture key proving envelope mechanics does not prove final-key verification, GHCR visibility or cutover completion.
 
 ## Daemon-launched user sessions must leave its cgroup (2026-11-04)
 
@@ -923,6 +1001,10 @@ A verified download or unpacked binary is still temporary until its final rename
 ## Spreadsheet text coercion requires finite values (#6352)
 
 `strconv.ParseFloat` accepts `NaN` and infinity without an error. Reject them when coercing formula text so existing `#VALUE!` and `IFERROR` behavior works instead of caching non-finite numbers. Verify generated workbook values, with numeric text, range references and lazy branches as controls.
+
+## Decimal rounding scales can overflow before the result does (#1335)
+
+`ROUND` can have a finite result even when its power of ten or scaled intermediate overflows. Bound places by the float64 range, split large positive scales for tiny inputs, and retain numbers whose rounding place is already below their precision. Only a genuinely overflowing rounded result becomes `#NUM!`. Test emitted XLSX caches, including subnormal values, large finite results, 15-digit ties and `IFERROR`.
 
 ## Database passwords need URI userinfo encoding (#6160)
 

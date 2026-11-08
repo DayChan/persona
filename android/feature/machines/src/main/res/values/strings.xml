@@ -205,5 +205,11 @@
     <string name="machines_move_offline">%1$s · Offline</string>
     <string name="machines_notice_moved">Moved to “%1$s”</string>
     <string name="machines_notice_move_failed">Couldn\'t move it: %1$s</string>
+    <string name="machines_rename">Rename</string>
+    <string name="machines_rename_title">Rename computer</string>
+    <string name="machines_rename_save">Save</string>
+    <string name="machines_rename_hint">Shown in every app and on this computer\'s Persona Link. Leave it empty to use the id; the id stays the same.</string>
+    <string name="machines_notice_renamed">Renamed to “%1$s”</string>
+    <string name="machines_notice_rename_failed">Couldn\'t rename it: %1$s</string>
     <string name="machines_manager_offline">Its manager “%1$s” is offline. It comes back online once the manager is back.</string>
 </resources>

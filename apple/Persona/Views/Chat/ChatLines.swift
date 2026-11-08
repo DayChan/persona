@@ -400,6 +400,45 @@ extension ChatLines {
         return (before, rest)
     }
 
+    /// The unsent messages while the chat is frozen (`ChatView.Frozen`: the user reads history), each where it was drawn
+    /// when the freeze began, so nothing moves under the reader: a failed one before the line it sat before then (`at`,
+    /// by `frozenKey`: `failedLines` of `placeFailed`), the others at the newest end, in the order they were written. One
+    /// whose line is not drawn now, or that failed during the freeze, waits at the end until the freeze lifts. Every one
+    /// went to the end before (#1243): an old failed message showed up under the newest ones while the list was pulled,
+    /// and went back on release.
+    static func placeFrozen(_ lines: [ChatLine], _ pending: [PendingMessage], at: [String: String])
+        -> (before: [String: [PendingMessage]], rest: [PendingMessage]) {
+        let ordered = pending.enumerated().sorted { a, b in
+            let x = a.element.createdAt ?? .distantPast, y = b.element.createdAt ?? .distantPast
+            return x != y ? x < y : a.offset < b.offset
+        }.map(\.element)
+        guard !at.isEmpty else { return ([:], ordered) }
+        let drawn = Set(at.values).intersection(lines.map(\.id))
+        var before: [String: [PendingMessage]] = [:]
+        var rest: [PendingMessage] = []
+        for msg in ordered {
+            if let line = at[frozenKey(msg)], drawn.contains(line) {
+                before[line, default: []].append(msg)
+            } else {
+                rest.append(msg)
+            }
+        }
+        return (before, rest)
+    }
+
+    /// `placeFailed`'s `before` as `placeFrozen` takes it: the line each failed message goes before, by `frozenKey`.
+    static func failedLines(_ before: [String: [PendingMessage]]) -> [String: String] {
+        before.reduce(into: [:]) { out, entry in
+            for msg in entry.value { out[frozenKey(msg)] = entry.key }
+        }
+    }
+
+    /// What keeps an unsent message the same one through a freeze: when it was written and its words. Its id does not:
+    /// a resend gives it a new one (`AppModel.retry`), and a message resent from where it sat must stay there.
+    static func frozenKey(_ msg: PendingMessage) -> String {
+        "\(msg.createdAt?.timeIntervalSince1970 ?? 0)|\(msg.text)"
+    }
+
     /// When a line was written, for `placeFailed`: a message the user sent (this phone's time for one sent from it), a
     /// day's header, a feed card; nil for every other line.
     private static func placeTime(_ line: ChatLine, _ writtenAt: [String: Date]) -> Date? {

@@ -44,6 +44,14 @@ func (h *Hub) ownsList(id string) bool {
 	return false
 }
 
+// listHeld: manager id's last report said it holds its own list in its manager.json (States.OwnList).
+func (h *Hub) listHeld(id string) bool {
+	d := &h.devices
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ownListHeld[id]
+}
+
 // keepsList: manager id keeps its own list (ownsList) and its last report said it holds it in its manager.json
 // (States.OwnList): edits go to it, and hub.json's machines it reports move out.
 func (h *Hub) keepsList(id string) bool {

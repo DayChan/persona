@@ -1,3 +1,4 @@
 {
-  "new_worktree": " · new worktree: {branch}"
+  "new_worktree": " · new worktree: {branch}",
+  "archive_close_card": "Archive {agent} · {machine} and close it on the computer (its transcript stays; a message resumes it)"
 }

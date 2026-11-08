@@ -1,0 +1,14 @@
+{
+  "title": "确认的事实",
+  "add": "添加",
+  "edit": "编辑",
+  "empty": "暂无确认的事实。",
+  "hint": "Persona 更新此条目时会保留你的更正。",
+  "edit_hint": "添加你希望 Persona 保留的事实。如需清除，请删除全部文字后保存。",
+  "save_failed": "无法保存确认的事实。草稿已保留，请重试保存：{error}",
+  "retry_save": "重试保存",
+  "refreshing": "已保存，正在加载最新条目…",
+  "refresh_failed": "确认的事实已保存，但无法加载最新条目。请重试刷新：{error}",
+  "retry_refresh": "重试刷新",
+  "entry_changed": "加载的条目与当前页面不符。请返回列表并重新打开条目。"
+}

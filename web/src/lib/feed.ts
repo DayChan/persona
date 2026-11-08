@@ -78,6 +78,11 @@ export interface BriefRow {
   nudged?: boolean;
   /** accept: when the round's "Please verify" ask was made (with or without a Lark card); the Accept button sends it back. */
   asked_at?: string;
+  /** accept: the verdict line, word for word as the Lark card says it (#1226), in the bot's language; a hub from before leaves it out. */
+  verdict?: string;
+  /** accept: a conclusion's verdict (left out for a deployed task); decide waits for the user's decision, and Accept takes `recommend`. */
+  outcome?: "done" | "cannot" | "decide";
+  recommend?: string;
 }
 
 export interface BriefFailed {

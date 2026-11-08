@@ -273,7 +273,7 @@ func TestAllAPIModelPurposesReachTheSelectedModel(t *testing.T) {
 		t.Fatal("credential returned to client")
 	}
 	// A Messages API provider also runs claude on the nodes (#2455), so it goes to them with its key.
-	if managed := s.managedForNodes(ctx); len(managed) != 1 || managed[0].APIKey != "private-test-key" {
+	if managed := mustManagedForNodes(t, s, ctx); len(managed) != 1 || managed[0].APIKey != "private-test-key" {
 		t.Fatal("Messages API provider not sent to nodes")
 	}
 	_ = f
@@ -324,7 +324,7 @@ func TestBearerLauncherSavedSentAndCalled(t *testing.T) {
 		if rec := request(s, "PUT", "/api/v1/launchers/gw", step.body); rec.Code != 200 {
 			t.Fatalf("update %s: %d %s", step.body, rec.Code, rec.Body.String())
 		}
-		if managed := s.managedForNodes(ctx); len(managed) != 1 || managed[0].BearerAuth() != step.bearer || managed[0].APIKey != "private-test-key" {
+		if managed := mustManagedForNodes(t, s, ctx); len(managed) != 1 || managed[0].BearerAuth() != step.bearer || managed[0].APIKey != "private-test-key" {
 			t.Fatalf("after %s: %+v", step.body, managed)
 		}
 	}
@@ -641,7 +641,7 @@ func TestANodeThatReconnectsGetsTheManagedLaunchers(t *testing.T) {
 	key, _ := s.sealKey("sk-node")
 	putLaunchers(t, s, storedLauncher{ManagedLauncher: proto.ManagedLauncher{Name: "gw", BaseURL: "https://gw.example.com", Model: "m"}, KeySealed: key},
 		storedLauncher{ManagedLauncher: proto.ManagedLauncher{Name: "api", Kind: "api", API: "responses", BaseURL: "https://api.example.com", Model: "m"}, KeySealed: key})
-	if g := s.managedForNodes(ctx); len(g) != 1 || g[0].Name != "gw" || g[0].APIKey != "sk-node" {
+	if g := mustManagedForNodes(t, s, ctx); len(g) != 1 || g[0].Name != "gw" || g[0].APIKey != "sk-node" {
 		t.Fatalf("given %+v", g)
 	}
 }
@@ -863,4 +863,13 @@ func TestUpdateManagedLauncherPreservesAgentWhenOmitted(t *testing.T) {
 	if len(got) != 1 || got[0].Agent != "codex" || got[0].Model != "gpt-5.5" {
 		t.Fatalf("expected agent=codex preserved, got %+v", got)
 	}
+}
+
+func mustManagedForNodes(t *testing.T, s *Service, ctx context.Context) []proto.ManagedLauncher {
+	t.Helper()
+	list, err := s.managedForNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list
 }

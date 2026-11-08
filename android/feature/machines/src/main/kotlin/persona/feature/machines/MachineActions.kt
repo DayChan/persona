@@ -33,6 +33,9 @@ internal sealed interface MachineNotice {
     /** Move to…: the computer is [name]'s now (docs/assistant/managers.md). */
     data class Moved(val name: String) : MachineNotice
     data class MoveFailed(val reason: UiText) : MachineNotice
+    /** Renamed: the hub calls the computer [name] now. */
+    data class Renamed(val name: String) : MachineNotice
+    data class RenameFailed(val reason: UiText) : MachineNotice
 
     fun text(resources: Resources): String = when (this) {
         Connected -> resources.getString(R.string.machines_notice_connected)
@@ -43,6 +46,8 @@ internal sealed interface MachineNotice {
         is BotmuxFailed -> resources.getString(R.string.machines_notice_botmux_failed, reason.resolve(resources))
         is Moved -> resources.getString(R.string.machines_notice_moved, name)
         is MoveFailed -> resources.getString(R.string.machines_notice_move_failed, reason.resolve(resources))
+        is Renamed -> resources.getString(R.string.machines_notice_renamed, name)
+        is RenameFailed -> resources.getString(R.string.machines_notice_rename_failed, reason.resolve(resources))
     }
 }
 
@@ -70,6 +75,8 @@ internal data class MachineActionsState(
     val botmuxSaving: Boolean = false,
     /** Move to… was sent and not answered yet. */
     val moving: Boolean = false,
+    /** Rename was sent and not answered yet. */
+    val renaming: Boolean = false,
 )
 
 /**
@@ -131,6 +138,21 @@ internal class MachineActionsViewModel(
                 mutable.update { it.copy(botmux = before) }
                 noticeChannel.trySend(MachineNotice.BotmuxFailed(failureReasonText(error)))
             } finally { mutable.update { it.copy(botmuxSaving = false) } }
+        }
+    }
+
+    /** Renames the computer on its hub ("" is its id again); the hub's `machines` push brings the name to the page, read now too. */
+    fun rename(machineId: String, name: String) {
+        if (state.value.renaming) return
+        mutable.update { it.copy(renaming = true) }
+        viewModelScope.launch {
+            try {
+                val shown = management.rename(machineId, name.trim())
+                noticeChannel.trySend(MachineNotice.Renamed(shown))
+                try { sessions.refresh() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { noticeChannel.trySend(MachineNotice.RenameFailed(failureReasonText(error))) }
+            finally { mutable.update { it.copy(renaming = false) } }
         }
     }
 

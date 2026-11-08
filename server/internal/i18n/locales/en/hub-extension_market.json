@@ -1,7 +1,6 @@
 {
   "no_database": "This hub has no database, so marketplaces aren’t available",
   "token_unreadable": "Can’t decrypt the marketplace token (did the hub’s secret.key change?). Enter it again",
-  "no_trusted_key": "No new key to trust: the signature doesn’t match the marketplace’s own public key, so its index may have been tampered with",
   "no_market": "No such marketplace",
   "token_too_long": "The token is too long",
   "duplicate": "This marketplace is already added",
@@ -13,5 +12,9 @@
   "bad_signature_install": "The marketplace’s signature is invalid, so nothing is installed or updated from it for now: {err}",
   "not_in_market": "This marketplace has no extension {id}",
   "token_and_token_from": "Give either token or token_from, not both",
-  "official_name": "Official extensions"
+  "official_name": "Official extensions",
+  "pin_rotated_pending": "The official signing key was updated. Installation stays blocked until the catalog verifies with the new key",
+  "settings_load_failed": "Could not load marketplace mirror settings. Retry.",
+  "settings_save_failed": "Could not save marketplace mirror settings. Retry.",
+  "settings_invalid": "Invalid mirror URL. Use HTTPS without credentials, query, or fragment; the catalog needs its complete JSON URL."
 }

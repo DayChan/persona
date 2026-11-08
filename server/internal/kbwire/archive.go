@@ -13,7 +13,10 @@ type SourceChat struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
-// SourceMessage is one message as a source returns it.
+// SourceMessage is one message as a source returns it. ID is stable within its
+// source and chat; Engine.Ingest keeps the first durable version of each ID.
+// Position is an opaque pagination token, not an identity. Missing IDs retain
+// legacy append behavior and cannot provide replay protection.
 type SourceMessage struct {
 	ID         string    `json:"id"`
 	Position   string    `json:"position,omitempty"`

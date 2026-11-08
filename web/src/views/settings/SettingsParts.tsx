@@ -3,6 +3,9 @@ import { t } from "../../i18n";
 import { Button, cx, EASE } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
 
+export const settingsInputClass =
+  "h-8 w-full rounded-control bg-field px-2.5 text-[12.5px] text-ink shadow-inset-field outline-none placeholder:text-ink-3 focus:shadow-[inset_0_0_0_1px_var(--accent)] disabled:opacity-60";
+
 export function Group({ title, footer, children, right }: { title?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <section className="mb-6">

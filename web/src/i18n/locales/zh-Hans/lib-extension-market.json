@@ -16,7 +16,7 @@
   "sig_unsigned": "未签名",
   "sig_invalid": "签名对不上",
   "sig_missing": "签名不见了",
-  "sig_key_changed": "签名的 key 换了",
+  "sig_key_changed": "官方签名 key 不匹配，等待验签",
   "sig_state": "签名：{state}",
   "agree_upgrade_more": "同意新权限并升级",
   "upgrade": "升级",

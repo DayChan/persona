@@ -133,6 +133,8 @@ func TestExtensionDependencyExporterInitializationAndEvents(t *testing.T) {
 			if activation == extension.OnStartup {
 				receive(initialized, 0)
 				waitLong(t, "exporter ready", func() bool { hp := h.extensions.get("search"); return hp != nil && hp.proc != nil && hp.proc.Ready() })
+				// Re-check after connection too: initialize already delivered this snapshot.
+				h.extensions.modelChanged(ctx, extension.Change{ID: "search"})
 			}
 			install("base", `[]`, "")
 			if activation == extension.OnCall {
@@ -163,6 +165,30 @@ func TestExtensionDependencyExporterInitializationAndEvents(t *testing.T) {
 				t.Fatal(err)
 			}
 			receive(events, 1)
+		})
+	}
+}
+
+func TestSameContributions(t *testing.T) {
+	type snapshot = map[string][]extension.ExportedContribution
+	item := extension.ExportedContribution{Extension: "reader", Item: json.RawMessage(`{"id":"notes"}`)}
+	for _, tt := range []struct {
+		name string
+		a, b snapshot
+		want bool
+	}{
+		{"empty", nil, snapshot{}, true},
+		{"identical bytes", snapshot{"sources": {item}}, snapshot{"sources": {{Extension: "reader", Item: json.RawMessage(`{"id":"notes"}`)}}}, true},
+		{"added", nil, snapshot{"sources": {item}}, false},
+		{"removed", snapshot{"sources": {item}}, nil, false},
+		{"point changed", snapshot{"sources": {item}}, snapshot{"other": {item}}, false},
+		{"owner changed", snapshot{"sources": {item}}, snapshot{"sources": {{Extension: "other", Item: item.Item}}}, false},
+		{"item changed", snapshot{"sources": {item}}, snapshot{"sources": {{Extension: "reader", Item: json.RawMessage(`{"id":"other"}`)}}}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sameContributions(tt.a, tt.b); got != tt.want {
+				t.Fatalf("sameContributions = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }

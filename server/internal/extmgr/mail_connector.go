@@ -248,6 +248,33 @@ func (c mailConnector) DoRef(ctx context.Context, name string, args json.RawMess
 	return connector.DoResult{Text: text, MessageRef: messageID}, err
 }
 
+// errMailAttachmentUnavailable: mail_save_attachment is not offered to the caller (mail is off, not set up, or not
+// given to it), so neither are the bytes.
+var errMailAttachmentUnavailable = errors.New("mail is not available")
+
+// MailAttachment answers a node's mail.attachment (proto.MethodMailAttachment) for mail_save_attachment: one
+// attachment's bytes, at most proto.MaxMailAttachment, only while the mail connector offers the tool to that caller
+// (assistant: an assistant conversation, which the assistant has checked; an agent gets it only when mail's tools go to
+// the agents too). The machine and conversation checks of mcp.call are the assistant's (fleet_tools.go mailAttachment).
+func (h *Manager) MailAttachment(ctx context.Context, req proto.MailAttachmentRequest) (proto.MailAttachment, error) {
+	if !h.ready(ctx) || h.mail == nil || h.connectors == nil || !h.offersTool(ctx, mail.ToolSaveAttachment, req.Assistant) {
+		return proto.MailAttachment{}, errMailAttachmentUnavailable
+	}
+	a, data, err := h.mail.FetchAttachment(ctx, req.AccountID, req.UID, req.Mailbox, req.AttachmentID, proto.MaxMailAttachment)
+	if err != nil {
+		return proto.MailAttachment{}, err
+	}
+	return proto.MailAttachment{Filename: a.Filename, Mime: a.Mime, Size: a.Size, Data: data}, nil
+}
+
+// offersTool says whether a connector that is ok lists the tool name for this caller: the agents' tools to everyone,
+// the assistant-only ones to an assistant conversation (what AgentTools hands out).
+func (h *Manager) offersTool(ctx context.Context, name string, assistant bool) bool {
+	is := func(t proto.Tool) bool { return t.Name == name }
+	return slices.ContainsFunc(h.connectors.ToolsFor(ctx, true), is) ||
+		assistant && slices.ContainsFunc(h.connectors.ToolsFor(ctx, false), is)
+}
+
 // toolText is a tool result as text, its error as an error (connector.ReadTools / Actions return them that way).
 func toolText(r proto.ToolResult) (string, error) {
 	var b strings.Builder

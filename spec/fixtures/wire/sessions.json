@@ -3,7 +3,7 @@
     "name": "sessions_list",
     "description": "会话列表保留状态、模式和后台任务信息。",
     "source": [
-      "server/internal/proto/proto.go: Session",
+      "server/internal/proto/session.go: Session",
       "server/internal/hub/http.go: Hub.listSessions",
       "apple/Shared/Models.swift: Session.init(from:)"
     ],

@@ -81,13 +81,13 @@ func matcher(query string) func(string) bool {
 }
 
 // searchable reports whether a file of the data dir (path relative to it) holds text a search may return. Bookkeeping
-// is not: a person's hashed identity hints (handles.json, handles.go), a connector's cursor (cursors/<source>.json)
-// and the Moments verdicts of a project (moments-judged.json, moments_link.go) mean nothing to a model, and the
-// hints are kept out of every tool and prompt.
+// is not: a person's hashed identity hints (handles.json, handles.go), a connector's cursor (cursors/<source>.json),
+// history imports' progress (history/, history.go) and the Moments verdicts of a project (moments-judged.json,
+// moments_link.go) mean nothing to a model, and the hints are kept out of every tool and prompt.
 func searchable(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch {
-	case parts[0] == "cursors":
+	case parts[0] == "cursors" || parts[0] == "history":
 		return false
 	case len(parts) == 3 && parts[0] == KindPerson && parts[2] == "handles.json":
 		return false
@@ -298,7 +298,8 @@ func (e *Engine) files() (files, days []string) {
 			p := filepath.Join(dir, d.name)
 			switch {
 			case d.dir:
-				if d.name != "attachments" {
+				// Attachments hold no text; history/ is bookkeeping, not searched (see searchable).
+				if d.name != "attachments" && (dir != e.Store.Dir || d.name != "history") {
 					walk(p)
 				}
 			case strings.Contains(p, sep+"messages"+sep):

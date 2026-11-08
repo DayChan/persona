@@ -122,12 +122,12 @@ type clientOpForgetter interface {
 	ForgetClientOp(ctx context.Context, id string) error
 }
 
-// clientOpRetry: an inbox reply the manager never got (assistant_offline) or that was cut off on the way to it
-// (assistant_in_doubt) keeps no receipt: the same reply asked again goes to the manager, whose send id has the hub
-// send it once (inbox.go sendInboxOnce), instead of the stored refusal coming back for good.
+// clientOpRetry: an inbox reply or hand-off the manager never got (assistant_offline) or that was cut off on the way
+// to it (assistant_in_doubt) keeps no receipt: the same request asked again goes to the manager, whose send id has it
+// sent once (inbox.go sendInboxOnce, a hand-off's session.send_once), instead of the stored refusal coming back for good.
 // A notification choice only releases a definitely offline receipt; uncertain delivery stays recorded.
 func clientOpRetry(kind string, body []byte) bool {
-	if kind != "inbox_reply" && kind != "choose" {
+	if kind != "inbox_reply" && kind != "inbox_handoff" && kind != "choose" {
 		return false
 	}
 	var res struct {
@@ -230,7 +230,7 @@ func (h *Hub) waitClientOp(w http.ResponseWriter, r *http.Request, op *db.Client
 		case "unknown":
 			// Start and reply retries must not repeat side effects or replace a recorded HTTP outcome.
 			// A recovered pending operation has no result and remains explicitly unknown.
-			if op.Kind == "start" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "lark_thread_reply" {
+			if op.Kind == "start" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "inbox_handoff" || op.Kind == "lark_thread_reply" {
 				var result clientOpResult
 				if json.Unmarshal(op.Result, &result) == nil && result.Status >= 200 && result.Status <= 599 {
 					writeClientOpResult(w, result)

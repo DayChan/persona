@@ -161,6 +161,7 @@ type InboxHandlingNote struct {
 	Edited           bool
 	Context          string
 	Machine, Session string
+	Handoff          bool // the note goes to a conversation the event was handed to (wrapped by inbox/handoff_note)
 }
 
 // The notes (their templates).
@@ -177,3 +178,20 @@ const (
 func RenderInboxHandlingNote(name string, n InboxHandlingNote) string {
 	return render(name, n)
 }
+
+// InboxHandoff is the message that hands an event to Persona's main conversation (inbox/handoff): the user's Text
+// after a context block naming the event, so that conversation can write back with inbox_suggest.
+type InboxHandoff struct {
+	ID, Title string
+	Text      string
+}
+
+func RenderInboxHandoff(h InboxHandoff) string { return render("inbox/handoff", h) }
+
+// InboxHandoffNote wraps a handling note (Note) for a conversation the event was handed to (inbox/handoff_note).
+type InboxHandoffNote struct {
+	ID, Title string
+	Note      string
+}
+
+func RenderInboxHandoffNote(n InboxHandoffNote) string { return render("inbox/handoff_note", n) }

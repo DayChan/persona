@@ -303,7 +303,7 @@
     "name": "session_zero_time",
     "description": "Go 零时间能解码，但不算有意义的日期。",
     "source": [
-      "server/internal/proto/proto.go: Session",
+      "server/internal/proto/session.go: Session",
       "apple/Shared/JSONValue.swift: JSON.decoder, Date.isMeaningful"
     ],
     "derived": true,

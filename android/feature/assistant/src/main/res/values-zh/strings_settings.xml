@@ -21,7 +21,7 @@
     <string name="assistant_settings_machine_offline">离线</string>
     <string name="assistant_settings_cwd">工作目录</string>
     <string name="assistant_settings_offline_notice">「%1$s」现在离线，连上之前 Persona 不能回复，记忆也读不到。</string>
-    <string name="assistant_settings_where_caption">每段对话都在这台机器的这个目录里后台运行一个 Claude Code，不进 herdr。用哪个模型在「设置 › 模型配置 › 主对话」里选。</string>
+    <string name="assistant_settings_where_caption">每段对话都在这台机器的这个目录里后台运行 Claude Code 或 Codex。在「设置 › 模型配置 › 主对话」里选择后端和模型。</string>
     <string name="assistant_settings_proactive_header">主动做事</string>
     <string name="assistant_settings_proactive">定时任务、跟进和运行记录</string>
     <string name="assistant_settings_proactive_subtitle">到点自己开始做事、回来跟进答应你的事，做完推送到手机</string>

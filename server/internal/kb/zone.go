@@ -40,8 +40,11 @@ func (s *Store) Rezone(to *time.Location) (int, error) {
 	if s.readOnly {
 		return 0, ErrReadOnly
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lockArchive()
+	defer s.unlockArchive()
+	if err := s.recoverIngestsLocked(); err != nil {
+		return 0, err
+	}
 	s.zone = to
 	if s.settled == to.String() {
 		return 0, nil // every file is in it; what is written from now on is too
@@ -85,6 +88,9 @@ func loadZone(name string) (*time.Location, error) {
 func (s *Store) settleChatLocked(id string) (bool, error) {
 	if s.readOnly {
 		return false, nil
+	}
+	if err := s.pendingIngestLocked(id); err != nil {
+		return false, err
 	}
 	dir := s.path(KindChat, id, "messages")
 	tmp, old := dir+".rezone", dir+".old"

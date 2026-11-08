@@ -15,6 +15,7 @@ import (
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/kb"
 	"github.com/nwverse/persona/server/internal/kbwire"
+	"github.com/nwverse/persona/server/internal/managerconf"
 )
 
 // The sources are the hub's connectors (docs/assistant/knowledge.md "Pipeline"): the knowledge base asks the hub which of them
@@ -241,7 +242,7 @@ func archiveConnector(ctx context.Context, e *kb.Engine, id string, a connector.
 			return total, err
 		}
 		raw, _ := json.Marshal(cur)
-		if err := os.WriteFile(file, raw, 0o600); err != nil {
+		if err := managerconf.WriteFileAtomic(file, raw, 0o600); err != nil {
 			return total, err
 		}
 		if !more {

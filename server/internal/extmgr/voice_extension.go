@@ -26,7 +26,8 @@ const voiceExtensionID = "voice"
 const voiceSecretKey = "key"
 
 // voiceConfig is the settings form: one upstream (models custom/<model>) and how the model talks. ssh, key_file,
-// key_command, tools and more upstreams are hub.json's only: key_command runs a command on the hub's machine.
+// key_command, an explicit tools and more upstreams are hub.json's only: key_command runs a command on the hub's
+// machine. The form's upstream declares the function tools on its own (voice.Provider.Tools unset, #1420).
 const voiceConfig = `{
   "type": "object",
   "properties": {

@@ -47,6 +47,9 @@ describe("extension page waits for authenticated hello", () => {
     await act(async () => root.render(<StrictMode><ExtensionUI extension="example" ui="main" history={false} /></StrictMode>));
     expect(gate.draws).not.toHaveBeenCalled();
     await hello(["extension_ui_stream_v1"]);
+    // The native page is its own chunk: no HTTP page is allocated while it loads.
+    expect(gate.draws).not.toHaveBeenCalled();
+    await act(async () => { await import("./NativeExtensionUI"); });
     expect(host.textContent).toBe("Native page");
     expect(gate.draws).not.toHaveBeenCalled();
     const native = host.querySelector("[data-native-page]");

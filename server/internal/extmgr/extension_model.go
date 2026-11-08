@@ -1,6 +1,7 @@
 package extmgr
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -149,8 +150,31 @@ func (ps *extensions) modelChanged(ctx context.Context, c extension.Change) []*e
 	}
 	for _, id := range to {
 		if hp := ps.get(id); hp != nil && hp.proc != nil {
-			_ = hp.proc.Notify("extension.contributions_changed", map[string]any{"contributions_to_me": ps.reg.ContributionsToContext(ctx, id)})
+			hp.contributionsMu.Lock()
+			curr := ps.reg.ContributionsToContext(ctx, id)
+			if !sameContributions(hp.contributions, curr) {
+				if err := hp.proc.Notify("extension.contributions_changed", map[string]any{"contributions_to_me": curr}); err == nil {
+					hp.contributions = curr
+				}
+			}
+			hp.contributionsMu.Unlock()
 		}
 	}
 	return affected
+}
+
+// Registry snapshots have a stable extension/item order; nil and empty maps both mean no contributions.
+func sameContributions(a, b map[string][]extension.ExportedContribution) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for point, items := range a {
+		other, ok := b[point]
+		if !ok || !slices.EqualFunc(items, other, func(a, b extension.ExportedContribution) bool {
+			return a.Extension == b.Extension && bytes.Equal(a.Item, b.Item)
+		}) {
+			return false
+		}
+	}
+	return true
 }

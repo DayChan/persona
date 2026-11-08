@@ -33,5 +33,22 @@
   "nodes_footer": "After an update, the hub moves personad on your computers to the same version. For any that didn't update, open it and choose Redeploy.",
   "version_differs": "Version differs",
   "unknown": "Unknown",
-  "offline": "Offline"
+  "offline": "Offline",
+  "mirrors": "Extension download mirrors",
+  "mirror_manager": "Extension manager",
+  "mirror_manager_row": "Manager",
+  "mirror_manager_hint": "Choose whose extension downloads to configure. Each manager keeps its own settings.",
+  "mirror_scope": "These settings apply only to this extension manager and are stored in its database. Leave a field empty to use the original source.",
+  "registry_mirror": "OCI registry mirror",
+  "registry_mirror_hint": "An HTTPS registry base URL, optionally with a path prefix, such as https://registry.example.com/persona. Not a package or catalog URL.",
+  "catalog_mirror": "Official catalog mirror",
+  "catalog_mirror_hint": "The complete HTTPS URL of the official catalog file, such as https://catalog.example.com/persona-extensions.json. Other markets are not redirected.",
+  "mirror_security": "The manager tries the mirror first and falls back to the original source if it fails. Official signatures and package SHA256 digests are still verified. Market tokens are never sent to mirrors.",
+  "mirror_read_failed": "Couldn't read mirror settings: {error}",
+  "mirror_write_failed": "Couldn't save mirror settings: {error}",
+  "mirror_invalid": "Use an HTTPS URL without credentials, a query or a fragment.",
+  "mirror_response_invalid": "The manager returned invalid mirror settings. Retry before making changes.",
+  "mirror_saved": "Mirror settings saved.",
+  "mirror_clear": "Clear mirrors",
+  "mirror_save": "Save"
 }

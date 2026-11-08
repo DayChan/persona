@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,7 +91,11 @@ func (n *Node) ensureCodexRemote(ctx context.Context, spec proto.CodexServer) {
 func rejectCodexRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 func validateCodexEndpoint(endpoint string) (string, *http.Client, error) {
-	u, err := url.Parse(endpoint)
+	parse := endpoint
+	if rest, ok := strings.CutPrefix(endpoint, "unix://"); ok && runtime.GOOS == "windows" {
+		parse = "unix:///" + filepath.ToSlash(rest) // C:\… is no URL; the checks below want only its query and the like
+	}
+	u, err := url.Parse(parse)
 	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", nil, errors.New("app-server 入口无效")
 	}
@@ -103,17 +108,8 @@ func validateCodexEndpoint(endpoint string) (string, *http.Client, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		for _, p := range []string{filepath.Dir(path), path} {
-			st, err := os.Lstat(p)
-			if err != nil {
-				return "", nil, errors.New("Unix 入口不可访问")
-			}
-			if !osproc.OwnedByMe(st) || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm()&0077 != 0 {
-				return "", nil, errors.New("Unix 入口或目录不属于当前用户，或权限过宽")
-			}
-			if p == path && st.Mode()&os.ModeSocket == 0 {
-				return "", nil, errors.New("Unix 入口不是 socket")
-			}
+		if err := privateSocket(path); err != nil { // codex_remote_unix.go, codex_remote_windows.go
+			return "", nil, err
 		}
 		tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", path)

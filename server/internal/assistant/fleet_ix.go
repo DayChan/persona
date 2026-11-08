@@ -826,6 +826,30 @@ func (s *Service) recordEnd(id, status string, r *proto.Resolution) {
 // errNotPending: the interaction was answered, withdrawn or expired already.
 var errNotPending = errors.New("no longer pending")
 
+// answeredJustNow is errNotPending for a card another answer claimed a moment ago. That answer reaches the history
+// only after the claim (recordEnd), so whoever asks in between is told it from the claim (#1230).
+type answeredJustNow struct {
+	id     string
+	status string
+	kept   proto.Resolution // as the history keeps it
+}
+
+func (e *answeredJustNow) Error() string {
+	return fmt.Sprintf("interaction %s is %v", e.id, errNotPending)
+}
+func (e *answeredJustNow) Unwrap() error { return errNotPending }
+
+// endStatus is how an answer ends its card in the history.
+func endStatus(r proto.Resolution) string {
+	switch {
+	case r.Cancel:
+		return "cancelled"
+	case r.Dismiss:
+		return "dismissed"
+	}
+	return "resolved"
+}
+
 var errInvalidElicitation = errors.New("elicitation requires action accept, decline or cancel")
 
 // resolve answers an interaction. A screen card acts right away and its error comes back (the dialog changed:
@@ -864,7 +888,11 @@ func (s *Service) resolveRemembered(id string, r proto.Resolution, remember bool
 		}
 		return fmt.Errorf("interaction %s is %w", id, errNotPending)
 	}
+	var first *answeredJustNow
 	if p != nil && p.claimed {
+		if p.resolution != nil {
+			first = &answeredJustNow{id: id, status: endStatus(*p.resolution), kept: redacted(p.ix, *p.resolution)}
+		}
 		p = nil // answered a moment ago: the first answer is the one the hook and the history get
 	}
 	if p != nil && p.local != nil {
@@ -901,15 +929,13 @@ func (s *Service) resolveRemembered(id string, r proto.Resolution, remember bool
 		}
 	}
 	s.fleet.mu.Unlock()
+	if first != nil {
+		return first
+	}
 	if p == nil {
 		return fmt.Errorf("interaction %s is %w", id, errNotPending)
 	}
-	status := "resolved"
-	if r.Cancel {
-		status = "cancelled"
-	} else if r.Dismiss {
-		status = "dismissed"
-	}
+	status := endStatus(r)
 	if p.local != nil {
 		err := p.local(r)
 		if err != nil {
@@ -1463,6 +1489,15 @@ func (s *Service) answerQuestion(machine, session, id string, answers map[string
 		return false, err
 	}
 	return true, nil
+}
+
+// endedStatus is how a card that resolve found no longer pending (err) ended: the claim's when another answer took
+// it a moment ago (#1230), else the history's.
+func (s *Service) endedStatus(ctx context.Context, id string, err error) string {
+	if just := (*answeredJustNow)(nil); errors.As(err, &just) {
+		return just.status
+	}
+	return s.interactionOutcome(ctx, id)
 }
 
 // interactionOutcome is how an interaction that is no longer pending ended, from the history: resolved, dismissed,

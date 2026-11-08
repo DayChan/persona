@@ -42,7 +42,7 @@ func liveTab(t *testing.T, url string) (*bufio.Reader, net.Conn) {
 	}
 	prof := t.TempDir()
 	was := previewProfileDir
-	previewProfileDir = func() string { return prof }
+	previewProfileDir = func() (string, error) { return prof, nil }
 	t.Cleanup(func() { previewProfileDir = was })
 	h := &previewHost{logf: log.Printf}
 	t.Cleanup(h.close)

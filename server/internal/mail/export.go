@@ -29,7 +29,7 @@ func (s *Service) ExportAccount(id string) ([]byte, error) {
 	a, ok := s.accts[id]
 	var cp MailAccount
 	if ok {
-		cp = *a
+		cp = *a.clone()
 	}
 	s.mu.Unlock()
 	if !ok {
@@ -61,6 +61,8 @@ func (s *Service) ImportAccount(data []byte) (*MailAccount, error) {
 		a.Status = "ok"
 	}
 
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	s.mu.Lock()
 	if _, ok := s.accts[a.ID]; ok {
 		s.mu.Unlock()
@@ -72,14 +74,9 @@ func (s *Service) ImportAccount(data []byte) (*MailAccount, error) {
 			return nil, accountExists(a.Email)
 		}
 	}
-	s.accts[a.ID] = &a
-	accounts := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := s.store.save(accounts); err != nil {
-		s.mu.Lock()
-		delete(s.accts, a.ID)
-		s.mu.Unlock()
+	if err := s.commitAccount(a.ID, &a, false, nil); err != nil {
 		return nil, err
 	}
 	return a.public(), nil

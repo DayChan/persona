@@ -13,6 +13,8 @@ import persona.core.contracts.api.AssistantSkills
 import persona.core.contracts.api.MemoryFile
 import persona.core.contracts.parseTime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -131,7 +133,10 @@ internal data class AssistantSettingsUiState(
     val memory: MemoryState = MemoryState(),
     val skills: SkillsState = SkillsState(),
     val followPhone: Boolean = true
-)
+) {
+    val permissionSupported: Boolean get() = !loading && !loadFailed &&
+        config?.permissionDefaults?.supports(config.manager) == true
+}
 
 /** Mutations run one at a time; every outcome lands in [state] (the page shows it, nothing is thrown). */
 internal class AssistantSettingsState(
@@ -150,20 +155,29 @@ internal class AssistantSettingsState(
     val state = mutable.asStateFlow()
     val phoneZone: String get() = timezone.phoneZone
 
+    private var configRevision = 0L
+
     private fun set(change: AssistantSettingsUiState.() -> AssistantSettingsUiState) = mutable.update(change)
 
     fun clearNotice() = set { copy(notice = null) }
 
     suspend fun load() {
+        val revision = ++configRevision
         set { copy(loading = true, loadFailed = false) }
         try {
             val config = api.config()
+            currentCoroutineContext().ensureActive()
+            if (revision != configRevision) return
             set { copy(config = config) }
             // Like iOS: opening the page brings the hub's zone along with the phone's.
-            quietly { val synced = followPhoneZone(api, timezone, config); set { copy(config = synced) } }
+            quietly {
+                val synced = followPhoneZone(api, timezone, config)
+                currentCoroutineContext().ensureActive()
+                if (revision == configRevision) set { copy(config = synced) }
+            }
         } catch (error: CancellationException) { throw error }
-        catch (_: Exception) { set { copy(loadFailed = true) } }
-        finally { set { copy(loading = false) } }
+        catch (_: Exception) { if (revision == configRevision) set { copy(loadFailed = true) } }
+        finally { if (revision == configRevision) set { copy(loading = false) } }
     }
 
     fun requestMove(to: Machine, machines: List<Machine>) {
@@ -193,15 +207,28 @@ internal class AssistantSettingsState(
     /** A default for future conversations; never writes the current conversation's mode. */
     suspend fun setDefaultPermission(mode: String) {
         val config = state.value.config ?: return
-        if (config.manager.isNullOrBlank() || (config.defaultPermissionMode ?: "default") == mode) return
-        require(mode in listOf("default", "acceptEdits", "plan", "auto", "bypassPermissions"))
-        perform(SettingsText(R.string.assistant_settings_permission_failed)) {
-            val updated = api.updateConfig(AssistantConfigUpdate(defaultPermissionMode = mode))
-            check(updated.manager == config.manager) { "Assistant identity changed" }
-            check(updated.defaultPermissionMode == mode || (mode == "default" && updated.defaultPermissionMode.isNullOrBlank())) {
+        val owner = config.manager?.takeIf(String::isNotBlank) ?: return
+        if (!state.value.permissionSupported ||
+            (config.defaultPermissionMode ?: "default") == mode) return
+        require(mode in persona.core.contracts.api.AssistantPermissionDefaults.MODES)
+        val revision = configRevision
+        fun verify(value: AssistantConfig) {
+            check(value.manager == owner) { "Assistant identity changed" }
+            check(value.permissionDefaults?.supports(owner) == true) { "Assistant permission support changed" }
+            check(value.defaultPermissionMode == mode || (mode == "default" && value.defaultPermissionMode.isNullOrBlank())) {
                 "The hub did not save the permission default"
             }
-            set { copy(config = updated) }
+        }
+        perform(SettingsText(R.string.assistant_settings_permission_failed)) {
+            val updated = api.updateConfig(AssistantConfigUpdate(defaultPermissionMode = mode))
+            currentCoroutineContext().ensureActive()
+            if (revision != configRevision) return@perform
+            verify(updated)
+            val persisted = api.config()
+            currentCoroutineContext().ensureActive()
+            if (revision != configRevision) return@perform
+            verify(persisted)
+            set { copy(config = persisted) }
         }
     }
 

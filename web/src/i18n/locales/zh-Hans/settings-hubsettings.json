@@ -33,5 +33,22 @@
   "nodes_footer": "hub 更新后会把各台电脑上的 personad 也换成同一个版本；没换上的可以点进去「重新部署」。",
   "version_differs": "版本不同",
   "unknown": "未知",
-  "offline": "离线"
+  "offline": "离线",
+  "mirrors": "扩展下载镜像",
+  "mirror_manager": "扩展管理器",
+  "mirror_manager_row": "管理器",
+  "mirror_manager_hint": "选择要配置扩展下载的管理器。每个管理器分别保存自己的设置。",
+  "mirror_scope": "这些设置只对当前扩展管理器生效，保存在它的数据库中。留空表示使用原始来源。",
+  "registry_mirror": "OCI registry 镜像",
+  "registry_mirror_hint": "填写 HTTPS registry 基础地址，可以带路径前缀，例如 https://registry.example.com/persona。不是包地址，也不是目录文件地址。",
+  "catalog_mirror": "官方扩展目录镜像",
+  "catalog_mirror_hint": "填写官方目录文件的完整 HTTPS 地址，例如 https://catalog.example.com/persona-extensions.json。不会重定向其他市场。",
+  "mirror_security": "管理器先尝试镜像，失败后回到原始来源。仍会验证官方签名和包的 SHA256 摘要，不会向镜像发送市场 token。",
+  "mirror_read_failed": "读取镜像设置失败：{error}",
+  "mirror_write_failed": "保存镜像设置失败：{error}",
+  "mirror_invalid": "请使用不带凭据、查询参数或片段的 HTTPS 地址。",
+  "mirror_response_invalid": "管理器返回的镜像设置格式不正确，请重试读取后再修改。",
+  "mirror_saved": "镜像设置已保存。",
+  "mirror_clear": "清空镜像",
+  "mirror_save": "保存"
 }

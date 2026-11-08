@@ -6,7 +6,7 @@
 // browser's back pops it on a full page); the view's search box and filter and a section's "Load more" go to the
 // extension; extension_ui {invalidate} draws the view on screen again (one off screen when it comes back). A view with
 // refresh_after is drawn again while it is on screen. Logic in lib/extension-ui.ts.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ApiError, credentialOwner, errorText, getToken } from "../../lib/api";
 import { extIdOf } from "../../lib/extension-api";
 import { openLink } from "../../lib/links";
@@ -23,9 +23,10 @@ import { Button, cx, Dialog, Loading, Spinner, toast } from "../../ui/atoms";
 import { keepLoaded, patchView } from "../../lib/code-review";
 import { KeysHelp, ReviewBar, ReviewKeys, ReviewProvider, ReviewToolbar, reviewing } from "../extensions/DiffReview";
 import { Icon } from "../../ui/icons";
-import { NativeExtensionUI } from "./NativeExtensionUI";
 import { useStore } from "../../lib/store";
-import { canTryUIStream } from "../../lib/extension-ui-app-stream";
+import { canTryUIStream } from "../../lib/extension-ui-stream-gate";
+import { lazyPage } from "../../lib/lazy-page";
+import { PageBoundary } from "../PageBoundary";
 import { otherManager } from "../../lib/manager-choice";
 import { t } from "../../i18n";
 
@@ -122,6 +123,8 @@ export function pageHref(extension: string, ui: string, state?: string): string 
  * (`open`, the default for a card and a section inside another page). `state`: the first page's state (a full page opened by a push).
  */
 const HELLO_NEGOTIATION_MS = 5000;
+// The native stream page and its schema validator are a chunk of their own: most pages are drawn over HTTP and never need it.
+const NativeExtensionUI = lazyPage(() => import("./NativeExtensionUI").then((m) => m.NativeExtensionUI));
 export function ExtensionUI(props: Parameters<typeof LegacyExtensionUI>[0]) {
   const supported = useStore((s) => canTryUIStream(s.features));
   const group = useStore((s) => s.mesh?.find((h) => h.self)?.hub_id) ?? (typeof location !== "undefined" ? location.origin : "offline");
@@ -142,7 +145,13 @@ export function ExtensionUI(props: Parameters<typeof LegacyExtensionUI>[0]) {
   // System/embedded slots remain full fitted snapshots. Old hubs keep the exact existing component.
   // Another manager's extension draws over HTTP, which names its manager on each request (docs/assistant/managers.md "Clients").
   if (legacyNegotiation || !supported || props.embedded || props.compact || otherManager(props.manager)) return <LegacyExtensionUI {...props} />;
-  return <NativeExtensionUI key={JSON.stringify([owner, group, props.extension, props.ui, props.state ?? ""])} {...props} legacy={(page) => <LegacyExtensionUI {...page} />} />;
+  return (
+    <PageBoundary page={`extension:${props.extension}/${props.ui}`}>
+      <Suspense fallback={<Loading />}>
+        <NativeExtensionUI key={JSON.stringify([owner, group, props.extension, props.ui, props.state ?? ""])} {...props} legacy={(page) => <LegacyExtensionUI {...page} />} />
+      </Suspense>
+    </PageBoundary>
+  );
 }
 export function LegacyExtensionUI({
   extension, ui, context, embedded, compact, bare, title, onUnsupported, onMissing, onFailed, revision, onOpenSource, pages, history: withHistory, state: firstState, onWide, navigation, active = true, manager,

@@ -227,7 +227,7 @@ func TestLauncherHeadersSealedAndNewFields(t *testing.T) {
 		v.Proxy == "" || v.NoProxy != "localhost" || v.TimeoutMS != 600000 || v.CompactWindow != 180000 || v.MaxContext != 1000000 || v.Effort != "high" {
 		t.Fatalf("view: %+v", v)
 	}
-	managed := s.managedForNodes(ctx)
+	managed := mustManagedForNodes(t, s, ctx)
 	if len(managed) != 1 || managed[0].Headers != "X-Team: hdr-secret-value" || !managed[0].HasHeaders || managed[0].APIKey != fakeKey {
 		t.Fatalf("managed: %+v", managed)
 	}
@@ -245,7 +245,7 @@ func TestLauncherHeadersSealedAndNewFields(t *testing.T) {
 	if l := s.storedLaunchers(ctx)[0]; l.HeadersSealed != "" || l.Effort != "" {
 		t.Fatalf("cleared: %+v", l)
 	}
-	if m := s.managedForNodes(ctx); m[0].Headers != "" || m[0].HasHeaders {
+	if m := mustManagedForNodes(t, s, ctx); m[0].Headers != "" || m[0].HasHeaders {
 		t.Fatalf("cleared managed: %+v", m)
 	}
 }
@@ -296,7 +296,7 @@ func TestLauncherEnvSealed(t *testing.T) {
 	if strings.Contains(list, "env-secret-value") || len(got.Launchers) != 1 || !got.Launchers[0].HasEnv {
 		t.Fatal("GET:", list)
 	}
-	if m := s.managedForNodes(ctx); len(m) != 1 || !m[0].HasEnv || m[0].Env != "# no proxy for this one\nHTTPS_PROXY=\nX_TEAM_TOKEN=env-secret-value" {
+	if m := mustManagedForNodes(t, s, ctx); len(m) != 1 || !m[0].HasEnv || m[0].Env != "# no proxy for this one\nHTTPS_PROXY=\nX_TEAM_TOKEN=env-secret-value" {
 		t.Fatalf("managed: %+v", m)
 	}
 	if code, raw := launcherCall(t, mux, "PUT", "/api/v1/launchers/gw", `{"base_url":"https://gw.example.com","model":"glm-5.2"}`); code != 200 || s.storedLaunchers(ctx)[0].EnvSealed == "" {
@@ -308,7 +308,7 @@ func TestLauncherEnvSealed(t *testing.T) {
 	if code, raw := launcherCall(t, mux, "PUT", "/api/v1/launchers/gw", `{"base_url":"https://gw.example.com","model":"glm-5.2","env":""}`); code != 200 {
 		t.Fatal(raw)
 	}
-	if l, m := s.storedLaunchers(ctx)[0], s.managedForNodes(ctx)[0]; l.EnvSealed != "" || m.Env != "" || m.HasEnv {
+	if l, m := s.storedLaunchers(ctx)[0], mustManagedForNodes(t, s, ctx)[0]; l.EnvSealed != "" || m.Env != "" || m.HasEnv {
 		t.Fatalf("cleared: %+v / %+v", l, m)
 	}
 }
@@ -324,7 +324,7 @@ func TestManagedForNodesSendsMessagesAPIProviders(t *testing.T) {
 		{ManagedLauncher: proto.ManagedLauncher{Name: "resp", Kind: "api", API: "responses", BaseURL: "https://c.example.com", Model: "m"}, KeySealed: key},
 	})
 	var names []string
-	for _, l := range s.managedForNodes(ctx) {
+	for _, l := range mustManagedForNodes(t, s, ctx) {
 		names = append(names, l.Name)
 	}
 	if strings.Join(names, ",") != "msg,plain" {

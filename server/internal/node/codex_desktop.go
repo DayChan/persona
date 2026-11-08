@@ -11,8 +11,8 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +20,10 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
-// The Codex desktop App keeps a local message bus at <CODEX_HOME>/ipc/ipc.sock: its windows ask each other to run a
-// turn in a thread one of them owns. Persona joins that bus as one more client, so a message from the phone runs in the
-// App window that owns the thread — it shows in the App, and no second writer opens the rollout.
+// The Codex desktop App keeps a local message bus — <CODEX_HOME>/ipc/ipc.sock, on Windows the named pipe
+// \\.\pipe\codex-ipc (codex_desktop_unix.go, codex_desktop_windows.go): its windows ask each other to run a turn in a
+// thread one of them owns. Persona joins that bus as one more client, so a message from the phone runs in the App
+// window that owns the thread — it shows in the App, and no second writer opens the rollout.
 //
 // Frames are a 4-byte little-endian length and a JSON object. Every request carries the version the App expects for
 // its method; without it no client claims the request and the bus answers "no-client-found".
@@ -39,17 +40,6 @@ var codexDesktopVersions = map[string]int{
 }
 
 var errCodexDesktopNotLoaded = errors.New("Codex App 没能打开这个对话：在电脑的 Codex App 里打开它一次再发")
-
-func codexDesktopSocket(home string) string { return filepath.Join(home, "ipc", "ipc.sock") }
-
-// codexDesktopAvailable: the App runs on this machine for that Codex home (its bus socket is there).
-func codexDesktopAvailable(home string) bool {
-	if home == "" {
-		return false
-	}
-	st, err := os.Stat(codexDesktopSocket(home))
-	return err == nil && st.Mode()&os.ModeSocket != 0
-}
 
 type codexDesktopFrame struct {
 	Type            string          `json:"type"`
@@ -68,8 +58,7 @@ type codexDesktopFrame struct {
 type codexDesktop struct{ conn net.Conn }
 
 func dialCodexDesktop(ctx context.Context, home string) (*codexDesktop, error) {
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", codexDesktopSocket(home))
+	conn, err := dialCodexDesktopBus(ctx, home)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +156,7 @@ func (n *Node) sendCodexDesktop(ctx context.Context, src codexSource, text strin
 	owner, err := c.owner(src.thread)
 	if err != nil {
 		// Not loaded: the App loads a thread it is asked to open (codex://threads/<id>, in front — opened in the
-		// background it does not), then its window owns it.
+		// background it does not), then its window owns it. An opener that cannot ask (no codex:// handler) skips the wait.
 		if openCodexThread(src.thread) == nil {
 			deadline := time.Now().Add(codexDesktopLoadWait)
 			for err != nil && time.Now().Before(deadline) && ctx.Err() == nil {
@@ -286,12 +275,21 @@ func (a *codexAppState) project(thread, cwd string) (id, name string) {
 	for pid, p := range a.projects {
 		for _, root := range p.RootPaths {
 			root = filepath.Clean(root)
-			if (cwd == root || strings.HasPrefix(cwd, root+string(filepath.Separator))) && len(root) > len(best) {
+			if pathWithin(cwd, root) && len(root) > len(best) {
 				best, id, name = root, pid, p.Name
 			}
 		}
 	}
 	return id, name
+}
+
+// pathWithin: dir is root or under it (both clean). Windows paths do not tell case apart (the App and a rollout may
+// spell a drive or a folder differently), and a drive's root ends in its separator already.
+func pathWithin(dir, root string) bool {
+	if runtime.GOOS == "windows" {
+		dir, root = strings.ToLower(filepath.Clean(dir)), strings.TrimSuffix(strings.ToLower(root), `\`)
+	}
+	return dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))
 }
 
 // listed: the thread is one of the App's sidebar chats (put in a project, or a chat without one). Other tools that
@@ -468,9 +466,4 @@ func (c *codexDesktop) owner(thread string) (codexDesktopFrame, error) {
 		err = errCodexDesktopNotLoaded
 	}
 	return f, err
-}
-
-// openCodexThread asks the App to open a thread (it comes to the front, showing it). A variable for tests.
-var openCodexThread = func(thread string) error {
-	return exec.Command("open", "codex://threads/"+thread).Run()
 }

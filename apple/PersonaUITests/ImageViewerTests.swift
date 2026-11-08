@@ -367,8 +367,12 @@ final class ImageViewerTests: XCTestCase {
         var sample: [String: Any] = [:]
         let aligned = waitUntil(5) {
             sample = (try? self.ctl("viewerPaging")) ?? [:]
-            return sample["dragging"] as? Bool == false && sample["decelerating"] as? Bool == false
-                && (sample["alignmentError"] as? Double ?? .infinity) < 0.01
+            // Keep the non-Sendable probe dictionary on this actor; Boolean
+            // autoclosures capture only the copied scalar values.
+            let dragging = sample["dragging"] as? Bool
+            let decelerating = sample["decelerating"] as? Bool
+            let alignmentError = sample["alignmentError"] as? Double ?? .infinity
+            return dragging == false && decelerating == false && alignmentError < 0.01
         }
         if !aligned { attachProbe(sample, name: "alignment-timeout") }
         XCTAssertTrue(aligned, "pager did not settle: \(sample)")

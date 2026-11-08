@@ -1,6 +1,7 @@
 package persona.core.hub
 
 import persona.core.contracts.JsonCodec
+
 import persona.core.contracts.api.InboxAssistantTransport
 import persona.core.contracts.api.InboxBulkAction
 import persona.core.contracts.api.InboxDoneTarget
@@ -8,6 +9,12 @@ import persona.core.contracts.api.LarkThreadTransport
 import persona.core.contracts.api.MailReplyTarget
 import persona.core.contracts.api.MailReplyTargetChanged
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.*
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -20,7 +27,7 @@ import okhttp3.Response
 
 class HttpInboxAssistantTransport private constructor(
     override val scope: String,
-    private val request: suspend (String, String, RequestBody?) -> Response,
+    private val request: suspend (String, String, RequestBody?, Boolean) -> Response,
     private val mediaOrigin: () -> HttpUrl,
     private val publicImages: PublicImageReader,
     private val isCurrent: () -> Boolean,
@@ -29,7 +36,7 @@ class HttpInboxAssistantTransport private constructor(
         scope: String, connection: OkHttpHubConnection, publicImages: PublicImageReader = PublicImageReader.shared,
         isCurrent: () -> Boolean = { true },
     ) : this(
-        scope, { path, method, body -> connection.request(path, method, body) },
+        scope, { path, method, body, buffered -> connection.request(path, method, body, buffered = buffered) },
         { connection.activeRoute().endpoint.baseUrl() }, publicImages, isCurrent,
     )
 
@@ -46,12 +53,18 @@ class HttpInboxAssistantTransport private constructor(
     private fun checkScope() { if (!isCurrent()) throw CancellationException("Pairing changed") }
 
     private suspend fun json(url: HttpUrl, body: JsonObject? = null, method: String = if (body == null) "GET" else "POST"): JsonObject {
-        checkScope()
-        return request(url.apiPath(), method,
-            body?.toString()?.toRequestBody("application/json".toMediaType())).use { response ->
-            checkScope()
-            val text = response.body?.string().orEmpty()
-            if (text.isBlank()) JsonObject(emptyMap()) else JsonCodec.parseToJsonElement(text).jsonObject
+        return withContext(Dispatchers.IO) {
+            // Acquire before requesting: queued responses must not occupy the heap either.
+            jsonDecodeGate.withPermit {
+                val context = currentCoroutineContext()
+                context.ensureActive()
+                checkScope()
+                request(url.apiPath(), method,
+                    body?.toString()?.toRequestBody("application/json".toMediaType()), false).use { response ->
+                    BoundedInboxJson.read(response.body) { context.ensureActive(); checkScope() }
+                        .also { context.ensureActive(); checkScope() }
+                }
+            }
         }
     }
 
@@ -286,7 +299,7 @@ class HttpInboxAssistantTransport private constructor(
         require(document && path.startsWith("/api/v1/lark/raw/documents/") ||
             path.startsWith("/api/v1/lark/media/") ||
             Regex("/api/v1/lark/messages/[^/]+/media/.+").matches(path)) { "Invalid media path" }
-        return request(path + (media.encodedQuery?.let { "?$it" } ?: ""), "GET", null).use { response ->
+        return request(path + (media.encodedQuery?.let { "?$it" } ?: ""), "GET", null, true).use { response ->
                 checkScope()
                 requireNotNull(response.body).bytes()
             }
@@ -295,15 +308,18 @@ class HttpInboxAssistantTransport private constructor(
     private fun HttpUrl.apiPath() = encodedPath + (encodedQuery?.let { "?$it" } ?: "")
 
     companion object {
-        private fun fixedRequest(baseUrl: String, token: String, client: OkHttpClient): suspend (String, String, RequestBody?) -> Response {
+        // Different repositories and pairing scopes can refresh at the same time.
+        private val jsonDecodeGate = Semaphore(1)
+
+        private fun fixedRequest(baseUrl: String, token: String, client: OkHttpClient): suspend (String, String, RequestBody?, Boolean) -> Response {
             val base = baseUrl.toHttpUrl()
             // Never forward pairing credentials to redirected media or repeat ambiguous writes.
             val http = client.newBuilder().followRedirects(false).followSslRedirects(false)
                 .retryOnConnectionFailure(false).build()
-            return { path, method, body ->
+            return { path, method, body, buffered ->
                 val target = base.hubUrl(path)
                 http.newCall(Request.Builder().url(target).header("Authorization", "Bearer $token")
-                    .method(method, body).build()).awaitResponse().also { response ->
+                    .method(method, body).build()).awaitResponse(buffered = buffered).also { response ->
                     if (!response.isSuccessful) throw response.use { HubFailure.from(it) }
                 }
             }

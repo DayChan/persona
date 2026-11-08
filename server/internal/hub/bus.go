@@ -372,7 +372,7 @@ type busHelloReply struct {
 	Role     string            `json:"role"`
 	Managers []busManagerBrief `json:"managers"`
 	assistantwire.Hello
-	// Devices: hub.json's machines and what the manager that carries them needs (devices_link.go); only to it.
+	// Devices: hub.json's machines and what the manager that carries them needs (devices_handover.go); only to it.
 	Devices *devicewire.Config `json:"devices,omitempty"`
 }
 
@@ -462,7 +462,7 @@ func (h *Hub) busAccept(ctx context.Context, c *busConn, p busPresence) error {
 		h.managerReconnected(c.ident.ID) // its tools are asked for again (manager_state.go)
 	}
 	if c.ident.Role == bus.RoleManager {
-		h.devicesConnected(c.ident.ID)    // its first report: the sessions the apps watch, watched again (devices_link.go)
+		h.devicesConnected(c.ident.ID)    // its first report: the sessions the apps watch, watched again (devices_reports.go)
 		if _, ok := h.mutesEvent(); !ok { // not in the hello's answer: handed over once they can be read (fleet_link.go)
 			go h.mutesRetry(c.ident.ID)
 		}
@@ -496,7 +496,7 @@ func (h *Hub) busEnded(c *busConn) {
 		h.extLost.lost(c.ident.ID, time.Now()) // its extensions may still call for a while (extensions_proof.go)
 		h.logf("bus: [%s] disconnected", c.ident.ID)
 		if c.ident.Role == bus.RoleManager {
-			go h.devicesGone(c.ident.ID) // its machines (devices_link.go)
+			go h.devicesGone(c.ident.ID) // its machines (devices_reports.go)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

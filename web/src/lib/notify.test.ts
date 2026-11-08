@@ -143,6 +143,11 @@ describe("需要你的通知写清楚问什么（#4056）", () => {
     expect(waitingCard(cards, s)?.id).toBe("a");
     expect(waitingCard(cards, { machine_id: "m", session_id: "none" })).toBeUndefined();
   });
+  it("助手还在看的问题不拿来写通知（#544）", () => {
+    const cards = [ix({ id: "early", kind: "question", delegating: true, created_at: "2026-01-01" }), ix({ id: "later", created_at: "2026-01-02" })];
+    expect(waitingCard(cards, s)?.id).toBe("later");
+    expect(waitingCard(cards.slice(0, 1), s)).toBeUndefined();
+  });
 });
 
 describe("授权卡的通知带「允许 / 拒绝」（#4464）", () => {

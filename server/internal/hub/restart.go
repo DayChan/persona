@@ -42,7 +42,7 @@ func (h *Hub) beginStop() {
 			break
 		}
 	}
-	// The machines as the managers report them, for the next hub process (devices_link.go); each manager hands its
+	// The machines as the managers report them, for the next hub process (devices_warm.go); each manager hands its
 	// own to its next process apart (internal/devices warm.go).
 	h.saveDevicesWarm(context.Background())
 	h.saveMachineEntries(context.Background()) // and what each one has, each machine last seen as of now (machine_entries.go)

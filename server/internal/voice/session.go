@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -124,6 +125,9 @@ type conversation struct {
 	started    bool // the app got its ready
 	outRate    int
 	reconnects int
+	// toolless: its sessions declare no function tools, as its provider's service refused them (Provider.Tools unset,
+	// #1420). Set once, never cleared; read without mu (toolSet).
+	toolless atomic.Bool
 
 	userSeq, asstSeq int
 	user, asst       *line
@@ -463,6 +467,10 @@ func (c *conversation) connect(woken bool) error {
 
 	dctx, cancel := context.WithTimeout(c.ctx, startTimeout)
 	defer cancel()
+	_, auto := p.toolsMode()
+	if auto && c.pl.refusesTools(p.ID) {
+		c.toolless.Store(true) // another session found that its service refuses them (#1420)
+	}
 	bound := c.bind(dctx) // the bound conversation as it is now, read while the socket connects
 	up, err := c.dial(dctx, p, w, model)
 	if err != nil {
@@ -473,56 +481,31 @@ func (c *conversation) connect(woken bool) error {
 		_ = up.CloseNow()
 		return err
 	}
-	tools, mode := c.toolSet(), ""
-	switch {
-	case c.target != nil && len(tools) > 0:
-		mode = "bound"
-	case len(tools) == len(toolNames):
-		mode = "all"
-	case len(tools) > 0:
-		mode = "ask_persona"
-	}
 	c.mu.Lock()
 	snap, waiting := c.snap, c.waiting()
 	c.mu.Unlock()
-	s := session{
-		Model: model, Voice: voice, InputRate: p.inputRate(),
-		Instructions: fitInstructions(prompts.VoiceInstructions{
-			Lang: string(c.language()), Owner: c.pl.cfg.Owner, Notes: c.pl.cfg.Notes, Tools: mode, History: clipHistory(history),
-			Target: snap, Waiting: waiting, Paused: woken,
-		}),
-		Tools: toolDecls(tools),
+	in := prompts.VoiceInstructions{
+		Lang: string(c.language()), Owner: c.pl.cfg.Owner, Notes: c.pl.cfg.Notes, History: clipHistory(history),
+		Target: snap, Waiting: waiting, Paused: woken,
 	}
-	if err := writeJSON(dctx, up, w.start(s)); err != nil {
-		_ = up.CloseNow()
-		return err
-	}
-	rate := 0
-	for started := false; !started; {
-		typ, b, err := up.Read(dctx)
-		if err != nil {
-			_ = up.CloseNow()
-			return fmt.Errorf("the session did not start: %w", err)
+	tools := c.toolSet()
+	rate, err := c.startSession(dctx, up, w, p, model, voice, in, tools)
+	if err != nil && len(tools) > 0 && auto && refusedTools(err) {
+		// The service does not take function tools (#1420): the same session without them, once. Remembered only once
+		// that one starts: a session refused all the same was not refused for its tools.
+		c.pl.logf("provider %s: the service refused the function tools as the session started (%v); starting it again without them", p.ID, err)
+		if up, err = c.dial(dctx, p, w, model); err == nil {
+			rate, err = c.startSession(dctx, up, w, p, model, voice, in, nil)
 		}
-		if typ != websocket.MessageText {
-			continue
-		}
-		for _, e := range w.decode(b) {
-			switch e.kind {
-			case evStarted:
-				started, rate = true, e.rate
-			case evError:
-				_ = up.CloseNow()
-				err := errors.New(firstNonEmpty(e.text, e.code, "the service refused the session"))
-				if e.code == codeUpstreamUnavailable {
-					err = &upstreamError{code: codeUpstreamUnavailable, err: err}
-				}
-				return err
+		if err == nil {
+			c.toolless.Store(true)
+			if c.pl.forgoTools(p.ID) {
+				c.pl.logf("provider %s: its sessions go without function tools from now on", p.ID)
 			}
 		}
 	}
-	if rate == 0 {
-		rate = w.outputRate(p.inputRate())
+	if err != nil {
+		return err
 	}
 
 	c.mu.Lock()
@@ -586,6 +569,77 @@ func (c *conversation) connect(woken bool) error {
 	return nil
 }
 
+// startSession starts the upstream session on up, declaring tools (nil: none), and waits for the service to start it:
+// the rate of its audio. A failure closes up; the service's refusal is a *sessionRefused.
+func (c *conversation) startSession(ctx context.Context, up upLink, w wire, p *Provider, model, voice string,
+	in prompts.VoiceInstructions, tools []string) (int, error) {
+	in.Tools = c.toolMode(tools)
+	s := session{Model: model, Voice: voice, InputRate: p.inputRate(), Instructions: fitInstructions(in), Tools: toolDecls(tools)}
+	if err := writeJSON(ctx, up, w.start(s)); err != nil {
+		_ = up.CloseNow()
+		return 0, err
+	}
+	for {
+		typ, b, err := up.Read(ctx)
+		if err != nil {
+			_ = up.CloseNow()
+			return 0, fmt.Errorf("the session did not start: %w", err)
+		}
+		if typ != websocket.MessageText {
+			continue
+		}
+		for _, e := range w.decode(b) {
+			switch e.kind {
+			case evStarted:
+				if e.rate == 0 {
+					return w.outputRate(p.inputRate()), nil
+				}
+				return e.rate, nil
+			case evError:
+				_ = up.CloseNow()
+				var err error = &sessionRefused{code: e.code, param: e.param, text: e.text}
+				if e.code == codeUpstreamUnavailable {
+					err = &upstreamError{code: codeUpstreamUnavailable, err: err}
+				}
+				return 0, err
+			}
+		}
+	}
+}
+
+// sessionRefused is the service's error frame in answer to a session start.
+type sessionRefused struct{ code, param, text string }
+
+func (e *sessionRefused) Error() string {
+	return firstNonEmpty(e.text, e.code, "the service refused the session")
+}
+
+// fieldCodes are the codes of an error about a field the service does not know or take (docs/lessons/voice.md
+// "Errors": unknown_parameter, unsupported_extension).
+var fieldCodes = []string{"unknown_parameter", "unsupported_parameter", "unsupported_extension", "unsupported_capability"}
+
+// refusedTools: the service refused a session start for its function tools (#1420). Its error frame names them (param
+// session.tools), or names no field and says "tools" or is about a field it does not know or take: the tools are all a
+// session start has beyond what one without them has. Or it closed the socket before the session started, saying
+// "tools". Never a refused key or handshake, a service that is down, nor a socket that just went away.
+func refusedTools(err error) bool {
+	var ue *upstreamError
+	if errors.As(err, &ue) {
+		return false
+	}
+	var r *sessionRefused
+	if errors.As(err, &r) {
+		if r.param != "" {
+			return namesTools(r.param)
+		}
+		return namesTools(r.text) || slices.Contains(fieldCodes, r.code)
+	}
+	var ce websocket.CloseError
+	return errors.As(err, &ce) && namesTools(ce.Reason)
+}
+
+func namesTools(s string) bool { return strings.Contains(strings.ToLower(s), "tools") }
+
 // instructionsMost is the most a session's instructions run to, in runes: the measured service started a session with
 // 19000 characters of them and refused one with 25000, the limit counting what it adds itself (docs/lessons/voice.md
 // "Instructions size"); refused, a session does not start at all. A long call's history (historyLines of up to 200
@@ -620,10 +674,7 @@ func (c *conversation) dial(ctx context.Context, p *Provider, w wire, model stri
 	if key != "" {
 		header.Set("Authorization", "Bearer "+key)
 	}
-	opts := &websocket.DialOptions{HTTPHeader: header}
-	if p.SSH != "" {
-		opts.HTTPClient = p.httpClient()
-	}
+	opts := &websocket.DialOptions{HTTPHeader: header, HTTPClient: p.httpClient()}
 	up, res, err := websocket.Dial(ctx, u, opts)
 	if err != nil {
 		return nil, dialError(err, res)
@@ -635,10 +686,12 @@ func (c *conversation) dial(ctx context.Context, p *Provider, w wire, model stri
 // toolSet is which of the plugin's function tools the session declares (docs/assistant/voice.md "Permissions"): all of them for a full
 // device; for another extension calling (role extension) only ask_persona, to the main conversation, which is what it may
 // reach: the others reach past that (the knowledge base, any agent), and without a tool the measured service hands
-// nothing over at all (docs/lessons/voice.md "Other behavior"); none for an upstream that takes no tools.
+// nothing over at all (docs/lessons/voice.md "Other behavior"); none for an upstream that takes no tools (Provider.Tools
+// false, the codex and fake dialects, a service that refused them: toolless).
 func (c *conversation) toolSet() []string {
+	declare, _ := c.p.toolsMode()
 	switch {
-	case !c.p.tools():
+	case !declare || c.toolless.Load():
 		return nil
 	case c.version >= 2:
 		// Bound to a conversation: what hands work over goes to it (delegate_task); send_to_agent and ask_persona would
@@ -652,6 +705,19 @@ func (c *conversation) toolSet() []string {
 
 // tools: the session declares function tools (a delegation comes with its call).
 func (c *conversation) tools() bool { return len(c.toolSet()) > 0 }
+
+// toolMode is what the instructions say of tools (prompts.VoiceInstructions.Tools) for a session that declares tools.
+func (c *conversation) toolMode(tools []string) string {
+	switch {
+	case c.target != nil && len(tools) > 0:
+		return "bound"
+	case len(tools) == len(toolNames):
+		return "all"
+	case len(tools) > 0:
+		return "ask_persona"
+	}
+	return ""
+}
 
 // roleFull is X-Persona-Role of a full device (and of the hub's own token).
 const roleFull = "full"

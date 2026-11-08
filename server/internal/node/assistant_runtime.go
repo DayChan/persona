@@ -56,11 +56,14 @@ func (n *Node) assistantRuntime(launcher string) *runtimeConn {
 	return h
 }
 
-// runtimeAssistant: id is an assistant conversation a runtime runs. Claude's and Codex's ids are uuids (validID); a
-// runtime's are its own (DSH: session-<uuid>).
+// runtimeAssistant: id is an assistant conversation a runtime runs.
 func (n *Node) runtimeAssistant(id string) bool {
-	return id != "" && !validID(id) && runtimeIDRe.MatchString(id) && n.isAssistantSession(id)
+	return runtimeSessionID(id) && n.isAssistantSession(id)
 }
+
+// runtimeSessionID: id is shaped like a runtime's conversation. Claude's and Codex's ids are uuids (validID); a
+// runtime's are its own (DSH: session-<uuid>).
+func runtimeSessionID(id string) bool { return id != "" && !validID(id) && runtimeIDRe.MatchString(id) }
 
 // assistantSendRuntime is assistantSend on a runtime (h, nil when it is not connected): a new conversation is started
 // there (session.start with assistant), then the message goes with the snapshot as its context, the conversation's

@@ -14,7 +14,8 @@ vi.mock("./store", () => ({
   getState: () => ({ mutes, interactions }),
 }));
 vi.mock("./sessions", () => ({ useCounts: () => ({ badge: 0 }), useAgentSessions: () => sessions }));
-vi.mock("./api", () => ({
+vi.mock("./api", async (original) => ({
+  ...(await original<typeof import("./api")>()),
   api: async () => ({ input: true, done: "long", long_turn_seconds: 60 }),
   enc: encodeURIComponent,
 }));

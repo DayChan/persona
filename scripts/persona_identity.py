@@ -392,9 +392,12 @@ def command_aliases(directory):
     pairs += [(path.name, "jarvisd-" + path.name[len("personad-"):])
               for path in directory.glob("personad-*") if not path.name.endswith((".gz", ".prev", ".new"))]
     for current, legacy in pairs:
-        if not (directory / current).is_file():
+        current_path = directory / current
+        if current_path.is_symlink() or not current_path.is_file():
             continue
         alias = directory / legacy
+        if alias.is_symlink() and os.readlink(alias) == current:
+            continue
         if alias.is_dir():
             raise OSError("compatibility command is a directory: " + str(alias))
         temporary = directory / (legacy + ".compat-new")

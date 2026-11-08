@@ -52,7 +52,7 @@ export function NodeHealth({ machine, heading }: { machine: Machine; heading: Re
       const mine = ++seq.current;
       setBusy(true);
       try {
-        // the hub waits 45 s for the node's self-check (hub/http.go)
+        // the hub waits 45 s for the node's self-check (hub/node_doctor.go)
         const report = await api<DoctorReport>(`/machines/${enc(mid)}/doctor`, { signal, timeout: pastHub(45_000) });
         if (mine === seq.current) setLoad({ kind: "report", report: { ...report, checks: report.checks ?? [] } });
       } catch (e) {

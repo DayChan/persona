@@ -49,7 +49,7 @@ type Machine struct {
 	// engineHosts: the set the last manager handed over (#2576), nil when it handed over none (a single engine then).
 	engineHosts *proto.EngineChoice
 	// warmUntil: shown as before a restart until then — the hub's, while the manager comes back (calls wait for it in
-	// busNode), or the manager's, while the node comes back (its report's) (devices_link.go).
+	// busNode), or the manager's, while the node comes back (its report's) (devices_warm.go).
 	warmUntil time.Time
 	err       string
 	lastSeen  time.Time
@@ -70,7 +70,7 @@ type Machine struct {
 	// derived: a computer only a member hub has in hub.json; the center reaches it through that hub.
 	derived bool
 
-	// The manager's report (devices_link.go): managed is set once one came for this machine (or the hub made it for
+	// The manager's report (devices_reports.go): managed is set once one came for this machine (or the hub made it for
 	// one the manager will report); snap is the machine as it said; connected, a call would reach the node now;
 	// hookedAt, the connection the hub did its part for (devices.connected); paths, its ways for the admin page.
 	managed bool

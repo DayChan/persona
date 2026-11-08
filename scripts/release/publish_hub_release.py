@@ -30,20 +30,9 @@ def credential_fields(credentials):
     return values
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--config', required=True, type=Path)
-    parser.add_argument('--artifact-dir', required=True, type=Path)
-    args = parser.parse_args()
-    cfg = json.loads(args.config.read_text())
+def connect_publisher(cfg):
+    """Open the configured publisher connection with existing host-key validation."""
     credentials = credential_fields(json.loads(subprocess.check_output(cfg['credentials_command'])))
-    manifest = json.loads((args.artifact_dir / 'latest.json').read_text())
-    packages = node_manifest(args.artifact_dir, manifest) if cfg.get('publish_nodes', False) else None
-    if cfg.get('publish_nodes', False) and packages is None:
-        raise ValueError('Matching node packages are required by this publisher')
-    remote_root = cfg['remote_root']
-    release_root = release_directory(remote_root, cfg.get('release_namespace', 'hub'))
-    staged = str(release_root / f'.upload-{manifest["build"]}-{uuid.uuid4().hex}')
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     sock = None
@@ -79,6 +68,29 @@ def main():
                 if attempt == 2:
                     raise
                 time.sleep(3)
+        return client, sock
+    except BaseException:
+        client.close()
+        if sock is not None:
+            sock.close()
+        raise
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--config', required=True, type=Path)
+    parser.add_argument('--artifact-dir', required=True, type=Path)
+    args = parser.parse_args()
+    cfg = json.loads(args.config.read_text())
+    manifest = json.loads((args.artifact_dir / 'latest.json').read_text())
+    packages = node_manifest(args.artifact_dir, manifest) if cfg.get('publish_nodes', False) else None
+    if cfg.get('publish_nodes', False) and packages is None:
+        raise ValueError('Matching node packages are required by this publisher')
+    remote_root = cfg['remote_root']
+    release_root = release_directory(remote_root, cfg.get('release_namespace', 'hub'))
+    staged = str(release_root / f'.upload-{manifest["build"]}-{uuid.uuid4().hex}')
+    client, sock = connect_publisher(cfg)
+    try:
         with client.open_sftp() as sftp:
             namespace = cfg.get('release_namespace', 'hub')
             prepare_remote_staging(sftp, remote_root, namespace, staged)

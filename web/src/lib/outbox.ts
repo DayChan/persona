@@ -8,11 +8,11 @@ import { pickedLauncher, pickedModel, conversationKey } from "./assistant-chat";
 import { uuid } from "./format";
 import { navigate } from "./router";
 import { getState, refreshAssistant, setOutbox } from "./store";
-import { chosenManager, noteConversation } from "./manager-choice";
+import { chooseManager, chosenManager, noteConversation, otherManager, ownerHeaders } from "./manager-choice";
 import { apiOp, isTransient } from "./ops";
 import { echoed, isEcho, type Seen, type Sent } from "./echo";
 import { parseUserText, type UserMessage } from "./turns";
-import type { Item, Session } from "./types";
+import type { AssistantInfo, Item, Session } from "./types";
 
 export interface OutboxImage {
   mime: string;
@@ -181,8 +181,7 @@ export async function askPersona(text: string): Promise<void> {
     a = getState().assistant;
   }
   if (a?.main) {
-    navigate({ name: "persona", sid: a.main });
-    void sendToSession(a.machine_id, a.main, { text }, { launcher: pickedLauncher(outboxKey(a.machine_id, a.main)), model: pickedModel(outboxKey(a.machine_id, a.main)) });
+    void sendToMain(a.machine_id, a.main, text);
     return;
   }
   const chosen = chosenManager() ?? undefined;
@@ -192,4 +191,39 @@ export async function askPersona(text: string): Promise<void> {
   noteSent(r.session.machine_id, r.session.session_id, { text });
   void refreshAssistant().catch(() => {});
   navigate({ name: "persona", sid: r.session.session_id });
+}
+
+/**
+ * askPersona for one manager's main conversation (an inbox item's `manager`, none: the default's), whatever the assistant
+ * page shows (Android's mainConversationOf): its main conversation is read from that manager, the page moves to that
+ * manager and the conversation, and the text goes there; with none yet, the text starts it. Throws when the manager
+ * can't be read or the conversation can't start, before the page moves; `sent` then says whether the text got there
+ * (a failed bubble says why).
+ */
+export async function askPersonaOf(owner: string | undefined, text: string): Promise<{ sent: Promise<boolean> }> {
+  const headers = ownerHeaders(owner);
+  const a = await api<AssistantInfo>("/assistant", { headers });
+  if (a.machine_id && a.main) {
+    adoptConversation(owner, a.main);
+    return { sent: sendToMain(a.machine_id, a.main, text) };
+  }
+  const r = await api<{ session: Session }>("/assistant/conversations", { method: "POST", json: { prompt: text, main: true }, headers });
+  adoptConversation(owner, r.session.session_id);
+  noteSent(r.session.machine_id, r.session.session_id, { text });
+  void refreshAssistant().catch(() => {});
+  navigate({ name: "persona", sid: r.session.session_id });
+  return { sent: Promise.resolve(true) };
+}
+
+/** Opens a main conversation and sends text there with the launcher and model picked for it. */
+function sendToMain(mid: string, sid: string, text: string): Promise<boolean> {
+  navigate({ name: "persona", sid });
+  const key = outboxKey(mid, sid);
+  return sendToSession(mid, sid, { text }, { launcher: pickedLauncher(key), model: pickedModel(key) });
+}
+
+/** owner's conversation sid: its requests go to owner, and the assistant page shows owner (none: the default). */
+export function adoptConversation(owner: string | undefined, sid: string) {
+  noteConversation(sid, otherManager(owner));
+  chooseManager(owner || null);
 }

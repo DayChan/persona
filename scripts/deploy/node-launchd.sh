@@ -67,8 +67,9 @@ UN
       if systemctl --user is-enabled "$UNIT" >/dev/null 2>&1; then systemctl --user restart "$UNIT" && echo "restarted $UNIT"; fi ;;
     restart-idle)
       # The node only: a signal to the whole unit would reach the conversations' claude processes too.
+      # --kill-who=: systemd before 252 knows no other name (--kill-whom= is 252's), and later ones still read it.
       if systemctl --user is-active --quiet "$UNIT"; then
-        systemctl --user kill -s HUP --kill-whom=main "$UNIT" && echo "$UNIT restarts once no conversation is busy"
+        systemctl --user kill -s HUP --kill-who=main "$UNIT" && echo "$UNIT restarts once no conversation is busy"
       fi ;;
     uninstall)
       systemctl --user disable --now "$UNIT" 2>/dev/null || true

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestSearchLimitsAndOrder(t *testing.T) {
@@ -64,5 +65,40 @@ func TestSearchLimitsAndOrder(t *testing.T) {
 				t.Fatalf("Search(%q, %v, %d) = %+v, want %+v", tt.query, tt.messages, tt.limit, got, tt.want)
 			}
 		})
+	}
+}
+
+// Search reads files through Find's cache: a file it kept must be read again once it changes, and a file that
+// lost the words is no longer found.
+func TestSearchSeesAChangedFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "chats", "c", "messages", "2026-10-01.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	put := func(body string, at time.Time) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, at, at); err != nil { // settled: old enough for the cache to keep it
+			t.Fatal(err)
+		}
+	}
+	e := &Engine{Store: &Store{Dir: dir}}
+	old := time.Now().Add(-time.Hour)
+	put("first alpha\n", old)
+	if hits := e.Search("alpha", true, 10); len(hits) != 1 || hits[0].Line != "first alpha" {
+		t.Fatalf("first search: %+v", hits)
+	}
+	if e.find.texts[p] == nil {
+		t.Fatal("the file was not kept")
+	}
+	put("second beta, longer\n", old.Add(time.Minute))
+	if hits := e.Search("alpha", true, 10); len(hits) != 0 {
+		t.Fatalf("the old text was searched: %+v", hits)
+	}
+	if hits := e.Search("BETA", true, 10); len(hits) != 1 || hits[0].Line != "second beta, longer" {
+		t.Fatalf("after the change: %+v", hits)
 	}
 }

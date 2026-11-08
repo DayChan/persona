@@ -327,6 +327,11 @@ func CodexStart(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s %s not found in PATH", codexStartError, words[0])
 	}
+	// On Windows the launcher may be a batch file (npm's codex.cmd): the program behind it, never cmd.exe with the message.
+	path, env, err = codexStartProgram(path, f.Prompt != "", env)
+	if err != nil {
+		return fmt.Errorf("%s %v", codexStartError, err)
+	}
 	argv := append([]string(nil), words...)
 	if f.Prompt != "" { // a resume without a message (`personad tab-start`, pi.go) runs the words alone
 		argv = append(argv, "--", f.Prompt)

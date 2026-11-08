@@ -6,6 +6,7 @@ import {
   type DocRow, type DocStatus, type InboxItem,
 } from "../../lib/inbox";
 import { connectorBrand } from "../../lib/connectors";
+import { hubMediaURL } from "../../lib/lark-summary";
 import { useItemManager, withManager } from "../../lib/manager-choice";
 import { t } from "../../i18n";
 import { Button, cx, Menu, Spinner, useMenu } from "../../ui/atoms";
@@ -69,8 +70,10 @@ function hash(s: string) {
  *  that manager (docs/assistant/managers.md "Clients"). */
 export function Monogram({ name, size = 40, square, neutral, src, manager }: { name: string; size?: number; square?: boolean; neutral?: boolean; src?: string; manager?: string }) {
   const owner = useItemManager();
+  // The picture that failed to load: the letter instead of a broken image, until src changes.
+  const [failed, setFailed] = useState<string>();
   const shape = square ? "rounded-[10px]" : "rounded-full";
-  if (src) return <img src={withToken(withManager(src, manager ?? owner))} alt="" width={size} height={size} className={cx("shrink-0 object-cover shadow-hairline", shape)} style={{ width: size, height: size }} />;
+  if (src && failed !== src) return <img src={withToken(withManager(src, manager ?? owner))} alt="" width={size} height={size} onError={() => setFailed(src)} className={cx("shrink-0 object-cover shadow-hairline", shape)} style={{ width: size, height: size }} />;
   const first = [...name.trim()][0] ?? "?";
   return (
     <span aria-hidden className={cx("flex shrink-0 items-center justify-center font-semibold", shape)} style={{ width: size, height: size, fontSize: Math.round(size * 0.4), ...(neutral ? MONO[3] : MONO[hash(name) % MONO.length]) }}>
@@ -97,7 +100,7 @@ export function ItemAvatar({ it, size = 40 }: { it: InboxItem; size?: number }) 
       </span>
     );
   } else if (isLark(it)) {
-    face = <Monogram name={it.title} size={size} square={it.lark?.is_group} src={it.avatar} manager={it.manager} />;
+    face = <Monogram name={it.title} size={size} square={it.lark?.is_group} src={hubMediaURL(it.avatar)} manager={it.manager} />;
   } else {
     face = <Monogram name={it.sender || it.title} size={size} neutral />;
   }

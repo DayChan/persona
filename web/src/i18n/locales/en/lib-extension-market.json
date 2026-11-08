@@ -16,7 +16,7 @@
   "sig_unsigned": "Unsigned",
   "sig_invalid": "Signature doesn't match",
   "sig_missing": "Signature missing",
-  "sig_key_changed": "Signing key changed",
+  "sig_key_changed": "Official signing key mismatch; verification required",
   "sig_state": "Signature: {state}",
   "agree_upgrade_more": "Allow and upgrade",
   "upgrade": "Upgrade",

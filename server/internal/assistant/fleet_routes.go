@@ -103,7 +103,9 @@ func (s *Service) fleetHandler(next http.Handler) http.Handler {
 func (s *Service) writeEnded(ctx context.Context, w http.ResponseWriter, id string, r proto.Resolution, err error) {
 	var status string
 	var kept *proto.Resolution
-	if st := s.fleetStore(); st != nil {
+	if just := (*answeredJustNow)(nil); errors.As(err, &just) {
+		status, kept = just.status, &just.kept // answered a moment ago: the history may not have it yet (#1230)
+	} else if st := s.fleetStore(); st != nil {
 		ctx, cancel := context.WithTimeout(ctx, historyTimeout)
 		status, kept, _ = st.InteractionOutcome(ctx, id)
 		cancel()
@@ -254,7 +256,7 @@ func (s *Service) channelResolve(ctx context.Context, ch, id string, r proto.Res
 	r.AnsweredBy, r.Remembered = "", false
 	if err := s.resolve(id, r); err != nil {
 		if errors.Is(err, errNotPending) {
-			return map[string]any{"ok": false, "status": s.interactionOutcome(ctx, id)}, nil
+			return map[string]any{"ok": false, "status": s.endedStatus(ctx, id, err)}, nil
 		}
 		return nil, err
 	}

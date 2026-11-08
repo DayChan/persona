@@ -15,8 +15,13 @@ import { onHubEvent, useStore } from "../../lib/store";
 import { Button, copyText, cx, Dialog, IconButton, Loading, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { Group, Pill, Row, Switch } from "./SettingsParts";
+import { ExtensionDownloadMirrors } from "./ExtensionDownloadMirrors";
 
 export function HubSettings() {
+  return <><HubUpdates /><ExtensionDownloadMirrors /></>;
+}
+
+function HubUpdates() {
   const [status, setStatus] = useState<HubUpdateStatus | null>(null);
   const [history, setHistory] = useState<HubUpdateRecord[]>([]);
   const [unsupported, setUnsupported] = useState(false);

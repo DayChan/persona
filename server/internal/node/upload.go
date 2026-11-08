@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,11 +34,26 @@ type uploads struct {
 	open map[string]*upload
 }
 
+// uploadFile is the part file owned by one upload operation at a time.
+type uploadFile interface {
+	Write([]byte) (int, error)
+	Close() error
+	Name() string
+}
+
 type upload struct {
+	// mu protects lifecycle state; busy grants one caller exclusive file ownership.
+	// Lock it before uploads.mu; the registry lock never covers disk I/O.
+	mu      sync.Mutex
+	busy    bool
+	retired bool
+	epoch   uint64
+	closed  bool // only the file owner closes it
+
 	name    string // as the phone sent it
 	size    int64
 	written int64
-	f       *os.File
+	f       uploadFile
 	idle    *time.Timer
 	random  bool // the final name starts with a random prefix instead of ending in a timestamp (terminal pastes)
 	// into: a folder the app is browsing (dest=dir): the file keeps its own name there, shown is that folder as the
@@ -67,53 +83,122 @@ func (u *uploads) beginIn(dir, name string, size, limit int64, random bool) (str
 	}
 	id := randHex(8)
 	up := &upload{name: name, size: size, f: f, random: random}
-	up.idle = time.AfterFunc(uploadIdle, func() { u.abort(id) })
+	up.mu.Lock()
 	u.mu.Lock()
 	if u.open == nil {
 		u.open = map[string]*upload{}
 	}
 	u.open[id] = up
 	u.mu.Unlock()
+	u.armLocked(id, up)
+	up.mu.Unlock()
 	return id, nil
 }
 
-// take removes an upload from the open set while a call works on it: a chunk racing an abort finds nothing.
-func (u *uploads) take(id string) (*upload, error) {
+var errUploadRetired = errors.New("no such upload (it timed out or was cancelled)")
+
+func (u *uploads) lookup(id string) *upload {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	up := u.open[id]
+	return u.open[id]
+}
+
+// start keeps the entry discoverable while granting exclusive file ownership.
+// Concurrent chunks/end fail as before, without retiring the active operation.
+func (u *uploads) start(id string) (*upload, error) {
+	up := u.lookup(id)
 	if up == nil {
-		return nil, fmt.Errorf("no such upload (it timed out or was cancelled)")
+		return nil, errUploadRetired
 	}
-	delete(u.open, id)
-	up.idle.Stop()
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	if up.retired {
+		return nil, errUploadRetired
+	}
+	if up.busy {
+		return nil, fmt.Errorf("upload is busy")
+	}
+	up.busy = true
+	up.stopIdleLocked()
 	return up, nil
 }
 
-func (u *uploads) put(id string, up *upload) {
-	u.mu.Lock()
-	u.open[id] = up
-	u.mu.Unlock()
-	up.idle.Reset(uploadIdle)
+func (up *upload) stopIdleLocked() {
+	up.epoch++ // an already-running callback belongs to the previous idle period
+	if up.idle != nil {
+		up.idle.Stop()
+		up.idle = nil
+	}
 }
 
-func (u *uploads) chunk(id string, offset int64, data []byte) (int64, error) {
-	up, err := u.take(id)
+func (u *uploads) armLocked(id string, up *upload) {
+	up.stopIdleLocked()
+	epoch := up.epoch
+	up.idle = time.AfterFunc(uploadIdle, func() { u.expire(id, up, epoch) })
+}
+
+// retireLocked never restores an entry. The busy file owner performs cleanup
+// after its I/O settles; otherwise cancellation owns cleanup itself.
+func (u *uploads) retireLocked(id string, up *upload) {
+	up.retired = true
+	up.stopIdleLocked()
+	u.mu.Lock()
+	if u.open[id] == up {
+		delete(u.open, id)
+	}
+	u.mu.Unlock()
+}
+
+func (u *uploads) expire(id string, up *upload, epoch uint64) {
+	up.mu.Lock()
+	if up.retired || up.epoch != epoch {
+		up.mu.Unlock()
+		return
+	}
+	u.retireLocked(id, up)
+	cleanup := !up.busy
+	up.mu.Unlock()
+	if cleanup {
+		up.discard()
+	}
+}
+
+func (u *uploads) chunk(id string, offset int64, data []byte) (got int64, err error) {
+	up, err := u.start(id)
 	if err != nil {
 		return 0, err
 	}
-	fail := func(err error) (int64, error) { up.discard(); return 0, err }
+	defer func() {
+		up.mu.Lock()
+		up.busy = false
+		if up.retired && err == nil {
+			got, err = 0, errUploadRetired
+		}
+		if err != nil {
+			u.retireLocked(id, up)
+		} else {
+			u.armLocked(id, up)
+		}
+		cleanup := up.retired
+		up.mu.Unlock()
+		if cleanup {
+			up.discard()
+		}
+	}()
 	if offset != up.written {
-		return fail(fmt.Errorf("chunk at %d, expected %d", offset, up.written))
+		return 0, fmt.Errorf("chunk at %d, expected %d", offset, up.written)
 	}
-	if up.written+int64(len(data)) > up.size {
-		return fail(fmt.Errorf("more data than the %d bytes announced", up.size))
+	if int64(len(data)) > up.size-up.written {
+		return 0, fmt.Errorf("more data than the %d bytes announced", up.size)
 	}
-	if _, err := up.f.Write(data); err != nil {
-		return fail(err)
+	n, err := up.f.Write(data)
+	if err != nil {
+		return 0, err
 	}
-	up.written += int64(len(data))
-	u.put(id, up)
+	if n != len(data) {
+		return 0, io.ErrShortWrite
+	}
+	up.written += int64(n)
 	return up.written, nil
 }
 
@@ -150,31 +235,36 @@ func (n *Node) beginInto(dir, cwd, name, conflict string, size int64) (string, e
 	if err != nil {
 		return "", err
 	}
-	n.ups.mu.Lock()
-	if up := n.ups.open[id]; up != nil {
+	if up := n.ups.lookup(id); up != nil {
+		up.mu.Lock()
 		up.into, up.shown, up.conflict = true, shown, conflict
+		up.mu.Unlock()
 	}
-	n.ups.mu.Unlock()
 	return id, nil
 }
 
 // end checks the size and gives the file its name; it returns the absolute path.
 func (u *uploads) end(id string, now time.Time) (string, int64, error) {
-	up, err := u.take(id)
+	up, err := u.start(id)
 	if err != nil {
 		return "", 0, err
 	}
-	if up.into {
-		return up.finishInto()
-	}
-	if err := up.f.Close(); err != nil {
+	defer func() {
+		up.mu.Lock()
+		u.retireLocked(id, up)
+		up.busy = false
+		up.mu.Unlock()
 		up.discard()
+	}()
+	if err := up.close(); err != nil {
 		return "", 0, err
 	}
 	part := up.f.Name()
 	if st, err := os.Stat(part); err != nil || st.Size() != up.size || up.written != up.size {
-		up.discard()
 		return "", 0, fmt.Errorf("got %d of %d bytes", up.written, up.size)
+	}
+	if up.into {
+		return u.finishInto(id, up)
 	}
 	reserve := reserveName
 	if up.random {
@@ -182,12 +272,10 @@ func (u *uploads) end(id string, now time.Time) (string, int64, error) {
 	}
 	path, err := reserve(filepath.Dir(part), up.name, now)
 	if err != nil {
-		up.discard()
 		return "", 0, err
 	}
-	if err := os.Rename(part, path); err != nil { // replaces the empty reservation
+	if err := u.publish(id, up, path); err != nil { // replaces the empty reservation
 		_ = os.Remove(path)
-		up.discard()
 		return "", 0, err
 	}
 	return path, up.size, nil
@@ -196,16 +284,8 @@ func (u *uploads) end(id string, now time.Time) (string, int64, error) {
 // finishInto gives a dest=dir upload its own name in the folder, by the conflict policy; it returns the path as the
 // app knows the folder. The name is taken with O_EXCL (or replaced by rename) so a file that appeared meanwhile is
 // never overwritten unasked.
-func (up *upload) finishInto() (string, int64, error) {
-	if err := up.f.Close(); err != nil {
-		up.discard()
-		return "", 0, err
-	}
+func (u *uploads) finishInto(id string, up *upload) (string, int64, error) {
 	part := up.f.Name()
-	if st, err := os.Stat(part); err != nil || st.Size() != up.size || up.written != up.size {
-		up.discard()
-		return "", 0, fmt.Errorf("got %d of %d bytes", up.written, up.size)
-	}
 	dir, name := filepath.Dir(part), up.name
 	mode := os.FileMode(0o644)
 	var path string
@@ -214,7 +294,6 @@ func (up *upload) finishInto() (string, int64, error) {
 		path = filepath.Join(dir, name)
 		if st, err := os.Lstat(path); err == nil {
 			if st.IsDir() {
-				up.discard()
 				return "", 0, errExists(name)
 			}
 			if st.Mode().IsRegular() {
@@ -224,7 +303,6 @@ func (up *upload) finishInto() (string, int64, error) {
 	default:
 		var err error
 		if path, err = reserveNumbered(dir, name, up.conflict == proto.UploadConflictKeep); err != nil {
-			up.discard()
 			return "", 0, err
 		}
 	}
@@ -232,14 +310,12 @@ func (up *upload) finishInto() (string, int64, error) {
 		if up.conflict != proto.UploadConflictReplace {
 			_ = os.Remove(path)
 		}
-		up.discard()
 		return "", 0, err
 	}
-	if err := os.Rename(part, path); err != nil {
+	if err := u.publish(id, up, path); err != nil {
 		if up.conflict != proto.UploadConflictReplace {
 			_ = os.Remove(path) // the empty reservation
 		}
-		up.discard()
 		return "", 0, err
 	}
 	return filepath.Join(up.shown, filepath.Base(path)), up.size, nil
@@ -270,14 +346,49 @@ func reserveNumbered(dir, name string, keep bool) (string, error) {
 	return "", fmt.Errorf("no free name for %s", name)
 }
 
+// publish serializes the final rename with cancellation on this upload only.
+// A successful rename is the commit point: a later abort cannot undo it.
+func (u *uploads) publish(id string, up *upload, path string) error {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	if up.retired {
+		return errUploadRetired
+	}
+	if err := os.Rename(up.f.Name(), path); err != nil {
+		return err
+	}
+	u.retireLocked(id, up)
+	return nil
+}
+
 func (u *uploads) abort(id string) {
-	if up, err := u.take(id); err == nil {
+	up := u.lookup(id)
+	if up == nil {
+		return
+	}
+	up.mu.Lock()
+	if up.retired {
+		up.mu.Unlock()
+		return
+	}
+	u.retireLocked(id, up)
+	cleanup := !up.busy
+	up.mu.Unlock()
+	if cleanup {
 		up.discard()
 	}
 }
 
+func (up *upload) close() error {
+	if up.closed {
+		return nil
+	}
+	up.closed = true
+	return up.f.Close()
+}
+
 func (up *upload) discard() {
-	_ = up.f.Close()
+	_ = up.close()
 	_ = os.Remove(up.f.Name())
 }
 

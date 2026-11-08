@@ -77,6 +77,22 @@ class AssistantConfigTest {
         }
     }
 
+    @Test fun managerContractIsDecodedWithoutGuessingFromHubOrSavedValue() = runBlocking {
+        MockWebServer().use { server ->
+            val api = HttpAssistantManagement(server.url("/").toString(), "test-token", OkHttpClient()).forManager("work")
+            val modes = "[\"default\",\"acceptEdits\",\"plan\",\"auto\",\"bypassPermissions\"]"
+            for (backend in listOf("claude", "codex")) {
+                server.enqueue(MockResponse().setBody("""{"manager":"work","launcher":"$backend",
+                    "permission_defaults":{"version":1,"manager":"work","modes":$modes}}"""))
+                val config = api.config()
+                assertTrue(config.permissionDefaults?.supports(config.manager) == true)
+                assertEquals("work", server.takeRequest().getHeader(ManagerHeader))
+            }
+            server.enqueue(MockResponse().setBody("""{"manager":"work","default_permission_mode":"plan"}"""))
+            assertNull(api.config().permissionDefaults)
+        }
+    }
+
     @Test fun listsTheLaunchersOfTheChosenMachine() = runBlocking {
         MockWebServer().use { server ->
             val api = HttpAssistantManagement(server.url("/").toString(), "test-token", OkHttpClient())

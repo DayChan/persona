@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -235,8 +234,11 @@ func strictDecode(b []byte, v any) error {
 var syncName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 func TestSyncScenarios(t *testing.T) {
-	_, file, _, _ := runtime.Caller(0)
-	dir := filepath.Join(filepath.Dir(file), "../../../spec/fixtures/sync")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(wd, "../../../spec/fixtures/sync")
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no sync scenarios in %s: %v", dir, err)

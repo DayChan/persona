@@ -380,7 +380,10 @@ func (c *codexConn) start(ctx context.Context, id, cwd string, resume bool) erro
 	c.p.id = res.Thread.ID
 	if res.Thread.Path != "" {
 		n.paths[res.Thread.ID] = res.Thread.Path // Codex said so (CODEX_HOME may not be ~/.codex)
-		delete(n.pathsAt, res.Thread.ID)
+		if n.pathsAt == nil {
+			n.pathsAt = map[string]time.Time{}
+		}
+		n.pathsAt[res.Thread.ID] = time.Now()
 	}
 	n.mu.Unlock()
 	if c.nameGates != nil { // larkCheck records what it confirmed under this id (p.id): the addresses stand for it from now on

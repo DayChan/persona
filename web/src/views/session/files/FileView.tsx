@@ -113,80 +113,130 @@ function parseSheets(req: SheetRequest, signal: AbortSignal): Promise<Sheet[]> {
 export interface FileDoc {
   file: FileContent | null;
   error: string;
+  /** A later page proved that the file changed. Only reload can resume this read. */
+  changed: boolean;
+  /** A retryable continuation failure; already accepted pages remain available. */
+  pageError: string;
   text: string;
-  /** Where the next page starts; 0: all read. */
+  /** Where the next page starts; 0: no further page is available. */
   next: number;
   loadingMore: boolean;
   more: () => Promise<boolean>;
-  /** Reads the rest (up to `cap` bytes) and returns the whole text. */
+  /** A bounded preview: a cap may return a prefix explicitly marked incomplete. Other failures reject. */
+  read: (cap: number) => Promise<{ text: string; complete: boolean }>;
+  /** Returns complete text, or rejects on change, failure, retirement or a read cap. */
   all: (cap?: number) => Promise<string>;
   reload: () => void;
 }
 
 export function useFileDoc(mid: string, path: string, cwd?: string): FileDoc {
-  const d = useRef({ gen: 0, file: null as FileContent | null, pages: [] as string[], next: 0, busy: false });
   const [, bump] = useReducer((x: number) => x + 1, 0);
-  const [error, setError] = useState("");
   const [reloads, setReloads] = useState(0);
+  // Each identity/reload owns its pages and callbacks. An old all()/more() must never borrow a new document.
+  const s = useMemo(() => ({
+    mid, path, cwd, reloads,
+    gen: 0, active: true, file: null as FileContent | null, pages: [] as string[], next: 0,
+    pending: null as Promise<boolean> | null, complete: false, revision: "", changed: false, error: "", pageError: "",
+  }), [mid, path, cwd, reloads]);
 
   useEffect(() => {
-    const s = d.current;
     const gen = ++s.gen;
-    Object.assign(s, { file: null, pages: [], next: 0, busy: false });
-    setError("");
-    bump();
+    s.active = true;
     const ac = new AbortController();
-    api<FileContent>(fileURL(mid, path, cwd), { signal: ac.signal })
+    api<FileContent>(fileURL(s.mid, s.path, s.cwd), { signal: ac.signal })
       .then((f) => {
-        if (gen !== s.gen) return;
-        Object.assign(s, { file: f, pages: typeof f.text === "string" ? [f.text] : [], next: f.next ?? 0 });
+        if (!s.active || gen !== s.gen) return;
+        // Go omits an empty Text field. Only complete zero-byte text metadata can stand in for that missing field.
+        const emptyText = f.text === undefined && f.size === 0 && !f.offset && !f.next && !f.truncated && !f.is_dir && !f.stream && f.data === undefined
+          && (f.mime?.startsWith("text/") || /^application\/(?:[\w.-]+\+)?json(?:;|$)/.test(f.mime ?? ""));
+        const file = emptyText ? { ...f, text: "" } : f;
+        Object.assign(s, {
+          file, pages: typeof file.text === "string" ? [file.text] : [], next: f.next ?? 0,
+          revision: f.revision || "", complete: !f.next && !f.truncated,
+        });
         bump();
       })
       .catch((e) => {
-        if (!isAbort(e) && gen === s.gen) setError(errorText(e));
+        if (!isAbort(e) && s.active && gen === s.gen) {
+          s.error = errorText(e);
+          bump();
+        }
       });
-    return () => ac.abort();
-  }, [mid, path, cwd, reloads]);
+    return () => { s.active = false; ++s.gen; ac.abort(); };
+  }, [s]);
 
   const more = useCallback(async () => {
-    const s = d.current;
-    if (!s.file || s.next <= 0 || s.busy) return false;
+    if (!s.active || !s.file || s.changed || s.next <= 0 || s.pending) return false;
     const gen = s.gen;
-    s.busy = true;
+    const offset = s.next;
+    s.pageError = "";
+    s.pending = (async () => {
+      try {
+        const f = await api<FileContent>(fileURL(s.mid, s.path, s.cwd, offset));
+        if (!s.active || gen !== s.gen) return false;
+        // Compare every known revision, including across legacy pages without one. Missing metadata is not proof
+        // of equality: accept it for compatibility, but do not label the combined text with a verified revision.
+        if (s.revision && f.revision && s.revision !== f.revision) {
+          s.changed = true;
+          return false;
+        }
+        const next = f.next ?? 0;
+        if (typeof f.text !== "string" || (next > 0 && next <= offset) || (!next && f.truncated)) {
+          throw new Error(t("session-files-fileview.read_incomplete"));
+        }
+        s.revision ||= f.revision || "";
+        if (!f.revision && s.file?.revision) s.file = { ...s.file, revision: undefined };
+        s.pages = [...s.pages, f.text];
+        s.next = next;
+        s.complete = next <= 0;
+        return true;
+      } catch (e) {
+        if (s.active && gen === s.gen) s.pageError = errorText(e);
+        return false;
+      } finally {
+        if (s.active && gen === s.gen) {
+          s.pending = null;
+          bump();
+        }
+      }
+    })();
     bump();
-    try {
-      const f = await api<FileContent>(fileURL(mid, path, cwd, s.next)); // the same request as the first page, from `next`
-      if (gen !== s.gen) return false;
-      s.pages = [...s.pages, f.text ?? ""];
-      s.next = (f.next ?? 0) > s.next ? (f.next ?? 0) : 0; // a page that does not move on ends it
-      return true;
-    } catch (e) {
-      if (gen === s.gen) toast(t("session-files-fileview.more_failed", { error: errorText(e) }), "error");
-      return false;
-    } finally {
-      if (gen === s.gen) {
-        s.busy = false;
-        bump();
-      }
+    return s.pending;
+  }, [s]);
+
+  const read = useCallback(async (cap: number) => {
+    const gen = s.gen;
+    const check = () => {
+      if (!s.active || gen !== s.gen) throw new DOMException("aborted", "AbortError");
+      if (s.changed) throw new Error(t("session-files-fileview.file_changed_detail"));
+    };
+    check();
+    if (typeof s.file?.text !== "string") throw new Error(t("session-files-fileview.read_incomplete"));
+    while (s.next > 0 && s.next < cap) {
+      const accepted = await (s.pending ?? more()); // share the admitted page, including its failure
+      check();
+      if (!accepted) throw new Error(s.pageError || t("session-files-fileview.read_incomplete"));
     }
-  }, [mid, path, cwd]);
+    check();
+    if (!s.complete && s.next <= 0) throw new Error(t("session-files-fileview.read_incomplete"));
+    return { text: s.pages.join(""), complete: s.complete };
+  }, [more, s]);
 
-  const all = useCallback(
-    async (cap = 64 << 20) => {
-      const s = d.current;
-      const gen = s.gen;
-      while (s.gen === gen && s.next > 0 && s.next < cap) {
-        if (s.busy) await new Promise((r) => setTimeout(r, 50)); // a page someone else asked for: wait for it
-        else if (!(await more())) break;
-      }
-      return s.pages.join("");
-    },
-    [more],
-  );
+  const all = useCallback(async (cap = 64 << 20) => {
+    const gen = s.gen;
+    const result = await read(cap);
+    if (!s.active || gen !== s.gen) throw new DOMException("aborted", "AbortError");
+    if (!result.complete) throw new Error(t("session-files-fileview.read_incomplete"));
+    return result.text;
+  }, [read, s]);
 
-  const s = d.current;
+  const reload = useCallback(() => {
+    s.active = false; // retire even a response delivered before React commits the reload
+    ++s.gen;
+    setReloads((n) => n + 1);
+  }, [s]);
   const text = useMemo(() => s.pages.join(""), [s.pages]);
-  return { file: s.file, error, text, next: s.next, loadingMore: s.busy, more, all, reload: useCallback(() => setReloads((n) => n + 1), []) };
+  return { file: s.file, error: s.error, changed: s.changed, pageError: s.pageError, text, next: s.next, loadingMore: !!s.pending, more, read, all, reload };
 }
 
 // ── the viewer ────────────────────────────────────────────
@@ -231,7 +281,7 @@ export function FileView({
   const wantAll = (kind === "json" || kind === "notebook" || kind === "html") && doc.next > 0 && (f?.size ?? 0) <= cap;
   const { all } = doc;
   useEffect(() => {
-    if (wantAll) void all(cap);
+    if (wantAll) void all(cap).catch(() => {}); // the document exposes change/failure recovery
   }, [wantAll, all, cap]);
   const notebook = useMemo(() => {
     if (kind !== "notebook" || doc.next > 0) return null;
@@ -255,7 +305,7 @@ export function FileView({
   }, [kind, doc.next, doc.text]);
 
   const download = async () => {
-    if (!f) return;
+    if (!f || doc.changed) return;
     // A paged text file goes through file/download too: the pages read here may stop at a cap or a failed page, which
     // would save a truncated copy. Only a node that sends `revision` with stream=1 is known to serve file.chunk (both
     // are newer than paging); an older one would answer 409 node_outdated, so it keeps the Blob of the pages read.
@@ -275,7 +325,7 @@ export function FileView({
       const blob =
         typeof f.data === "string"
           ? new Blob([base64Bytes(f.data)], { type: f.mime || "application/octet-stream" })
-          : new Blob([doc.next > 0 ? await doc.all() : doc.text], { type: `${f.mime || "text/plain"};charset=utf-8` });
+          : new Blob([await doc.all()], { type: `${f.mime || "text/plain"};charset=utf-8` });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -284,6 +334,8 @@ export function FileView({
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (e) {
+      if (!isAbort(e)) toast(t("session-files-fileview.download_failed", { error: errorText(e) }), "error");
     } finally {
       setSaving(false);
     }
@@ -301,12 +353,15 @@ export function FileView({
       {kind === "notebook" && notebook?.nb && <Segmented label={t("session-files-fileview.view_mode")} value={mode} onChange={setMode} options={[["rendered", t("session-files-fileview.mode_notebook")], ["source", t("session-files-fileview.mode_source_file")]]} />}
       {kind === "sheet" && typeof f?.text === "string" && <Segmented label={t("session-files-fileview.view_mode")} value={mode} onChange={setMode} options={[["rendered", t("session-files-fileview.mode_sheet")], ["source", t("session-files-fileview.mode_source_file")]]} />}
       <IconButton icon="copy" label={t("session-files-fileview.copy_path")} onClick={() => copyText(f?.path || path)} />
-      {kind !== "directory" && <IconButton icon="arrowDown" label={saving ? t("session-files-fileview.downloading") : t("session-files-fileview.download")} onClick={download} disabled={!f || saving} />}
+      {kind !== "directory" && <IconButton icon="arrowDown" label={saving ? t("session-files-fileview.downloading") : t("session-files-fileview.download")} onClick={download} disabled={!f || saving || doc.changed} />}
     </>
   );
 
   let body: React.ReactNode;
-  if (doc.error) {
+  if (doc.changed) {
+    body = <Empty icon="info" title={t("session-files-fileview.file_changed")} detail={t("session-files-fileview.file_changed_detail")}
+      action={<Button icon="retry" onClick={doc.reload}>{t("session-files-fileview.reload")}</Button>} />;
+  } else if (doc.error) {
     body = (
       <Empty
         icon="info"
@@ -398,6 +453,10 @@ export function FileView({
         <PanelHeader icon={kind === "directory" ? "folder" : kind === "image" ? "image" : "read"} title={name} subtitle={where} actions={actions} onClose={onClose} />
       )}
       <div className="flex min-h-0 flex-1 flex-col" key={path}>
+        {doc.pageError && !doc.changed && (kind !== "sheet" || mode === "source") && <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-xs text-ink-2">
+          <span className="min-w-0 flex-1">{t("session-files-fileview.more_failed", { error: doc.pageError })}</span>
+          <Button icon="retry" busy={doc.loadingMore} onClick={() => { if (wantAll) void all(cap).catch(() => {}); else void doc.more(); }}>{t("session-files-fileview.retry")}</Button>
+        </div>}
         {body}
       </div>
     </>
@@ -432,11 +491,11 @@ function CodeView({ doc, file, text, line, lineTo, note, where }: { doc: FileDoc
 
   // Open at a line: read on until it is there, then put it a third of the way down and mark it.
   const placed = useRef(false);
-  const { more, next, loadingMore } = doc;
+  const { more, next, loadingMore, pageError } = doc;
   useEffect(() => {
     if (!line || placed.current) return;
-    if (line > lines.length && next > 0 && !loadingMore) void more();
-  }, [line, lines.length, next, loadingMore, more]);
+    if (line > lines.length && next > 0 && !loadingMore && !pageError) void more();
+  }, [line, lines.length, next, loadingMore, pageError, more]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!line || placed.current || !el || line > lines.length) return;
@@ -642,10 +701,11 @@ function MarkdownView({ doc, file, mid, onOpenPath }: { doc: FileDoc; file: File
 
 // ── tables ────────────────────────────────────────────────
 
-/** Reads a table file whole (a CSV's remaining pages, a workbook's bytes) and parses it off the main thread. */
+/** Reads a bounded CSV/TSV preview or a workbook's whole bytes and parses it off the main thread. */
 function SheetLoader({ mid, cwd, doc, file, onDownload }: { mid: string; cwd?: string; doc: FileDoc; file: FileContent; onDownload: () => void }) {
   const [state, setState] = useState<{ sheets?: Sheet[]; error?: string; note?: string }>({});
-  const { all } = doc;
+  const [attempt, retry] = useReducer((n: number) => n + 1, 0);
+  const { read } = doc;
   useEffect(() => {
     const ac = new AbortController();
     setState({});
@@ -653,9 +713,9 @@ function SheetLoader({ mid, cwd, doc, file, onDownload }: { mid: string; cwd?: s
       let req: SheetRequest;
       let note = "";
       if (typeof file.text === "string") {
-        const text = await all(MAX_TABLE_TEXT);
+        const { text, complete } = await read(MAX_TABLE_TEXT);
         if (ac.signal.aborted) return;
-        if (text.length < file.size && file.size > MAX_TABLE_TEXT) note = t("session-files-fileview.sheet_partial", { size: bytes(text.length) });
+        if (!complete) note = t("session-files-fileview.sheet_partial", { size: bytes(text.length) });
         req = { name: file.name, text };
       } else {
         if (file.size > MAX_TABLE_BYTES) throw new Error(t("session-files-fileview.sheet_too_large", { size: bytes(file.size) }));
@@ -667,10 +727,11 @@ function SheetLoader({ mid, cwd, doc, file, onDownload }: { mid: string; cwd?: s
       if (!isAbort(e) && !ac.signal.aborted) setState({ error: errorText(e) });
     });
     return () => ac.abort();
-  }, [mid, cwd, file, all]);
+  }, [mid, cwd, file, read, attempt]);
   // a Numbers file SheetJS cannot read still has the preview Numbers wrote into it
   if (state.error && extOf(file.name) === "numbers") return <OfficeView mid={mid} cwd={cwd} file={file} onDownload={onDownload} />;
-  if (state.error) return <Empty icon="info" title={t("session-files-fileview.sheet_open_failed")} detail={state.error} />;
+  if (state.error) return <Empty icon="info" title={t("session-files-fileview.sheet_open_failed")} detail={state.error}
+    action={<Button icon="retry" onClick={retry}>{t("session-files-fileview.retry")}</Button>} />;
   if (!state.sheets)
     return (
       <div className="flex flex-1 items-center justify-center">

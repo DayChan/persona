@@ -163,9 +163,11 @@ if [ -z "$socket_after" ]; then
   fi
 elif ! systemctl --user is-active --quiet $UNIT.socket || [ "$socket_before" != "$socket_after" ]; then
   # First time, or other addresses: the running hub holds the port itself; one stop to hand it to the socket.
-  systemctl --user stop "$UNIT"
+  # Both in one stop: stopping the service alone while the socket listens lets the next connection start it again
+  # on the old socket, and the socket then cannot start while it runs (seen 2026-11-08: the socket left inactive).
+  systemctl --user stop $UNIT.socket "$UNIT"
   systemctl --user enable $UNIT.socket >/dev/null 2>&1
-  systemctl --user restart $UNIT.socket
+  systemctl --user start $UNIT.socket
   systemctl --user start "$UNIT"
 else
   systemctl --user restart "$UNIT" # the socket keeps listening: nothing is refused meanwhile

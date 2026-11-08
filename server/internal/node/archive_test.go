@@ -301,14 +301,20 @@ func TestCodexSubcommandShellBash(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte(tt.rc), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\nprintf '%s\\0' \"$@\"\n"), 0o700); err != nil {
+			// The arguments go to a file: an interactive bash may print a notice of its own on stdout (Ubuntu's
+			// system-wide bashrc does for a sudo user, #1109).
+			args := filepath.Join(home, "args")
+			if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$HOME/args\"\n"), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, bash, "-ic", codexSubcommandShell(tt.launcher, "archive"), "persona", remoteRaw)
 			cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin"}
-			out, err := cmd.Output()
+			if err := cmd.Run(); err != nil {
+				t.Fatal(err)
+			}
+			out, err := os.ReadFile(args)
 			if err != nil {
 				t.Fatal(err)
 			}

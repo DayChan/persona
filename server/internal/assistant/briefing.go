@@ -67,13 +67,16 @@ type briefFacts struct {
 	ProgressTotal int
 	// Changed is what each task to verify changed, in the words of its "Please verify" card (by task id).
 	Changed map[string]string
+	// Asks are the asks of the tasks to verify (by task id): their verdict line and a decision's recommended option, the
+	// same as their cards say (conclusion.go).
+	Asks map[string]acceptAsk
 }
 
 // briefFactsAt works out the facts for a run that starts at now. self is the routine that is running: its own earlier
 // failed attempt (this run is its retry) is not news.
 func (s *Service) briefFactsAt(ctx context.Context, now time.Time, self string) *briefFacts {
 	l, web, loc := s.botLang(ctx), s.webBase(ctx), s.location(ctx)
-	f := &briefFacts{At: now, l: l, web: web, loc: loc, WaitingUnknown: !s.fleetReady(), Changed: map[string]string{}}
+	f := &briefFacts{At: now, l: l, web: web, loc: loc, WaitingUnknown: !s.fleetReady(), Changed: map[string]string{}, Asks: map[string]acceptAsk{}}
 	if feat, ready := s.feishuFeatures(ctx); ready && feat.Pushes {
 		f.Card = true
 	}
@@ -86,8 +89,8 @@ func (s *Service) briefFactsAt(ctx context.Context, now time.Time, self string) 
 		} else {
 			f.Accept = append(f.Accept, r)
 			waiting[r.id] = true
-			if a := s.acceptAskLocked(r.id); a != nil {
-				f.Changed[r.id] = a.Changed
+			if a, ok := s.askCopy(r.id); ok {
+				f.Changed[r.id], f.Asks[r.id] = a.Changed, a
 			}
 		}
 	}
@@ -287,15 +290,21 @@ func (s *Service) briefAsked(f *briefFacts, shown []string) {
 // (askedAt, as the card wrote it) is the round that waits now. The card is not one of the ask's own messages, so
 // accepted cannot tell an old round's button from a current one by its message id.
 func (s *Service) acceptedFromBrief(ctx context.Context, id, askedAt string) bool {
+	ok, _ := s.acceptTryFromBrief(ctx, id, askedAt)
+	return ok
+}
+
+// acceptTryFromBrief is acceptedFromBrief with acceptTry's error: a decision whose recommendation did not reach the agent.
+func (s *Service) acceptTryFromBrief(ctx context.Context, id, askedAt string) (bool, error) {
 	at, err := time.Parse(timeKeyLayout, askedAt)
 	if err != nil {
-		return false
+		return false, nil
 	}
 	a := s.acceptAskLocked(id)
 	if a == nil || !a.AskedAt.Equal(at) {
-		return false
+		return false, nil
 	}
-	return s.accepted(ctx, id, "")
+	return s.acceptTry(ctx, id, "")
 }
 
 // briefGrace is how long after the morning briefing's time the acceptance reminders wait when that briefing lists the tasks

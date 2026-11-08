@@ -106,7 +106,7 @@ func (s *Service) quietConversation(ctx context.Context, session string) bool {
 // quietTaskTurn: session is a quiet task's own conversation whose turn may go unpushed now
 // (assistantwire.QuietTaskFinish): the channels' mirror leaves it out, as the hub's finished push does.
 func (s *Service) quietTaskTurn(ctx context.Context, machine, session string) bool {
-	if s.supervising(session) { // a supervision message started its turn (supervise.go): as the hub's finished push leaves it out
+	if s.supervising(session) { // a supervision message started its turn (supervise_digest.go): as the hub's finished push leaves it out
 		sess, ok := s.session(ctx, machine, session)
 		return ok && assistantwire.SupervisedFinish(sess, true)
 	}

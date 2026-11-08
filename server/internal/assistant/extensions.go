@@ -82,6 +82,10 @@ type ExtensionTools interface {
 	// RecordNodeSent keeps a write the node's gate proxy forwarded in the sent-as-user ledger (the node's lark.sent);
 	// machine is the connection's, never a field of params.
 	RecordNodeSent(ctx context.Context, machine string, params json.RawMessage) (any, error)
+	// MailAttachment is one mail attachment's bytes for the node that saves it (mail_save_attachment, the node's
+	// mail.attachment), only while the mail connector offers the tool to that caller; the caller's machine and
+	// conversation are checked first (fleet_tools.go mailAttachment).
+	MailAttachment(ctx context.Context, req proto.MailAttachmentRequest) (proto.MailAttachment, error)
 }
 
 // SetExtensions gives the service the extensions' tools (before Run).

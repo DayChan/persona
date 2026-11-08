@@ -3,7 +3,7 @@
     "name": "interaction_question",
     "description": "交互卡携带对应类型的提问、计划、权限或屏幕信息。",
     "source": [
-      "server/internal/proto/proto.go: Interaction",
+      "server/internal/proto/interaction.go: Interaction",
       "server/internal/hub/http.go: Hub.serveWS",
       "apple/Shared/Models.swift: Interaction, ScreenDialog",
       "docs/protocol/protocol.md: 终端对话框（screen 交互）"
@@ -66,7 +66,7 @@
     "name": "interaction_plan",
     "description": "交互卡携带对应类型的提问、计划、权限或屏幕信息。",
     "source": [
-      "server/internal/proto/proto.go: Interaction",
+      "server/internal/proto/interaction.go: Interaction",
       "server/internal/hub/http.go: Hub.serveWS",
       "apple/Shared/Models.swift: Interaction, ScreenDialog",
       "docs/protocol/protocol.md: 终端对话框（screen 交互）"
@@ -101,7 +101,7 @@
     "name": "interaction_permission",
     "description": "交互卡携带对应类型的提问、计划、权限或屏幕信息。",
     "source": [
-      "server/internal/proto/proto.go: Interaction",
+      "server/internal/proto/interaction.go: Interaction",
       "server/internal/hub/http.go: Hub.serveWS",
       "apple/Shared/Models.swift: Interaction, ScreenDialog",
       "docs/protocol/protocol.md: 终端对话框（screen 交互）"
@@ -140,7 +140,7 @@
     "name": "interaction_screen",
     "description": "交互卡携带对应类型的提问、计划、权限或屏幕信息。",
     "source": [
-      "server/internal/proto/proto.go: Interaction",
+      "server/internal/proto/interaction.go: Interaction",
       "server/internal/hub/http.go: Hub.serveWS",
       "apple/Shared/Models.swift: Interaction, ScreenDialog",
       "docs/protocol/protocol.md: 终端对话框（screen 交互）"
@@ -198,7 +198,7 @@
     "description": "仅向声明 elicitation 能力的连接下发，旧 iOS 不接收此样本。",
     "source": [
       "server/internal/hub/http.go: Hub.broadcast",
-      "server/internal/proto/proto.go: Elicitation",
+      "server/internal/proto/interaction.go: Elicitation",
       "android/core/contracts/src/main/kotlin/persona/core/contracts/Elicitation.kt"
     ],
     "derived": true,
@@ -253,7 +253,7 @@
     "description": "仅向声明 elicitation 能力的连接下发，旧 iOS 不接收此样本。",
     "source": [
       "server/internal/hub/http.go: Hub.broadcast",
-      "server/internal/proto/proto.go: Elicitation",
+      "server/internal/proto/interaction.go: Elicitation",
       "android/core/contracts/src/main/kotlin/persona/core/contracts/Elicitation.kt"
     ],
     "derived": true,

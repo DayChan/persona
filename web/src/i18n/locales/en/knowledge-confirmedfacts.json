@@ -1,0 +1,14 @@
+{
+  "title": "Confirmed facts",
+  "add": "Add",
+  "edit": "Edit",
+  "empty": "No confirmed facts yet.",
+  "hint": "Your corrections are preserved when Persona updates this entry.",
+  "edit_hint": "Add facts you want Persona to keep. To clear them, remove all text and save.",
+  "save_failed": "Could not save your confirmed facts. Your draft is kept. Retry saving: {error}",
+  "retry_save": "Retry saving",
+  "refreshing": "Saved. Loading the latest entry…",
+  "refresh_failed": "Your confirmed facts were saved, but the latest entry could not be loaded. Retry refreshing: {error}",
+  "retry_refresh": "Retry refresh",
+  "entry_changed": "The loaded entry does not match this page. Return to the list and open the entry again."
+}

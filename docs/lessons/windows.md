@@ -69,6 +69,25 @@ Measured 2026-11-07 with Claude Code 2.1.308 / 2.1.291; see [claude-integration.
 - **A page that loses focus hides the flyout**: while scripting the panel over CDP, Playwright's clicks wait for it to be visible forever; click with `element.click()` in the page.
 - **Push the new view to a hidden panel after an action**: the tray pushed views only while the panel was visible, so a switch flipped from the right-click menu, or an action that ended after the panel closed, left the page showing the old state, and the next open showed it too. After a user's action the tray pushes the view whether the panel is shown or not (`app.changed`).
 
+## Codex
+
+See [windows.md](../operations/windows.md) ("Codex") and [codex.md](../integrations/codex.md) ("Windows"). Found on a physical Windows 11 machine on 2026-11-07:
+
+- **The Codex App's bus is a named pipe, not `<CODEX_HOME>/ipc/ipc.sock`**: `\\.\pipe\codex-ipc`, one per user session whatever the Codex home. Without it the App's chats stayed "view only" and nothing said why: the node looked for a socket file that never exists on Windows.
+- **`os.Stat` on a named pipe connects to it**: Go's Stat opens the path with `CreateFile`. On a pipe that takes one of the server's free instances (a test listener saw a client arrive) or fails with "All pipe instances are busy".
+  To see whether a pipe exists, list it (`FindFirstFile` on the full name; it does not connect).
+- **go-winio pipes have no buffer by default**: `ListenPipe(name, nil)` makes a pipe whose write waits for the other side to read. A fake server that writes two frames in a row (the answer to `initialize` and its own question) deadlocked against a client
+  writing its next request. The App (Node/libuv) has buffers, so the fake must too (`PipeConfig.InputBufferSize` / `OutputBufferSize`).
+- **The `codex://` handler of an MSIX package has no `shell\open\command`**: `HKEY_CLASSES_ROOT\codex` has `URL Protocol` and nothing to run; the shell activates the package (`AssocQueryString` with `ASSOCF_IS_PROTOCOL` gives its AppUserModelID).
+  Checking for a command finds none; check `URL Protocol` and ask `AssocQueryString`. Open it with `ShellExecute` on a thread with COM initialised, not `cmd /c start` (a console window) or `rundll32`.
+- **Without `ps` / `lsof`, every Codex scan said "could not tell"**: the resume check took that for "held", so nothing broke, but every running CLI listed as offline history and the Codex App's stdio app-server was never seen.
+- **Who holds a file open, fast**: a process's handle table (`NtQueryInformationProcess(ProcessHandleInformation)`), filtered to File objects, then `GetFileType` before `GetFinalPathNameByHandle`. Asking a pipe handle its name can hang behind a read pending on it; asking its type does not.
+  Asking the file instead (`FileProcessIdsUsingFileInformation`, `RmGetList`) costs about 40 ms per file: seconds for a Codex home.
+- **npm installs `codex` as `codex.cmd`**: `exec.LookPath("codex")` finds the batch file, and running a batch file has `cmd.exe` parse the arguments again, the first message included (`"`, `&`, `%`, line breaks). Run the `codex.exe` the shim's `codex.js` would start.
+- **Codex's shared daemon does not start from npm's launcher on Windows**: `codex app-server daemon start` fails with "this Windows launcher prevents background processes from outliving it", so a plain `codex` 0.163 runs in its own process there.
+- **A Codex `unix://` endpoint with a drive path is no URL**: `url.Parse("unix://C:\…")` fails on a port after host `C`. Parse the path as a path.
+- **`os.Symlink` needs Developer Mode or an administrator**: about ten node tests that make symlinks fail on a standard Windows account ("A required privilege is not held by the client"); they are not Codex failures.
+
 ## Machine monitoring (sysmon)
 
 `sysmon/windows.go`; see [machines.md](../server/machines.md) for measurement definitions. Findings tested on a physical machine on 2026-11-04:

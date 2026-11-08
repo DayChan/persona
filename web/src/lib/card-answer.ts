@@ -5,7 +5,7 @@ import { ApiError, enc, errorText } from "./api";
 import { endedText, type Resolution, type ResolveResult } from "./answered";
 import { sessionCan } from "./format";
 import { apiOp } from "./ops";
-import { endInteraction, getSession } from "./store";
+import { endInteraction, getSession, keepDelegated } from "./store";
 import type { Interaction } from "./types";
 
 /** Sent (`already`: it had been answered, here or elsewhere), or why not, as a sentence to show. */
@@ -19,6 +19,11 @@ export async function answerCard(ix: Interaction, body: Resolution): Promise<Car
     // Answered already (here, its event missed; or elsewhere): the hub says with what, and the card shows that.
     const already = res?.already === true;
     const r: Resolution = already ? (res.resolution ?? {}) : body;
+    // The assistant answered this question first (#544): it shows as its answer, which the user may change.
+    if (already && r.answered_by === "assistant" && ix.kind === "question") {
+      keepDelegated(ix, r);
+      return { ok: true, already };
+    }
     // Handed back now, or the hub says it was handed back already: the agent waits on the computer (#4877).
     const handedBack = already ? res.status === "dismissed" : r.dismiss === true;
     endInteraction(ix.id, r.dismiss === true && !already ? undefined : { ix, resolution: r, already, handedBack });

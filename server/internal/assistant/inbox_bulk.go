@@ -45,18 +45,9 @@ type inboxBulkResult struct {
 	// Unchanged were already in the state asked for (a retried request, another device): nothing written.
 	Unchanged []string        `json:"unchanged"`
 	Skipped   []inboxBulkSkip `json:"skipped"`
-	// Failed are the ids whose new state could not be written; they keep the state they had, so the client leaves
-	// them in the list and can retry. Additive: older clients ignore it and see an empty changed for those ids.
+	// Failed are the ids whose requested state could not be written or confirmed while another filing is pending.
+	// The client keeps them in the list and can retry. Additive: older clients see no changed entry for those ids.
 	Failed []string `json:"failed"`
-}
-
-// doneState is what filing or bringing an item back overwrote, so an item whose write failed can be restored.
-type doneState struct {
-	DoneAt *time.Time
-	DoneBy string
-	// the chain before (filing records an entry)
-	chain    []InboxChainEntry
-	chainSeq int
 }
 
 // inboxVersion names what an item holds now (its newest message / mail / notice): it changes when something new
@@ -112,6 +103,31 @@ func (f *inboxBulkFilter) match(it *InboxItem) bool {
 		(len(f.Kinds) == 0 || slices.Contains(f.Kinds, it.Kind))
 }
 
+// A list may have exposed any pending reopen, even when both the latest marker and the stored base are closed.
+// Include every open state that can still commit, so admission reports Failed until the pending chain resolves.
+// Filing changes only DoneAt among the filter fields; apply the other fields to the current item. Under mu.
+func (b *inboxBook) matchesBulkFilter(it *InboxItem, f *inboxBulkFilter) bool {
+	open := *it
+	open.DoneAt = nil
+	if !f.match(&open) {
+		return false
+	}
+	if it.open() {
+		return true
+	}
+	latest := b.filing[it.ID]
+	if latest == nil || !b.holdsFiling(latest) {
+		return false
+	}
+	for w := latest; w != nil && (!w.settled || w.failed); w = w.previousWrite {
+		if !w.settled && w.applied.DoneAt == nil {
+			return true
+		}
+	}
+	committed, _ := b.filingSnapshot(it, nil)
+	return committed.open()
+}
+
 // setInboxDoneBulk files (done) or brings back (!done) the targets in one go: setInboxBulk without a filter.
 func (s *Service) setInboxDoneBulk(ctx context.Context, targets []inboxBulkTarget, done bool, now time.Time) inboxBulkResult {
 	action := bulkReopen
@@ -131,18 +147,14 @@ func (s *Service) setInboxBulk(ctx context.Context, action string, targets []inb
 	asOf, now time.Time) inboxBulkResult {
 	done := action != bulkReopen
 	res := inboxBulkResult{Changed: []InboxItem{}, Unchanged: []string{}, Skipped: []inboxBulkSkip{}, Failed: []string{}}
-	var changed []*InboxItem
-	var previous []doneState // previous[i] is what changed[i] held before this request
-	var applied []doneState  // applied[i] is what this request wrote onto changed[i]
-	var gens []uint64        // gens[i] is changed[i]'s mutation generation this request stamped
+	var writes []*inboxFiling
 	seen := map[string]bool{}
-	var tell []*InboxItem // events whose conversation is told to stop
 	b := &s.inbox
 	b.mu.Lock()
 	if filter != nil {
 		targets = nil
 		for _, it := range b.items {
-			if filter.match(it) {
+			if b.matchesBulkFilter(it, filter) {
 				if it.arrivedAfter(asOf) {
 					res.Skipped = append(res.Skipped, inboxBulkSkip{it.ID, bulkSkipChanged})
 				} else {
@@ -159,57 +171,41 @@ func (s *Service) setInboxBulk(ctx context.Context, action string, targets []inb
 		}
 		seen[t.ID] = true
 		it, ok := b.items[t.ID]
+		pending := b.filing[t.ID]
 		switch {
 		case !ok:
 			res.Skipped = append(res.Skipped, inboxBulkSkip{t.ID, bulkSkipMissing})
+		case pending != nil && b.holdsFiling(pending):
+			// Its optimistic marker may still roll back. Only a committed state can be acknowledged unchanged.
+			res.Failed = append(res.Failed, t.ID)
 		case done && !it.open(), !done && it.open():
 			res.Unchanged = append(res.Unchanged, t.ID)
 		case done && t.Version != "" && t.Version != inboxVersion(it):
 			res.Skipped = append(res.Skipped, inboxBulkSkip{t.ID, bulkSkipChanged})
 		default:
-			previous = append(previous, doneState{DoneAt: it.DoneAt, DoneBy: it.DoneBy, chain: it.Chain, chainSeq: it.ChainSeq})
+			w := b.beginFiling(it, now, doneByOf(action == bulkDismiss))
 			if done {
-				b.file(it, now, doneByOf(action == bulkDismiss))
-				if b.closeHandling(it, doneByOf(action == bulkDismiss), now) {
-					tell = append(tell, it)
-				}
+				b.file(it, now, w.why)
+				w.close = true
 			} else {
 				it.DoneAt, it.DoneBy = nil, ""
 			}
-			applied = append(applied, doneState{DoneAt: it.DoneAt, DoneBy: it.DoneBy})
-			gens = append(gens, b.touched(it.ID))
-			changed = append(changed, it)
-			res.Changed = append(res.Changed, it.listed())
+			b.settleFiling(w)
+			writes = append(writes, w)
 		}
 	}
 	b.mu.Unlock()
-	// The writes that failed never happened in the database, so they must not happen in memory either: restore the
-	// state those items had (before the next save, saveInboxUndo) and report them as failed instead of changed.
-	failed := s.saveInboxUndo(ctx, changed, func(failed map[string]bool) {
-		for i, it := range changed {
-			// Replaced or forgotten while the writes were out: leave the newer item alone and let the client
-			// refresh. Same pointer but another state on it, or a same-valued concurrent request, means a concurrent
-			// file/reopen: its successful answer must not be rewound by our failed write. Otherwise restore the
-			// state our request overwrote.
-			if failed[it.ID] && b.items[it.ID] == it && b.mark[it.ID] == gens[i] && it.DoneAt == applied[i].DoneAt && it.DoneBy == applied[i].DoneBy {
-				it.DoneAt, it.DoneBy, it.Chain, it.ChainSeq = previous[i].DoneAt, previous[i].DoneBy, previous[i].chain, previous[i].chainSeq
-			}
+	failed := s.saveInboxFilings(ctx, writes)
+	b.mu.Lock()
+	for _, w := range writes {
+		if failed[w.it.ID] {
+			res.Failed = append(res.Failed, w.it.ID)
+		} else {
+			res.Changed = append(res.Changed, w.it.listed())
 		}
-	})
-	if len(failed) > 0 {
-		rolled := make(map[string]bool, len(failed))
-		for _, it := range changed {
-			if failed[it.ID] {
-				rolled[it.ID] = true
-				res.Failed = append(res.Failed, it.ID)
-			}
-		}
-		slices.Sort(res.Failed)
-		res.Changed = slices.DeleteFunc(res.Changed, func(it InboxItem) bool { return rolled[it.ID] })
 	}
-	for _, it := range tell {
-		s.tellSoon(ctx, it)
-	}
+	b.mu.Unlock()
+	slices.Sort(res.Failed)
 	return res
 }
 

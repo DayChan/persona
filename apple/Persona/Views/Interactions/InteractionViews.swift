@@ -390,6 +390,7 @@ struct QuestionForm: View {
 
     @ViewBuilder private var plain: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
+            DelegateNotes(interaction: interaction)
             if questions.indices.contains(page) {
                 let q = questions[page]
                 if questions.count > 1 || q.header != nil || q.multiSelect {
@@ -429,6 +430,7 @@ struct QuestionForm: View {
     private func option(_ q: Question, _ opt: QuestionOption, number: Int) -> some View {
         let selected = picks[q.question, default: []].contains(opt.label)
         let (label, recommended) = Self.display(opt.label)
+        let assistantPick = assistantPicks(q).contains(opt.label)
         return Button { pick(q, opt) } label: {
             HStack(alignment: .top, spacing: Theme.Space.m) {
                 ZStack {
@@ -444,6 +446,7 @@ struct QuestionForm: View {
                     HStack(spacing: Theme.Space.sm) {
                         Text(label).font(Theme.Font.heading).foregroundStyle(.primary)
                         if recommended { RecommendedTag() }
+                        if assistantPick { AssistantPickTag() }
                     }
                     if let d = opt.description, !d.isEmpty {
                         Text(d).font(Theme.Font.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -459,7 +462,16 @@ struct QuestionForm: View {
         }
         .buttonStyle(.plain)
         .disabled(sending)
-        .accessibilityLabel(label + (recommended ? String(localized: ", recommended", comment: "Accessibility suffix: the recommended option") : "") + (selected ? String(localized: ", selected", comment: "Accessibility suffix: a selected option") : ""))
+        .accessibilityLabel(label + (recommended ? String(localized: ", recommended", comment: "Accessibility suffix: the recommended option") : "")
+                            + (assistantPick ? String(localized: ", the assistant's pick", comment: "Accessibility suffix: the option the assistant recommends") : "")
+                            + (selected ? String(localized: ", selected", comment: "Accessibility suffix: a selected option") : ""))
+    }
+
+    /// The options the assistant recommends on `q` (#544: its `delegate.recommend` in the options' own words).
+    private func assistantPicks(_ q: Question) -> [String] {
+        let picks = Delegated.recommendedLabels(questions, interaction.delegate?.recommend)
+        guard let i = questions.firstIndex(where: { $0.question == q.question }), picks.indices.contains(i) else { return [] }
+        return picks[i]
     }
 
     /// "Other": a quiet row; tapping it turns it into a field with its own send arrow.
@@ -1275,19 +1287,33 @@ struct BUIQuestionForm: View {
     private var questions: [Question] { interaction.questions ?? [] }
 
     var body: some View {
-        ApprovalCard(questions: questions.map(Self.card), skipLabel: nil, continueLabel: String(localized: "Next [Interaction Views f82c68]"), sendLabel: String(localized: "Submit"),
+        if interaction.isDelegating || interaction.delegate != nil {
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                DelegateNotes(interaction: interaction)
+                card
+            }
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
+        let picks = Delegated.recommendedLabels(questions, interaction.delegate?.recommend)
+        return ApprovalCard(questions: zip(questions, picks).map { Self.card($0, picks: $1) }, skipLabel: nil, continueLabel: String(localized: "Next [Interaction Views f82c68]"), sendLabel: String(localized: "Submit"),
                      customPlaceholder: String(localized: "Other answer…"), sentMessage: String(localized: "Sent"), options: .panel()) { answers in
             Haptics.tap()
             Task { await model.resolve(interaction, Resolution(answers: Self.answers(answers, questions))) }
         }
     }
 
-    static func card(_ q: Question) -> ApprovalQuestion {
+    /// `picks`: the options the assistant recommends (#544).
+    static func card(_ q: Question, picks: [String] = []) -> ApprovalQuestion {
         ApprovalQuestion(
             id: q.question, q.question, kind: q.multiSelect ? .multiple : .single,
             choices: q.options.map { o in
                 let (label, recommended) = display(o.label)
-                return ApprovalQuestion.Choice(label, detail: o.description, tag: recommended ? String(localized: "Recommended") : nil)
+                let tag = recommended ? String(localized: "Recommended") : picks.contains(o.label) ? String(localized: "Assistant's pick") : nil
+                return ApprovalQuestion.Choice(label, detail: o.description, tag: tag)
             },
             eyebrow: eyebrow(q)
         )

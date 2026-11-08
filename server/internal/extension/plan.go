@@ -424,6 +424,8 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 			row = old.Record
 			row.DisabledContributions = m.StartsOff(old.Full, row.DisabledContributions)
 			row.PreviousVersion, row.Version, row.UpdatedAt = row.Version, m.Version, r.now()
+			// The replaced version's provenance goes with it, for a rollback to restore.
+			row.PreviousOrigin, row.PreviousMarketKey = old.Record.Origin, old.Record.MarketKey
 			row.Origin = pv.source.String()
 			row.Granted, row.GrantedDigest = m.Permissions, pv.Digest
 		} else {
@@ -435,6 +437,8 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 			}
 			row.DisabledContributions = m.StartsOff(nil, nil)
 		}
+		// Overwrite on every install/upgrade, including a return to unsigned code.
+		row.MarketKey = pv.verifiedMarketKey
 		row.Manifest, _ = json.Marshal(m)
 		if pv.source.Kind == "remote" {
 			row.Remote = &Remote{RPCSocket: pv.source.RPCSocket, HTTPSocket: pv.source.HTTPSocket}

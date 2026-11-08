@@ -6,10 +6,18 @@ import os
 from pathlib import Path
 import subprocess
 
+# Go compatibility tests read these client contracts and interaction entry points,
+# not unrelated Mac/Android screens or their build toolchains.
+SERVER_CLIENT_INPUTS = [
+    "apple/Shared/**", "apple/Persona/Views/Interactions/**", "apple/Persona/App/**",
+    "apple/Persona/Intents/**", "apple/PersonaWatch/**", "apple/PersonaWidgets/**",
+    "apple/LiveActivity/**", "apple/PersonaTests/**", "android/core/contracts/**",
+]
+
 FILTERS = {
-    "server": ["server/**", "sdk/go/**", "schema/**", "spec/**", "integrations/**", "docs/assistant/prompts.md", "docs/protocol/**", "apple/**", "android/**", "scripts/test/server_test_env.py", "scripts/ci/server.sh", "scripts/ci/postgres.py", "scripts/ci/gofmt.py", ".github/workflows/server-test.yml"],
+    "server": ["server/**", "sdk/go/**", "schema/**", "spec/**", "integrations/**", "docs/assistant/prompts.md", "docs/protocol/**", "scripts/test/server_test_env.py", "scripts/ci/*server*", "scripts/ci/postgres.py", "scripts/ci/gofmt.py", ".github/workflows/server-test.yml"] + SERVER_CLIENT_INPUTS,
     "web": ["web/**", "schema/extension/**", "spec/fixtures/injected/**", "scripts/mock/inbox_events.json", "scripts/ci/web.sh", ".github/workflows/web-test.yml"],
-    "android": ["android/**", "schema/**", "spec/**", "scripts/app/*android*", "scripts/ci/android.sh", ".github/workflows/android-test.yml"],
+    "android": ["android/**", "schema/**", "spec/**", "scripts/app/*android*", "scripts/ci/*android*", ".github/workflows/android-test.yml"],
     "apple": ["apple/**", "schema/**", "spec/**", "scripts/app/sim-boot.sh", "scripts/i18n/**", "scripts/ci/apple*", ".github/workflows/apple-test.yml"],
     "runtimes": ["integrations/**", "sdk/ts/**", "schema/**", "spec/**", "scripts/ci/runtimes.sh", ".github/workflows/runtimes-test.yml"],
     "scripts": ["**"],
@@ -24,20 +32,67 @@ def select(paths, all_platforms=False):
             for platform, patterns in FILTERS.items()}
 
 
+LANES = tuple(name for name in FILTERS if name != "image")
+
+
+def resolve_base(base=None, event=None):
+    if base:
+        return base
+    event = event or {}
+    if "pull_request" in event:
+        return event["pull_request"]["base"]["sha"]
+    if "merge_group" in event:
+        return event["merge_group"]["base_sha"]
+    return "origin/main"
+
+
+def select_lanes(paths, lanes="auto", all_platforms=False):
+    if all_platforms or lanes == "all":
+        return select([], True)
+    if lanes == "auto":
+        return select(paths)
+    requested = {name.strip() for name in lanes.split(",")}
+    unknown = requested - set(LANES)
+    if unknown:
+        raise ValueError(f"Unknown lanes: {', '.join(sorted(unknown))}; use auto, all, or {','.join(LANES)}")
+    return {name: name in requested for name in FILTERS}
+
+
+def apply_event_policy(selected, event_name):
+    selected = dict(selected)
+    if event_name in ("pull_request", "merge_group"):
+        # The hosted macOS queue alone can exceed the PR wall-clock budget.
+        selected["apple"] = False
+    return selected
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base")
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--lanes", default="auto", help="auto, all, or comma-separated " + ",".join(LANES))
+    parser.add_argument("--print-base", action="store_true")
     args = parser.parse_args()
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    event = json.loads(Path(event_path).read_text()) if event_path else {}
+    base = resolve_base(args.base, event)
+    if args.print_base:
+        # Resolve to a commit before exposing it to guards or path selection.
+        sha = subprocess.check_output(["git", "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}"], timeout=30).decode().strip()
+        print(sha)
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                output.write(f"base={sha}\n")
+        return
     paths = []
-    if not args.all:
-        base = args.base
-        if not base:
-            event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-            base = event["pull_request"]["base"]["sha"] if "pull_request" in event else event["merge_group"]["base_sha"]
+    if not args.all and args.lanes == "auto":
         raw = subprocess.check_output(["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...HEAD"], timeout=30)
         paths = raw.decode().split("\0")[:-1]
-    selected = select(paths, args.all)
+    try:
+        selected = select_lanes(paths, args.lanes, args.all)
+    except ValueError as error:
+        parser.error(str(error))
+    selected = apply_event_policy(selected, os.environ.get("GITHUB_EVENT_NAME", ""))
     print(json.dumps(selected, sort_keys=True))
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:

@@ -2,8 +2,8 @@
 // chosen, with progress and cancel; a name already there asks replace or keep both), download, rename, move and move
 // to the trash (asked first, then "Moved to trash · Undo"). Both views share it: the drill-in list (FilesPanel) and the
 // tree (FilesTree). Each action shows only when the hub says it can (`upload_dir`, `file_edit`).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, enc, errorText, fileDownloadURL, isAbort } from "../../../lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { api, credentialOwner, enc, errorText, fileDownloadURL, getToken, isAbort, subscribeCredentialOwner } from "../../../lib/api";
 import { t } from "../../../i18n";
 import {
   FILE_EDIT_FEATURE,
@@ -19,6 +19,7 @@ import {
   uploadToDir,
   within,
   type Conflict,
+  type UploadCredential,
 } from "../../../lib/file-ops";
 import { joinPath, type FsListing } from "../../../lib/files";
 import { baseName, bytes, shortPath } from "../../../lib/format";
@@ -41,6 +42,7 @@ interface Upload {
   id: number;
   file: File;
   dir: string;
+  credential: UploadCredential;
   sent: number;
   state: UploadState;
   conflict?: Conflict;
@@ -92,29 +94,45 @@ export function useFileOps({ mid, cwd, onChanged }: { mid: string; cwd: string; 
   changed.current = onChanged;
 
   // ── uploads: one at a time, in the order they came ──
+  const owner = useSyncExternalStore(subscribeCredentialOwner, credentialOwner);
   const [uploads, setUploads] = useState<Upload[]>([]);
+  const ownedUploads = uploads.filter((u) => u.credential.owner === owner);
+  const active = useRef(new Map<number, AbortController>());
   const nextId = useRef(0);
   const patch = useCallback((id: number, p: Partial<Upload>) => setUploads((us) => us.map((u) => (u.id === id ? { ...u, ...p } : u))), []);
-  const upload = useCallback((files: File[], dir: string) => {
-    if (!files.length) return;
-    setUploads((us) => [...us, ...files.map((file) => ({ id: ++nextId.current, file, dir, sent: 0, state: "queued" as const }))]);
+  const enqueue = useCallback((files: File[], dir: string, selectedOwner: string) => {
+    const token = getToken();
+    if (!files.length || !token || selectedOwner !== credentialOwner()) return;
+    const credential = { owner: selectedOwner, token };
+    const added = files.map((file) => ({ id: ++nextId.current, file, dir, credential, sent: 0, state: "queued" as const }));
+    setUploads((us) => selectedOwner === credentialOwner() ? [...us, ...added] : us);
   }, []);
-  const sending = uploads.find((u) => u.state === "sending");
-  const next = uploads.find((u) => u.state === "queued");
+  const upload = useCallback((files: File[], dir: string) => enqueue(files, dir, owner), [enqueue, owner]);
   useEffect(() => {
-    if (sending || !next) return;
+    setUploads((us) => us.filter((u) => u.credential.owner === owner));
+  }, [owner]);
+  const sending = ownedUploads.find((u) => u.state === "sending");
+  const next = ownedUploads.find((u) => u.state === "queued");
+  useEffect(() => {
+    if (sending || !next || next.credential.owner !== credentialOwner() || active.current.has(next.id)) return;
     const ac = new AbortController();
+    active.current.set(next.id, ac);
+    const current = () => !ac.signal.aborted && next.credential.owner === credentialOwner() && active.current.get(next.id) === ac;
     patch(next.id, { state: "sending", ac, sent: 0, error: undefined });
-    uploadToDir(mid, next.file, { dir: next.dir, cwd, conflict: next.conflict, signal: ac.signal, onProgress: (sent) => patch(next.id, { sent }) })
+    uploadToDir(mid, next.file, { dir: next.dir, cwd, credential: next.credential, conflict: next.conflict, signal: ac.signal, onProgress: (sent) => { if (current()) patch(next.id, { sent }); } })
       .then(() => {
+        if (!current()) return;
         patch(next.id, { state: "done", sent: next.file.size, ac: undefined });
         changed.current([next.dir]);
       })
       .catch((e) => {
+        if (next.credential.owner !== credentialOwner() || active.current.get(next.id) !== ac) return;
         if (isAbort(e)) return setUploads((us) => us.filter((u) => u.id !== next.id)); // cancelled: it goes
+        if (!current()) return;
         if (isNameTaken(e) && !next.conflict) return patch(next.id, { state: "conflict", ac: undefined });
         patch(next.id, { state: "failed", error: opErrorText(e), ac: undefined });
-      });
+      })
+      .finally(() => { if (active.current.get(next.id) === ac) active.current.delete(next.id); });
   }, [mid, cwd, sending, next, patch]);
   // a finished one leaves the tray a moment later
   useEffect(() => {
@@ -123,19 +141,21 @@ export function useFileOps({ mid, cwd, onChanged }: { mid: string; cwd: string; 
     return () => clearTimeout(id);
   }, [uploads]);
   // what everyone waits on goes when the panel does
-  const live = useRef(uploads);
-  live.current = uploads;
-  useEffect(() => () => live.current.forEach((u) => u.ac?.abort()), []);
+  useEffect(() => () => {
+    active.current.forEach((ac) => ac.abort());
+    active.current.clear();
+  }, []);
 
   // ── the name question: the first upload waiting on it, else a move's ──
   const [moveAsk, setMoveAsk] = useState<NameAsk | null>(null);
-  const conflicted = uploads.filter((u) => u.state === "conflict");
+  const conflicted = ownedUploads.filter((u) => u.state === "conflict");
   const uploadAsk: NameAsk | null = conflicted.length
     ? {
         name: conflicted[0].file.name,
         dir: conflicted[0].dir,
         more: conflicted.length - 1,
         answer: (c, all) => {
+          if (owner !== credentialOwner()) return;
           const ids = new Set(all ? conflicted.map((u) => u.id) : [conflicted[0].id]);
           setUploads((us) => (c ? us.map((u) => (ids.has(u.id) ? { ...u, state: "queued", conflict: c } : u)) : us.filter((u) => !ids.has(u.id))));
         },
@@ -145,11 +165,12 @@ export function useFileOps({ mid, cwd, onChanged }: { mid: string; cwd: string; 
 
   // ── the chooser ──
   const input = useRef<HTMLInputElement>(null);
-  const chooseDir = useRef("");
+  const choice = useRef<{ dir: string; owner: string } | null>(null);
   const choose = useCallback((dir: string) => {
-    chooseDir.current = dir;
+    if (owner !== credentialOwner() || !getToken()) return;
+    choice.current = { dir, owner };
     input.current?.click();
-  }, []);
+  }, [owner]);
 
   // ── what was done, at the panel's foot: the page's toasts sit over the chat box beside it ──
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -286,15 +307,16 @@ export function useFileOps({ mid, cwd, onChanged }: { mid: string; cwd: string; 
         aria-hidden
         tabIndex={-1}
         onChange={(e) => {
-          upload(Array.from(e.target.files ?? []), chooseDir.current);
+          if (choice.current) enqueue(Array.from(e.target.files ?? []), choice.current.dir, choice.current.owner);
+          choice.current = null;
           e.target.value = "";
         }}
       />
       <UploadTray
-        uploads={uploads}
+        uploads={ownedUploads}
         // a sending one is aborted (and goes when its request does), a waiting or failed one goes at once
         onCancel={(u) => (u.ac ? u.ac.abort() : setUploads((us) => us.filter((x) => x.id !== u.id)))}
-        onRetry={(u) => patch(u.id, { state: "queued", error: undefined })}
+        onRetry={(u) => { if (u.credential.owner === credentialOwner()) patch(u.id, { state: "queued", error: undefined }); }}
       />
       <PanelNotice notice={notice} onDone={(id) => setNotice((n) => (n?.id === id ? null : n))} />
       <NameDialog ask={ask} />

@@ -402,12 +402,12 @@ func TestExtensionSandboxDefault(t *testing.T) {
 		}
 	}
 	h.cfg.TrustedExtensionMarkets = []string{key}
-	if st := ps.sandboxOf(ctx, ext("c", extension.SourceInstalled, "market:mine/c")); st.Enabled || !st.Trusted {
-		t.Errorf("a market hub.json trusts (by its key): %+v", st)
+	if st := ps.sandboxOf(ctx, ext("c", extension.SourceInstalled, "market:mine/c")); !st.Enabled || st.Trusted {
+		t.Errorf("a legacy nonofficial pin must not grant a sandbox exemption (key): %+v", st)
 	}
 	h.cfg.TrustedExtensionMarkets = []string{keyIDOf(key)}
-	if st := ps.sandboxOf(ctx, ext("c", extension.SourceInstalled, "market:mine/c")); st.Enabled {
-		t.Errorf("a market hub.json trusts (by its key id): %+v", st)
+	if st := ps.sandboxOf(ctx, ext("c", extension.SourceInstalled, "market:mine/c")); !st.Enabled || st.Trusted {
+		t.Errorf("a legacy nonofficial pin must not grant a sandbox exemption (key id): %+v", st)
 	}
 	if st := ps.sandboxOf(ctx, ext("x", extension.SourceInstalled, "market:another/x")); !st.Enabled {
 		t.Errorf("a market signed by a key nobody trusts: %+v", st)

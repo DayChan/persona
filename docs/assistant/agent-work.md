@@ -232,7 +232,7 @@ The main chat's live snapshot (`prompts/assistant/snapshot*.md`):
 - Adds "Waiting" (Persona is waiting for it: retrying, deployment, another Agent) and "Done (within 24 hours)": name + conclusion;
 - "Unread" contains only sessions not yet successfully triaged.
 
-For tasks dispatched from the main chat (`internal/assistant/tasks.go`), if the Agent stops on a transient error and Persona will still continue automatically (`work.on = transient` with `wake_at`), do not yet write an "Interrupted" receipt. Wait until retries are exhausted.
+For tasks dispatched from the main chat (`internal/assistant/tasks_follow.go`), if the Agent stops on a transient error and Persona will still continue automatically (`work.on = transient` with `wake_at`), do not yet write an "Interrupted" receipt. Wait until retries are exhausted.
 
 ## Protocol
 

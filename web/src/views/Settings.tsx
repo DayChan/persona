@@ -159,12 +159,13 @@ export function Settings({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const pick = (k: Tab, id: string | null = null) => {
     configurationOwner.current = new URLSearchParams(location.search).get("manager") ?? configurationOwner.current;
     setAt({ tab: k, sub: id });
-    const to = settingsHref(k, id, phone, k === "assistant" || k === "model-config" ? configurationOwner.current : null);
+    const to = settingsHref(k, id, phone, k === "assistant" || k === "model-config" || k === "hub" ? configurationOwner.current : null);
     // from the phone's list the category goes on top of it, so Back returns to the list
     if (listed) history.pushState({ [FROM_LIST]: true }, "", BASE + to);
     else history.replaceState(openedFromList(history.state) ? history.state : null, "", BASE + to);
   };
   const toList = () => {
+    configurationOwner.current = new URLSearchParams(location.search).get("manager") ?? configurationOwner.current;
     if (openedFromList(history.state)) return history.back();
     history.replaceState(null, "", href({ name: "settings" }));
     setAt({ tab: null, sub: null });

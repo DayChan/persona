@@ -89,7 +89,7 @@ func claudeAlias(value string) (zshrcAlias, bool) {
 			continue
 		}
 		env := maps.Clone(exported)
-		i := commandIndex(cmd, env) // sessions.go
+		i := commandIndex(cmd, env) // launchers.go
 		if i < 0 || filepath.Base(cmd[i]) != "claude" {
 			continue
 		}

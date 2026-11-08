@@ -1,6 +1,7 @@
 package extmgr
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,7 @@ func serveScopedExtensionForTest() {
 			"init": init.Token, "url": init.URL, "scopes": init.Scopes, "manager": os.Getenv("PERSONA_MANAGER"),
 			"init_manager": init.Manager})
 	}))
-	_ = pserve.Serve(context.Background(), os.Stdin, os.Stdout, pserve.Program{ID: "scoped", Version: "1.0.0",
+	_ = pserve.Serve(context.Background(), os.Stdin, os.Stdout, pserve.Program{ID: "scoped", Version: cmp.Or(os.Getenv("PERSONA_TEST_PLUGIN_VERSION"), "1.0.0"),
 		Init: func(_ context.Context, ip extension.InitializeParams, _ *pserve.Hub) (map[string]any, error) {
 			mu.Lock()
 			init = ip.Hub
@@ -46,15 +47,18 @@ func serveScopedExtensionForTest() {
 func scopedPackage(t *testing.T, hub string) string { return scopedPackageOf(t, `"hub": `+hub) }
 
 // scopedPackageOf is the scoped extension asking for perms (the inside of its permissions).
-func scopedPackageOf(t *testing.T, perms string) string {
+func scopedPackageOf(t *testing.T, perms string) string { return scopedPackageAt(t, perms, "1.0.0") }
+
+// scopedPackageAt is scopedPackageOf at version.
+func scopedPackageAt(t *testing.T, perms, version string) string {
 	dir := t.TempDir()
 	self, _ := os.Executable()
 	_ = os.MkdirAll(filepath.Join(dir, "bin"), 0o755)
-	_ = os.WriteFile(filepath.Join(dir, "bin", "scoped"), []byte("#!/bin/sh\nPERSONA_TEST_PLUGIN=scoped exec "+self+" \"$@\"\n"), 0o755)
-	manifest := fmt.Sprintf(`{"manifest_version": 1, "id": "scoped", "name": "Scoped", "version": "1.0.0",
+	_ = os.WriteFile(filepath.Join(dir, "bin", "scoped"), []byte("#!/bin/sh\nPERSONA_TEST_PLUGIN=scoped PERSONA_TEST_PLUGIN_VERSION="+version+" exec "+self+" \"$@\"\n"), 0o755)
+	manifest := fmt.Sprintf(`{"manifest_version": 1, "id": "scoped", "name": "Scoped", "version": %q,
 		"engines": {"plugin_protocol": 1}, "runtime": {"command": {%q: "bin/scoped"}, "http": true},
 		"activation_events": ["on_startup"], "contributes": {"api": [{"id": "x", "prefix": "scopedx"}]},
-		"permissions": {%s}}`, runtime.GOOS+"-"+runtime.GOARCH, perms)
+		"permissions": {%s}}`, version, runtime.GOOS+"-"+runtime.GOARCH, perms)
 	_ = os.WriteFile(filepath.Join(dir, extension.ManifestFile), []byte(manifest), 0o644)
 	return dir
 }
@@ -124,6 +128,8 @@ func TestExtensionScopedToken(t *testing.T) {
 	for _, c := range []struct{ method, path, scope string }{
 		{"GET", "/api/v1/extensions/third/x", "extensions.call:third"},
 		{"GET", "/api/v1/extensions", ""},
+		{"GET", "/api/v1/extensions/-/market-settings", ""},
+		{"PUT", "/api/v1/extensions/-/market-settings", ""},
 		{"GET", "/api/v1/plugins", ""},
 		{"GET", "/api/v1/extensions/other/-/", ""},
 		{"GET", "/api/v1/scopedx/y", ""},

@@ -208,6 +208,41 @@ describe("已在需要你时又来一张卡（#4058）", () => {
   });
 });
 
+describe("助手还在看的问题先不响（#544）", () => {
+  const ask = (id: string, sid: string, patch: Partial<Interaction> = {}): Interaction => ({ id, machine_id: "m", session_id: sid, kind: "question", created_at: "2026-01-01T10:00:00Z", ...patch });
+  const perm = (id: string, sid: string): Interaction => ({ id, machine_id: "m", session_id: sid, kind: "permission", created_at: "2026-01-01T09:00:00Z" });
+  const looking = (prev: Map<string, AgentState>) => detectTransitions(prev, [session("a", "needs_you")], noMutes, [ask("1", "a", { delegating: true })]);
+
+  it("会话只因助手在看的问题而需要你：先不算，助手交给你时再算一次", () => {
+    const first = looking(prevOf(["a", "working"]));
+    expect(first.events).toEqual([]);
+    expect(first.next.get("m/a")).toBe("working");
+    expect(detectTransitions(first.next, [session("a", "needs_you")], noMutes, [ask("1", "a")]).events).toEqual([{ kind: "needs", key: "m/a" }]);
+  });
+  it("助手代答了：从头到尾不响", () => {
+    const first = looking(prevOf(["a", "working"]));
+    expect(detectTransitions(first.next, [session("a", "working")], noMutes, []).events).toEqual([]);
+  });
+  it("打开页面时助手正在看，之后交给你：也算", () => {
+    const first = looking(new Map());
+    expect(first.events).toEqual([]);
+    expect(detectTransitions(first.next, [session("a", "needs_you")], noMutes, [ask("1", "a")]).events).toEqual([{ kind: "needs", key: "m/a" }]);
+  });
+  it("会话还有别的卡在等你：照常算", () => {
+    const { events } = detectTransitions(prevOf(["a", "working"]), [session("a", "needs_you")], noMutes, [perm("p", "a"), ask("1", "a", { delegating: true })]);
+    expect(events).toEqual([{ kind: "needs", key: "m/a" }]);
+  });
+  it("已在需要你时来一张助手在看的卡：先不算；同一张卡交给你时算新卡", () => {
+    const waiting = prevOf(["a", "needs_you"]);
+    const sessions = [session("a", "needs_you")];
+    const T = 1_000_000;
+    const first = detectNewCards(new Map([["p", T - 1000]]), [perm("p", "a"), ask("1", "a", { delegating: true })], waiting, waiting, sessions, new Set(), T);
+    expect(first.events).toEqual([]);
+    const back = detectNewCards(first.ids, [perm("p", "a"), ask("1", "a")], waiting, waiting, sessions, new Set(), T + 1000);
+    expect(back.events).toEqual([{ kind: "needs", key: "m/a", card: ask("1", "a") }]);
+  });
+});
+
 describe("一批做完的怎么显示（#4945）", () => {
   const unread = new Map([["m/a", "A"], ["m/b", "B"], ["m/c", "C"], ["m/d", "D"]]);
   it("一个都不剩：不发", () => {

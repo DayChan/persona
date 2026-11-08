@@ -18,7 +18,7 @@ vi.mock("../../../lib/file-ops", async (original) => {
   const real = await original<typeof import("../../../lib/file-ops")>();
   return { ...real, uploadToDir: vi.fn(), trashEntries: vi.fn(), restoreEntries: vi.fn() };
 });
-import { ApiError } from "../../../lib/api";
+import { ApiError, setToken } from "../../../lib/api";
 import { restoreEntries, trashEntries, uploadToDir } from "../../../lib/file-ops";
 import { useFileOps, type FileOps } from "./FileOps";
 
@@ -43,6 +43,7 @@ function Harness() {
 }
 
 beforeEach(async () => {
+  setToken("example-file-ops-credential");
   features.list = ["upload_dir", "file_edit"];
   vi.mocked(uploadToDir).mockReset();
   vi.mocked(trashEntries).mockReset();
@@ -57,6 +58,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   document.body.innerHTML = "";
+  setToken("");
 });
 
 describe("useFileOps", () => {

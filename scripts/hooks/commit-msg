@@ -1,3 +1,3 @@
 #!/bin/bash
-# The commit message too (scripts/privacy_check.py).
-exec python3 "$(git rev-parse --show-toplevel)/scripts/privacy_check.py" --staged --message "$1"
+# The commit message too (scripts/privacy_check.py): the lines git records, without its comments and `commit -v` diff.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/privacy_check.py" --staged --commit-msg "$1"

@@ -212,24 +212,14 @@ func (s *Service) modelProfilesLocked(ctx context.Context) (modelProfiles, bool,
 	return ps, true, nil
 }
 
-// readProfileLaunchers propagates storage failures before a profile operation can write anything.
-func (s *Service) readProfileLaunchers(ctx context.Context) ([]storedLauncher, error) {
-	st := s.store()
-	if st == nil {
-		return nil, i18n.Err("assistant-models.err_no_database")
-	}
-	var stored []storedLauncher
-	_, err := st.Setting(ctx, launchersManagedKey, &stored)
-	return stored, err
-}
-
 // captureModels is the configuration as a profile would set it: every category's own choice, the model fields of the
 // providers added in Persona those categories run on, and two tiers (strong: the main chat's, standard: the Agents').
 func (s *Service) captureModels(ctx context.Context) (map[string]ModelBinding, map[string]LauncherModels, map[string]ModelTier, error) {
-	stored, err := s.readProfileLaunchers(ctx)
+	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	ctx = withManagedSnapshot(ctx, stored)
 	purposes := map[string]ModelBinding{}
 	used := map[string]bool{}
 	tiers := map[string]ModelTier{}
@@ -439,10 +429,11 @@ func (s *Service) applyModelProfileLocked(ctx context.Context, id string, by Pro
 		return modelProfileSwitch{}, false, errModelProfileNotFound
 	}
 	p := ps.Profiles[i]
-	stored, err := s.readProfileLaunchers(ctx)
+	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return modelProfileSwitch{}, false, err
 	}
+	ctx = withManagedSnapshot(ctx, stored)
 	if err := checkModelProfile(&p, stored); err != nil {
 		return modelProfileSwitch{}, false, err
 	}
@@ -563,10 +554,11 @@ func (s *Service) rollbackModelProfileLocked(ctx context.Context, by ProfileActo
 	if prev == nil {
 		return modelProfileSwitch{}, false, errModelProfileNoRollback
 	}
-	stored, err := s.readProfileLaunchers(ctx)
+	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return modelProfileSwitch{}, false, err
 	}
+	ctx = withManagedSnapshot(ctx, stored)
 	for name := range prev.Launchers {
 		if !slices.ContainsFunc(stored, func(l storedLauncher) bool { return l.Name == name }) {
 			return modelProfileSwitch{}, false, i18n.Err("assistant-model_profiles.err_launcher_missing", i18n.Args{"launcher": name})
@@ -679,10 +671,11 @@ func (s *Service) saveModelProfile(ctx context.Context, revision *int64, id stri
 		return p, err
 	}
 	p.ID = id
-	stored, err := s.readProfileLaunchers(ctx)
+	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return p, err
 	}
+	ctx = withManagedSnapshot(ctx, stored)
 	if err := checkModelProfile(&p, stored); err != nil {
 		return p, err
 	}
@@ -816,10 +809,11 @@ func (s *Service) modelProfilesView(ctx context.Context) (ModelProfilesView, err
 	if err != nil {
 		return ModelProfilesView{}, err
 	}
-	stored, err := s.readProfileLaunchers(ctx)
+	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return ModelProfilesView{}, err
 	}
+	ctx = withManagedSnapshot(ctx, stored)
 	v := ModelProfilesView{Revision: ps.Revision, Active: state.Active, Profiles: []ModelProfileView{}, Events: []ModelProfileEvent{}}
 	if state.Active != "" {
 		at, by := state.At, state.By

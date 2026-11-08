@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -39,7 +40,12 @@ func TestReadOnlyStoreRefusesWritesAndUsesArchivedZone(t *testing.T) {
 		func() error { return s.AppendLog("new", time.Now(), "source", "line") },
 		func() error { return s.WriteLog("new", []string{"line"}) },
 		func() error { return s.AppendMessages(&Chat{ID: "chat"}, nil) },
-		func() error { return s.PrependMessages(&Chat{ID: "chat"}, nil) },
+		func() error { _, err := s.MergeMessages(&Chat{ID: "chat"}, nil); return err },
+		func() error { return s.PutHistoryState("chat", HistoryState{Mode: HistoryFull}) },
+		func() error {
+			_, err := (&Engine{Store: s}).WriteHistory(context.Background(), &Chat{ID: "chat"}, nil, HistoryWrite{})
+			return err
+		},
 		func() error { return s.PutMomentPost(&MomentPost{ID: "new"}, nil) },
 		func() error { _, err := s.WriteMomentIndex(); return err },
 		func() error { _, err := s.Rezone(time.UTC); return err },

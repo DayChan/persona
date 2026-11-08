@@ -566,3 +566,27 @@ func (w *binaryWatch) restartOnNew(ctx context.Context, env []string) {
 		w.seen = fi
 	}
 }
+
+// BindBuiltin binds the built-in manager to the hub at hub unless its binding works (its hub takes its token, a bare
+// dial that takes nothing over): then code gives a one-time code (the hub's machine makes it), traded here. A
+// container's supervisor (internal/supervise) runs it before it starts the built-in manager; traded: a new binding.
+func BindBuiltin(ctx context.Context, home, hub string, code func(context.Context) (string, error)) (traded bool, err error) {
+	b, err := managerconf.ReadBinding(home)
+	switch {
+	case err == nil:
+		c := &assistant.ManagerConfig{ID: assistantwire.AssistantID, Hub: b.Hub, Token: b.Token, Fingerprint: b.Fingerprint}
+		if probeToken(ctx, c) == nil {
+			return false, nil
+		}
+	case !errors.Is(err, managerconf.ErrNotBound):
+		return false, ConfigError{fmt.Errorf("%s: %w", managerconf.DefaultFile(home), err)}
+	}
+	c, err := code(ctx)
+	if err != nil {
+		return false, err
+	}
+	if _, err := JoinBuiltin(ctx, JoinOptions{Hub: hub, Code: c}, home); err != nil {
+		return false, err
+	}
+	return true, nil
+}

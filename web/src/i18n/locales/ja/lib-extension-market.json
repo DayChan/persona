@@ -16,7 +16,7 @@
   "sig_unsigned": "署名なし",
   "sig_invalid": "署名が一致しません",
   "sig_missing": "署名がありません",
-  "sig_key_changed": "署名のkeyが変わりました",
+  "sig_key_changed": "公式署名キーが不一致のため検証が必要です",
   "sig_state": "署名：{state}",
   "agree_upgrade_more": "許可して更新",
   "upgrade": "更新",

@@ -28,7 +28,7 @@
   "hint_connectors": "メール、Feishu、GitHub を Persona が読む",
   "hint_extensions": "機能を追加：コネクタ、チャネル、音声",
   "hint_devices": "ログイン中のスマホとブラウザ",
-  "hint_hub": "hub のバージョンと更新",
+  "hint_hub": "ハブの更新と拡張機能のダウンロードミラー",
   "tab_managers": "マネージャー",
   "hint_managers": "各アシスタントの実行場所とオンライン状態",
   "tab_sent": "あなたの名前で送信",

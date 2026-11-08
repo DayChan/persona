@@ -45,7 +45,7 @@ export function parseAPIError(text?: string): APIErrorInfo | null {
   if (t.startsWith("API Error:")) body = t.slice("API Error:".length);
   // i18n-ignore: the hub's notice for a model API error starts with these words
   else if (t.startsWith("API 错误：")) body = t.slice("API 错误：".length);
-  // what Claude Code answers when it could not call the model at all (the hub's APIErrorMarkers, assistantwire/wire.go)
+  // what Claude Code answers when it could not call the model at all (the hub's APIErrorMarkers, assistantwire/handler.go)
   else if (MODEL_MARKERS.some((m) => t.startsWith(m))) body = t;
   else return null;
   const m = STATUS_RE.exec(body);

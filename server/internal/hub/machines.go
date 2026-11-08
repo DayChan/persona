@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"net/http"
 	"slices"
 	"sync"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
-// The machines the apps see, as the manager that carries them reported (devices_link.go): in its order, with the
+// The machines the apps see, as the manager that carries them reported (devices_reports.go): in its order, with the
 // hub.json entries whose computer another entry has (absorbed) still reaching it.
 
 const viaHub = "hub" // a path through a member hub
@@ -130,4 +131,15 @@ func (h *Hub) recordEntries() []recMachine {
 		out = append(out, recMachine{ID: mc.ID, Cfg: mc.forMesh(), Kind: kindOf(mc), Avail: e.Avail, RTTMS: e.RTTMS})
 	}
 	return out
+}
+
+// machineRoutes list the machines the request may see.
+func (h *Hub) machineRoutes(api *http.ServeMux) {
+	api.HandleFunc("GET /api/v1/machines", func(w http.ResponseWriter, r *http.Request) {
+		list := h.machineList()
+		if em := extensionManager(r); em != "" { // an extension's token: its manager's machines only
+			list = slices.DeleteFunc(list, func(m proto.Machine) bool { return h.machineOwner(m.ID) != em })
+		}
+		writeJSON(w, map[string]any{"machines": localizedMachines(h.requestLang(r), list)})
+	})
 }

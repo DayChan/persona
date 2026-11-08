@@ -4,11 +4,15 @@ Record date: 2026-11-07. Scope: [#5956](https://github.com/nwverse/persona/issue
 
 This is a one-off implementation/acceptance snapshot, not release instructions. The maintained contracts are [extensions.md](../../extensions/extensions.md) and the [stream schema](../../../schema/extension/README.md).
 
+The original record associated with historical #6337, under #5956, is preserved through the end of “Outstanding production and platform gates.” Its inventory is the earlier repository-copy snapshot, not the current inventory. Historical issue/PR references are not current dependencies. The dated [2026-11-08 follow-up](#follow-up-2026-11-08) below records the current scope and gates under [#1161](https://github.com/nwverse/persona/issues/1161).
+
+> Repository rebuild, 2026-11-08: the extension repository was rebuilt and renamed; the former repository is now a private archive. Pull request numbers and commit SHAs below refer to that former history and no longer resolve publicly. Current equivalents: showcase [`96104a7`](https://github.com/nwverse/persona-extensions/commit/96104a789afc433f1884e87b21c2d9ea6c264a51) (issue [#126](https://github.com/nwverse/persona-extensions/issues/126)) and Hacker News [`dfc39eb`](https://github.com/nwverse/persona-extensions/commit/dfc39eb3188f099b3578575075779987fe6912c3) (issue [#127](https://github.com/nwverse/persona-extensions/issues/127)).
+
 ## Acceptance status and release boundary
 
 - The canonical schema, server JSX/hooks SDK, lossless native tree, isolated Deno runtime, manager page sessions and authenticated app transport are merged.
 - Web and Android consume the final transport. Both client PRs contain inspected screenshots made from actual sandboxed showcase source and synthetic data. They do not execute extension JavaScript or HTML.
-- **Both complete, unreleased source profiles are accepted and merged:** [showcase source PR 308](https://github.com/nwverse/persona-extensions/pull/308) and [Hacker News source PR 309](https://github.com/nwverse/persona-extensions/pull/309). Earlier client-acceptance wiring was not treated as complete source packaging.
+- **Both complete, unreleased source profiles are accepted and merged:** showcase source PR 308 and Hacker News source PR 309. Earlier client-acceptance wiring was not treated as complete source packaging.
 - No production deployment, live configuration change, extension version bump or market release is part of this work.
 - **Production activation remains blocked** by [kernel enforcement gate #5975](https://github.com/nwverse/persona/issues/5975). Development resource fallback is not kernel resource acceptance.
 - Apple implementation belongs to [handoff #6176](https://github.com/nwverse/persona/issues/6176), outside this acceptance environment.
@@ -90,7 +94,7 @@ An initial full-hub run failed because independent resident port discovery consu
 
 ### Showcase
 
-[Source PR 308](https://github.com/nwverse/persona-extensions/pull/308) merged as `dd9401dde8ee5f664bc4de037292a9eae421cfae`, closing source issue 303. The full default Program retains the native navigation page, overview card, six widget families and both shortcuts. A bundle-owned `componentPage` Renderer drives independent page hooks over one shared synthetic store. All 232 strings per locale are preserved in English, Simplified Chinese and Japanese.
+Source PR 308 merged as `dd9401dde8ee5f664bc4de037292a9eae421cfae`, closing source issue 303. The full default Program retains the native navigation page, overview card, six widget families and both shortcuts. A bundle-owned `componentPage` Renderer drives independent page hooks over one shared synthetic store. All 232 strings per locale are preserved in English, Simplified Chinese and Japanese.
 
 Node and Bun each passed 43 tests; both JSX compiler modes and five negative programs passed their expected checks. The officially copied SDK passed 88 tests, 13 negative fixtures and portable Node checks. The original Go suite passed 12 tests with unchanged goldens. Independent current-main verification passed source tests/types, deterministic package rebuild and the full public CI script. The clean publication branch has the exact verified content tree; old drafts were superseded, not force-pushed or merged. Its hosted `check` passed; `release` was skipped.
 
@@ -100,7 +104,7 @@ Offline refers to the contained runtime code and dependency-free activation, not
 
 ### Hacker News
 
-[Source PR 309](https://github.com/nwverse/persona-extensions/pull/309) merged as `9f8bc30a9e88903233f2ab555b312a4697ef37eb`, closing source issue 304. It contains the complete default Program and shared read-only connector/tool/service cache, native pages and six snapshot families. Node and Bun each passed 33 tests, both JSX compiler/negative modes passed, and the SDK passed 88 tests plus 13 negative fixtures. Fourteen original Go top-level tests, race checks and full public CI passed. Independent integrated verification passed types/tests/package build and full public CI on `12f60d0e12db75ed376d2d4392300ebdadb4e08c`; its source/SDK files are identical to the actually accepted content.
+Source PR 309 merged as `9f8bc30a9e88903233f2ab555b312a4697ef37eb`, closing source issue 304. It contains the complete default Program and shared read-only connector/tool/service cache, native pages and six snapshot families. Node and Bun each passed 33 tests, both JSX compiler/negative modes passed, and the SDK passed 88 tests plus 13 negative fixtures. Fourteen original Go top-level tests, race checks and full public CI passed. Independent integrated verification passed types/tests/package build and full public CI on `12f60d0e12db75ed376d2d4392300ebdadb4e08c`; its source/SDK files are identical to the actually accepted content.
 
 A source-owned cached-resume regression was reproduced: publishing a fresh wrapper for unchanged data changed the renderer version and invalidated a displayed callback. The repair retains equivalent cached results but still publishes changed items, timestamps, missed/error states and new request identities. Bundled Program and actual legacy HTTP regressions verify this distinction.
 
@@ -180,3 +184,105 @@ Private identities, versions, repositories, paths, service names, configuration 
 Development acceptance requires **both** the Linux `persona_dev_resources` build tag and explicit `PERSONA_DEV_SOURCE_RESOURCES=1` for an isolated manager. Normal builds reject opt-in; tagged builds default off. Namespace, artifact, egress, credentials and native write gates are unchanged. CPU rlimits, V8 old-space limits and sampled RSS termination are not hard kernel CPU/memory quotas; measured RSS overshoot is retained in runtime evidence.
 
 Persona repository CI was unavailable/queued during the backend/client stages; local verification, not unexecuted CI, supported their merges. The fresh showcase and Hacker News source PRs each passed their own hosted `check` job; `release` was skipped. Passing local commands are recorded in the individual PRs. Raw logs and machine-specific reproduction data remain private. Attached synthetic client screenshots and concise PR evidence are the public acceptance record.
+
+## Follow-up: 2026-11-08
+
+Current tracking: [#1161](https://github.com/nwverse/persona/issues/1161), under [#4](https://github.com/nwverse/persona/issues/4). This follow-up separates the checked current inventory, the maintainer's scope decision, and new verification from the historical acceptance above. It is not the account owner's consent to production activation or sensitive operations.
+
+### Checked current inventory and removed/replacement mapping
+
+The historical **20-package inventory (16 executable, four declarative)** remains unchanged above. It came from an earlier repository copy. The checked current inventories contain **22 distinct packages (16 executable, six declarative)**, excluding templates, examples, build outputs and duplicate copies:
+
+| Current set | Total | Executable | Declarative |
+| --- | ---: | ---: | ---: |
+| Public extensions | 14 | 11 | 3 |
+| Private extensions, identities withheld | 8 | 5 | 3 |
+| Total | 22 | 16 | 6 |
+
+Showcase and Hacker News are the two previously migrated source profiles; their released Go/process packages are still unchanged. The **current remaining executable scope is 14: 13 retained items from the original pending list plus one replacement coordination item**. The unchanged total does not mean the membership stayed unchanged:
+
+- The original anonymous private extension 1 has been removed from the migration inventory and will not be migrated. Its code must never be restored to any GitHub repository.
+- An anonymous coordination extension replaces that original item in the current scope. It already existed before the historical report date; this is a correction to the scope mapping, not a claim that it was created after the report or that the removed item was completed.
+- In this follow-up, **private extension 1 (replacement)** refers only to that coordination item. Historical private extension 1 above still refers to the removed item. Private labels 2–6 retain their original meanings; the current private inventory also includes two additional declarative packages, with identities withheld.
+- All six current declarative packages retain their configuration, contribution and compatibility obligations; they do not need an executable TypeScript rewrite.
+
+Private extension IDs, repository names, versions, service names, machine details, accounts and real data remain withheld. Labels here are anonymous record labels, not published extension IDs.
+
+### Maintainer-selected scope: seven supported, seven blocked
+
+The maintainer selected **seven supported migrations for this round**. “Supported” means eligible to proceed on the current runtime, not migrated, installed, released or personally approved for production. Every item still needs complete contribution parity and independent acceptance.
+
+| Supported item | Scope to preserve | Current evidence |
+| --- | --- | --- |
+| linuxdo | Connector, parser/cache and native UI | Local draft; review bugs being repaired |
+| v2ex | Connector/service and native UI | Local draft; review bugs being repaired |
+| markets | Connector/service and native UI | Local draft; review bugs being repaired |
+| github | Connector, scopes and native UI | Local draft; review bugs being repaired |
+| sentry | Error-report contribution and bounded delivery | Local draft; review bugs being repaired |
+| Private extension 1 (replacement) | Coordination contribution | No new completed migration or installation acceptance |
+| Private extension 5 | Usage contribution and UI | Usage-profile work is claimed; no new completed migration or installation acceptance |
+
+Private tooling awaits final review. The five public local drafts do **not** count as complete. As of this follow-up, there are **zero newly merged migration PRs and zero newly completed migrated-package installation acceptances** beyond the two historical examples.
+
+The other **seven executable migrations remain blocked** on the following generic host contracts:
+
+| Blocked item | Current dependency | Required capability/parity boundary |
+| --- | --- | --- |
+| homeassistant | [#1166](https://github.com/nwverse/persona/issues/1166) | Controlled outbound WebSocket sessions, requests and subscriptions |
+| telegram | [#1167](https://github.com/nwverse/persona/issues/1167) | Controlled MTProto transport, authentication and session lifecycle |
+| larkagentx | [#1168](https://github.com/nwverse/persona/issues/1168) | Constrained SSH companion lifecycle and typed protocol |
+| claude-bypass-allow | [#1169](https://github.com/nwverse/persona/issues/1169) | Approved node hook lifecycle and scoped permission-policy evaluation |
+| Private extension 3 | [#1166](https://github.com/nwverse/persona/issues/1166) + [#1185](https://github.com/nwverse/persona/issues/1185) | WebSocket support plus authenticated API/assistant handlers; managed credentials and sensitive session controls each require independent acceptance |
+| Private extension 4 | [#1166](https://github.com/nwverse/persona/issues/1166) + [#1186](https://github.com/nwverse/persona/issues/1186) | WebSocket support plus owner-confirmed login-origin leases |
+| Private extension 6 | [#1185](https://github.com/nwverse/persona/issues/1185) + [#1187](https://github.com/nwverse/persona/issues/1187) | Authenticated API/assistant handlers plus extension-owned durable state and retry semantics |
+
+The generic capability design track has been formally published and independently rechecked; that recheck **passed**. Publication and review of an open design issue are not implementation or runtime acceptance. Do not unblock an extension by removing features, bypassing isolation, replacing required transports with polling, or silently widening grants.
+
+Issue 1185's managed credential provider and sensitive session API are separate least-privilege subcontracts, not implicit additions to the core handler contract. Each needs its own grant, schema, negative tests and acceptance. Session rename and execution-mode elevation have distinct authorization boundaries; elevation requires genuine explicit account-owner/user authorization, not the maintainer's migration scope decision.
+
+An extension that already contributes a connector **can use its own versioned opaque, sealed connector envelope for bounded connector-owned state**, when the capacity and lifecycle fit. This is not a general keyed store, compare-and-swap API or durable queue. Synthetic round-trip/recreated-object tests do not prove real Postgres/manager restart survival. Private extensions 3 and 4 must verify decoded and serialized capacity, serialized writes, import, logout/retention and real restart behavior. If that path cannot preserve their requirements, add #1187 as a further dependency; do not borrow another connector's store or invent a connector to obtain storage.
+
+### Completion, publication freeze and deferred release
+
+This round completes **contained source profiles only**, including each extension's complete default `Program` and real contributions. For each extension:
+
+1. Preserve its existing released Go package, behavior, localization and contribution metadata. Build the contained artifact with the official SDK and verified digest; no temporary wrapper or feature-reduced port qualifies.
+2. Use a formally claimed issue, an independent branch and one migration PR per extension. Public extension work is replayed onto a fresh clone of the current repository; private source-profile work did not wait for that cutover. Every migration PR must have a green `CI required` aggregate and complete independent acceptance before merge. A destination that lacks the aggregate must first land and verify its separate CI prerequisite through a green hosted run; absence of that check does not waive the gate or permit merging on `check`/`release` alone.
+3. Install the full package on an independent development hub through the real validator, isolated engine and manager. Exercise its actual page lifecycle, legacy HTTP path and real contribution interactions, retaining failures and inspecting the resulting screens. Headless extensions use their existing management detail page plus actual contribution interactions; do not add a diagnostic page to fabricate UI acceptance.
+4. Verify credentials, grants, egress, bounded state, callbacks/replay, import/upgrade/restart and owned-resource cleanup as applicable. Preserve light/dark native-screen inspection requirements and the existing distinction between browser/JVM evidence and device acceptance.
+
+The publication freeze was lifted after the repository cutover on 2026-11-08, on the task owner's direct notice. The public migrations are now formally tracked and claimed in the extension repository: linuxdo [#148](https://github.com/nwverse/persona-extensions/issues/148), v2ex [#149](https://github.com/nwverse/persona-extensions/issues/149), markets [#150](https://github.com/nwverse/persona-extensions/issues/150), github [#151](https://github.com/nwverse/persona-extensions/issues/151) and sentry [#152](https://github.com/nwverse/persona-extensions/issues/152); the Hacker News live-feed fix is [#153](https://github.com/nwverse/persona-extensions/issues/153). Reviewed local drafts are replayed onto a fresh clone of the current repository; the GitHub and Sentry drafts must first absorb Go changes made on its `main` since the draft baseline. In this repository a merged `version` bump publishes the package to GHCR, so migration PRs keep the released package and `version` unchanged until the release boundary below is cleared. The cutover does not authorize restoring the removed private item's code anywhere.
+
+Source-form default release packages, **both marketplace indexes, new-key/signing acceptance and all production activation are deferred** until [kernel enforcement gate #1151](https://github.com/nwverse/persona/issues/1151) is fully accepted and separate final authorization from the account owner/user is given. Issue 1151 is the current successor to historical gate #5975; partial system-scope stress readings are not full runtime/kernel acceptance. Passing an old index baseline is not evidence of new source publication. A contained profile or development installation can be accepted without releasing the default package or updating either index.
+
+### SDK and isolated-lab evidence: not seven new migrations
+
+[SDK PR #1174](https://github.com/nwverse/persona/pull/1174) was **closed as superseded, not merged**, following the maintainer's decision; [issue #1163](https://github.com/nwverse/persona/issues/1163) is also closed. Its final portable driver, distribution lesson and officially regenerated SDK archive were included in the actual [#1125](https://github.com/nwverse/persona/pull/1125) merge, `b21bbb876529cb9f728f48fd33d14b3cac69ac7c`. The driver at `sdk/ts/scripts/check-portable.ts` is byte-identical to #1174's final version; the lesson is present in `docs/lessons/workflow.md`, and `sdk/go/bundle/sdk.tar.gz` matches the official generator and all 75 source members.
+
+Independent **local verification of that fixed main commit** passed portable UI/transport checks on Node 22.16.0 and 24.22.2 (1.97/2.12 seconds), 89 SDK tests with 636 assertions, type checks with 13 negative fixtures, four distribution tests, all Go SDK packages, and the full runtimes script: seven integration suites, 190 tests, zero failures or skips, 194.87 seconds. Verification used independent detached Git metadata and isolated HOME/XDG/npm state; tracked hashes were unchanged and no owned processes or portable temporary files remained. This resolves the SDK portability baseline at that commit, **not** current-head hosted `CI required`. The earlier failed #1174 aggregate remains historical evidence; closing that superseded PR is not a green-merge claim. Every remaining PR in this lane still requires its own green hosted aggregate.
+
+### Shared prerequisites: not runtime acceptance
+
+| Existing owner | Required boundary and current status |
+| --- | --- |
+| [#1200](https://github.com/nwverse/persona/issues/1200) | The maintainer chose A: the official SDK owns the source-authoring checker; B is rejected. Independently verify and merge it with green `CI required`, then synchronize the official SDK before private callers switch. The checker is not merged or accepted; authoring checks are not production confinement. |
+| [#1201](https://github.com/nwverse/persona/issues/1201) | Add explicit opt-in numeric compatibility without changing the default Number API. Reply/event precision is excluded from this scope; no implementation or runtime acceptance is claimed. |
+| [#1204](https://github.com/nwverse/persona/issues/1204) | Bounded RPC writes, cancellation and owned-process teardown/reaping remain an unaccepted common prerequisite. Keep repairs with this owner rather than duplicating RPC writers. |
+| [#1180](https://github.com/nwverse/persona/issues/1180), [#1184](https://github.com/nwverse/persona/issues/1184) | Existing owners retain candidate-settings and cold full-view HTTP repairs, including their separate registry/UI boundaries. Scoped passing regressions do not establish complete acceptance. |
+
+### Existing isolated-lab evidence
+
+The existing showcase and Hacker News profiles were exercised on a real isolated Deno 2.9.6 development lab. These readings establish a tooling baseline only:
+
+| Existing profile | Preview/install | First page HTTP | Callback HTTP | Page version |
+| --- | --- | --- | --- | --- |
+| Showcase | HTTP 200 | Approximately 724 ms | Approximately 64 ms | 1 → 2 |
+| Hacker News | HTTP 200 | Approximately 635 ms | Approximately 12 ms | 1 → 2 |
+
+The native stream feature was actually negotiated. The executor inspected 11 screenshots, and the lead re-inspected four selected screenshots. Owned-process and container cleanup **passed**. Raw logs, screenshots and machine-specific evidence remain private and need not enter git; no real upstream data is published here.
+
+**The real Hacker News feed failed: 15.255 seconds, zero stories**, tracked separately in [#1181](https://github.com/nwverse/persona/issues/1181). HTTP 200 with a loading/error page is not successful feed or contribution acceptance. The baseline does not supersede that failure, prove cold-page success, or add either example to the seven new migrations.
+
+Later retained evidence still records **FAIL for the latest direct run: 16.291 seconds, zero stories**. Some explicitly configured trusted-proxy Top/New/Refresh scenarios produced complete feeds, but other scenarios retained incomplete results or ordering failures; these are conditional readings, not an overall pass. Independent review read and recomputed the retained evidence rather than making fresh upstream requests. Later probes do not establish a source root cause for ordering differences between Japanese-locale runs recorded at different times.
+
+The candidate network-target check bug [#1180](https://github.com/nwverse/persona/issues/1180), real feed failure #1181, and same-UI cold-cache full-view HTTP loading failure [#1184](https://github.com/nwverse/persona/issues/1184) remain in separate repair/review tracks. Cold HTTP acceptance must exercise the actual manager lifecycle rather than waiting for data solely inside an SDK fixture. Until those repairs are independently verified, retain their failed/unverified status instead of converting a successful install or callback into complete migration acceptance.

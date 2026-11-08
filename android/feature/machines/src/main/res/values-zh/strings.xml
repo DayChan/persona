@@ -194,5 +194,11 @@
     <string name="machines_move_offline">%1$s · 离线</string>
     <string name="machines_notice_moved">已移到「%1$s」</string>
     <string name="machines_notice_move_failed">没移成：%1$s</string>
+    <string name="machines_rename">改名</string>
+    <string name="machines_rename_title">给电脑改名</string>
+    <string name="machines_rename_save">保存</string>
+    <string name="machines_rename_hint">所有 App 和这台电脑的 Persona Link 都会显示这个名字；留空就用 id，id 不变。</string>
+    <string name="machines_notice_renamed">已改名为「%1$s」</string>
+    <string name="machines_notice_rename_failed">没改成：%1$s</string>
     <string name="machines_manager_offline">它的管理者「%1$s」离线，管理者回来后这台电脑会恢复在线。</string>
 </resources>

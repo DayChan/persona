@@ -32,3 +32,10 @@ func (h *Hub) nodeDoctor(method string, timeout time.Duration) http.HandlerFunc 
 		_, _ = w.Write(out)
 	})
 }
+
+// nodeDoctorRoutes are the node's self-check and its fix.
+func (h *Hub) nodeDoctorRoutes(api *http.ServeMux) {
+	// #2429 node self-check (node_doctor.go): the report, and rewriting Persona's own generated files; full devices only
+	api.HandleFunc("GET /api/v1/machines/{mid}/doctor", h.nodeDoctor("node.doctor", 45*time.Second))
+	api.HandleFunc("POST /api/v1/machines/{mid}/doctor/fix", h.nodeDoctor("node.doctor.fix", 60*time.Second))
+}

@@ -35,9 +35,12 @@ type Service struct {
 	dir   string
 	store *store
 
-	mu    sync.Mutex
-	accts map[string]*MailAccount // by ID, as loaded from disk
-	conns map[string]*conn        // by account ID
+	// accountMu serializes candidate capture, persistence and publication. Network
+	// verification happens before taking it; readers see only committed accounts.
+	accountMu accountCommitMutex
+	mu        sync.Mutex
+	accts     map[string]*MailAccount // by ID, as loaded from disk
+	conns     map[string]*conn        // by account ID
 	// loginErr is why an account's last login was refused, by ID (account_health.go); in memory only.
 	loginErr map[string]string
 	opMu     map[string]accountLock // per-account IMAP serialization (imap.go)
@@ -79,6 +82,20 @@ type conn struct {
 	c        *imapclient.Client
 	lastUsed time.Time
 }
+
+// accountCommitMutex has a usable zero value, including for Services without a
+// store. A channel lets concurrency tests wait for blocked writers deterministically.
+type accountCommitMutex struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (m *accountCommitMutex) Lock() {
+	m.once.Do(func() { m.ch = make(chan struct{}, 1) })
+	m.ch <- struct{}{}
+}
+
+func (m *accountCommitMutex) Unlock() { <-m.ch }
 
 // New creates a Service. Accounts live in recs; dataDir holds the encryption key (secret.key).
 func New(dataDir string, recs Records) (*Service, error) {
@@ -196,8 +213,16 @@ func (s *Service) account(id string) (*MailAccount, error) {
 	if !ok {
 		return nil, &UnknownAccountError{Account: id}
 	}
+	return a.clone(), nil
+}
+
+func (a *MailAccount) clone() *MailAccount {
 	cp := *a
-	return &cp, nil
+	if a.OAuth != nil {
+		creds := *a.OAuth
+		cp.OAuth = &creds
+	}
+	return &cp
 }
 
 // public returns a copy without secrets.
@@ -250,6 +275,8 @@ func (s *Service) AddAccount(req AddAccountRequest) (*MailAccount, error) {
 		return nil, err
 	}
 
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	s.mu.Lock()
 	for _, existing := range s.accts {
 		if strings.EqualFold(existing.Email, a.Email) { // added by another request while this one was testing
@@ -257,14 +284,9 @@ func (s *Service) AddAccount(req AddAccountRequest) (*MailAccount, error) {
 			return nil, accountExists(a.Email)
 		}
 	}
-	s.accts[a.ID] = a
-	accounts := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := s.store.save(accounts); err != nil {
-		s.mu.Lock()
-		delete(s.accts, a.ID)
-		s.mu.Unlock()
+	if err := s.commitAccount(a.ID, a, false, nil); err != nil {
 		return nil, err
 	}
 	return a.public(), nil
@@ -273,6 +295,9 @@ func (s *Service) AddAccount(req AddAccountRequest) (*MailAccount, error) {
 // upsertAccount saves a verified account; an existing account with the same address keeps its ID
 // and name but takes the new credentials (signing in with Google again repairs a revoked token).
 func (s *Service) upsertAccount(a *MailAccount) (*MailAccount, error) {
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	a = a.clone()
 	s.mu.Lock()
 	var prev *MailAccount
 	for _, existing := range s.accts {
@@ -284,24 +309,9 @@ func (s *Service) upsertAccount(a *MailAccount) (*MailAccount, error) {
 	if prev != nil {
 		a.ID, a.Name = prev.ID, prev.Name
 	}
-	s.accts[a.ID] = a
-	delete(s.loginErr, a.ID) // new credentials, verified just now
-	c := s.conns[a.ID]
-	delete(s.conns, a.ID)
-	accounts := s.snapshotLocked()
 	s.mu.Unlock()
-	if c != nil {
-		c.c.Close()
-	}
 
-	if err := s.store.save(accounts); err != nil {
-		s.mu.Lock()
-		if prev != nil {
-			s.accts[a.ID] = prev
-		} else {
-			delete(s.accts, a.ID)
-		}
-		s.mu.Unlock()
+	if err := s.commitAccount(a.ID, a, true, nil); err != nil {
 		return nil, err
 	}
 	return a.public(), nil
@@ -309,29 +319,65 @@ func (s *Service) upsertAccount(a *MailAccount) (*MailAccount, error) {
 
 // DeleteAccount removes an account and closes its connection.
 func (s *Service) DeleteAccount(id string) error {
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	s.mu.Lock()
 	if _, ok := s.accts[id]; !ok {
 		s.mu.Unlock()
 		return &UnknownAccountError{Account: id}
 	}
-	delete(s.accts, id)
-	delete(s.loginErr, id)
-	c := s.conns[id]
-	delete(s.conns, id)
+	s.mu.Unlock()
+	return s.commitAccount(id, nil, true, nil)
+}
+
+// commitAccount persists a detached candidate, then publishes it and retires
+// health/connections together when credentials changed or the account was removed.
+// A nil account removes id; publish updates associated caches under s.mu.
+// The caller holds accountMu, never across network verification.
+func (s *Service) commitAccount(id string, a *MailAccount, retire bool, publish func()) error {
+	s.mu.Lock()
 	accounts := s.snapshotLocked()
 	s.mu.Unlock()
-
+	candidate := make([]*MailAccount, 0, len(accounts)+1)
+	for _, existing := range accounts {
+		if existing.ID != id {
+			candidate = append(candidate, existing)
+		}
+	}
+	if a != nil {
+		a = a.clone()
+		candidate = append(candidate, a)
+	}
+	if err := s.store.save(candidate); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if a == nil {
+		delete(s.accts, id)
+	} else {
+		s.accts[id] = a
+	}
+	var c *conn
+	if retire {
+		delete(s.loginErr, id)
+		c = s.conns[id]
+		delete(s.conns, id)
+	}
+	if publish != nil {
+		publish()
+	}
+	s.mu.Unlock()
 	if c != nil {
 		c.c.Close()
 	}
-	return s.store.save(accounts)
+	return nil
 }
 
-// snapshotLocked copies the account map. The caller holds s.mu.
+// snapshotLocked copies accounts and their credentials. The caller holds s.mu.
 func (s *Service) snapshotLocked() []*MailAccount {
 	out := make([]*MailAccount, 0, len(s.accts))
 	for _, a := range s.accts {
-		out = append(out, a)
+		out = append(out, a.clone())
 	}
 	return out
 }

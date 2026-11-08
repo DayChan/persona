@@ -281,8 +281,8 @@ func TestBackfillRoute(t *testing.T) {
 	}
 }
 
-// The lists the manager decorates for the apps carry the origin of the assistant's conversations (fleet.go), and a
-// new origin is a change of the machine's list.
+// The lists the manager decorates for the apps carry the origin of the assistant's conversations (fleet_sessions.go),
+// and a new origin is a change of the machine's list.
 func TestFleetListsOrigins(t *testing.T) {
 	ft := newFleetTestNoStore(t)
 	s := ft.s

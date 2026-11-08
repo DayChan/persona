@@ -1,0 +1,324 @@
+package proto
+
+import "time"
+
+// Claude Code's effort levels and permission modes (node/modes.go sets them; the hub checks a scheduled task's).
+var (
+	EffortLevels    = []string{"low", "medium", "high", "xhigh", "max"}
+	PermissionModes = []string{"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
+)
+
+// ModeBypass skips every permission prompt; a headless claude only takes it at start (--permission-mode).
+const ModeBypass = "bypassPermissions"
+
+// Session statuses mirror herdr agent states, plus offline for transcripts with no live agent.
+const (
+	StatusIdle    = "idle"
+	StatusWorking = "working"
+	StatusBlocked = "blocked"
+	StatusDone    = "done"
+	StatusUnknown = "unknown"
+	StatusOffline = "offline"
+	// StatusInterrupted: it was running in a pane when the node restarted, which took herdr's panes with it. The
+	// conversation is still resumable (session.start with resume) but nothing carries it on until the user says so
+	// (#1917, interrupted.go in the node).
+	StatusInterrupted = "interrupted"
+)
+
+// Unified agent states (docs/protocol/agent-states.md).
+const (
+	StateNeedsYou = "needs_you" // waiting for the user: a question, plan, permission or any TUI dialog
+	StateWorking  = "working"
+	StateUnread   = "unread" // finished, result not looked at yet
+	StateIdle     = "idle"   // finished and seen, ready for input
+	StateOffline  = "offline"
+	StateUnknown  = "unknown"
+)
+
+type Session struct {
+	// Manager is the manager it belongs to (docs/assistant/managers.md, "Ownership"); the hub stamps it on what it sends the apps.
+	Manager          string               `json:"manager,omitempty"`
+	MachineID        string               `json:"machine_id"`
+	SessionID        string               `json:"session_id"`
+	SourceKind       string               `json:"source_kind,omitempty"`
+	SourceThreadID   string               `json:"source_thread_id,omitempty"`
+	SourceInstanceID string               `json:"source_instance_id,omitempty"`
+	ParentThreadID   string               `json:"parent_thread_id,omitempty"`
+	ParentSessionID  string               `json:"parent_session_id,omitempty"` // Public ID scoped to the Codex home on this machine.
+	RootSessionID    string               `json:"root_session_id,omitempty"`
+	IsSubagent       bool                 `json:"is_subagent,omitempty"`
+	ReadOnlyReason   string               `json:"read_only_reason,omitempty"`
+	Capabilities     *SessionCapabilities `json:"capabilities,omitempty"`
+	Attached         bool                 `json:"attached,omitempty"`
+	// CanFork: "Branch to new chat" works for it (a Claude Code conversation the node can copy, node/fork.go); older nodes
+	// never say so, and the clients hide it.
+	CanFork bool   `json:"can_fork,omitempty"`
+	Title   string `json:"title"`
+	Cwd     string `json:"cwd"`
+	// WorkspaceCwd is the node-verified physical directory for Cwd. Consumers
+	// matching workspace bindings prefer it and fall back to Cwd on older nodes.
+	WorkspaceCwd string `json:"workspace_cwd,omitempty"`
+	// RepoRoot is the main checkout of the repository Cwd belongs to, when the host knows it (#2840: the Paseo bridge,
+	// whose worktrees live under Paseo's own folder): "By repo" groups by it; without it the clients infer the repository
+	// from Cwd's path.
+	RepoRoot    string `json:"repo_root,omitempty"`
+	Status      string `json:"status"`
+	PaneID      string `json:"pane_id,omitempty"`
+	TabID       string `json:"tab_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	AgentName   string `json:"agent_name,omitempty"`
+	// CodexRoute: how Persona reaches a Codex in a terminal (docs/integrations/codex.md "Sessions on a daemon") — "app_server" (joined on
+	// the shared app-server: questions, approvals and messages go through its protocol) or "terminal" (its rollout and
+	// screen, keys and typing); CodexRouteNote says why when it is the terminal.
+	CodexRoute     string `json:"codex_route,omitempty"`
+	CodexRouteNote string `json:"codex_route_note,omitempty"`
+	// Agent is the coding agent in the pane: "claude" (also when empty, from older nodes) or "codex"; for a session a
+	// runtime lists (docs/integrations/runtimes.md), the agent it says it runs ("dsh").
+	Agent string `json:"agent,omitempty"`
+	// AgentLabel is what the apps call the agent when they do not know it themselves: a runtime's own name ("DSH").
+	// Empty for the agents the apps know (Claude Code, Codex, a compatible CLI).
+	AgentLabel string `json:"agent_label,omitempty"`
+	// AgentSurface is the client the agent runs in: "desktop" (Claude's or Codex's desktop app) or "cli" (its command
+	// line); empty when its record does not say (an SDK, an older version, a runtime). The apps badge the agent's mark
+	// with </> for "cli" (#6390).
+	AgentSurface string `json:"agent_surface,omitempty"`
+	Launcher     string `json:"launcher,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// PermissionMode and Effort are what Claude Code runs with now: default / acceptEdits / plan / auto /
+	// bypassPermissions, and low … max. Empty while unknown (before the first turn, Codex). A Codex thread the phone
+	// drives through its app-server has an Effort too (Codex's levels, see Efforts) but never a PermissionMode.
+	PermissionMode string `json:"permission_mode,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	// Ultracode is Claude Code's independent session-only workflow switch: nil means unknown.
+	// Pending means a requested change waits for an idle input box; LostAt asks the client to offer reopening
+	// after a resumed process reset an enabled switch. Reopening or dismissing the notice clears LostAt.
+	Ultracode        *bool      `json:"ultracode,omitempty"`
+	UltracodeNote    string     `json:"ultracode_note,omitempty"`
+	UltracodePending bool       `json:"ultracode_pending,omitempty"`
+	UltracodeLostAt  *time.Time `json:"ultracode_lost_at,omitempty"`
+	// ContextTokens is what the model saw in the agent's latest reply (Claude: input + cache read + cache creation;
+	// Codex: the last token_count's input) and ContextWindow the model's window, both read off the transcript tail the
+	// node already reads (#2430). ContextTokens is omitted while unknown (no reply yet); ContextWindow too, when the
+	// node cannot tell the model's window. The apps show used / window as the context bar.
+	ContextTokens int `json:"context_tokens,omitempty"`
+	ContextWindow int `json:"context_window,omitempty"`
+	// Efforts are the levels session.modes takes for Effort when they are not Claude Code's (which the apps know): a
+	// Codex thread the phone drives through its app-server (node/codex_effort.go), its model's levels weakest first.
+	// Only Effort can change there. Empty for every other session: Claude's and the assistant's keep the apps' own
+	// list, the rest cannot change it from the phone.
+	Efforts          []string `json:"efforts,omitempty"`
+	StartedByPersona bool     `json:"started_by_persona"`
+	Assistant        bool     `json:"assistant"` // runs in the assistant directory (the app's "Chat" tab)
+	// Space is the assistant's space it runs in: "health" for the health space's (docs/assistant/health.md), "" for the
+	// assistant's own. Set by the hub on the assistant's conversations.
+	Space string `json:"space,omitempty"`
+	// Archived: a retained conversation moved out of the normal list. Assistant
+	// conversations and Claude/Codex Agents are managed by their owning manager.
+	Archived bool `json:"archived,omitempty"`
+	// ArchiveChangedAt is the manager's last explicit archive/restore visibility change.
+	// The hub uses it only to order its legacy delete tombstones against that report.
+	ArchiveChangedAt time.Time `json:"archive_changed_at,omitzero"`
+	// NativeArchive is whether the tool that owns an archived (or just restored) agent session has it the same way
+	// in its own archive (Codex's archived threads): only on GET /api/v1/sessions/archived rows, nil when the manager
+	// never asked the tool.
+	NativeArchive *NativeArchive `json:"native_archive,omitempty"`
+	// Origin is who opened an assistant conversation and OriginRef what of (docs/protocol/protocol.md"Assistant conversation origins"):
+	// user, channel, inbox, task, spawned, lark_agent, extension; "" is the user's. Set by the manager's fleet from
+	// the assistant's snapshot (internal/assistant/fleet.go).
+	Origin    string `json:"origin,omitempty"`
+	OriginRef string `json:"origin_ref,omitempty"`
+	// Compaction is the last compaction the user asked for in an assistant conversation (POST …/compact), kept by the
+	// node until the next one: running, then done or failed (docs/assistant/assistant.md "Manual compaction").
+	Compaction *Compaction `json:"compaction,omitempty"`
+	// Channels are the channels messages came into this conversation from, newest first ("wechat", "feishu"):
+	// the conversation list draws the latest's icon (docs/extensions/channels.md"Source labels"). Set by the manager's fleet
+	// (internal/assistant/fleet.go).
+	Channels []string `json:"channels,omitempty"`
+	// Space / slot generalize where an agent lives in its host tool: for herdr a workspace and a tab
+	// (docs/protocol/agent-states.md). Agents sharing a space are shown together as one collaborating group.
+	SpaceKind  string `json:"space_kind,omitempty"` // herdr
+	SpaceID    string `json:"space_id,omitempty"`
+	SpaceName  string `json:"space_name,omitempty"`
+	SpaceIndex int    `json:"space_index,omitempty"`
+	// ParentSpaceID is the space this one is nested under in its host, same kind and machine (Orca: a child
+	// worktree's parent, #2073); empty for a top-level space. Clients that know it fold the child under its parent.
+	ParentSpaceID string `json:"parent_space_id,omitempty"`
+	SlotID        string `json:"slot_id,omitempty"`
+	SlotName      string `json:"slot_name,omitempty"`
+	SlotIndex     int    `json:"slot_index,omitempty"`
+	// PaneIndex is the pane's 0-based place in its slot by layout, top left first: 0 is the pane the others were split
+	// from (the group's "Initiator" when an agent runs there). Absent (nil) when the host does not say where its panes sit
+	// (older nodes, hosts without layouts, a pane missing from the layout). A pointer so that 0 is sent.
+	PaneIndex *int `json:"pane_index,omitempty"`
+	// State is the unified agent state the apps render (needs_you, working, unread, idle, offline, unknown),
+	// computed by the hub from the host status, pending interactions and whether the user has seen the result.
+	State string `json:"state"`
+	// BackgroundWorking: State is working only because of background work (#2935): its turn ended while its
+	// background commands, subagents, Monitors or workflows still run. Clients say "Working (background)". Set by the hub.
+	BackgroundWorking bool `json:"background_working,omitempty"`
+	// BackgroundWaiting: BackgroundWorking, and all that background work only waits (#6045): its background commands
+	// sleep, loop on a check or watch something, using next to no CPU; no subagent or workflow runs. Clients show
+	// "Waiting in the background" apart from Working (lighter, not in the Working count); State stays working, so an
+	// older app shows Working. The node says whether its background commands wait; the manager keeps it only so.
+	BackgroundWaiting bool      `json:"background_waiting,omitempty"`
+	SeenAt            time.Time `json:"seen_at,omitempty"`
+	// StateSince is when the agent entered its current state, as the hub saw it (the hub restarting resets it):
+	// lists sort "Working" by it, since updated_at moves on every step.
+	StateSince time.Time `json:"state_since,omitempty"`
+	// Queued is input typed while the agent works, waiting to be taken (shown above the composer, not in the chat).
+	Queued []string `json:"queued,omitempty"`
+	// Background lists commands / agents Claude started in the background that have not reported back yet
+	// (the TUI's "2 shells still running").
+	Background []BackgroundTask `json:"background,omitempty"`
+	// Subagents the agent launched (Agent / Task tool); each one's transcript is the session "<id>@<agent id>".
+	Subagents []Subagent `json:"subagents,omitempty"`
+	// Workflows are the Claude Code workflow runs (the Workflow tool) the agent launched in the last day, newest first:
+	// a running one is background work, as Background is (a running one is in Background too, kind "workflow").
+	Workflows []Workflow `json:"workflows,omitempty"`
+	// Loop is the /loop driving this agent, when there is one (it wakes itself up on a schedule).
+	Loop *LoopInfo `json:"loop,omitempty"`
+	// Goal is the goal the agent works toward, when one is set (Claude Code's /goal, a Codex thread goal; docs/integrations/agent-goal.md).
+	Goal *GoalInfo `json:"goal,omitempty"`
+	// Plan is the agent's own task list (Claude Code's TodoWrite, or TaskCreate / TaskUpdate), when it keeps one: how far
+	// along it is and the step in progress (docs/integrations/agent-goal.md "Plan"). Absent for Codex and for runtimes
+	// whose conversation is not a Claude transcript on the node.
+	Plan *PlanInfo `json:"plan,omitempty"`
+	// Ports are the TCP ports the agent's processes listen on that answer HTTP (docs/operations/ports.md): the dev servers
+	// it started, which the apps open through the hub.
+	Ports     []Port    `json:"ports,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+	LastText  string    `json:"last_text,omitempty"`
+	// Asks is what the agent's last reply asks the user, when its closing words put a question or a decision to
+	// them (transcript.AskOf, #5096): read by the node off the whole reply, since LastText is only its beginning.
+	Asks string `json:"asks,omitempty"`
+	// AsksRead: the node read Asks off the reply (an empty Asks then means it asks nothing, or the user answered it);
+	// without it (an older node, a host that does not say) the hub reads the list's last words when they are whole.
+	AsksRead bool `json:"asks_read,omitempty"`
+	// AwaitsReply: the agent stopped on a question to the user nobody has answered yet (docs/protocol/agent-states.md "Awaiting your reply",
+	// #5096) — it asks (Asks, or the triage says it waits on the user) and has no card, error or background work. Set by
+	// the hub on a stopped session (Unread or Seen); an Seen one is listed as Awaiting Reply, not folded with the idle ones.
+	AwaitsReply bool `json:"awaits_reply,omitempty"`
+	// TurnError: the agent's latest turn ended in a model API error (the connection lost mid-response, overloaded,
+	// rate limited, the model service down…). The node sets it when the agent's own record says the turn failed
+	// (Codex: a rollout's task_complete.error, an app-server's failed turn, #2185); otherwise the hub reads it off the
+	// last words, as Claude Code writes them ("API Error: …"). The hub keeps it only while the agent is stopped: empty
+	// while it works or when the turn ended normally. The task it works for is interrupted, not done
+	// (docs/assistant/todos.md "How the state is computed", #1516).
+	TurnError string `json:"turn_error,omitempty"`
+	// TurnErrorKind is what the agent's record says of TurnError, when it says (Codex's error kinds):
+	// TurnErrorTransient (worth a "Continue") or TurnErrorUser (the user must act); empty: read off the text.
+	TurnErrorKind string `json:"turn_error_kind,omitempty"`
+	// TurnErrorCode says what is wrong when the hub can tell from TurnError (docs/assistant/onboarding.md 5.2): one of the
+	// TurnErrorCode* values, for a card that says what to fix (sign in, the key, the model). Empty: not known.
+	TurnErrorCode string `json:"turn_error_code,omitempty"`
+	// Work is where the session stands in its work (docs/assistant/agent-work.md): working, blocked on a named precondition, or
+	// done, with a line saying what it waits for or what it concluded. Set by the hub; absent before the hub has
+	// triaged a stopped session's turn.
+	Work *WorkState `json:"work,omitempty"`
+	// Activity says what the agent is doing when its latest step is a tool call no text came after ("running tests",
+	// "reading tasks.go", "waiting for CI", transcript.Activity), and ActivityAt when that call started: while an agent only runs
+	// tools its last_text stays put for minutes, and a task card showing it looked stuck. Empty once it writes text.
+	Activity   string     `json:"activity,omitempty"`
+	ActivityAt *time.Time `json:"activity_at,omitempty"`
+	// Rev changes whenever the transcript does (its size): the app pulls new items for every session whose rev
+	// differs from what it has, without opening it. Changes travel as the light `revs` event.
+	Rev int64 `json:"rev,omitempty"`
+	// WokeByTask: the latest turn was started by a background task reporting back, not by the user; finishing
+	// it sends no push (the user did not ask for anything).
+	WokeByTask          bool `json:"woke_by_task,omitempty"`
+	PendingInteractions int  `json:"pending_interactions"`
+	// Suggestion is the next message Claude Code proposes after a turn (grey in its empty input box), read off the
+	// screen; gone once the agent works again or a message is sent.
+	Suggestion string `json:"suggestion,omitempty"`
+	// Starting: Persona is opening its tab and waiting for claude (node/starting.go); messages sent now go in once it is
+	// ready. StartError: the start failed (shown in the chat for a while).
+	Starting   bool   `json:"starting,omitempty"`
+	StartError string `json:"start_error,omitempty"`
+	// Todo is the active (uncompleted, unreleased) todo this session is linked to (assistant/todos.go).
+	Todo *TodoRef `json:"todo,omitempty"`
+	// Quiet: the agent works (or worked) for a quiet task, one the main conversation opened while the user wanted
+	// those told only there (#1731): set by the hub, also once the task is done. Clients leave it out of task
+	// notifications and global badges; the Agents page shows it as always.
+	Quiet bool `json:"quiet,omitempty"`
+	// SpawnFrom is persona_from reported by node for todo derivation (#762), stripped by hub before client push.
+	SpawnFrom string `json:"spawn_from,omitempty"`
+	// AttentionReason is why the session waits for the user, in the host's words (a botmux attention's reason).
+	AttentionReason string `json:"attention_reason,omitempty"`
+	// FailureReason: the host stopped the session's turn on an error it will not retry by itself (a botmux notice),
+	// until a message goes to the session. The apps show it with a retry; the session is not waiting for the user.
+	FailureReason string `json:"failure_reason,omitempty"`
+	// ExternalURL opens the session where it lives outside Persona (a botmux session's Feishu topic).
+	ExternalURL string `json:"external_url,omitempty"`
+	// Runtime: an assistant conversation's runtime as it actually runs ("agentsdk"; "" is the CLI, #2455).
+	Runtime string `json:"runtime,omitempty"`
+	// RuntimeFallback: why an assistant conversation asked to run on the Agent SDK runs on the CLI instead (no
+	// Node.js 22+, no bridge package, no claude); "" when it runs as asked.
+	RuntimeFallback string `json:"runtime_fallback,omitempty"`
+	// Chat, Topic, Dispatched: a botmux session's Feishu chat, its topic's root message and the topics it dispatched
+	// (`botmux dispatch`), for the todos to follow (docs/assistant/todos.md "Following botmux"); stripped by hub like SpawnFrom.
+	Chat       string   `json:"chat,omitempty"`
+	Topic      string   `json:"topic,omitempty"`
+	Dispatched []string `json:"dispatched,omitempty"`
+	// AlsoOpenIn are the other hosts (host kinds: herdr, herdr-core, orca…) the session is live in at the same time
+	// (#2576): it is listed and driven in the host that owns it (node/ownership.go); the apps warn of the conflict.
+	AlsoOpenIn []string `json:"also_open_in,omitempty"`
+	// Host is the engine host the session lives in (#2576): the kind of its pane (herdr, herdr-core, orca, botmux) or
+	// paseo for the Paseo runtime's; empty for transcripts with no live host and for other runtimes. The apps label a
+	// row with it when the machine enables more than one host.
+	Host string `json:"host,omitempty"`
+}
+
+// Session.TurnErrorKind values.
+const (
+	TurnErrorTransient = "transient" // the model service failed for a moment: worth a "Continue"
+	TurnErrorUser      = "user"      // sign-in, usage limit, context window, the model…: the user must act
+)
+
+// Session.TurnErrorCode values (docs/assistant/onboarding.md 4.6).
+const (
+	TurnErrorNotLoggedIn = "not_logged_in" // Claude Code on that machine is not signed in
+	TurnErrorAuthFailed  = "auth_failed"   // the key or token was refused or has expired
+	TurnErrorModelRoute  = "model_route"   // the model name is not one the service or gateway knows
+	TurnErrorRateLimited = "rate_limited"  // too many requests, or a usage limit
+)
+
+// Codes a call refuses with when the assistant's conversation cannot start on a machine (docs/assistant/onboarding.md 4.6, 5.2):
+// rpc.Error codes the hub answers 409 with, the text in the request's language (apierr.Call).
+const (
+	CodeNoMachine       = "no_machine"       // no machine to run the main conversation on
+	CodeMachinePending  = "machine_pending"  // the machine has not been confirmed as the user's yet
+	CodeClaudeMissing   = "claude_missing"   // Claude Code is not installed (or not on the launcher's PATH) there
+	CodeLauncherMissing = "launcher_missing" // the launcher (a ~/.zshrc function or alias) is not there
+)
+
+// TodoRef is a session's link to an active todo (docs/assistant/todos.md).
+type TodoRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// SourceRuntime is the source_kind of a session an agent runtime lists (docs/integrations/runtimes.md): source_instance_id names
+// the runtime ("dsh"); its capabilities come from what the runtime declared (no terminal, never attach).
+const SourceRuntime = "runtime"
+
+// Port is a listening TCP port on a machine (docs/operations/ports.md).
+type Port struct {
+	Port int `json:"port"`
+	// Addr is what it is bound to: 127.0.0.1, 0.0.0.0, ::, ::1 or one of the machine's addresses.
+	Addr    string `json:"addr,omitempty"`
+	PID     int    `json:"pid,omitempty"`
+	Process string `json:"process,omitempty"` // the command, as ps / lsof name it (node, python3.12…)
+	Title   string `json:"title,omitempty"`   // the <title> of its page at /
+}
+
+// NativeArchive is a session's state in its own tool's archive, as its manager last asked for it
+// (docs/protocol/protocol.md "session.archive").
+type NativeArchive struct {
+	// Archived is what the tool was asked for: archived (true) or restored.
+	Archived bool `json:"archived"`
+	// State: done (the tool has it so), pending (not yet: the machine offline, the agent working, an error; tried
+	// again), unsupported (the tool has no archive Persona can drive: the archive is Persona's alone).
+	State string `json:"state"`
+	// Error is why the last try did not finish, while pending.
+	Error string `json:"error,omitempty"`
+}

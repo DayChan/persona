@@ -51,7 +51,8 @@ func (h *Manager) Run(ctx context.Context) error {
 	go h.extensionLeaseLoop(ctx)
 	h.extensions = newExtensions(h.cfg.dir, h.cfg.extensionConfigs(h.logf), h.logf)
 	h.extensions.stats.redact = h.redactOwnSecrets
-	h.startConnectors(ctx) // the extensions' connectors join here (attachExtensions)
+	h.startTokenRecord(ctx) // before any extension starts with a token (extension_scopes.go)
+	h.startConnectors(ctx)  // the extensions' connectors join here (attachExtensions)
 	h.startExtensions(ctx)
 	go h.extensionUpgradeLoop(ctx)
 	go h.extensionMetricsLoop(ctx)

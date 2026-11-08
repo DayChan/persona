@@ -59,7 +59,7 @@ func signedIndexFiles(t *testing.T, extra map[string]any) ([]byte, []byte) {
 		ix[k] = v
 	}
 	raw, _ := json.Marshal(ix)
-	return raw, sign(raw)
+	return sign(raw), nil
 }
 
 // A public GitHub market without a token that the API rate-limits is read from raw.githubusercontent.com: the same
@@ -67,10 +67,9 @@ func signedIndexFiles(t *testing.T, extra map[string]any) ([]byte, []byte) {
 func TestGitHubRateLimitFallsBackToRaw(t *testing.T) {
 	var apiCalls atomic.Int32
 	api := rateLimitedAPI(t, &apiCalls)
-	raw, sig := signedIndexFiles(t, nil)
+	raw, _ := signedIndexFiles(t, nil)
 	host := newFileHost(t, map[string][]byte{
-		"/example/market/HEAD/" + IndexFile:             raw,
-		"/example/market/HEAD/" + IndexFile + SigSuffix: sig,
+		"/example/market/HEAD/" + IndexFile: raw,
 	})
 	s, _ := ParseMarket("github:example/market")
 	mk := &Market{Spec: s, Client: host.srv.Client(), GitHubAPI: api.URL, GitHubRaw: host.srv.URL}
@@ -79,8 +78,8 @@ func TestGitHubRateLimitFallsBackToRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(f.Raw) != string(raw) || string(f.Sig) != string(sig) || f.Index.Name != "Example" {
-		t.Fatalf("read %s / %s", f.Raw, f.Sig)
+	if string(f.Raw) != string(raw) || f.Index.Name != "Example" {
+		t.Fatalf("read %s", f.Raw)
 	}
 	if apiCalls.Load() == 0 {
 		t.Fatal("the API was not asked first")
@@ -101,10 +100,9 @@ func TestGitHubRateLimitFallsBackToRaw(t *testing.T) {
 func TestGitHubRateLimitFallbackLimits(t *testing.T) {
 	var apiCalls atomic.Int32
 	api := rateLimitedAPI(t, &apiCalls)
-	raw, sig := signedIndexFiles(t, nil)
+	raw, _ := signedIndexFiles(t, nil)
 	host := newFileHost(t, map[string][]byte{
-		"/example/market/HEAD/" + IndexFile:             raw,
-		"/example/market/HEAD/" + IndexFile + SigSuffix: sig,
+		"/example/market/HEAD/" + IndexFile: raw,
 	})
 	s, _ := ParseMarket("github:example/market")
 	client := host.srv.Client()
@@ -131,23 +129,18 @@ func TestGitHubRateLimitFallbackLimits(t *testing.T) {
 	}
 }
 
-// raw.githubusercontent.com caches each file on its own: a new index with the old signature is a read to try again
-// later, never one that calls the signature bad.
-func TestGitHubRawMismatchIsNotABadSignature(t *testing.T) {
+// A raw-host response is one envelope: no detached signature race exists.
+func TestGitHubRawSingleDocument(t *testing.T) {
 	var apiCalls atomic.Int32
 	api := rateLimitedAPI(t, &apiCalls)
 	raw, _ := signedIndexFiles(t, nil)
-	_, oldSig := signedIndexFiles(t, map[string]any{"name": "Old"})
-	host := newFileHost(t, map[string][]byte{
-		"/example/market/HEAD/" + IndexFile:             raw,
-		"/example/market/HEAD/" + IndexFile + SigSuffix: oldSig,
-	})
-	s, _ := ParseMarket("github:example/market")
+	host := newFileHost(t, map[string][]byte{"/example/market/HEAD/" + IndexFile: raw})
+	spec, _ := ParseMarket("github:example/market")
 	client := host.srv.Client()
 	client.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify = true
-	mk := &Market{Spec: s, Client: client, GitHubAPI: api.URL, GitHubRaw: host.srv.URL}
-	if _, err := mk.FetchSigned(context.Background()); !errors.Is(err, ErrRateLimited) || !strings.Contains(err.Error(), "对不上") {
-		t.Fatalf("mismatched pair: %v", err)
+	mk := &Market{Spec: spec, Client: client, GitHubAPI: api.URL, GitHubRaw: host.srv.URL}
+	if _, err := mk.FetchSigned(context.Background()); err != nil || len(host.asked) != 1 {
+		t.Fatalf("single document: %v %v", err, host.asked)
 	}
 }
 

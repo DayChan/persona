@@ -266,6 +266,8 @@ func tasksFrom(routines []Routine, followups []Followup) []Task {
 // errScheduleUnavailable: the scheduled tasks could not be read from the database yet.
 var errScheduleUnavailable = i18n.Err("assistant-schedule.unavailable")
 
+var errScheduleSave = i18n.Err("assistant-schedule.save_failed")
+
 // loadSchedule reads the task list and the run history once. A failed read leaves the schedule unloaded, so the next
 // call reads again and saveLocked writes nothing: saving the defaults then would overwrite the stored tasks.
 func (s *Service) loadSchedule(ctx context.Context) *schedule {
@@ -323,9 +325,11 @@ func (s *Service) loadSchedule(ctx context.Context) *schedule {
 		return sc
 	}
 	sc.tasks, sc.runs, sc.loaded = tasks, runs, true
-	if upgradeDefaultRoutines(sc.tasks) {
-		s.saveLocked(sc)
-		s.logf("schedule: the default 早报 / 晚报 prompts brought up to date")
+	upgraded := slices.Clone(sc.tasks)
+	if upgradeDefaultRoutines(upgraded) {
+		if err := s.saveLocked(sc, upgraded); err == nil {
+			s.logf("schedule: the default 早报 / 晚报 prompts brought up to date")
+		}
 	}
 	return sc
 }
@@ -377,20 +381,26 @@ func (s *Service) scheduleReadable(ctx context.Context) error {
 	return err
 }
 
-// saveLocked persists the list; sc.mu is held.
-func (s *Service) saveLocked(sc *schedule) {
-	st := s.store()
-	if st == nil || !sc.loaded {
-		return
+// saveLocked persists a candidate list before publishing it; sc.mu is held throughout. Callers making a
+// reversible change use a separate slice so a failed write leaves the live list untouched. Runtime outcomes
+// already observed use sc.tasks itself: a storage outage cannot undo work or hide its result.
+func (s *Service) saveLocked(sc *schedule, tasks []Task) error {
+	if !sc.loaded {
+		return errScheduleUnavailable
 	}
-	if sc.tasks == nil {
-		sc.tasks = []Task{} // null would read as "never moved over"
+	if tasks == nil {
+		tasks = []Task{} // null would read as "never moved over"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := st.PutSetting(ctx, tasksKey, sc.tasks); err != nil {
-		s.logf("save tasks: %v", err)
+	if st := s.store(); st != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := st.PutSetting(ctx, tasksKey, tasks); err != nil {
+			s.logf("save tasks: %v", err)
+			return errScheduleSave
+		}
 	}
+	sc.tasks = tasks
+	return nil
 }
 
 func (sc *schedule) indexLocked(id string) int {
@@ -542,8 +552,8 @@ func (s *Service) toolScheduleFollowup(ctx context.Context, machine, sessionID s
 	if at.Before(now.Add(-time.Minute)) {
 		return "", fmt.Errorf("%s is in the past", at.In(loc).Format("2006-01-02 15:04"))
 	}
-	if out, ok := s.scheduleOwn(ctx, sessionID, a.Title, a.Prompt, prompt, a.At, at, every, push); ok {
-		return out, nil
+	if out, ok, err := s.scheduleOwn(ctx, sessionID, a.Title, a.Prompt, prompt, a.At, at, every, push); ok || err != nil {
+		return out, err
 	}
 	space, _ := s.selfSpace(ctx, sessionID) // not listed: the assistant's own, as before the health space
 	t := Task{ID: "fu_" + randomHex(4), Title: strings.TrimSpace(a.Title), Prompt: prompt, Repeat: repeatOnce, At: at.UTC(), Enabled: true,
@@ -565,9 +575,11 @@ func (s *Service) toolScheduleFollowup(ctx context.Context, machine, sessionID s
 	if err != nil {
 		return "", err
 	}
-	sc.tasks = append(sc.tasks, t)
-	s.saveLocked(sc)
+	err = s.saveLocked(sc, append(slices.Clone(sc.tasks), t))
 	sc.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
 	s.broadcastSchedule()
 	if every > 0 {
 		return fmt.Sprintf("Scheduled %s every %s, first at %s (%s); %s. It repeats by itself: don't schedule the next run from a run.",
@@ -582,14 +594,14 @@ func (s *Service) toolScheduleFollowup(ctx context.Context, machine, sessionID s
 // repeats stays as it is (a changed prompt is taken). A task deleted while its run was going stays deleted: the run is
 // told so, nothing is scheduled (#4792). ok is false when this conversation's latest run isn't one of the task's
 // (rawPrompt is what was asked, before stripScheduleHeader), or the title and prompt are another task's.
-func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, prompt, atArg string, at time.Time, every int, push *string) (string, bool) {
+func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, prompt, atArg string, at time.Time, every int, push *string) (string, bool, error) {
 	if sessionID == "" {
-		return "", false
+		return "", false, nil
 	}
 	loc := s.location(ctx)
 	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
-		return "", false // the caller's own write says why
+		return "", false, err
 	}
 	// Only the conversation's latest run says which task it is a run of: an older run's task is not this one (#4792).
 	last := -1
@@ -600,7 +612,7 @@ func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, 
 	}
 	if last < 0 {
 		sc.mu.Unlock()
-		return "", false
+		return "", false, nil
 	}
 	r := sc.runs[last]
 	i := sc.indexLocked(r.RefID)
@@ -608,15 +620,16 @@ func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, 
 		// Deleted while this run was going: its "schedule the next one" must not bring it back (#4792).
 		sc.mu.Unlock()
 		if ranRecently(r) && copiesRun(r, title, rawPrompt) {
-			return i18n.T(s.lang(ctx), "assistant-schedule.deleted_not_again", i18n.Args{"id": r.RefID, "name": r.Title}), true
+			return i18n.T(s.lang(ctx), "assistant-schedule.deleted_not_again", i18n.Args{"id": r.RefID, "name": r.Title}), true, nil
 		}
-		return "", false
+		return "", false, nil
 	}
 	if !(sameText(title, sc.tasks[i].Title) || sameText(prompt, sc.tasks[i].Prompt)) {
 		sc.mu.Unlock()
-		return "", false
+		return "", false, nil
 	}
-	t := &sc.tasks[i]
+	tasks := slices.Clone(sc.tasks)
+	t := &tasks[i]
 	if title = strings.TrimSpace(title); title != "" {
 		t.Title = title
 	}
@@ -646,10 +659,13 @@ func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, 
 			out = fmt.Sprintf("Rescheduled %s「%s」 for %s (%s).", t.ID, t.label(), at.In(loc).Format("01-02 15:04 Mon"), until(at))
 		}
 	}
-	s.saveLocked(sc)
+	err = s.saveLocked(sc, tasks)
 	sc.mu.Unlock()
+	if err != nil {
+		return "", true, err
+	}
 	s.broadcastSchedule()
-	return out, true
+	return out, true, nil
 }
 
 // ranRecently: the run started within the time its turn is followed (runWatchTimeout), so the call can be its own end.
@@ -702,8 +718,11 @@ func (s *Service) deleteTask(ctx context.Context, id string) (bool, error) {
 	}
 	i := sc.indexLocked(id)
 	if i >= 0 {
-		sc.tasks = slices.Delete(sc.tasks, i, i+1)
-		s.saveLocked(sc)
+		tasks := slices.Delete(slices.Clone(sc.tasks), i, i+1)
+		if err := s.saveLocked(sc, tasks); err != nil {
+			sc.mu.Unlock()
+			return false, err
+		}
 	}
 	delete(sc.waitTold, id)
 	sc.mu.Unlock()
@@ -825,13 +844,17 @@ func (s *Service) toolScheduleRoutine(ctx context.Context, self string, args jso
 		return "", err
 	}
 	rearm(old, &t, time.Now())
+	tasks := slices.Clone(sc.tasks)
 	if i < 0 {
-		sc.tasks = append(sc.tasks, t)
+		tasks = append(tasks, t)
 	} else {
-		sc.tasks[i] = t
+		tasks[i] = t
 	}
-	s.saveLocked(sc)
+	err = s.saveLocked(sc, tasks)
 	sc.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
 	s.broadcastSchedule()
 	state := "off"
 	if next := t.next(time.Now(), loc); !next.IsZero() {
@@ -929,8 +952,8 @@ func weekdayText(ds []int) string {
 // knowledge base.
 func (s *Service) Run(ctx context.Context) {
 	go s.taskCloseLoop(ctx)    // the agents of finished tasks (tasks_close.go)
-	go s.superviseLoop(ctx)    // the tasks the main conversation follows up (supervise.go)
-	go s.workLoop(ctx)         // due wakes and retries, cards past their day, missed turns (agents_work.go)
+	go s.superviseLoop(ctx)    // the tasks the main conversation follows up (supervise_signals.go)
+	go s.workLoop(ctx)         // due wakes and retries, cards past their day, missed turns (agents_work_tick.go)
 	go s.replyLoop(ctx)        // questions the user looked at and left unanswered (agents_reply.go)
 	go s.nudgeLoop(ctx)        // the Lark bot's cards left unanswered (feishu_nudge.go)
 	go s.sourceReportLoop(ctx) // the reports back to where a todo was asked (todo_source.go)
@@ -1019,8 +1042,9 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 	var due []dueTask
 	var skipped []ScheduleRun
 	changed := false
-	for i := range sc.tasks {
-		t := &sc.tasks[i]
+	tasks := slices.Clone(sc.tasks)
+	for i := range tasks {
+		t := &tasks[i]
 		if !t.Enabled {
 			continue
 		}
@@ -1066,17 +1090,19 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 		}
 	}
 	// A one-off that ran a day ago is only history now.
-	kept := sc.tasks[:0:0]
-	for _, t := range sc.tasks {
+	kept := tasks[:0:0]
+	for _, t := range tasks {
 		if t.done() && now.Sub(t.LastRun) > doneKeep {
 			changed = true
 			continue
 		}
 		kept = append(kept, t)
 	}
-	sc.tasks = kept
 	if changed {
-		s.saveLocked(sc)
+		if err := s.saveLocked(sc, kept); err != nil {
+			sc.mu.Unlock()
+			return // none of this batch was consumed: leave it due for the next turn
+		}
 	}
 	sc.mu.Unlock()
 	if !changed {
@@ -1118,7 +1144,9 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	}
 	streakTask, streakN, streak := streakToldLocked(sc, len(sc.runs)-1, false) // told once per streak (schedule_streak.go)
 	r = sc.runs[len(sc.runs)-1]
-	s.saveLocked(sc)
+	// Work already happened. Keep its outcome and the run ID even when either write fails, so the watcher
+	// can still report the real result. Later writes retry the complete current lists under this lock.
+	_ = s.saveLocked(sc, sc.tasks)
 	if st := s.store(); st != nil { // under the lock: two runs finishing together must not save their lists out of order
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
@@ -1155,7 +1183,7 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	}
 	streakTask, streakN, streak := streakToldLocked(sc, i, wasOK) // a turn that ends in an error is a failed run too (schedule_streak.go)
 	streakRun := sc.runs[i]
-	s.saveLocked(sc)
+	_ = s.saveLocked(sc, sc.tasks)
 	if st := s.store(); st != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
@@ -1720,13 +1748,15 @@ func (sc *schedule) end(id string) {
 	sc.mu.Unlock()
 }
 
-// adoptConversation makes a new conversation task id's own (saved with the next recordRun), and keeps it listed on
+// adoptConversation makes a new conversation task id's own, and keeps it listed on
 // its machine however quiet it gets (keepListed), so the app can open it and the next run can see it is busy.
 func (s *Service) adoptConversation(id, machine, session, launcher string) {
 	if sc, err := s.lockedSchedule(context.Background()); err == nil {
 		if i := sc.indexLocked(id); i >= 0 {
 			t := &sc.tasks[i]
 			t.RunMachineID, t.RunSessionID, t.RunLauncher = machine, session, launcher
+			// The conversation already exists. Keep it in memory on a failed save; recordRun retries the write.
+			_ = s.saveLocked(sc, sc.tasks)
 		}
 		sc.mu.Unlock()
 	}
@@ -1745,9 +1775,13 @@ func (s *Service) forgetConversation(ctx context.Context, id string) (Task, bool
 	}
 	i := sc.indexLocked(id)
 	if i >= 0 {
-		t := &sc.tasks[i]
+		tasks := slices.Clone(sc.tasks)
+		t := &tasks[i]
 		t.RunMachineID, t.RunSessionID, t.RunLauncher = "", "", ""
-		s.saveLocked(sc)
+		if err := s.saveLocked(sc, tasks); err != nil {
+			sc.mu.Unlock()
+			return Task{}, false, err
+		}
 	}
 	sc.mu.Unlock()
 	if i < 0 {
@@ -1916,9 +1950,12 @@ func (s *Service) scheduleRoutes() {
 			apierr.Write(w, http.StatusServiceUnavailable, err)
 			return
 		}
-		sc.tasks = append(sc.tasks, t)
-		s.saveLocked(sc)
+		err = s.saveLocked(sc, append(slices.Clone(sc.tasks), t))
 		sc.mu.Unlock()
+		if err != nil {
+			apierr.Write(w, http.StatusServiceUnavailable, err)
+			return
+		}
 		s.broadcastSchedule()
 		v, _ := s.taskView(r.Context(), t.ID)
 		apierr.WriteJSON(w, map[string]any{"task": v})
@@ -1971,9 +2008,14 @@ func (s *Service) scheduleRoutes() {
 			return
 		}
 		rearm(sc.tasks[i], &t, now)
-		sc.tasks[i] = t
-		s.saveLocked(sc)
+		tasks := slices.Clone(sc.tasks)
+		tasks[i] = t
+		err = s.saveLocked(sc, tasks)
 		sc.mu.Unlock()
+		if err != nil {
+			apierr.Write(w, http.StatusServiceUnavailable, err)
+			return
+		}
 		s.broadcastSchedule()
 		v, _ := s.taskView(r.Context(), t.ID)
 		apierr.WriteJSON(w, map[string]any{"task": v})
@@ -2059,9 +2101,12 @@ func (s *Service) scheduleRoutes() {
 			}
 			out = append(out, t)
 		}
-		sc.tasks = out
-		s.saveLocked(sc)
+		err = s.saveLocked(sc, out)
 		sc.mu.Unlock()
+		if err != nil {
+			apierr.Write(w, http.StatusServiceUnavailable, err)
+			return
+		}
 		s.broadcastSchedule()
 		apierr.WriteJSON(w, map[string]any{"routines": s.tasksView(r.Context(), func(t Task) bool { return t.Repeat == repeatDaily })})
 	})
@@ -2107,9 +2152,17 @@ func (s *Service) runTaskRoute(w http.ResponseWriter, r *http.Request) {
 	var t Task
 	if i >= 0 {
 		t = sc.tasks[i]
+		tasks := slices.Clone(sc.tasks)
+		// A manual run is admitted durably too, including repeating tasks: its result must own the latest
+		// status, and a storage outage must not dispatch work from an unpersisted run marker.
+		tasks[i].LastRun = now.UTC()
 		if t.Repeat == repeatOnce {
-			sc.tasks[i].Enabled, sc.tasks[i].LastRun = false, now.UTC()
-			s.saveLocked(sc)
+			tasks[i].Enabled = false
+		}
+		if err := s.saveLocked(sc, tasks); err != nil {
+			sc.mu.Unlock()
+			apierr.Write(w, http.StatusServiceUnavailable, err)
+			return
 		}
 	}
 	sc.mu.Unlock()

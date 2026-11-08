@@ -576,6 +576,24 @@ export interface Interaction {
   elicitation?: Elicitation;
   /** What a permission card needs filled in before it is approved (a password): such a card is never approved in one tap. */
   fields?: { key: string; label: string; secret?: boolean }[];
+  /** The assistant is deciding whether it may answer this question for the user (docs/assistant/assistant.md "Assistant
+   *  answers questions first"): nothing was pushed yet, and an answer given here wins. The same card comes again without it. */
+  delegating?: boolean;
+  /** What the assistant filled in when it left the question to the user. */
+  delegate?: Delegate;
+}
+
+/** The assistant's context on a question it left to the user (Interaction.delegate). */
+export interface Delegate {
+  what?: string;
+  why_now?: string;
+  /** The answer it recommends: an option's label when the question has options. */
+  recommend?: string;
+  /** What not taking the recommendation costs. */
+  cost?: string;
+  /** Why the user has to decide. */
+  reason?: string;
+  deadline?: string;
 }
 
 export interface Launcher {

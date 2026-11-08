@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from "react";
 import { stateOf } from "./format";
 import { agentKey } from "./pins";
+import { isDelegating } from "./delegate";
 import { isMuted } from "./session-actions";
 import type { AgentMutes } from "./agent-groups";
 import { byTime } from "./times";
@@ -38,13 +39,17 @@ export type AttentionEvent = { kind: "needs" | "finished"; key: string; card?: I
  *   short wait (SETTLE_MS). The hub also drops a turn started by a background task's report (`WokeByTask`) and one
  *   the assistant already pushed about; the web client does not see those and chimes for them.
  * A session with no earlier state (the first snapshot, a new session) produces nothing, so opening the page does not chime.
+ * A session "Needs you" only for questions the assistant is still looking at (`interactions`, lookingOnly) counts as
+ * working: the hub pushes nothing for them either, and it becomes "Needs you" here once the assistant hands one to the user.
  */
-export function detectTransitions(prev: ReadonlyMap<string, AgentState>, sessions: Session[], mutes: AgentMutes): { next: Map<string, AgentState>; events: AttentionEvent[] } {
+export function detectTransitions(prev: ReadonlyMap<string, AgentState>, sessions: Session[], mutes: AgentMutes, interactions: readonly Interaction[] = []): { next: Map<string, AgentState>; events: AttentionEvent[] } {
   const next = new Map<string, AgentState>();
   const events: AttentionEvent[] = [];
+  const looking = lookingOnly(interactions);
   for (const s of sessions) {
     const key = agentKey(s);
-    const now = stateOf(s);
+    const state = stateOf(s);
+    const now = state === "needs_you" && looking.has(key) ? "working" : state;
     next.set(key, now);
     const was = prev.get(key);
     if (was === undefined || was === now || s.quiet) continue;
@@ -52,6 +57,15 @@ export function detectTransitions(prev: ReadonlyMap<string, AgentState>, session
     else if (was === "working" && now === "unread" && !isMuted(s, mutes)) events.push({ kind: "finished", key });
   }
   return { next, events };
+}
+
+/** The sessions (by agentKey) whose every pending card is a question the assistant is still looking at (#544). */
+export function lookingOnly(interactions: readonly Interaction[]): Set<string> {
+  const looking = new Set<string>();
+  const other = new Set<string>();
+  for (const ix of interactions) (isDelegating(ix) ? looking : other).add(agentKey(ix));
+  for (const key of other) looking.delete(key);
+  return looking;
 }
 
 /**
@@ -86,15 +100,18 @@ export const FORGET_CARD_MS = 10 * 60_000;
  * sessions whose transition had no card yet, whose first card follows it (CardEvent.follows). `known` is the card ids
  * seen pending, with when they last were, undefined before the first snapshot (opening the page announces nothing).
  * Quiet tasks' sessions are left out, as detectTransitions does; several new cards for one session make one event, the oldest.
+ * A question the assistant is still looking at is neither announced nor remembered: when it hands the same card to the
+ * user, that is when it arrives.
  */
 export function detectNewCards(known: ReadonlyMap<string, number> | undefined, interactions: readonly Interaction[], was: ReadonlyMap<string, AgentState>, next: ReadonlyMap<string, AgentState>, sessions: readonly Session[], bare: ReadonlySet<string>, now: number): { ids: Map<string, number>; events: CardEvent[] } {
   const ids = new Map<string, number>();
   for (const [id, at] of known ?? []) if (now - at < FORGET_CARD_MS) ids.set(id, at);
-  for (const ix of interactions) ids.set(ix.id, now);
+  const waiting = interactions.filter((ix) => !isDelegating(ix));
+  for (const ix of waiting) ids.set(ix.id, now);
   if (!known) return { ids, events: [] };
   const quiet = new Set(sessions.filter((s) => s.quiet).map(agentKey));
   const first = new Map<string, Interaction>();
-  for (const ix of interactions) {
+  for (const ix of waiting) {
     if (known.has(ix.id)) continue;
     const key = agentKey(ix);
     if (quiet.has(key) || was.get(key) !== "needs_you" || next.get(key) !== "needs_you") continue;

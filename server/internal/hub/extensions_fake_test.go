@@ -270,3 +270,7 @@ func (f *fakeExt) AnswerComputerElicit(context.Context, string, json.RawMessage)
 func (f *fakeExt) RecordNodeSent(context.Context, string, json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
+
+func (f *fakeExt) MailAttachment(context.Context, proto.MailAttachmentRequest) (proto.MailAttachment, error) {
+	return proto.MailAttachment{}, errors.New("mail is not available")
+}

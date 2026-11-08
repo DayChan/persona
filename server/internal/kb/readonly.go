@@ -46,6 +46,9 @@ func OpenReadOnly(dir string) (*Store, error) {
 		if err := f.Close(); err != nil {
 			return err
 		}
+		if entry.Name() == ingestJournal {
+			return errors.New("knowledge archive requires writable ingestion recovery")
+		}
 		return validateArchiveMetadata(dir, path)
 	})
 	if err != nil {

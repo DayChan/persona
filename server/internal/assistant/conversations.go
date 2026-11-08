@@ -354,7 +354,7 @@ func (s *Service) queuedRelays() (map[string][]string, bool) {
 				out[id] = append(out[id], msg.FromTitle+"的通知")
 				continue
 			}
-			if msg.Tool == superviseTool { // the tasks to follow up (supervise.go)
+			if msg.Tool == superviseTool { // the tasks to follow up (supervise_digest.go)
 				out[id] = append(out[id], "督办消息")
 				continue
 			}
@@ -375,7 +375,7 @@ func (s *Service) deliverRelay(ctx context.Context, machine, to string, msg rela
 		return err
 	}
 	if msg.Tool == superviseTool {
-		s.holdPushes(ctx, to) // its answer is not pushed unless it pushes (supervise.go)
+		s.holdPushes(ctx, to) // its answer is not pushed unless it pushes (supervise_digest.go)
 		return nil
 	}
 	if msg.Tool == noticeTool {

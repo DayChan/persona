@@ -36,6 +36,8 @@ TLS_PORT=18662
 #   public.tls_listen  every address of the container: which of the NAS's addresses get it is compose's port mapping
 #   admin.first_setup  "code": in a container any private address counts as LAN, so the first password takes the code
 #   machines  none: the image has no herdr or claude, every computer is added
+#   assistant.mode  service: the built-in manager is a process of its own beside the hub (personad supervise binds
+#                   and runs it), not the hub's child; a hub.json from before keeps its mode
 seed_config() {
   for f in "$DATA/hub.json"; do
     if [ -e "$f" ] || [ -L "$f" ]; then return 0; fi
@@ -43,14 +45,35 @@ seed_config() {
   mkdir -p "$DATA"
   (
     umask 077
-    printf '{\n  "public_url": "",\n  "public": {\n    "tls_listen": ":%s"\n  },\n  "admin": {\n    "first_setup": "code"\n  },\n  "machines": []\n}\n' \
+    printf '{\n  "public_url": "",\n  "public": {\n    "tls_listen": ":%s"\n  },\n  "admin": {\n    "first_setup": "code"\n  },\n  "machines": [],\n  "assistant": {\n    "mode": "service"\n  }\n}\n' \
       "$TLS_PORT" > "$DATA/hub.json.new"
   )
   mv "$DATA/hub.json.new" "$DATA/hub.json"
   echo "first start: wrote hub.json with the defaults for a new hub in a container (TLS on port $TLS_PORT, no" \
-    "computers yet)" >&2
+    "computers yet, the built-in manager a process of its own)" >&2
 }
 
+# Not the hub: an app-made manager (manager …), or the built-in manager in a container of its own (supervise
+# --manager-only): no hub.json written and none of the hub's reminders. --manager-only as Go's flags take it: one or
+# two dashes, a value that strconv.ParseBool reads as true, the last one counting, none after a bare --.
+not_hub=
+case "${1:-}" in
+manager) not_hub=1 ;;
+supervise)
+  for a in "$@"; do
+    case "$a" in
+    --) break ;;
+    --manager-only | -manager-only) not_hub=1 ;;
+    --manager-only=* | -manager-only=*)
+      case "${a#*=}" in
+      1 | t | T | true | TRUE | True) not_hub=1 ;;
+      *) not_hub= ;;
+      esac
+      ;;
+    esac
+  done
+  ;;
+esac
 if [ "$(id -u)" = 0 ]; then
   mkdir -p "$DATA"
   # PUID / PGID unset (.env without them): whoever owns the data folder, as the NAS's file manager made it. A folder
@@ -75,7 +98,7 @@ if [ "$(id -u)" = 0 ]; then
   cat /etc/passwd.new > /etc/passwd && rm -f /etc/passwd.new
   sed -i "s/^persona:x:[0-9]*:[0-9]*:/persona:x:$PUID:$PGID:/" /etc/passwd
   sed -i "s/^persona:x:[0-9]*:/persona:x:$PGID:/" /etc/group
-  [ "${1:-}" = manager ] || seed_config
+  [ -n "$not_hub" ] || seed_config
   # Anything not the hub's (PUID changed, files copied in with sudo) is handed over: a root-owned 0600 hub.json
   # would keep the hub from starting.
   find "$DATA" \( ! -user "$PUID" -o ! -group "$PGID" \) -exec chown -h "$PUID:$PGID" {} +
@@ -87,10 +110,10 @@ else
     echo "warning: running as uid $(id -u), which has no user in the image: PUID / PGID are ignored and ssh will" \
       "not work. Start the container as root (no user:) and set PUID / PGID instead." >&2
   fi
-  [ "${1:-}" = manager ] || seed_config
+  [ -n "$not_hub" ] || seed_config
 fi
 # A manager (docs/assistant/managers.md, "Containers"), not a hub: no hub.json and none of the hub's reminders.
-if [ "${1:-}" = manager ]; then
+if [ -n "$not_hub" ]; then
   exec personad "$@"
 fi
 # How phones reach the hub: nobody said, and the container cannot tell.
@@ -120,4 +143,9 @@ cidrs) [ -n "${PERSONA_ADMIN_CIDRS:-}" ] || echo "warning: PERSONA_ADMIN_ACCESS=
 *) echo "warning: PERSONA_ADMIN_ACCESS=$PERSONA_ADMIN_ACCESS is not loopback, lan, cidrs or any: the admin UI is limited" \
   "to this container until it is fixed" >&2 ;;
 esac
+# The hub (the image's command): under personad supervise, which runs the built-in manager beside it when hub.json
+# says assistant.mode service, each started again when it stops; otherwise it becomes the hub itself, as before.
+if [ "$#" -eq 2 ] && [ "$1" = hub ] && [ "$2" = run ]; then
+  exec personad supervise
+fi
 exec personad "$@"

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseImage(t *testing.T) {
@@ -44,6 +46,68 @@ func TestParseImage(t *testing.T) {
 type imageRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f imageRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestLatestVersionRegistrySchemes(t *testing.T) {
+	for _, tc := range []struct{ registry, scheme string }{
+		{"localhost:5000", "http"},
+		{"127.0.0.1:5000", "http"},
+		{"[::1]:5000", "http"},
+		{"[0:0:0:0:0:0:0:1]:5000", "http"},
+		{"[::1]", "http"},
+		{"[2001:db8::1]:5000", "https"},
+		{"registry.example:5000", "https"},
+		{"localhost.example:5000", "https"},
+		{"127.0.0.2:5000", "https"},
+	} {
+		t.Run(tc.registry, func(t *testing.T) {
+			im, err := ParseImage(tc.registry + "/owner/persona:latest")
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			client := &http.Client{Transport: imageRoundTripper(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.Method != http.MethodGet || r.URL.Scheme != tc.scheme || r.URL.Host != tc.registry ||
+					r.URL.Path != "/v2/owner/persona/tags/list" || r.URL.Query().Get("n") != "1000" {
+					t.Errorf("unexpected tags request: %s %s", r.Method, r.URL)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"tags":["1.2.0","1.3.0"]}`))}, nil
+			})}
+			got, err := LatestVersion(context.Background(), client, im, "")
+			if err != nil || got != "1.3.0" || calls != 1 {
+				t.Fatalf("latest %q, error %v, requests %d", got, err, calls)
+			}
+		})
+	}
+}
+
+func TestLatestVersionIPv6LoopbackRegistry(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback is unavailable: %v", err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/owner/persona/tags/list" || r.URL.Query().Get("n") != "1000" {
+			http.Error(w, "unexpected tags request", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, `{"tags":["1.2.0","1.3.0"]}`)
+	}))
+	srv.Listener.Close()
+	srv.Listener = listener
+	srv.Start()
+	t.Cleanup(srv.Close)
+	im, err := ParseImage(strings.TrimPrefix(srv.URL, "http://") + "/owner/persona:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	got, err := LatestVersion(ctx, srv.Client(), im, "")
+	if err != nil || got != "1.3.0" {
+		t.Fatalf("latest %q, error %v", got, err)
+	}
+}
 
 func TestLatestVersionExplicitDockerHub(t *testing.T) {
 	im, err := ParseImage("docker.io/postgres")

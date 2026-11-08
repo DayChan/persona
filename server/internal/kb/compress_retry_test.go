@@ -3,6 +3,8 @@ package kb
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,5 +118,150 @@ func TestCompressRetryIsCapped(t *testing.T) {
 	got, _ := e.Store.Chat(c.ID)
 	if wait := got.CompressRetryAt.Sub(start); wait < compressRetryMax || wait > compressRetryMax+time.Minute {
 		t.Errorf("next try in %v, want %v", wait, compressRetryMax)
+	}
+}
+
+type compressCallback func(context.Context) error
+
+func (m compressCallback) JSONMax(ctx context.Context, _, _ string, _ int, _ any) error {
+	return m(ctx)
+}
+
+func TestRefusedCompressionKeepsConcurrentMessagesEligible(t *testing.T) {
+	for _, offset := range []time.Duration{0, 30 * time.Second, 2 * time.Minute} {
+		for _, recoverPending := range []bool{false, true} {
+			t.Run(offset.String()+map[bool]string{false: "/committed", true: "/recovery"}[recoverPending], func(t *testing.T) {
+				s, e := replayStore(t)
+				at := time.Now().Add(-time.Hour).Truncate(time.Minute)
+				ingestMessages(t, e, "example", "thread", 1, SourceMessage{ID: "first", At: at, Text: "First synthetic message"})
+				c, _ := s.Chat("example-thread")
+				c.CompressFailures, c.CompressRetryAt = 3, time.Now().Add(time.Hour)
+				if err := s.PutChat(c); err != nil {
+					t.Fatal(err)
+				}
+				second := SourceMessage{ID: "second", At: at.Add(offset), Text: "Second synthetic message"}
+				e.Model = compressCallback(func(ctx context.Context) error {
+					failure := errors.New("synthetic metadata failure")
+					if recoverPending {
+						s.ingestWrite = func(path string, raw []byte) error {
+							if filepath.Base(path) == "meta.json" {
+								return failure
+							}
+							return archiveWrite(path, raw)
+						}
+					}
+					_, err := e.Ingest(ctx, named("example"), SourceChat{ID: "thread"}, []SourceMessage{second})
+					s.ingestWrite = nil
+					if recoverPending && !errors.Is(err, failure) || !recoverPending && err != nil {
+						t.Fatalf("concurrent ingestion: %v", err)
+					}
+					return ai.ErrRefused
+				})
+				if err := e.Compress(context.Background(), c); !errors.Is(err, ai.ErrRefused) {
+					t.Fatalf("refusal: %v", err)
+				}
+				assertArchiveCounts(t, s, c.ID, 2, 2)
+				cur, _ := s.Chat(c.ID)
+				if !cur.CoveredUntil.IsZero() || cur.CompressFailures != 0 || !cur.CompressRetryAt.IsZero() || !cur.CompressedAt.IsZero() || !isDue(e, c.ID, time.Now()) {
+					t.Fatalf("refusal settled or postponed unseen messages: %+v", cur)
+				}
+				s, err := NewStore(s.Dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				model := &fakeModel{}
+				e = &Engine{Store: s, Model: model}
+				if !isDue(e, c.ID, time.Now()) {
+					t.Fatal("unseen messages are not eligible after restart")
+				}
+				if err := e.Compress(context.Background(), cur); err != nil {
+					t.Fatal(err)
+				}
+				assertArchiveCounts(t, s, c.ID, 2, 0)
+				if len(model.calls) == 0 || !strings.Contains(model.calls[0], "First synthetic message") || !strings.Contains(model.calls[0], "Second synthetic message") {
+					t.Fatalf("healthy retry missed messages: %v", model.calls)
+				}
+				ingestMessages(t, e, "example", "thread", 0, second)
+				assertArchiveCounts(t, s, c.ID, 2, 0)
+			})
+		}
+	}
+}
+
+func TestIngestReopensAnAlreadySettledMinute(t *testing.T) {
+	for _, refused := range []bool{false, true} {
+		t.Run(map[bool]string{false: "summary", true: "refusal"}[refused], func(t *testing.T) {
+			s, e := replayStore(t)
+			at := time.Now().Add(-time.Hour).Truncate(time.Minute)
+			ingestMessages(t, e, "example", "thread", 1, SourceMessage{ID: "first", At: at, Text: "Same synthetic text"})
+			e.Model = &failingModel{}
+			if refused {
+				e.Model = &failingModel{err: ai.ErrRefused}
+			}
+			c, _ := s.Chat("example-thread")
+			if err := e.Compress(context.Background(), c); refused && !errors.Is(err, ai.ErrRefused) || !refused && err != nil {
+				t.Fatalf("initial result: %v", err)
+			}
+			cur, _ := s.Chat(c.ID)
+			if cur.Pending != 0 || !cur.CoveredUntil.Equal(at.Add(time.Minute)) || !cur.CompressRetryAt.IsZero() || isDue(e, c.ID, time.Now()) {
+				t.Fatalf("unchanged snapshot was not settled: %+v", cur)
+			}
+			ingestMessages(t, e, "example", "thread", 1, SourceMessage{ID: "second", At: at, Text: "Same synthetic text"})
+			cur, _ = s.Chat(c.ID)
+			if cur.Pending != 1 || cur.CoveredUntil.After(at) || !isDue(e, c.ID, time.Now()) {
+				t.Fatalf("later ID in a settled minute is not eligible: %+v", cur)
+			}
+			model := &fakeModel{}
+			e.Model = model
+			if err := e.Compress(context.Background(), cur); err != nil {
+				t.Fatal(err)
+			}
+			if len(model.calls) == 0 || strings.Count(model.calls[0], "Same synthetic text") != 2 {
+				t.Fatalf("healthy retry did not read the reopened minute: %v", model.calls)
+			}
+			assertArchiveCounts(t, s, c.ID, 2, 0)
+		})
+	}
+}
+
+func TestConcurrentCompressionErrorsKeepExistingRetryPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		cancel  bool
+		backoff bool
+	}{
+		{name: "failure", err: errors.New("synthetic model failure"), backoff: true},
+		{name: "paused", err: &ai.PausedError{Pause: ai.Pause{Reason: ai.ReasonQuota, Until: time.Now().Add(time.Hour)}}},
+		{name: "cancelled", err: context.Canceled, cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, e := replayStore(t)
+			at := time.Now().Add(-time.Hour)
+			ingestMessages(t, e, "example", "thread", 1, SourceMessage{ID: "first", At: at, Text: "First synthetic message"})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			e.Model = compressCallback(func(ctx context.Context) error {
+				if _, err := e.Ingest(ctx, named("example"), SourceChat{ID: "thread"}, []SourceMessage{{ID: "second", At: at, Text: "Second synthetic message"}}); err != nil {
+					return err
+				}
+				if tc.cancel {
+					cancel()
+				}
+				return tc.err
+			})
+			c, _ := s.Chat("example-thread")
+			if err := e.Compress(ctx, c); !errors.Is(err, tc.err) {
+				t.Fatalf("model error changed: %v", err)
+			}
+			assertArchiveCounts(t, s, c.ID, 2, 2)
+			cur, _ := s.Chat(c.ID)
+			if !cur.CoveredUntil.IsZero() || cur.CompressRetryAt.IsZero() == tc.backoff || isDue(e, c.ID, time.Now()) == tc.backoff {
+				t.Fatalf("retry or coverage policy changed: %+v", cur)
+			}
+			if tc.backoff && (cur.CompressFailures != 1 || !isDue(e, c.ID, cur.CompressRetryAt)) || !tc.backoff && cur.CompressFailures != 0 {
+				t.Fatalf("failure policy changed: %+v", cur)
+			}
+		})
 	}
 }

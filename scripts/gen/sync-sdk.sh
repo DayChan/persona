@@ -27,7 +27,7 @@ if [ "$what" = all ] || [ "$what" = ts ]; then
   mkdir -p "$dest/sdk/ts"
   # Keep the declared development commands usable; never copy installed dependencies or build output.
   cp -R "$here/sdk/ts/src" "$here/sdk/ts/scripts" "$here/sdk/ts/typechecks" "$dest/sdk/ts/"
-  cp "$here/sdk/ts/package.json" "$here/sdk/ts/package-lock.json" "$here"/sdk/ts/tsconfig*.json "$dest/sdk/ts/"
+  cp "$here/sdk/ts/package.json" "$here/sdk/ts/package-lock.json" "$here/sdk/ts/README.md" "$here"/sdk/ts/tsconfig*.json "$dest/sdk/ts/"
   # Tests use package-local canonical fixtures; do not overwrite the destination repository's schema.
   mkdir -p "$dest/sdk/ts/fixtures"
   cp "$here"/schema/extension/examples/UIStream*.json "$here/schema/extension/examples/Manifest.custom-contributions.json" "$dest/sdk/ts/fixtures/"

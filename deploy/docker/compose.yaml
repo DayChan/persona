@@ -4,7 +4,10 @@ name: ${PERSONA_COMPOSE_PROJECT:-jarvis}
 
 services:
   hub:
-    image: ${PERSONA_IMAGE-${JARVIS_IMAGE:?set PERSONA_IMAGE in .env}}
+    # PERSONA_IMAGE in .env (or the older JARVIS_IMAGE); with neither, compose stops: the hub has "neither an image
+    # nor a build context". No `:?` inside the default: Compose before 5.0.2 evaluates a default even when its
+    # variable is set, so a check there would fail installs that set only PERSONA_IMAGE.
+    image: ${PERSONA_IMAGE-${JARVIS_IMAGE:-}}
     restart: unless-stopped
     init: true
     depends_on:
@@ -29,6 +32,8 @@ services:
       # Where node builds for the computers' other platforms come from (a release's dl/, a mirror, or off; empty: the
       # image's own, docs/operations/docker.md "Node builds").
       PERSONA_NODE_PACKAGES: ${PERSONA_NODE_PACKAGES:-}
+      # With the built-in manager in a container of its own (the manager service below): this one runs the hub alone.
+      # PERSONA_BUILTIN_MANAGER: separate
     ports:
       - "${PERSONA_PORT-${JARVIS_PORT:-18660}}:18660"
       - "${PERSONA_TLS_PORT-${JARVIS_TLS_PORT:-18662}}:18662"
@@ -39,6 +44,35 @@ services:
       # Optional SSH keys must be mounted at the home used by the selected image.
       # - ~/.ssh:/home/persona/.ssh:ro
       # - ~/.ssh:/home/jarvis/.ssh:ro
+
+  # The built-in manager in a container of its own, from the same image (docs/operations/docker.md "The built-in
+  # manager in a container of its own"). By default it runs beside the hub in the hub's container. To move it here,
+  # uncomment this service and PERSONA_BUILTIN_MANAGER above. hub.json must say "assistant": {"mode": "service"}: new
+  # installs do, and docs/operations/docker.md says how to switch an older one.
+  # manager:
+  #   image: ${PERSONA_IMAGE-${JARVIS_IMAGE:-}}
+  #   restart: unless-stopped
+  #   init: true
+  #   command: ["supervise", "--manager-only", "--hub", "http://hub:18660"]
+  #   depends_on:
+  #     hub:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     disable: true
+  #   environment:
+  #     PUID: ${PUID:-}
+  #     PGID: ${PGID:-}
+  #     TZ: ${TZ:-UTC}
+  #     PERSONA_DATABASE_URL: postgres://${PERSONA_DB_USER:-jarvis}:${PERSONA_DB_PASSWORD-${JARVIS_DB_PASSWORD:-}}@postgres:5432/${PERSONA_DB_NAME:-jarvis}?sslmode=disable
+  #     PERSONA_IMAGE: ${PERSONA_IMAGE-${JARVIS_IMAGE:-}}
+  #     PERSONA_NODE_PACKAGES: ${PERSONA_NODE_PACKAGES:-}
+  #   volumes:
+  #     # The hub's data folder, at both paths the hub's container has it: the built-in manager keeps its files in
+  #     # it as beside the hub, and the paths it writes down are the same ones there.
+  #     - ./data:/home/persona/.persona
+  #     - ./data:/home/jarvis/.jarvis
+  #     # - ~/.ssh:/home/persona/.ssh:ro
+  #     # - ~/.ssh:/home/jarvis/.ssh:ro
 
   postgres:
     image: ${PERSONA_POSTGRES_IMAGE-${JARVIS_POSTGRES_IMAGE:-postgres:18-alpine}}

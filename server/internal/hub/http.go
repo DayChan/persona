@@ -37,142 +37,17 @@ func (h *Hub) routes() http.Handler {
 	if h.upd != nil {
 		h.upd.routes(api)
 	}
-	api.HandleFunc("GET /api/v1/machines", func(w http.ResponseWriter, r *http.Request) {
-		list := h.machineList()
-		if em := extensionManager(r); em != "" { // an extension's token: its manager's machines only
-			list = slices.DeleteFunc(list, func(m proto.Machine) bool { return h.machineOwner(m.ID) != em })
-		}
-		writeJSON(w, map[string]any{"machines": localizedMachines(h.requestLang(r), list)})
-	})
+	h.machineRoutes(api)
 	// Confirm / reject / rename a computer (machine_trust.go, machine_rename.go).
 	h.machineTrustRoutes(api)
 	h.machineRenameRoutes(api)
-	h.deviceRoutesRelayed(api) // the manager's own: reconnect, engine, herdr, deploy, claude-dirs (devices_link.go)
-	api.HandleFunc("GET /api/v1/machines/{mid}/dirs", h.proxy("dirs.list", func(r *http.Request) any {
-		return map[string]any{"path": r.URL.Query().Get("path")}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/file/download", h.withMachine(h.downloadFile))
-	api.HandleFunc("GET /api/v1/machines/{mid}/file/thumb", h.withMachine(h.fileThumb))
-	api.HandleFunc("GET /api/v1/machines/{mid}/file/convert", h.withMachine(h.fileConvert))
-	// stream=1: a binary file comes back described (stream, revision), its bytes from file/download.
-	api.HandleFunc("GET /api/v1/machines/{mid}/file", h.proxy("file.read", func(r *http.Request) any {
-		q := r.URL.Query()
-		return map[string]any{"path": q.Get("path"), "cwd": q.Get("cwd"), "offset": atoi(q.Get("offset")), "stream": q.Get("stream") == "1"}
-	}))
-	// Which of the paths a conversation mentions are there on the machine (?paths=a%0Ab or ?path=a&path=b, and cwd):
-	// the phone links only those.
-	api.HandleFunc("GET /api/v1/machines/{mid}/stat", h.proxy("fs.stat", func(r *http.Request) any {
-		q := r.URL.Query()
-		paths := q["path"]
-		if s := q.Get("paths"); s != "" {
-			paths = append(paths, strings.Split(s, "\n")...)
-		}
-		return map[string]any{"paths": paths, "cwd": q.Get("cwd")}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/fs", h.proxy("fs.list", func(r *http.Request) any {
-		return map[string]any{"path": r.URL.Query().Get("path"), "cwd": r.URL.Query().Get("cwd")}
-	}))
-	// #2438 files-find: every file under cwd (git-aware), for the web palette's file search. Read like /fs: full
-	// credentials only (an answer-only device has no machines/{mid}/ route, routeScopes has no entry for it).
-	api.HandleFunc("GET /api/v1/machines/{mid}/fs/find", h.proxy("fs.find", func(r *http.Request) any {
-		return map[string]any{"cwd": r.URL.Query().Get("cwd"), "limit": atoi(r.URL.Query().Get("limit"))}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/status", h.proxy("git.status", func(r *http.Request) any {
-		return map[string]any{"cwd": r.URL.Query().Get("cwd")}
-	}))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/pull", h.proxyBody("git.pull"))
-	// One version of a file, written into the node's cache for comparing (docs/protocol/protocol.md "File preview").
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/blob", h.proxy("git.blob", func(r *http.Request) any {
-		q := r.URL.Query()
-		return map[string]any{"cwd": q.Get("cwd"), "path": q.Get("path"), "rev": q.Get("rev")}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/diff", h.proxy("git.diff", func(r *http.Request) any {
-		q := r.URL.Query()
-		return map[string]any{"cwd": q.Get("cwd"), "path": q.Get("path"), "staged": q.Get("staged") == "1"}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/show", h.proxy("git.show", func(r *http.Request) any {
-		return map[string]any{"cwd": r.URL.Query().Get("cwd"), "hash": r.URL.Query().Get("hash")}
-	}))
-	// Every file a scope changed with its hunks, for the web's Review panel (gitreview.go, #151).
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/review", h.withMachine(h.gitReview))
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/log", h.proxy("git.log", func(r *http.Request) any {
-		q := r.URL.Query()
-		return map[string]any{"cwd": q.Get("cwd"), "skip": atoi(q.Get("skip")), "limit": atoi(q.Get("limit"))}
-	}))
-	// The Git panel's writes and the branch's pull request (#6121, node gitwrite.go / gitpr.go): each one a click of
-	// the user's that the client confirmed; a commit's hooks and a push may take a while.
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/branches", h.proxy("git.branches", func(r *http.Request) any {
-		return map[string]any{"cwd": r.URL.Query().Get("cwd")}
-	}))
-	api.HandleFunc("GET /api/v1/machines/{mid}/git/pr", h.proxy("git.pr", func(r *http.Request) any {
-		return map[string]any{"cwd": r.URL.Query().Get("cwd")}
-	}))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/stage", h.proxyBody("git.stage"))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/commit", h.proxyBodyFor("git.commit", 5*time.Minute))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/push", h.proxyBodyFor("git.push", 3*time.Minute))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/switch", h.proxyBody("git.switch"))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/stash", h.proxyBody("git.stash"))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/pr", h.proxyBodyFor("git.pr_create", 2*time.Minute))
-	api.HandleFunc("POST /api/v1/machines/{mid}/git/pr/merge", h.proxyBodyFor("git.pr_merge", 3*time.Minute))
-	api.HandleFunc("POST /api/v1/machines/{mid}/files", h.withMachine(h.uploadFile))
-	api.HandleFunc("GET /api/v1/machines/{mid}/claude-settings", h.proxy("claude.settings", func(r *http.Request) any {
-		return map[string]any{"locale": h.requestLang(r)}
-	}))
-	api.HandleFunc("PUT /api/v1/machines/{mid}/claude-settings", h.proxyBody("claude.settings.set"))
-	api.HandleFunc("GET /api/v1/machines/{mid}/codex-settings", h.proxy("codex.settings", nil))
-	api.HandleFunc("PUT /api/v1/machines/{mid}/codex-settings", h.proxyBody("codex.settings.set"))
-	api.HandleFunc("GET /api/v1/machines/{mid}/agy-settings", h.proxy("agy.settings", nil))
-	api.HandleFunc("PUT /api/v1/machines/{mid}/agy-settings", h.proxyBody("agy.settings.set"))
-	api.HandleFunc("GET /api/v1/machines/{mid}/omp-settings", h.proxy("omp.settings", nil))
-	api.HandleFunc("PUT /api/v1/machines/{mid}/omp-settings", h.proxyBody("omp.settings.set"))
-	api.HandleFunc("GET /api/v1/sessions", h.listSessions)
-	api.HandleFunc("POST /api/v1/sessions", h.withClientOp("start", h.startSession))
-	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items", h.withMachine(h.sessionItems))
-	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items/{iid}/image", h.withMachine(h.sessionImage))
-	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items/{iid}/full", h.withMachine(h.sessionItemFull))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/messages", h.withClientOp("message", h.withMachine(h.sendMessage)))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/attach", h.proxyBody("session.attach"))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/interrupt", h.withClientOp("interrupt", h.withMachine(h.interruptSession)))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/keys", h.proxyBody("session.keys"))
-	// #2436: rewind a Claude session to before one of its messages (rewind.go); a full device only, it restores files
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/rewind", h.withClientOp("rewind", h.withMachine(h.rewindSession)))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/fork", h.withClientOp("fork", h.proxyBody("session.fork"))) // "Branch to new chat" (node/fork.go)
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/close", h.withClientOp("close", h.proxyBody("session.close")))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/queue", h.proxyBody("session.queue.edit"))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/queue/send-now", h.proxyBody("session.queue.send_now")) // #6088
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/rename", h.withClientOp("rename", h.withMachine(h.renameSession)))
-	api.HandleFunc("DELETE /api/v1/sessions/{mid}/{sid}", h.withMachine(h.deleteSession))
-	// Model, permission, effort and the independent ultracode switch may each be left out (ultracode.go).
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/modes", h.withClientOp("modes", h.withMachine(h.sessionModes)))
-	api.HandleFunc("POST /api/v1/machines/{mid}/spaces/{wid}/rename", h.withMachine(h.renameSpace))
-	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/info", h.proxy("session.info", func(r *http.Request) any {
-		return map[string]any{"session_id": r.PathValue("sid")}
-	}))
-	api.HandleFunc("POST /api/v1/sessions/{mid}/{sid}/screen/before", paneAddressFullOnly(h.proxyBody("session.screen.before")))
-	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/screen", paneAddressFullOnly(h.proxy("session.screen", func(r *http.Request) any {
-		q := r.URL.Query()
-		return map[string]any{"session_id": r.PathValue("sid"), "lines": atoi(q.Get("lines")), "source": q.Get("source"), "format": q.Get("format")}
-	})))
-	// The terminal browser (docs/integrations/terminal.md "Standalone terminals"): a machine's workspaces, tabs and panes with plain shells, and
-	// "New terminal". A pane is full shell access on the computer: full devices only (paneRoutesFullOnly).
-	api.HandleFunc("GET /api/v1/machines/{mid}/panes", h.proxy("panes.list", nil))
-	api.HandleFunc("POST /api/v1/machines/{mid}/panes", h.withMachine(h.newShell))
-	// close / split / run an agent / git in a pane, close / rename a tab: full devices only (panes.go)
-	api.HandleFunc("POST /api/v1/machines/{mid}/panes/close", h.nodeAction(nodeActions["panes/close"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/panes/split", h.nodeAction(nodeActions["panes/split"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/panes/agent", h.nodeAction(nodeActions["panes/agent"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/panes/git", h.nodeAction(nodeActions["panes/git"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/tabs/close", h.nodeAction(nodeActions["tabs/close"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/tabs/rename", h.nodeAction(nodeActions["tabs/rename"]))
-	// #2429 node self-check (node_doctor.go): the report, and rewriting Persona's own generated files; full devices only
-	api.HandleFunc("GET /api/v1/machines/{mid}/doctor", h.nodeDoctor("node.doctor", 45*time.Second))
-	api.HandleFunc("POST /api/v1/machines/{mid}/doctor/fix", h.nodeDoctor("node.doctor.fix", 60*time.Second))
-	// #2431 "New worktree…": what the dialog starts from, and the worktree (full devices only, panes.go)
-	api.HandleFunc("POST /api/v1/machines/{mid}/worktree/prepare", h.nodeAction(nodeActions["worktree/prepare"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/worktree/create", h.nodeAction(nodeActions["worktree/create"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/worktree/add", h.nodeAction(nodeActions["worktree/add"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/worktree/status", h.nodeAction(nodeActions["worktree/status"]))
-	api.HandleFunc("POST /api/v1/machines/{mid}/worktree/remove", h.nodeAction(nodeActions["worktree/remove"]))
+	h.deviceRoutesRelayed(api) // the manager's own: reconnect, engine, herdr, deploy, claude-dirs (devices_routes.go)
+	h.fileRoutes(api)
+	h.gitRoutes(api)
+	h.agentSettingsRoutes(api)
+	h.sessionRoutes(api)
+	h.paneRoutes(api)
+	h.nodeDoctorRoutes(api)
 	api.HandleFunc("GET /api/v1/interactions", func(w http.ResponseWriter, r *http.Request) {
 		ixs := visibleInteractions(h.pendingInteractions(), h.requestHasElicitation(r))
 		if em := extensionManager(r); em != "" { // an extension's token: its manager's cards only
@@ -182,63 +57,17 @@ func (h *Hub) routes() http.Handler {
 	})
 	api.HandleFunc("GET /api/v1/ops/{id}", h.getClientOp)
 	h.fleetRoutesRelayed(api) // resolve, history, seen: the manager's (fleet_link.go)
-	api.HandleFunc("POST /api/v1/devices", func(w http.ResponseWriter, r *http.Request) {
-		var d Device
-		if err := decodeJSONBody(w, r, &d, 16<<10); err != nil || d.DeviceID == "" {
-			writeBodyErr(w, err, errors.New("device_id is required"))
-			return
-		}
-		// Both name the device token that registered it: credential_id picks the phone a tool call or wake goes to,
-		// credential stops the pushes when it is revoked (Pusher.signedOut).
-		d.Locale = string(i18n.Resolve(d.Locale)) // its pushes' language; "" (an older app) is the user's
-		d.CredentialID = principalOf(r.Context()).ID
-		d.Credential = d.CredentialID
-		if err := h.push.register(d); err != nil {
-			writeErr(w, http.StatusServiceUnavailable, i18n.Err("http-status.unavailable"))
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if route, ok := h.push.routeOfID(d.DeviceID); ok {
-			resp["push"] = route // the app's Settings › Notifications says which way, or why none (#5998)
-		}
-		writeJSON(w, resp)
-	})
+	h.deviceRoutes(api)
 	h.pushRoutes(api)
 	h.live.routes(api)
-	h.metricsRoutesRelayed(api) // the monitoring is the manager's (devices_link.go)
-	api.HandleFunc("GET /api/v1/devices/{id}/sessions", h.serveDeviceSessions)
+	h.metricsRoutesRelayed(api) // the monitoring is the manager's (devices_routes.go)
 	h.lockTestRoutes(api)
-	// Which pushes this device wants (notify.go NotifyPrefs); the app's Settings › Notifications.
-	api.HandleFunc("GET /api/v1/devices/{id}/prefs", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, h.prefsView(h.push.prefs(r.PathValue("id"))))
-	})
-	api.HandleFunc("PUT /api/v1/devices/{id}/prefs", func(w http.ResponseWriter, r *http.Request) {
-		prefs := h.push.prefs(r.PathValue("id"))
-		if err := decodeJSONBody(w, r, &prefs, 16<<10); err != nil {
-			writeBodyErr(w, err, err)
-			return
-		}
-		if err := prefs.Quiet.validate(); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		// only the roster's managers: a removed one's id would hold one of the 64 places for good (notify.go)
-		prefs.MutedManagers = h.rosterManagers(r.Context(), prefs.MutedManagers)
-		raw, _ := json.Marshal(prefs)
-		prefs = devicePrefs(raw) // normalizes an unknown "done"
-		if err := h.push.setPrefsBy(r.PathValue("id"), principalOf(r.Context()).ID, prefs); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		h.live.settingsChanged()
-		writeJSON(w, h.prefsView(prefs))
-	})
 	h.assistantRoutes(api)
 	h.pinRoutes(api)
 	h.notifyRoutes(api)
 	h.personaRoutes(api)
 	h.lookRoutes(api)
-	// usage windows (#2432): the manager's (devices_link.go)
+	// usage windows (#2432): the manager's (devices_routes.go)
 	h.usageRoutesRelayed(api)
 	h.inboxRoutesRelayed(api)
 	// the extensions', connectors', bots', mail's, Cua's and ego's: the manager's (extensions_link.go)
@@ -607,8 +436,14 @@ func (h *Hub) proxy(method string, params func(*http.Request) any) http.HandlerF
 // fetches each one from sessionImage when it scrolls into view); older apps still get them inline.
 func (h *Hub) sessionItems(w http.ResponseWriter, r *http.Request, m *Machine) {
 	q := r.URL.Query()
-	params := map[string]any{"session_id": r.PathValue("sid"), "before_seq": atoi(q.Get("before_seq")), "limit": atoi(q.Get("limit")),
-		"turns": atoi(q.Get("turns"))}
+	params := map[string]any{"session_id": r.PathValue("sid")}
+	// Only the paging the app gave: one it left out or sent empty (iOS's latest page has before_seq=) is not 0 to a
+	// runtime, which may take before_seq 0 as a bad value and refuse every page, and the app's sync then asks again.
+	for _, k := range []string{"before_seq", "limit", "turns"} {
+		if v := q.Get(k); v != "" {
+			params[k] = atoi(v)
+		}
+	}
 	if q.Has("after_seq") { // what came after the app's newest item (background sync); has_more is meaningless here
 		params["after_seq"] = atoi(q.Get("after_seq"))
 	}

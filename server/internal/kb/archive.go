@@ -2,12 +2,14 @@ package kb
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/kbwire"
@@ -60,13 +62,20 @@ type Engine struct {
 	PagesPerChat int // pages read per chat and run (10)
 	// AttachmentDays: attachments of older messages are not downloaded (they would be pruned anyway; 30).
 	AttachmentDays int
+	// AttachmentDaysBySource: AttachmentDays for the chats of one source (kb.attachment_days_by_source), e.g. years
+	// for a chat source whose history is imported with its images; non-positive values are ignored.
+	AttachmentDaysBySource map[string]int
 	// TextDays: older messages are not written at all (365). Prune deletes such days, and anything that wrote them
-	// again (a chat's first page, a mailbox's first read, backfill) would bring them back after every prune.
+	// again (a chat's first page, a mailbox's first read, imported history) would bring them back after every prune.
 	TextDays int
 
-	failed int // attachment downloads that failed this run (logged once per chat)
+	// failed: attachment downloads that failed this run (logged once per chat); atomic, as a history import
+	// (WriteHistory) may download while the archive runs.
+	failed atomic.Int32
 
 	find findCache // what Find read last time, kept while the files are unchanged (find.go)
+
+	projectRetries map[string]projectRetry // projects whose rewrite failed, by slug (RefreshProjects)
 }
 
 func (e *Engine) modelFor(id string) Model {
@@ -103,10 +112,19 @@ func (e *Engine) textCutoff() time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, zone)
 }
 
-// Prune deletes message days past TextDays and attachment days past AttachmentDays: the same days textCutoff
-// stops writing.
+// AttachmentDaysFor is how many days the attachments of a source's chats are kept: its AttachmentDaysBySource,
+// else AttachmentDays (30).
+func (e *Engine) AttachmentDaysFor(source string) int {
+	if d := e.AttachmentDaysBySource[source]; d > 0 {
+		return d
+	}
+	return or(e.AttachmentDays, 30)
+}
+
+// Prune deletes message days past TextDays and attachment days past each chat's AttachmentDaysFor: the same days
+// textCutoff and line stop writing.
 func (e *Engine) Prune(now time.Time) int {
-	return e.Store.Prune(now, or(e.TextDays, 365), or(e.AttachmentDays, 30))
+	return e.Store.PruneBySource(now, or(e.TextDays, 365), e.AttachmentDaysFor)
 }
 
 // ChatID is the knowledge-base id of a source chat.
@@ -128,10 +146,10 @@ func (e *Engine) Archive(ctx context.Context) ([]string, error) {
 			if ctx.Err() != nil {
 				return changed, ctx.Err()
 			}
-			e.failed = 0
+			e.failed.Store(0)
 			n, err := e.archiveChat(ctx, src, sc)
-			if e.failed > 0 {
-				e.logf("%s: %d attachment(s) not downloaded", sc.Name, e.failed)
+			if n := e.failed.Load(); n > 0 {
+				e.logf("%s: %d attachment(s) not downloaded", sc.Name, n)
 			}
 			if err != nil {
 				e.logf("archive %s %s: %v", src.Name(), sc.ID, err)
@@ -187,7 +205,7 @@ func (e *Engine) archiveChat(ctx context.Context, src Source, sc SourceChat) (in
 			if m.Position != "" && m.Position == cursor || c.Messages > 0 && !m.At.After(c.LastAt) || m.At.Before(cut) {
 				continue
 			}
-			l := e.line(ctx, src, c, m)
+			l := e.line(ctx, src.Download, c, m)
 			if l.Text == "" {
 				continue
 			}
@@ -221,28 +239,61 @@ func (e *Engine) archiveChat(ctx context.Context, src Source, sc SourceChat) (in
 	return total, e.saveArchived(c, cursor, total, sc.UpdatedAt)
 }
 
-// saveArchived records how far a chat's archive got: the cursor to go on from and the n lines written.
+// saveArchived records how far a chat's archive got: the cursor to go on from and the n lines written. c is the copy
+// the run started from and changed as it read; the chat is read again under chatMu and gets only what the run owns
+// (name, kind, cursor, LastAt, the owner's part, the people it noted, the counters), so what a history import or a
+// compression wrote meanwhile stays. c gets the chat as written.
 func (e *Engine) saveArchived(c *Chat, cursor string, n int, listed time.Time) error {
-	c.Cursor = cursor
-	c.Messages += n
-	c.Pending += n
-	if c.LastAt.IsZero() {
-		c.LastAt = listed
-	}
-	if err := e.Store.PutChat(c); err != nil {
+	e.Store.chatMu.Lock()
+	defer e.Store.chatMu.Unlock()
+	if err := e.Store.recoverIngest(c.ID); err != nil {
 		return err
 	}
+	cur, ok := e.Store.Chat(c.ID)
+	if !ok {
+		cur = c
+		cur.Messages, cur.Pending = 0, 0
+	} else {
+		cur.Name, cur.Kind = c.Name, c.Kind
+		cur.Mine = cur.Mine || c.Mine
+		for _, p := range c.People {
+			cur.People = addUnique(cur.People, p)
+		}
+		if c.LastAt.After(cur.LastAt) {
+			cur.LastAt = c.LastAt
+		}
+	}
+	cur.Cursor = cursor
+	cur.Messages += n
+	cur.Pending += n
+	if cur.LastAt.IsZero() {
+		cur.LastAt = listed
+	}
+	if err := e.Store.PutChat(cur); err != nil {
+		return err
+	}
+	*c = *cur
 	e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
 	return nil
 }
 
 var docLink = regexp.MustCompile(`https?://[\w.-]+\.(?:feishu\.cn|larksuite\.com|larkoffice\.com)/(?:docx|docs|wiki|sheets|base|mindnotes|slides)/[A-Za-z0-9]+`)
 
-// line turns a message into an archive line; images and files are saved under attachments/<day>/.
-func (e *Engine) line(ctx context.Context, src Source, c *Chat, m SourceMessage) Line {
+// DownloadFunc saves one media path of a message to dst (Source.Download, or a connector's attachments).
+type DownloadFunc func(ctx context.Context, media, dst string) error
+
+// line turns a message into an archive line; images and files are saved under attachments/<day>/ while the message
+// is within its source's attachment days (AttachmentDaysFor). download nil: none are.
+func (e *Engine) line(ctx context.Context, download DownloadFunc, c *Chat, m SourceMessage) Line {
+	return e.buildLine(ctx, download, c, m, false)
+}
+
+// buildLine is line; history (WriteHistory) downloads images only, writes a placeholder naming the kind of any other
+// attachment, and notes no documents (imported history is archive only: nothing for the model to tag).
+func (e *Engine) buildLine(ctx context.Context, download DownloadFunc, c *Chat, m SourceMessage, history bool) Line {
 	sender := m.SenderName
 	if m.Mine {
-		sender = "我"
+		sender = "我" // i18n-ignore: archive data
 	}
 	if sender == "" {
 		sender = "?"
@@ -252,27 +303,84 @@ func (e *Engine) line(ctx context.Context, src Source, c *Chat, m SourceMessage)
 		return Line{}
 	}
 	day := m.At.In(e.Store.Zone()).Format("2006-01-02")
-	if time.Since(m.At) > time.Duration(or(e.AttachmentDays, 30))*24*time.Hour {
+	recent := time.Since(m.At) <= time.Duration(e.AttachmentDaysFor(c.Source))*24*time.Hour
+	if history {
+		image := isImage(m.Type)
+		if !image && len(m.Media) == 0 && text == "" {
+			if p := mediaPlaceholder(m.Type); p != attachmentPlaceholder {
+				text = p // a voice message or video that came without its media reference
+			}
+		}
+		for i, media := range m.Media {
+			if !image {
+				text += " " + mediaPlaceholder(m.Type)
+				continue
+			}
+			text += " " + e.attach(ctx, download, c, m, i, media, day, recent)
+		}
+		return Line{At: m.At, Sender: sender, Text: strings.TrimSpace(text)}
+	}
+	if !recent {
 		if len(m.Media) > 0 {
-			text += " [附件]"
+			text += " " + attachmentPlaceholder
 		}
 		return Line{At: m.At, Sender: sender, Text: strings.TrimSpace(text)}
 	}
 	for i, media := range m.Media {
-		name := fmt.Sprintf("%s-%d%s", SafeID(m.ID), i, extOf(media, m.Type))
-		dst := e.Store.path(KindChat, c.ID, "attachments", day, name)
-		if err := src.Download(ctx, media, dst); err != nil {
-			e.failed++
-			text += " [附件]"
-			continue
-		}
-		rel, _ := filepath.Rel(e.Store.path(KindChat, c.ID), dst)
-		text += fmt.Sprintf(" [附件](%s)", rel)
+		text += " " + e.attach(ctx, download, c, m, i, media, day, true)
 	}
 	for _, u := range docLink.FindAllString(text, 5) {
 		e.noteDoc(u, c.ID, m.At)
 	}
 	return Line{At: m.At, Sender: sender, Text: text}
+}
+
+// attachmentPlaceholder stands for an attachment that is not saved (too old, not downloaded, or failed).
+const attachmentPlaceholder = "[附件]" // i18n-ignore: archive data
+
+// attach saves a message's i-th media under attachments/<day>/messages/ and returns the link the line gets, or the
+// placeholder when it is not saved.
+func (e *Engine) attach(ctx context.Context, download DownloadFunc, c *Chat, m SourceMessage, i int, media, day string, recent bool) string {
+	if !recent || download == nil {
+		return attachmentPlaceholder
+	}
+	name := attachmentName(m.ID, i, media, m.Type)
+	dst := e.Store.path(KindChat, c.ID, "attachments", day, "messages", name)
+	if err := download(ctx, media, dst); err != nil {
+		e.failed.Add(1)
+		return attachmentPlaceholder
+	}
+	rel, _ := filepath.Rel(e.Store.path(KindChat, c.ID), dst)
+	return fmt.Sprintf("%s(%s)", attachmentPlaceholder, rel)
+}
+
+// A filename must keep the raw identity, including punctuation, case and long
+// suffixes. Lowercase full hashes stay distinct on case-insensitive filesystems.
+// Missing IDs have no replay identity: give each delivery's attachment its own
+// name instead of overwriting the previous anonymous message's file. Existing
+// links and files keep their names; no legacy filename is reused or rewritten.
+func attachmentName(id string, i int, media, typ string) string {
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
+	if id == "" {
+		key = "anonymous-" + strings.ToLower(rand.Text())
+	}
+	return fmt.Sprintf("message-%s-%d%s", key, i, extOf(media, typ))
+}
+
+// isImage: a message whose media are pictures (a rich-text post's are its inline images).
+func isImage(typ string) bool { return typ == "IMAGE" || typ == "POST" }
+
+// mediaPlaceholder names the kind of an attachment imported history does not download.
+func mediaPlaceholder(typ string) string {
+	switch typ {
+	case "VIDEO", "MEDIA":
+		return "[视频]" // i18n-ignore: archive data
+	case "FILE":
+		return "[文件]" // i18n-ignore: archive data
+	case "AUDIO", "VOICE":
+		return "[语音]" // i18n-ignore: archive data
+	}
+	return attachmentPlaceholder
 }
 
 func extOf(media, typ string) string {
@@ -330,108 +438,4 @@ func (e *Engine) noteDoc(u, chatID string, at time.Time) {
 		return
 	}
 	_ = e.Store.PutItem(&Item{Kind: KindDoc, ID: id, URL: u, At: at, Where: chatID, Seen: time.Now().UTC()})
-}
-
-// Backfiller is a source that can read a chat backwards (history older than the first archive run).
-type Backfiller interface {
-	// Older returns messages before position before ("" = the newest page), oldest first, and the cursor to go further back.
-	Older(ctx context.Context, chat SourceChat, before string, limit int) (msgs []SourceMessage, older string, more bool, err error)
-}
-
-// Backfill reads older history of the most relevant chats into their day files, back to the text retention:
-// at most chats per run, pages per chat. The new lines are only archived (searchable), not compressed again.
-func (e *Engine) Backfill(ctx context.Context, chats, pages int) (int, error) {
-	limit := e.textCutoff()
-	// Only chats of a source that can go back (not mail's, not a connector's archive): the others would take the
-	// run's places and never be backfilled.
-	backfills := map[string]bool{}
-	for _, s := range e.Sources {
-		if _, ok := s.(Backfiller); ok {
-			backfills[s.Name()] = true
-		}
-	}
-	var todo []*Chat
-	for _, c := range e.Store.Chats() {
-		if !c.BackfillDone && backfills[c.Source] {
-			todo = append(todo, c)
-		}
-	}
-	sort.SliceStable(todo, func(i, j int) bool { return todo[i].Relevance > todo[j].Relevance })
-	total := 0
-	for i, c := range todo {
-		if i >= chats || ctx.Err() != nil {
-			break
-		}
-		var src Backfiller
-		var name string
-		for _, s := range e.Sources {
-			if b, ok := s.(Backfiller); ok && s.Name() == c.Source {
-				src, name = b, s.Name()
-			}
-		}
-		if src == nil {
-			continue
-		}
-		sc := SourceChat{ID: c.SourceID, Name: c.Name, Kind: c.Kind}
-		first := e.Store.FirstAt(c.ID)
-		cursor := c.Oldest
-		for page := 0; page < pages; page++ {
-			msgs, older, more, err := src.Older(ctx, sc, cursor, 100)
-			if err != nil {
-				e.logf("backfill %s: %v", c.Name, err)
-				c.BackfillDone = true // do not retry every run; the recent text is there
-				break
-			}
-			var lines []Line
-			reached := false
-			for _, m := range msgs {
-				if m.At.Before(limit) {
-					reached = true
-					continue
-				}
-				// Only what is older than the oldest archived line (minute precision: equal minutes are already there).
-				if !first.IsZero() && !m.At.Before(first.Truncate(time.Minute)) {
-					continue
-				}
-				if l := e.line(ctx, sourceOf(e.Sources, name), c, m); l.Text != "" {
-					lines = append(lines, l)
-					e.notePerson(c, name, m)
-				}
-			}
-			if err := e.Store.PrependMessages(c, lines); err != nil {
-				return total, err
-			}
-			if len(lines) > 0 {
-				first = lines[0].At
-				for _, l := range lines {
-					if l.At.Before(first) {
-						first = l.At
-					}
-				}
-			}
-			total += len(lines)
-			c.Messages += len(lines)
-			if older != "" {
-				cursor = older
-			}
-			if reached || !more || older == "" {
-				c.BackfillDone = true
-				break
-			}
-		}
-		c.Oldest = cursor
-		if err := e.Store.PutChat(c); err != nil {
-			return total, err
-		}
-	}
-	return total, nil
-}
-
-func sourceOf(list []Source, name string) Source {
-	for _, s := range list {
-		if s.Name() == name {
-			return s
-		}
-	}
-	return nil
 }

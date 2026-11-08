@@ -1,8 +1,10 @@
 // One knowledge entry (/kb/<kind>/<id>): its tile, name, badges, one line and tags, "Ask Persona"; then the places a
 // search found, the Agents on a project, the timeline, the profile, Moments, related entries by kind, code directories,
 // a chat's last 7 days and the folder (docs/apple/ios.md "Information architecture", knowledge base). "Tag" in the header.
-import { useEffect, useState } from "react";
-import { api, enc, errorText, isAbort } from "../../lib/api";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { api, credentialOwner, enc, errorText, getToken, isAbort, subscribeCredentialOwner } from "../../lib/api";
+import { defaultManager, MANAGER_HEADER, useKnownDefault } from "../../lib/manager-choice";
+import { ConfirmedFacts } from "./ConfirmedFacts";
 import { ago, sessionPreview, sessionTitle, shortPath, stateOf, tabLabel } from "../../lib/format";
 import {
   agentPreset,
@@ -14,6 +16,7 @@ import {
   formatAt,
   hitView,
   importanceTone,
+  isKind,
   kindTitle,
   linkGroups,
   parseMessageLine,
@@ -66,16 +69,7 @@ export function EmptyDetail() {
   );
 }
 
-export function EntryDetail({
-  kind,
-  id,
-  query,
-  reloadKey,
-  onToggleSidebar,
-  onBack,
-  onOpen,
-  onSaved,
-}: {
+type EntryDetailProps = {
   kind: string;
   id: string;
   /** Opened from a search: the places it was found come first. */
@@ -85,7 +79,20 @@ export function EntryDetail({
   onBack: () => void;
   onOpen: (e: KBEntry) => void;
   onSaved: () => void;
-}) {
+};
+
+export function EntryDetail(props: EntryDetailProps) {
+  const owner = useSyncExternalStore(subscribeCredentialOwner, credentialOwner, credentialOwner);
+  const manager = useKnownDefault();
+  if (!manager || !getToken()) return <Loading />;
+  // Retained detail and editors belong to the requested route and owner, including the default manager.
+  return <OwnedEntryDetail key={JSON.stringify([props.kind, props.id, owner, manager])} {...props} owner={owner} manager={manager} />;
+}
+
+function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack, onOpen, onSaved, owner, manager }: EntryDetailProps & { owner: string; manager: string }) {
+  const [token] = useState(getToken);
+  const current = useCallback(() => credentialOwner() === owner && defaultManager() === manager, [owner, manager]);
+  const request = useRef(0);
   const [resp, setResp] = useState<KBDetailResponse | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -99,19 +106,36 @@ export function EntryDetail({
   const [day, setDay] = useState<{ day: string; focus?: number; query?: string } | null>(null);
   const [moment, setMoment] = useState<KBMomentRef | null>(null);
 
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const version = ++request.current;
+    const valid = () => current() && version === request.current && !signal?.aborted;
+    try {
+      const r = await api<KBDetailResponse>(`/kb/${enc(kind)}/${enc(id)}${query ? `?q=${enc(query)}` : ""}`, {
+        signal, token, tokenOwner: owner, headers: { [MANAGER_HEADER]: manager },
+      });
+      if (!valid()) return false;
+      // The server canonicalizes source IDs (including recording UUID case); the request owns this response.
+      if (r.detail.kind !== kind) throw new Error(t("knowledge-confirmedfacts.entry_changed"));
+      remember(r.detail.links ?? []);
+      setResp(r);
+      setError("");
+      return true;
+    } catch (err) {
+      if (!valid()) return false;
+      if (!isAbort(err)) setError(errorText(err));
+      throw err;
+    }
+  }, [kind, id, query, token, owner, manager, current]);
+
   useEffect(() => {
     setError("");
     const ac = new AbortController();
-    api<KBDetailResponse>(`/kb/${enc(kind)}/${enc(id)}${query ? `?q=${enc(query)}` : ""}`, { signal: ac.signal })
-      .then((r) => {
-        remember(r.detail.links ?? []);
-        setResp(r);
-      })
-      .catch((e) => !isAbort(e) && setError(errorText(e)));
-    return () => ac.abort();
-  }, [kind, id, query, reloadKey, retry]);
+    void load(ac.signal).catch(() => {});
+    return () => { ac.abort(); request.current++; };
+  }, [load, reloadKey, retry]);
 
   const d = resp?.detail;
+
   const base = known(kind, id);
   const e: KBEntry = d ? entryFromDetail(base, d) : (base ?? { kind, id, name: id, relevance: 0 });
   const status = statusLabel(projectInfo(e)?.status);
@@ -268,6 +292,16 @@ export function EntryDetail({
                   </Card>
                 </section>
               )}
+
+              {isKind(kind) && <ConfirmedFacts
+                kind={kind}
+                id={id}
+                value={typeof d.meta?.pinned === "string" ? d.meta.pinned : ""}
+                auth={{ token, tokenOwner: owner, headers: { [MANAGER_HEADER]: manager } }}
+                current={current}
+                refresh={load}
+                onSaved={onSaved}
+              />}
 
               {prof && (
                 <section>

@@ -2,7 +2,7 @@ package persona.platform.notify
 
 import android.app.Application
 import android.content.Context
-import androidx.work.Configuration
+import androidx.work.testing.WorkManagerTestInitHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,7 +31,7 @@ import persona.core.contracts.api.*
 /** Returning to the app is explicit foreground intent, unlike a background service restart. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = ForegroundRecoveryTestApplication::class)
+@Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.LEGACY)
 class ForegroundRecoveryRegressionTest {
     private lateinit var app: Application
@@ -41,11 +41,16 @@ class ForegroundRecoveryRegressionTest {
         Dispatchers.setMain(StandardTestDispatcher())
         app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("notify_recovery", Context.MODE_PRIVATE).edit().clear().commit()
+        // Resuming schedules the watchdog. The test WorkManager runs its tasks, queries and workers on the calling thread,
+        // so none of them outlives the test: leftover SQLite work breaks the next class's Robolectric sandbox
+        // (docs/lessons/android.md, "Testing").
+        WorkManagerTestInitHelper.initializeTestWorkManager(app)
     }
 
     @After fun cleanup() {
         scopes.forEach { it.cancel() }
         Dispatchers.resetMain()
+        WorkManagerTestInitHelper.closeWorkDatabase()
     }
 
     @Test fun deliberatelyReturningToThePairedAppClearsThePauseAndStartsItsResidentService() {
@@ -133,8 +138,4 @@ class ForegroundRecoveryRegressionTest {
         for (owner in listOf(notifier, fleet, runtime)) scopes += ReflectionHelpers.getField<CoroutineScope>(owner, "scope")
         return runtime
     }
-}
-
-class ForegroundRecoveryTestApplication : Application(), Configuration.Provider {
-    override val workManagerConfiguration: Configuration = Configuration.Builder().build()
 }

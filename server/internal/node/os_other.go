@@ -17,6 +17,17 @@ func scanOrcaProcsOS() (map[string][]orcaProc, error) { return nil, errors.New("
 
 func scanClaudeProcessesOS() map[int]procEnv { return map[int]procEnv{} }
 
+// scanCodexProcessesOS and scanOpenRolloutsOS are Windows' (codex_procs_windows.go); macOS and Linux use ps, lsof and
+// /proc.
+func scanCodexProcessesOS() ([]codexProcess, bool) { return nil, false }
+
+func scanOpenRolloutsOS([]codexProcess) (map[int][]string, bool) { return nil, false }
+
+// codexStartProgram: a launcher off Windows is run as it is (codex_procs_windows.go).
+func codexStartProgram(path string, _ bool, env []string) (string, []string, error) {
+	return path, env, nil
+}
+
 // loginShellProgram is the interactive shell loginShell runs scripts in: zsh, so ~/.zshrc functions and PATH are
 // there, else bash. A user whose login shell is bash and who has no ~/.zshrc gets bash even where zsh is installed
 // (a Linux server with zsh around but everything in ~/.bashrc), so ~/.bashrc's launchers and PATH are there.

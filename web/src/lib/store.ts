@@ -20,6 +20,7 @@ import { timeMs } from "./times";
 import { NO_PINS, pinsOf, type AgentPins } from "./pins";
 import type { AssistantInfo, Interaction, Item, Machine, MeshHub, Session } from "./types";
 import type { Resolution } from "./answered";
+import { answersIn, type DelegatedAnswer, type Reanswer } from "./delegate";
 import type { AgentLaunch } from "./new-agent";
 import { isSpacesSupported, type Todo } from "./todos";
 import { releaseAttachments } from "./attachments";
@@ -68,6 +69,11 @@ export interface State {
   interactions: Interaction[];
   /** Cards this page just answered, by interaction id: shown answered (with the picks) for a moment, not clickable. */
   answered: Record<string, AnsweredCard>;
+  /** Questions the assistant answered for the user while this page watched, by interaction id: shown in their chat,
+   *  with "Change answer", until closed (lib/delegate.ts). */
+  delegated: Record<string, DelegatedAnswer>;
+  /** What the user changed a delegated answer to, by interaction id (interaction_reanswered or this page's own). */
+  reanswered: Record<string, Reanswer>;
   assistant: AssistantInfo | null;
   assistantError: string | null;
   mutes: AgentMutes;
@@ -98,6 +104,8 @@ let state: State = {
   seen: {},
   interactions: [],
   answered: {},
+  delegated: {},
+  reanswered: {},
   assistant: null,
   assistantError: null,
   mutes: { spaces: [], sessions: [], allowed: [] },
@@ -652,8 +660,12 @@ function onMessage(msg: Record<string, unknown>) {
       changeInteraction((msg.interaction as Interaction).id, msg.interaction as Interaction);
       break;
     case "interaction_resolved":
+      if (msg.answered_by === "assistant") answeredForUser(msg);
       changeInteraction(msg.id as string, null);
       cardWithdrawn(msg.id as string);
+      break;
+    case "interaction_reanswered":
+      noteReanswer(msg.id as string, answersIn((msg.resolution as { answers?: unknown } | undefined)?.answers));
       break;
     case "items": {
       const e = msg as unknown as ItemsEvent;
@@ -875,6 +887,49 @@ export function dropAnswered(id: string, only?: AnsweredCard) {
   const answered = { ...state.answered };
   delete answered[id];
   set({ answered });
+}
+
+/** interaction_resolved with answered_by "assistant": the card it answered (the page had it pending, or just answered
+ *  it too and lost) stays in its chat with what the assistant answered and why; a card the page never saw is the
+ *  session history's to show. */
+function answeredForUser(msg: Record<string, unknown>) {
+  const id = msg.id as string;
+  const ix = state.interactions.find((i) => i.id === id) ?? state.answered[id]?.ix;
+  if (ix) keepDelegated(ix, msg);
+}
+
+// Delegated answers kept in their chats at most, the oldest put away first: a tab left open for days on many agents.
+const DELEGATED_KEPT = 50;
+
+/** A question the assistant answered for the user (`r`: its answers and reason, from interaction_resolved or from the
+ *  hub's reply to this page's own answer that came second): it leaves the pending cards and stays in its chat. This
+ *  page's own answer lost, so its "Answered" card goes. */
+export function keepDelegated(ix: Interaction, r: Record<string, unknown>) {
+  if (ix.kind !== "question") return;
+  changeInteraction(ix.id, null);
+  const answered = { ...state.answered };
+  delete answered[ix.id];
+  const card: DelegatedAnswer = state.delegated[ix.id] ?? { ix, answers: answersIn(r.answers), reason: typeof r.reason === "string" ? r.reason : "", at: Date.now() };
+  const delegated = { ...state.delegated, [ix.id]: card };
+  const ids = Object.keys(delegated);
+  for (const old of ids.slice(0, Math.max(0, ids.length - DELEGATED_KEPT))) delete delegated[old];
+  set({ delegated, answered });
+}
+
+/** The user changed a delegated answer (interaction_reanswered, or this page's own POST …/reanswer once it went). The
+ *  hub sends only the questions that changed: an earlier change to another question of the card stays. */
+export function noteReanswer(id: string, answers: Record<string, string>) {
+  if (!id || !Object.keys(answers).length) return;
+  const before = state.reanswered[id]?.answers;
+  set({ reanswered: { ...state.reanswered, [id]: { answers: { ...before, ...answers }, at: Date.now() } } });
+}
+
+/** Closes a delegated answer's card in its chat; what was changed stays for the session's history. */
+export function dropDelegated(id: string) {
+  if (!state.delegated[id]) return;
+  const delegated = { ...state.delegated };
+  delete delegated[id];
+  set({ delegated });
 }
 
 // Every request for a list the page keeps whole (/todos, /assistant), numbered: an answer to a request sent before the
@@ -1211,6 +1266,8 @@ export function reset() {
     seen: {},
     interactions: [],
     answered: {},
+    delegated: {},
+    reanswered: {},
     assistant: null,
     assistantError: null,
     launches: {},

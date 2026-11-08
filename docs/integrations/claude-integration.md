@@ -23,7 +23,7 @@ Node's `session.start`:
    This marker exists only in node memory; after node restart, herdr state is shown.
    The first message was not made a `claude` argument: launchers may be zsh functions / aliases / `personad launch`, with inconsistent argument forwarding. Variable-length options such as `--allowedTools` can swallow later positional arguments, and long messages would enter the shell command line. Transcript verification works for every launcher.
 
-For Persona-started sessions, node state records the launcher. Manually started Claude sessions using launcher functions have no such record; inference uses `matchLauncher` in `server/internal/node/sessions.go`. Every 30 seconds, node scans running Claude processes' environment variables (also `CLAUDE_CONFIG_DIR` in the same scan, see `claudedirs.go`; only processes owned by node's user; Linux shares one `/proc` traversal with Codex discovery, see `userprocs.go`), records `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`, and maps to sessions through `sessions/<pid>.json`. Match the launcher list (`_claude_launchers` functions and aliases calling claude):
+For Persona-started sessions, node state records the launcher. Manually started Claude sessions using launcher functions have no such record; inference uses `matchLauncher` in `server/internal/node/launchers.go`. Every 30 seconds, node scans running Claude processes' environment variables (also `CLAUDE_CONFIG_DIR` in the same scan, see `claudedirs.go`; only processes owned by node's user; Linux shares one `/proc` traversal with Codex discovery, see `userprocs.go`), records `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`, and maps to sessions through `sessions/<pid>.json`. Match the launcher list (`_claude_launchers` functions and aliases calling claude):
 if exactly one launcher matches both base URL and model, use it; otherwise, if exactly one launcher has that base URL (runtime-selected model, displayed as `(claude-choose)`), use it too.
 Leave other cases blank (multiple launchers share a base URL with no model match, or no base URL), without guessing between candidates. Listing sessions does not wait for the launcher list, which requires a login shell: use cache, refresh expired cache in background. The first list after node startup may therefore lack inferred launchers.
 
@@ -296,7 +296,7 @@ For subscribed working / blocked sessions, node runs `pane read --source visible
 
 ## Headless assistant (Chat tab)
 
-Assistant does not enter herdr: node directly launches `zsh -ic '<launcher> "$@"' -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --session-id|--resume <id> --plugin-dir ~/.persona/assistant-hooks --mcp-config …` (`node/assistant.go`, tested 2026-10-25; hooks are plugins as above, plus a Lark Bash gate; older Claude gets `--settings ~/.persona/assistant-settings.json`):
+Assistant does not enter herdr: node directly launches `zsh -ic '<launcher> "$@"' -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --session-id|--resume <id> --plugin-dir ~/.persona/assistant-hooks --mcp-config …` (`node/assistant_start.go`, tested 2026-10-25; hooks are plugins as above, plus a Lark Bash gate; older Claude gets `--settings ~/.persona/assistant-settings.json`):
 
 - One process supports consecutive turns through stdin, one `{"type":"user","message":{…}}` per line, images as base64 image blocks.
 - `stream_event` `content_block_delta/text_delta` supplies word-by-word output → WS delta; result ends the turn. Structured messages still read from transcript.
@@ -307,7 +307,7 @@ Assistant does not enter herdr: node directly launches `zsh -ic '<launcher> "$@"
 - Interrupt: no stdin interrupt in -p; terminate process, resume next message.
 - First user content in headless transcript is a block array; without ai-title, first sentence becomes title.
 
-## Background tasks (trackBackground in `transcript.go`, tested 2026-10-25)
+## Background tasks (trackBackground in `transcript/background.go`, tested 2026-10-25)
 
 - Start: Bash `run_in_background:true` result is `Command running in background with ID: <id>. Output is being written to: <path>.`; async Agent result `Async agent launched … agentId: <id>`; timed-out foreground commands become `…moved to the background (ID: <id>)`.
 - End: `<task-notification><task-id>…</task-id><status>completed|failed|killed</status><summary>…</summary></task-notification>`, in queue-operation enqueue (**not user input, never in queue list**), `queued_command` attachment (commandMode=task-notification, absorbed mid-turn), or idle user message. `TaskStop` / `KillShell` also end tasks.
@@ -389,8 +389,8 @@ Blocked-without-fallback wording currently follows the model-service-error path 
 
 - Chat: iOS `Views/Chat/APIErrorCard.swift`, web `web/src/lib/api-errors.ts`, Android `core/domain/.../lines/ApiErrors.kt` recognize `API Error:` prefix. Unknown status code becomes Model Request Failed; transient not false offers Retry, sending `继续` (“Continue”, `ChatView.swift`). Unchanged context likely gets blocked again.
 - Manager: `assistant/fleet.go` `turnError` uses `assistantwire.CutOff` / `APIErrorMarkers` to classify last sentence as TurnError. Push (`hub/machine.go`) is “⚠️ Title” + “Interrupted by a Model Service Error: <original text>”.
-- Tasks: receipt `state: "interrupted"`, summary Interrupted by a Model Service Error (`assistant/tasks.go`, `assistantwire.InterruptedSummary`); Continue card sends `继续` (“Continue”, `continueTask`); main-chat `prompts/assistant/task_notice.md` says interrupted by model service error.
-- Task-manager triage (`assistant/agents_work.go` `triageRules`): `transientError` → `WaitTransient`; Auto Continue **automatically sends `继续` (“Continue”)**, at most maxRetries. Otherwise Model Service Error, Needs Your Attention card. Whether refusal text contains `transientError` keywords (upstream, network, `api_error`…) is unverified. **If so, blocked messages are currently automatically retried**; the first PR must prevent this (Verification Pending below).
+- Tasks: receipt `state: "interrupted"`, summary Interrupted by a Model Service Error (`assistant/tasks_follow.go`, `assistantwire.InterruptedSummary`); Continue card sends `继续` (“Continue”, `continueTask` in `tasks_start.go`); main-chat `prompts/assistant/task_notice.md` says interrupted by model service error.
+- Task-manager triage (`assistant/agents_work_turns.go` `triageRules`): `transientError` → `WaitTransient`; Auto Continue **automatically sends `继续` (“Continue”)**, at most maxRetries. Otherwise Model Service Error, Needs Your Attention card. Whether refusal text contains `transientError` keywords (upstream, network, `api_error`…) is unverified. **If so, blocked messages are currently automatically retried**; the first PR must prevent this (Verification Pending below).
 - Scheduled tasks / follow-ups (`assistant/schedule.go` `watchScheduledRun`): `lastTurnAPIError` matches final sentence by `APIErrorMarkers` prefixes. Synthetic reply beginning API Error **always** matches, regardless of keywords. Run recorded failed, push Scheduled Task Failed: <original>, **same prompt rerun after 3 minutes** (`docs/assistant/assistant.md`, “Failures and retries”). This automatic resend definitely exists and must also be prevented in first PR.
 - To-do task cards: web `web/src/lib/todos.ts` `interruptedAgent` / `interruption()` (`views/assistant/Tasks.tsx`), Android `Tasks.kt` `Interruption.of` and `Models.kt` `Session.interrupted` derive Interrupted from session.turn_error. Unrecognized `parseAPIError` gives Model Request Failed; `canContinue` true offers Continue. Clients currently ignore turn_error_kind.
 
@@ -405,7 +405,7 @@ Local Claude Code 2.1.310 binary lacks `model_refusal_*` / `CLAUDE_CODE_DISABLE_
 - Clearing `TurnError`: Claude currently does not set `Meta.TurnError`; hub infers from `LastText`, naturally cleared by later replies. New `TurnErrorKind = "refusal"` must follow Codex's `task_started` clearing: **clear `TurnError` / `TurnErrorKind` on next real user message or nonsynthetic assistant reply**. Otherwise refusal row still in fast-meta tail makes successful rephrased turns push Blocked, retain triage cards, and leave tasks Interrupted.
 - Unknown model_refusal-prefixed subtypes or missing model / category: always show notice with original content, or “Claude's Safety Checks Handled This Message (Persona Cannot Identify the Details)” if absent; leave `refusal.outcome` empty. Unknown categories display raw value; cyber → Cybersecurity, others initially raw.
 - Session: add `proto.Session` `model_fallback` `{from, to, category, scope, at}` only when latest fallback has `scope: "session"` and latest assistant still uses to. User `/model` switch removes it. Track in incremental scanning with `bgScan`, without extra file reads.
-- Item-structure change requires iOS `ChatCache` directory version bump (currently `chats-v8`; use latest master version at implementation), per docs/lessons/transcript.md. Update hub golden and `../protocol/protocol.md` Item / Session field tables together.
+- Item-structure change requires iOS `ChatCache` directory version bump (currently `chats-v8`; use the latest version on `main` at implementation), per docs/lessons/transcript.md. Update hub golden and `../protocol/protocol.md` Item / Session field tables together.
 
 ### Client wording
 
@@ -439,7 +439,7 @@ Variable injection when disabled:
 
 - Herdr pane: prepend `CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1 ` to pane run command and herdr `resume_argv` (`claudeCommandLine` in `node/herdrresume.go`). Most launchers are shell functions; env cannot run functions. Assignment + function forwards the variable to launched Claude in zsh / bash; fish differs, as in report-only hooks above. Verify each.
 - Managed launchers: `managedEnv` in `node/managed.go`, like `CLAUDE_CODE_DISABLE_ARTIFACT`; personad launch carries it.
-- Headless assistant: `cmd.Env` in node/assistant.go.
+- Headless assistant: `cmd.Env` in node/assistant_start.go.
 - User-started computer sessions are untouched, display only. Setting changes affect only subsequently started / resumed processes; explain in UI.
 
 ### Multi-Agent collaboration

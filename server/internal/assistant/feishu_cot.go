@@ -18,7 +18,7 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// New turns show in the progress card (feishu.go): an agent message can show neither the elapsed time nor what runs
+// New turns show in the progress card (feishu_turn.go): an agent message can show neither the elapsed time nor what runs
 // now, and only came once a tool call did. A run that already has one (made before this version) still shows a turn
 // as an agent message (feishubot's message_cot): its process (thinking, what the conversation says between its tool
 // calls, the calls and their output) added as it goes, finished when the turn ends; the answer then goes out as a

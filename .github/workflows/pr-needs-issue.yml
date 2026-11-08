@@ -3,26 +3,29 @@
 # explaining the rule and is closed; when the author edits the description to add a link, the next run reopens it.
 # Pull requests from bot accounts (dependabot …) are exempt.
 #
-# Security: pull_request_target runs this file as it is on the default branch, with a write token. It only reads the
-# PR's metadata through the API: it never checks out or runs the PR's code, and the PR's text never goes through
-# ${{ }} (the script reads it as data from the API).
+# Manual issue-link enforcement. Only dispatch from the default branch with a write token.
+# It reads PR metadata through the API, never checks out PR code, and treats PR text as data.
 #
 # Test: node scripts/test/pr_needs_issue_test.mjs runs the script below against sample PR descriptions and flows.
 name: pr needs issue
 
 on:
-  pull_request_target:
-    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number to check (may close a PR without an issue link)'
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: pr-needs-issue-${{ github.event.pull_request.number }}
+  group: pr-needs-issue-${{ inputs.pr_number }}
   cancel-in-progress: false
 
 jobs:
   check:
-    if: github.event.pull_request.user.type != 'Bot'
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -74,7 +77,8 @@ jobs:
             }
 
             const { owner, repo } = context.repo;
-            const number = context.payload.pull_request.number;
+            const number = Number(context.payload.inputs.pr_number);
+            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('pr_number must be a positive integer');
             // Read the PR again: a later edit may already have changed what the event carried.
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
             if (pr.user.type === 'Bot' || pr.user.login.endsWith('[bot]')) {

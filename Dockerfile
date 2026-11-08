@@ -117,4 +117,6 @@ EXPOSE 18660 18662
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
   CMD wget -qO- http://127.0.0.1:18660/api/v1/health >/dev/null || exit 1
 ENTRYPOINT ["persona-entrypoint"]
+# The entrypoint runs `hub run` under personad supervise: the built-in manager beside the hub when hub.json says
+# assistant.mode service (new installs), each started again on its own; otherwise the hub alone, as before.
 CMD ["hub", "run"]

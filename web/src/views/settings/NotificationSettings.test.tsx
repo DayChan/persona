@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Pending = { method: string; json?: unknown; resolve: (v: unknown) => void; reject: (e: unknown) => void };
 const pending: Pending[] = [];
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (original) => ({
+  ...(await original<typeof import("../../lib/api")>()),
   api: (_path: string, init?: { method?: string; json?: unknown }) =>
     new Promise((resolve, reject) => pending.push({ method: init?.method ?? "GET", json: init?.json, resolve, reject })),
   enc: encodeURIComponent,
@@ -17,6 +18,7 @@ const toast = vi.fn();
 vi.mock("../../ui/atoms", async (orig) => ({ ...(await orig<typeof import("../../ui/atoms")>()), toast: (...a: unknown[]) => toast(...a) }));
 
 const { NotificationSettings } = await import("./NotificationSettings");
+const { setToken } = await import("../../lib/api");
 
 let root: Root;
 let host: HTMLDivElement;
@@ -32,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  setToken("");
   vi.unstubAllGlobals();
 });
 
@@ -75,6 +78,20 @@ describe("设置 › 通知", () => {
     await fail(1, new Error("500"));
     expect(inputSwitch().getAttribute("aria-checked")).toBe("true");
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("没保存上"), "error");
+  });
+
+  it("does not show a failed-save toast from a retired login", async () => {
+    setToken("test-token-a");
+    await render();
+    await answer(0, { input: true, done: "long" });
+    await act(async () => inputSwitch().click());
+    await act(async () => setToken("test-token-b"));
+    expect(toast).not.toHaveBeenCalled();
+    expect(inputSwitch()).toBeUndefined();
+    await answer(2, { input: true, done: "off" });
+    await answer(1, { input: false, done: "long" });
+    expect(toast).not.toHaveBeenCalled();
+    expect(inputSwitch().getAttribute("aria-checked")).toBe("true");
   });
 
   it("浏览器拒绝了：开关关着、点不了，并说去哪改", async () => {

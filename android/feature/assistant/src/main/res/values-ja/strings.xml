@@ -137,4 +137,5 @@
     <string name="assistant_settings_permission_auto">自動</string>
     <string name="assistant_settings_permission_full">フルアクセス</string>
     <string name="assistant_settings_permission_failed">デフォルトの権限を保存できませんでした</string>
+    <string name="assistant_settings_permission_unavailable">このアシスタントがデフォルト権限への対応を確認できるまで変更できません。他の設定は引き続き使えます。</string>
 </resources>

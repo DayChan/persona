@@ -34,5 +34,6 @@
   "suggested_agent": "管理者建议派个 Agent",
   "suggested_handback": "管理者给了建议，等你拿主意",
   "confirmed_agent": "你确认了，开了 Agent",
-  "failed_agent": "Agent 没有开起来"
+  "failed_agent": "Agent 没有开起来",
+  "handed_main": "交给了 Persona 主对话"
 }

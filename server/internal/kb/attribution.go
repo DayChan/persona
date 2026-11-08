@@ -391,20 +391,36 @@ func (e *Engine) claim(kind, id string, u Update, by string, evidence []Evidence
 
 // editTagging changes the tagging fields of an entity's metadata in place (other fields as they are on disk); it
 // writes and notifies only when edit says it changed something and the file differs.
-func (s *Store) editTagging(kind, id string, edit func(*Tagging) bool) error {
+func (s *Store) editTagging(kind, id string, edit func(*Tagging) bool) (err error) {
 	s.metaMu.Lock()
+	if kind == KindChat {
+		s.mu.Lock()
+	}
+	changed := false
+	defer func() {
+		if kind == KindChat {
+			s.mu.Unlock()
+		}
+		s.metaMu.Unlock()
+		if err == nil && changed {
+			s.notify(kind, id, "metadata")
+		}
+	}()
+	if kind == KindChat {
+		if err := s.pendingIngestLocked(id); err != nil {
+			return err
+		}
+	}
 	path := s.entityPath(kind, id)
 	current := map[string]json.RawMessage{}
 	exists, err := readJSON(path, &current)
 	if err != nil || !exists {
-		s.metaMu.Unlock()
 		return err
 	}
 	var t Tagging
 	raw, _ := json.Marshal(current)
 	_ = json.Unmarshal(raw, &t)
 	if !edit(&t) {
-		s.metaMu.Unlock()
 		return nil
 	}
 	next := map[string]json.RawMessage{}
@@ -425,13 +441,9 @@ func (s *Store) editTagging(kind, id string, edit func(*Tagging) bool) error {
 	set("provenance", t.Provenance, len(t.Provenance) == 0)
 	before, _ := json.Marshal(current)
 	after, _ := json.Marshal(next)
-	changed := !bytes.Equal(before, after)
+	changed = !bytes.Equal(before, after)
 	if changed {
 		err = writeJSON(path, next)
-	}
-	s.metaMu.Unlock()
-	if err == nil && changed {
-		s.notify(kind, id, "metadata")
 	}
 	return err
 }

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +45,12 @@ type answerFixture struct {
 
 func answerFixtureRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "../../.."))
+	// go test runs in the package directory; runtime.Caller is not usable under -trimpath.
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(filepath.Join(wd, "../../.."))
 }
 
 func answerFixtures(t *testing.T, domain string) []answerFixture {

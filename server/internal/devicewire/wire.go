@@ -158,7 +158,8 @@ type Config struct {
 	// Machines are hub.json's machines (and those the admin page added since), each the JSON hub.json has.
 	Machines []json.RawMessage `json:"machines"`
 	// MachinesOwn: the manager's own list (its manager.json) is the list, and the hub relays its edits
-	// (devices.machines.*). Machines is then taken over only the first time, as the manager's own.
+	// (devices.machines.*). Machines is then taken over only the first time, as the manager's own; once its report says
+	// it holds that list (States.OwnList), the hub hands none (null).
 	MachinesOwn bool `json:"machines_own,omitempty"`
 	// HubID, HubName, HubVersion: the hub's; a node of another build than HubVersion is flagged (and redeployed).
 	HubID      string `json:"hub_id"`

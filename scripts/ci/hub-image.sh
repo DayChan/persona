@@ -19,7 +19,8 @@ fi
 version="${CI_IMAGE_VERSION:-dev}"
 image="persona-hub:ci"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/persona-ci-image.XXXXXX")"
-export COMPOSE_PROJECT_NAME="persona-ci-$(basename "$fixture" | tr '[:upper:]' '[:lower:]')"
+# A compose project name takes only lowercase letters, digits, "-" and "_": the folder's "." (and any other) becomes "-".
+export COMPOSE_PROJECT_NAME="persona-ci-$(basename "$fixture" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n-' '-')"
 cleanup() {
   local status=$?
   if [ -f "$fixture/.env" ]; then
@@ -46,7 +47,7 @@ for sock in sockets:
 print(*(sock.getsockname()[1] for sock in sockets))
 PY
 )
-printf 'PERSONA_IMAGE=%s\nPERSONA_PORT=127.0.0.1:%s\nPERSONA_TLS_PORT=127.0.0.1:%s\nPERSONA_PUBLIC_URL=http://127.0.0.1:%s\nPUID=%s\nPGID=%s\n' \
+printf 'PERSONA_IMAGE=%s\nPERSONA_ADMIN_ACCESS=loopback\nPERSONA_PORT=127.0.0.1:%s\nPERSONA_TLS_PORT=127.0.0.1:%s\nPERSONA_PUBLIC_URL=http://127.0.0.1:%s\nPUID=%s\nPGID=%s\n' \
   "$image" "$port" "$tls_port" "$port" "$(id -u)" "$(id -g)" > "$fixture/.env"
 export CI_IMAGE_VERSION="$version" CI_IMAGE_FIXTURE="$fixture" CI_IMAGE_PORT="$port" CI_IMAGE_TLS_PORT="$tls_port"
 ci_run 'Compose hub smoke' 300 bash "$CI_ROOT/scripts/ci/image-smoke.sh"

@@ -29,6 +29,7 @@ data class AssistantConfig(
     /** Stable owner returned by hubs supporting per-assistant settings. */
     val manager: String? = null,
     @SerialName("default_permission_mode") val defaultPermissionMode: String? = null,
+    @SerialName("permission_defaults") val permissionDefaults: AssistantPermissionDefaults? = null,
 )
 
 /**
@@ -48,5 +49,20 @@ data class AssistantConfigUpdate(
 ) {
     companion object {
         const val CLEAR_MAIN = "-"
+    }
+}
+
+/** Manager-owned contract for scoped persistence and future-session inheritance; absent on older managers. */
+@Serializable
+data class AssistantPermissionDefaults(
+    val version: Int = 0,
+    val manager: String = "",
+    val modes: List<String> = emptyList(),
+) {
+    fun supports(owner: String?): Boolean = !owner.isNullOrBlank() && manager == owner && version == 1 &&
+        modes.containsAll(MODES)
+
+    companion object {
+        val MODES = listOf("default", "acceptEdits", "plan", "auto", "bypassPermissions")
     }
 }

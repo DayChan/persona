@@ -66,7 +66,7 @@ async function run(state) {
   const context = {
     repo: { owner: OWNER, repo: REPO },
     serverUrl: 'https://github.com',
-    payload: { pull_request: { number: pr.number }, repository: { default_branch: 'master' } },
+    payload: { inputs: { pr_number: String(pr.number) }, repository: { default_branch: 'main' } },
   };
   const core = { info: (m) => logs.push(m), warning: (m) => logs.push(`warning: ${m}`) };
   await script(github, context, core);

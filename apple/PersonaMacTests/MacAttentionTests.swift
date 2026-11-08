@@ -250,4 +250,24 @@ struct MacAttentionTests {
         #expect(MacAttention.identifier(session("a", .needsYou), .needsYou) == "m/a#needs_you")
         #expect(MacAttention.identifier(other) == "interaction/g2|ix1")
     }
+
+    /// A question the assistant is still looking at (#544) neither banners nor flips the agent to Needs You; the same
+    /// card handed to the user arrives then, once.
+    @Test func aCardTheAssistantIsLookingAtIsNoNewsUntilHandedOver() throws {
+        var looking = try interaction("q", kind: "question")
+        looking.delegating = true
+        var handed = looking
+        handed.delegating = nil
+        #expect(cards([], [looking]).isEmpty)
+        #expect(cards([looking], [handed]) == ["q"])
+        #expect(cards([handed], [handed]).isEmpty)
+
+        let perm = try interaction("p", session: "b")
+        #expect(MacAttention.lookingOnly([looking, perm]) == [SessionKey(machineID: "m", sessionID: "a")])
+        #expect(MacAttention.lookingOnly([looking, try interaction("p2")]).isEmpty, "another card of its own still waits on you")
+        let flip = MacAttention.transitions(old: [session("a", .working)], new: [session("a", .needsYou)], open: nil, appActive: false,
+                                            prefs: NotifyPrefs(done: .always), now: now,
+                                            looking: MacAttention.lookingOnly([looking]), muted: { _ in false })
+        #expect(flip.isEmpty)
+    }
 }

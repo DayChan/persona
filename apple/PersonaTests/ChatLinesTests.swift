@@ -349,6 +349,44 @@ struct ChatLinesTests {
         #expect(ChatLines.placeFailed(lines, [close]).rest == [close])
     }
 
+    /// While the list is frozen (the user reads history) the unsent messages stay where they were drawn when the freeze
+    /// began (#1243): a failed one before its line, not at the newest end where every one used to go (it showed up under
+    /// the newest messages while the list was pulled, and went back on release). One resent from there (a new id) stays
+    /// there; one that failed during the freeze, or whose line is not drawn now, waits at the end.
+    @Test func aFrozenListKeepsFailedMessagesInPlace() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        func at(_ seq: Int, role: String, text: String, _ s: TimeInterval) -> Item {
+            var i = item(seq, .text, role: role, text: text)
+            i.ts = t0.addingTimeInterval(s)
+            return i
+        }
+        let lines = ChatLines(openWork: []).build(blocks([
+            at(1, role: "user", text: "first", 0), at(2, role: "assistant", text: "done", 1),
+            at(3, role: "user", text: "second", 300), at(4, role: "assistant", text: "done again", 301),
+        ]), live: nil)
+        let failed = PendingMessage(text: "lost", images: [], state: .failed, createdAt: t0.addingTimeInterval(50))
+        let sending = PendingMessage(text: "on its way", images: [], state: .sending, createdAt: t0.addingTimeInterval(900))
+        // As the freeze began: the failed one before the next message, the other at the end.
+        let at = ChatLines.failedLines(ChatLines.placeFailed(lines, [failed, sending]).before)
+        #expect(at == [ChatLines.frozenKey(failed): "3#0"])
+        let frozen = ChatLines.placeFrozen(lines, [sending, failed], at: at)
+        #expect(frozen.before == ["3#0": [failed]])
+        #expect(frozen.rest == [sending])
+        // Resent from where it sat: a new id, the same place.
+        var resent = failed
+        resent.id = UUID()
+        resent.state = .sending
+        #expect(ChatLines.placeFrozen(lines, [resent], at: at).before == ["3#0": [resent]])
+        // The other one failed while the list was frozen: it waits where it was drawn, at the end.
+        var nowFailed = sending
+        nowFailed.state = .failed
+        #expect(ChatLines.placeFrozen(lines, [failed, nowFailed], at: at).rest == [nowFailed])
+        // Its line is not drawn now (a page that went away): at the end rather than nowhere.
+        #expect(ChatLines.placeFrozen(Array(lines.prefix(2)), [failed], at: at).rest == [failed])
+        // Nothing failed when it froze: all at the end, in the order they were written.
+        #expect(ChatLines.placeFrozen(lines, [sending, failed], at: [:]).rest == [failed, sending])
+    }
+
     /// A message this phone sent before the failed one but the agent took in later (queued): its copy is written then,
     /// yet it was written first, and the phone's own time says so.
     @Test func aQueuedMessageSentEarlierStaysAbove() {

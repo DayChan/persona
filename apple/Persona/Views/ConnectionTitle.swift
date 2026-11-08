@@ -133,8 +133,8 @@ struct ConnectionDetails: View {
         .sheet(isPresented: $pairing) { PairView() }
     }
 
-    /// The hub-level group's tunnel, when its hub has one: the in-app one while it carries the traffic, else the
-    /// SSH one, else the in-app one.
+    /// The hub-level group's tunnel, when its hub has one: the in-app one or the local proxy while it carries the
+    /// traffic, else the SSH one, else the in-app one, else the local proxy.
     private var sshFact: SSHFact? {
         guard let group = model.hub?.group else { return nil }
         let inApp: SSHFact? = model.inAppTunnelState(group).map { t in
@@ -143,7 +143,13 @@ struct ConnectionDetails: View {
             return SSHFact(server: "", routed: t.routed, problem: problem, inApp: t.route.title)
         }
         if inApp?.routed == true { return inApp }
-        guard let t = model.tunnel(group) else { return inApp }
+        let proxy: SSHFact? = model.localProxyState(group).map { t in
+            var problem: String?
+            if case .down(let why) = t.state { problem = why }
+            return SSHFact(server: "", routed: t.routed, problem: problem, inApp: String(localized: "Local Proxy"))
+        }
+        if proxy?.routed == true { return proxy }
+        guard let t = model.tunnel(group) else { return inApp ?? proxy }
         var problem: String?
         if case .down(let why) = t.state { problem = why }
         return SSHFact(server: t.hub.ssh?.label ?? "", routed: t.routed, problem: problem)
@@ -175,7 +181,8 @@ struct ConnectionDetails: View {
         var server: String
         var routed: Bool
         var problem: String?
-        /// The in-app tunnel's name when it is that one (docs/operations/network.md「经 App 内隧道连 hub」), not the SSH one.
+        /// The way's name when it is not the SSH tunnel: the in-app tunnel's
+        /// (docs/operations/network.md「经 App 内隧道连 hub」), or Local Proxy.
         var inApp: String?
     }
 

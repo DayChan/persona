@@ -325,7 +325,7 @@ func TestSetupNewInstall(t *testing.T) {
 	if !strings.Contains(string(socket), "ListenStream="+strconv.Itoa(port)+"\nListenStream="+lan+":18662\n") || !strings.Contains(string(socket), "FreeBind=true") {
 		t.Fatalf("socket unit:\n%s", socket)
 	}
-	for _, c := range []string{"systemctl --user daemon-reload", "systemctl --user enable personad", "systemctl --user enable personad.socket", "systemctl --user start personad"} {
+	for _, c := range []string{"systemctl --user daemon-reload", "systemctl --user enable personad", "systemctl --user stop personad.socket personad", "systemctl --user enable personad.socket", "systemctl --user start personad.socket", "systemctl --user start personad"} {
 		if !cmds.called(c) {
 			t.Fatalf("no %q in %v", c, cmds.calls)
 		}

@@ -31,6 +31,7 @@ class AndroidUpdateLiveTest {
         require(base.isHttps && base.username.isEmpty() && base.password.isEmpty() && base.query == null && base.fragment == null) {
             "Live update probe requires a credential-free HTTPS origin"
         }
+        var stage = "initialization"
         val previousProxy = ProxySelector.getDefault()
         try {
             System.getenv("PERSONA_ANDROID_UPDATE_PROXY")?.takeIf { it.isNotBlank() }?.let {
@@ -51,6 +52,7 @@ class AndroidUpdateLiveTest {
                 System.getenv("PERSONA_ANDROID_UPDATE_FINGERPRINT")?.takeIf { it.isNotBlank() },
                 listOf(base.toString()), "android-update-live-probe",
             ).use { client ->
+                stage = "metadata"
                 val update = requireNotNull(client.checkUpdate(token!!)) { "No published Android update" }
                 assertEquals("Published version differs", expectedVersion, update.versionCode)
                 assertEquals("Metadata hash differs", checksum.lowercase(), update.sha256?.lowercase())
@@ -60,6 +62,7 @@ class AndroidUpdateLiveTest {
                     override fun write(value: Int) { bytes++ }
                     override fun write(buffer: ByteArray, offset: Int, length: Int) { bytes += length }
                 }
+                stage = "download"
                 DigestOutputStream(counter, digest).use { client.download(token, update, it) }
                 assertTrue("APK response is empty", bytes > 0)
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
@@ -68,7 +71,11 @@ class AndroidUpdateLiveTest {
             }
         } catch (error: Exception) {
             // Remote bodies or exception URLs must never place credentials into a test report.
-            throw AssertionError("Live update probe failed (${error.javaClass.simpleName}); inspect Hub access logs securely")
+            val causes = generateSequence(error as Throwable) { it.cause }.take(8)
+                .joinToString(" -> ") { it.javaClass.simpleName }
+            val failure = error as? HubFailure
+            throw AssertionError("Live update probe failed: stage=$stage kind=${failure?.kind} " +
+                "status=${failure?.status} causes=$causes")
         } finally {
             ProxySelector.setDefault(previousProxy)
         }

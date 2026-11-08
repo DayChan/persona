@@ -8,7 +8,7 @@ import (
 
 // What the hub opens on a node through the manager — a stream (a forwarded port's: port.dial, a plugin program's:
 // plugin.node.dial), a terminal it watches (terminal.watch) — is the hub's as long as the bus connection it came on lasts: the hub ends its side when a new
-// connection says hello (hub/devices_link.go devicesConnected), and a hub that restarted has none of it. The manager
+// connection says hello (hub/devices_reports.go devicesConnected), and a hub that restarted has none of it. The manager
 // ends the node's side then (Hello), as the node itself would when its own connection to the hub ended; else a
 // terminal would go on streaming and a port's connection stay open on the computer with nobody at the other end.
 

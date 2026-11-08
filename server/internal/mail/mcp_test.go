@@ -30,7 +30,7 @@ func TestMCPTools(t *testing.T) {
 			t.Errorf("tool %s schema type = %v", tool.Name, schema["type"])
 		}
 	}
-	for _, want := range []string{ToolAccounts, ToolSearch, ToolRead, ToolSend} {
+	for _, want := range []string{ToolAccounts, ToolSearch, ToolRead, ToolSaveAttachment, ToolSend} {
 		if !names[want] {
 			t.Errorf("tool %s is missing", want)
 		}
@@ -243,6 +243,15 @@ func TestSendSaysTheMessageID(t *testing.T) {
 	}
 	if res, id := s.CallRef(ctx, ToolAccounts, nil, nil); res.IsError || id != "" {
 		t.Fatalf("another tool: %+v %q", res, id)
+	}
+}
+
+// The hub has no folder of the agent's to save into: the node on the agent's machine answers mail_save_attachment.
+func TestMCPSaveAttachmentNotOnHub(t *testing.T) {
+	s := newServiceWithAccount(t, newTestIMAP(t))
+	res := s.Call(context.Background(), ToolSaveAttachment, json.RawMessage(`{"account_id":"acc_test","uid":1,"attachment_id":"x"}`), nil)
+	if !res.IsError || !strings.Contains(resultText(t, res), "not available here") {
+		t.Errorf("mail_save_attachment on the hub = %+v", res)
 	}
 }
 

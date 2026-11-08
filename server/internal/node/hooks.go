@@ -177,9 +177,11 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 		var res struct {
 			Tools []proto.Tool `json:"tools"`
 		}
+		// The assistant's only when the node says so too (clicall.go mcpSession).
+		session, assistant := n.mcpSession(c, req)
 		// A guest's (its MCP server says so, or this node knows it is one): the hub gives it only its own tools.
-		guest := req.Guest || n.guestOf(req.SessionID) != nil
-		if err := n.peer.Call(ctx, "mcp.tools", map[string]any{"assistant": req.Assistant, "session_id": req.SessionID, "guest": guest}, &res); err != nil {
+		guest := req.Guest || n.guestOf(session) != nil
+		if err := n.peer.Call(ctx, "mcp.tools", map[string]any{"assistant": assistant, "session_id": session, "guest": guest}, &res); err != nil {
 			resp = map[string]any{"tools": []proto.Tool{}, "error": err.Error()}
 		} else {
 			resp = res
@@ -188,9 +190,14 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 		resp = n.cliCall(ctx, c, req)
 	case "mcp.call":
 		var res proto.ToolResult
-		sid := n.mcpCaller(req.Name, req.SessionID, req.Pane, req.Assistant)
+		session, assistant := n.mcpSession(c, req)
+		sid := n.mcpCaller(req.Name, session, req.Pane, assistant)
+		if req.Name == toolMailSaveAttachment { // writes on this machine (mailattachment.go)
+			resp = n.saveMailAttachment(ctx, req.Args, sid, assistant, req.Guest || n.guestOf(sid) != nil)
+			break
+		}
 		if err := n.peer.Call(ctx, "mcp.call", map[string]any{"name": req.Name, "args": req.Args, "session_id": sid,
-			"assistant": req.Assistant, "guest": req.Guest || n.guestOf(sid) != nil}, &res); err != nil {
+			"assistant": assistant, "guest": req.Guest || n.guestOf(sid) != nil}, &res); err != nil {
 			res = proto.TextResult("Persona hub error: "+err.Error(), true)
 		}
 		resp = res
@@ -481,10 +488,7 @@ func (n *Node) rememberTranscript(in hookInput) {
 	if in.TranscriptPath == "" || !validID(in.SessionID) {
 		return
 	}
-	n.mu.Lock()
-	n.paths[in.SessionID] = in.TranscriptPath
-	delete(n.pathsAt, in.SessionID) // Claude said so: no need to look again
-	n.mu.Unlock()
+	n.setPath(in.SessionID, in.TranscriptPath)
 }
 
 // notifyHookEvent tells the hub what a hook saw. reportOnly marks an event from a global hook (globalhooks.go), so
@@ -527,7 +531,7 @@ func reportedEvent(in hookInput) bool {
 // takesReport says whether an event from a global report-only hook is for the hub and the counters. A session Persona
 // started or the assistant reports through its own hooks (hooksplugin.go), so it is not taken twice. A report-only
 // event never binds a pane (a claude that a tmux server started inherits the pane's variable without being in it, and
-// would take the pane from the claude that is; the node finds the session of a pane by itself, sessions.go).
+// would take the pane from the claude that is; the node finds the session of a pane by itself, panes_bind.go).
 func (n *Node) takesReport(in hookInput) bool {
 	if !validID(in.SessionID) || !reportedEvent(in) {
 		return false

@@ -3,7 +3,9 @@ package assistant
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/nwverse/persona/server/internal/compat"
 	"net/http"
 	"net/url"
@@ -20,6 +22,7 @@ import (
 	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/apierr"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/devicewire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -158,12 +161,44 @@ func (s *Service) openKey(sealed string) (string, error) { return s.models.secre
 
 // ---- what is stored ----
 
+type managedSnapshotKey struct{}
+
+// withManagedSnapshot lets nested model resolution use the same checked provider list as the
+// operation holding models.mu, including fallback and in-use decisions.
+func withManagedSnapshot(ctx context.Context, list []storedLauncher) context.Context {
+	return context.WithValue(ctx, managedSnapshotKey{}, list)
+}
+
 func (s *Service) storedLaunchers(ctx context.Context) []storedLauncher {
+	if list, ok := ctx.Value(managedSnapshotKey{}).([]storedLauncher); ok {
+		return list
+	}
 	var list []storedLauncher
 	if st := s.store(); st != nil {
 		_, _ = st.Setting(ctx, launchersManagedKey, &list)
 	}
 	return list
+}
+
+var errManagedLaunchersRead = errors.New("managed provider configuration unavailable")
+
+// readStoredLaunchers preserves every raw sealed record for mutation decisions. A missing setting is empty;
+// storage and JSON failures abort the operation. Decryption belongs to consumers that need credentials,
+// so an explicitly replaced or removed corrupt credential remains repairable.
+func (s *Service) readStoredLaunchers(ctx context.Context) (list []storedLauncher, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("%w: %w", errManagedLaunchersRead, err)
+		}
+	}()
+	st := s.store()
+	if st == nil {
+		return nil, i18n.Err("assistant-models.err_no_database")
+	}
+	if _, err := st.Setting(ctx, launchersManagedKey, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 func (s *Service) hiddenLaunchers(ctx context.Context) []string {
@@ -185,31 +220,63 @@ func (s *Service) putSetting(ctx context.Context, key string, v any) error {
 // ---- the nodes ----
 
 // managedForNodes: the launchers added in Persona with their keys and headers, for the nodes (not the Responses ones).
-func (s *Service) managedForNodes(ctx context.Context) []proto.ManagedLauncher {
+func (s *Service) managedForNodes(ctx context.Context) ([]proto.ManagedLauncher, error) {
+	s.models.mu.Lock()
+	defer s.models.mu.Unlock()
+	stored, err := s.readStoredLaunchers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.nodeLaunchers(stored)
+}
+
+// managedNodeCalls is the new-connection configuration callback. Failed reads send no replacement.
+func (s *Service) managedNodeCalls(ctx context.Context, machine string) []devicewire.NodeCall {
+	if s.machinePending(ctx, machine) {
+		return nil
+	}
+	list, err := s.managedForNodes(ctx)
+	if err != nil {
+		s.logf("launchers: prepare node configuration: %v", err)
+		return nil
+	}
+	b, err := json.Marshal(map[string]any{"launchers": list})
+	if err != nil {
+		return nil
+	}
+	return []devicewire.NodeCall{{MachineID: machine, Method: DeviceLaunchersManaged, Params: b}}
+}
+
+// nodeLaunchers prepares the entire payload before any setting write or node call.
+func (s *Service) nodeLaunchers(stored []storedLauncher) ([]proto.ManagedLauncher, error) {
 	out := []proto.ManagedLauncher{}
-	for _, l := range s.storedLaunchers(ctx) {
+	for _, l := range stored {
 		if l.Kind == "api" && l.API == "responses" {
-			continue // a Messages gateway (launcher or kind:api) can run claude on a node; a Responses one cannot
+			continue
 		}
-		m := l.ManagedLauncher
-		if k, err := s.openKey(l.KeySealed); err == nil {
-			m.APIKey = k
-		} else {
-			s.logf("launchers: open key of %s: %v", l.Name, err)
-		}
-		if hd, err := s.openKey(l.HeadersSealed); err == nil {
-			m.Headers, m.HasHeaders = hd, hd != ""
-		} else {
-			s.logf("launchers: open headers of %s: %v", l.Name, err)
-		}
-		if env, err := s.openKey(l.EnvSealed); err == nil {
-			m.Env, m.HasEnv = env, env != ""
-		} else {
-			s.logf("launchers: open environment of %s: %v", l.Name, err)
+		m, err := s.openStoredLauncher(l)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, m)
 	}
-	return out
+	return out, nil
+}
+
+func (s *Service) openStoredLauncher(l storedLauncher) (proto.ManagedLauncher, error) {
+	m := l.ManagedLauncher
+	var err error
+	if m.APIKey, err = s.openKey(l.KeySealed); err != nil {
+		return m, i18n.Err("assistant-models.err_key_decrypt")
+	}
+	if m.Headers, err = s.openKey(l.HeadersSealed); err != nil {
+		return m, i18n.Err("assistant-models.err_key_decrypt")
+	}
+	if m.Env, err = s.openKey(l.EnvSealed); err != nil {
+		return m, i18n.Err("assistant-models.err_key_decrypt")
+	}
+	m.HasHeaders, m.HasEnv = m.Headers != "", m.Env != ""
+	return m, nil
 }
 
 // pushManaged gives the online nodes (one machine when machine is not "") the launchers added in Persona; they keep
@@ -218,7 +285,23 @@ func (s *Service) managedForNodes(ctx context.Context) []proto.ManagedLauncher {
 // new connection the hub says is another manager's gets no NodeCalls (internal/devices hubConnected). A computer
 // waiting to be confirmed gets none (machine_trust.go; the hub does not list it either).
 func (s *Service) pushManaged(ctx context.Context, machine string) {
-	list := s.managedForNodes(ctx)
+	s.models.mu.Lock()
+	defer s.models.mu.Unlock()
+	stored, err := s.readStoredLaunchers(ctx)
+	if err != nil {
+		s.logf("launchers: read managed launchers: %v", err)
+		return
+	}
+	list, err := s.nodeLaunchers(stored)
+	if err != nil {
+		s.logf("launchers: prepare managed launchers: %v", err)
+		return
+	}
+	s.pushNodeLaunchers(ctx, machine, list)
+}
+
+// pushNodeLaunchers publishes a confirmed snapshot while the caller holds models.mu.
+func (s *Service) pushNodeLaunchers(ctx context.Context, machine string, list []proto.ManagedLauncher) {
 	for _, d := range s.devices(ctx) {
 		if !d.Online || (machine != "" && d.ID != machine) || s.machinePending(ctx, d.ID) {
 			continue
@@ -371,9 +454,13 @@ func (s *Service) launcherViews(ctx context.Context) []LauncherView {
 }
 
 func (s *Service) launcherViewsOf(ctx context.Context, zshrc []zshrcLaunchers) []LauncherView {
+	return s.launcherViewsFrom(ctx, zshrc, s.storedLaunchers(ctx))
+}
+
+func (s *Service) launcherViewsFrom(ctx context.Context, zshrc []zshrcLaunchers, stored []storedLauncher) []LauncherView {
 	var out []LauncherView
 	managed := map[string]bool{}
-	for _, l := range s.storedLaunchers(ctx) {
+	for _, l := range stored {
 		managed[l.Name] = true
 		out = append(out, launcherView(l))
 	}
@@ -931,7 +1018,12 @@ func (s *Service) launcherRoutes() {
 				return
 			}
 		}
-		views := s.launcherViews(ctx)
+		stored, err := s.readStoredLaunchers(ctx)
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		views := s.launcherViewsFrom(ctx, s.zshrcLaunchers(ctx, false), stored)
 		taken := func(n string) bool {
 			return slices.ContainsFunc(views, func(v LauncherView) bool { return v.Name == n })
 		}
@@ -970,8 +1062,13 @@ func (s *Service) launcherRoutes() {
 			return
 		}
 		in.Name = r.PathValue("name")
+		stored, err := s.readStoredLaunchers(r.Context())
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
 		var old *storedLauncher
-		for _, l := range s.storedLaunchers(r.Context()) {
+		for _, l := range stored {
 			if l.Name == in.Name {
 				l := l
 				old = &l
@@ -999,13 +1096,17 @@ func (s *Service) launcherRoutes() {
 	s.handle("DELETE /api/v1/launchers/{name}", func(w http.ResponseWriter, r *http.Request) {
 		ctx, name := r.Context(), r.PathValue("name")
 		s.models.mu.Lock()
-		list := s.storedLaunchers(ctx)
+		list, err := s.readStoredLaunchers(ctx)
+		if err != nil {
+			s.models.mu.Unlock()
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
 		if i := slices.IndexFunc(list, func(l storedLauncher) bool { return l.Name == name }); i >= 0 {
-			// Not under a category that runs on it (checked and deleted under the configuration's lock; the nodes are
-			// told after it).
-			uses, err := s.providerModelUses(ctx, launcherProvider(name))
+			// Check dependencies, delete and publish the confirmed snapshot under the configuration lock.
+			uses, err := s.providerModelUses(withManagedSnapshot(ctx, list), launcherProvider(name))
 			if err == nil && len(uses) == 0 {
-				err = s.putSetting(ctx, launchersManagedKey, slices.Delete(list, i, i+1))
+				err = s.storeManagedLaunchers(ctx, slices.Delete(list, i, i+1))
 			}
 			s.models.mu.Unlock()
 			if err != nil {
@@ -1016,7 +1117,6 @@ func (s *Service) launcherRoutes() {
 				apierr.Write(w, 409, i18n.Err("assistant-models_launchers.err_in_use", i18n.Args{"uses": strings.Join(uses, i18n.T(s.requestCtxLang(r.Context()), "assistant-models_launchers.list_sep"))}))
 				return
 			}
-			s.pushManaged(ctx, "")
 			apierr.WriteJSON(w, map[string]any{"ok": true, "deleted": true})
 			return
 		}
@@ -1173,9 +1273,15 @@ func (s *Service) machineLauncherRoutes() {
 func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *storedLauncher) (storedLauncher, error) {
 	s.models.mu.Lock()
 	defer s.models.mu.Unlock()
+	list, err := s.readStoredLaunchers(ctx)
+	if err != nil {
+		return storedLauncher{}, err
+	}
+	if old == nil && slices.ContainsFunc(list, func(l storedLauncher) bool { return l.Name == in.Name }) {
+		return storedLauncher{}, i18n.Err("assistant-models_launchers.err_name_taken", i18n.Args{"name": in.Name})
+	}
 	// Refresh the stored object under the same lock as profile switches: omitted fields keep today's values.
 	if old != nil {
-		list := s.storedLaunchers(ctx)
 		i := slices.IndexFunc(list, func(l storedLauncher) bool { return l.Name == in.Name })
 		if i < 0 {
 			return storedLauncher{}, i18n.Err("assistant-models_launchers.err_not_managed")
@@ -1248,17 +1354,31 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 		}
 	}
 	l.APIKey, l.Headers, l.HasHeaders, l.Env, l.HasEnv = "", "", false, "", false // only ever stored sealed
-	list := s.storedLaunchers(ctx)
 	if i := slices.IndexFunc(list, func(x storedLauncher) bool { return x.Name == l.Name }); i >= 0 {
 		list[i] = l
 	} else {
 		list = append(list, l)
 	}
-	if err := s.putSetting(ctx, launchersManagedKey, list); err != nil {
+	if err := s.storeManagedLaunchers(ctx, list); err != nil {
 		return l, err
 	}
-	s.pushManaged(ctx, "")
 	return l, nil
+}
+
+// storeManagedLaunchers commits the complete raw snapshot under models.mu and publishes it when its
+// node credentials can be opened. An unrelated corrupt credential defers publication without discarding
+// readable records or preventing repair. A post-commit read failure cannot clear the nodes' providers.
+func (s *Service) storeManagedLaunchers(ctx context.Context, list []storedLauncher) error {
+	nodes, publicationErr := s.nodeLaunchers(list)
+	if err := s.putSetting(ctx, launchersManagedKey, list); err != nil {
+		return err
+	}
+	if publicationErr != nil {
+		s.logf("launchers: saved providers; node publication deferred: %v", publicationErr)
+		return nil
+	}
+	s.pushNodeLaunchers(ctx, "", nodes)
+	return nil
 }
 
 // pickMachine is the machine to ask about a launcher the machines in has have: want when it has it, else the

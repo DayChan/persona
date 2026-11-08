@@ -3,22 +3,6 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
-  pull_request:
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - deploy/docker/**
-      - server/**
-      - sdk/go/**
-      - web/**
-      - integrations/**
-      - schema/extension/**
-      - spec/fixtures/injected/**
-      - scripts/ci/hub-image.sh
-      - scripts/ci/image-smoke.sh
-      - scripts/ci/common.sh
-      - scripts/ci/run.py
-      - .github/workflows/hub-image.yml
 permissions:
   contents: read
 concurrency:

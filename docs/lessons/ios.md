@@ -2,9 +2,24 @@
 
 Pitfalls, odd behavior and the decisions made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
 
+## Hosted simulator boot diagnostics (#1124)
+
+A successful minimum-Xcode app/Watch build does not prove the test simulator became ready. A stock iOS 26.0 boot failed its existing 900-second deadline before tests started; the shared helper had discarded `simctl bootstatus` output, and the workflow retained no diagnostic artifact. Keep boot command/phase errors on stderr (stdout remains the sole UDID), capture them separately, and collect `simctl list` before shutting down the owned simulator. Upload only those logs, runtime metadata and existing xcresult bundles after failure; never the source snapshot, configuration, keys or links outside result bundles. Keep the original boot/step timeouts and do not add automatic retries. A maintainer-approved manual rerun is distinct from a retry policy, but uses the original run's commit: diagnostic changes need a new-head run first.
+
+## Newest geometry after programmatic scrolling (#1211)
+
+A frozen transcript can reveal its withheld rows during Jump to Latest and move UIKit to the end without another SwiftUI scroll-geometry report. The real failure trace had offset -10 pt and adjusted top inset 10 pt (gap 0), while the follow state kept gap 1480 and `near=false`. A visible reply and following mode do not prove that the position state is current. Reconcile from the actual scroll container when the animation ends, keep the existing tolerance and reading intent, and skip a completion without this view's live subscription owner or without a measured container. Query the owner at completion: a captured visibility environment value can be stale, and another visible owner's subscription must not keep a hidden view eligible. Never fix the regression by forcing `near=true` or relaxing the UI assertion. For repeated UI failures, stop at the first failure and resolve the app container after testing: reinstall can change its data container, and a later successful launch overwrites the trace.
+
+## Shell regression fixtures and simulated entitlements (#1117)
+
+- A machine's token summary and its navigation card can repeat the same text. Scope the tap to the actual card button, not an application-wide text query. Choose a known multi-agent demo fixture before testing sibling selection, and expand a folded chat title before looking for its tabs. The home needs-you list intentionally shows at most three rows: verify the overflow route when Inbox actions are not among them, rather than assuming every kind is visible. Tests expecting the Agents list must clear `dev.openChat` at launch: opening a new assistant conversation does not discard the Agent chat a previous test correctly restored.
+- Simulator entitlement emulation lives in the Mach-O `__TEXT,__entitlements` section generated from `*-Simulated.xcent`. `codesign`'s host-signature output alone can report no groups even when the simulator's effective groups are present. An unsigned test build can omit the simulated section and make the pairing registry unreadable; build the test app with ad-hoc signing and check the generated section instead of blaming the tab lifecycle. Device exports still need the normal signature entitlement check.
+
 ## Retained chat visibility (#739)
 
 A shell can keep a chat mounted after switching tabs: `onDisappear` alone does not release its transcript subscription or visible/read owner. Use paired `onTabVisibility` edges on iPhone as well as Mac, keep the store and scroll state, and resume with `since_seq` on return. This pauses client display traffic, not the Agent's work on the hub. Test hidden initial mounts, duplicate visibility notifications, shared subscription owners and returning after missed items. Linux source checks cannot establish SwiftUI frame times; compile, profile both directions and inspect light/dark simulator screenshots on a Mac before publishing the Apple build.
+
+Releasing the socket subscription is not enough if a background prefetch then applies HTTP items into the same hidden store (#1159). Keep disk prefetch for unseen recent chats, but defer retained stores to their next visible subscription. Recheck queued work and fence responses that outlive their last visible owner or store identity. Validate the actual HTTP journal and covered-sequence replay as well as zero delta deliveries: an empty replay after a hidden HTTP update does not prove that visibility owns transcript synchronization.
 
 ## Retired drawings and downloadable avatars (#1)
 
@@ -46,11 +61,23 @@ SwiftUI 的 `.frame(maxWidth: .infinity)` 默认把内容居中；父层 `VStack
 
 ## Compiler-free English catalog keys (#5090)
 
+On hosted images, successful SDK lookup does not prove Xcode can resolve a generic device destination (#1124). Prepare the matching iOS platform/runtime before the first device build, not only before simulator tests; retain the minimum compiler and explicit runtime pin. The failed device build reported that iOS 26.0 was not installed even though the SDK checks passed. The pinned Xcode downloads a compatible patch runtime (26.0.1); forcing `-buildVersion 26.0` returned "not available for download". Let that Xcode select its platform, then require an available stable 26.0.x runtime and pass its exact identifier to the simulator helper. Reject newer minor versions and beta runtimes. An embedded watch app also needs the compiler-compatible watchOS runtime before a generic iOS device build; preparing iOS alone then fails with "watchOS 26.0 must be installed". Prepare and validate both platforms without removing the watch target.
+
+A SwiftUI body can compile on a newer toolchain but exceed the minimum compiler's type-checking budget (#1124). Split List construction, style modifiers and observation/lifecycle modifiers into opaque helper functions. Preserve row content and modifier order exactly; do not add type erasure or container views just to shorten the expression. Verify the minimum compiler on hosted CI, not only a newer local build.
+
+The minimum compiler can reject Boolean autoclosures that capture a main-actor probe dictionary containing `Any` (#1124). Read Bool/Double fields on that actor first, then combine the Sendable scalar values. Preserve the settling criteria and assertions; do not disable concurrency checks or skip the test target.
+
+A Sendable fake transport does not make its stored callbacks actor-safe (#1124). MainActor model-test handlers must retain that function-type contract and be invoked with an explicit actor hop. A detached request against the old FakeHub produced an xcresult host crash and SIGTRAP stack through `swift_task_checkIsolated` and the route callback. Keep the route-table lock outside callback execution so handlers can register responses and inspect requests without deadlocking; verify the minimum-toolchain full run separately from a newer local subset.
+
+Swift Testing method selectors include `()` (#1124). An incomplete pre-existing exclusion leaves an opt-in integration selected, so it appears as `Skipped` in xcresult even when xcodebuild exits zero. Match the declared selection precisely and keep the strict result guard; do not add a skip allowlist. The Reminders round-trip can run on a disposable stock simulator by granting its app Reminders access and setting `TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1`; keep its real store assertions and cleanup intact.
+
 Changing the catalog's development language also changes the identity the Swift compiler extracts. Preserve each colliding English translation in its own contextual key and keep explicit English values; do not merge different Chinese or Japanese meanings. Reorder interpolation expressions together with translated argument numbers, and audit reordered expressions for side effects. Named App Intent parameters follow their names, not their old position.
 
 Keep `LocalizedStringResource` and `LocalizedStringKey` arguments as localization values: wrapping a literal in `String(localized:)` is correct for a `String`, but breaks a helper requiring either localization type. Read each helper's signature rather than guessing from its name. Migrate nested literals from the inside out. Without a Swift compiler, reject unresolved raw literals and ambiguous argument types instead of silently guessing.
 
 Source percent signs are literal text, while catalog `%%` is an escaped percent. Parsing `% left` as a printf specifier (`% le`) falsely rejects a valid key. Source-key checks must not run printf normalization twice. Compiler-free checks complement, but do not replace, Apple builds, Swift tests and three-language screenshots.
+
+A catalog can be valid JSON and still fail every Apple consumer (#1123): inserting a complete string entry inside another entry's `localizations` makes the new key look like a locale with no `stringUnit`. The required en / zh-Hans / ja entries may remain valid, so checking only those languages misses it. Reject nested string entries in every locale object, keep new entries as siblings under `strings`, and verify that moving them preserves all translations.
 
 
 ## Asynchronous HTML sandbox loading and teardown (#2025)
@@ -546,7 +573,7 @@ Use an invalidation revision as the task key and handle the flag after completio
   - 单机详情直接从页面请求指标，不能因为概览的 fan-out 已在后台就认定单机详情也在后台（2026-11-06，#5730）；分别核对实际调用者。Xcode 27.1 的 `Thread.isMainThread` 带 `noasync`，测试后台准备时在同步 `nonisolated` 探针里读取，再从 detached task 调用，不在异步闭包直接读取。
 ### Minimum compatible compiler
 
-- **Minimum compiler remains Xcode 26.0 (Swift 6.2)** (2026-11-02): this and many development machines still use 26.0; master must compile there for iOS, Mac, watch and extensions. Release machine uses Xcode 27.1 / Swift 6.4.0, which proves nothing about 26.0.
+- **Minimum compiler remains Xcode 26.0 (Swift 6.2)** (2026-11-02): this and many development machines still use 26.0; `main` must compile there for iOS, Mac, watch and extensions. Release machine uses Xcode 27.1 / Swift 6.4.0, which proves nothing about 26.0.
   Three failures: #216 `isDynamicIslandLimitedInWidth` (iOS 27 SDK, fixed #217), `toolbarVerticalEdge` (iOS 27.1 SDK), #164 `ShowsSnippetView` / `view:` (fixed #430).
 - Guard new-SDK symbols with `#if compiler(>=6.4)` (27.1 is 6.4.0;26.4–26.6 has Swift 6.3 but still iOS 26 SDK, so 6.3 guards fail there, #453), with old behavior under `#else`, not empty functionality. `#available` / `@available` checks only govern runtime and cannot resolve missing compile-time symbols.
 - `#if compiler(>=6.4)` identifies only the iOS 27 SDK. **It cannot guard symbols introduced in 26.x minor SDK releases such as 26.1–26.4**: doing so disables the feature in every Xcode 26 build (CarPlay voice UI `CPVoiceControlState.actionButtons` comes from the 26.4 SDK; this guard once left Xcode 26 builds without buttons in the car).
@@ -781,7 +808,7 @@ app chooses transcoding by size (`VideoPrep`, docs/protocol/protocol.md "Sending
 - **Lark drafts / outbox persist between simulator UI tests**:
   - Uncancelled previous replies become drafts and reopen the quote bar. Its summary matches original message text, so `label BEGINSWITH` finds it first and long-press fails.
   - Previous #fail messages remain below newly sent ones, shifting the "just above composer" expectation by 141 pt.
-  - Tests clean up by cancelling replies; before investigating failures, `simctl uninstall` for clean data then compare master.
+  - Tests clean up by cancelling replies; before investigating failures, `simctl uninstall` for clean data then compare with `main`.
 - Background `gh pr checks` waiting scripts prematurely report completion with empty output on this machine: put the waiter in a separate file, write its own log and use perl `select` rather than `sleep`.
 
 ## Register Persona MCP tools in `ToolPresentation` (2026-11-03, #677)
@@ -1162,21 +1189,21 @@ but UIKit still had a page with only Agents Back and empty content.
 
 ### `Localizable.xcstrings` rebase conflicts require key-based merging
 - Both sides adding entries can line-merge into invalid JSON (`The data couldn't be read because it isn't in the correct format`), breaking all targets.
-- Extract `git show ORIG_HEAD:<catalog> > ours`, `git show origin/master:<catalog> > theirs`; run `python3 scripts/i18n/apple_l10n.py merge ours theirs apple/Shared/Localization/Localizable.xcstrings` (merge keys, prefer complete `en` / ja on duplicates), then `check`.
-- **`merge` brings back keys master deleted, and rewrites the whole file** (2026-11-06, #5451): it keeps every key of both sides, so an entry master
-  removed (6 of them in one merge, for example "No Claude running") comes back as if the branch had added it. Its output also changes the
-  format and order (+78k / −77k lines against master for 40 new keys). Use its merged entries, but write master's file back in master's key order and format
-  (`json.dumps(d, ensure_ascii=False, indent=2) + "\n"`), add only the keys the branch added, and drop keys that were in the merge base but master
-  no longer has. `git diff origin/master --stat` should then show only `+` lines for your keys. Git's own text merge of two branches that added the
+- Extract `git show ORIG_HEAD:<catalog> > ours`, `git show origin/main:<catalog> > theirs`; run `python3 scripts/i18n/apple_l10n.py merge ours theirs apple/Shared/Localization/Localizable.xcstrings` (merge keys, prefer complete `en` / ja on duplicates), then `check`.
+- **`merge` brings back keys deleted on `main`, and rewrites the whole file** (2026-11-06, #5451): it keeps every key of both sides, so an entry removed
+  on `main` (6 of them in one merge, for example "No Claude running") comes back as if the branch had added it. Its output also changes the
+  format and order (+78k / −77k lines against `main` for 40 new keys). Use its merged entries, but write the file back in `main`'s key order and format
+  (`json.dumps(d, ensure_ascii=False, indent=2) + "\n"`), add only the keys the branch added, and drop keys that were in the merge base but `main`
+  no longer has. `git diff origin/main --stat` should then show only `+` lines for your keys. Git's own text merge of two branches that added the
   same key leaves a duplicate JSON key, which `check` rejects: keep one copy.
 
 ### Two PRs that add the same catalog key both pass, then break master (#5811)
 - #5743 and #5757 each added `"Run"` to `Localizable.xcstrings`. Each passed `apple_l10n.py check` against its own base, and git merged them
   without a conflict, because the two entries sat at different places in the file. Master then had a duplicate JSON key: `check` failed,
   and Xcode rejects such a catalog.
-- After every master merge into a branch, run `python3 scripts/i18n/apple_l10n.py check`, even when git reported no conflict in the catalog.
-  PR runs (scripts-tests.yml) each see their own base, so only a run on master itself catches two PRs that merged close together:
-  run `check` on master right after your PR merges, too.
+- After every merge of `main` into a branch, run `python3 scripts/i18n/apple_l10n.py check`, even when git reported no conflict in the catalog.
+  PR runs (scripts-tests.yml) each see their own base, so only a run on `main` itself catches two PRs that merged close together:
+  run `check` on `main` right after your PR merges, too.
 
 ### An interpolated String looks up a `%@` key the catalog doesn't have (#5544)
 - `String(localized: "Exit code \(code)")` with `code` a `String` (or a regex match's `Substring`) asks for `"Exit code %@"`. The catalog had
@@ -1206,13 +1233,13 @@ but UIKit still had a page with only Agents Back and empty content.
 - **Symptom**: after a `SWIFT_EMIT_LOC_STRINGS=YES` build, `apple_l10n.py sync` added this change's 82 keys, but also keys from other code that never
   made it into the catalog (a `"/"`), and rewrote 58 existing entries (merged comments, states): the diff was mostly other people's.
 - **Approach**: use sync only to see which keys are new. For the commit, put the catalog back and insert only your own entries with a script
-  (English key, explicit en / zh-Hans / ja), each before the first key that sorts after it, without re-sorting the file (master's is
+  (English key, explicit en / zh-Hans / ja), each before the first key that sorts after it, without re-sorting the file (`main`'s is
   nearly but not strictly sorted: `dict(sorted(...))` moves other people's entries), and write it back with
-  `json.dumps(d, ensure_ascii=False, indent=2) + "\n"` (the format `apple_english_keys.py` wrote; check that master's file round-trips
+  `json.dumps(d, ensure_ascii=False, indent=2) + "\n"` (the format `apple_english_keys.py` wrote; check that `main`'s file round-trips
   unchanged first, and that `git diff` shows only `+` lines). Then `apple_l10n.py check`. A conflict in the catalog resolves the same way:
-  take master's file, insert your entries.
-- **Rebased across the English-key migration (#5430)**: a branch written with Chinese keys does not need its keys hand-translated. Run master's
-  `scripts/i18n/apple_english_keys.py <scratch worktree>` on a scratch worktree of the branch's old tip (it still has the Chinese-source catalog),
+  take `main`'s file, insert your entries.
+- **Rebased across the English-key migration (#5430)**: a branch written with Chinese keys does not need its keys hand-translated. Run
+  `scripts/i18n/apple_english_keys.py <scratch worktree>` as it is on `main` against a scratch worktree of the branch's old tip (it still has the Chinese-source catalog),
   import it to get `migrate()`'s mapping, then take the migrated new files, the mapped entries, and the same key changes in the files you only
   touched. Keys it suffixes (`Mute [Voice Bar 7db2e1]`) collide with an existing English key that means something else in Chinese: keep the suffix.
   `apple_comments.py check` also fails on Chinese UI words in comments: write the English label (`Never Mind`), keep 「…」 for doc headings or text matched word for word.

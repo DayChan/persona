@@ -143,3 +143,20 @@ func BenchmarkFindCold(b *testing.B) {
 		(&Engine{Store: st}).Find("周报", 80)
 	}
 }
+
+// BenchmarkSearch is kb_search over the same archive, messages included: a rare word (the days that have it are
+// spread over the year, so most files are read before the limit is reached) and a word no file has (every file read).
+func BenchmarkSearch(b *testing.B) {
+	e := &Engine{Store: benchStore(b)}
+	if hits := e.Search("周报 draft", true, 40); len(hits) == 0 {
+		b.Fatal("the rare word is not found")
+	}
+	for _, q := range []string{"周报 draft", "nowhere"} {
+		b.Run(q, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				e.Search(q, true, 40)
+			}
+		})
+	}
+}

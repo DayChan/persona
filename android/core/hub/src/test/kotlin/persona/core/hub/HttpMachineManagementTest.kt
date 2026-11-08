@@ -90,6 +90,21 @@ class HttpMachineManagementTest {
         }
     }
 
+    @Test fun renamePutsTheNameAndReadsTheHubsAnswer() = withHub { server, machines ->
+        server.enqueue(MockResponse().setBody("""{"ok":true,"name":"Studio"}"""))
+        assertEquals("Studio", machines.rename("desk", "Studio"))
+        server.takeRequest().let {
+            assertEquals("PUT", it.method)
+            assertEquals("/api/v1/machines/desk/name", it.path)
+            assertEquals("Studio", Json.parseToJsonElement(it.body.readUtf8()).jsonObject["name"]?.jsonPrimitive?.content)
+        }
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"code":"invalid_name","error":"The name can be at most 40 characters, on one line"}"""))
+        assertEquals(400, (runCatching { machines.rename("desk", "x".repeat(41)) }.exceptionOrNull() as HubFailure).status)
+        // An answer without the name is not one.
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        assertEquals(HubError.Protocol, (runCatching { machines.rename("desk", "x") }.exceptionOrNull() as HubFailure).kind)
+    }
+
     @Test fun anOlderHubWithoutTheBotmuxRouteHasNoSwitch() = withHub { server, machines ->
         server.enqueue(MockResponse().setResponseCode(404).setBody("404 page not found"))
         assertNull(machines.botmux("desk"))

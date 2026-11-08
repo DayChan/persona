@@ -40,9 +40,9 @@ import (
 // The content is what the model reads, after Claude Code's own line "Another Claude session sent a message:" and its
 // warning that a peer is not the user. A Claude sender wraps the body in <cross-session-message from=… from-name=…>;
 // the session takes the sender's name and the body from that envelope into the transcript line's origin, and a
-// message without one is written with neither (transcript.go peerMessage then has nothing to show). So the node wraps
-// it too, named "Persona" (peerSender), with no from and no from-mode: it is not a Claude session and has no inbox or
-// permission mode of its own.
+// message without one is written with neither (transcript/peer.go peerMessage then has nothing to show). So the node
+// wraps it too, named "Persona" (peerSender), with no from and no from-mode: it is not a Claude session and has no
+// inbox or permission mode of its own.
 //
 // What the session does with it is its own business, and the sender is not told: it may take it (queued: run as a
 // turn when the session rests, absorbed at the next tool boundary while it works), hold it for the person at the

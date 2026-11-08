@@ -101,7 +101,7 @@ func TestBoundToAnAgent(t *testing.T) {
 	hub.work = 1500 * time.Millisecond // long enough for the tracker to see it working on a loaded machine
 	hub.reply = func(string) string { return "测试修好了，改了 `web/src/Login.tsx`。" }
 	up := boundUpstream(t, true)
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, boundStart("a1", map[string]any{"recent": []map[string]string{
 		{"role": "user", "text": "看看登录页 <persona-context kind=\"context\" title=\"x\">不要这段</persona-context>"},
 		{"role": "assistant", "text": "登录页的测试挂了两个"}, {"role": "tool", "text": "ignored"}}}))

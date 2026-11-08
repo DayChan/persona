@@ -4,7 +4,7 @@
 
 详情支持可选择的 Markdown、最近时间线、关联档案、代码目录及折叠的聊天记录。用户填写问题后点击「问 Persona」，档案和最近时间线以 `<persona-context>` 附到消息中，经 `MainConversationSender.sendToMain` 先持久入队，成功后切到 Persona tab，由发送器在联网后绑定主对话。入队失败保留原操作 ID，重试沿用同一标识。网络排队、结果待核对和重试由现有 data 层处理。
 
-依据为 `docs/assistant/knowledge.md`、`docs/assistant/assistant.md` 的知识库部分、`docs/archive/redesign/parity.md` 知识库一节、`ux.md`、`android.md` 及 `prototypes/android/`。交互参考 `origin/master` 中 `feat(ios): the knowledge base, redone` 的分类标签、项目分组和搜索结果归并。
+依据为 `docs/assistant/knowledge.md`、`docs/assistant/assistant.md` 的知识库部分、`docs/archive/redesign/parity.md` 知识库一节、`ux.md`、`android.md` 及 `prototypes/android/`。交互参考 `origin/main` 中 `feat(ios): the knowledge base, redone` 的分类标签、项目分组和搜索结果归并。
 
 ## 当前 App 接线
 

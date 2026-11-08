@@ -3,6 +3,7 @@
   "morning": "Morning brief",
   "evening": "Evening review",
   "unavailable": "Can’t read scheduled tasks right now (the database isn’t responding). Try again in a bit.",
+  "save_failed": "Couldn’t save scheduled tasks. Your change wasn’t applied. Please try again.",
   "prompt_empty": "The prompt can’t be empty",
   "time_format": "Write the time {time} as HH:MM",
   "daily_title": "A daily task needs a title",

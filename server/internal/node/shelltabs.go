@@ -14,7 +14,7 @@ import (
 // holds only the login shell, with "Resume this session with: claude --resume <id>" as its last words, and nobody
 // closes it; a busy machine collected dozens. The node closes such a tab (only the pane when the tab is split) once
 // nothing but the shell has run in it and its screen has not changed for shellTabIdle. The session stays as it was:
-// the next message resumes it in a new tab with the launcher it was started with (control.go send).
+// the next message resumes it in a new tab with the launcher it was started with (send.go send).
 //
 // Only panes Persona opened for an agent are looked at: newTab marks them with personaTabToken (herdr keeps a pane's
 // metadata tokens until the pane goes; a herdr restart drops them, and those tabs are then left alone). A pane the user

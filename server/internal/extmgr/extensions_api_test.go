@@ -191,6 +191,7 @@ func startTestExtensions(t *testing.T, h *Manager, cfgs ...ExtensionConfig) {
 			}
 		}
 	})
+	h.startTokenRecord(ctx)
 	h.startConnectors(ctx)
 	h.startExtensions(ctx)
 }

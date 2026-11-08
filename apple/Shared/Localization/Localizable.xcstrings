@@ -1031,6 +1031,29 @@
       },
       "extractionState": "manual"
     },
+    "%@ didn't answer as a SOCKS5 proxy. Check the port; HTTP proxies aren't supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ didn't answer as a SOCKS5 proxy. Check the port; HTTP proxies aren't supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@がSOCKS5プロキシとして応答しません。ポートを確認してください。HTTPプロキシには対応していません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的应答不像 SOCKS5 代理。检查端口；不支持 HTTP 代理。"
+          }
+        }
+      }
+    },
     "%@ didn't connect; showing the last synced list.": {
       "localizations": {
         "en": {
@@ -1076,6 +1099,29 @@
         }
       },
       "extractionState": "manual"
+    },
+    "%@ is another hub, not the one this device is paired with. Check the hub's address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is another hub, not the one this device is paired with. Check the hub's address."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@は別のハブで、このデバイスがペアリングしたハブではありません。ハブのアドレスを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 是另一台 hub，不是这台设备配对的那台。检查 hub 的地址。"
+          }
+        }
+      }
     },
     "%@ Models are the same as what /model shows in the terminal.": {
       "localizations": {
@@ -8801,6 +8847,30 @@
       },
       "extractionState": "manual"
     },
+    ", the assistant's pick": {
+      "comment": "Accessibility suffix: the option the assistant recommends",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", the assistant's pick"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、アシスタントのおすすめ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，助手推荐"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     ". %lld with new messages stayed in the Inbox.": {
       "localizations": {
         "en": {
@@ -9981,6 +10051,29 @@
       },
       "extractionState": "manual"
     },
+    "A SOCKS5 proxy that another app on this device provides, such as a VPN-like client that serves 127.0.0.1 instead of taking the system VPN slot. Persona's traffic to the hub, this device's credential included, goes through it unencrypted, even for an https hub: you're trusting whatever app holds that port.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A SOCKS5 proxy that another app on this device provides, such as a VPN-like client that serves 127.0.0.1 instead of taking the system VPN slot. Persona's traffic to the hub, this device's credential included, goes through it unencrypted, even for an https hub: you're trusting whatever app holds that port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス上の別のアプリが提供するSOCKS5プロキシです。たとえば、システムのVPN枠を使わずに127.0.0.1でプロキシを提供するVPN型のクライアントなどです。ハブがhttpsでも、Personaからハブへの通信（このデバイスの認証情報を含む）は暗号化されずにここを通ります。信頼しているのは、そのときこのポートを使っているアプリです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台设备上另一个 App 提供的 SOCKS5 代理，比如在 127.0.0.1 上提供代理、不占用系统 VPN 的客户端。Persona 连 hub 的流量（包括这台设备的凭据）会以明文经过它，即使 hub 用的是 https：你信任的是当时占用这个端口的 App。"
+          }
+        }
+      }
+    },
     "A terminal needs you": {
       "localizations": {
         "en": {
@@ -10391,6 +10484,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "到系统设置里允许 Persona 发通知。"
+          }
+        }
+      }
+    },
+    "Always Use the Proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Use the Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常にプロキシを使う"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "总是走代理"
           }
         }
       }
@@ -16071,6 +16187,29 @@
       },
       "extractionState": "manual"
     },
+    "Assistant is looking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistant is looking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントが確認中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手在看"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Assistant replying": {
       "localizations": {
         "en": {
@@ -16089,6 +16228,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "助手在回答"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Assistant's pick": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistant's pick"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントのおすすめ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手推荐"
           }
         }
       },
@@ -19019,6 +19181,52 @@
       },
       "extractionState": "manual"
     },
+    "Can't reach the proxy (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach the proxy (%1$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシに接続できません（%1$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连不上代理（%1$@）"
+          }
+        }
+      }
+    },
+    "Can't reach the proxy at %@ (%@). Check that the app providing it is running, and its port.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach the proxy at %1$@ (%2$@). Check that the app providing it is running, and its port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のプロキシに接続できません（%2$@）。プロキシを提供するアプリが動いているか、ポートが正しいかを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连不上 %1$@ 上的代理（%2$@）。检查提供代理的 App 是否在运行，以及端口是否正确。"
+          }
+        }
+      }
+    },
     "Can't reach this computer": {
       "localizations": {
         "en": {
@@ -19269,6 +19477,75 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Connected to the hub through the local proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to the hub through the local proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシ経由でハブに接続中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在经本机代理连 hub"
+          }
+        }
+      }
+    },
+    "Connecting through the local proxy…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting through the local proxy…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシ経由で接続しています…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在经本机代理连接…"
+          }
+        }
+      }
+    },
+    "Connects through the proxy to the hub's address and checks that the hub answers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects through the proxy to the hub's address and checks that the hub answers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ経由でハブのアドレスに接続し、ハブが応答するかを確認します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会经代理连到 hub 的地址，并检查 hub 是否应答。"
+          }
+        }
+      }
     },
     "Couldn't load decisions: %@": {
       "extractionState": "manual",
@@ -21597,6 +21874,29 @@
       },
       "extractionState": "manual"
     },
+    "Change Answer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Answer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改答"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Change Client ID": {
       "localizations": {
         "en": {
@@ -23369,6 +23669,29 @@
       },
       "extractionState": "manual"
     },
+    "Choose an answer first": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an answer first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に回答を選んでください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先选一个答案"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Choose an earlier message to show to people who can't decrypt this one.": {
       "localizations": {
         "en": {
@@ -23745,6 +24068,21 @@
             "value": "Claude background"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeバックグラウンド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 后台"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Claude desktop app": {
       "localizations": {
         "en": {
@@ -23786,21 +24124,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "终端里的 Claude"
-          }
-        }
-      },
-      "extractionState": "manual"
-    },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claudeバックグラウンド"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude 后台"
           }
         }
       },
@@ -29908,6 +30231,29 @@
       },
       "extractionState": "manual"
     },
+    "Couldn't change the answer: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't change the answer: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を変更できませんでした：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能改答：%1$@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Couldn't change the app icon: %@": {
       "localizations": {
         "en": {
@@ -32025,6 +32371,29 @@
       },
       "extractionState": "manual"
     },
+    "Couldn't send the new answer to the agent: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send the new answer to the agent: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい回答をエージェントに送れませんでした：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新答案没能发给 Agent：%1$@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Couldn't send the reply": {
       "localizations": {
         "zh-Hans": {
@@ -33520,6 +33889,75 @@
         }
       }
     },
+    "Delete Local Proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Local Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシを削除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除本机代理"
+          }
+        }
+      }
+    },
+    "Delete Local Proxy?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Local Proxy?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシを削除しますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除本机代理？"
+          }
+        }
+      }
+    },
+    "Delete Local Proxy…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Local Proxy…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシを削除…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除本机代理…"
+          }
+        }
+      }
+    },
     "Delete “%@”": {
       "extractionState": "manual",
       "localizations": {
@@ -33837,6 +34275,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "日期"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Deadline": {
+      "comment": "The context the assistant filled in on a question: answer by when",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deadline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截止"
           }
         }
       },
@@ -43165,6 +43627,29 @@
       },
       "extractionState": "manual"
     },
+    "Got no answer from %@ through the proxy: the proxy may not reach that address, or the hub isn't listening there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Got no answer from %1$@ through the proxy: the proxy may not reach that address, or the hub isn't listening there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ経由で%1$@から応答がありません。プロキシがこのアドレスに届かないか、ハブがそこで待ち受けていない可能性があります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经代理没有拿到 %1$@ 的应答：代理可能连不到这个地址，或者 hub 没在那里监听。"
+          }
+        }
+      }
+    },
     "Hosts or domains, separated by commas; .example.com covers its subdomains. Only these skip this proxy: the list on this computer is for its own proxy.": {
       "extractionState": "manual",
       "localizations": {
@@ -43211,6 +43696,29 @@
         }
       }
     },
+    "Hub Address": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハブのアドレス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hub 地址"
+          }
+        }
+      }
+    },
     "Last updated %@ [Watch Pet]": {
       "extractionState": "manual",
       "localizations": {
@@ -43253,6 +43761,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在加载决策…"
+          }
+        }
+      }
+    },
+    "Local Proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机代理"
+          }
+        }
+      }
+    },
+    "Local proxy saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local proxy saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシを保存しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机代理已保存"
+          }
+        }
+      }
+    },
+    "Local Proxy · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Proxy · %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルプロキシ・%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机代理 · %1$@"
           }
         }
       }
@@ -43669,6 +44246,29 @@
       },
       "extractionState": "manual"
     },
+    "Only if the proxy asks for one. It's kept with this hub's pairing in the keychain.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only if the proxy asks for one. It's kept with this hub's pairing in the keychain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシがログインを求める場合だけ入力します。このハブのペアリング情報と一緒にキーチェーンに保存されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理要求登录时才需要填。它和这台 hub 的配对信息一起保存在钥匙串里。"
+          }
+        }
+      }
+    },
     "Open %@'s conversation [Workflow Agent]": {
       "extractionState": "manual",
       "localizations": {
@@ -43711,6 +44311,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "打开"
+          }
+        }
+      }
+    },
+    "Optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选填"
+          }
+        }
+      }
+    },
+    "Persona stops using this proxy to reach the hub.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona stops using this proxy to reach the hub."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personaはこのプロキシを使ってハブに接続しなくなります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona 将不再经这个代理连 hub。"
           }
         }
       }
@@ -43829,6 +44475,29 @@
         }
       }
     },
+    "Proxy Login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy Login"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシのログイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理登录"
+          }
+        }
+      }
+    },
     "Question [Todo Decisions]": {
       "extractionState": "manual",
       "localizations": {
@@ -43848,6 +44517,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "问题"
+          }
+        }
+      }
+    },
+    "Reached %@ through the proxy, but it doesn't look like a hub (/api/v1/health didn't answer properly). Check the hub's address and port.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reached %1$@ through the proxy, but it doesn't look like a hub (/api/v1/health didn't answer properly). Check the hub's address and port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ経由で%1$@に接続しましたが、ハブではないようです（/api/v1/healthが正しく応答しません）。ハブのアドレスとポートを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经代理连上了 %1$@，但它不像 hub（/api/v1/health 没有正常应答）。检查 hub 的地址和端口。"
           }
         }
       }
@@ -47597,6 +48289,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "系统要是提示退出并重新打开 Cua Driver，或问它能否直接访问屏幕，都选允许"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "If not": {
+      "comment": "The context the assistant filled in on a question: what not taking its recommendation costs",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If not"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選ばない場合"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不选的代价"
           }
         }
       },
@@ -76095,6 +76811,29 @@
         }
       }
     },
+    "SOCKS5 Proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SOCKS5 Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SOCKS5プロキシ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SOCKS5 代理"
+          }
+        }
+      }
+    },
     "Synced": {
       "localizations": {
         "en": {
@@ -76187,6 +76926,75 @@
         }
       }
     },
+    "The hub at %@ treats connections through the proxy as coming from the internet and refuses plain HTTP from there. Enter the hub's address inside its LAN or VPN.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hub at %1$@ treats connections through the proxy as coming from the internet and refuses plain HTTP from there. Enter the hub's address inside its LAN or VPN."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のハブはプロキシ経由の接続をインターネットからのものとみなし、平文のHTTPを拒否します。LANまたはVPN内でのハブのアドレスを入力してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的 hub 把经代理来的连接当作来自公网，拒绝这类明文 HTTP。请填 hub 在局域网或 VPN 内的地址。"
+          }
+        }
+      }
+    },
+    "The hub's address must be 1 to 255 bytes long": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hub's address must be 1 to 255 bytes long"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハブのアドレスは1〜255バイトにしてください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hub 的地址长度要在 1 到 255 字节之间"
+          }
+        }
+      }
+    },
+    "The hub's HTTP address as seen from the proxy. Leave it empty to use the paired address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hub's HTTP address as seen from the proxy. Leave it empty to use the paired address."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシから見たハブのHTTPアドレスです。空欄のままにするとペアリング時のアドレスを使います。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从代理那边看到的 hub HTTP 地址。留空则用配对时的地址。"
+          }
+        }
+      }
+    },
     "The network is unstable or the computer is asleep. Wait for it to wake up or switch networks, then reconnect": {
       "localizations": {
         "en": {
@@ -76232,6 +77040,52 @@
       },
       "extractionState": "manual"
     },
+    "The proxy accepts neither no login nor a username and password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy accepts neither no login nor a username and password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシはログインなしにも、ユーザー名とパスワードにも対応していません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理既不接受免登录，也不接受用户名和密码"
+          }
+        }
+      }
+    },
+    "The proxy asks for a username and password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy asks for a username and password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシがユーザー名とパスワードを求めています"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理要求填写用户名和密码"
+          }
+        }
+      }
+    },
     "The proxy can't include a user name or password.": {
       "extractionState": "manual",
       "localizations": {
@@ -76251,6 +77105,144 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理地址里不能带用户名和密码。"
+          }
+        }
+      }
+    },
+    "The proxy closed the connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy closed the connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシが接続を切断しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理断开了连接"
+          }
+        }
+      }
+    },
+    "The proxy couldn't connect to %@ (%@). Check the hub's address as seen from the proxy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy couldn't connect to %1$@ (%2$@). Check the hub's address as seen from the proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシが%1$@に接続できませんでした（%2$@）。プロキシから見たハブのアドレスを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理连不上 %1$@（%2$@）。检查从代理那边看到的 hub 地址。"
+          }
+        }
+      }
+    },
+    "The proxy couldn't connect to the hub (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy couldn't connect to the hub (%1$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシがハブに接続できませんでした（%1$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理连不上 hub（%1$@）"
+          }
+        }
+      }
+    },
+    "The proxy didn't accept the username or password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy didn't accept the username or password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシがユーザー名またはパスワードを受け付けませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理没有接受这个用户名或密码"
+          }
+        }
+      }
+    },
+    "The proxy didn't answer as a SOCKS5 proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy didn't answer as a SOCKS5 proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシがSOCKS5プロキシとして応答しません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的应答不像 SOCKS5 代理"
+          }
+        }
+      }
+    },
+    "The proxy didn't answer in time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy didn't answer in time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシが時間内に応答しませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理没有及时应答"
           }
         }
       }
@@ -76278,6 +77270,52 @@
         }
       }
     },
+    "The proxy's answer doesn't follow SOCKS5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proxy's answer doesn't follow SOCKS5"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシの応答がSOCKS5の仕様に沿っていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的应答不符合 SOCKS5"
+          }
+        }
+      }
+    },
+    "The username and password can each be at most 255 bytes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The username and password can each be at most 255 bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー名とパスワードはそれぞれ255バイトまでです"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名和密码各自最多 255 字节"
+          }
+        }
+      }
+    },
     "They're only hidden in Persona; nothing on the computer is changed. Open one to unhide it.": {
       "localizations": {
         "en": {
@@ -76300,6 +77338,29 @@
         }
       },
       "extractionState": "manual"
+    },
+    "This proxy isn't on this device: Persona's traffic to the hub, this device's credential and the proxy's password would cross the network unencrypted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This proxy isn't on this device: Persona's traffic to the hub, this device's credential and the proxy's password would cross the network unencrypted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロキシはこのデバイス上にありません。Personaからハブへの通信、このデバイスの認証情報、プロキシのパスワードが暗号化されずにネットワークを流れます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个代理不在本机上：Persona 连 hub 的流量、这台设备的凭据和代理密码都会以明文经过网络。"
+          }
+        }
+      }
     },
     "Timed out · showing the last sync (%@)": {
       "localizations": {
@@ -76552,6 +77613,29 @@
         }
       }
     },
+    "When off, the app connects to the hub directly first and only uses the proxy if that fails, then checks every 2 minutes whether the direct connection works again. Only Persona's traffic to the hub goes through the proxy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, the app connects to the hub directly first and only uses the proxy if that fails, then checks every 2 minutes whether the direct connection works again. Only Persona's traffic to the hub goes through the proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのときはまずハブに直接接続し、つながらない場合だけプロキシを使います。その後は2分ごとに直接接続が戻ったかを確認します。プロキシを通るのはPersonaからハブへの通信だけです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时先直连 hub，连不上才走代理，之后每 2 分钟检查一次直连是否恢复。只有 Persona 连 hub 的流量经过代理。"
+          }
+        }
+      }
+    },
     "When the Mac has more than one display, choose one in “…” › Displays to show only that display. Zooming, taps and the pointer then stay on it.": {
       "localizations": {
         "en": {
@@ -76597,6 +77681,29 @@
           }
         }
       }
+    },
+    "Why: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "理由：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "理由：%1$@"
+          }
+        }
+      },
+      "extractionState": "manual"
     },
     "Working [State Names]": {
       "extractionState": "manual",
@@ -77217,6 +78324,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有 Agent 的提问"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Questions the assistant answered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions the assistant answered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントが代理回答した質問"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手代答过的问题"
           }
         }
       },
@@ -80521,6 +81651,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "已重命名"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Rename": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改名"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Rename Computer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータの名前を変更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给电脑改名"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Renamed to %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renamed to “%1$@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」に変更しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已改名为「%1$@」"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Shown in every app and on this computer's Persona Link. Leave it empty to use the id; the id stays the same.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown in every app and on this computer's Persona Link. Leave it empty to use the id; the id stays the same."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのアプリとこのコンピュータの Persona Link に表示されます。空欄なら ID を使います。ID は変わりません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有 App 和这台电脑的 Persona Link 都会显示这个名字；留空就用 id，id 不变。"
           }
         }
       },
@@ -97590,6 +98812,29 @@
       },
       "extractionState": "manual"
     },
+    "The agent already went on with the assistant's answer. Your new answer goes to it as a message.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent already went on with the assistant's answer. Your new answer goes to it as a message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはアシスタントの回答で作業を進めています。新しい回答はメッセージとして送られます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent 已经按助手的答案往下做了，新答案会作为一条消息发给它。"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "The agent didn't start": {
       "localizations": {
         "en": {
@@ -103625,6 +104870,29 @@
       },
       "extractionState": "manual"
     },
+    "This device can only answer with a card's own choices, so it can't change answers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device can only answer with a card's own choices, so it can't change answers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスはカードの選択肢でしか回答できないため、回答を変更できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台设备只能按卡片上的选项回答，不能改答"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "This device can only view and answer": {
       "localizations": {
         "en": {
@@ -104080,6 +105348,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "这台 hub 还不支持整组挂，升级 hub 后再试"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "This hub can't change answers yet. Update the hub first": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This hub can't change answers yet. Update the hub first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このハブはまだ回答の変更に対応していません。先にハブを更新してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个 hub 还不支持改答，先更新 hub"
           }
         }
       },
@@ -114908,6 +116199,30 @@
       },
       "extractionState": "manual"
     },
+    "What": {
+      "comment": "The context the assistant filled in on a question: what it is about",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这件事"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "What It Can Do": {
       "localizations": {
         "en": {
@@ -115225,6 +116540,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "要让 Agent 做什么？"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "What the assistant found": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the assistant found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントの補足"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手补充的情况"
           }
         }
       },
@@ -116422,6 +117760,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "为什么算达成"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Why now": {
+      "comment": "The context the assistant filled in on a question: why the agent asks now",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今聞く理由"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么现在问"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Why you decide": {
+      "comment": "The context the assistant filled in on a question: why it is the user's to answer",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why you decide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたが決める理由"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么要你定"
           }
         }
       },
@@ -117876,6 +119262,29 @@
       },
       "extractionState": "manual"
     },
+    "You changed it": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You changed it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたが変更しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你改答了"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "You didn’t say this, so it wasn’t sent": {
       "localizations": {
         "en": {
@@ -118193,6 +119602,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "iPhone 现在没有网络。网络恢复后会自动连上，期间写的消息会自动发出去。"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Your new answer was sent to the agent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your new answer was sent to the agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい回答をエージェントに送りました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新答案已发给 Agent"
           }
         }
       },
@@ -127432,6 +128864,98 @@
           }
         }
       }
+    },
+    "The assistant answered: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The assistant answered: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントの元の回答：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手原来答的：%1$@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "The assistant didn't answer this question, so its answer can't be changed here": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The assistant didn't answer this question, so its answer can't be changed here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この質問はアシスタントが回答したものではないため、ここでは変更できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个问题不是助手代答的，不能在这里改答"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "The assistant is deciding whether it can answer this for you and hasn't notified you yet. You can still answer; whichever answer comes first counts.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The assistant is deciding whether it can answer this for you and hasn't notified you yet. You can still answer; whichever answer comes first counts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントが代わりに答えられるか判断しているところで、まだ通知していません。ここで答えることもでき、先に届いた回答が使われます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手正在判断能不能替你答，还没通知你。你也可以直接答，先到的算。"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "The assistant is offline. Try again shortly": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The assistant is offline. Try again shortly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントがオフラインです。しばらくしてからもう一度お試しください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手不在线，稍后再试"
+          }
+        }
+      },
+      "extractionState": "manual"
     },
     "The extension sent it on its own: no rule and no card.": {
       "localizations": {

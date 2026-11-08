@@ -61,8 +61,18 @@ function WaitingRow({ row }: { row: BriefRow }) {
 /** What the Accept button of a task says: it asked, the hub took it, or the round is already over. */
 type Accepting = "idle" | "busy" | "accepted" | "handled";
 
+/** What the button of a row to verify says: Accept a deployed task, Got it a conclusion, Take recommendation a decision. */
+function acceptLabel(row: BriefRow): { label: string; title: string } {
+  if (row.outcome === "decide") return { label: t("assistant-brief.take"), title: t("assistant-brief.take_row", { title: row.title }) };
+  if (row.outcome) return { label: t("assistant-brief.got_it"), title: t("assistant-brief.accept_row", { title: row.title }) };
+  return { label: t("assistant-brief.accept"), title: t("assistant-brief.accept_row", { title: row.title }) };
+}
+
 function AcceptRow({ row }: { row: BriefRow }) {
   const [state, setState] = useState<Accepting>("idle");
+  const button = acceptLabel(row);
+  // A decision with nothing recommended has nothing for the button to take: the user answers its card or the chat.
+  const takes = row.outcome !== "decide" || !!row.recommend;
   const accept = () => {
     if (!row.asked_at || state !== "idle") return;
     setState("busy");
@@ -78,19 +88,25 @@ function AcceptRow({ row }: { row: BriefRow }) {
     <div className="flex items-center gap-3 py-1.5" data-brief-row="accept">
       <div className="min-w-0 flex-1">
         <div className="text-[13.5px] font-medium [overflow-wrap:anywhere]">{row.title}</div>
+        {row.verdict && (
+          <div className="text-[12.5px] [overflow-wrap:anywhere]" data-brief-verdict={row.outcome ?? "deployed"}>
+            {row.verdict}
+          </div>
+        )}
         {row.detail && <div className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{row.detail}</div>}
+        {row.recommend && <div className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{t("assistant-brief.recommend", { option: row.recommend })}</div>}
         <div className="text-[12px] text-ink-2">{meta(row)}</div>
       </div>
       <Button title={t("assistant-brief.open_row", { title: row.title })} onClick={() => openPanel({ kind: "task", todo: row.id })}>
         {t("assistant-brief.open")}
       </Button>
-      {state === "accepted" || state === "handled" ? (
+      {!takes ? null : state === "accepted" || state === "handled" ? (
         <span className="shrink-0 text-[12.5px] text-ink-2" data-brief-accepted={state}>
-          {t(state === "accepted" ? "assistant-brief.accepted" : "assistant-brief.handled")}
+          {t(state === "handled" ? "assistant-brief.handled" : row.outcome === "decide" ? "assistant-brief.taken" : row.outcome ? "assistant-brief.noted" : "assistant-brief.accepted")}
         </span>
       ) : (
-        <Button tone="primary" busy={state === "busy"} disabled={!row.asked_at} title={t("assistant-brief.accept_row", { title: row.title })} onClick={accept}>
-          {t("assistant-brief.accept")}
+        <Button tone="primary" busy={state === "busy"} disabled={!row.asked_at} title={button.title} onClick={accept}>
+          {button.label}
         </Button>
       )}
     </div>

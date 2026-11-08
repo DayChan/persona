@@ -48,6 +48,10 @@ class HttpMachineManagement internal constructor(
 
     override suspend fun deploy(machineId: String) { call(api("machines", machineId, "deploy"), "POST", buildJsonObject { }) }
 
+    override suspend fun rename(machineId: String, name: String): String =
+        (call(api("machines", machineId, "name"), "PUT", buildJsonObject { put("name", name) })["name"] as? JsonPrimitive)?.contentOrNull
+            ?: throw HubFailure(HubError.Protocol, "hub answered the rename without a name", retryable = false)
+
     override suspend fun herdr(machineId: String): HerdrState =
         JsonCodec.decodeFromJsonElement(call(api("machines", machineId, "herdr"), "GET"))
 

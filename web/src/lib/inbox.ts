@@ -131,6 +131,15 @@ export interface InboxItem {
   /** Handling chain, oldest first. */
   chain?: ChainEntry[];
   related?: InboxRelated[];
+  /** The conversations it was handed to with "Hand to AI" (POST /inbox/{id}/handoff), oldest first: they may write back to it. */
+  handoffs?: InboxHandoff[];
+}
+
+/** One hand-off of an item to Persona's main conversation. */
+export interface InboxHandoff {
+  machine_id: string;
+  session_id: string;
+  at?: string;
 }
 
 /** One thing an item can be muted by: a repository, a chat or a sender of its source. */
@@ -580,6 +589,14 @@ export function handOffMessage(it: InboxItem, ask: string): string {
   return `${contextXML("context", title, "", text)}\n\n${ask.trim() || HANDOFF_PRESETS[0]}`;
 }
 
+/** "Hand to AI" to Persona's main conversation (docs/assistant/inbox.md "Item actions"): the item's manager sends text there
+ *  after a block naming the item, or starts the conversation with it, and the conversation may write back to the item.
+ *  The same clientID again sends nothing more. Resolves to the conversation it went to. */
+export async function handOffToMain(item: InboxItem, text: string, clientID: string): Promise<InboxHandoff> {
+  const r = await api<{ session: InboxHandoff }>(`${itemPath(item.id)}/handoff`, { method: "POST", json: { text, client_id: clientID }, headers: itemRequest(item) });
+  return r.session;
+}
+
 // ── Feishu messages (docs/protocol/protocol.md "Lark API") ──────
 
 export interface LarkPart {
@@ -822,7 +839,7 @@ interface InboxState {
 
 let state: InboxState = { items: [], triage: null, loaded: false, loading: false, error: "", sending: [], moving: [] };
 const listeners = new Set<() => void>();
-/** Replies that did not go out, by item (itemKey): the draft dialog opens with that text again. */
+/** Unsent reply edits and accepted generations, by item (itemKey); send clears them and a failure restores its text. */
 export const unsentReplies = new Map<string, string>();
 
 // Every request about an item names its manager where it is made (itemRequest): two managers may list the same id, so

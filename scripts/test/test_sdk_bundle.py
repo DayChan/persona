@@ -27,12 +27,23 @@ class SDKBundle(unittest.TestCase):
                       "sdk/ts/package-lock.json", "sdk/ts/tsconfig.ui.json", "sdk/ts/tsconfig.negative.json",
                       "sdk/ts/scripts/check-portable.ts", "sdk/ts/scripts/portable-ui.mjs",
                       "sdk/ts/scripts/check-negative-types.ts", "sdk/ts/typechecks/native.tsx",
+                      "sdk/ts/scripts/check-source-bundle.mjs", "sdk/ts/scripts/source-authoring-worker.mjs",
+                      "sdk/ts/scripts/source-authoring-tests.mjs", "sdk/ts/README.md",
                       "sdk/ts/typechecks/negative.tsx", "sdk/ts/fixtures/Manifest.custom-contributions.json",
                       "sdk/ts/fixtures/UIStreamDelta.operations.json"]:
                 self.assertTrue(os.path.exists(os.path.join(dest, f)), f)
             self.assertFalse(os.path.exists(os.path.join(dest, "sdk/go/bundle")), "the bundle is personad's, not an extension's")
             for name in ["node_modules", "dist", "bin", ".git"]:
                 self.assertFalse(os.path.exists(os.path.join(dest, "sdk/ts", name)), name)
+            for relative in ["sdk/ts/README.md", "sdk/ts/scripts/check-source-bundle.mjs",
+                             "sdk/ts/scripts/source-authoring-worker.mjs", "sdk/ts/scripts/source-authoring-tests.mjs"]:
+                with open(os.path.join(ROOT, relative), "rb") as original, \
+                        open(os.path.join(dest, relative), "rb") as copied, \
+                        tarfile.open(os.path.join(ROOT, "sdk/go/bundle/sdk.tar.gz")) as bundle:
+                    expected = original.read()
+                    self.assertEqual(expected, copied.read(), relative)
+                    with bundle.extractfile(relative.removeprefix("sdk/")) as packed:
+                        self.assertEqual(expected, packed.read(), relative)
             for folder in ["scripts", "typechecks"]:
                 source = os.path.join(ROOT, "sdk/ts", folder)
                 for top, _, files in os.walk(source):

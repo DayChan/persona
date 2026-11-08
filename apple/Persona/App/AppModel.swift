@@ -451,6 +451,9 @@ final class AppModel {
         // docs/operations/network.md). Base64: a launch argument that looks like a dictionary is read as a property list.
         if let s = UserDefaults.standard.string(forKey: "seedSSHTunnel"), !r.hubs.isEmpty, let json = Data(base64Encoded: s),
            let route = try? JSONDecoder().decode(SSHRoute.self, from: json) { r.hubs[0].ssh = route }
+        // `-seedLocalProxy <base64 of the LocalProxyRoute JSON>`: the first hub's local proxy, the same way.
+        if let s = UserDefaults.standard.string(forKey: "seedLocalProxy"), !r.hubs.isEmpty, let json = Data(base64Encoded: s),
+           let route = try? JSONDecoder().decode(LocalProxyRoute.self, from: json) { r.hubs[0].localProxy = route }
         registry = HubGrouping.regroup(r)
         saveRegistry(registry)
         buildLinks()
@@ -1035,6 +1038,9 @@ final class AppModel {
 
     func isSubscribed(_ key: SessionKey) -> Bool { subscribers[key] != nil }
 
+    /// Check this view's live owner, not an environment value captured before an asynchronous completion.
+    func isSubscribed(_ key: SessionKey, by owner: UUID) -> Bool { subscribers[key]?.contains(owner) == true }
+
     // MARK: Terminal streams
 
     /// What a group's hub listed in its hello (`terminal_stream`: the terminal tab can subscribe to live frames).
@@ -1207,25 +1213,28 @@ final class AppModel {
 
     /// Fetches what comes after the chat's `covered`, page by page, until it is whole; past 8 pages it starts over from
     /// the latest page instead.
-    func fill(_ key: SessionKey) async {
-        guard let api = api(key.group), !filling.contains(key) else { return }
+    func fill(_ key: SessionKey, shouldApply: (@MainActor () -> Bool)? = nil) async {
+        guard shouldApply?() ?? true, let api = api(key.group), !filling.contains(key) else { return }
         filling.insert(key)
         defer { filling.remove(key) }
         let store = chat(key)
         for _ in 0..<8 {
+            guard shouldApply?() ?? true else { return }
             guard let r = try? await api.items(key, afterSeq: store.covered) else { return }
+            guard shouldApply?() ?? true else { return }
             switch store.apply(r.items, span: r.span, moreAfter: r.moreAfter == true) {
             case .none: return
             case .fill: continue
-            case .reload: await reload(key); return
+            case .reload: await reload(key, shouldApply: shouldApply); return
             }
         }
-        await reload(key)
+        await reload(key, shouldApply: shouldApply)
     }
 
     /// Starts the chat over from the latest page (the hole was too big, or the transcript was replaced).
-    func reload(_ key: SessionKey) async {
-        guard let api = api(key.group), let page = try? await api.items(key, beforeSeq: nil) else { return }
+    func reload(_ key: SessionKey, shouldApply: (@MainActor () -> Bool)? = nil) async {
+        guard shouldApply?() ?? true, let api = api(key.group), let page = try? await api.items(key, beforeSeq: nil) else { return }
+        guard shouldApply?() ?? true else { return }
         chat(key).replace(with: page.items, hasMore: page.hasMore, span: page.span)
         ChatTrace.shared.note(key, "reload n=\(page.items.count) to=\(page.span.to.map(String.init) ?? "?") kept=\(chat(key).items.count - page.items.count)")
     }
@@ -1480,7 +1489,7 @@ final class AppModel {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionsCoalesce) { [weak self] in self?.applyPendingSessions() }
     }
 
-    private func handle(_ ev: ServerEvent, group: String) {
+    func handle(_ ev: ServerEvent, group: String) {
         #if DEBUG || PERF_SIGNPOST
         PerfTrace.push(Self.perfName(ev))
         #endif
@@ -1626,16 +1635,19 @@ final class AppModel {
             case .kept: break
             }
         case .interaction(let ix):
-            let isNew = interactions[ix.uid] == nil
+            let announces = Delegated.announces(ix, replacing: interactions[ix.uid])
             interactions[ix.uid] = ix
-            if isNew { Haptics.attention() }
+            if announces { Haptics.attention() }
             WatchSync.shared.push(summary: watchSummary())
-        case .interactionResolved(let id):
+        case .interactionResolved(let id, let assistant):
             endedInteractionIDs.insert(id)
             let uid = group.isEmpty ? id : group + "|" + id
             answering.hubEnded(uid)
+            if let assistant, let ix = interactions[uid] { keepDelegated(ix, assistant) }
             interactions[uid] = nil
             WatchSync.shared.push(summary: watchSummary())
+        case .interactionReanswered(let id, let answers):
+            noteReanswer(group.isEmpty ? id : group + "|" + id, answers)
         case .toolCall(let callID, let name, let args):
             Task { await runPhoneTool(callID: callID, name: name, args: args, group: group) }
         case .hookEvent:
@@ -1660,6 +1672,7 @@ final class AppModel {
         case .delta: "delta"
         case .interaction: "interaction"
         case .interactionResolved: "interaction_resolved"
+        case .interactionReanswered: "interaction_reanswered"
         case .toolCall: "tool_call"
         case .hookEvent: "hook"
         case .revs: "revs"
@@ -1752,7 +1765,10 @@ final class AppModel {
         let op = UUID()
         do {
             let res = try await OpRetry.untilDelivered { try await api.resolve(ix.id, r, opID: op) }
-            if res.already == true, let existing = res.resolution {
+            if res.already == true, let existing = res.resolution, existing.answeredBy == AssistantAnswer.assistant, ix.kind == .question {
+                // The assistant answered first: its answer shows in the chat, where the user may change it.
+                keepDelegated(ix, AssistantAnswer(answers: existing.answers ?? [:], reason: existing.reason ?? ""))
+            } else if res.already == true, let existing = res.resolution {
                 // Resolved already on server, show what was effective
                 let lines = Answered.answerLines(ix, existing)
                 let text = (lines.first?.answer.isEmpty == false) ? String(localized: "Already answered: \(lines.first!.answer)") : String(localized: "Already answered")
@@ -1779,6 +1795,48 @@ final class AppModel {
         guard answering.putsBack(ix.uid) else { return }
         endedInteractionIDs.remove(ix.id)
         interactions[ix.uid] = ix
+    }
+
+    // MARK: Questions the assistant answered (#544)
+
+    /// Questions the assistant answered for the user, oldest first: each stays in its chat with what it answered and
+    /// why until put away, at most `Delegated.kept` of them.
+    private(set) var delegatedAnswers: [DelegatedAnswer] = []
+    /// What the user changed an answer to, by `uid` (this device's Change Answer, or `interaction_reanswered`).
+    private(set) var reanswered: [String: [String: String]] = [:]
+
+    func delegated(for key: SessionKey) -> [DelegatedAnswer] { delegatedAnswers.filter { $0.interaction.sessionKey == key } }
+
+    private func keepDelegated(_ ix: Interaction, _ answer: AssistantAnswer) {
+        guard ix.kind == .question, !delegatedAnswers.contains(where: { $0.id == ix.uid }) else { return }
+        delegatedAnswers.append(DelegatedAnswer(interaction: ix, answers: answer.answers, reason: answer.reason, at: .now))
+        if delegatedAnswers.count > Delegated.kept { delegatedAnswers.removeFirst(delegatedAnswers.count - Delegated.kept) }
+    }
+
+    /// Puts an answered question's card away; what was changed stays for Session Info.
+    func dropDelegated(_ uid: String) { delegatedAnswers.removeAll { $0.id == uid } }
+
+    /// The hub names only the questions that changed: an earlier change to another question of the card stays.
+    private func noteReanswer(_ uid: String, _ answers: [String: String]) {
+        guard !answers.isEmpty else { return }
+        reanswered[uid, default: [:]].merge(answers) { _, new in new }
+    }
+
+    /// The new answer reaches the agent as a message, so Change Answer takes what sending does, not answering a card.
+    func canChangeAnswer(_ d: DelegatedAnswer) -> Bool { session(d.interaction.sessionKey)?.canSend == true }
+
+    /// Change Answer: nil once the changed answers reached the agent, else why not.
+    func reanswer(_ d: DelegatedAnswer, answers: [String: String]) async -> String? {
+        guard let api = api(d.interaction.group) else { return String(localized: "Can't reach the hub. That action didn't go through.") }
+        do {
+            try await api.reanswer(d.interaction.id, answers: answers, manager: d.interaction.manager)
+        } catch {
+            return Delegated.reanswerError(error)
+        }
+        noteReanswer(d.id, answers)
+        Haptics.success()
+        toast = Toast(String(localized: "Your new answer was sent to the agent"), style: .success)
+        return nil
     }
 
     /// Unsent composer text per chat (also where an edited queued message lands); kept across launches.
@@ -2550,6 +2608,20 @@ final class AppModel {
         edit(machine: g.machineRef) { s in if s.spaceID == g.spaceID { s.spaceName = name } }
         pinsStore(g.group)?.renameSpace(oldKey, to: newKey)
         do { try await api.renameSpace(machine: g.machineID, workspaceID: g.spaceID, name: name) } catch { show(error) }
+        await refresh()
+    }
+
+    /// The hub renames computers (feature `machine_rename`): machine details offer it.
+    func canRenameMachine(_ group: String) -> Bool { features(group).contains("machine_rename") }
+
+    /// Renames a computer on its hub ("" is its id again); the hub's `machines` push brings the new name everywhere.
+    func renameMachine(_ ref: MachineRef, to name: String) async {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let api = api(ref.group), name != machine(ref)?.name else { return }
+        do {
+            let shown = try await api.renameMachine(ref.id, to: name)
+            toast = Toast(String(localized: "Renamed to \(shown)"), style: .success)
+        } catch { show(error) }
         await refresh()
     }
 

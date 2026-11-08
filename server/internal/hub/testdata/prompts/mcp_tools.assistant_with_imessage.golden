@@ -40,7 +40,7 @@
   },
   {
     "name": "mail_read",
-    "description": "Read one message in full: headers, plain text, HTML and the attachment list. Does not mark the message as read.",
+    "description": "Read one message in full: headers, plain text, HTML and the attachment list (each with its id for mail_save_attachment). Does not mark the message as read.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -58,6 +58,39 @@
       "required": [
         "account_id",
         "uid"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "mail_save_attachment",
+    "description": "Save one attachment of a message (a PDF, CSV, xlsx, zip…) as a file on this computer, the one you run on, and return its path. The id is the one mail_read lists after the attachment. Files go under the Persona data directory's attachments/mail folder, in the subfolder dir if given; an existing file is never overwritten (the new one gets a numbered name). At most 25 MB. Does not mark the message as read. Read, unzip or move the saved file with your own tools afterwards.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "integer"
+        },
+        "mailbox": {
+          "type": "string",
+          "description": "Mailbox name, default INBOX"
+        },
+        "attachment_id": {
+          "type": "string",
+          "description": "The id mail_read lists after the attachment"
+        },
+        "dir": {
+          "type": "string",
+          "description": "Subfolder to save into, relative (e.g. bills/2026-10); no absolute paths, '..' or hidden folders"
+        }
+      },
+      "required": [
+        "account_id",
+        "uid",
+        "attachment_id"
       ],
       "additionalProperties": false
     }
@@ -345,9 +378,10 @@
             "working",
             "unread",
             "idle",
+            "archived",
             "all"
           ],
-          "description": "default active = needs_you + working + unread"
+          "description": "default active = needs_you + working + unread; archived: only the archived sessions (agent_unarchive restores them); the others leave archived ones out, all lists them marked archived"
         },
         "machine": {
           "type": "string"
@@ -384,7 +418,7 @@
   },
   {
     "name": "agent_send",
-    "description": "Send a message to an agent as the user would type it (answers its question, tells it to continue, gives new instructions). Queued if the agent is working. Only send what the user asked for. An agent that is not running any more (a finished task's agent is closed after a few idle minutes) is resumed first, in the same session with the same machine, directory and launcher, so you can keep working with it. A text of only /exit or /quit closes a running agent and its terminal tab (the session can still be resumed later) and does nothing to one that is not running; a finished task's agent is closed for you, so there is no need to.\n\nWhen a dialog holds the agent's terminal the send is refused (dialog_open) with the dialog's first line, and whether it is only a notice that Enter closes (\"Enter to continue\", no options). Send again with dismiss_notice true to close such a notice first. Confirmations, permissions and pickers are never closed for you: tell the user, or answer them with interaction_answer.",
+    "description": "Send a message to an agent as the user would type it (answers its question, tells it to continue, gives new instructions). Queued if the agent is working. Only send what the user asked for. An agent that is not running any more (a finished task's agent is closed after a few idle minutes) is resumed first, in the same session with the same machine, directory and launcher, so you can keep working with it. A text of only /exit or /quit closes a running agent and its terminal tab (the session can still be resumed later) and does nothing to one that is not running; a finished task's agent is closed for you, so there is no need to.\n\nWhen a dialog holds the agent's terminal the send is refused (dialog_open) with the dialog's first line, and whether it is only a notice that Enter closes (\"Enter to continue\", no options). Send again with dismiss_notice true to close such a notice first. Confirmations, permissions and pickers are never closed for you: tell the user, or answer them with interaction_answer.\n\nWhen you hand new work to an agent that runs already (one the user opened, a long-lived one that passes work on), give task from the main conversation: once the text is sent the agent is your supervised task, as agent_supervise makes one (a todo with the text as its notes, the agent on it, done_when, a card in the conversation; 督办 messages, task_review), so the work is tracked instead of only said. Put the criteria in the text too: the agent is told only what the text says. An agent already on one of your tasks takes more of it under the same title (no second task; done_when is updated); a different title is refused, so other work is not filed under that task. An agent on the user's own todo or another conversation's task is refused. Refused means nothing was sent. If the send fails, no task is made. Leave task out for a reply, a nudge or a decision on work it already has.",
     "input_schema": {
       "type": "object",
       "required": [
@@ -405,6 +439,31 @@
         "dismiss_notice": {
           "type": "boolean",
           "description": "Press Enter first to close a notice that only says \"Enter to continue\" (no options). Any other dialog still refuses the send."
+        },
+        "task": {
+          "type": "object",
+          "description": "new work: make it your supervised task first (main conversation only)",
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "the task in a short line (Chinese, under 20 characters)"
+            },
+            "done_when": {
+              "type": "array",
+              "maxItems": 6,
+              "items": {
+                "type": "string"
+              },
+              "description": "results you can check when it says it is done (a PR merged, a sheet's link, what the live system answers)"
+            },
+            "expect_minutes": {
+              "type": "integer",
+              "description": "how long it should take from now; longer without progress counts as stuck"
+            }
+          }
         }
       }
     }
@@ -529,6 +588,52 @@
     }
   },
   {
+    "name": "agent_archive",
+    "description": "Archive a coding agent's session (from agents_list) when the user asks to archive or tidy up agents: it leaves the Agents list for Archived in the app, nothing is deleted, and agent_unarchive brings it back (never remove a session any other way). Persona also asks the agent's own tool to archive it where that tool has an archive (Codex); the result says whether it did (native: done / pending / unsupported). Without close the agent itself is not closed: one open on its computer stays open. With close, its agent is also closed on its computer the way a finished task's agent is (its tab and process go, its transcript stays, and the next message to it resumes it): only when the user asks to close it too, and the user confirms on the phone first (declined: nothing changes). A busy agent is refused and nothing changes: working, waiting for an answer or background work, and for close also a /loop, queued messages or a server it runs. When the close does not happen the session stays archived and still open on the computer, and the result says why: tell the user exactly that, not that it was closed. Not for Persona conversations (conversation_archive).",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "machine",
+        "session_id"
+      ],
+      "properties": {
+        "machine": {
+          "type": "string",
+          "description": "the machine's id or name, as agents_list shows it"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "the agent's session id, or its first 8 characters"
+        },
+        "close": {
+          "type": "boolean",
+          "description": "also close its agent on the computer (asks the user on the phone first); default false: archive only"
+        }
+      }
+    }
+  },
+  {
+    "name": "agent_unarchive",
+    "description": "Bring an archived coding agent's session back into the Agents list (find it with agents_list and state archived). Nothing is reopened on the computer: a message to it (agent_send) resumes it. Persona also asks the agent's own tool to restore it where that tool archived it too; the result says whether it did.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "machine",
+        "session_id"
+      ],
+      "properties": {
+        "machine": {
+          "type": "string",
+          "description": "the machine's id or name, as agents_list shows it"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "the agent's session id, or its first 8 characters"
+        }
+      }
+    }
+  },
+  {
     "name": "interaction_answer",
     "description": "Answer another agent's question for the user, in their place, when they said what to answer or told you to decide. Only a question can be answered this way: a tool permission, a plan and a terminal dialog are theirs to decide in the app, and the assistant's own question is never answered by itself. Every question must be answered by its own wording, with the option labels it offers; free text is not accepted (the user answers that in the app, or you use agent_send). A multi-select takes an array of labels.",
     "input_schema": {
@@ -574,10 +679,13 @@
   },
   {
     "name": "inbox_suggest",
-    "description": "Hand in your suggestion for the inbox event this conversation handles (one at a time: a new one replaces the last), and the event's recap. It waits in the user's inbox; nothing goes out until they confirm, and then the program does exactly what it says (you never send it yourself). `kind`: `reply` — one message to send, `text` in the user's voice, ready to go out as it is (no blanks to fill in like 【…】: leave out what you could not find and say so in `note`; for a Feishu sheet / Base item `changes` proposes moving rows' status: ref, field and one of the values the item lists); `agent` — an Agent to start, `text` its instruction (`machine` and `cwd` optional); `conclusion` — you dealt with it, `text` the conclusion, `outcome` `fyi` (worth knowing) or `done` (nothing to do). `handback: true` for one the user has to judge: their confirmation comes back here as an instruction instead of being carried out. `note`: one or two sentences on what you found and where. `recap`: the event's background, progress and where it is stuck (up to 600 characters), every time. `related`: ids of inbox items in other chats or sources this one is about. With only `recap` (no `kind`) it just updates the recap. Call it at the end of each turn.",
+    "description": "Hand in your suggestion for the inbox event this conversation handles (one at a time: a new one replaces the last), and the event's recap. It waits in the user's inbox; nothing goes out until they confirm, and then the program does exactly what it says (you never send it yourself). `kind`: `reply` — one message to send, `text` in the user's voice, ready to go out as it is (no blanks to fill in like 【…】: leave out what you could not find and say so in `note`; for a Feishu sheet / Base item `changes` proposes moving rows' status: ref, field and one of the values the item lists); `agent` — an Agent to start, `text` its instruction (`machine` and `cwd` optional); `conclusion` — you dealt with it, `text` the conclusion, `outcome` `fyi` (worth knowing) or `done` (nothing to do). `handback: true` for one the user has to judge: their confirmation comes back here as an instruction instead of being carried out. `note`: one or two sentences on what you found and where. `recap`: the event's background, progress and where it is stuck (up to 600 characters), every time. `related`: ids of inbox items in other chats or sources this one is about. With only `recap` (no `kind`) it just updates the recap. Call it at the end of each turn. In a conversation the user handed an inbox item to (its context block names the item's id), pass that id as `item` and call it when you have something to write back to the item; it refuses an item not handed to this conversation or one the user already filed: answer in the chat then.",
     "input_schema": {
       "type": "object",
       "properties": {
+        "item": {
+          "type": "string"
+        },
         "kind": {
           "type": "string",
           "enum": [
@@ -1232,7 +1340,7 @@
   },
   {
     "name": "task_review",
-    "description": "Review a task you handed out from this conversation (its todo id), after you checked its work yourself: each done_when criterion with its evidence (a PR link and that it merged, CI, a screenshot, what the live system answers) or what is missing. accepted closes the task (its agent is closed once it stays still); rework sends what is missing back to the same agent (resumed if it was closed) — at most 2 rounds, a third goes to the user instead; needs_user marks it waiting for the user's decision (ask them yourself: ask_user, or notify_user if they are away); cancelled ends it (a duplicate, no longer wanted). From a conversation other than the main one, on a task it does not supervise, only accepted and cancelled apply: send what is missing to its agent with agent_send. Use it on every task a 督办 message says waits for review; don't accept on the agent's word alone.",
+    "description": "Review a task you handed out from this conversation (its todo id), after you checked its work yourself: each done_when criterion with its evidence (a PR link and that it merged, CI, a screenshot, what the live system answers) or what is missing. accepted closes the task (its agent is closed once it stays still); rework sends what is missing back to the same agent (resumed if it was closed) — at most 2 rounds, a third goes to the user instead; needs_user marks it waiting for the user's decision (its conclusion card asks them; without one, ask them yourself: ask_user, or notify_user if they are away, as the answer says); cancelled ends it (a duplicate, no longer wanted). From a conversation other than the main one, on a task it does not supervise, only accepted and cancelled apply: send what is missing to its agent with agent_send. Use it on every task a 督办 message says waits for review; don't accept on the agent's word alone. On a supervised task, accepted and needs_user send the user one conclusion card in Lark: the verdict (done, cannot be done, or needs your decision), reason (one sentence), link (one), and for needs_user your recommend, which the user takes by answering \"OK\"; so give outcome, reason and link with accepted, and reason and recommend with needs_user, and don't push the same result again.",
     "input_schema": {
       "type": "object",
       "required": [
@@ -1280,6 +1388,26 @@
         "note": {
           "type": "string",
           "description": "rework: what the agent is to do (Chinese, concrete); needs_user: what the user is to decide; cancelled: why; accepted: the result in a line"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "done",
+            "cannot"
+          ],
+          "description": "accepted: done (the work is done or the answer is yes), or cannot (the task found it cannot be done); default done"
+        },
+        "reason": {
+          "type": "string",
+          "description": "accepted and needs_user: the conclusion card's one sentence of why (what the user is to decide, for needs_user), in the user's language; default the note's first line"
+        },
+        "link": {
+          "type": "string",
+          "description": "accepted and needs_user: the one link to the evidence (the PR, the page, the document); default the task's PR, a link in the note or checks, or the agent's conversation"
+        },
+        "recommend": {
+          "type": "string",
+          "description": "needs_user: the option you recommend, in a line; the user's \"OK\" takes it and it goes to the task's agent"
         }
       }
     }

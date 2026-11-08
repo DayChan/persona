@@ -51,5 +51,10 @@
   "hub_too_old_media": "The hub is too old to play large files",
   "hub_too_old_media_detail": "{size} · Update the hub to play it here, or download it first.",
   "empty_folder": "Empty folder",
-  "folder_truncated": "Showing only the first 500 items"
+  "folder_truncated": "Showing only the first 500 items",
+  "file_changed": "File changed while loading",
+  "file_changed_detail": "The file changed between pages. Reload it to read from the beginning.",
+  "reload": "Reload file",
+  "read_incomplete": "The file could not be read completely. Try again or reload it.",
+  "download_failed": "Couldn't download this file: {error}"
 }

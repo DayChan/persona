@@ -121,10 +121,18 @@ fi
 read -r UDID STATE PLATFORM <<<"$INFO"
 
 finish() { log "$1 $PROFILE $UDID"; echo "$UDID"; exit "${2:-0}"; }
-wait_booted() { timed "${SIM_BOOT_TIMEOUT:-900}" xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1; }
+# Keep boot progress and errors visible without mixing them with the UDID on stdout.
+wait_booted() {
+  timed "${SIM_BOOT_TIMEOUT:-900}" xcrun simctl bootstatus "$UDID" -b >&2
+  local code=$?
+  if [ "$code" != 0 ]; then log "$UDID did not finish booting (bootstatus exit $code)"; fi
+  return "$code"
+}
 plain_boot() {
-  timed 120 xcrun simctl boot "$UDID" 2>/dev/null
-  wait_booted || { log "$UDID did not finish booting"; exit 1; }
+  timed 120 xcrun simctl boot "$UDID" >&2
+  local code=$?
+  if [ "$code" != 0 ]; then log "$UDID could not start (boot exit $code)"; exit "$code"; fi
+  wait_booted || exit $?
 }
 # number of services simslim has turned off on this device (0 for stock or unknown)
 disabled_count() {
@@ -143,7 +151,7 @@ doctor() {
   esac
 }
 
-case "$STATE" in Creating|Booting|Shutting_Down) log "$UDID is $STATE, waiting"; wait_booted; INFO=$(lookup "$UDID"); read -r UDID STATE PLATFORM <<<"$INFO" ;; esac
+case "$STATE" in Creating|Booting|Shutting_Down) log "$UDID is $STATE, waiting"; wait_booted || exit $?; INFO=$(lookup "$UDID"); read -r UDID STATE PLATFORM <<<"$INFO" ;; esac
 case "$PLATFORM" in
   iOS|watchOS) ;;
   *) log "$PLATFORM simulator: no profile for it, booting stock"; [ "$STATE" = Booted ] || plain_boot; finish stock ;;

@@ -45,8 +45,10 @@ func symlink(t *testing.T, target, link string) {
 	}
 }
 
+// testPreflightEnv reads with a short stall; the child (the test binary) gets the tests' long start (TestMain).
 func testPreflightEnv(home string) preflightEnv {
-	env := preflightEnv{goos: "linux", home: home, via: "", exe: "/x/personad", stall: 400 * time.Millisecond}
+	env := preflightEnv{goos: "linux", home: home, via: "", exe: "/x/personad", stall: 400 * time.Millisecond,
+		start: preflightStart}
 	env.child, env.childEnv = preflightChildCmd("")
 	return env
 }
@@ -80,9 +82,15 @@ func TestPreflightKillsAHungRead(t *testing.T) {
 	}
 	items := preflightItems(claude, []string{work})
 	env := testPreflightEnv(home)
-	start := time.Now()
+	startedAt := filepath.Join(t.TempDir(), "started")
+	env.childEnv = append(env.childEnv, "NODE_TEST_PREFLIGHT_STARTED="+startedAt)
 	c := pathPreflight(context.Background(), items, env)
-	if took := time.Since(start); took > env.stall+3*time.Second {
+	// Timed from the child's start, not from its exec: how long that takes is the machine's load (#1110).
+	if b, err := os.ReadFile(startedAt); err != nil {
+		t.Errorf("the child did not start: %v", err)
+	} else if started, err := time.Parse(time.RFC3339Nano, string(b)); err != nil {
+		t.Errorf("started %q: %v", b, err)
+	} else if took := time.Since(started); took > env.stall+3*time.Second {
 		t.Errorf("took %s", took)
 	}
 	if c.Status != DoctorFail { // every claude reads its settings
@@ -112,6 +120,34 @@ func TestPreflightKillsAHungRead(t *testing.T) {
 			t.Fatalf("the hung reader outlived the preflight: %v", err)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Starting the child is not a read (#1110): under the whole server suite's load the test binary can take longer than
+// one of the tests' short stalls to say its first line. The start has a budget of its own, and the reads' stalls and
+// the run's cap count past it: a child slower to start than a whole run of stalls still reads every path.
+func TestPreflightGivesTheChildTimeToStart(t *testing.T) {
+	home, claude, work := preflightHome(t)
+	env := testPreflightEnv(home)
+	items := preflightItems(claude, []string{work})
+	childEnv := env.childEnv
+	env.childEnv = append(slices.Clone(childEnv), "NODE_TEST_PREFLIGHT_SLOW="+((preflightMaxStalls+1)*env.stall).String())
+	c := pathPreflight(context.Background(), items, env)
+	if c.Status != DoctorOK || !strings.Contains(c.Detail, "7 个路径都能读") {
+		t.Errorf("%+v", c)
+	}
+	// A child that never says its first line is stopped rather than waited for (it would sleep a minute): nothing
+	// read, nothing blamed.
+	env.childEnv = append(slices.Clone(childEnv), "NODE_TEST_PREFLIGHT_SLOW=1m")
+	env.start = 200 * time.Millisecond
+	start := time.Now()
+	c = pathPreflight(context.Background(), items, env)
+	if took := time.Since(start); took > 30*time.Second {
+		t.Errorf("waited %s for a child that did not start", took)
+	}
+	if c.Status != DoctorWarn || !strings.Contains(c.Detail, "读了 0 个路径") ||
+		!slices.ContainsFunc(c.Items, func(s string) bool { return strings.Contains(s, "读得太久") }) {
+		t.Errorf("%+v", c)
 	}
 }
 
@@ -300,7 +336,8 @@ func TestLaunchedVia(t *testing.T) {
 func TestDoctorAsksTheNodeForThePreflight(t *testing.T) {
 	e := newDoctorEnv(t)
 	e.healthy(t)
-	c, why := askNodePreflight(context.Background(), e.opts.NodeSock, preflightAnswerWait)
+	// The node's child has the tests' long start (TestMain), so the wait outlasts that too.
+	c, why := askNodePreflight(context.Background(), e.opts.NodeSock, preflightStart+preflightAnswerWait)
 	if why != "" || c.Name != pathAccessCheck || c.Status != DoctorOK || c.Items == nil {
 		t.Fatalf("%q %+v", why, c)
 	}
@@ -359,7 +396,7 @@ func TestAskNodePreflightSaysWhyNot(t *testing.T) {
 
 // The command line waits for the node longer than the node's longest run, so a slow run is not taken for no node.
 func TestPreflightAnswerWaitOutlastsTheRun(t *testing.T) {
-	if run := preflightMaxStalls*preflightStall + preflightLinger; preflightAnswerWait <= run {
+	if run := preflightStartDefault + (preflightMaxStalls-1)*preflightStall + preflightLinger; preflightAnswerWait <= run {
 		t.Errorf("waits %s for a run of up to %s", preflightAnswerWait, run)
 	}
 }

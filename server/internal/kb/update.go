@@ -14,40 +14,81 @@ import (
 	"github.com/nwverse/persona/server/internal/kbwire"
 )
 
-// Ingest appends messages of one chat that a source pushes (mail), creating the chat. Same lines, people and
-// links as Archive, and the same retention (the first read of a quiet mailbox reaches back years).
+// Ingest durably archives a source's messages. Nonempty IDs are scoped by the
+// exact source and chat, and first-write-wins: replay or an edited body with the
+// same ID adds nothing. Missing IDs retain legacy append behavior. Old Markdown
+// has no recoverable IDs, so only messages ingested with receipts are replay-safe.
 func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []SourceMessage) (int, error) {
-	id := ChatID(src.Name(), sc.ID)
-	c, ok := e.Store.Chat(id)
-	if !ok {
-		c = &Chat{ID: id, Source: src.Name(), SourceID: sc.ID, Kind: sc.Kind, Name: sc.Name, Created: time.Now().UTC()}
+	if e.Store.ReadOnly() {
+		return 0, ErrReadOnly
 	}
+	// Reserve live ingestion through attachment preparation too: a replay must
+	// not overwrite the first version's files. History and compression can still
+	// run while a connector downloads, so reread their metadata before commit.
+	e.Store.ingestMu.Lock()
+	defer e.Store.ingestMu.Unlock()
 	cut := e.textCutoff()
+	e.Store.chatMu.Lock()
+	c, exists, r, err := e.Store.ingestState(src.Name(), sc, cut)
+	e.Store.chatMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
 	var lines []Line
+	var kept []SourceMessage
 	for _, m := range msgs {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		if m.At.Before(cut) {
 			continue
 		}
-		l := e.line(ctx, src, c, m)
+		if _, seen := r.IDs[m.ID]; m.ID != "" && seen {
+			continue
+		}
+		l := e.line(ctx, src.Download, c, m)
 		if l.Text == "" {
 			continue
 		}
 		lines = append(lines, l)
+		if m.ID != "" {
+			r.IDs[m.ID] = m.At
+		}
+		kept = append(kept, m)
+	}
+	if len(lines) == 0 {
+		if exists {
+			e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
+		}
+		return 0, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	e.Store.chatMu.Lock()
+	defer e.Store.chatMu.Unlock()
+	c, _, r, err = e.Store.ingestState(src.Name(), sc, cut)
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range kept {
+		if m.ID != "" {
+			r.IDs[m.ID] = m.At
+		}
 		e.notePerson(c, src.Name(), m)
 		c.Mine = c.Mine || m.Mine
 		if m.At.After(c.LastAt) {
 			c.LastAt = m.At
 		}
-	}
-	if len(lines) == 0 {
-		return 0, nil
-	}
-	if err := e.Store.AppendMessages(c, lines); err != nil {
-		return 0, err
+		// A new ID can arrive in a minute already summarized or refused. Reopen
+		// that minute instead of letting the old watermark hide its pending line.
+		if !c.CoveredUntil.IsZero() && m.At.Before(c.CoveredUntil) {
+			c.CoveredUntil = m.At.Truncate(time.Minute)
+		}
 	}
 	c.Messages += len(lines)
 	c.Pending += len(lines)
-	if err := e.Store.PutChat(c); err != nil {
+	if err := e.Store.commitIngest(c, lines, r); err != nil {
 		return 0, err
 	}
 	e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)

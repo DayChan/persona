@@ -5,6 +5,8 @@
   <img src="docs/assets/readme/banner-light.zh-CN.svg" alt="Persona：你的 SuperAgent，一个入口解决所有问题。" width="100%">
 </picture>
 
+[![Persona 视频介绍预览](docs/assets/promo-preview-zh.webp)](#视频介绍)
+
 [English](README.md) · 简体中文
 
 ### 一个 SuperAgent，搞定你的所有事。<br>懂你的上下文，指挥你的 Agent，走到哪儿跟到哪儿。
@@ -37,6 +39,12 @@
 - **连接器和渠道**。接入飞书、邮件、GitHub、iMessage、Telegram、微信；在 App、飞书、微信里或用语音都能找 Persona。[连接器](docs/extensions/connectors.md) · [渠道](docs/extensions/channels.md)
 - **全端客户端**。iPhone、Apple Watch、Mac、Vision Pro、Android 和网页，支持中文、英文、日文。[客户端](docs/apple/ios.md)
 
+## 视频介绍
+
+https://github.com/user-attachments/assets/1957768c-188a-4d9d-8c23-cd16eb72cdd4
+
+<sub>[高清视频与字幕](https://github.com/nwverse/persona/releases/tag/promo-v1)。</sub>
+
 ## 怎么工作
 
 在一台常开的机器上跑一个小小的 hub，你的设备只连它，它再连到你的每台电脑，Agent 跑在那里的 herdr 或 Orca 里。数据留在你自己的机器上。
@@ -51,5 +59,9 @@
 ## 文档
 
 [开始使用](docs/operations/getting-started.md) · [架构](docs/server/architecture.md) · [协议](docs/protocol/protocol.md) · [Docker](docs/operations/docker.md) · [iOS](docs/apple/ios.md) · [Mac](docs/apple/mac.md) · [Android](docs/android/android.md) · [网页](docs/web/web.md) · [全部文档](CLAUDE.md#docs-index)
+
+## License
+
+Persona 采用 [MIT 许可证](LICENSE)。
 
 <sub>第三方许可：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。</sub>

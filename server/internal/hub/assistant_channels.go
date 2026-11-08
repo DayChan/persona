@@ -21,7 +21,7 @@ import (
 //     session.unfollow, session.send_once) the assistant asks for.
 //
 // The session lists' channels and the finished push a channel's turn skips are no longer drawn here: the manager's
-// fleet reads them from the assistant's snapshot (ChannelsReport; internal/assistant/fleet.go, fleet_push.go).
+// fleet reads them from the assistant's snapshot (ChannelsReport; internal/assistant/fleet_snapshot.go, fleet_push.go).
 
 // channelNoted tells the assistant a channel's message went into a conversation through the apps' routes (a voice
 // conversation's errand, POST …/messages with client_msg_id voice-…): the conversation shows where it came from.

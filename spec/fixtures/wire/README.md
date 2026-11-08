@@ -32,9 +32,9 @@
 | --- | --- | --- |
 | hello 与 health 从当前 `proto.Features` 导出能力列表。 | `server/internal/hub/hello.go`：`hello`、`health`；`apple/Shared/LiveConnection.swift`：`ServerEvent.decode` | `hello_features`、`health_features` |
 | revs 是会话标识到整数版本号的映射。 | `apple/PersonaTests/SyncEventTests.swift`：`decodesRevs` | `revs_changed_sessions` |
-| 会话列表保留模式、队列、后台任务、子任务和循环信息，事件用信封中的机器标识设置会话归属。 | `server/internal/proto/proto.go`：`Session`；`apple/Shared/Models.swift`：`Session.init(from:)`；`ServerEvent.decode` | `sessions_list`、`sessions_event` |
+| 会话列表保留模式、队列、后台任务、子任务和循环信息，事件用信封中的机器标识设置会话归属。 | `server/internal/proto/session.go`：`Session`；`apple/Shared/Models.swift`：`Session.init(from:)`；`ServerEvent.decode` | `sessions_list`、`sessions_event` |
 | 在线与离线机器使用同一类型，系统信息和版本字段可选。 | `server/internal/hub/machine.go`：`Machine.snapshot`；`apple/Shared/Models.swift`：`Machine` | `machines_list`、`machines_event` |
-| items 用 kind 区分内容块，工具输入中的自定义键名原样保留。 | `server/internal/proto/proto.go`：`Item`；`apple/Shared/Models.swift`：`Item`；`apple/Shared/JSONValue.swift`：`JSONValue` | `items_all_kinds` |
+| items 用 kind 区分内容块，工具输入中的自定义键名原样保留。 | `server/internal/proto/item.go`：`Item`；`apple/Shared/Models.swift`：`Item`；`apple/Shared/JSONValue.swift`：`JSONValue` | `items_all_kinds` |
 | 工具调用与结果共用 `tool_use_id`，失败结果携带 `is_error`。 | `proto.Item`；`apple/Shared/Models.swift`：`Item` | `items_all_kinds` |
 | 懒加载图片的 `data` 仍是空字符串，并携带尺寸和 lazy 标记，普通图片保留 base64。 | `proto.Image.Placeholder`、`WithoutImageData`；`apple/Shared/Models.swift`：`ImagePayload` | `items_all_kinds`、`items_inline_image`、`items_live_lazy`、`items_http_after` |
 | 后台任务通知仍是 notice，task 区分 shell、monitor 和 agent，退出码零值也可显式出现。 | `proto.TaskNote`；`apple/Shared/Models.swift`：`TaskNote` | `items_all_kinds`、`items_task_notifications` |

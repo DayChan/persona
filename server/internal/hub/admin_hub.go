@@ -64,7 +64,7 @@ func (h *Hub) pendingRestart(l i18n.Lang) restartView {
 	for _, m := range h.cfg.Machines {
 		running[m.ID] = m
 	}
-	for _, m := range h.addedLive() { // added while running: already connecting (devices_link.go addMachineLive)
+	for _, m := range h.addedLive() { // added while running: already connecting (devices_handover.go addMachineLive)
 		running[m.ID] = m
 	}
 	seen := map[string]bool{}

@@ -20,7 +20,9 @@ import (
 // there by the bot itself (no lark-cli, nothing to approve per message). Changes within reportDelay are one card:
 // what needs the user's decision on top (each with its own answerable card below it), then each task with its stage
 // (plan → develop → review → merge → deploy → verified), a line of what happened and links to its page, its PR and its agent.
-// The bot's reports switch turns it off (on by default).
+// The bot's reports switch turns it off (on by default). With only_conclusions on (#1226) the card carries only how tasks
+// ended (closed, did not start): started, waiting and interrupted stay in the task list and the briefing, and a decision
+// waiting still gets its own answerable card. A supervised task's review sends its conclusion card instead (conclusion.go).
 
 // reportDelay is how long a change waits for others before the card goes out (reportBook.delay overrides it).
 const reportDelay = time.Minute
@@ -277,7 +279,7 @@ func (s *Service) sendReports() {
 	if !ready || !f.Reports {
 		return
 	}
-	var keep []*reportItem
+	var keep, asks []*reportItem // asks: decisions whose own card goes out without a line in the report (only_conclusions)
 	for _, it := range items {
 		t, ok := s.todoNow(it.todo)
 		if !ok {
@@ -292,9 +294,16 @@ func (s *Service) sendReports() {
 		if t.Quiet && f.Sync && it.state != reportClosed {
 			continue // told in the main conversation, whose turns the chat mirrors (sync); closing is not told there
 		}
+		if f.OnlyConclusions && !reportConclusion(it.state) {
+			if it.state == reportNeeds && it.ix != nil {
+				asks = append(asks, it) // the decision itself still reaches the owner
+			}
+			continue
+		}
 		keep = append(keep, it)
 	}
 	if len(keep) == 0 {
+		s.postReportAsks(asks)
 		return
 	}
 	sort.SliceStable(keep, func(i, j int) bool {
@@ -311,16 +320,32 @@ func (s *Service) sendReports() {
 	for i, c := range cards {
 		if _, err := s.botPost(ctx, "", c, fallbacks[i]); err != nil {
 			s.logf("bots: report: %v", err)
-			s.requeueReports(keep)
+			s.requeueReports(append(keep, asks...)) // the decisions held back from the card are not lost with it
 			return
 		}
 	}
-	// A decision to make gets its own card with the choices, answerable there, unless one is already in the chat.
-	for _, it := range keep {
+	s.postReportAsks(append(asks, keep...))
+}
+
+// postReportAsks: a decision to make gets its own card with the choices, answerable there, unless one is already in the chat.
+func (s *Service) postReportAsks(items []*reportItem) {
+	for _, it := range items {
 		if it.state == reportNeeds && it.ix != nil && !s.botCardOut(it.ix.ID) {
 			s.feishuInteractionAlways(*it.ix)
 		}
 	}
+}
+
+// reportConclusion says a report state tells how a task ended (closed by the judge, or did not start), the lines
+// only_conclusions keeps.
+func reportConclusion(state string) bool { return state == reportClosed || state == reportFailed }
+
+// dropTaskReport forgets task id's change still waiting for the next card: its conclusion card tells how it ended.
+func (s *Service) dropTaskReport(id string) {
+	b := &s.reports
+	b.mu.Lock()
+	delete(b.pending, id)
+	b.mu.Unlock()
 }
 
 // requeueReports puts a batch the transport could not deliver back for a short-delayed retry. It keeps the semantic

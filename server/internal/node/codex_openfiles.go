@@ -18,8 +18,11 @@ func openCodexRollouts(processes []codexProcess) map[int][]string {
 }
 
 // scanOpenRollouts is openCodexRollouts, and whether every process could be read: a resume (codex_resume.go) must
-// not take "could not tell" for "nothing holds it".
+// not take "could not tell" for "nothing holds it". Windows reads each process's handle table (scanOpenRolloutsOS).
 func scanOpenRollouts(processes []codexProcess) (map[int][]string, bool) {
+	if runtime.GOOS == "windows" {
+		return scanOpenRolloutsOS(processes)
+	}
 	out := map[int][]string{}
 	var pids []string
 	for _, p := range processes {

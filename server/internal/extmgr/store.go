@@ -49,6 +49,8 @@ type Mail interface {
 	ListMessages(ctx context.Context, opts mail.ListOptions) (*mail.ListResult, error)
 	GetMessage(ctx context.Context, accountID string, uid uint32, mailbox string) (*mail.MailMessage, error)
 	Send(ctx context.Context, req mail.SendRequest) error
+	// FetchAttachment is one attachment's bytes for mail_save_attachment (the node's mail.attachment), at most max.
+	FetchAttachment(ctx context.Context, accountID string, uid uint32, mailbox, id string, max int64) (mail.Attachment, []byte, error)
 	AddAccount(req mail.AddAccountRequest) (*mail.MailAccount, error)
 	DeleteAccount(id string) error
 	// ExportAccount and ImportAccount move an account to another manager (sources.go); the JSON holds its secrets.

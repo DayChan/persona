@@ -1,9 +1,5 @@
 package persona.platform.notify
 
-import android.Manifest
-import android.app.Application
-import androidx.test.core.app.ApplicationProvider
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -12,19 +8,9 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.Shadows.shadowOf
-import org.robolectric.annotation.Config
 import persona.core.contracts.Interaction
-import persona.core.contracts.Machine
-import persona.core.contracts.Session
-import persona.core.contracts.api.DeviceNotificationPreferences
-import persona.core.contracts.api.SessionsRepository
-import persona.core.designsystem.PendingStatus
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
 class InteractionNotificationReconcilerTest {
     private fun ix(id: String) = Interaction(id, machineId = "machine", sessionId = "session", kind = "permission")
     private val settle = InteractionNotificationReconciler.SETTLE_MILLIS
@@ -74,25 +60,4 @@ class InteractionNotificationReconcilerTest {
         assertEquals(emptySet<String>(), InteractionNotificationReconciler.stale(setOf("p", other), emptySet(), emptySet()))
     }
 
-    // Only the request itself counts: a verifying / result notice reusing the tag is the answer's own and stays.
-    @Test fun resultNoticesAreNotRequests() {
-        val app = ApplicationProvider.getApplicationContext<Application>()
-        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val sessions = object : SessionsRepository {
-            override val machines = MutableStateFlow<List<Machine>>(emptyList())
-            override val sessions = MutableStateFlow<List<Session>>(emptyList())
-            override suspend fun refresh() = Unit
-        }
-        val preferences = object : NotificationPreferencesSource {
-            override val preferences = MutableStateFlow<DeviceNotificationPreferences?>(DeviceNotificationPreferences())
-            override suspend fun refreshPreferences() = preferences.value
-        }
-        val notifier = Notifier(app, sessions, preferences)
-        notifier.postInteraction(ix("a"))
-        notifier.postInteraction(ix("b"))
-        notifier.pending("b", ix("b").sessionKey, PendingStatus.Sending, null)
-        assertEquals(setOf("a"), notifier.showingRequests())
-        notifier.retract("a")
-        assertEquals(emptySet<String>(), notifier.showingRequests())
-    }
 }

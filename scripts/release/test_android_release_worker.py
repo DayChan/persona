@@ -1,4 +1,5 @@
 """Release orchestration invariants independent of machine-specific credentials."""
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -13,6 +14,13 @@ spec.loader.exec_module(worker)
 
 
 class ReleaseWorkerTest(unittest.TestCase):
+    def test_digest_empty_and_multichunk_binary_files(self):
+        for data in (b"", bytes(range(256)) * 513 + b"\x00\xff\x80"):
+            with self.subTest(size=len(data)), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "artifact.bin"
+                path.write_bytes(data)
+                self.assertEqual(worker.digest(path), hashlib.sha256(data).hexdigest())
+
     def test_versions_follow_main_history_and_retries_are_stable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -126,6 +134,61 @@ class ReleaseWorkerTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "identity changed"):
                     worker.finish_verified(config, directory, sha, 100002, root / "published.json")
                 status.assert_not_called()
+
+    def test_verification_only_never_rebuilds_or_republishes(self):
+        for fails in (True, False):
+            with self.subTest(fails=fails), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sha = "b" * 40
+                directory = root / "runs" / sha
+                directory.mkdir(parents=True)
+                request = dict(repository="example/app", source_sha=sha,
+                               package="com.example.app", version_code=100002)
+                (directory / "signed.apk").write_bytes(b"signed")
+                worker.atomic_json(directory / "signature.json", dict(
+                    signed_sha256=worker.digest(directory / "signed.apk"), certificate_sha256="c" * 64))
+                (directory / "android-live-test-attempt.xml").write_text("original failure")
+                config = dict(state_directory=tmp, checkout=tmp, repository="example/app",
+                              application_id="com.example.app", certificate_sha256="c" * 64,
+                              verify_command=["verifier"])
+                with patch.object(worker, "prepare") as prepare, \
+                        patch.object(worker, "version_code", return_value=100002), \
+                        patch.object(worker, "recovery_request", return_value=request), \
+                        patch.object(worker, "build") as build, patch.object(worker, "signing") as signing, \
+                        patch.object(worker, "publish") as publish, patch.object(worker, "status"), \
+                        patch.object(worker, "run", side_effect=RuntimeError("probe failed") if fails else None):
+                    if fails:
+                        with self.assertRaisesRegex(RuntimeError, "probe failed"):
+                            worker.cycle(config, sha)
+                    else:
+                        worker.cycle(config, sha)
+                    for operation in (prepare, build, signing, publish):
+                        operation.assert_not_called()
+                self.assertEqual((directory / "verified.json").exists(), not fails)
+                self.assertEqual((root / "published.json").exists(), not fails)
+                preserved = list(directory.glob("verification-retry-*/android-live-test-attempt.xml"))
+                self.assertEqual(preserved[0].read_text(), "original failure")
+
+    def test_recovery_rejects_wrong_source_repository_certificate_and_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = dict(repository="example/app", git_url="fixture", application_id="com.example.app",
+                          certificate_sha256="c" * 64)
+            request = dict(repository="example/app", source_sha="a" * 40, package="com.example.app",
+                           version_code=100001, unsigned_sha256="d" * 64)
+            (root / "signed.apk").write_bytes(b"signed")
+            worker.atomic_json(root / "build.json", request)
+            signature = dict(request, certificate_sha256="c" * 64,
+                             signed_sha256=worker.digest(root / "signed.apk"))
+            for changes in ({"repository": "wrong"}, {"source_sha": "b" * 40},
+                            {"certificate_sha256": "e" * 64}, {"signed_sha256": "f" * 64}):
+                worker.atomic_json(root / "signature.json", dict(signature, **changes))
+                with patch.object(worker, "run", side_effect=["fixture", "a" * 40]):
+                    with self.assertRaises(ValueError):
+                        worker.recovery_request(config, root, "a" * 40, root, 100001)
+            worker.atomic_json(root / "signature.json", signature)
+            with patch.object(worker, "run", side_effect=["fixture", "a" * 40]):
+                self.assertEqual(worker.recovery_request(config, root, "a" * 40, root, 100001), request)
 
     def test_new_source_cannot_decrease_version(self):
         with tempfile.TemporaryDirectory() as tmp:

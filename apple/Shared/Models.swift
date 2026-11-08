@@ -707,6 +707,9 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
     /// on the CLI instead (「找不到 Node.js 22+」). Both nil otherwise.
     var runtime: String? = nil
     var runtimeFallback: String? = nil
+    /// The manager it belongs to (docs/protocol/protocol.md "Per-manager routing"); nil from hubs with one manager and
+    /// older ones. Requests the hub routes by the manager they name (its answered questions) name it.
+    var manager: String? = nil
     /// The group of paired hubs it came from (docs/protocol/multi-hub.md); nil for the default group. The app's own.
     var hubGroup: String? = nil
 
@@ -830,7 +833,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
              starting, startError = "start_error", todo, quiet, hubGroup = "app_hub_group",
              attentionReason = "attention_reason", failureReason = "failure_reason",
              turnError = "turn_error", turnErrorKind = "turn_error_kind", turnErrorCode = "turn_error_code", externalURL = "external_url", channels, origin, compaction, work,
-             runtime, runtimeFallback = "runtime_fallback"
+             runtime, runtimeFallback = "runtime_fallback", manager
     }
 
     init(from decoder: Decoder) throws {
@@ -839,6 +842,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
         sessionID = try c.decode(String.self, forKey: .sessionID)
         runtime = try c.decodeIfPresent(String.self, forKey: .runtime)
         runtimeFallback = try c.decodeIfPresent(String.self, forKey: .runtimeFallback)
+        manager = try c.decodeIfPresent(String.self, forKey: .manager)
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd) ?? ""
         status = try c.decodeIfPresent(SessionStatus.self, forKey: .status) ?? .unknown
@@ -1696,6 +1700,15 @@ nonisolated struct Interaction: Codable, Identifiable, Hashable, Sendable {
     /// What `muted` is stored as: optional, so a card without the key decodes (a synthesized `Bool` with a default
     /// still requires it, #4763) and encodes without it again.
     var mutedFlag: Bool?
+    /// The assistant is deciding whether it may answer this question for the user (docs/assistant/assistant.md "Assistant
+    /// answers questions first"): nothing was pushed yet, and an answer given here wins. The same card comes again
+    /// without it, by `id`.
+    var delegating: Bool?
+    /// What the assistant filled in when it left the question to the user.
+    var delegate: Delegate?
+    /// The manager that reported it (docs/protocol/protocol.md "Per-manager routing"). Once it is no longer pending
+    /// the hub routes by the manager a request names, so Change Answer names this one.
+    var manager: String?
 
     var sessionKey: SessionKey { SessionKey(group: group, machineID: machineID, sessionID: sessionID) }
     var machineRef: MachineRef { MachineRef(group: group, id: machineID) }
@@ -1711,11 +1724,48 @@ nonisolated struct Interaction: Codable, Identifiable, Hashable, Sendable {
     var screenDialog: ScreenParser.Dialog? { dialog?.parsed ?? screen.flatMap(ScreenParser.dialog) }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, questions, plan, summary, screen, cwd, dialog, secret, fields, agent, reason
+        case id, kind, questions, plan, summary, screen, cwd, dialog, secret, fields, agent, reason, delegating, delegate, manager
         case machineID = "machine_id", sessionID = "session_id", sessionTitle = "session_title", taskTitle = "task_title",
              createdAt = "created_at", expiresAt = "expires_at", toolName = "tool_name", toolUseID = "tool_use_id",
              toolInput = "tool_input", alwaysLabel = "always_label", alwaysKeys = "always_keys", agentLabelHint = "agent_label", hubGroup = "app_hub_group",
              mutedFlag = "muted"
+    }
+}
+
+/// The context the assistant filled in when it left a question to the user (`Interaction.delegate`, the hub's
+/// proto.Delegate). Every field may be missing; an odd one never drops the card.
+nonisolated struct Delegate: Codable, Hashable, Sendable {
+    var what: String?
+    var whyNow: String?
+    /// For a card with options, an option's exact label (several questions: their answers joined by `；`).
+    var recommend: String?
+    var cost: String?
+    var reason: String?
+    var deadline: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case what, recommend, cost, reason, deadline
+        case whyNow = "why_now"
+    }
+
+    init(what: String? = nil, whyNow: String? = nil, recommend: String? = nil, cost: String? = nil, reason: String? = nil,
+         deadline: Date? = nil) {
+        self.what = what
+        self.whyNow = whyNow
+        self.recommend = recommend
+        self.cost = cost
+        self.reason = reason
+        self.deadline = deadline
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        what = (try? c?.decodeIfPresent(String.self, forKey: .what)).flatMap { $0 }
+        whyNow = (try? c?.decodeIfPresent(String.self, forKey: .whyNow)).flatMap { $0 }
+        recommend = (try? c?.decodeIfPresent(String.self, forKey: .recommend)).flatMap { $0 }
+        cost = (try? c?.decodeIfPresent(String.self, forKey: .cost)).flatMap { $0 }
+        reason = (try? c?.decodeIfPresent(String.self, forKey: .reason)).flatMap { $0 }
+        deadline = (try? c?.decodeIfPresent(Date.self, forKey: .deadline)).flatMap { $0 }
     }
 }
 
@@ -1746,10 +1796,15 @@ nonisolated struct Resolution: Codable, Sendable {
     /// A multi-select screen dialog: the options to have checked when it is sent (`text`: its free-text field).
     var options: [String]?
     var values: [String: String]?
+    /// "assistant" on a question the assistant answered for the user (the hub's history and its `already` reply); the
+    /// app never sends it.
+    var answeredBy: String?
+    /// Why the assistant answered so (with `answeredBy`).
+    var reason: String?
 
     enum CodingKeys: String, CodingKey {
-        case answers, approve, mode, feedback, allow, always, message, keys, text, dismiss, option, options, values
-        case preKeys = "pre_keys"
+        case answers, approve, mode, feedback, allow, always, message, keys, text, dismiss, option, options, values, reason
+        case preKeys = "pre_keys", answeredBy = "answered_by"
     }
 
     static let dismissed = Resolution(dismiss: true)

@@ -56,7 +56,7 @@ func activityText(l i18n.Lang, s string) string {
 	return out
 }
 
-// queuedFrom starts a queued message another session sent (transcript.go applyQueue).
+// queuedFrom starts a queued message another session sent (transcript/user_text.go applyQueue).
 const queuedFrom = "【来自 "
 
 // localizeSession rewrites s's node-written lines in l: its activity, a background command's stand-in description, the

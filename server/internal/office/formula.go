@@ -428,10 +428,26 @@ func (e callExpr) eval(b *xbook, sh *xsheet) (value, error) {
 		if !ok {
 			return errv("#VALUE!"), nil
 		}
+		d = math.Trunc(d)
+		// Beyond these places no finite float64 changes, or every finite value rounds to zero.
+		if d > 323 {
+			return num(x), nil
+		}
+		if d < -308 {
+			return num(0), nil
+		}
 		// Half away from zero on the number as Excel sees it (15 digits): 2.345 rounds to 2.35, not 2.34.
-		p := math.Pow(10, math.Trunc(d))
-		scaled, _ := strconv.ParseFloat(strconv.FormatFloat(x*p, 'g', 15, 64), 64)
-		return num(math.Round(scaled) / p), nil
+		// Split large positive powers so tiny inputs can still be rounded without an infinite scale.
+		p, extra := math.Pow(10, math.Min(d, 308)), math.Pow(10, math.Max(d-308, 0))
+		scaled, _ := strconv.ParseFloat(strconv.FormatFloat(x*p*extra, 'g', 15, 64), 64)
+		if math.IsInf(scaled, 0) {
+			return num(x), nil // the rounding place is already below this number's precision
+		}
+		rounded := math.Round(scaled) / p / extra
+		if math.IsInf(rounded, 0) {
+			return errv("#NUM!"), nil
+		}
+		return num(rounded), nil
 	case "AND", "OR":
 		acc, judged := e.name == "AND", false
 		for i, v := range vals {

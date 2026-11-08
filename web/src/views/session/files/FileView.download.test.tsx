@@ -13,6 +13,7 @@ vi.hoisted(() => {
 });
 import { t } from "../../../i18n";
 import type { FileContent } from "../../../lib/files";
+import { bytes } from "../../../lib/format";
 
 const pages: ((path: string) => Promise<unknown>)[] = [];
 const requested: string[] = [];
@@ -77,9 +78,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openAndDownload() {
-  await act(async () => root.render(<FileView mid="m1" path="/w/big.log" cwd="/w" onClose={() => {}} onOpenPath={() => {}} />));
+async function open(path = "/w/big.log", line?: number) {
+  await act(async () => root.render(<FileView mid="m1" path={path} cwd="/w" line={line} onClose={() => {}} onOpenPath={() => {}} />));
   await flush();
+}
+
+async function click(label: string) {
+  const button = byLabel(label);
+  expect(button, label).toBeTruthy();
+  await act(async () => button!.click());
+  await flush();
+}
+
+async function openAndDownload() {
+  await open();
   const button = byLabel(t("session-files-fileview.download"));
   expect(button, "download button").toBeTruthy();
   await act(async () => button!.click());
@@ -121,5 +133,199 @@ describe("FileView download", () => {
     expect(blobs).toHaveLength(1);
     expect(await readBlob(blobs[0])).toBe("all of it\n");
     expect(clicked).toEqual([{ href: "blob:x", name: "big.log" }]);
+  });
+
+  it.each(["empty-r1", undefined])("downloads an empty text file when the node omits text (revision %s)", async (revision) => {
+    // Go's omitempty removes text and data from a successful zero-byte text response.
+    pages.push(async () => text({ size: 0, mime: "text/plain; charset=utf-8", offset: 0, revision }));
+    await openAndDownload();
+    expect(blobs).toHaveLength(1);
+    expect(blobs[0].size).toBe(0);
+    expect(clicked).toEqual([{ href: "blob:x", name: "big.log" }]);
+  });
+
+  it("does not save a failed legacy read as a partial Blob and can retry the download", async () => {
+    pages.push(async () => text({ text: "page one\n", next: 9 }));
+    pages.push(async () => { throw new Error("synthetic download failure"); });
+    await openAndDownload();
+    expect(blobs).toEqual([]);
+    expect(clicked).toEqual([]);
+    expect(byLabel(t("session-files-fileview.download"))?.disabled).toBe(false);
+    pages.push(async () => text({ text: "page two\n", next: 0 }));
+    await click(t("session-files-fileview.download"));
+    expect(requested[2]).toBe(requested[1]);
+    expect(blobs).toHaveLength(1);
+    expect(await readBlob(blobs[0])).toBe("page one\npage two\n");
+  });
+
+  it("does not export a known revision conflict after an unversioned first page", async () => {
+    pages.push(async () => text({ text: "unversioned prefix\n", next: 4 }));
+    pages.push(async () => text({ text: "r1 tail\n", next: 8, revision: "r1" }));
+    pages.push(async () => text({ text: "r2 tail\n", next: 0, revision: "r2" }));
+    await openAndDownload();
+    expect(blobs).toEqual([]);
+    expect(clicked).toEqual([]);
+    expect(host.textContent).toContain(t("session-files-fileview.file_changed"));
+    expect(byLabel(t("session-files-fileview.download"))?.disabled).toBe(true);
+  });
+
+  it("does not export a capped legacy read or a terminal truncated response", async () => {
+    pages.push(async () => text({ text: "only a prefix\n", next: 64 << 20 }));
+    await openAndDownload();
+    expect(requested).toHaveLength(1);
+    expect(blobs).toEqual([]);
+    expect(clicked).toEqual([]);
+    pages.push(async () => text({ text: "truncated\n", next: 0, truncated: true }));
+    await open("/w/other.log");
+    await click(t("session-files-fileview.download"));
+    expect(blobs).toEqual([]);
+    expect(clicked).toEqual([]);
+  });
+
+  it("does not download a late old-path read under the previous file name", async () => {
+    let finish!: (file: FileContent) => void;
+    pages.push(async () => text({ text: "old prefix\n", next: 4 }));
+    pages.push(() => new Promise((resolve) => { finish = resolve; }));
+    await openAndDownload();
+    pages.push(async () => text({ path: "/w/other.log", text: "current file\n", next: 0 }));
+    await open("/w/other.log");
+    await act(async () => finish(text({ text: "old tail\n", next: 0 })));
+    await flush();
+    expect(blobs).toEqual([]);
+    expect(clicked).toEqual([]);
+  });
+});
+
+describe("FileView paging recovery", () => {
+  it("offers reload after a mismatch and displays only the newly read version", async () => {
+    pages.push(async () => text({ text: "OLD prefix\n", next: 4, revision: "r1" }));
+    pages.push(async () => text({ text: "NEW tail\n", next: 0, revision: "r2" }));
+    await open();
+    await click(t("session-files-fileview.load_more"));
+    expect(host.textContent).toContain(t("session-files-fileview.file_changed_detail"));
+    expect(host.textContent).not.toContain("NEW tail");
+    expect(byLabel(t("session-files-fileview.load_more"))).toBeUndefined();
+    expect(byLabel(t("session-files-fileview.download"))?.disabled).toBe(true);
+    pages.push(async () => text({ text: "NEW whole\n", next: 0, revision: "r2" }));
+    await click(t("session-files-fileview.reload"));
+    expect(requested[2]).not.toContain("offset=");
+    expect(host.textContent).toContain("NEW whole");
+    expect(host.textContent).not.toContain("OLD prefix");
+    expect(byLabel(t("session-files-fileview.download"))?.disabled).toBe(false);
+  });
+
+  it("keeps the loaded prefix visible and offers retry after a page failure", async () => {
+    pages.push(async () => text({ text: "kept prefix\n", next: 4, revision: "r1" }));
+    pages.push(async () => { throw new Error("synthetic read failure"); });
+    await open();
+    await click(t("session-files-fileview.load_more"));
+    expect(host.textContent).toContain("kept prefix");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("synthetic read failure");
+    pages.push(async () => text({ text: "retried tail\n", next: 0, revision: "r1" }));
+    await click(t("session-files-fileview.retry"));
+    expect(requested[2]).toBe(requested[1]);
+    expect(host.textContent).toContain("kept prefix");
+    expect(host.textContent).toContain("retried tail");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("can retry automatic whole-file reads without an unhandled rejection", async () => {
+    const json = (over: Partial<FileContent>) => text({ path: "/w/example.json", name: "example.json", mime: "application/json", size: 20, ...over });
+    pages.push(async () => json({ text: '{"ready":', next: 9, revision: "r1" }));
+    pages.push(async () => { throw new Error("synthetic automatic failure"); });
+    await open("/w/example.json");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("synthetic automatic failure");
+    pages.push(async () => json({ text: 'true}', next: 0, revision: "r1" }));
+    await click(t("session-files-fileview.retry"));
+    expect(requested[2]).toBe(requested[1]);
+    expect(host.textContent).toContain('"ready"');
+    expect(host.textContent).toContain("true");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("stops automatic JSON reads on a revision change instead of parsing a mixed document", async () => {
+    const json = (over: Partial<FileContent>) => text({ path: "/w/example.json", name: "example.json", mime: "application/json", size: 20, ...over });
+    pages.push(async () => json({ text: '{"old":', next: 7, revision: "r1" }));
+    pages.push(async () => json({ text: 'true}', next: 0, revision: "r2" }));
+    await open("/w/example.json");
+    expect(host.textContent).toContain(t("session-files-fileview.file_changed"));
+    expect(host.textContent).not.toContain('"old"');
+    expect(byLabel(t("session-files-fileview.reload"))).toBeTruthy();
+    expect(requested).toHaveLength(2);
+  });
+
+  it("retries a complete CSV read before parsing it, retaining accepted pages", async () => {
+    const csv = (over: Partial<FileContent>) => text({ path: "/w/example.csv", name: "example.csv", mime: "text/csv", size: 40, ...over });
+    pages.push(async () => csv({ text: "name,value\n", next: 11, revision: "r1" }));
+    pages.push(async () => { throw new Error("synthetic CSV page failure"); });
+    await open("/w/example.csv");
+    expect(host.textContent).toContain(t("session-files-fileview.sheet_open_failed"));
+    pages.push(async () => csv({ text: "synthetic,42\n", next: 0, revision: "r1" }));
+    await click(t("session-files-fileview.retry"));
+    expect(requested[2]).toBe(requested[1]);
+    expect(host.textContent).toContain("synthetic");
+    expect(host.textContent).toContain("42");
+    expect(host.textContent).not.toContain(t("session-files-fileview.sheet_open_failed"));
+  });
+
+  it("keeps a capped CSV preview explicitly partial without requesting the rest", async () => {
+    const chunk = "a,b\n".repeat(1 << 19); // the node's 2 MiB pages
+    let parsed = 0;
+    vi.stubGlobal("Worker", class {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      terminate() {}
+      postMessage(req: { text: string }) {
+        parsed = req.text.length;
+        queueMicrotask(() => this.onmessage?.({ data: { sheets: [{ name: "Demo", rows: [["synthetic", "42"]], cols: 2, merges: [], widths: [], cut: false }] } } as MessageEvent));
+      }
+    });
+    for (let i = 0; i < 32; i++) {
+      const offset = i * chunk.length;
+      pages.push(async () => text({ path: "/w/example.csv", name: "example.csv", mime: "text/csv", size: 66 << 20, text: chunk, offset, next: offset + chunk.length, revision: "r1", truncated: true }));
+    }
+    await open("/w/example.csv");
+    expect(parsed).toBe(64 << 20);
+    expect(host.textContent).toContain("synthetic");
+    expect(host.textContent).toContain("42");
+    expect(host.textContent).toContain(t("session-files-fileview.sheet_partial", { size: bytes(64 << 20) }));
+    expect(host.textContent).not.toContain(t("session-files-fileview.sheet_open_failed"));
+    expect(requested).toHaveLength(32);
+    expect(requested[31]).toContain(`offset=${62 << 20}`);
+  });
+
+  it("rejects a changed CSV page before parsing even a bounded preview", async () => {
+    const csv = (over: Partial<FileContent>) => text({ path: "/w/example.csv", name: "example.csv", mime: "text/csv", size: 66 << 20, ...over });
+    pages.push(async () => csv({ text: "name,value\n", next: 11, revision: "r1" }));
+    pages.push(async () => csv({ text: "changed,42\n", next: 22, revision: "r2" }));
+    await open("/w/example.csv");
+    expect(host.textContent).toContain(t("session-files-fileview.file_changed"));
+    expect(host.textContent).not.toContain("changed,42");
+    expect(byLabel(t("session-files-fileview.download"))?.disabled).toBe(true);
+    expect(requested).toHaveLength(2);
+  });
+
+  it("keeps CSV continuation recovery available in source mode", async () => {
+    const csv = (over: Partial<FileContent>) => text({ path: "/w/example.csv", name: "example.csv", mime: "text/csv", size: 40, ...over });
+    pages.push(async () => csv({ text: "name,value\n", next: 11, revision: "r1" }));
+    pages.push(async () => { throw new Error("synthetic CSV source failure"); });
+    await open("/w/example.csv");
+    await click(t("session-files-fileview.mode_source_file"));
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("synthetic CSV source failure");
+    pages.push(async () => csv({ text: "synthetic,42\n", next: 0, revision: "r1" }));
+    await click(t("session-files-fileview.retry"));
+    expect(requested[2]).toBe(requested[1]);
+    expect(host.textContent).toContain("synthetic,42");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("stops automatic line seeking after a page failure until retry", async () => {
+    pages.push(async () => text({ text: "first line\n", next: 4, revision: "r1" }));
+    pages.push(async () => { throw new Error("synthetic line failure"); });
+    await open("/w/big.log", 2);
+    expect(requested).toHaveLength(2);
+    pages.push(async () => text({ text: "target line\n", next: 0, revision: "r1" }));
+    await click(t("session-files-fileview.retry"));
+    expect(requested).toHaveLength(3);
+    expect(host.textContent).toContain("target line");
   });
 });

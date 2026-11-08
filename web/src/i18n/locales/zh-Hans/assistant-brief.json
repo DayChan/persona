@@ -24,5 +24,11 @@
   "later_more": "还有 {n} 项",
   "failed_task": "没开起来 · {time}",
   "failed_run": "运行失败 · {time}",
-  "failed_skipped": "被跳过 · {time}"
+  "failed_skipped": "被跳过 · {time}",
+  "take": "按推荐来",
+  "take_row": "「{title}」按推荐来",
+  "got_it": "知道了",
+  "recommend": "推荐：{option}",
+  "noted": "已收下",
+  "taken": "已按推荐来"
 }

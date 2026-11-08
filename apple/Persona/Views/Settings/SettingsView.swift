@@ -315,6 +315,9 @@ struct SettingsView: View {
         }
         let tunneled = model.hub.flatMap { model.tunnel($0.group) }?.routed == true
         if let t = model.hub.flatMap({ model.inAppTunnelState($0.group) }), t.routed { return String(localized: "Connected to hub · via \(t.route.title)") }
+        if model.hub.flatMap({ model.localProxyState($0.group) })?.routed == true {
+            return String(localized: "Connected to hub · via \(String(localized: "Local Proxy"))")
+        }
         return tunneled ? String(localized: "Connected to hub · via SSH tunnel") : String(localized: "Connected to hub")
     }
 
@@ -338,10 +341,11 @@ struct SettingsView: View {
         else if d.bool(forKey: "openNotificationSettings") { p.append(SettingsPage.notifications) }
         else if d.string(forKey: "openAssistantPage") != nil { p.append(SettingsPage.assistant) }
         else if d.bool(forKey: "openDevices") { p.append(SettingsPage.devices) }
-        else if d.bool(forKey: "openHubs") || d.bool(forKey: "openSSHTunnel") {
+        else if d.bool(forKey: "openHubs") || d.bool(forKey: "openSSHTunnel") || d.bool(forKey: "openLocalProxy") {
             p.append(SettingsPage.hubs)
-            // `-openSSHTunnel YES`: the first hub's Settings › hub › SSH Tunnel (screenshots).
+            // `-openSSHTunnel YES` / `-openLocalProxy YES`: the first hub's Settings › hub › SSH Tunnel / Local Proxy (screenshots).
             if d.bool(forKey: "openSSHTunnel"), let first = model.registry.hubs.first { p.append(SettingsPage.sshTunnel(first.id)) }
+            if d.bool(forKey: "openLocalProxy"), let first = model.registry.hubs.first { p.append(SettingsPage.localProxy(first.id)) }
         }
         else if d.bool(forKey: "openHubUpdate") { p.append(SettingsPage.hub) }
         else if d.bool(forKey: "openManagers") || d.string(forKey: "openManagerPage") != nil || d.bool(forKey: "showManagerCode") {
@@ -472,6 +476,8 @@ enum SettingsPage: Hashable {
     /// Settings › hub › SSH Tunnel of one paired hub (its id; docs/operations/network.md「经 SSH 隧道连 hub」).
     case sshTunnel(String)
     case inAppTunnel(String)
+    /// Settings › hub › Local Proxy of one paired hub (docs/operations/network.md "Connecting to hub through a local SOCKS5 proxy").
+    case localProxy(String)
     /// Settings › Managers, and one manager by its id (docs/assistant/managers.md).
     case managers
     case manager(String)
@@ -527,6 +533,7 @@ private struct SettingsDestinations: ViewModifier {
         case .hubs: HubsView()
         case .sshTunnel(let id): HubSSHTunnelPage(hubID: id)
         case .inAppTunnel(let id): HubInAppTunnelPage(hubID: id)
+        case .localProxy(let id): HubLocalProxyPage(hubID: id)
         case .managers: ManagersView()
         case .manager(let id): ManagerDetailView(id: id)
         case .sent: SentView()

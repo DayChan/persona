@@ -18,6 +18,8 @@
   "also_done": "対応済みにする",
   "ask_label": "依頼内容",
   "target_label": "任せる相手",
+  "target_main": "Persona（メインチャット）",
+  "target_main_sub": "Persona とのメインチャットに送る",
   "target_persona": "Persona（新しいチャット）",
   "target_persona_sub": "Persona と新しいチャットを始める"
 }

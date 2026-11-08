@@ -219,7 +219,7 @@ func TestGoogleOAuthErrors(t *testing.T) {
 		t.Fatalf("denied: %v", err)
 	}
 	// A revoked refresh token asks for a new sign-in.
-	_, err := s.accessToken(context.Background(), &OAuthCreds{ClientID: testClientID, RefreshToken: "revoked"})
+	_, err := s.accessToken(context.Background(), "", &OAuthCreds{ClientID: testClientID, RefreshToken: "revoked"})
 	if err == nil || !strings.Contains(err.Error(), "sign in with Google again") {
 		t.Fatalf("revoked: %v", err)
 	}

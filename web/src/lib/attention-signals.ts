@@ -284,7 +284,7 @@ export function useAttentionSignals(label: string, pane: { mid: string; sid: str
   useEffect(() => {
     if (!loaded) return;
     const now = Date.now();
-    const { next, events } = detectTransitions(prev.current, sessions, getState().mutes);
+    const { next, events } = detectTransitions(prev.current, sessions, getState().mutes, interactions);
     // a session already "Needs you" that gets another card speaks again (#4058)
     const fresh = detectNewCards(cards.current, interactions, prev.current, next, sessions, bare.current, now);
     cards.current = fresh.ids;

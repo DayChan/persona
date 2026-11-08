@@ -30,8 +30,10 @@ vi.mock("../../lib/store", async (orig) => ({
   ...(await orig<typeof import("../../lib/store")>()),
   onHubEvent: (type: string, l: (m: unknown) => void) => (listeners.set(type, l), () => listeners.delete(type)),
 }));
+const toast = vi.fn();
+vi.mock("../../ui/atoms", async (original) => ({ ...(await original<typeof import("../../ui/atoms")>()), toast: (...args: unknown[]) => toast(...args) }));
 
-const { ApiError } = await import("../../lib/api");
+const { ApiError, setToken } = await import("../../lib/api");
 const { initI18n } = await import("../../i18n");
 const { ManagersSettings } = await import("./ManagersSettings");
 
@@ -52,6 +54,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   calls.length = 0;
   prefsCalls.length = 0;
+  toast.mockClear();
   prefsAnswer = () => ({ input: true, done: "long", muted_managers: [] });
   listeners.clear();
   host = document.createElement("div");
@@ -61,6 +64,7 @@ beforeEach(() => {
 afterEach(async () => {
   act(() => root.unmount());
   host.remove();
+  setToken("");
   document.body.innerHTML = "";
   await initI18n("zh-Hans");
 });
@@ -283,6 +287,21 @@ describe("设置 › 管理者", () => {
     };
     await click(sw()!);
     expect(sw()?.getAttribute("aria-checked")).toBe("false");
+    expect(toast).toHaveBeenCalled();
+  });
+
+  it("does not show a failed-push toast from a retired login", async () => {
+    setToken("test-token-a");
+    await render();
+    await answer(0, ROSTER);
+    await click(row("工作"));
+    let finish!: (value: unknown) => void;
+    prefsAnswer = (json) => json ? new Promise((resolve) => { finish = resolve; }) : { input: true, done: "long", muted_managers: [] };
+    await click(document.body.querySelector('[role="switch"][aria-label="推送通知"]')!);
+    await act(async () => setToken("test-token-b"));
+    expect(toast).not.toHaveBeenCalled();
+    await act(async () => finish({ input: true, done: "long", muted_managers: ["m-1"] }));
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("marks a manager that needs an update in the list and its details, which say to update it where it runs", async () => {

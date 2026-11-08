@@ -12,7 +12,7 @@ import (
 // older hub wrote, so the first start after the move uses what that hub left). For a while after it starts, a
 // machine that was online shows as it was, its sessions included, while its node connects again: the apps see nothing
 // go offline and come back, and a request for it waits for the node instead of failing. The key is the manager's
-// own (its settings); the hub keeps what it saw reported in its own (hub/devices_link.go saveDevicesWarm).
+// own (its settings); the hub keeps what it saw reported in its own (hub/devices_warm.go saveDevicesWarm).
 
 // reconnectGrace: a running hub shows a machine whose node just disconnected as it was this long, while it reconnects
 // (a resident node restarting on a new binary takes about 2 s). Each machine copies it (Machine.reconnectGrace), so a

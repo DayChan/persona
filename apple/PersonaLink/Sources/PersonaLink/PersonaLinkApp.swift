@@ -25,6 +25,13 @@ struct PersonaLinkApp: App {
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
         .handlesExternalEvents(matching: ["*"])
+
+        // What the hub calls this computer (`persona-link name`, docs/operations/link.md "The computer's name").
+        Window("给这台电脑改名", id: "rename") {
+            RenameView(model: model)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 

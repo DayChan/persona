@@ -31,7 +31,7 @@ export interface Market {
   official?: boolean;
 }
 
-/** A market index's signature as the hub found it: its state and the key it trusts. */
+/** A catalog's verification status. key_changed is an official pin mismatch, never a request to trust a key. */
 export interface MarketSignature {
   state: string;
   key_id?: string;

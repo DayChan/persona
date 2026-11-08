@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api, enc, errorText } from "../../lib/api";
 import { bytes, clock } from "../../lib/format";
-import { docTypeName, isDone, momentText, withToken, type InboxItem, type MomentComment, type MomentPost } from "../../lib/inbox";
-import { itemHeaders, useItemManager, withManager } from "../../lib/manager-choice";
+import { docTypeName, isDone, itemKey, momentText, withToken, type InboxItem, type MomentComment, type MomentPost } from "../../lib/inbox";
+import { defaultManager, itemHeaders, useItemManager, withManager } from "../../lib/manager-choice";
 import { openLink } from "../../lib/links";
-import { addressText, markMailSeen, replyDraft, useMailAccounts, type ComposeDraft, type MailMessage } from "../../lib/mail";
+import { addressText, markMailSeen, replyAllDraft, replyDraft, useMailAccounts, type ComposeDraft, type MailMessage } from "../../lib/mail";
 import { hubTranslation, isForeignCached, languageName, strippedHTML, translateMail, translatesMail, useTranslatePrefs, type MailTranslation } from "../../lib/translate";
 import { t } from "../../i18n";
 import { Button, cx, Loading, Spinner } from "../../ui/atoms";
@@ -18,7 +18,7 @@ import { openMedia } from "./LarkThread";
 // ── mail ─────────────────────────────────────────────────
 
 /** A mail: who, the body (its HTML in a sandboxed frame), attachments. Opening it marks it read in the mailbox; with
- * Settings › Translation on for mail, a foreign one is shown translated ("Original" one click away). "Reply" writes the answer by hand. */
+ * Settings › Translation on for mail, a foreign one is shown translated ("Original" one click away). Replies are written by hand. */
 export function MailBody({ item }: { item: InboxItem }) {
   const m = item.mail!;
   const uid = m.uids[m.uids.length - 1];
@@ -26,7 +26,7 @@ export function MailBody({ item }: { item: InboxItem }) {
   const [msg, setMsg] = useState<MailMessage | null>(null);
   const [error, setError] = useState("");
   // "Reply" open: its template as it opened, so the dialog stays over a new mail of the thread read under it (#4563)
-  const [replying, setReplying] = useState<{ key: string; initial: ComposeDraft } | null>(null);
+  const [replying, setReplying] = useState<{ item: string; mode: "reply" | "reply-all"; initial: ComposeDraft } | null>(null);
   const accounts = useMailAccounts();
   const prefs = useTranslatePrefs();
   const [translation, setTranslation] = useState<MailTranslation | null>(null);
@@ -77,13 +77,16 @@ export function MailBody({ item }: { item: InboxItem }) {
 
   // kept by the item (the thread): a new mail of it moves `uid` on and reads the body again under the dialog
   // another item opened in this body: that reply's dialog goes (and keeps what was typed for its own item)
-  const dialog = replying?.key === `reply:${item.id}` && <ComposeDialog key={replying.key} draftKey={replying.key} initial={replying.initial} accounts={accounts} onClose={() => setReplying(null)} />;
+  const replyItem = itemKey({ id: item.id, manager: item.manager || defaultManager() });
+  const replyKey = replying && `${replying.mode}:${replying.item}`;
+  const dialog = replying?.item === replyItem && <ComposeDialog key={replyKey} draftKey={replyKey!} initial={replying.initial} accounts={accounts} onClose={() => setReplying((current) => current === replying ? null : current)} />;
   if (!msg) return <div className="p-5">{error ? <p className="text-[12.5px] text-red">{error}</p> : <Loading label={t("inbox-inboxbodies.reading_mail")} />}{dialog}</div>;
   const shown = showOriginal ? null : translation;
   const lang = languageName(prefs.target);
+  const allDraft = replyAllDraft(m.account_id, msg, accounts.find((a) => a.id === m.account_id)?.email);
   return (
     <div className="mx-auto max-w-[760px] px-4 py-4 sm:px-6">
-      <div className="flex items-start gap-3">
+      <div className="flex flex-col items-start gap-3 sm:flex-row">
         <dl className="grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12.5px]">
           <dt className="text-ink-3">{t("inbox-inboxbodies.from")}</dt>
           <dd className="min-w-0 truncate text-ink">{addressText(msg.from)}</dd>
@@ -91,10 +94,15 @@ export function MailBody({ item }: { item: InboxItem }) {
           {!!msg.cc?.length && (<><dt className="text-ink-3">{t("inbox-inboxbodies.cc")}</dt><dd className="min-w-0 truncate text-ink-2">{msg.cc.map(addressText).join(t("inbox-inboxbodies.address_sep"))}</dd></>)}
           {msg.date && (<><dt className="text-ink-3">{t("inbox-inboxbodies.date")}</dt><dd className="text-ink-2">{clock(msg.date)}</dd></>)}
         </dl>
-        <Button tone="secondary" onClick={() => setReplying({ key: `reply:${item.id}`, initial: replyDraft(m.account_id, msg) })} title={t("inbox-inboxbodies.reply_title")}>
-          <Glyph name="reply" size={14} stroke={2.1} />
-          {t("inbox-inboxbodies.reply")}
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button tone="secondary" onClick={() => setReplying({ item: replyItem, mode: "reply", initial: replyDraft(m.account_id, msg) })} title={t("inbox-inboxbodies.reply_title")}>
+            <Glyph name="reply" size={14} stroke={2.1} />
+            {t("inbox-inboxbodies.reply")}
+          </Button>
+          <Button tone="secondary" disabled={!allDraft} onClick={() => allDraft && setReplying({ item: replyItem, mode: "reply-all", initial: allDraft })} title={t(allDraft ? "inbox-inboxbodies.reply_all_title" : "inbox-inboxbodies.reply_all_unavailable")}>
+            {t("inbox-inboxbodies.reply_all")}
+          </Button>
+        </div>
       </div>
       {(translating || translation || translateError) && (
         <div className="mt-3 flex min-h-8 items-center gap-2 rounded-control bg-inset px-3 py-1.5 text-[12px] text-ink-3 shadow-hairline">

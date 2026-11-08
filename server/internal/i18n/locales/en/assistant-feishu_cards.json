@@ -168,5 +168,6 @@
   "nudge": "Still waiting for you: {what}",
   "nudge_permission": "Still waiting for you: permission to use {tool}",
   "nudge_bare": "Still waiting for you.",
-  "board_nudged": "nudged"
+  "board_nudged": "nudged",
+  "board_verdict": "{title}: {verdict}"
 }

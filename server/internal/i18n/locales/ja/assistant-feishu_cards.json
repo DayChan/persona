@@ -168,5 +168,6 @@
   "nudge": "お返事をお待ちしています：{what}",
   "nudge_permission": "お返事をお待ちしています：{tool}の使用許可",
   "nudge_bare": "お返事をお待ちしています。",
-  "board_nudged": "催促済み"
+  "board_nudged": "催促済み",
+  "board_verdict": "{title}：{verdict}"
 }

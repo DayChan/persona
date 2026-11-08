@@ -206,7 +206,7 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 	sessions[0].StateSince, sessions[1].StateSince = now, now
 	add("sessions", "sessions_list", "会话列表保留状态、模式和后台任务信息。", "sessions", httpJSON(map[string]any{"sessions": sessions}),
 		map[string]any{"/sessions/0/state": "needs_you", "/sessions/0/rev": 120, "/sessions/0/permission_mode": "plan", "/sessions/0/background/0/kind": "shell", "/sessions/1/state": "offline"},
-		"server/internal/proto/proto.go: Session", "server/internal/hub/http.go: Hub.listSessions", "apple/Shared/Models.swift: Session.init(from:)")
+		"server/internal/proto/session.go: Session", "server/internal/hub/http.go: Hub.listSessions", "apple/Shared/Models.swift: Session.init(from:)")
 	add("sessions", "sessions_event", "会话事件以信封中的机器标识为准。", "event", ws(map[string]any{"type": "sessions", "machine_id": "m1", "sessions": sessions}),
 		map[string]any{"/type": "sessions", "/machine_id": "m1", "/sessions/0/machine_id": "m1", "/sessions/1/status": "offline"},
 		"server/internal/hub/http.go: Hub.serveWS", "apple/Shared/LiveConnection.swift: ServerEvent.decode")
@@ -258,7 +258,7 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 	page := map[string]any{"items": all, "has_more": false, "history": "history_example", "to_seq": 10}
 	add("items", "items_all_kinds", "历史页覆盖文本、工具、图片占位、通知和任务通知。", "items", httpJSON(page),
 		map[string]any{"/items/0/kind": "text", "/items/1/kind": "thinking", "/items/2/tool_input/custom_Key/keep_snake_case": true, "/items/3/tool_use_id": "call_example", "/items/4/is_error": true, "/items/5/kind": "notice", "/items/6/kind": "recap", "/items/7/image/data": "", "/items/7/image/lazy": true, "/items/7/image/width": 2, "/items/8/task/exit_code": 0, "/items/8/wake": true, "/items/9/queued": true},
-		"server/internal/proto/proto.go: Item, WithoutImageData", "server/internal/hub/http.go: Hub.sessionItems", "apple/Shared/Models.swift: Item, ImagePayload, TaskNote")
+		"server/internal/proto/item.go: Item, WithoutImageData", "server/internal/hub/http.go: Hub.sessionItems", "apple/Shared/Models.swift: Item, ImagePayload, TaskNote")
 	folded := transcript.FoldWork([]proto.Item{text, thought, use, result, recap})
 	add("items", "items_folded_work", "折叠条目由真实折叠函数生成计数及范围。", "items", httpJSON(map[string]any{"items": folded, "has_more": true}),
 		map[string]any{"/items/1/kind": "fold", "/items/1/fold/items": 3, "/items/1/fold/tools": 1, "/items/1/fold/thoughts": 1, "/items/1/fold/through_seq": 4, "/has_more": true},
@@ -271,10 +271,10 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 	todoFold := transcript.FoldWork([]proto.Item{text, thought, todoUse, todoResult, recap})
 	add("items", "items_folded_tasks", "折叠的任务快照保留成功结果与原调用位置，旧 iOS 忽略新增字段。", "items", httpJSON(map[string]any{"items": todoFold, "has_more": true}),
 		map[string]any{"/items/1/kind": "fold", "/items/1/fold/items": 3, "/items/1/fold/tools": 1, "/items/1/fold/through_seq": 4},
-		"server/internal/transcript/fold.go: FoldWork", "server/internal/proto/proto.go: FoldTaskSnapshot", "apple/Shared/Models.swift: Fold", "docs/protocol/protocol.md: 折叠的工作")
+		"server/internal/transcript/fold.go: FoldWork", "server/internal/proto/item.go: FoldTaskSnapshot", "apple/Shared/Models.swift: Fold", "docs/protocol/protocol.md: 折叠的工作")
 	add("items", "items_inline_image", "未启用懒加载时图片保留内联数据。", "items", httpJSON(map[string]any{"items": []proto.Item{img}, "has_more": false}),
 		map[string]any{"/items/0/image/mime": "image/png", "/items/0/image/data": img.Image.Data, "/items/0/image/lazy": nil},
-		"server/internal/proto/proto.go: Image", "apple/Shared/Models.swift: ImagePayload")
+		"server/internal/proto/item.go: Image", "apple/Shared/Models.swift: ImagePayload")
 	monitor := task
 	monitor.ID, monitor.Seq = "entry_monitor#0", 11
 	monitor.Task = &proto.TaskNote{Kind: "monitor", Status: "event", Title: "示例监控", TaskID: "monitor_example", Detail: "示例值 > 0 & < 10"}
@@ -283,14 +283,14 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 	agent.Task = &proto.TaskNote{Kind: "agent", Status: "completed", Title: "示例子任务", TaskID: "agent_example", Detail: "子任务已完成。"}
 	add("items", "items_task_notifications", "监控事件和子任务结果都作为带 task 的 notice 传输。", "items", httpJSON(map[string]any{"items": []proto.Item{monitor, agent}, "has_more": false}),
 		map[string]any{"/items/0/kind": "notice", "/items/0/task/kind": "monitor", "/items/0/task/detail": "示例值 > 0 & < 10", "/items/1/task/kind": "agent"},
-		"server/internal/proto/proto.go: TaskNote", "apple/Shared/Models.swift: TaskNote")
+		"server/internal/proto/item.go: TaskNote", "apple/Shared/Models.swift: TaskNote")
 
 	wireItemEvents(t, add, now, []proto.Item{text, img})
 	durations := transcript.ParseLine(9, []byte(`{"type":"system","subtype":"turn_duration","uuid":"duration_example","parentUuid":"entry_text","durationMs":12345,"timestamp":"2026-01-02T03:04:05Z"}`), &transcript.Meta{})
 	add("items", "items_recorded_turn_duration", "轮次耗时保留来源及原生关联；旧客户端忽略未知内容类型和可选字段。", "items",
 		httpJSON(map[string]any{"items": durations, "has_more": false}),
 		map[string]any{"/items/0/id": "duration_example#0", "/items/0/role": "system"},
-		"server/internal/transcript/transcript.go: ParseLine", "server/internal/proto/proto.go: TurnDuration", "apple/Shared/Models.swift: ItemKind.init")
+		"server/internal/transcript/transcript.go: ParseLine", "server/internal/proto/item.go: TurnDuration", "apple/Shared/Models.swift: ItemKind.init")
 	durationClient := &client{out: make(chan []byte, 1), subs: map[[2]string]bool{{"m1", "s1"}: true}}
 	durationHub := &Hub{clients: map[*client]struct{}{durationClient: {}}}
 	durationHub.itemsToSubscribers("m1", "s1", durations, itemSpan{History: "history_example"})
@@ -328,7 +328,7 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 			fields["/interaction/dialog/options/1/kind"] = "type_something"
 		}
 		add("interactions", "interaction_"+kind, "交互卡携带对应类型的提问、计划、权限或屏幕信息。", "event", ws(map[string]any{"type": "interaction", "interaction": ix}), fields,
-			"server/internal/proto/proto.go: Interaction", "server/internal/hub/http.go: Hub.serveWS", "apple/Shared/Models.swift: Interaction, ScreenDialog", "docs/protocol/protocol.md: 终端对话框（screen 交互）")
+			"server/internal/proto/interaction.go: Interaction", "server/internal/hub/http.go: Hub.serveWS", "apple/Shared/Models.swift: Interaction, ScreenDialog", "docs/protocol/protocol.md: 终端对话框（screen 交互）")
 	}
 	secret := ixs[3]
 	for _, mode := range []string{"form", "url"} {
@@ -349,7 +349,7 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 		h.clients[c] = struct{}{}
 		h.broadcast(map[string]any{"type": "interaction", "interaction": ix})
 		add("interactions", "interaction_elicitation_"+mode, "仅向声明 elicitation 能力的连接下发，旧 iOS 不接收此样本。", "event", wireReceive(t, c), fields,
-			"server/internal/hub/http.go: Hub.broadcast", "server/internal/proto/proto.go: Elicitation", "android/core/contracts/src/main/kotlin/persona/core/contracts/Elicitation.kt")
+			"server/internal/hub/http.go: Hub.broadcast", "server/internal/proto/interaction.go: Elicitation", "android/core/contracts/src/main/kotlin/persona/core/contracts/Elicitation.kt")
 	}
 	secret.ID = "ix_secret"
 	secret.Screen = "Password:"
@@ -575,7 +575,7 @@ func wireCompatibility(t *testing.T, files map[string][]wireSample, add wireAdde
 		add("compatibility", bad.name, bad.desc, "compat_event", ws(bad.body), map[string]any{}, "apple/Shared/LiveConnection.swift: ServerEvent.decode", "apple/Shared/Models.swift: InteractionKind, Session.init(from:)", "docs/archive/redesign/README.md: D5（现状差异）")
 		files["compatibility"][len(files["compatibility"])-1].Expected.Accepted = false
 	}
-	add("compatibility", "session_zero_time", "Go 零时间能解码，但不算有意义的日期。", "compat_session", httpJSON(proto.Session{SessionID: "s1"}), map[string]any{"/updated_at_meaningful": false, "/seen_at_meaningful": false}, "server/internal/proto/proto.go: Session", "apple/Shared/JSONValue.swift: JSON.decoder, Date.isMeaningful")
+	add("compatibility", "session_zero_time", "Go 零时间能解码，但不算有意义的日期。", "compat_session", httpJSON(proto.Session{SessionID: "s1"}), map[string]any{"/updated_at_meaningful": false, "/seen_at_meaningful": false}, "server/internal/proto/session.go: Session", "apple/Shared/JSONValue.swift: JSON.decoder, Date.isMeaningful")
 	add("compatibility", "date_at_cutoff", "当前 iOS 将 2000 年起点本身也判为无意义日期。", "compat_session", httpJSON(map[string]any{"session_id": "s1", "updated_at": "2000-01-01T00:00:00Z"}), map[string]any{"/updated_at_meaningful": false}, "apple/Shared/JSONValue.swift: Date.isMeaningful", "docs/archive/redesign/README.md: D5（现状差异）")
 	for i := range files["errors"] {
 		if i == 0 {

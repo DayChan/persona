@@ -32,7 +32,10 @@ nonisolated enum ServerEvent: Sendable {
     case screen(SessionKey, text: String, status: SessionStatus)
     case delta(SessionKey, text: String)
     case interaction(Interaction)
-    case interactionResolved(String)
+    /// assistant: what the assistant answered and why, when it answered the question for the user (#544).
+    case interactionResolved(String, assistant: AssistantAnswer?)
+    /// The user changed the assistant's answer, on this device or another: only the questions that changed (#544).
+    case interactionReanswered(id: String, answers: [String: String])
     case toolCall(callID: String, name: String, args: JSONValue)
     case hookEvent(SessionKey, event: String, message: String?, lastText: String?)
     /// Transcripts that grew on a machine (session id → rev): pull them before they are opened.
@@ -157,11 +160,18 @@ nonisolated enum ServerEvent: Sendable {
         var cwd: String?
         var dirs: [String]?
         var git: Bool?
+        /// interaction_resolved's, for a question the assistant answered; raw so no other event's keys can break the envelope.
+        var answeredBy: JSONValue?
+        var reason: JSONValue?
+        var answers: JSONValue?
+        /// interaction_reanswered's.
+        var resolution: JSONValue?
 
         enum CodingKeys: String, CodingKey {
             case type, machines, sessions, upsert, remove, revision, items, backlog, text, status, interaction, id, name, args, event, message, error, revs, fleet, history
             case features, epoch, seq, full, cols, rows, data, unsupported, state, desktops, mesh, channel, build, update, item, view, action, key, conversation, plan
-            case plugin, badge, invalidate, cwd, dirs, git, operation, auth, source, conversations, account
+            case plugin, badge, invalidate, cwd, dirs, git, operation, auth, source, conversations, account, reason, answers, resolution
+            case answeredBy = "answered_by"
             case extensionID = "extension"
             case hubID = "hub_id", hubName = "hub_name", protocolVersion = "protocol", minAppBuild = "min_app_build", publicURL = "public_url"
             case settingsChanged = "settings_changed", olAccount = "ol_account"
@@ -215,7 +225,14 @@ nonisolated enum ServerEvent: Sendable {
             guard let key else { return nil }
             return .delta(key, text: e.text ?? "")
         case "interaction": return e.interaction.map { .interaction($0) }
-        case "interaction_resolved": return e.id.map { .interactionResolved($0) }
+        case "interaction_resolved":
+            guard let id = e.id else { return nil }
+            let assistant = e.answeredBy?.string == AssistantAnswer.assistant
+                ? AssistantAnswer(answers: Delegated.answers(in: e.answers), reason: e.reason?.string ?? "") : nil
+            return .interactionResolved(id, assistant: assistant)
+        case "interaction_reanswered":
+            guard let id = e.id else { return nil }
+            return .interactionReanswered(id: id, answers: Delegated.answers(in: e.resolution?["answers"]))
         case "tool_call":
             guard let id = e.callID, let name = e.name else { return nil }
             return .toolCall(callID: id, name: name, args: e.args ?? .object([:]))
@@ -298,7 +315,7 @@ nonisolated extension ServerEvent {
         case .error(let key, let message): return .error(key.map(k), message)
         case .sessionsDelta(let machine, let upsert, let remove):
             return .sessionsDelta(machineID: machine, upsert: upsert.map { var s = $0; s.group = group; return s }, remove: remove)
-        case .sessionsList, .hello, .interactionResolved, .toolCall, .revs, .lark, .messaging, .agents, .inbox, .fleet, .hubUpdate, .desktops, .todos,
+        case .sessionsList, .hello, .interactionResolved, .interactionReanswered, .toolCall, .revs, .lark, .messaging, .agents, .inbox, .fleet, .hubUpdate, .desktops, .todos,
              .personas, .managers, .assistantFeed, .assistantView, .assistantViewAction, .assistantViewBlock, .taskPlan, .pluginBadge,
              .extensionInvalidate, .fsChanged, .extensionOperation, .extensionAuth: return self
         }

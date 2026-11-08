@@ -622,7 +622,9 @@ func TestScheduleAcrossHubRestart(t *testing.T) {
 		{ID: "r11", Title: "午报", Prompt: "x", Repeat: repeatDaily, Time: "11:00", Enabled: true, LastRun: at(11, 0).Add(-24 * time.Hour)},
 		{ID: "f1", Repeat: repeatOnce, At: at(9, 0), Prompt: "y", Enabled: true},
 		{ID: "f2", Repeat: repeatOnce, At: at(10, 0), Title: "看部署", Prompt: "z", Enabled: true}}
-	h1.saveLocked(sc)
+	if err := h1.saveLocked(sc, sc.tasks); err != nil {
+		t.Fatal(err)
+	}
 	sc.mu.Unlock()
 
 	h1.runDue(context.Background(), at(9, 0).Add(2*time.Second))

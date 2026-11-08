@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +59,8 @@ class AssistantSettingsShotsTest {
     private class FakeManagement(memoryTitle: String, memoryBody: String) : AssistantManagement {
         private val updated = Instant.now().minusSeconds(3_600).toString()
         var config = AssistantConfig(machineId = "workstation", launcher = "claude", cwd = "/home/me/.persona/assistant",
-            timezone = "Asia/Shanghai", notesEffective = "~/code", main = "main", mainTasksQuiet = true, manager = "assistant", defaultPermissionMode = "bypassPermissions")
+            timezone = "Asia/Shanghai", notesEffective = "~/code", main = "main", mainTasksQuiet = true, manager = "assistant", defaultPermissionMode = "bypassPermissions",
+            permissionDefaults = AssistantPermissionDefaults(1, "assistant", AssistantPermissionDefaults.MODES))
         val files = listOf(
             MemoryFile("MEMORY.md", "- [$memoryTitle](morning.md)", updated),
             MemoryFile("morning.md", "---\nname: morning\ndescription: $memoryBody\ntype: feedback\n---\n\n$memoryBody", updated),
@@ -96,9 +98,14 @@ class AssistantSettingsShotsTest {
         val management = FakeManagement(memory.first, memory.second)
         rule.setContent {
             PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
-                Box(Modifier.testTag("shot").width(400.dp).height(1800.dp).background(PersonaTheme.palette.background)) {
-                    // Each part is a fresh page: the preview switch is read once, when the page first composes.
-                    key(part) { AssistantSettingsScreen(management, machines, onBack = {}) }
+                val work = when (language) { "zh" -> "工作"; "ja" -> "仕事"; else -> "Work" }
+                val roster = ManagerRoster(listOf(HubManager("assistant", title, online = true, isDefault = true),
+                    HubManager("work", work, online = true)), "assistant")
+                CompositionLocalProvider(LocalManagerRoster provides roster) {
+                    Box(Modifier.testTag("shot").width(400.dp).height(1800.dp).background(PersonaTheme.palette.background)) {
+                        // Each part is a fresh page: the preview switch is read once, when the page first composes.
+                        key(part) { AssistantSettingsScreen(management, machines, onBack = {}) }
+                    }
                 }
             }
         }

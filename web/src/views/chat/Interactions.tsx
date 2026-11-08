@@ -1,6 +1,9 @@
 // What the agent is waiting on (questions, plans, permissions, terminal dialogs, MCP forms and links), as Beautiful UI's Approval Card.
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { answerCard } from "../../lib/card-answer";
+import { delegateLines, isDelegating, recommendedLabels, type DelegatedAnswer } from "../../lib/delegate";
+import { Choice } from "./Choice";
+import { DelegatedCard } from "./Delegated";
 import { allowBody, denyBody } from "../../lib/quick-answers";
 import { BUSY_MOTION, spinStyle } from "../../lib/busy-motion";
 import type { Interaction } from "../../lib/types";
@@ -34,14 +37,15 @@ export async function resolve(ix: Interaction, body: Record<string, unknown>) {
   return r.ok;
 }
 
-function Card({ title, kicker, onDismiss, children, footer }: { title: string; kicker: string; onDismiss: () => void; children: React.ReactNode; footer: React.ReactNode }) {
+/** `looking`: a question the assistant is still deciding on (#544), marked as at work rather than waiting on the user. */
+function Card({ title, kicker, onDismiss, children, footer, looking = false }: { title: string; kicker: string; onDismiss: () => void; children: React.ReactNode; footer: React.ReactNode; looking?: boolean }) {
   return (
     <div className="overflow-hidden rounded-card bg-surface shadow-card" style={{ animation: `fade-up 350ms ${EASE} both` }}>
       <div className="px-3.5 pt-3 pb-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-1.5 text-[11px] font-medium text-attention">
-              <StatusMark state="needs_you" size="sm" label={false} />
+            <div className={cx("mb-0.5 flex items-center gap-1.5 text-[11px] font-medium", looking ? "text-ink-3" : "text-attention")}>
+              <StatusMark state={looking ? "working" : "needs_you"} size="sm" label={false} />
               {kicker}
             </div>
             <div className="text-[13.5px] font-medium text-ink">{title}</div>
@@ -74,30 +78,6 @@ function OptionLabel({ label }: { label: string }) {
   );
 }
 
-function Choice({ on, multi, label, desc, onClick }: { on: boolean; multi?: boolean; label: string; desc?: string; onClick: () => void }) {
-  const shown = optionDisplay(label);
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick} className="touch-hit -mx-1.5 flex items-start gap-2 rounded-control px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-hover">
-      <span
-        className={cx(
-          "mt-[2px] flex size-4 shrink-0 items-center justify-center transition-colors duration-200",
-          multi ? "rounded-[5px]" : "rounded-full",
-          on ? "bg-ink text-canvas" : "text-transparent shadow-[inset_0_0_0_1.5px_var(--line-strong)]",
-        )}
-      >
-        {multi ? <Icon name="check" size={11} stroke={3} /> : <span className="size-1.5 rounded-full bg-canvas transition-transform duration-200" style={{ transform: on ? "scale(1)" : "scale(0)" }} />}
-      </span>
-      <span className="min-w-0">
-        <span className={cx("block text-[13px] transition-colors", on ? "text-ink" : "text-ink-2")}>
-          {shown.text}
-          {shown.recommended && <RecommendedTag />}
-        </span>
-        {desc && <span className="block text-[12px] leading-snug text-ink-3">{desc}</span>}
-      </span>
-    </button>
-  );
-}
-
 function SendArrow({ ready, onClick, label, busy }: { ready: boolean; onClick: () => void; label: string; busy?: boolean }) {
   return (
     <button
@@ -122,6 +102,11 @@ function QuestionCard({ ix }: { ix: Interaction }) {
   const [busy, setBusy] = useState(false);
   const q = qs[qi];
   if (!q) return null;
+  const looking = isDelegating(ix);
+  const picks = recommendedLabels(qs, ix.delegate?.recommend);
+  // a recommendation that is the options' own words shows on them, not again in the context
+  const onOptions = picks.every((p) => p.length > 0);
+  const context = delegateLines(ix.delegate).filter((l) => !(l.key === "recommend" && onOptions));
   const last = qi === qs.length - 1;
   const answered = (i: number) => (picked[i]?.length ?? 0) > 0 || Boolean(custom[i]?.trim());
   const all = qs.every((_, i) => answered(i));
@@ -150,6 +135,7 @@ function QuestionCard({ ix }: { ix: Interaction }) {
     <Card
       kicker={q.header || t("chat-interactions.question")}
       title={q.question}
+      looking={looking}
       onDismiss={() => resolve(ix, { dismiss: true })}
       footer={
         <>
@@ -182,9 +168,34 @@ function QuestionCard({ ix }: { ix: Interaction }) {
         </>
       }
     >
+      {looking && (
+        <div data-delegating className="mb-2 flex items-start gap-2 rounded-control bg-inset px-2.5 py-2 text-[12px] leading-snug shadow-hairline">
+          <Icon name="eye" size={13} stroke={2.2} className="mt-px shrink-0 text-ink-3" />
+          <span className="min-w-0">
+            <span className="block font-medium text-ink">{t("chat-delegate.looking")}</span>
+            <span className="block text-ink-3">{t("chat-delegate.looking_hint")}</span>
+          </span>
+        </div>
+      )}
+      {context.length > 0 && (
+        <div data-delegate-context className="mb-2 rounded-control bg-inset px-2.5 py-2 shadow-hairline">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-ink-3">
+            <Icon name="sparkles" size={12} stroke={2.2} className="shrink-0" />
+            {t("chat-delegate.context_title")}
+          </div>
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px] leading-snug">
+            {context.map((l) => (
+              <Fragment key={l.key}>
+                <dt className="whitespace-nowrap text-ink-3">{l.label}</dt>
+                <dd className="break-words whitespace-pre-wrap text-ink-2">{l.text}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      )}
       <div key={qi} className="flex flex-col gap-0.5" style={{ animation: `fade-up 300ms ${EASE} both` }}>
         {q.options.map((o) => (
-          <Choice key={o.label} on={(picked[qi] ?? []).includes(o.label)} multi={q.multi_select} label={o.label} desc={o.description} onClick={() => toggle(o.label)} />
+          <Choice key={o.label} on={(picked[qi] ?? []).includes(o.label)} multi={q.multi_select} label={o.label} desc={o.description} pick={picks[qi]?.includes(o.label)} onClick={() => toggle(o.label)} />
         ))}
         <label className="-mx-1.5 flex items-center gap-2 rounded-control px-1.5 py-1.5 transition-colors focus-within:bg-hover hover:bg-hover">
           <span aria-hidden className="size-4 shrink-0" />
@@ -738,9 +749,11 @@ export function InteractionCard({ ix }: { ix: Interaction }) {
  * Narrow ones (#1996) keep them in a box that scrolls on its own: the first in full and "N more" for the others until
  * that is tapped; while the keyboard is up, one line for all of them (tapping it puts the keyboard away).
  */
-export function PendingCards({ interactions, answered, offerNext, narrow, short = false, keyboard, onDismissKeyboard }: {
+export function PendingCards({ interactions, answered, delegated = [], offerNext, narrow, short = false, keyboard, onDismissKeyboard }: {
   interactions: Interaction[];
   answered: Answered[];
+  /** The questions the assistant answered for the user (#544): shown with the answered ones, until put away. */
+  delegated?: DelegatedAnswer[];
   /** This chat: offer what other chats wait on you with (#4091), one line under "Answered" once it has no card left. */
   offerNext?: { mid: string; sid: string };
   narrow: boolean;
@@ -755,11 +768,12 @@ export function PendingCards({ interactions, answered, offerNext, narrow, short 
     if (!count) setOpen(false);
   }, [count]);
   const { full, summary } = cardFold(count, { narrow, keyboard, open, short });
-  if (!count && !answered.length) return null;
-  const done = showsAnswered({ narrow, keyboard, open, short }) ? answered.map((a) => <AnsweredCard key={a.ix.id} card={a} />) : [];
+  if (!count && !answered.length && !delegated.length) return null;
+  const shown = showsAnswered({ narrow, keyboard, open, short });
+  const done = shown ? [...delegated.map((d) => <DelegatedCard key={d.ix.id} d={d} />), ...answered.map((a) => <AnsweredCard key={a.ix.id} card={a} />)] : [];
   const cards = interactions.map((ix) => <InteractionCard key={ix.id} ix={ix} />);
   // only right after answering here (the "Answered" receipt shows), never while this chat still has a card: no jump, no nag
-  const onward = !count && done.length > 0 && offerNext ? <NextWaitingRow {...offerNext} /> : null;
+  const onward = !count && shown && answered.length > 0 && offerNext ? <NextWaitingRow {...offerNext} /> : null;
   if (!narrow) return <>{done}{cards}{onward}</>;
   const more = summary?.kind === "more";
   return (

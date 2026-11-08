@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -63,7 +64,8 @@ func (im Image) Name() string {
 func (im Image) Pinned() bool { _, ok := parseVersion(im.Tag); return ok }
 
 func (im Image) base() string {
-	if host, _, _ := strings.Cut(im.Registry, ":"); host == "localhost" || host == "127.0.0.1" {
+	host := (&url.URL{Host: im.Registry}).Hostname()
+	if host == "localhost" || host == "127.0.0.1" || net.ParseIP(host).Equal(net.IPv6loopback) {
 		return "http://" + im.Registry // docker talks plain HTTP to a registry on this machine too
 	}
 	return "https://" + im.Registry

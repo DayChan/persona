@@ -24,5 +24,11 @@
   "later_more": "and {n} more",
   "failed_task": "did not start · {time}",
   "failed_run": "run failed · {time}",
-  "failed_skipped": "skipped · {time}"
+  "failed_skipped": "skipped · {time}",
+  "take": "Take recommendation",
+  "take_row": "Take the recommendation for {title}",
+  "got_it": "Got it",
+  "recommend": "Recommended: {option}",
+  "noted": "Noted",
+  "taken": "Recommendation taken"
 }

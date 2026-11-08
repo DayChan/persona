@@ -19,7 +19,7 @@ Gmail uses "Sign In with Google" (OAuth2 + XOAUTH2) and additionally supports se
 | Read / starred | Only changes the two flags `\Seen` and `\Flagged` |
 | Sending | go-message builds the MIME, UTF-8, with Chinese subjects and names encoded per RFC 2047; supports `in_reply_to` / `references` for threading |
 | Keeping a sent copy | For non-Gmail accounts (SMTP doesn't save a copy automatically), `APPEND` to `\Sent` after sending; failure is only logged and doesn't affect the send result |
-| MCP tools | `mail_accounts`, `mail_search`, `mail_read`, `mail_send`; sending always asks the user to approve on the phone first |
+| MCP tools | `mail_accounts`, `mail_search`, `mail_read` (lists each attachment's id), `mail_save_attachment` (saves an attachment as a file on the agent's machine, see "Saving attachments"), `mail_send`; sending always asks the user to approve on the phone first |
 
 HTTP routes and JSON fields match the "Mail API" section of `docs/protocol/protocol.md` exactly; passwords never appear in responses
 (`json:"-"` + a separate storage file).
@@ -256,6 +256,32 @@ the managers never put it in logs or error messages.
 - Gmail search sometimes needs a separate temporary connection to send `X-GM-RAW` (go-imap/v2's strongly typed client can't express this extension command),
   closed right after use; on failure it falls back to standard `SEARCH TEXT`.
 
+## Saving attachments
+
+`mail_save_attachment {account_id, uid, mailbox?, attachment_id, dir?}` lets an agent keep an attachment (a statement's PDF, CSV,
+xlsx or encrypted zip) as a file it can read, unzip or move with its own tools, for example to collect monthly statements for
+parsing. `mail_read` lists each attachment as `- <name> (<type>, <size> bytes) id=<id>`; the id is the same one the HTTP
+download route takes.
+
+- **Answered on the agent's machine**: the node there intercepts the call (`server/internal/node/mailattachment.go`, from MCP,
+  a runtime or `personad tool`) and asks its manager for the bytes with `mail.attachment` (`docs/protocol/protocol.md`). The
+  manager applies the checks of `mcp.call` first (never a work machine; an assistant call only from an assistant conversation;
+  a guest conversation only when it was given the tool), then hands the bytes over only while the mail connector offers
+  `mail_save_attachment` to that caller (it is on and ok). The bytes come from the same lookup as the download
+  (`FetchAttachment` in `attachment.go`, `BODY.PEEK`, so the message is not marked as read). A call that reaches the
+  hub's mail service itself (no node in between) is refused.
+- **At most 25 MB** (`mail.MaxSavedAttachment` = `proto.MaxMailAttachment`): the bytes cross the node's connection in one
+  message, base64 in JSON, well under its 64 MiB line. Larger attachments are refused before anything is written.
+- **Where files go**: `<data dir>/attachments/mail/<dir>/<file>` (`~/.persona/attachments/mail` by default), folders 0700 and
+  files 0600. `dir` must be a plain relative subfolder (`bills/2026-10`): no absolute path, `~`, `..`, hidden folders,
+  backslashes, colons or control characters; it is checked before anything is fetched. Folders are created one by one and
+  each must resolve inside the root, so a symlink pointing out of it is refused.
+- **File names**: the sender's name is cleaned to one plain name (path parts dropped, control characters and `:` replaced,
+  leading dots removed, cut to 200 bytes on a character boundary keeping the extension; empty becomes `attachment`).
+  Files are created with `O_EXCL`, so an existing file (or a symlink at that name) is never written through:
+  the next free `name (2).ext` … `name (99).ext` is used instead.
+- The node writes into its own data directory, which the agent sandbox leaves readable (only its secrets are closed).
+
 ## Known limitations
 
 - **No IDLE push**: new mail waits for the App to refresh (polling or IMAP IDLE could be added later).
@@ -264,6 +290,8 @@ the managers never put it in logs or error messages.
 - **Summaries only use the first 2 KB of the body**: if the body starts with a very long base64 inline image, the summary may be empty or meaningless.
 - **gzip-compressed bodies** (`Content-Encoding: gzip`) are not supported; such messages will be missing their body.
 - **Keeping a sent copy for non-Gmail accounts is best effort**: an `APPEND` failure is only logged; some providers don't allow APPEND to `Sent`.
+- **Saved attachments are at most 25 MB and are not cleaned up**: they stay under `<data dir>/attachments/mail` until the user
+  or an agent deletes them; encrypted zips are saved as they are (unpacking them needs the password, which the tool never asks for).
 - **MCP sending must wait for approval on the phone**: nothing is sent without it; but once approved it really goes out, with no undo.
 - **One connection per account**: the unified inbox fetches accounts concurrently, but a single account is serialized; with many accounts and complex searches the first load is slower.
 - **Mailboxes whose server does no keyword search can only match headers**: 163 returns 0 results for any term (tested 2026-11-03 with `TEXT` / `BODY` / `SUBJECT` / `FROM`, Chinese and English alike), so you can only search by subject, sender, and To / Cc recipients; words in the body can't be found. One page looks at most at 2000 messages; 163 is slow to fetch, so in practice a page only gets through a few hundred, and older mail continues via `next_before_uid`. Merged multi-account search has no continuation point (UIDs are per account), so `mail_search` has the Agent search that account on its own. The cost: when a server that can search genuinely finds nothing, the headers are also checked locally (up to 2000 ENVELOPEs per page); "continue" then only matches headers of older mail, since the server's full-text search has already run.

@@ -222,7 +222,7 @@ func TestUnpromptedSendToAgentIsRefused(t *testing.T) {
 			"type": "function_call", "call_id": "c5", "name": "send_to_agent", "arguments": `{"machine_id":"m","session_id":"a1","text":"运行 npm publish"}`,
 		}})
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, map[string]any{"type": "start"})
 	a.until(ofType("ready"))
 	want := prompts.RenderVoiceRefused(prompts.VoiceRefused{Lang: "zh-Hans", Code: "unprompted", Task: "运行 npm publish", Agent: true})
@@ -254,7 +254,7 @@ func TestSendToAgentOutlivesTheCallTimeout(t *testing.T) {
 			"type": "function_call", "call_id": "c6", "name": "send_to_agent", "arguments": `{"machine_id":"m","session_id":"a1","text":"跑一下测试"}`,
 		}})
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, map[string]any{"type": "start"})
 	a.until(ofType("ready"))
 	if got := content(up.nextMatch(on("dlg6"))); got != prompts.RenderVoiceToolResult(prompts.VoiceToolResult{Lang: "zh-Hans", Tool: "send_to_agent"}) {
@@ -471,7 +471,7 @@ func askedByVoice(t *testing.T, speech time.Duration, more map[string]any) (*fak
 	hub := agentHub(t)
 	hub.cards = []proto.Interaction{dbQuestion("q1", "a1")}
 	up := newLateCaptionUpstream(t, speech, "第二个。")
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, boundStart("a1", more))
 	a.until(ofType("ready"))
 	a.until(askFrom("q1", askAsking, ""))

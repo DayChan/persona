@@ -306,6 +306,10 @@ func idTokenEmail(idToken string) (string, error) {
 func (s *Service) accessEntry(creds *OAuthCreds) *accessCache {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.accessEntryLocked(creds)
+}
+
+func (s *Service) accessEntryLocked(creds *OAuthCreds) *accessCache {
 	c := s.access[creds.RefreshToken]
 	if c == nil {
 		c = &accessCache{}
@@ -325,14 +329,21 @@ func (s *Service) storeAccess(creds *OAuthCreds, token string, expiresIn int) {
 }
 
 // accessToken returns a valid access token, refreshing it when it expires within a minute.
-func (s *Service) accessToken(ctx context.Context, creds *OAuthCreds) (string, error) {
+func (s *Service) accessToken(ctx context.Context, id string, creds *OAuthCreds) (string, error) {
 	if creds == nil || creds.RefreshToken == "" {
 		return "", errors.New("mail: oauth2 account without credentials")
 	}
 	if s.refreshAccess != nil {
 		return s.refreshAccess(creds)
 	}
-	c := s.accessEntry(creds)
+	// Operations own detached credentials. A read queued before a rotation uses
+	// the latest committed token and its cache when it finally authenticates.
+	s.mu.Lock()
+	if a := s.accts[id]; a != nil && a.OAuth != nil {
+		creds = a.clone().OAuth
+	}
+	c := s.accessEntryLocked(creds)
+	s.mu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.token != "" && s.now().Add(time.Minute).Before(c.expires) {
@@ -356,7 +367,7 @@ func (s *Service) accessToken(ctx context.Context, creds *OAuthCreds) (string, e
 	}
 	// Microsoft hands out a new refresh token with every refresh (the old one lapses): keep it.
 	if tr.RefreshToken != "" && tr.RefreshToken != creds.RefreshToken {
-		s.rotateRefresh(creds, tr.RefreshToken, c)
+		s.rotateRefresh(id, creds, tr.RefreshToken, c)
 	}
 	expiresIn := tr.ExpiresIn
 	if expiresIn <= 0 {
@@ -367,16 +378,33 @@ func (s *Service) accessToken(ctx context.Context, creds *OAuthCreds) (string, e
 }
 
 // rotateRefresh replaces an account's refresh token (and the key of its access cache) and saves the accounts.
-func (s *Service) rotateRefresh(creds *OAuthCreds, refresh string, c *accessCache) {
+func (s *Service) rotateRefresh(id string, creds *OAuthCreds, refresh string, c *accessCache) {
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	s.mu.Lock()
-	delete(s.access, creds.RefreshToken)
-	creds.RefreshToken = refresh
-	s.access[refresh] = c
-	accounts := s.snapshotLocked()
-	s.mu.Unlock()
-	if err := s.store.save(accounts); err != nil {
-		logf("mail: save the rotated refresh token: %v", err)
+	var updated *MailAccount
+	if a := s.accts[id]; a != nil && a.OAuth != nil && *a.OAuth == *creds {
+		updated = a.clone()
+		updated.OAuth.RefreshToken = refresh
 	}
+	s.mu.Unlock()
+	publish := func() {
+		delete(s.access, creds.RefreshToken)
+		creds.RefreshToken = refresh
+		s.access[refresh] = c
+	}
+	// Verification can rotate credentials before the account has been committed.
+	// A stale refresh after deletion/re-authorization must not recreate that account.
+	if updated != nil {
+		if err := s.commitAccount(updated.ID, updated, false, publish); err != nil {
+			logf("mail: save the rotated refresh token: %v", err)
+			return
+		}
+		return
+	}
+	s.mu.Lock()
+	publish()
+	s.mu.Unlock()
 }
 
 // xoauth2Payload is the SASL XOAUTH2 initial response: "user=<email>^Aauth=Bearer <token>^A^A".

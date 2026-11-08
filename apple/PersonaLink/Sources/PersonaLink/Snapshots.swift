@@ -132,6 +132,16 @@ import SwiftUI
             let fresh3 = LinkModel()
             fresh3.show(LinkStatus(state: "unpaired"))
             png(PairView(model: fresh3), dark: dark, to: dir.appendingPathComponent("pair-empty-\(mode).png"))
+            // Renamed on the hub: the menu shows the name and offers to rename it; the rename window, after a rename.
+            let renamed = LinkModel()
+            renamed.show(status("connected") {
+                $0.address = endpoints[0].url; $0.kind = "lan"; $0.since = now.addingTimeInterval(-7_380); $0.node = "online"
+                $0.hubName = "家里"; $0.meshHubs = 1; $0.machineName = "工作室的 Mac"
+            }, endpoints: endpoints, machine: "macbook", node: nodeInstalled)
+            png(MenuView(model: renamed, now: now), dark: dark, to: dir.appendingPathComponent("menu-renamed-\(mode).png"))
+            png(RenameView(model: renamed), dark: dark, to: dir.appendingPathComponent("rename-\(mode).png"))
+            png(RenameView(model: renamed, name: "Studio", result: (true, "好了：这台电脑在 hub 上叫「Studio」，App、网页和管理界面里马上就会变。")),
+                dark: dark, to: dir.appendingPathComponent("rename-done-\(mode).png"))
             png(icons(dark: dark), dark: dark, to: dir.appendingPathComponent("icons-\(mode).png"), plain: true)
         }
     }

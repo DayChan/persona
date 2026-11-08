@@ -105,5 +105,5 @@ A view that fetches once per id cannot recover when the store puts the same id b
   an agent started normally must keep whatever its launcher decided.
 - Symptom to recognize: a pane whose Claude works and herdr reports an id, and a `sessions/<pid>.json` that names a session
   id whose `projects/…/<id>.jsonl` never appears. (The pid file has no transcript path; node derives it from the session id —
-  `transcriptPath` in `node/sessions.go` looks for `<config dir>/projects/*/<id>.jsonl`.) Check the node's own environment
+  `transcriptPath` in `node/transcript_files.go` looks for `<config dir>/projects/*/<id>.jsonl`.) Check the node's own environment
   for the child flag first (`/proc/<pid>/environ`, on macOS `KERN_PROCARGS2`), then the pane shell's.

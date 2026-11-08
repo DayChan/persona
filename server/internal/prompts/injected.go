@@ -10,7 +10,8 @@ import (
 
 // The hub types some messages into conversations as the user would, for the model: a quiet task's notice
 // (assistant/task_notice), a scheduled task's run (assistant/task_run), a wake-up (agents/wake), the background tasks
-// a node restart stopped (assistant/lost_tasks). The model reads them as they are; the apps show one line instead
+// a node restart stopped (assistant/lost_tasks), news of an inbox item for a conversation it was handed to
+// (inbox/handoff_note). The model reads them as they are; the apps show one line instead
 // (docs/protocol/protocol.md "Messages Persona injects"). ParseInjected reads them back off the transcript's text, so old lines are
 // known too; its tests render every template and parse the result, which keeps the two in step.
 
@@ -19,6 +20,7 @@ var (
 	followupHeadRe = regexp.MustCompile(`^⏰ (.+)（(你之前安排的跟进|定时任务(?:，每 [^）]+)?)）$`)
 	wakeHeadRe     = regexp.MustCompile(`^⏰（Persona 叫醒你，第 \d+ 次）你上一轮停下时说在等「(.*?)」`)
 	superviseRe    = regexp.MustCompile(`^📋 督办：你派出去的任务有 (\d+) 个要你处理$`)
+	inboxHeadRe    = regexp.MustCompile(`^📥 收件箱事件「(.+)」有了下文$`)
 	leadContextRe  = regexp.MustCompile(`^(?s)\s*<persona-context\b[^>]*>.*?</persona-context>`)
 )
 
@@ -27,6 +29,9 @@ const noticeMarker = "这是 Persona 的任务通知"
 
 // superviseMarker is in every supervise (follow-up) message (assistant/supervise, #3124).
 const superviseMarker = "这是 Persona 的督办消息"
+
+// inboxMarker is in every inbox note for a conversation an item was handed to (inbox/handoff_note, #1194).
+const inboxMarker = "这是 Persona 的收件箱通知"
 
 // lostTasksHead starts assistant/lost_tasks.
 const lostTasksHead = "⚠️ 运行你的 node 刚重启过"
@@ -87,6 +92,13 @@ func ParseInjected(text string) *proto.Injected {
 			return nil
 		}
 		return &proto.Injected{Kind: proto.InjectedSystem, State: "supervise", Line: "督办：" + m[1] + " 个派出去的任务要处理"}
+	case strings.HasPrefix(head, "📥 收件箱事件「"):
+		// Only hubs that write it mark it: it is not in the shared fixtures the apps' own recognition runs.
+		m := inboxHeadRe.FindStringSubmatch(head)
+		if m == nil || !strings.Contains(rest, inboxMarker) {
+			return nil
+		}
+		return &proto.Injected{Kind: proto.InjectedSystem, State: "inbox", Title: m[1], Line: "收件箱「" + m[1] + "」有了下文"}
 	case strings.HasPrefix(head, lostTasksHead):
 		n := 0
 		for _, l := range strings.Split(rest, "\n") {

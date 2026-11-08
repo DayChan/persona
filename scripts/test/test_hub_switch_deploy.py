@@ -106,5 +106,55 @@ class HubSwitchOnDeploy(unittest.TestCase):
         self.assertFalse(any(c.startswith('systemctl --user restart') for c in self.calls()))
 
 
+    def test_handing_the_port_to_the_socket_keeps_the_socket_up(self):
+        """The socket's addresses changed: the hub must end on its socket. A stop of the service alone while the socket
+        listens is undone by the next connection (socket activation), and the socket then cannot start while the
+        service runs: on a hub (2026-11-08) that left personad.socket inactive and failed the deploy."""
+        self.personad(3)
+        self.assertEqual(self.run_script().returncode, 0)  # the units of an earlier deploy
+        state = self.home / 'state'
+        state.mkdir()
+        (state / 'personad').write_text('active')
+        (state / 'personad.socket').write_text('active')
+        # systemd as it behaves here: a client is always waiting to connect.
+        (self.fake / 'systemctl').write_text(r'''#!/bin/bash
+echo "systemctl $*" >> "$HOME/calls"
+s="$HOME/state"
+get() { cat "$s/$1" 2>/dev/null || echo inactive; }
+set_() { echo "$2" > "$s/$1"; }
+start_socket() {
+  [ "$(get personad)" = active ] && { echo "Job for personad.socket failed." >&2; return 1; }
+  set_ personad.socket active
+}
+args=("$@"); [ "${args[0]}" = --user ] && args=("${args[@]:1}")
+verb=${args[0]}; units=("${args[@]:1}")
+case $verb in
+  is-active)
+    u=${units[${#units[@]}-1]}; [ "${units[0]}" = --quiet ] || echo "$(get "$u")"
+    [ "$(get "$u")" = active ] ;;
+  stop)
+    for u in "${units[@]}"; do set_ "$u" inactive; done
+    [[ " ${units[*]} " == *" personad.socket "* ]] || { [ "$(get personad.socket)" = active ] && set_ personad active; }
+    exit 0 ;;
+  start|restart)
+    for u in "${units[@]}"; do
+      if [ "$u" = personad.socket ]; then
+        [ "$verb" = restart ] && set_ personad.socket inactive
+        start_socket || exit 1
+      else set_ "$u" active; fi
+    done ;;
+  disable)
+    [ "${units[0]}" = --now ] && set_ "${units[${#units[@]}-1]}" inactive; exit 0 ;;
+  *) exit 0 ;;
+esac
+''')
+        (self.root / 'hub.json').write_text('{"listen": ":18661"}')
+        self.calls()
+        r = self.run_script()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((state / 'personad.socket').read_text().strip(), 'active', self.calls())
+        self.assertEqual((state / 'personad').read_text().strip(), 'active')
+
+
 if __name__ == '__main__':
     unittest.main()

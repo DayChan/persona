@@ -1,0 +1,105 @@
+package assistant
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/nwverse/persona/server/internal/identity"
+	"github.com/nwverse/persona/server/internal/proto"
+)
+
+// ---- the machines, as the devices have them ----
+
+// fleetMachine is one machine as the moved code needs it; manager is the manager this assistant is (Service.id).
+type fleetMachine struct {
+	ID, Name, Home, DataDir string
+	manager                 string
+}
+
+// assistantCwd is this manager's assistant directory on the machine, or "" while it has not reported its home.
+func (m fleetMachine) assistantCwd() string {
+	return stateDirOn(m.Home, m.DataDir, identity.AssistantDirName(m.manager))
+}
+
+// isAssistant: sess is one of this manager's assistant's conversations on the machine (isAssistantSession).
+func (m fleetMachine) isAssistant(sess proto.Session) bool {
+	return isAssistantSession(sess, m.assistantCwd(), m.manager)
+}
+
+// fleetMachines are the machines the devices carry.
+func (s *Service) fleetMachines() []fleetMachine {
+	if s.devs == nil {
+		return nil
+	}
+	var out []fleetMachine
+	for _, d := range s.devs.List() {
+		out = append(out, fleetMachine{ID: d.ID, Name: d.Name, Home: d.Home, DataDir: d.DataDir, manager: s.id})
+	}
+	return out
+}
+
+// fleetMachine is the machine id names (an id another one absorbed: that one); false when there is none.
+func (s *Service) fleetMachine(id string) (fleetMachine, bool) {
+	if s.devs == nil || id == "" {
+		return fleetMachine{}, false
+	}
+	canon := s.devs.Canonical(id)
+	for _, m := range s.fleetMachines() {
+		if m.ID == canon {
+			return m, true
+		}
+	}
+	return fleetMachine{}, false
+}
+
+// machineName is the machine's name, its id when there is none.
+func (s *Service) machineName(id string) string {
+	if m, ok := s.fleetMachine(id); ok && m.Name != "" {
+		return m.Name
+	}
+	return id
+}
+
+// nodeCall calls a machine's node directly (the devices).
+func (s *Service) nodeCall(ctx context.Context, machine, method string, params, out any) error {
+	if s.devs == nil {
+		return ErrNoDevice
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	res, err := s.devs.CallNode(ctx, machine, method, raw)
+	if err != nil || out == nil || len(res) == 0 {
+		return err
+	}
+	return json.Unmarshal(res, out)
+}
+
+// nodeSession is one of a machine's sessions as its node listed it.
+func (s *Service) nodeSession(machine, id string) (proto.Session, bool) {
+	if s.devs == nil {
+		return proto.Session{}, false
+	}
+	return s.devs.Session(machine, id)
+}
+
+// nodeSessions are a machine's sessions as its node listed them.
+func (s *Service) nodeSessions(machine string) []proto.Session {
+	if s.devs == nil {
+		return nil
+	}
+	list, _ := s.devs.Sessions(machine)
+	return list
+}
+
+// isAssistantSession identifies manager's headless conversations in its directory dir, or its health space's. A host
+// pane is stronger evidence than a shared working directory. Another manager's directory, left on a machine moved
+// away from it, is not this one's (docs/assistant/managers.md "Directories on a computer").
+func isAssistantSession(sess proto.Session, dir, manager string) bool {
+	if sess.PaneID != "" || dir == "" || sess.Cwd == "" {
+		return false
+	}
+	// The working directory may go through a symlinked home; runtimes and offline assistants have no host pane.
+	return sess.Cwd == dir || identity.IsAssistantDirOf(sess.Cwd, manager)
+}

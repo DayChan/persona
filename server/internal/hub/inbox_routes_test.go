@@ -30,7 +30,7 @@ func TestInboxRoutesWithoutTheManager(t *testing.T) {
 			t.Fatalf("%s without the manager: %d %v", path, code, out)
 		}
 	}
-	for _, path := range []string{"/api/v1/inbox/refresh", "/api/v1/inbox/x/reply", "/api/v1/inbox/x/suggestion", "/api/v1/inbox/done", "/api/v1/translate"} {
+	for _, path := range []string{"/api/v1/inbox/refresh", "/api/v1/inbox/x/reply", "/api/v1/inbox/x/suggestion", "/api/v1/inbox/x/handoff", "/api/v1/inbox/done", "/api/v1/translate"} {
 		if code, out := call(t, mux, "POST", path, h.cfg.Token, `{"text":"好的"}`); code != http.StatusServiceUnavailable || out["code"] != "assistant_offline" {
 			t.Fatalf("%s without the manager: %d %v", path, code, out)
 		}
@@ -224,5 +224,60 @@ func TestInboxReplyCutOffIsInDoubt(t *testing.T) {
 	fm2.mu.Unlock()
 	if code, out := call(t, mux, "POST", "/api/v1/inbox/x/reply", h.cfg.Token, body); code != http.StatusOK || out["done_by"] != "replied" {
 		t.Fatalf("a repeat after the answer: %d %v", code, out)
+	}
+}
+
+// A hand-off keeps its receipt by the body's client_id, as a reply does: cut off on the way it is in doubt and keeps
+// none, so asked again it reaches the manager (whose session.send_once drops a repeat); answered, the same request
+// again gets the answer without the manager, and another client_id is another hand-off.
+func TestInboxHandoffReceipt(t *testing.T) {
+	h := newTestHub(t)
+	store := &receiptStore{memStore: newMemStore(), ops: &clientOpsStore{ops: map[string]db.ClientOp{}}}
+	h.store = store
+	fm, link := connectInboxManager(t, h)
+	got := make(chan struct{}, 1)
+	fm.mu.Lock()
+	fm.http = func(ctx context.Context, r assistantwire.HTTPRequest) (any, error) {
+		got <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	fm.mu.Unlock()
+	go func() {
+		<-got
+		_ = link.ws.CloseNow()
+	}()
+	mux := h.routes()
+	body := `{"text":"看下这件事","client_id":"6f1c2b9e-4d3a-4c5b-8e7f-0a1b2c3d4e5f"}`
+	code, out := call(t, mux, "POST", "/api/v1/inbox/x/handoff", h.cfg.Token, body)
+	if code != http.StatusBadGateway || out["code"] != assistantwire.CodeAssistantInDoubt || out["delivered"] != "unknown" {
+		t.Fatalf("a hand-off cut off: %d %v", code, out)
+	}
+	store.ops.mu.Lock()
+	kept := len(store.ops.ops)
+	store.ops.mu.Unlock()
+	if kept != 0 {
+		t.Fatal("the receipt of a hand-off in doubt was kept")
+	}
+	fm2, _ := connectInboxManager(t, h)
+	var asked atomic.Int32
+	fm2.mu.Lock()
+	fm2.http = func(_ context.Context, r assistantwire.HTTPRequest) (any, error) {
+		asked.Add(1)
+		if r.Method != http.MethodPost || r.Path != "/api/v1/inbox/x/handoff" {
+			return nil, errors.New("asked " + r.Method + " " + r.Path)
+		}
+		return assistantwire.HTTPResponse{Status: http.StatusOK, Body: []byte(`{"item":{"id":"x"},"session":{"machine_id":"server","session_id":"m1"}}`)}, nil
+	}
+	fm2.mu.Unlock()
+	for i := range 2 {
+		code, out := call(t, mux, "POST", "/api/v1/inbox/x/handoff", h.cfg.Token, body)
+		if session, _ := out["session"].(map[string]any); code != http.StatusOK || session["session_id"] != "m1" || asked.Load() != 1 {
+			t.Fatalf("hand-off %d: %d %v, the manager asked %d times", i+1, code, out, asked.Load())
+		}
+	}
+	other := `{"text":"看下这件事","client_id":"0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"}`
+	if code, _ := call(t, mux, "POST", "/api/v1/inbox/x/handoff", h.cfg.Token, other); code != http.StatusOK || asked.Load() != 2 {
+		t.Fatalf("another client id: %d, the manager asked %d times", code, asked.Load())
 	}
 }

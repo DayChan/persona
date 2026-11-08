@@ -1,8 +1,16 @@
 name: CI
 on:
   pull_request:
-  merge_group:
   workflow_dispatch:
+    inputs:
+      lanes:
+        description: 'auto (diff against origin/main), all, or comma-separated server,web,android,apple,runtimes,scripts'
+        type: string
+        default: auto
+      base:
+        description: 'Optional diff base; defaults to origin/main'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -25,20 +33,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - id: base
+        name: Resolve comparison base
+        env:
+          CI_BASE_INPUT: ${{ inputs.base }}
+        run: python3 scripts/ci/paths.py --print-base --base "$CI_BASE_INPUT"
       - name: Repository guards
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          CI_BASE_SHA: ${{ steps.base.outputs.base }}
         run: scripts/ci/guards.sh
       - id: paths
         name: Select platforms
         env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" = pull_request ] || [ "$EVENT_NAME" = merge_group ]; then
-            python3 scripts/ci/paths.py
-          else
-            python3 scripts/ci/paths.py --all
-          fi
+          CI_LANES: ${{ inputs.lanes || 'auto' }}
+          CI_BASE_SHA: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/paths.py --lanes "$CI_LANES" --base "$CI_BASE_SHA"
   server:
     needs: changes
     if: needs.changes.outputs.server == 'true'
@@ -52,9 +61,19 @@ jobs:
     if: needs.changes.outputs.android == 'true'
     uses: ./.github/workflows/android-test.yml
   apple:
+    name: iOS and Watch
     needs: changes
-    if: needs.changes.outputs.apple == 'true'
+    if: needs.changes.outputs.apple == 'true' && github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/apple-test.yml
+    with:
+      lane: ios
+  apple_macos:
+    name: Mac (non-blocking)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' && github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/apple-test.yml
+    with:
+      lane: macos
   runtimes:
     needs: changes
     if: needs.changes.outputs.runtimes == 'true'
@@ -63,6 +82,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.scripts == 'true'
     uses: ./.github/workflows/scripts-tests.yml
+  # Hosted Apple queue and execution times exceed the PR budget. Preserve full
+  # manual results; never turn a failed selected test into a successful check.
   required:
     name: CI required
     needs: [changes, server, web, android, apple, runtimes, scripts]

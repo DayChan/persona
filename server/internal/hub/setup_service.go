@@ -248,8 +248,10 @@ func (e *setupEnv) systemdService(ctx context.Context, cfg *Config, bin string) 
 	switch {
 	case useSocket && (!socketActive || socketChanged):
 		// First time, or other addresses: a running hub holds the port itself; one stop to hand it to the socket.
-		steps = append(steps, []string{"stop", "personad"}, []string{"enable", "personad.socket"},
-			[]string{"restart", "personad.socket"}, []string{"start", "personad"})
+		// Both in one stop: the service stopped alone while the socket listens is started again by the next
+		// connection, and the socket then cannot start while it runs (hub-systemd.sh, the same steps).
+		steps = append(steps, []string{"stop", "personad.socket", "personad"}, []string{"enable", "personad.socket"},
+			[]string{"start", "personad.socket"}, []string{"start", "personad"})
 	case !useSocket && (socketActive || len(socketBefore) > 0):
 		steps = append(steps, []string{"stop", "personad"}, []string{"disable", "--now", "personad.socket"}, []string{"start", "personad"})
 	case changed || !serviceActive:

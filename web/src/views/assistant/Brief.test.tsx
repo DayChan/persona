@@ -166,6 +166,29 @@ describe("a brief item", () => {
     expect([...host.querySelectorAll("button")].some((b) => b.textContent === "通过" && !b.disabled)).toBe(true);
   });
 
+  it("draws each row's verdict as the hub wrote it; a conclusion's button says Got it, a decision's takes the recommendation", async () => {
+    const accept = [
+      { id: "todo_v1", title: "改设置页", detail: "设置页多了一个开关", verdict: "✅ 做完了：已部署，按下面验收", waited_s: 60, asked_at: ASKED },
+      { id: "todo_c1", title: "调研直连", verdict: "⛔ 做不了：对方接口不对外开放", outcome: "cannot", waited_s: 60, asked_at: ASKED },
+      { id: "todo_d1", title: "上线方式", verdict: "🤔 要你拍板：先灰度还是直接全量", outcome: "decide", recommend: "先灰度 10%", waited_s: 60, asked_at: ASKED },
+      { id: "todo_d2", title: "没推荐的", verdict: "🤔 要你拍板：用哪个库", outcome: "decide", waited_s: 60, asked_at: ASKED },
+    ];
+    draw(item(body({ accept })));
+    const [deployed, cannot, decide, none] = rows("accept");
+    expect(deployed.querySelector("[data-brief-verdict]")?.textContent).toBe("✅ 做完了：已部署，按下面验收");
+    expect(deployed.textContent).toContain("设置页多了一个开关");
+    expect([...deployed.querySelectorAll("button")].map((b) => b.textContent)).toContain("通过");
+    expect(cannot.querySelector("[data-brief-verdict=cannot]")?.textContent).toBe("⛔ 做不了：对方接口不对外开放");
+    expect([...cannot.querySelectorAll("button")].map((b) => b.textContent)).toContain("知道了");
+    expect(decide.textContent).toContain("推荐：先灰度 10%");
+    const take = [...decide.querySelectorAll("button")].find((b) => b.textContent === "按推荐来")!;
+    await act(async () => take.click());
+    expect(api).toHaveBeenCalledWith("/todos/todo_d1/accept", { method: "POST", json: { asked_at: ASKED } });
+    expect(decide.querySelector("[data-brief-accepted=accepted]")?.textContent).toBe("已按推荐来");
+    expect(none.textContent).toContain("用哪个库");
+    expect([...none.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["打开"]); // nothing to take
+  });
+
   it("has no Accept button for a task that has no round to name", () => {
     draw(item(body({ accept: [{ id: "todo_v3", title: "没有轮次", waited_s: 60 }] })));
     expect([...host.querySelectorAll("button")].find((b) => b.textContent === "通过")?.disabled).toBe(true);

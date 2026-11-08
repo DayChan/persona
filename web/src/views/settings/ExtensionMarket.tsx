@@ -17,14 +17,11 @@ import { extensionDetail, extensionUpgrades, pointText, setExtensionUpgrades, ty
 import { Button, cx, Dialog, EASE, IconButton, Loading, Spinner, toast, useNow } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { dependentError, dependencyText, previewBlocked, type Dependent, type PackMember } from "../../lib/extension-model";
-import { Group, Pill, Row, Switch } from "./SettingsParts";
+import { Group, Pill, Row, settingsInputClass as inputClass, Switch } from "./SettingsParts";
 import { agreeTo, cancelOperation, forget, getOperation, isActive, operationsOn, retryOperation, startFromMarket, wantsSignIn } from "../../lib/extension-operations";
 import { askSignIn } from "../../lib/extension-auth";
 import { useStore } from "../../lib/store";
 import { OperationSteps, useOperation } from "./ExtensionOperation";
-
-const inputClass =
-  "h-8 w-full rounded-control bg-field px-2.5 text-[12.5px] text-ink shadow-inset-field outline-none placeholder:text-ink-3 focus:shadow-[inset_0_0_0_1px_var(--accent)] disabled:opacity-60";
 
 function Back({ label, onBack, right }: { label: string; onBack: () => void; right?: React.ReactNode }) {
   return (

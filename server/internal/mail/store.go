@@ -200,8 +200,8 @@ func (r accountRecord) account() *MailAccount {
 	return a
 }
 
-// save writes every account atomically with 0600 permissions, encrypting the
-// stored secrets again with a fresh nonce.
+// save replaces every account atomically in Records, encrypting the stored
+// secrets again with a fresh nonce. The caller owns the detached snapshot.
 func (s *store) save(accounts []*MailAccount) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

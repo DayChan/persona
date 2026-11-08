@@ -5,6 +5,8 @@
   <img src="docs/assets/readme/banner-light.svg" alt="Persona: your SuperAgent. One place for every task." width="100%">
 </picture>
 
+[![Persona video tour preview](docs/assets/promo-preview-en.webp)](#video-tour)
+
 English · [简体中文](README.zh-CN.md)
 
 ### One SuperAgent for everything you do.<br>It knows your world, runs your Agents, and goes wherever you go.
@@ -37,6 +39,12 @@ English · [简体中文](README.zh-CN.md)
 - **Connectors and channels.** Bring in Lark, mail, GitHub, iMessage, Telegram and WeChat; talk to Persona from the app, Lark, WeChat or by voice. [Connectors](docs/extensions/connectors.md) · [Channels](docs/extensions/channels.md)
 - **Every screen.** iPhone, Apple Watch, Mac, Vision Pro, Android and the web, in English, Chinese and Japanese. [Clients](docs/apple/ios.md)
 
+## Video tour
+
+https://github.com/user-attachments/assets/44eeb361-9f4b-480a-9f00-9fa7d2f8546c
+
+<sub>[HD video and subtitles](https://github.com/nwverse/persona/releases/tag/promo-v1).</sub>
+
 ## How it works
 
 You run a small hub on an always-on machine; your devices talk only to it, and it reaches each of your computers, where Agents run in herdr or Orca. Your data stays on your own hardware.
@@ -51,5 +59,9 @@ You run a small hub on an always-on machine; your devices talk only to it, and i
 ## Docs
 
 [Getting started](docs/operations/getting-started.md) · [Architecture](docs/server/architecture.md) · [Protocol](docs/protocol/protocol.md) · [Docker](docs/operations/docker.md) · [iOS](docs/apple/ios.md) · [Mac](docs/apple/mac.md) · [Android](docs/android/android.md) · [Web](docs/web/web.md) · [All docs](CLAUDE.md#docs-index)
+
+## License
+
+Persona is licensed under the [MIT License](LICENSE).
 
 <sub>Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).</sub>

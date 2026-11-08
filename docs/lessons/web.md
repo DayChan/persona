@@ -1,5 +1,25 @@
 # Lessons: web UI and interactions
 
+## Notification preference writes need hub ordering (#1285)
+
+Ignoring an older PUT response cannot stop its request from committing last. Serialize notification and manager-push writes together, keep confirmed preferences separately from queued intents, and send only the changed fields. Remove a failed intent before rebuilding the optimistic view, so another field's save does not silently retry it. Reads started during a write need completion fencing too. Regress authoritative commits and reloads with a deferred transport; response-only checks can pass while the hub retains the wrong choice.
+
+A queue also survives in-place sign-out and re-pairing. Bind it to the credential generation when enqueuing, retire unsent intents and fence late responses, rollback and cache writes when that generation ends. Exercise the real REST client with synthetic token A/B fetches: an `api()` mock hides its deferred token lookup. A late old-session 401 must not invoke the new login's sign-out callback; current-session 401 handling must still work.
+
+Retiring a generation must also wake mounted consumers to read the next generation's preferences. Another tab's token replacement can leave Settings mounted; an effect that loads only on mount strands an aborted initial read or a hidden manager switch. Subscribe to the generation independently of the preference value, bind loading state to it, and test actual components with abort-aware fetches rather than manually loading the new login in the test.
+
+## Connector sends acknowledge one draft revision (#1286)
+
+- Keep an editable composer's text and quote together: clear them after success only if neither changed during the send or its refresh. Comparing final text alone misses edits away and back to the same words. A synchronous ref admits one send before React rerenders, and the manager, item, source and thread scope its local draft and pending state. Exercise delayed success, failure/retry, quote changes and ownership switches in both chat and GitHub comment modes.
+
+## Mail send admission must precede React updates (#1251)
+
+A busy button protects only its click path after rerender. Mail shortcuts and form submission need the same synchronous ref guard inside the send function, acquired after validation and released on failure. Keep it held after success until the composer closes. Regress mixed events in one React batch with a deferred transport, then check failure/retry, successful close, recipient validation and IME controls.
+
+## Optional recipient fields participate in the whole draft lifecycle (#1290)
+
+Adding Bcc to the request alone leaves Bcc-only edits lost on dismissal and Bcc-only sends blocked by a To-only button gate. Use all three recipient fields for admission and validation, and include Bcc in draft initialization and dirty detection. Test an edit that changes only Bcc, then dismiss/unmount, reopen, fail, cancel and succeed; also run the existing owner and send-once suites with Bcc to retain their thread-header and manager-routing guarantees. Browser send stubs prove request construction and UI behavior, not provider delivery.
+
 ## A word turned into an icon at a row's end (2026-11-07, sidebar source marks)
 
 - Everything at a sidebar row's end steps aside while the row is hovered (`group-hover/row:invisible`, for the ⋯). An icon's own `title` therefore never shows to a mouse user: the pointer that would hover the icon has already hidden it. Put the icon's name into the row's own tooltip as well, and keep `role=img` + `aria-label` on the icon for screen readers.
@@ -60,6 +80,11 @@
 - **Loading gates distinguish empty lists from failures**: an empty list object is loaded and cached data can display immediately; a first-load failure must still allow category switching or retry. Search is independent of category lists and must not be blocked by this gate.
 - **Validate real layout**: jsdom checks timing only. Measure wrapping with Playwright + mock hub at width 390, using `layout-shift` over 4 seconds after navigation, excluding `hadRecentInput`, with 3 repetitions per group. Also delay list responses and capture light / dark loading and loaded states. Pin time and animation frames for before / after comparisons, checking loaded pixels rather than mistaking timers or animation for layout changes.
 
+### Confirmed facts belong to the requested entry (#1341)
+
+- A detail pane can retain its old response while its route changes. Key the editing boundary by requested kind/id, opaque credential generation and the actual default manager; capture that manager and token on reads and writes, and fence late results as well as submission. The server canonicalizes source IDs, including recording UUID case, so response ownership follows the captured request rather than raw ID equality. After a successful write, a failed authoritative read needs a read-only retry; returning to the save action can repeat an already accepted mutation. Admit saves synchronously before React renders busy state, and send only the confirmed-facts field so unrelated metadata and locks stay intact.
+- Captured credentials must still use normal sign-out on a current-owner 401. Explicit token requests opt in with their opaque credential generation, and recovery checks both that generation and the current token. This keeps retired requests and pairing/probe tokens isolated without making expired Knowledge credentials look like retryable save failures.
+
 ## Overview with no computers (2026-11-06, #3729)
 
 - No pending Agent does not mean an Agent can be started. Overview's idle summary and cards distinguish "No computers" from "Computers exist, no tasks"; the header must not keep suggesting New Agent. Use the total computer count, not treating offline computers as never connected.
@@ -75,10 +100,20 @@
 - Successful retries clear old errors; disable the button or show loading while in flight. Read retries only repeat reads: hub "Check for updates" / "Update hub" are separate write operations, not substitutes for rereading.
 - `npm ci` rebuilds `node_modules`; never run it alongside Vite screenshots that depend on them, or temporary services may report missing modules. Finish installation before starting your temporary service; after reinstalling dependencies, stop and restart only your own Vite by port.
 
+## Extension sign-in startup belongs to its identity (#1296)
+
+An auth status push rerenders the sign-in group and replaces inline completion callbacks. Keep those callbacks current independently of startup, or their effect dependency chain sends another empty step and restarts authentication. Key the flow by extension identity and fence success, error and finally with its request lifetime; a shared mounted flag can accept an old identity's response after replacement. Retire on cancel before the parent unmounts, clean up scheduled and in-flight polling, and serialize Next, form submission and Restart before React rerenders. Regress the real group with synthetic transport, status-only pushes, retained fields, late responses, explicit retry and StrictMode effect replay.
+
 ## Panel identity for workspaces without sessions (2026-11-04, #1646)
 
 - **File and Git panel keys must include the directory**: without an Agent, `sid` is empty, so two empty workspace cards on one machine share the same `mid/sid` key. Open files or a commit in A, then the same panel type from B, and React retains A's preview or Git subview, leaking state across directories. Generate stable keys from machine, session, and directory. Regression tests must cover same machine, empty sid, different cwd, not just static card HTML.
 - **Separate workflow state from Agent presentation**: session refreshes recalculate only Agent count and state inside a card, never card order or columns. Board writes use revisions; on conflicts, restore and refetch. Foreground polling and refresh on visibility recovery discover changes; hidden pages stop polling.
+
+### File upload queues also belong to a credential generation (#1366)
+
+A panel can stay mounted when another tab replaces its credential. Capture the opaque generation and matching authorization when admitting files, including when opening the native chooser. Retire queued files, conflicts and retry controls on replacement or sign-out; fence dispatch, progress and completion independently of React cleanup. Settle cancellation before asking XHR to abort, since transports can ignore abort or deliver late callbacks. An already dispatched server write may still finish.
+
+Exercise the actual hook and upload helper together with a synthetic XHR transport and a real storage event, keeping the same panel mounted. Assert both file identity and Authorization headers: a helper mock can hide a queued file borrowing the next credential. Also cover same-document changes, sign-out followed by the same token, fresh selection recovery, normal progress/cancel/retry and both conflict choices.
 
 ## Popup menus
 
@@ -225,6 +260,9 @@ Six parallel lanes (chat rendering, message actions, Agents list / Machines, Ter
 - When another page sends to a session, waiting for HTTP before navigation means the bubble appears only after pushed history returns. Navigate first and store the bubble by `mid/sid`. New assistant `POST /assistant/conversations`
   returns only once the chat starts (hub timeout 110 seconds), so that phase can only spin on the original page; after response, record the prompt as a "Delivered" bubble and navigate.
 - Dialog text cannot save only in `onClose` (#4563): while manually replying to email, a new message in the same thread makes `MailBody` load the latest email, rendering only "Loading." The dialog unmounts without `onClose`, losing text. Render outside loading state, fix the template on open (otherwise `dirty` compares with the new email template and is always true), and save on unmount using close rules. Key by item/thread, not changing latest uid. Mark handled on Send, restoring on failure, or an in-flight unmount saves already-sent text back as a draft.
+- Reply all needs its own retained mode within each manager/item (#1329); restoring a Reply draft would silently lose participants. Freeze recipients and thread metadata when opened, and let a late send close only that exact opening. Reopening also retires an older send's right to restore its failed draft, or it overwrites newer saved edits and resurrects canceled text. Wait for the matching receiving account address; scope cached account state by manager so a same-id account from the previous owner cannot identify self. Deduplicate bare addresses across To/Cc, excluding self; display names containing commas or semicolons cannot round-trip through the composer. With only Cc participants, promote the first to To; with only self, leave To empty for deliberate editing.
+- AI reply drafts need the same protection (#1253): retain edited text and accepted generations as they change, keyed by manager and item, including an intentionally empty reply. Incidental dismissal or navigation then needs no cleanup write that could resurrect a sent draft. Cancel discards, as with manual mail; send owns clearing and failure restoration. Invalidate generation requests on cleanup with a sequence: StrictMode reactivates a shared boolean, allowing an older response to overwrite manual edits.
+- Connector reads need both request freshness and a mounted owner (#1328): key the body by manager, item, source and thread, and admit only the latest newest-page response or error. Serialize older-page and quote reads with a synchronous guard, retire their continuations and notices on identity changes, and merge fetched history into the current page rather than merging the quote jump's stale snapshot. A disjoint newest page also retires the old history request and its busy state: retry from the replacement cursor, or installing the old cursor skips the discarded middle. Apply window replacement synchronously before another response in the same React batch; a retired request's finally must not release its replacement. A successful provider send remains delivered if its refresh fails; deferred component tests must include reverse responses, StrictMode, owner replacement and overlapping/disjoint history-refresh interleavings.
 - Hub `/mail/send` `references` is a **string** (`mail.SendRequest`), while iOS `SendMail.references` is `[String]`; iOS manual replies with References get hub 400 (inferred from code, not tested). Web sends a string.
 - Visible-means-read needs a recheck trigger: IntersectionObserver callbacks occur only when intersection ratios cross thresholds. Messages arriving while backgrounded / behind a dialog get no callback upon return or close. Track current in-viewport positions,
   then reapply gates on `visibilitychange` and `<body>` child changes (dialogs portal into body). Use dense thresholds (every 0.1) so taller-than-list messages can meet "occupies half the list height."
@@ -467,3 +505,12 @@ A narrow shell can unmount its sidebar list and mount the same list in the Agent
 - A drag that sets React state on every `pointermove` re-renders whatever owns that state. The sidebar sits in the app shell, so keeping its width in shell state would re-render the whole app on every move. Instead, a leaf component (`views/SidebarResize.tsx`) writes the width straight to a CSS variable on the column (`--sidebar-w`, read by `lg:w-[var(--sidebar-w,284px)]`) while dragging, and writes the store (`lib/layout.ts`) once when the drag ends. To catch a regression, count renders or DOM mutations in the shell over a 30-step drag; it should stay at zero.
 - On the first commit a child's `useLayoutEffect` runs before React attaches its parent's ref, so a child that reads `parentRef.current` there gets `null` and the column renders without its width. Pass the column's `id` (`useId`) and look it up with `document.getElementById` instead.
 - Modules mocked by `AppShellRenders.test` (for example `views/SidePanel`) expose only the exports the mock defines, so a new shell component that imports a constant from such a module fails with `No "X" export is defined on the mock`. Shared layout constants (`CHAT_MIN`, `PANEL_MIN`) belong in `lib/layout.ts`.
+
+## Manual mail drafts belong to their manager and item (#1252)
+
+- The merged Inbox can contain the same item id under two managers. Scope retained drafts and the live form's React key to both owner and item; resolve an omitted owner to the roster default so explicit and implicit default stamps share one draft. The mail body's open-reply key also needs the owner, or switching managers can leave the previous reply template open. Exercise late send failures after unmount while another owner's same-id draft is open, and verify recipients, account and reply headers as well as text through mocked sends.
+
+## Text page revisions and complete reads (#1297)
+
+- Check each known page revision before appending; retain known revisions across unversioned pages, but remove the aggregate revision when any accepted page lacks metadata. Legacy compatibility cannot prove a snapshot.
+- A complete-read helper must reject page failures, caps and retired owners instead of resolving the loaded prefix. Share the actual pending page result with concurrent readers, and scope callbacks to machine, path, working directory and reload so an old reader cannot borrow the new file. Keep an ordinary failed page retryable at its original offset; a known revision change requires a fresh read from the beginning. Explicit bounded previews need a separate completion flag, preserving a deliberate CSV/TSV cap without permitting partial exports. Go omits an empty text field: complete zero-byte text metadata is a valid empty file, while arbitrary missing content is not.

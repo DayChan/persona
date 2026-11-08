@@ -3,6 +3,7 @@
   "morning": "早报",
   "evening": "晚间回顾",
   "unavailable": "暂时读不到定时任务（数据库没有响应），过一会儿再试",
+  "save_failed": "无法保存定时任务，更改未生效，请重试。",
   "prompt_empty": "提示词不能为空",
   "time_format": "时间 {time} 要写成 HH:MM",
   "daily_title": "每天运行的任务要有标题",

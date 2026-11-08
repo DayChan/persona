@@ -10,7 +10,7 @@ import {
   reachMessage, replyInThread, reviewLabel, startsGroup, type ThreadChat, type ThreadMedia, type ThreadMessage, type ThreadPage,
 } from "../../lib/connectors";
 import { connectorReference, itemPath, itemRequest, shortTime, tightCJK, withToken, type InboxItem } from "../../lib/inbox";
-import { useItemManager, withManager } from "../../lib/manager-choice";
+import { defaultManager, useItemManager, withManager } from "../../lib/manager-choice";
 import { openLink } from "../../lib/links";
 import { t } from "../../i18n";
 import { Button, cx, Loading, Spinner, toast } from "../../ui/atoms";
@@ -32,21 +32,51 @@ const clock = (iso: string) => {
 };
 
 export function ConnectorBody({ item }: { item: InboxItem }) {
+  // The whole page, including in-flight reads and history, belongs to this manager's item and thread.
+  const shown = useItemManager();
+  const manager = item.manager ?? shown;
+  const ownerKey = JSON.stringify([manager || defaultManager(), item.id, item.source, item.connector?.thread ?? ""]);
+  return <ConnectorThreadBody key={ownerKey} item={item} manager={manager} />;
+}
+
+function ConnectorThreadBody({ item, manager }: { item: InboxItem; manager?: string }) {
   const id = item.source;
   const thread = item.connector?.thread ?? "";
   const [page, setPage] = useState<ThreadPage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [older, setOlder] = useState(false);
-  // the item's connector is its manager's (ItemManager): every read and reply names it
-  const shown = useItemManager();
-  const manager = item.manager ?? shown;
+  // Apply responses synchronously so a history continuation sees a replaced window even in one React batch.
+  const currentPage = useRef<ThreadPage | null>(null);
+  const owner = useRef<object | null>(null);
+  const newestRead = useRef(0);
+  const historyPending = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    owner.current = {};
+    return () => {
+      owner.current = null;
+      historyPending.current = null;
+    };
+  }, []);
 
   const load = useCallback(async () => {
+    const scope = owner.current;
+    if (!scope) return;
+    const request = ++newestRead.current;
+    const current = () => owner.current === scope && newestRead.current === request;
     try {
       const p = await loadThread(id, thread, undefined, manager);
-      setPage((have) => mergeNewest(have, p));
+      if (!current()) return;
+      const next = mergeNewest(currentPage.current, p);
+      // mergeNewest returns the incoming page when it discards the previous window: its history cursor retires too.
+      if (next === p) {
+        historyPending.current = null;
+        setOlder(false);
+      }
+      currentPage.current = next;
+      setPage(next);
       setFailure(null);
     } catch (e) {
+      if (!current()) return;
       // Said over the text only when it is worth saying (a rate limit, the connector unavailable); a thread that
       // simply has no page of its own (a CI run) falls back quietly. "" is failed, null still loading.
       setFailure(e instanceof ApiError && (e.status === 429 || e.status === 409) ? errorText(e) : "");
@@ -56,52 +86,86 @@ export function ConnectorBody({ item }: { item: InboxItem }) {
   useEffect(() => void load(), [load, item.updated_at]);
 
   const loadOlder = async () => {
-    if (!page?.before || older) return;
+    const scope = owner.current;
+    const start = currentPage.current;
+    if (!scope || !start?.before || historyPending.current) return;
+    const pending = {};
+    historyPending.current = pending;
+    const current = () => owner.current === scope && historyPending.current === pending;
     setOlder(true);
     try {
-      const p = await loadThread(id, thread, page.before, manager);
-      setPage((have) => (have ? mergeOlder(have, p) : p));
+      const p = await loadThread(id, thread, start.before, manager);
+      const have = currentPage.current;
+      if (!current() || !have) return;
+      const next = mergeOlder(have, p);
+      currentPage.current = next;
+      setPage(next);
     } catch (e) {
-      toast(t("inbox-connectorthread.older_failed", { error: errorText(e) }), "error");
+      if (current()) toast(t("inbox-connectorthread.older_failed", { error: errorText(e) }), "error");
     } finally {
-      setOlder(false);
+      if (current()) {
+        historyPending.current = null;
+        setOlder(false);
+      }
     }
   };
 
   // A quote's message: the pages before it read until it is on screen (a few at most, as iOS); whether it is.
   const reach = async (msg: string) => {
-    if (!page) return false;
-    if (page.messages.some((m) => m.id === msg)) return true;
+    const scope = owner.current;
+    const start = currentPage.current;
+    if (!scope || !start) return;
+    if (start.messages.some((m) => m.id === msg)) return true;
+    if (historyPending.current) return;
+    const pending = {};
+    historyPending.current = pending;
+    const current = () => owner.current === scope && historyPending.current === pending;
     setOlder(true);
     try {
-      const r = await reachMessage(page, msg, (before) => loadThread(id, thread, before, manager));
-      setPage((have) => (have ? mergeOlder(have, r.page) : r.page));
+      const r = await reachMessage(start, msg, async (before) => {
+        if (!current()) throw new Error("Thread history retired");
+        const p = await loadThread(id, thread, before, manager);
+        const have = currentPage.current;
+        if (!current() || !have) throw new Error("Thread history retired");
+        // Merge only the fetched history, not the jump's older snapshot of the newest messages.
+        const next = mergeOlder(have, p);
+        currentPage.current = next;
+        setPage(next);
+        return p;
+      });
+      if (!current()) return;
       return r.found;
     } catch (e) {
-      toast(t("inbox-connectorthread.older_failed", { error: errorText(e) }), "error");
-      return false;
+      if (current()) toast(t("inbox-connectorthread.older_failed", { error: errorText(e) }), "error");
     } finally {
-      setOlder(false);
+      if (current()) {
+        historyPending.current = null;
+        setOlder(false);
+      }
     }
   };
 
   const send = async (text: string, replyTo?: ThreadMessage) => {
-    if (!page?.chat.reply) return false;
+    const scope = owner.current;
+    if (!scope || !page?.chat.reply) return false;
     try {
       await replyInThread(id, { thread, action: page.chat.reply, text, reply_to: replyTo?.id }, manager);
-      await load();
-      return true;
     } catch (e) {
-      toast(t("inbox-connectorthread.send_failed", { error: errorText(e) }), "error");
+      if (owner.current === scope) toast(t("inbox-connectorthread.send_failed", { error: errorText(e) }), "error");
       return false;
     }
+    // Provider delivery succeeded: a failed refresh must not offer the same message for another send.
+    if (owner.current === scope) await load();
+    return true;
   };
 
   if (!page && failure === null) return <div className="p-5"><Loading label={t("inbox-connectorthread.loading", { name: item.account_name || id })} /></div>;
   if (!page || (!isChatThread(page.chat) && !isGitHubThread(page.chat))) return <ConnectorText item={item} problem={page ? undefined : failure || undefined} />;
+  // Drafts, quotes and pending-send state belong to this manager's item and thread.
+  const composerKey = JSON.stringify([manager || defaultManager(), item.id, id, thread]);
   return isGitHubThread(page.chat)
-    ? <GitHubThread id={id} item={item} page={page} older={older} onOlder={() => void loadOlder()} onSend={send} />
-    : <ChatThread id={id} page={page} older={older} onOlder={() => void loadOlder()} onReach={reach} onSend={send} />;
+    ? <GitHubThread key={composerKey} id={id} item={item} page={page} older={older} onOlder={() => void loadOlder()} onSend={send} />
+    : <ChatThread key={composerKey} id={id} page={page} older={older} onOlder={() => void loadOlder()} onReach={reach} onSend={send} />;
 }
 
 // ── what the hub collected (no thread page) ──────────────
@@ -160,20 +224,32 @@ function ThreadComposer({ placeholder, replyTo, onClearReply, onSend, note }: {
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const sendPending = useRef(false);
+  const draftRevision = useRef(0);
   const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    draftRevision.current++;
+  }, [replyTo]);
   useEffect(() => {
     if (replyTo) ref.current?.focus();
   }, [replyTo]);
   const submit = async () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if (!body || sendPending.current) return;
+    sendPending.current = true;
+    const submittedRevision = draftRevision.current;
     setSending(true);
-    const ok = await onSend(body, replyTo ?? undefined);
-    setSending(false);
-    if (ok) {
-      setText("");
-      onClearReply?.();
-      if (ref.current) ref.current.style.height = "auto";
+    try {
+      const ok = await onSend(body, replyTo ?? undefined);
+      // Typing or changing a quote starts a new draft, even if its words later match the sent message.
+      if (ok && draftRevision.current === submittedRevision) {
+        setText("");
+        onClearReply?.();
+        if (ref.current) ref.current.style.height = "auto";
+      }
+    } finally {
+      sendPending.current = false;
+      setSending(false);
     }
   };
   return (
@@ -197,6 +273,7 @@ function ThreadComposer({ placeholder, replyTo, onClearReply, onSend, note }: {
             aria-label={placeholder}
             placeholder={placeholder}
             onChange={(e) => {
+              draftRevision.current++;
               setText(e.target.value);
               e.target.style.height = "auto";
               e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
@@ -235,8 +312,8 @@ function ChatThread({ id, page, older, onOlder, onReach, onSend }: {
   page: ThreadPage;
   older: boolean;
   onOlder: () => void;
-  /** Reads back until a message is on the page; whether it is. */
-  onReach: (id: string) => Promise<boolean>;
+  /** Whether the message was reached; undefined when busy, retired or the read already reported its failure. */
+  onReach: (id: string) => Promise<boolean | undefined>;
   onSend: (text: string, replyTo?: ThreadMessage) => Promise<boolean>;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -260,8 +337,9 @@ function ChatThread({ id, page, older, onOlder, onReach, onSend }: {
     return () => clearTimeout(off);
   }, [flash]);
   const jump = async (to: string) => {
-    if (await onReach(to)) setFlash({ id: to, n: Date.now() });
-    else toast(t("inbox-connectorthread.quote_not_found"));
+    const found = await onReach(to);
+    if (found) setFlash({ id: to, n: Date.now() });
+    else if (found === false) toast(t("inbox-connectorthread.quote_not_found"));
   };
   return (
     <div className="flex h-full min-h-0 flex-col">

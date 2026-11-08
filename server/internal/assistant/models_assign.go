@@ -30,6 +30,15 @@ func (s *Service) assignIfDefault(ctx context.Context, provider string, ids []st
 	assigned, kept := []string{}, []keptPurpose{}
 	s.models.mu.Lock()
 	defer s.models.mu.Unlock()
+	stored, err := s.readStoredLaunchers(ctx)
+	if err != nil {
+		s.logf("launchers: read providers before assignment: %v", err)
+		for _, id := range ids {
+			kept = append(kept, keptPurpose{Purpose: id, Reason: keptFailed})
+		}
+		return assigned, kept
+	}
+	ctx = withManagedSnapshot(ctx, stored)
 	providers := s.modelProviders(ctx)
 	for _, id := range ids {
 		reason, err := s.assignOne(ctx, id, provider, providers)

@@ -33,7 +33,7 @@ struct ManagersModelTests {
         ManagersModel(deps: .init(api: { hub.client }, now: { clock.now }))
     }
 
-    private func refuse(_ status: Int, code: String? = nil) -> (LocalRequest) throws -> Data {
+    private func refuse(_ status: Int, code: String? = nil) -> FakeHub.Route {
         { _ in throw APIError(status: status, message: "raw", fields: code.map { ["code": $0] } ?? [:]) }
     }
 

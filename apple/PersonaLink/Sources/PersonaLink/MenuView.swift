@@ -23,6 +23,12 @@ struct MenuView: View {
                     openWindow(id: "pair")
                     NSApp.activate(ignoringOtherApps: true)
                 }
+                if model.status?.renamable == true {
+                    MenuRow(title: "给这台电脑改名…", symbol: "pencil") {
+                        openWindow(id: "rename")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                }
                 if let node = model.nodeService, !node.installed {
                     MenuRow(title: "安装本机 node 服务", symbol: "square.and.arrow.down") {
                         Task { await model.installNode() }
@@ -160,7 +166,7 @@ struct StatusBlock: View {
     }
 
     func activeLines(_ s: LinkStatus, at now: Date) -> [Line] {
-        let machine = s.machine.map { Line(symbol: "laptopcomputer", text: "这台是 hub 上的「\($0)」") }
+        let machine = s.shownMachine.map { Line(symbol: "laptopcomputer", text: "这台是 hub 上的「\($0)」") }
         // Which hub, from hubs that say (older ones do not: no line then); its mesh only while connected.
         let hubName = s.hubName.flatMap { $0.isEmpty ? nil : $0 }
         let hub = hubName.map { Line(symbol: "server.rack", text: LinkText.hub(name: $0, mesh: s.state == "connected" ? s.meshHubs : nil)) }
@@ -217,7 +223,7 @@ extension StatusBlock {
     func passiveLines(_ s: LinkStatus, at now: Date) -> [Line] {
         let listen = s.listen ?? model.passivePairing?.listen ?? ":18663"
         let mode = Line(symbol: "arrow.down.left.circle", text: "\(LinkText.mode(true)) · 监听 \(listen)")
-        let machine = s.machine.flatMap { $0.isEmpty ? nil : $0 }.map { Line(symbol: "laptopcomputer", text: "这台是 hub 上的「\($0)」") }
+        let machine = s.shownMachine.map { Line(symbol: "laptopcomputer", text: "这台是 hub 上的「\($0)」") }
         let hub = s.hubName.flatMap { $0.isEmpty ? nil : $0 }.map { Line(symbol: "server.rack", text: LinkText.hub(name: $0, mesh: nil)) }
         let seen = s.lastSeen.map {
             Line(symbol: "clock", text: "上一次 hub 连进来：\(LinkText.ago($0, now: now))" + (s.from.map { " · 来自 \($0)" } ?? ""))

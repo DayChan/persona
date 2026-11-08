@@ -72,19 +72,19 @@ func TestGitMarket(t *testing.T) {
 	if err != nil || ix.Name != "Team plugins" || ix.Extensions[0].Parsed.Version != "1.0.0" {
 		t.Fatalf("%+v %v", ix, err)
 	}
-	if f, err := m.FetchSigned(context.Background()); err != nil || f.Sig != nil {
+	if f, err := m.FetchSigned(context.Background()); err != nil || len(f.Raw) == 0 {
 		t.Fatalf("no signature in the repository: %+v %v", f, err)
 	}
 	write("1.1.0")
-	_ = os.WriteFile(filepath.Join(work, IndexFile+SigSuffix), []byte(`{"alg": "ed25519"}`), 0o644)
+	_ = os.WriteFile(filepath.Join(work, IndexFile+".sig"), []byte(`{"alg": "ed25519"}`), 0o644)
 	run(t, work, "add", "-A")
 	run(t, work, "commit", "-q", "-m", "signed")
 	run(t, work, "push", "-q", bare, "main")
 	if ix, _, err = m.Fetch(context.Background()); err != nil || ix.Extensions[0].Parsed.Version != "1.1.0" {
 		t.Fatalf("fetched again: %+v %v", ix, err)
 	}
-	if f, err := m.FetchSigned(context.Background()); err != nil || string(f.Sig) != `{"alg": "ed25519"}` {
-		t.Fatalf("the signature next to the index in the clone: %+v %v", f, err)
+	if f, err := m.FetchSigned(context.Background()); err != nil || len(f.Raw) == 0 {
+		t.Fatalf("legacy detached signature must not affect the catalog: %+v %v", f, err)
 	}
 	if _, _, err := m.Download(context.Background(), ix.Extensions[0].PackageFor("linux-amd64"), t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -104,10 +104,10 @@ func TestGitMarket(t *testing.T) {
 	if err := os.Rename(filepath.Join(work, IndexFile), filepath.Join(work, alternate)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(work, IndexFile+SigSuffix)); err != nil {
+	if err := os.Remove(filepath.Join(work, IndexFile+".sig")); err != nil {
 		t.Fatal(err)
 	}
-	run(t, work, "add", "--", IndexFile, IndexFile+SigSuffix, alternate)
+	run(t, work, "add", "--", IndexFile, IndexFile+".sig", alternate)
 	run(t, work, "commit", "-q", "-m", "alternate index fixture")
 	run(t, work, "push", "-q", bare, "main")
 	if _, _, err := m.Fetch(context.Background()); err == nil {

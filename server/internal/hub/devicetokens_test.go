@@ -283,6 +283,7 @@ func TestAnswerRoleOnlyWhatTheWatchDoes(t *testing.T) {
 		{"GET", "/api/v1/devices/x/prefs", false},
 		{"GET", "/api/v1/devices/x/sessions", false},
 		{"GET", "/api/v1/inbox/x", false},
+		{"POST", "/api/v1/inbox/x/handoff", false}, // it writes in the main conversation
 		{"GET", "/api/v1/inbox/mutes", false},
 		{"GET", "/api/v1/plugins/x/y", false},
 		{"GET", "/api/v1/sessions/m/s/items/x", false},

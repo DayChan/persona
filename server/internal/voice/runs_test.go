@@ -84,8 +84,9 @@ func setVar[T any](t *testing.T, v *T, to T) {
 	t.Cleanup(func() { *v = old })
 }
 
+// liveProvider is a live-dialect upstream without function tools: its model hands work over as plain delegations.
 func liveProvider(up *fakeUpstream) Config {
-	return Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}}}}
+	return Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(false)}}}
 }
 
 // While the main conversation is busy with another channel's turn, the run waits for its own and says its answer, not
@@ -355,7 +356,7 @@ func TestAskPersonaWaitsForTheCaptionAndAnswersOnItsCall(t *testing.T) {
 			u.send(c, map[string]any{"type": "session.input_transcript.delta", "delta": "帮我查一下明天的日程"})
 		}()
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, map[string]any{"type": "start"})
 	a.until(ofType("ready"))
 	a.until(func(f map[string]any) bool {
@@ -388,7 +389,7 @@ func TestExtensionCallerGetsOnlyAskPersona(t *testing.T) {
 			u.send(c, map[string]any{"type": "session.started", "session": map[string]any{}})
 		}
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	for role, want := range map[string][]string{"extension": {"ask_persona"}, "full": toolNames, "": toolNames} {
 		a := dialApp(t, pl, map[string]any{"type": "start"}, http.Header{"X-Persona-Role": {role}})
 		a.until(ofType("ready"))

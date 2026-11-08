@@ -90,10 +90,13 @@ export function forwardedText(m: Meta): string {
   return text.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
 }
 
-/** Avatars inside forwarded messages are Lark gateway paths; the hub serves them under /api/v1/lark. */
+/** Lark gateway media paths (old /api/media/, agent API /agent/v1/media/) mapped onto the hub's /api/v1/lark/media/.
+ * Forwarded messages carry them, and so do inbox items stored before the extension rewrote them (#1353). */
 export function hubMediaURL(s: string | undefined): string | undefined {
   if (!s) return undefined;
-  if (s.startsWith("/api/media/")) return "/api/v1/lark/media/" + s.slice("/api/media/".length);
+  for (const prefix of ["/api/media/", "/agent/v1/media/"]) {
+    if (s.startsWith(prefix)) return "/api/v1/lark/media/" + s.slice(prefix.length);
+  }
   return s;
 }
 

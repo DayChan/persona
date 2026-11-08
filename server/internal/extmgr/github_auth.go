@@ -13,6 +13,7 @@ import (
 	"github.com/nwverse/persona/server/internal/connector/github"
 	"github.com/nwverse/persona/server/internal/connector/proc"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/extension"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
@@ -253,19 +254,28 @@ func (h *Manager) ghTokenFor(ctx context.Context, machine, host string) (string,
 	return "", err
 }
 
-// githubMigratedKey marks manager.json's github.proxy / github.auth.host moved into the GitHub extension's settings.
+// githubMigratedKey records which install of the extension got manager.json's github settings (githubInstall). An
+// uninstall deletes an extension's settings, so a reinstall, a new install, gets them again; a key the user cleared in
+// the same install stays cleared. A hub before that wrote true, whichever install it was: done while the extension
+// holds one of the keys the move would set.
 const githubMigratedKey = "github.migrated_to_extension"
 
+// githubInstall names one install of an extension: its id and when it was installed, in Unix seconds as the database
+// keeps it. A built-in extension cannot be uninstalled: its id is enough.
+func githubInstall(p *extension.Extension) string {
+	if p.Record.Source == extension.SourceBuiltin || p.Record.InstalledAt.IsZero() {
+		return p.Record.ID
+	}
+	return fmt.Sprintf("%s@%d", p.Record.ID, p.Record.InstalledAt.Unix())
+}
+
 // migrateGitHubConfig moves manager.json's github.proxy and github.auth.host into the settings of the extension whose
-// connector took the hub's place, once, for keys the user has not set there: its GitHub traffic goes the way the hub's
-// own did. The extension restarts with them (a config change). A failure is logged and tried at the next start.
+// connector took the hub's place, once per install of it (githubMigratedKey), for keys the user has not set there: its
+// GitHub traffic goes the way the hub's own did. The extension restarts with them (a config change). A failure is
+// logged and tried at the next start.
 func (h *Manager) migrateGitHubConfig(ctx context.Context, extensionID string) {
 	gh := h.cfg.GitHub
 	if gh == nil || (gh.Proxy == "" && gh.Auth.Host == "") || h.store == nil || h.extensions == nil || h.extensions.reg == nil {
-		return
-	}
-	var done bool
-	if ok, err := h.store.Setting(ctx, githubMigratedKey, &done); err == nil && ok && done {
 		return
 	}
 	reg := h.extensions.reg
@@ -282,12 +292,31 @@ func (h *Manager) migrateGitHubConfig(ctx context.Context, extensionID string) {
 	if json.Unmarshal(p.Full.Configuration, &schema) == nil {
 		props = schema.Properties
 	}
-	moved := false
+	moves := map[string]string{}
 	for key, v := range map[string]string{"proxy": gh.Proxy, "host": gh.Auth.Host} {
-		if _, has := props[key]; !has || v == "" {
-			continue
+		if _, has := props[key]; has && v != "" {
+			moves[key] = v
 		}
-		if cur, set := cfg[key].(string); set && cur != "" {
+	}
+	held := func(key string) bool { cur, _ := cfg[key].(string); return cur != "" }
+	var done any
+	if ok, err := h.store.Setting(ctx, githubMigratedKey, &done); err == nil && ok {
+		switch d := done.(type) {
+		case string:
+			if d == githubInstall(p) {
+				return
+			}
+		case bool: // written before installs were told apart
+			for key := range moves {
+				if d && held(key) {
+					return
+				}
+			}
+		}
+	}
+	moved := false
+	for key, v := range moves {
+		if held(key) {
 			continue
 		}
 		cfg[key], moved = v, true
@@ -300,7 +329,10 @@ func (h *Manager) migrateGitHubConfig(ctx context.Context, extensionID string) {
 		}
 		h.logf("github: manager.json's github.proxy / auth.host moved into 设置 › 扩展 › %s", p.Full.Name)
 	}
-	if err := h.store.PutSetting(ctx, githubMigratedKey, true); err != nil {
+	if cur := reg.Get(extensionID); cur != nil {
+		p = cur
+	}
+	if err := h.store.PutSetting(ctx, githubMigratedKey, githubInstall(p)); err != nil {
 		h.logf("github: marking the move done: %v", err)
 	}
 }

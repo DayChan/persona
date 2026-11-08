@@ -539,8 +539,9 @@ func TestSnapshotTaskFollowsTheAgent(t *testing.T) {
 		Needs: []prompts.SnapshotAgent{{Label: "修 CI", Machine: "mac-a", Session: "b00502b8", Line: "要你批准推送",
 			Link: sessionLink("https://hub.example.com", "mac-a", "b00502b8-82a3", false)}},
 		Tasks: []prompts.SnapshotTask{linked},
-		Unaccepted: []prompts.SnapshotAccept{{Title: "飞书机器人任务进展", Changed: "多了任务进展开关", Link: "https://hub.example.com/settings?tab=feishu",
-			Since: now.Add(-24 * time.Hour)}, {Title: "另一件事", Changed: "改了 A", Since: now}},
+		Unaccepted: []prompts.SnapshotAccept{{Title: "飞书机器人任务进展", Verdict: "✅ 做完了：已部署，按下面验收", Changed: "多了任务进展开关",
+			Link: "https://hub.example.com/settings?tab=feishu", Since: now.Add(-24 * time.Hour)},
+			{Title: "调研能不能直连", Verdict: "⛔ 做不了：对方接口不对外开放", Link: "https://hub.example.com/s/box/s1", Since: now}},
 		UnacceptedTotal: 3}))
 	// The calendar only carries the meetings still to come: a review in the evening must not read an empty one as a day
 	// without meetings (#4596), so the line says what it leaves out.

@@ -31,8 +31,9 @@ type Devices interface {
 	CallNode(ctx context.Context, id, method string, params json.RawMessage) (json.RawMessage, error)
 	// SetKeep: the sessions each machine's node lists however quiet (the snapshot's profile).
 	SetKeep(keep map[string][]string)
-	// What the fleet reads of the machines (fleet.go): every machine, one's id as the devices know it (an id another
-	// one absorbed: that one), its sessions as its node listed them, when its node's connection began, the token usage.
+	// What the fleet reads of the machines (fleet_machines.go): every machine, one's id as the devices know it (an id
+	// another one absorbed: that one), its sessions as its node listed them, when its node's connection began, the
+	// token usage.
 	List() []devices.Summary
 	Canonical(id string) string
 	Sessions(id string) ([]proto.Session, bool)

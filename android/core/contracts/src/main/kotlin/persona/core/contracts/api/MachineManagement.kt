@@ -33,6 +33,12 @@ interface MachineManagement {
     /** `POST /api/v1/machines/{id}/reconnect`: the hub drops and redials the node; the result shows in `machines`. */
     suspend fun reconnect(machineId: String)
 
+    /**
+     * `PUT /api/v1/machines/{id}/name {"name"}` (hubs with feature `machine_rename`, docs/protocol/protocol.md "Renaming a
+     * computer"): "" is the id again; returns the name the hub calls the computer now. Every client gets it with `machines`.
+     */
+    suspend fun rename(machineId: String, name: String): String = throw UnsupportedOperationException("machine rename")
+
     /** `POST /api/v1/machines/{id}/deploy`: the hub installs its own personad there; progress comes with `machines`. */
     suspend fun deploy(machineId: String)
 

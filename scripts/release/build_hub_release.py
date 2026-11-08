@@ -47,6 +47,8 @@ def main():
     parser.add_argument('--build', required=True)
     parser.add_argument('--update-url', required=True)
     parser.add_argument('--publish-nodes', action='store_true')
+    parser.add_argument('--publish-managers', action='store_true',
+                        help='build matching manager platforms without publishing node packages')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     out = args.out.resolve()
@@ -89,7 +91,7 @@ def main():
         run(['go', 'build', '-tags', 'public', '-trimpath', '-ldflags', flags,
              '-o', str(binary), './cmd/personad'], root / 'server', env)
         platforms = ['linux-amd64']
-        if args.publish_nodes:
+        if args.publish_nodes or args.publish_managers:
             darwin = bin_dir / 'personad-darwin-arm64'
             run(['go', 'build', '-tags', 'public', '-trimpath', '-ldflags', flags,
                  '-o', str(darwin), './cmd/personad'], root / 'server',
@@ -99,6 +101,8 @@ def main():
         manifest = package_release(binary, bin_dir, out, platforms, version, args.build, sha, root)
         if args.publish_nodes:
             write_json(out / 'node-manifest.json', manifest)
+        if args.publish_managers:
+            write_json(out / 'manager-manifest.json', manifest)
         manifest['files'] = {'linux-amd64': manifest['files']['linux-amd64']}
         write_json(out / 'latest.json', manifest)
     finally:

@@ -810,7 +810,19 @@ private struct AgentsList: View {
         let _ = rowActions.update(rename: { renamingSession = $0 }, close: { closingSession = $0 }, linkTodo: { linkingSession = $0 },
                                   delete: { deletingSession = $0 })
 
-        let list = List {
+        observedAgentList(
+            agentList(base: base, filtered: filtered, unpinned: unpinned, pinnedAgents: pinnedAgents,
+                      interactions: interactions, unreadShown: unreadShown, active: active, quiet: quiet,
+                      tree: tree, byHost: byHost),
+            base: base, interactions: interactions, quiet: quiet, matching: matching)
+    }
+
+    // Opaque helper boundaries keep the same List/modifier tree while allowing
+    // the minimum compiler to solve each expression independently.
+    private func agentList(base: [Session], filtered: [Session], unpinned: [Session], pinnedAgents: [Session],
+                           interactions: [Interaction], unreadShown: [SessionKey], active: [SpaceGroup], quiet: [SpaceGroup],
+                           tree: [RepoTree.Host], byHost: Bool) -> some View {
+        List {
             // On a phone the filter bar is the list's first row: it scrolls with the list, so the search field can
             // fold away and come back on a pull (a bar pinned in the safe area stayed put under a folded search field,
             // leaving a blurred gap, TestFlight 35). Beside the split (regular width) it stays above the list.
@@ -1017,6 +1029,10 @@ private struct AgentsList: View {
                 .listRowSeparator(capsules ? .hidden : .automatic)
             }
         }
+    }
+
+    private func styledAgentList<Content: View>(_ list: Content, base: [Session], interactions: [Interaction]) -> some View {
+        list
         .modifier(AgentsListStyle(capsules: capsules, room: ownsTop && shell != nil && !compactTop, ownsTop: ownsTop))
         #if os(iOS) || os(visionOS)
         // Between the two layouts, slid with the field (`AgentsHeader.compact`); the page's color behind it.
@@ -1059,6 +1075,11 @@ private struct AgentsList: View {
         // not pinned in the safe area under a folding field: pinned, it stayed under the folded field (TestFlight 35,
         // ~120 pt of blurred list). On the list itself, before the alerts, as it always was.
         .modifier(AgentsSystemSearch(enabled: !ownsTop, query: $query, searching: $searching))
+    }
+
+    private func observedAgentList<Content: View>(_ content: Content, base: [Session], interactions: [Interaction],
+                                                 quiet: [SpaceGroup], matching: Set<SessionKey>) -> some View {
+        let list = styledAgentList(content, base: base, interactions: interactions)
         .refreshable { await model.sessionLists.reload(); await model.refresh() }
         // Whether each machine's herdr runs, while the list is in sight (a modifier of its own: in this chain the
         // compiler ran out of time type-checking it).
@@ -1120,7 +1141,7 @@ private struct AgentsList: View {
         .background { PageFrontWatcher { front in feed.hold.set(.behind, !front) } }
         // The row being read, brought back when a change took it off screen (`ReaderAnchor.reveal`). Around a local:
         // the chain above in a closure is type-checked with all of it.
-        ScrollViewReader { proxy in
+        return ScrollViewReader { proxy in
             list.onAppear {
                 feed.reader.reveal = { id, at in proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: at)) }
                 #if os(macOS)

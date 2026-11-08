@@ -137,7 +137,7 @@ func answerLine(ix proto.Interaction, answers map[string]string) string {
 }
 
 // workCardDelegable: one of the manager's own cards may be answered for the user. Not one that asks to open a link
-// (an authorization) or to go ahead with a risky step: those are the user's by design (agents_work.go actOn).
+// (an authorization) or to go ahead with a risky step: those are the user's by design (agents_work_act.go actOn).
 func (s *Service) workCardDelegable(ix proto.Interaction) bool {
 	e, ok := s.workEntry([2]string{ix.MachineID, ix.SessionID})
 	if !ok || e.InteractionID != ix.ID {

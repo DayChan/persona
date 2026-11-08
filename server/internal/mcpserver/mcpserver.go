@@ -313,8 +313,9 @@ func listToolsOnce(ctx context.Context) ([]map[string]any, error) {
 	return tools, nil
 }
 
-// The assistant's processes start this server with PERSONA_ASSISTANT / PERSONA_SESSION_ID (node/assistant.go):
-// they get the assistant-only tools, and the hub knows which conversation a call (e.g. ask_user) belongs to.
+// The assistant's processes start this server with PERSONA_ASSISTANT / PERSONA_SESSION_ID (node/assistant.go): it
+// asks for the assistant-only tools, which the node gives only when this process is one it runs for the assistant
+// (node/clicall.go mcpAssistantOf), and the hub knows which conversation a call (e.g. ask_user) belongs to.
 func isAssistant() bool { return identity.Getenv("PERSONA_ASSISTANT") == "1" }
 
 // isGuest: a guest conversation's process (node/assistant_guest.go). The hub knows its guests itself; this is its word

@@ -131,7 +131,6 @@ func TestCanonicalIndexRequests(t *testing.T) {
 					if err != nil || len(ix.Extensions) != 1 {
 						t.Fatalf("canonical index: %v", err)
 					}
-					want = append(want, IndexFile+SigSuffix)
 				} else if err == nil {
 					t.Fatal("a missing canonical index was accepted")
 				}
@@ -172,7 +171,7 @@ func TestExplicitJSONIndexRequests(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if want := []string{filename, filename + SigSuffix}; !slices.Equal(requested, want) {
+	if want := []string{filename}; !slices.Equal(requested, want) {
 		t.Fatalf("explicit index/signature requests: %q, want %q", requested, want)
 	}
 }

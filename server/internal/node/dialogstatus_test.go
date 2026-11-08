@@ -72,6 +72,45 @@ func TestADialogOnARestingClaudeNeedsYou(t *testing.T) {
 	}
 }
 
+// A new agent whose first message a dialog of Claude's own kept out is listed with that dialog, not only the generic
+// sentence: the lost first message marked the row blocked before the dialog check asked whether its Claude rests, so its
+// screen was never read. Every lost-first sentence; with the dialog gone, the sentence is what the row says.
+func TestALostFirstMessageIsListedWithItsDialog(t *testing.T) {
+	old := paneDialogEvery
+	paneDialogEvery = 0
+	t.Cleanup(func() { paneDialogEvery = old })
+	const id = "0d000000-0000-4000-8000-000000003082"
+	const dialog = "We're changing auto mode to no longer charge for classifier requests in Claude Code."
+	for _, why := range []string{lostDialog, lostDraft, lostNoBox, lostTimeout} {
+		f := &fakePane{screens: []string{screenFixture(t, "claude-2.1.309-auto-mode-notice-120.txt"),
+			screenFixture(t, "claude-2.1.312-empty-162.txt")}}
+		n, _ := testNode(t)
+		n.hosts = herdrHosts(f.serve(t))
+		n.agents = map[string]host.Agent{id: {Agent: "claude", PaneID: "w1:p1", Cwd: "/work/repo", AgentStatus: proto.StatusIdle}}
+		n.lostFirst.set(id, why, time.Now())
+		waitReason := func(want string) {
+			t.Helper()
+			var s proto.Session
+			for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+				for _, r := range n.sessionList(context.Background(), false) {
+					if r.SessionID == id {
+						s = r
+					}
+				}
+				if s.Status == proto.StatusBlocked && s.AttentionReason == want {
+					return
+				}
+			}
+			t.Fatalf("%.12s…: never blocked with %q: %s %q", why, want, s.Status, s.AttentionReason)
+		}
+		waitReason(dialog)
+		f.mu.Lock()
+		f.state = 1 // closed at the computer; the message is still not in
+		f.mu.Unlock()
+		waitReason(why)
+	}
+}
+
 // dismiss_notice closes a notice Enter only closes, then the send goes on; without it, or for any other dialog,
 // the send is refused with the dialog's first line and nothing is pressed.
 func TestDismissNoticeClosesOnlyNotices(t *testing.T) {

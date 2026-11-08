@@ -142,4 +142,5 @@
     <string name="assistant_settings_permission_auto">Auto</string>
     <string name="assistant_settings_permission_full">Full access</string>
     <string name="assistant_settings_permission_failed">Could not save the permission default</string>
+    <string name="assistant_settings_permission_unavailable">Unavailable until this assistant can confirm support for permission defaults. Other settings remain available.</string>
 </resources>

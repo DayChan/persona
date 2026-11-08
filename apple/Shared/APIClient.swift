@@ -525,6 +525,13 @@ nonisolated struct APIClient: Sendable {
         try await get("/api/v1/machines/\(machine)/dirs", query: ["path": path])
     }
     func reconnect(machine: String) async throws { try await post("/api/v1/machines/\(machine)/reconnect") }
+    /// Renames the computer (hubs with feature `machine_rename`, docs/protocol/protocol.md "Renaming a computer"): "" is its id
+    /// again; returns the name the hub calls it now. Every client gets it from the next `machines` push.
+    func renameMachine(_ machine: String, to name: String) async throws -> String {
+        struct Body: Encodable { var name: String }
+        struct Renamed: Decodable { var name: String }
+        return try JSON.decoder.decode(Renamed.self, from: await request("PUT", "/api/v1/machines/\(machine)/name", body: Body(name: name))).name
+    }
     /// The hub installs its own personad build on the machine and reconnects; progress comes with the machine list.
     func deploy(machine: String) async throws { try await post("/api/v1/machines/\(machine)/deploy") }
 
@@ -597,11 +604,12 @@ nonisolated struct APIClient: Sendable {
 
     private func sp(_ k: SessionKey) -> String { "/api/v1/sessions/\(k.machineID)/\(k.sessionID)" }
 
-    /// A page of history going back `turns` whole exchanges (user prompt + answer) before beforeSeq.
+    /// A page of history going back `turns` whole exchanges (user prompt + answer) before beforeSeq (nil: the latest
+    /// page, with no before_seq at all: an empty one reached runtimes as 0, which some refuse).
     func items(_ k: SessionKey, beforeSeq: Int?, turns: Int = 2) async throws -> ItemsResponse {
-        let data = try await request("GET", sp(k) + "/items",
-                                     query: ["before_seq": beforeSeq.map(String.init) ?? "", "turns": String(turns), "limit": "80",
-                                            "lazy_images": "1", "fold_work": "1"])
+        var query = ["turns": String(turns), "limit": "80", "lazy_images": "1", "fold_work": "1"]
+        if let beforeSeq { query["before_seq"] = String(beforeSeq) }
+        let data = try await request("GET", sp(k) + "/items", query: query)
         // Images come without their bytes (`image(ref:)` fetches one when it is shown); a page is still worth
         // decoding off the main thread, which called us.
         return try await Task.detached(priority: .userInitiated) { try JSON.decoder.decode(ItemsResponse.self, from: data) }.value
@@ -1265,6 +1273,29 @@ nonisolated struct APIClient: Sendable {
     /// opID: one per answer (the same on every retry of it), so a retry through a hub restart presses nothing twice.
     func resolve(_ id: String, _ r: Resolution, opID: UUID = UUID()) async throws -> ResolveResult {
         try JSON.decoder.decode(ResolveResult.self, from: try await post("/api/v1/interactions/\(id)/resolve", body: r, opID: opID))
+    }
+
+    /// One session's cards and how they ended (GET /api/v1/interactions/history), newest first; a row this app can't read
+    /// is left out. `manager`: the session's (the hub asks the manager a request names, else the default one).
+    func interactionHistory(machine: String, session: String, manager: String? = nil,
+                            limit: Int = Delegated.historyLimit) async throws -> [InteractionRecord] {
+        struct Body: Decodable { var interactions: [Lossy<InteractionRecord>]? }
+        let rows = try await get("/api/v1/interactions/history",
+                                 query: ["machine_id": machine, "session_id": session, "limit": String(limit), "manager": manager ?? ""],
+                                 as: Body.self)
+        return (rows.interactions ?? []).compactMap(\.value).map {
+            var r = $0
+            r.interaction.group = group
+            r.interaction.manager = r.interaction.manager ?? manager
+            return r
+        }
+    }
+
+    /// Change Answer (#544): the user's answers to a question the assistant answered go to the agent as a message.
+    /// `manager`: the card's; the question is no longer pending, so the hub routes by the manager named.
+    func reanswer(_ id: String, answers: [String: String], manager: String? = nil) async throws {
+        _ = try await request("POST", "/api/v1/interactions/\(id)/reanswer", query: ["manager": manager ?? ""],
+                              body: ["answers": answers])
     }
 
     /// What the hub recorded for an op (`GET /api/v1/ops/{id}`): pending / done / failed / unknown; nil when it has no

@@ -218,7 +218,7 @@ func (s *Service) startConversation(ctx context.Context, p startParams) (proto.S
 }
 
 // Start is assistant.start: a conversation one of the hub's features starts (the inbox's AI twin), or the channels'
-// (feishu.go, channels_plugin.go). It is named after its first turn like the app's, unless it is untitled.
+// (feishu_message.go, channels_plugin.go). It is named after its first turn like the app's, unless it is untitled.
 func (s *Service) Start(ctx context.Context, p StartParams) (proto.Session, error) {
 	sess, err := s.start(ctx, p)
 	if err != nil {

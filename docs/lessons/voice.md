@@ -144,7 +144,11 @@ Unboxed (control group):
 
 - **No tools, no delegation** (service-specific). This service sends `delegation.created{target: "client"}` only when the model calls a function in `session.tools`.
   `session.tools` itself is an extension field (no negotiation needed, but its compatibility table lists `tools` on `session.start` as an extension), not standard GPT-Live. Conclusions in rows 1 and 2 about delegation were therefore tested only on this path.
-  Without `tools` in `personad`, the model follows the prompt and says "Okay, I'll delegate a check of your calendar for tomorrow", but sends nothing (end-to-end observation). For this kind of upstream, `tools: true` is mandatory.
+  Without `tools` in `personad`, the model follows the prompt and says "Okay, I'll delegate a check of your calendar for tomorrow", but sends nothing (end-to-end observation). For this kind of upstream, the tools must be declared:
+  since #1420 a live-dialect upstream declares them unless its `tools` is `false` (auto, with a one-time fallback when a service refuses them, `docs/extensions/extensions.md`, the `tools` row).
+- **The model claims a handoff and nothing arrives** (#1420, a real hub, 2026-11-08). The upstream came from the app's settings form, which had no `tools` switch, so its sessions declared none.
+  In three calls the model said it had handed the request to the main chat; the extension logged no delegation and the main chat got nothing. That is the bullet above, not a dropped message.
+  When it happens again, check whether the `session.start` declared `tools`, and whether the extension logged that the service refused them (the session then goes without them, and only a service that delegates on its own hands anything over).
 - Each model response starts with `session.delegation.created{target: "responses"}` (service-specific). `wire.go` correctly recognizes only `client`.
 - **An already `completed` response can still get a `response.incomplete`** (reason: superseded, 5 trials, service-specific), when the model has just finished and immediately starts a new response because of a tool result or `say`.
   This is not a user interruption, but at the time `personad` still sent `clear` to the App (twice within one end-to-end delegation). If App playback lagged upstream, it cut off the preceding sentence's ending.
@@ -361,3 +365,21 @@ Other values: allowing 450 tokens per append (500-token limit, rejection observe
   holds" as the measured footer minus the cards' measured height; the two update in different frames, and the cap flipped by a point around half the
   page (a plan card in BeautifulUI at the standard size): another loop. Now it uses only values the cards do not move: the page height, the open
   header, the bar's own measured height (`VoiceBarRoom`) and the count's. The rule: what sizes an area must not take inputs the area itself moves.
+
+## An address that accepts TCP but never answers TLS
+
+#1350, 2026-11-08.
+
+- **Symptom**: from one hub network both `GET /models` and the session failed with `net/http: TLS handshake timeout`, while `curl` on the
+  same machine reached the same URL. The upstream's host resolved to an IPv4 address and a ULA IPv6 address: TCP to the IPv4 address
+  connected in about 0.2 s and its TLS handshake never got an answer; the IPv6 address finished TLS in about 0.4 s.
+- **Why Go never tried the other address**: Go orders addresses by RFC 6724, which ranks ULA IPv6 below IPv4, and `net.Dialer` moves on to
+  the next address only when TCP fails. TCP to the IPv4 address succeeded, so every attempt sat out the handshake timeout there.
+- **Fix**: providers without `ssh` dial through `dialTLS` (`server/internal/voice/dial.go`), the `DialTLSContext` of the client used for
+  `GET /models`, `GET /voices` and the session WebSocket. It resolves the host, keeps the resolver's order and tries one address at a time
+  at the TLS level: 4 s for TCP plus the handshake (the last address 15 s, so a slow host with one address is not cut short), the first
+  completed handshake wins, and that address is tried first next time, so only the first connection after a restart waits on the dead one.
+  When every address fails, the error names each address and why. ALPN offers only `http/1.1`: the WebSocket upgrade needs HTTP/1.1.
+  Providers with `ssh` still dial through that machine.
+- **Checking it**: `server/internal/voice/dial_test.go` points a name at a local listener that accepts TCP and never speaks, then a working
+  TLS server, for both `GET /models` and the session dial.

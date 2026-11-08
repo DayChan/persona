@@ -314,7 +314,9 @@ To call the hub's HTTP API, an extension lists the scopes it uses in `permission
   so first decide whether extensions may call it (if so, add it to `routeScopes`), then run `PERSONA_UPDATE_ROUTE_SCOPES=1 go test ./internal/hub -run TestRouteScopes` and review the diff carefully.
 - **Token**: starts with `pext_`. Each time the hub starts an extension's program it signs a new one (revoking the old one at the same time) and gives it via the env vars `PERSONA_HUB_URL` / `PERSONA_HUB_TOKEN` (old names `PERSONA_*` given too)
   and `initialize`'s `hub.url` / `hub.token` / `hub.scopes` (extensions running elsewhere get only `initialize`). It is revoked when the extension is disabled, upgraded, reconfigured or uninstalled, and a new one is signed at the next start.
-  The token lives only in the hub's memory: extension processes are the hub's child processes and restart with the hub (`docs/operations/hub-restart.md`), and the new hub signs new ones; it will be persisted once extensions move out of the hub's cgroup.
+  Only the tokens the manager holds in memory open anything: extension processes are the manager's child processes and restart with it (`docs/operations/hub-restart.md`), and the new run signs new ones, so a token never outlives the run that signed it.
+  The manager also records each token in its database (`extension_tokens` table, migration `0431`, #1156): the token's SHA-256 (never the token), the manager and extension it was for, the scopes it opened (or every scope), when it was signed, and when and why it stopped (`replaced`; `stopped` when its run ends while it stays installed and on, such as an upgrade, reconfiguration, changed grant or secrets, or a dependency restart; `disabled`; `uninstalled`; `manager_restart`).
+  Nothing recorded is read back as a credential. When a manager starts, before any extension starts, it marks its own rows still live from its last run as `manager_restart`, so a restart never revives a revoked token or one of an extension that is now switched off or uninstalled; other managers' rows are left alone. Revoked rows are dropped after 7 days.
   On a manager other than the built-in one, the manager signs it the same way, and `PERSONA_HUB_URL` / `hub.url` is that manager's relay to the hub on the loopback of its computer; the extension also gets `PERSONA_MANAGER` / `hub.manager` (`docs/assistant/managers.md`, "Extensions and the hub's API").
 - Local only: requests with an extension token coming from the public internet return 403 `extension_token_local_only`, unless they came through the extension's manager's relay with its proof (`X-Persona-Manager-Proof`, `docs/assistant/managers.md` "Extensions and the hub's API", which also has the answers to a proof that is the manager's but not taken: `clock_skew`, `proof_replayed`, `proof_busy`, and `manager_offline` for one naming a manager the hub has no bus connection to): a relayed manager's computer may reach the hub no other way. Routes without a scope return 403 `{"code": "permission_denied"}`, and a missing scope also carries `scope` (the missing one).
 - When an extension calls these routes with its token, it is treated like a device with full access (not limited the way read-only devices like the watch are: answering cards and sending messages work as usual), except Inbox replies with `changes` / `/agent`.
@@ -471,6 +473,16 @@ The hub has an **egress proxy** (`server/internal/extension/egress`), started th
 - **Who it recognizes**: on the local TCP port, extensions are identified by proxy credentials (`HTTP(S)_PROXY=http://ext:<credential>@127.0.0.1:<port>`, renewed at every start, invalid once disabled or uninstalled); the Linux sandbox also has one unix socket per extension
   (`~/.persona/extensions/run/<id>/proxy.sock`), and the socket itself says who it is.
 - **The hub's own upstream proxy**: when the hub's environment has `HTTPS_PROXY` / `HTTP_PROXY` (`NO_PROXY` honored), the proxy goes out through it (CONNECT); extensions don't need to know.
+- **Several addresses** (#1181): when a name resolves to several addresses, the proxy checks every one first (the rules above), then races only those
+  (`dialRace` in `extension/egress/race.go`, after RFC 8305 Happy Eyeballs v2): IPv4 and IPv6 alternate starting with the resolver's first family, the next address starts 250 ms after
+  the previous one or at once when one fails, at most four attempts are open at once (with four open and addresses waiting, the oldest is canceled after 10 s and its address goes once
+  more to the back of the line, with 20 s that time, so making room never removes the only address that answers slowly), the first connection wins and every other attempt is canceled
+  or closed. When the request's deadline passes, the error is the deadline (with each address's cause), even when the attempts' own timeouts come first. Nothing is resolved again, so the address dialed is always one that was checked. The fetch broker of source runtimes pins the address
+  even through the hub's upstream proxy, so there each attempt is its own CONNECT to one checked address and is raced the same way. Process extensions race the addresses the proxy
+  resolves itself (allowed names and settings addresses); when the hub has an upstream proxy for them, the CONNECT carries the name and the upstream proxy picks the address, so there is
+  one attempt. The request budgets and the broker's admission limits are unchanged.
+  Known limits: within a 15-second budget only the first eight addresses get an attempt (the ninth would start at 20 s; dialing one by one reached no further); and the process path
+  bounds sockets per request, not in total: an extension's 128 pending requests can hold up to 512 attempts at once, with no cap across extensions.
 - Env vars: `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `ALL_PROXY`, `all_proxy` point at the proxy, and `NO_PROXY` is empty. Go, Node (libraries that apply the proxy themselves), Python and curl all honor them;
   old clients that only honor `HTTPS_PROXY` still can't get out from the sandbox, which is the intended effect.
 
@@ -480,9 +492,11 @@ The hub has an **egress proxy** (`server/internal/extension/egress`), started th
 
 | | Default |
 | --- | --- |
-| Installed from a **trusted marketplace**: the signing public key recorded for the marketplace ("Signing") belongs to the official marketplace (`persona-extensions`), or is in the manager's manager.json `trusted_extension_markets` (add your own private marketplace here; key id, or the `ed25519:…` line of `market.pub`) | Off |
+| Installed package verified against an **official marketplace** entry signed by the final key id `3cce0f471911a1cf`, with that marketplace's catalog still verified | Off |
 | Everything else: other marketplaces (unsigned ones included), `dir:`, `file:`, `https://…`, uploads | On |
 | **Installed before #1856 was deployed** (when the hub first starts with the sandbox) | Recorded as "off" and runs as before; use the command below to turn it on |
+
+The verified installed key is saved atomically with the extension record in Postgres (`market_key`). It comes only from an unchanged, verified catalog entry and a checksum-checked package, not from manifest metadata or the market's current identity. Existing installs without this snapshot remain untrusted by default; moving their market to an official address cannot retroactively exempt them. An unsigned upgrade clears the snapshot. An upgrade keeps the replaced version's own origin and key (`previous_origin`, `previous_market_key`), and a rollback restores exactly those: going back to unsigned code never inherits the newer version's verified key, and a row upgraded before these columns existed rolls back with no key at all. Retired official keys never grant the default exemption; explicit owner choices, including recorded pre-sandbox choices, remain unchanged.
 
 The owner can change each one (`personad extension sandbox <id> on|off|default`, or the admin UI's `PUT /api/v1/admin/extensions/{id}/sandbox`, or, on the hub machine with the main token over loopback,
 `PUT /api/v1/extensions/{id}/-/sandbox` `{"enabled": true|false|null}`, where `null` returns to the default). The phone can't change it (turning off the sandbox widens trust, so like installing extensions it is done only on the hub machine and in the admin UI).
@@ -702,7 +716,7 @@ CLI: `personad extension contributions <id>` (list), `personad extension contrib
 - The exporter gets, in `initialize`'s `contributions_to_me`, all contributions to it from extensions that are enabled and whose dependency graph, config and secrets are all usable (`{<extension point id>: [{extension, item}]}`); while the exporter itself isn't ready, contributions aren't exposed either. Both initialization and change events use a stable registry snapshot, and changes in transitive dependencies trigger updates too. When things change later (install, upgrade, toggle, config / secrets, turning off a single item, uninstall), the hub sends the event
   `extension.contributions_changed {contributions_to_me}`. The hub doesn't relay calls between them: to call the other side, use each one's HTTP, or the hub API (scope `extensions.call:<id>`, see "Permissions").
 - Contributing to another extension's extension point adds a line "Provides content to other extensions" to the "It can" list shown before install. These contributions can be turned off individually like any other (`<exporter>.<extension point>/<id>`).
-- In types generated from the schema (`sdk/go/wire` and others), `Contributes` has only the hub's own extension points; items contributed to other extensions' extension points can't be read from the generated types (the manifest still matches the schema).
+- Types generated from the schema keep the hub's built-in extension points strongly typed and preserve custom extension-point keys as opaque JSON (`Contributes.AdditionalProperties` in Go, index-signature fields in TypeScript, and additional-property maps in Swift and Kotlin). Nested JSON round-trips without losing custom fields, and additional properties cannot overwrite built-in fields. Opaque storage does not bypass the exporter's schema, dependency or permission checks.
 
 **Extension packs** `extension_pack: [{id, market?, version?}]`: an extension with only members and no `runtime` / `contributes` / settings / secrets / permissions / dependencies / exports.
 
@@ -745,7 +759,6 @@ personad extension market add <spec> [--token | --token-from=<marketplace id>]
 personad extension market set-spec <id> <spec>       The marketplace moved (repo renamed): the id stays, and what was installed from it still counts as its own, see "Naming and compatibility"
 personad extension market remove <id> | refresh <id>
 personad extension market token <id> [--clear]       Replace the token (read from stdin, not echoed) and reload; --clear removes it. Setting one helps even for a public GitHub marketplace, see "Extension marketplace", "GitHub rate limits"
-personad extension market trust <id>                 The marketplace changed its signing key (or stopped signing): accept only after confirming with the publisher, see "Extension marketplace", "Signing"
 personad extension search [keyword]                  Each result printed as market:<marketplace id>/<extension id>, with installed / upgradable
 personad extension install market:<marketplace id>/<extension id>  Install from a marketplace; if already installed, this upgrades it
 personad extension auto-upgrade on|off [<id>]        Master switch for auto-upgrading marketplace extensions; with an id, the switch for that one extension
@@ -772,19 +785,19 @@ install, upgrade and uninstall its extensions. Only one official marketplace is 
 | `https://example.com/extensions/` (not ending in `.json`) | `https://example.com/extensions/persona-extensions.json` |
 | `https://example.com/v100/market.json` | That file itself |
 | `github:owner/repo`, `github:owner/repo@branch` (also accepts `https://github.com/owner/repo`, `…/tree/<branch>`) | `persona-extensions.json` at the repo root, read through the GitHub API; private repos work too |
-| `git:<address>`, `git:<address>#branch` (address is `git@host:path.git`, `ssh://…` or `https://…`; `git@host:path.git` can also omit `git:`) | The hub shallow-clones the repo into `~/.persona/extensions/markets/<marketplace id>/` and reads `persona-extensions.json` at the root; refresh does a fetch. Uses **the hub machine's own credentials** (SSH key), takes no token; ssh / https only, no prompts, 3-minute timeout. Use this for private git hosting that has no "read a single file with a token" endpoint |
+| `git:<address>`, `git:<address>#branch` (address is `git@host:path.git`, `ssh://…` or `https://…`; `git@host:path.git` can also omit `git:`) | The hub shallow-clones the repo into `~/.persona/extensions/markets/<marketplace id>/` and reads `persona-extensions.json` at the root; refresh does a fetch. Uses **the hub machine's own credentials** for SSH; HTTPS clones may use a token scoped to the original clone URL, without credential redirects, argv secrets or persisted tokens; ssh / https only, no prompts, 3-minute timeout. Use this for private git hosting that has no "read a single file with a token" endpoint |
 
 https and GitHub marketplaces accept https only. A private https / GitHub marketplace takes a **token** (for GitHub, a read-only fine-grained token: Contents read permission on this repo). It is stored encrypted with the manager's `secret.key`,
-sent only as `Authorization: Bearer` to the marketplace's own origin (for a GitHub marketplace, the API origin), not on redirects to other hosts (the storage that Release assets redirect to), and never echoed back.
+sent only as `Authorization: Bearer` to the marketplace's own origin (for a GitHub marketplace, the API origin), except for the explicitly derived GHCR binding described under "OCI packages and mirrors". It is never sent to external redirects or echoed back. Token reuse and address moves retain the original HTTPS origin or GitHub owner binding.
 
 **GitHub rate limits**: without a token the GitHub API gives each egress address only 60 requests per hour. All devices at home share one public address, and once it is used up you get 403. So:
 
 - **Public repos can take a token too** (a fine-grained token with Public repositories selected and no permissions checked), which raises the quota to 5000 per hour. When the app / web cannot read a GitHub marketplace and has no token,
   the error is followed directly by **Add token** and this explanation (the official marketplace is the exception: the catalog page does not let newcomers fill it in there and only shows an unobtrusive link to **Manage marketplaces**, see onboarding.md 4.5); on the command line, `personad extension market token <id>` (read from stdin, `--clear` removes it).
-- **Fallback addresses without a token** (`githubFallback` in `extension/market.go`): when the API returns a rate limit, the same file is read from places without the API quota — files in the repo (index, `.sig`, packages at relative paths)
+- **Fallback addresses without a token** (`githubFallback` in `extension/market.go`): when the API returns a rate limit, the same file is read from places without the API quota — files in the repo (the single catalog document and packages at relative paths)
   from `raw.githubusercontent.com/<owner>/<repo>/<branch, default HEAD>/<path>`, `release:` assets from `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`. Only public repos are there;
   private ones return 404 and still report the rate limit / need a token. Marketplaces with a token always go through the API only (the token is not sent elsewhere). What is read is still signature-verified and packages are still checked by sha256; reading from another place does not change what is trusted.
-  raw caches each file separately for a few minutes, so right after a push a new index may come with an old signature: if re-reading the pair once still does not match, it counts as **this read failed** (the last good index is kept), not as a bad signature.
+  A signed catalog is one document, so caching cannot pair a new payload with an old detached signature.
 - No conditional requests (ETag / `If-None-Match`): tested, a 304 without a token still uses up the 60-request quota (GitHub only skips counting 304s that carry credentials), so it does not help in the case that hits rate limits most.
 
 **Index**:
@@ -805,7 +818,7 @@ sent only as `Authorization: Bearer` to the marketplace's own origin (for a GitH
 - `manifest` is the extension's whole `persona-extension.json`: its permissions and contributions can be seen without downloading. The manifest in the downloaded package must match it (id, version, permission summary), otherwise it is not installed.
 - `tags` are the labels shown in the marketplace. The extension repo generates them from the manifest's `tags` and takes them out of `manifest` when writing the index (older hubs do not recognize `tags` in a manifest and would drop the whole entry); when an entry has no `tags`, the hub uses the ones in `manifest`.
 - `packages` are searched in order for the first whose `platforms` includes this hub (`GOOS-GOARCH`); one without `platforms` counts as usable anywhere. `url` is a path relative to the index (for GitHub and git marketplaces, a path in the repo; git marketplaces cannot escape the repo through links),
-  an https address, or for GitHub marketplaces `release:<tag>/<asset name>` (downloads the Release asset through the API; private repos work too). `sha256` is required and checked after download; on mismatch it is not installed.
+  an HTTPS address, an immutable `oci:<registry>/<repository>@sha256:<64 lowercase hex>` reference, or for GitHub marketplaces `release:<tag>/<asset name>` (downloads the Release asset through the API; private repos work too). `sha256` is required and checked after download; on mismatch it is not installed.
 - Broken entries (invalid manifest, no packages, non-https address, the same id twice) are dropped with a warning and the rest work as usual; a whole index whose `market_version` is not 1 or that has no `name` is rejected.
   Limits: 4 MB per index, 500 extensions, 32 marketplaces per hub.
 
@@ -817,7 +830,6 @@ sent only as `Authorization: Bearer` to the marketplace's own origin (for a GitH
 | `POST /api/v1/extensions/-/markets` `{spec, token?, token_from?}` | Reads the index once first; if it cannot be read it is not registered (400, `error` gives the reason: bad address, private needs a token, wrong token); returns the marketplace. `token_from` is the id of another registered marketplace whose token to use (one account's token reading several private repos); the caller never sees the token, and only one of it and `token` may be given; on the command line `market add <spec> --token-from=<marketplace id>` |
 | `DELETE /api/v1/extensions/-/markets/{id}` | Stop reading this marketplace; extensions installed from it stay |
 | `POST /api/v1/extensions/-/markets/{id}/refresh` | Re-read the index now; on a bad signature returns 400 `market_signature` (the last good index is kept) |
-| `POST /api/v1/extensions/-/markets/{id}/trust` | Re-read once and accept the marketplace's new key (`key_changed`; the new key must be the one named in the index's `signing_key` and must verify) or accept that it no longer signs; a signature that fails to verify is never accepted (400 `market_signature`); returns the marketplace |
 | `PUT /api/v1/extensions/-/markets/{id}/token` `{token}` | Replace the token (empty string removes it) and re-read |
 | `GET /api/v1/extensions/-/catalog?q=&market=&refresh=1` | `{markets, extensions: [CatalogItem], platform}`. `q` searches id, name, description, publisher, tags (case-insensitive); indexes older than 6 hours are re-read in the background, `refresh=1` waits for all of them to be re-read |
 | `POST /api/v1/extensions/-/catalog/preview` `{market, extension}` (the old field name `plugin` is also accepted) | Download, verify, return a preview (the same as the "Install" preview, plus `market`); if already installed it is an upgrade preview |
@@ -845,8 +857,8 @@ Older hubs have none of this: they preview synchronously as before and wait for 
   the setting `extension_official_market` records that it has been added (it records the spec), so it is **added only once**: if the user deletes it, it does not come back by itself; to have it again, add it by hand.
   If the official spec changes later, it is added once more under the new spec.
 - **No duplicates**: if the user had already added the same repo by hand (a `github:` / `https://github.com/…` / `git:` address, with or without a branch, different case), it is not added again and that one counts as the official marketplace;
-  while the official marketplace is there, adding the same repo by hand in any form returns "This marketplace is already added".
-- **Pinned signature**: the public key in the repo's `market.pub` is recorded at registration and used to verify the first read too, with no trust-on-first-use; a key change goes through the "Signing" flow with the hub owner confirming, and the public key in the code must be updated with it.
+  while the official marketplace is there, adding or moving another marketplace to the same repo in any form is refused. Address moves recheck exact-address and official-identity uniqueness under the final lock after fetching the target.
+- **Pinned signature**: every official alias uses the compiled-in key, including manual re-registration and cached catalogs. Unknown saved owner pins remain unchanged and isolated; there is no trust endpoint. Release integration fixes the official key id at `3cce0f471911a1cf` without rotating it for embedded signatures. A shipped update can explicitly list recognized retired official pins in `extension.Official.PreviousSigningKeys`: only exact matches are replaced, across all official aliases. Removed markets stay removed, unsigned registrations and unknown pins are not migrated, and a failed write leaves loading retryable. The retained old envelope or legacy detached payload cannot authorize installation until a complete new envelope verifies against the new pin.
 - **Order**: the official marketplace comes first in `markets` and in the catalog, the rest by registration time (all ordering is done on the hub; all three clients show the hub's order). The web (settings and `/admin`) and Android show an **Official** badge based on `official: true`; iOS / macOS do not yet (separate task).
 - **Name** (#5017): the official marketplace is always displayed as **Official extensions** (Japanese: 公式拡張機能, the shipped Japanese label), not the index's `name` (which names the publisher).
   The hub fills `markets[].name` and the catalog's `market_name` in the owner's interface language (`marketName`, `extension_market.go`); when the web, Android, iOS / macOS see `official: true`, they localize it again,
@@ -858,37 +870,43 @@ Older hubs have none of this: they preview synchronously as before and wait for 
 
 ### Signing
 
-(#1848) Packages are pinned by the sha256 in the index, and the index itself is signed with the marketplace's ed25519 private key: if the repo is altered or replaced, the hub will not install things according to the new index.
+The only catalog file is `persona-extensions.json`. The official catalog embeds its signatures in one envelope:
 
-| File | Content |
+```json
+{"payload":"{\"market_version\":1,\"name\":\"Official extensions\",\"extensions\":[]}",
+ "signatures":[{"alg":"ed25519","key_id":"<first 16 hex of SHA-256 of the 32-byte public key>","sig":"<base64 signature>"}]}
+```
+
+The signature covers **the exact UTF-8 bytes of the JSON-decoded `payload` string**. Do not trim it, regenerate the index JSON or sign the outer JSON literal. Outer formatting may change; payload whitespace, newlines and non-ASCII text may not. Exact duplicate keys are rejected in every object; known protocol struct fields also reject noncanonical case and Unicode-fold aliases. Arbitrary maps such as configuration properties retain distinct `Foo` and `foo` keys. Signature objects use only `alg`, `key_id` and `sig`; unknown signature fields, malformed envelopes and invalid UTF-8 are refused. No adjacent signature file is fetched.
+
+Only the official marketplace requires signature verification, using the compiled-in key rather than catalog-supplied keys. GitHub, git and direct HTTPS catalog aliases, token-bearing reads, manual re-registration and cached catalogs all use that gate. A failed signature blocks installation and upgrades, including the last good catalog and every bundle member. Only a catalog that was actually read counts: a missing envelope, a malformed one, a bad signature or another signer marks the market `invalid`. A read that gets no catalog (404, 401, another HTTP status, a timeout or network failure) records the error and changes nothing else: the last verified catalog and its `signed` state stay, and installs keep using it. The two are typed failures (`extension.ErrCatalogUnavailable`, `extension.ErrCatalogUnverified`), never told apart by message text; the refresh endpoint answers `market_unreachable` for the first and `market_signature` for the second, and a later network failure does not lift a quarantine. An official market cannot move to an unofficial address to bypass verification. Preview-time source and signing-key snapshots are checked again at commit.
+
+Nonofficial catalogs normally publish a plain index with **no `signatures` field**. Legacy `signing_key`, saved TOFU keys and key-change states are neither trust grants nor permanent locks. A structurally valid embedded nonofficial envelope may be parsed, but is reported as unsigned and acquires no saved key or sandbox exemption. There is no market trust CLI command or HTTP endpoint.
+
+Postgres retains the complete envelope and payload string, not a regenerated index. Every manager restart re-verifies cached envelopes. Legacy official caches that cannot be verified remain isolated and refresh in the background. Unknown saved owner pins remain unchanged and isolated until an approved migration; failed database operations remain retryable. The once-added marker prevents deleted official marketplaces from being silently re-added.
+
+Release integration fixes the official key id at `3cce0f471911a1cf` and the final source address at `https://github.com/nwverse/persona-extensions`. Embedding signatures does not rotate that key. Publishing private keys stay outside repository files, logs and tests and are available only to the signing step. Repository cutover, package publication and visibility changes are separate release gates; a passing fixture is not final-key or production verification.
+
+### OCI packages and mirrors
+
+OCI packages use immutable references: `oci:<registry>/<repository>@sha256:<64 lowercase hex>`. Tags, credentials, queries, fragments and path traversal are refused. The publisher emits a schema-version-2 OCI manifest with `artifactType: application/vnd.persona.extension.v1`, an empty or standard config object, and exactly one layer with `mediaType: application/vnd.persona.extension.package.v1+gzip`. The layer annotation `org.opencontainers.image.title` is a safe `.tar.gz` filename.
+
+Verification checks the digest of the manifest's original bytes, the layer digest and size, then the catalog package's `sha256` and required OCI `size`. Packages cannot exceed 200 MiB. The download keeps the archive filename so unpacking works; cached packages are checked again on use.
+
+Anonymous registries may challenge for a short-lived bearer. Realms, services and scopes are bound to the current registry and exact repository's pull namespace. Private HTTPS catalog credentials are usable only by a registry and realm at that same origin. A GitHub marketplace token may authorize only the derived `ghcr.io/<owner>/<market-repo>/…` namespace, through GHCR's standard `/token` realm and pull scope. Another organization, marketplace or registry never inherits that token. Git clone tokens never authorize OCI requests. Both the market credential and issued bearer are stripped on external CDN and cross-namespace redirects; authentication endpoints cannot redirect.
+
+Mirror settings belong to **one extension manager**, not a globally distributed hub setting:
+
+| Endpoint (full-access device, or the existing admin session prefix) | Body / response |
 | --- | --- |
-| `<index>.sig` (in the same directory as the index: `persona-extensions.json.sig`; an explicitly registered JSON URL uses that index's filename plus `.sig`) | `{"alg": "ed25519", "key_id": "<first 16 hex chars of the sha256 of the 32-byte public key>", "sig": "<signature over the index file's raw bytes, base64>"}` |
-| Top-level `signing_key` in the index | `ed25519:<base64 of the 32-byte public key>`: which key the marketplace says it uses, **only a hint**; the hub does not trust on its basis (older hubs ignore this field) |
-| `market.pub` at the repo root | The same public key on one line, for people and for CI to verify |
+| `GET /api/v1/extensions/-/market-settings` | `{"registry_mirror":"","catalog_mirror":""}` |
+| `PUT /api/v1/extensions/-/market-settings` | Both fields; empty strings clear them |
 
-What is signed is the raw bytes of the index file (no JSON canonicalization). The hub reads the signature together with the index: GitHub marketplaces read the `.sig` in the same directory through the API (if a new push lands between the two reads and they do not match, the pair is read once more),
-git marketplaces read it from the clone, https marketplaces read the index address plus `.sig`. A 404 for the signature file counts as no signature; a failed read (network, permissions) counts as this read failing, not as no signature.
-If the signature file exists but is malformed, too long or fails to verify, it is rejected whether or not a key was recorded (#2214); only a marketplace that never had a key recorded and has no signature file counts as `unsigned`.
+`registry_mirror` is an HTTPS registry base, optionally with a path prefix; requests use `<base>/v2/<repository>/…`. `catalog_mirror` is a complete official catalog JSON URL, ignored for nonofficial markets. Neither setting changes specs, package references, digests or install origins. URLs cannot contain credentials, queries, fragments or noncanonical paths. Loopback HTTP is reserved for isolated registry tests. Settings use the manager's existing Postgres setting store, with retryable reads and saves. Opening settings does not initialize markets or fetch catalogs. Clients select the manager through the existing manager query routing.
 
-**Trust**: the public key is recorded the first time a signature is read (TOFU: when the marketplace is registered, or the first time a never-signed marketplace signs; only a key that verifies and is the one named in the index's `signing_key` is recorded),
-stored in `plugin_markets.signing_key`. After that:
+Mirrors have an independent eight-second budget and receive **no market token**, even when their origin matches the market. Their bearers are independent and origin-bound. Missing files, timeouts, partial archives and any catalog/manifest/blob/package verification failure fall back upstream with a new staging file, hash and download context. A catalog mirror cannot downgrade the official catalog to unsigned. The configured GitHub network proxy covers GHCR, token and GitHub CDN traffic separately from mirror settings.
 
-| `signature.state` | When | What the hub does |
-| --- | --- | --- |
-| `signed` | Verifies with the recorded key | As usual |
-| `unsigned` | No signature and no key ever recorded (old marketplaces, unsigned marketplaces) | As usual, marked **Unsigned** |
-| `invalid` | Signature file malformed or fails to verify (including on the first read), or a marketplace with a recorded key lost its signature | **Does not update the catalog** (the last good one is kept), `error` gives the reason; **nothing can be installed or upgraded** from this marketplace (not even from the last good index; `catalog`'s `problem` says so), and auto-upgrade stops too |
-| `key_changed` | Signed with a different key (`key_id` is the new key's) | Same as `invalid`, waiting for the owner to confirm |
-
-After the owner has confirmed with the publisher (changing keys is the publisher's business; the hub cannot judge for people): `personad extension market trust <id>`, or from the admin UI / a full-access device, `POST …/markets/{id}/trust`.
-It accepts two cases: a new key (must be the one named in the index's `signing_key` and must verify); the marketplace no longer signing (forget the recorded key, back to `unsigned`, TOFU again on the next signature).
-An index whose signature fails to verify can never be trusted. Changing the address (`set-spec`) also verifies against the recorded key; changing address cannot change the key along the way.
-
-**Private key** (for the extension repo's publisher): one per marketplace repo, kept only in the repo's GitHub Actions secret `EXTENSION_MARKET_SIGNING_KEY` and handed only to the signing step in CI
-(not to the steps that run extension code and tests); an offline backup is kept by the repo owner (password manager), never in the repo, never logged. Both extension repos have a signing script `sign-index.py` in their scripts directory (needs only openssl; `sign-index.py verify` verifies),
-and the README documents how to verify with openssl alone.
-**Rotation** (leaked or lost): generate a new key (`openssl genpkey -algorithm ed25519`), replace the Actions secret and `market.pub`, re-sign the index and commit;
-hubs that registered this marketplace go to `key_changed`, and each owner runs `market trust` after confirming.
+A catalog mirror provides no repository-relative package files. For a git market, those downloads lazily synchronize the checkout from the original clone URL/ref with its original credential restrictions and bounded context, then verify the package SHA256. OCI and HTTP packages do not require a git clone, even when their catalog came from a git market.
 
 ## Auto-upgrade
 
@@ -2501,7 +2519,7 @@ The cases run in order, and each starts from the state the one before leaves. Wh
 - **A computer with `gh auth login` done**, added to the isolated hub, for the computer sign-in source. Use a computer (or a user account on it) the everyday hub does not use: pairing it with another hub takes it away from the everyday one, and a user's computer has only one node. Use `--insecure-storage` where the keychain can't be read over SSH; see the `github` entry in `docs/operations/config.md`.
 - **Two GitHub accounts and an organization team.** The second account requests reviews, mentions, assigns and comments, since a user's own actions bring nothing. The team, which the test account is in, is for `team_mention`. Use a few repositories, one of them with a workflow you can make fail.
 - **A proxy you can watch**, set as manager.json `github.proxy`, and `github.auth.host` set to `github.com`. Marketplace reads and downloads go through it too. The extension's `host` defaults to `github.com` as well, so of the two moved values only `proxy` shows whether the move happened.
-- **A test marketplace you own**, for the upgrade cases: the official index lists only the latest version, and you can't publish to it. Use a copy of the extensions repository with your own signing key, registered with `personad extension market add`. Put its key id (or the `ed25519:…` line of its `market.pub`) in manager.json `trusted_extension_markets` and restart the hub, so its extensions run without the sandbox like the official marketplace's. The hub reads that list only at start.
+- **A test marketplace you own**, for the upgrade cases: register an unsigned copy with `personad extension market add`. Nonofficial signing metadata and legacy `trusted_extension_markets` entries do not grant sandbox exemptions. Preserve the default sandbox during acceptance.
   - An index keeps one entry per id, so publish one version at a time, each higher than the last. Six are used, all newer than the official marketplace's latest. Cases 8 and 9 use A and B, with the same permissions as the version installed; C, asking for one more permission; and D, with exactly C's permissions, tools, events and surfaces (anything else asks for consent again), but whose program exits at once. Case 11 uses E, working again, and F.
   - The hub reads a marketplace about every 6 hours. After each publish, run `personad extension market refresh <id>`, except where case 11 says not to.
 - **Versions and the sandbox.** Record the extension's version and `sandbox` from `personad extension show github` in every case. A release on the official marketplace during cases 2 to 7 upgrades it when idle, which explains a restart you didn't cause. Installs from `file:` or `https://…`, and a marketplace that is no longer there, default to the sandbox, which limits where the program may connect and can block `proxy` (see "Sandbox"). To compare a `file:` install with a marketplace one, run `personad extension sandbox github off`.
@@ -2781,7 +2799,7 @@ connecting to the upstream of the selected model. `config.default` specifies the
 | `key` / `key_file` / `key_command` | Credentials sent as `Authorization: Bearer`: inline value, file's first line, or first line printed by command (`sh -c`). Command runs for every conversation, immediately using credentials renewed elsewhere. Credentials only on the hub machine (manager.json 0600 or separate file) |
 | `ssh` | When the hub cannot reach the service, connect through this machine (`ssh -W host:port <machine>`, TLS still end-to-end); hub must have passwordless SSH access |
 | `models`, `default_model` | Listed models; if omitted, live dialect reads service `GET <url>/models`, codex dialect uses `gpt-live-1-codex` |
-| `tools` | Live dialect: declare Persona function tools in `session.start` (knowledge-base search, list Agents, send to Agent, hand to main chat). Public GPT-Live API rejects `session.tools`; enable only on self-hosted services supporting it. Some services delegate only when tools are declared (`docs/lessons/voice.md`), making it required. Full devices (`X-Persona-Role` `full` or absent) declare all four; calls from other extensions declare only `ask_persona` (hand to main chat, their only capability); protocol 2 calls bound to a chat declare knowledge-base search, list Agents and `delegate_task` (hand to bound chat, `docs/assistant/voice.md` 4.4) |
+| `tools` | Live dialect: declare Persona function tools in `session.start` (knowledge-base search, list Agents, send to Agent, hand to main chat). Some services delegate only when tools are declared (`docs/lessons/voice.md`, "Other behavior"); the public GPT-Live API rejects `session.tools`. **Unset (auto, the default since #1420)**: declared; when the service refuses them before `session.started` (an `error` naming `session.tools` or saying "tools", one about an unknown or unsupported field that names no other field, or a close whose reason says "tools"), the extension starts the session again once without them, logs it, and remembers it for that upstream until the extension restarts (a refused key, a handshake failure or a dropped socket never counts). `true` / `false`: always / never, with no fallback. Full devices (`X-Persona-Role` `full` or absent) declare all four; calls from other extensions declare only `ask_persona` (hand to main chat, their only capability); protocol 2 calls bound to a chat declare knowledge-base search, list Agents and `delegate_task` (hand to bound chat, `docs/assistant/voice.md` 4.4) |
 | `input_rate` | Microphone sample rate 16000 / 24000; default live 16000, codex 24000 |
 
 ### Configure upstreams in the app (#3500)
@@ -2799,7 +2817,8 @@ can set addresses, keys and switches; admin has a switch too:
 | `owner`, `notes` | What to call you, extra instructions for the voice assistant; supplied values override manager.json |
 | Secret `key` | API key sent as `Authorization: Bearer`; encrypted with `secret.key` in `plugin_secrets`, write-only, endpoint reports only "set" |
 
-`ssh`, `key_file`, `key_command`, `tools` and additional upstreams are manager.json-only (`key_command` executes on the hub machine, and the form subset has no object arrays).
+`ssh`, `key_file`, `key_command`, an explicit `tools` and additional upstreams are manager.json-only (`key_command` executes on the hub machine, and the form subset has no object arrays).
+The form's upstream has no `tools` switch, so it is auto: it declares the function tools and drops them only if the service refuses them (#1420). To keep them off, configure that upstream in manager.json with `"tools": false` instead.
 
 - **Merge** (`voice.Merge`): manager.json upstreams first; the form upstream is appended when it has **both** address and key, fixed id `custom` (model ids `custom/<model>`).
   If manager.json already has `custom`, it wins and the form upstream is unused, with a note in extension-page `warnings` and `GET /info` `warnings`;

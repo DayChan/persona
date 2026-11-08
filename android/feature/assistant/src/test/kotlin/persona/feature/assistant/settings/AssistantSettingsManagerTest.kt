@@ -45,7 +45,7 @@ class AssistantSettingsManagerTest {
         override suspend fun deleteMemory(name: String) {}
     }
 
-    @Test fun switchingSettingsPinsDefaultsAndTaskModelNavigationToTheShownOwner() {
+    @Test fun unknownPermissionSupportKeepsTaskModelNavigationScoped() {
         val values = mutableMapOf(
             "assistant" to AssistantConfig(manager = "assistant", defaultPermissionMode = "plan", main = "personal-history"),
             "work" to AssistantConfig(manager = "work", defaultPermissionMode = "default", main = "work-history"),
@@ -64,10 +64,9 @@ class AssistantSettingsManagerTest {
         rule.waitForIdle()
         rule.onAllNodesWithText("Work").onLast().performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Default").performClick()
-        rule.onNodeWithText("Full access").performClick()
-        rule.waitForIdle()
-        assertEquals("bypassPermissions", values.getValue("work").defaultPermissionMode)
+        rule.onAllNodesWithText("New conversation permissions").onLast().assertIsNotEnabled()
+        rule.onNodeWithText("Unavailable until this assistant can confirm support for permission defaults. Other settings remain available.").assertExists()
+        assertEquals("default", values.getValue("work").defaultPermissionMode)
         assertEquals("plan", values.getValue("assistant").defaultPermissionMode)
         assertEquals("work-history", values.getValue("work").main)
         rule.onNodeWithText("Scheduled tasks, follow-ups and runs").performScrollTo().performClick()
@@ -78,4 +77,41 @@ class AssistantSettingsManagerTest {
         rule.waitForIdle()
         assertEquals("task.daily" to "work", opened)
     }
+    @Test fun supportedManagersCanSaveThroughProductionAdapterAndKeepSwitcher() {
+        val values = mutableMapOf(
+            "assistant" to AssistantConfig(manager = "assistant", defaultPermissionMode = "default", main = "personal-history",
+                permissionDefaults = AssistantPermissionDefaults(1, "assistant", AssistantPermissionDefaults.MODES)),
+            "work" to AssistantConfig(manager = "work", defaultPermissionMode = "plan", main = "work-history",
+                permissionDefaults = AssistantPermissionDefaults(1, "work", AssistantPermissionDefaults.MODES)),
+        )
+        val roster = ManagerRoster(listOf(HubManager("assistant", "Personal", online = true, isDefault = true),
+            HubManager("work", "Work", online = true)), "assistant")
+        rule.setContent {
+            CompositionLocalProvider(LocalManagerRoster provides roster) {
+                PersonaTheme(reduceMotion = true) {
+                    AssistantSettingsScreen(Hub(values), emptyList(), onBack = {})
+                }
+            }
+        }
+        rule.waitForIdle()
+        // Exactly one title and one chip per manager; there is no separate owner row.
+        rule.onAllNodesWithText("Personal").assertCountEquals(1)
+        rule.onAllNodesWithText("Work").assertCountEquals(1)
+        rule.onAllNodesWithText("New conversation permissions").onLast().assertIsEnabled().performClick()
+        rule.onNodeWithText("Allow edits").performClick()
+        rule.waitForIdle()
+        assertEquals("acceptEdits", values.getValue("assistant").defaultPermissionMode)
+        rule.onNodeWithText("Work").performClick()
+        rule.waitForIdle()
+        rule.onAllNodesWithText("New conversation permissions").onLast().assertIsEnabled().performClick()
+        rule.onNodeWithText("Full access").performClick()
+        rule.waitForIdle()
+        assertEquals("bypassPermissions", values.getValue("work").defaultPermissionMode)
+        rule.onNodeWithText("Personal").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Allow edits").assertExists()
+        assertEquals("personal-history", values.getValue("assistant").main)
+        assertEquals("work-history", values.getValue("work").main)
+    }
+
 }

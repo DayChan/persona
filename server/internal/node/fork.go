@@ -81,7 +81,7 @@ func (n *Node) fork(ctx context.Context, id, at string) (string, error) {
 		// A guest conversation's branch is one too (assistant_guest.go).
 		n.state.put(newID, sessionState{Launcher: st.Launcher, Cwd: st.Cwd, Model: st.Model, ModelFingerprint: st.ModelFingerprint, ModelEffort: st.ModelEffort, Guest: st.Guest})
 	}
-	n.setGuessedPath(newID, dst)
+	n.setPath(newID, dst)
 	n.mu.Lock()
 	if n.forked == nil {
 		n.forked = map[string]bool{}

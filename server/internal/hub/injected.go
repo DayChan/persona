@@ -73,6 +73,9 @@ func injectedLine(l i18n.Lang, in *proto.Injected) string {
 			return i18n.T(l, "injected.routine_started", args)
 		}
 	case proto.InjectedSystem:
+		if in.State == "inbox" {
+			return i18n.T(l, "injected.inbox_update", args)
+		}
 		if in.State == "lost_tasks" {
 			// the count is in the Chinese line: "node restarted, 3 background tasks stopped"
 			n := 0

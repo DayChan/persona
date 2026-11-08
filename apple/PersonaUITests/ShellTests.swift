@@ -12,7 +12,7 @@ final class ShellTests: XCTestCase {
     /// `-newAssistant YES` (the empty chat) also picks the Persona tab: tests that open another page leave it out.
     @MainActor private func launch(_ extra: [String] = [], emptyChat: Bool = true) {
         app = XCUIApplication()
-        app.launchArguments = ["-demo.on", "YES", "-ui.oldLayout", "NO", "-probes", "YES"] + (emptyChat ? ["-newAssistant", "YES"] : []) + extra
+        app.launchArguments = ["-demo.on", "YES", "-ui.oldLayout", "NO", "-probes", "YES", "-dev.openChat", ""] + (emptyChat ? ["-newAssistant", "YES"] : []) + extra
         app.launchPinned()
     }
 
@@ -38,9 +38,18 @@ final class ShellTests: XCTestCase {
         launch()
         see(button("shell-assistant"), "the 助手 | Agents switch", timeout: 15)
         XCTAssertFalse(app.tabBars.firstMatch.exists, "the tab bar in the shell")
-        // The empty chat: what needs the user (the demo has agents waiting and inbox items to answer).
+        // The empty chat may show only agents; the overflow still reaches the Inbox actions.
         see(button("shell-needs-agent"), "an agent waiting, over the composer")
-        XCTAssertTrue(button("shell-needs-inbox").exists, "the inbox's 需要你 over the composer")
+        if button("shell-needs-inbox").exists {
+            see(button("shell-needs-inbox"), "an Inbox action over the composer")
+        } else {
+            see(button("shell-needs-more"), "the remaining needs-you actions").tap()
+            let inbox = see(app.navigationBars["收件箱"], "Inbox reached from the needs-you overflow")
+            sleep(1)
+            inbox.buttons["BackButton"].tap()
+            XCTAssertTrue(inbox.waitForNonExistence(timeout: 5), "back from the overflow's Inbox")
+            see(button("shell-assistant"), "the switch after returning from Inbox")
+        }
         let finger = ShellFinger(app)
         finger.switchTo(agents: true, "Agents tapped on the empty chat")
         see(button("agents-new"), "新建会话 on Agents")
@@ -80,7 +89,9 @@ final class ShellTests: XCTestCase {
         see(button("assistant-sidebar-button"), "☰", timeout: 15).tapCenter()
         see(button("sidebar-machines"), "机器 in the drawer").tap()
         see(app.navigationBars["机器"], "机器 pushed on 助手")
-        let server = see(app.staticTexts["服务器"], "a machine's card")
+        // The token summary repeats the name; only the machine card is a navigation button.
+        let server = see(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "服务器、")).firstMatch,
+                         "the server's machine card")
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "个 Agent 工作中")).firstMatch.exists,
                       "the agents counted on the card")
         server.tap()

@@ -145,3 +145,17 @@ func TestParseInjectedSupervise(t *testing.T) {
 		t.Fatal("a user's text taken for a 督办 message")
 	}
 }
+
+// An inbox note for a conversation an item was handed to (#1194) is a system line, read off its head and marker; a
+// user's line that looks like its head is not.
+func TestParseInjectedInboxHandoff(t *testing.T) {
+	text := RenderInboxHandoffNote(InboxHandoffNote{ID: "lark:f1:100", Title: "改「报价（周五）」", Note: "示例用户驳回了你的建议。"})
+	got := ParseInjected(text)
+	if got == nil || got.Kind != proto.InjectedSystem || got.State != "inbox" || got.Title != "改「报价（周五）」" ||
+		got.Line != "收件箱「改「报价（周五）」」有了下文" {
+		t.Fatalf("ParseInjected = %+v", got)
+	}
+	if ParseInjected("📥 收件箱事件「报价」有了下文\n我自己写的") != nil {
+		t.Fatal("a user's text taken for an inbox note")
+	}
+}

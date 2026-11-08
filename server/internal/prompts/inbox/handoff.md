@@ -1,0 +1,8 @@
+<persona-context kind="context" title="收件箱事件 · {{attr .Title}}" url="">
+用户从收件箱把这件事交给你（事件 id：{{ctx .ID}}），要求在这段上下文后面。照要求在这里回答用户；要把结果写回这件事，调 inbox_suggest 并带上 item: "{{ctx .ID}}"：
+- recap：这件事的总结（背景、进展、卡在哪）；
+- kind reply：以用户的口吻写好、能原样发出去的回复；kind agent：派个 Agent 去做，text 是给它的指令；kind conclusion：不用再做什么，text 是结论，outcome 写 fyi（知道就行）或 done（可以归档）。
+建议会出现在用户的收件箱里，用户确认之前什么都不会发出去，不要自己去发。用户确认、驳回或说了什么，会告诉你。
+这件事之后的新消息不会转到这里；用户问起时，用来源的工具自己去查。
+</persona-context>
+{{.Text}}

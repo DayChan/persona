@@ -134,7 +134,7 @@ func (h *Hub) addMachineMoving(mc *MachineConfig, by string) error {
 		return refuseAdd(http.StatusConflict, "exists", i18n.Err("hub-admin_machines.exists"))
 	}
 	h.logf("%s: machine %q (%s) added to hub.json", by, mc.ID, mc.Kind)
-	h.addMachineLive(*mc) // the manager connects it now, no restart (devices_link.go)
+	h.addMachineLive(*mc) // the manager connects it now, no restart (devices_handover.go)
 	return nil
 }
 

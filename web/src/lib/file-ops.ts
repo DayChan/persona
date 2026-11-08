@@ -2,7 +2,7 @@ import { CLIENT_HEADERS } from "./compatibility";
 // Changing a machine's files from the Files panel (#4883, the hub / node side is #4858): upload into a folder, rename,
 // move, move to the trash and put back. Only home is writable there, and not ~/.persona, ~/.persona or ~/Library (the
 // node checks, `read_only`); a delete goes to the system's trash and can be undone, there is no permanent one.
-import { ApiError, api, CLIENT_PLATFORM, CLIENT_VERSION, enc, errorText, getToken } from "./api";
+import { ApiError, api, CLIENT_PLATFORM, CLIENT_VERSION, credentialOwner, enc, errorText, getToken, subscribeCredentialOwner } from "./api";
 import { BASE } from "./base";
 import { currentLanguage, t } from "../i18n";
 
@@ -20,30 +20,60 @@ export interface Uploaded {
   size: number;
 }
 
+/** In-memory authorization captured when the file is admitted, never rendered or persisted. */
+export interface UploadCredential {
+  owner: string;
+  token: string;
+}
+
 /**
  * Sends `file` into folder `dir` on machine `mid` (`POST /machines/{mid}/files?dest=dir`), reporting the bytes sent. A
  * name already there is refused before any byte goes (409 `exists`) unless `conflict` says what to do. Aborting
- * `signal` drops the request: the hub aborts and the node deletes the half-written file. Rejects with an ApiError
- * (the hub's code and words) or an AbortError.
+ * `signal` or retiring the credential drops the request where possible; an already dispatched server write may
+ * still finish. Rejects with an ApiError (the hub's code and words) or an AbortError.
  */
 export function uploadToDir(
   mid: string,
   file: File,
-  opts: { dir: string; cwd?: string; conflict?: Conflict; signal?: AbortSignal; onProgress?: (sent: number, total: number) => void },
+  opts: { dir: string; cwd?: string; conflict?: Conflict; credential?: UploadCredential; signal?: AbortSignal; onProgress?: (sent: number, total: number) => void },
 ): Promise<Uploaded> {
+  const credential = opts.credential ?? { owner: credentialOwner(), token: getToken() };
   const q = `name=${enc(file.name)}&dest=dir&dir=${enc(opts.dir)}${opts.cwd ? `&cwd=${enc(opts.cwd)}` : ""}${opts.conflict ? `&conflict=${opts.conflict}` : ""}`;
   return new Promise((resolve, reject) => {
     // XHR, not fetch: only it reports an upload's progress
     const xhr = new XMLHttpRequest();
-    const aborted = () => reject(new DOMException("aborted", "AbortError"));
-    if (opts.signal?.aborted) return aborted();
+    let settled = false;
+    let off = () => {};
+    const finish = (done: () => void) => {
+      if (settled) return;
+      settled = true;
+      off();
+      opts.signal?.removeEventListener("abort", cancel);
+      done();
+    };
+    const cancel = () => {
+      if (settled) return;
+      finish(() => reject(new DOMException("aborted", "AbortError")));
+      xhr.abort(); // settle first, including transports that ignore abort or report it synchronously
+    };
+    const current = () => {
+      if (settled) return false;
+      if (opts.signal?.aborted || credential.owner !== credentialOwner() || credential.token !== getToken()) {
+        cancel();
+        return false;
+      }
+      return !settled;
+    };
+    off = subscribeCredentialOwner(() => { current(); });
+    if (!current()) return;
     xhr.open("POST", `${BASE}/api/v1/machines/${enc(mid)}/files?${q}`);
-    xhr.setRequestHeader("Authorization", `Bearer ${getToken()}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${credential.token}`);
     xhr.setRequestHeader("Accept-Language", currentLanguage());
     CLIENT_HEADERS.forEach(name => xhr.setRequestHeader(name, `${CLIENT_PLATFORM}/${CLIENT_VERSION}`));
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (e) => opts.onProgress?.(e.loaded, e.lengthComputable ? e.total : file.size);
+    xhr.upload.onprogress = (e) => { if (current()) opts.onProgress?.(e.loaded, e.lengthComputable ? e.total : file.size); };
     xhr.onload = () => {
+      if (!current()) return;
       let body: Record<string, unknown> = {};
       let isJson = false;
       try {
@@ -53,14 +83,18 @@ export function uploadToDir(
       } catch {
         body = { error: xhr.responseText };
       }
-      if (xhr.status >= 200 && xhr.status < 300) return resolve(body as unknown as Uploaded);
+      if (xhr.status >= 200 && xhr.status < 300) return finish(() => resolve(body as unknown as Uploaded));
       const msg = typeof body.error === "string" && body.error ? body.error : `HTTP ${xhr.status}`;
-      reject(new ApiError(xhr.status, msg, body, isJson, xhr.getResponseHeader("X-Request-Id") ?? undefined));
+      finish(() => reject(new ApiError(xhr.status, msg, body, isJson, xhr.getResponseHeader("X-Request-Id") ?? undefined)));
     };
-    xhr.onerror = () => reject(new TypeError("network"));
-    xhr.onabort = aborted;
-    opts.signal?.addEventListener("abort", () => xhr.abort(), { once: true });
-    xhr.send(file);
+    xhr.onerror = () => { if (current()) finish(() => reject(new TypeError("network"))); };
+    xhr.onabort = () => finish(() => reject(new DOMException("aborted", "AbortError")));
+    opts.signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      if (current()) xhr.send(file);
+    } catch (e) {
+      finish(() => reject(e));
+    }
   });
 }
 

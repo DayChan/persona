@@ -26,6 +26,9 @@ struct MachineDetailView: View {
     @State private var plugins = ExtensionMachineModel()
     @State private var pluginLink: LinkTarget?
     @State private var filesOpen = Self.initialFilesOpen
+    /// The rename alert is open, and what it holds.
+    @State private var renaming = false
+    @State private var newName = ""
 
     private static var initialFilesOpen: Bool {
         #if DEBUG
@@ -74,6 +77,7 @@ struct MachineDetailView: View {
                     }
                     agentsSection(machine)
                     filesRow(online: online)
+                    if canRename(machine) { renameRow(machine) }
                     // Its token usage, then how busy it is, then what it can do (#4973).
                     MachineUsageSection(ref: ref)
                     VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -122,6 +126,14 @@ struct MachineDetailView: View {
         .extensionPushes(Array(plugins.models.values))
         .detailTitle(machine?.name ?? machineID)
         .navigationBarTitleDisplayMode(.inline)
+        .alert(String(localized: "Rename Computer"), isPresented: $renaming) {
+            TextField(machineID, text: $newName)
+                .accessibilityIdentifier("machine.rename.field")
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { Task { await model.renameMachine(ref, to: newName) } }
+        } message: {
+            Text("Shown in every app and on this computer's Persona Link. Leave it empty to use the id; the id stays the same.")
+        }
         .refreshable {
             // Four independent reloads of disjoint state (the hub snapshot, the metrics, the launchers, the
             // plugin sections): run them together instead of one after another. A launchers read that races
@@ -240,6 +252,34 @@ struct MachineDetailView: View {
             Text("Only sessions in the selected engine are shown.").font(Theme.Font.label).foregroundStyle(.secondary)
                 .padding(.horizontal, Theme.Space.xs)
         }
+    }
+
+    /// Its hub renames computers, and the computer is this hub's own (a linked hub's is renamed on that hub).
+    private func canRename(_ machine: Machine) -> Bool {
+        model.canRenameMachine(ref.group) && machine.kind != "hub"
+    }
+
+    /// Rename: what the hub calls the computer (docs/protocol/protocol.md "Renaming a computer"), in an alert.
+    private func renameRow(_ machine: Machine) -> some View {
+        Button {
+            Haptics.tap()
+            newName = machine.name == machine.id ? "" : machine.name
+            renaming = true
+        } label: {
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: Theme.Icon.edit).font(Theme.Font.body).foregroundStyle(Theme.accent).scaledFrame(width: Theme.Size.icon)
+                Text("Rename").font(Theme.Font.body).lineLimit(1)
+                Spacer(minLength: Theme.Space.s)
+                Text(machine.name).font(Theme.Font.body).foregroundStyle(.secondary).lineLimit(1)
+                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, Theme.Space.l)
+            .padding(.vertical, Theme.Space.m)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("machine.rename")
+        .card(padding: 0)
     }
 
     /// Files: the machine's home in the file browser (upload into a folder, Save to Files; #4858).

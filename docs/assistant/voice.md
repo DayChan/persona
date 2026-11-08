@@ -836,6 +836,10 @@ How #3505 does it (`suspend.go`; constants from lessons "Recommended constants",
   Manual: this branch's `personad voice` (live, `tools`, `key_file`) against the tested service and a fake hub with a question card, `docs/lessons/voice.md` ("Late captions on replies that only call a tool").
 - **#5673 covered** (`voice/order_test.go`): the issue's turn (reply begins, the caption comes, the rest of the reply, its end): protocol 2 sends the user's line with `before: "a1"` and the answer stays one line ended by its reply's end, history in the order said; the same turn on protocol 1 has the frames as before (no `before`, the caption ends the line, the rest in `a2`); without turn signals the line is placed and still ended by the caption, and the next turn's answer is a line of its own; a caption of speech after the line began, or typed, goes at the end and ends it; a caption before two lines goes before the first, later ones never before an earlier caption (`TestCaptionGoesBeforeEveryLineThatBeganAfterIt`); the same through the socket and the live wire (`TestLateCaptionOnTheSocket`); a caption 3.5 s late, held behind a reply that only called a tool, still placed (`TestCaptionHeldBehindAToolCall`); `spokeAt` rule by rule (`TestSpokeAt`: within 3 s, past it only for a new line with nothing of the user's since that voice, never past 10 s). Manual: this branch's `personad voice` against the tested service and a fake hub, 11 protocol 2 runs and one protocol 1 run (lessons "A late caption in the middle of an answer").
 - **#5790 covered** (`voice/recent_test.go` `TestWhenSaidGoesAtOnceAfterASilentReply`): after a reply that ended without audio, a handover with the gate open and a caption due goes at once instead of after `gateWait`; after a reply that spoke it still waits for the caption; a silent reply does not open a closed gate (still refused after `gateWait`).
+- **#1420 covered** (`voice/tools_test.go`): the settings form's upstream (no `tools`) declares all four tools and the model's `ask_persona` reaches the fake hub's `POST …/messages`;
+  a service that refuses the tools before `session.started` (an `error` with `param: session.tools`, one saying "tools", `unsupported_extension` with no field, a close whose reason says "tools") gets exactly one more session without them, and the next conversation starts without them on its first try;
+  a session refused without tools too fails after that one retry and nothing is remembered; `"tools": false` never declares them, `"tools": true` fails on a refusal with no retry;
+  a refused key (handshake 401, or an `error` about the key) is never a fallback; `refusedTools` and `toolsMode` rule by rule. Tests of the plain-delegation path set `"tools": false` (`liveProvider`).
 
 ## 5. Configurable GPT-Live upstream
 
@@ -867,7 +871,11 @@ Reject (ii), "add realtime type to model providers": it would need a new API ret
   - Empty `url` makes `PUT -/secrets/key` return 400.
   - Prevents changing the address to an attacker's host and receiving the Bearer Key.
   - Generic manifest `bound_to` field comes later.
-- `ssh`, `key_file`, `key_command`, `tools`, and `fake` dialect **manager.json only**: `key_command` executes on the manager's machine (usually hub machine).
+- `ssh`, `key_file`, `key_command`, an explicit `tools`, and `fake` dialect **manager.json only**: `key_command` executes on the manager's machine (usually hub machine).
+- **The form's upstream declares the function tools automatically** (#1420): without a `tools` switch it is auto (`Provider.Tools` unset), like any live-dialect upstream whose manager.json entry leaves `tools` out.
+  Before, it never declared them, and on a GPT-Live-compatible service that only hands work over through declared function tools the model said it had handed a request to the main chat while nothing was sent.
+  A service that refuses `session.tools` before `session.started` gets the session again once without them, and the extension remembers that for the upstream until it restarts (`docs/extensions/extensions.md`, the `tools` row).
+  manager.json `"tools": false` keeps them off (configure the upstream there instead of in the form), `"tools": true` always declares them, both with no fallback.
 
 ### 5.3 Adopt manager.json entries
 
@@ -896,6 +904,7 @@ Reject (ii), "add realtime type to model providers": it would need a new API ret
 - If `PERSONA_EXTENSION_CONFIG` has `providers`, read old format for manual local-run compatibility.
 - Otherwise manager.json upstreams come first; form upstream with `url` appends as fixed id `custom`. Id collisions favor manager.json, with `/info.warnings` entry.
 - `owner` / `notes`: nonempty form values win.
+- The form upstream has no `tools`: auto, declared unless its service refuses them (5.2, #1420).
 - **Start even without usable upstreams** (none, or form upstream missing Key and no `key_file` / `key_command`):
   - `/health` 200, `/info.setup` explains, `/ws` returns `no_upstream`;
   - manager adds "running but needs setup" hook following `hubJSONWaitsForTriageModel` (`extmgr/extension_inbox.go`), status `needs_setup`, "Missing: realtime voice service address and Key".

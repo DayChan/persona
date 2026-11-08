@@ -22,9 +22,11 @@ import (
 )
 
 // An installed extension's program runs in a sandbox, reaching out only through the hub's egress proxy and only to the
-// hosts of its permissions.network (docs/extensions/extensions.md "Sandbox" "Network egress"). Whether it does: the owner's choice
-// for it, else on unless it came from a trusted market (the official ones, and those hub.json trusts by their signing
-// keys). The extensions already installed when this came keep running as they did (seeded off).
+// hosts of permissions.network (docs/extensions/extensions.md "Sandbox").
+// Whether it does: the owner's choice for that extension, otherwise on unless its
+// official catalog currently verifies with the final allowlisted key. Legacy
+// nonofficial pins and trusted-market configuration never confer an exemption.
+// Extensions installed before sandbox support keep their recorded choices.
 
 // sandboxProbe is what this machine can do (tests replace it).
 var sandboxProbe = sandbox.Probe
@@ -32,8 +34,8 @@ var sandboxProbe = sandbox.Probe
 // extensionSandboxKey is the hub setting with the owner's choices.
 const extensionSandboxKey = "extension_sandbox"
 
-// officialMarketKeys are the key ids of the official markets' signing keys (their market.pub files; not secrets).
-var officialMarketKeys = []string{"32ed46cdbe349656", "6b540324aac0e252"}
+// officialMarketKeys contains only the final official catalog key id (not a secret).
+var officialMarketKeys = []string{"3cce0f471911a1cf"}
 
 type sandboxSettings struct {
 	// Seeded: the extensions installed before sandboxes were recorded off, once.
@@ -166,6 +168,9 @@ func (ps *extensions) sandboxOf(ctx context.Context, p *extension.Extension) san
 
 // fromTrustedMarket: p was installed from a market whose signing key the hub trusts.
 func (ps *extensions) fromTrustedMarket(ctx context.Context, p *extension.Extension) bool {
+	if p.Record.MarketKey == "" || !slices.Contains(officialMarketKeys, keyIDOf(p.Record.MarketKey)) {
+		return false
+	}
 	mid := extension.FromMarket(p.Record.Origin)
 	if mid == "" || ps.h == nil || ps.h.marketsLoad(ctx) != nil {
 		return false
@@ -174,33 +179,14 @@ func (ps *extensions) fromTrustedMarket(ctx context.Context, p *extension.Extens
 	ms.mu.Lock()
 	s := ms.byID[mid]
 	key := ""
-	if s != nil {
-		key = s.rec.SigningKey
+	if s != nil && extension.IsOfficialMarket(s.rec.Spec) && p.Record.MarketKey == extension.Official.SigningKey && s.rec.Signature.State == extension.SigSigned && s.rec.Signature.KeyID == keyIDOf(p.Record.MarketKey) {
+		key = p.Record.MarketKey
 	}
 	ms.mu.Unlock()
 	if key == "" {
 		return false
 	}
-	return slices.Contains(ps.trustedMarketKeys(), keyIDOf(key))
-}
-
-// trustedMarketKeys are the key ids the hub trusts: the official ones and hub.json's trusted_extension_markets (key
-// ids, or ed25519:<key> lines from a market.pub).
-func (ps *extensions) trustedMarketKeys() []string {
-	out := slices.Clone(officialMarketKeys)
-	if ps.h == nil || ps.h.cfg == nil {
-		return out
-	}
-	for _, k := range ps.h.cfg.TrustedExtensionMarkets {
-		k = strings.TrimSpace(k)
-		if strings.HasPrefix(k, "ed25519:") {
-			k = keyIDOf(k)
-		}
-		if k != "" {
-			out = append(out, strings.ToLower(k))
-		}
-	}
-	return out
+	return slices.Contains(officialMarketKeys, keyIDOf(key))
 }
 
 func (sb *extensionSandboxes) proxyIfStarted() *egress.Proxy {

@@ -80,7 +80,7 @@ func TestBotmuxSwitchPerMachine(t *testing.T) {
 	}
 }
 
-// The hub relays only devicewire.Routes to the manager (hub/devices_link.go): a route served here but missing there
+// The hub relays only devicewire.Routes to the manager (hub/devices_routes.go): a route served here but missing there
 // is a 404 on a real hub, which the apps take for an older hub and hide the switch.
 func TestWireRoutesAreServed(t *testing.T) {
 	h := newTestDevices(t)

@@ -2,14 +2,11 @@ package assistant
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -21,10 +18,7 @@ import (
 	"github.com/nwverse/persona/sdk/go/wire"
 	"github.com/nwverse/persona/server/internal/apierr"
 	"github.com/nwverse/persona/server/internal/assistantwire"
-	"github.com/nwverse/persona/server/internal/connector"
-	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/i18n"
-	"github.com/nwverse/persona/server/internal/rpc"
 )
 
 // The unified inbox (docs/assistant/inbox.md) is the manager's: Feishu messages, mail and the connectors' threads in one list,
@@ -110,6 +104,8 @@ type InboxItem struct {
 	Suggestion *InboxSuggestion  `json:"suggestion,omitempty"`
 	Chain      []InboxChainEntry `json:"chain,omitempty"`
 	Related    []InboxRelated    `json:"related,omitempty"`
+	// Handoffs are the latest conversations the event was handed to (inbox_handoff.go), oldest first.
+	Handoffs []InboxHandoff `json:"handoffs,omitempty"`
 
 	// Bookkeeping: persisted, not listed (GET /api/v1/inbox/{id} returns Context).
 	Last      string `json:"last,omitempty"`       // newest message position / mail uid in the item
@@ -208,6 +204,7 @@ func (it *InboxItem) listed() InboxItem {
 	c.Status = it.status()
 	c.Chain = listedChain(it)
 	c.Related = slices.Clone(it.Related)
+	c.Handoffs = listedHandoffs(it.Handoffs)
 	if it.Handling != nil {
 		h := *it.Handling
 		c.Handling = &h
@@ -216,7 +213,7 @@ func (it *InboxItem) listed() InboxItem {
 		g := *g
 		g.Changes, g.Cwd = slices.Clone(g.Changes), ""
 		c.Suggestion = &g
-		if c.Handling == nil { // an old draft: its conversation is done with this round
+		if c.Handling == nil && g.Conversation == nil && it.Agent != nil { // an old draft: its conversation is done with this round
 			c.Handling = &InboxHandling{Owner: HandlingOwner, State: HandlingDone, MachineID: it.Agent.MachineID, SessionID: it.Agent.SessionID}
 		}
 	}
@@ -267,12 +264,13 @@ type inboxBook struct {
 	mu          sync.Mutex
 	items       map[string]*InboxItem
 	once        sync.Once
-	loadMu      sync.Mutex        // one load at a time
-	loaded      atomic.Bool       // what the database keeps was read: until then nothing is taken or written
-	running     sync.Mutex        // one collection applied at a time
-	saving      sync.Mutex        // snapshots and writes in the same order
-	mark        map[string]uint64 // bumped on each user parent/done mutation of an id, under mu: a rollback's identity check
-	epoch       string            // the hub's run and its last round applied (InboxRound.Epoch, Seq), under running
+	loadMu      sync.Mutex              // one load at a time
+	loaded      atomic.Bool             // what the database keeps was read: until then nothing is taken or written
+	running     sync.Mutex              // one collection applied at a time
+	saving      sync.Mutex              // snapshots and writes in the same order
+	mark        map[string]uint64       // bumped on each user parent/done mutation of an id, under mu: a rollback's identity check
+	filing      map[string]*inboxFiling // pending filing ownership, independent of an unrelated parent change
+	epoch       string                  // the hub's run and its last round applied (InboxRound.Epoch, Seq), under running
 	seq         uint64
 	triaging    sync.Mutex  // one triage pass at a time (inbox_triage.go)
 	handing     sync.Mutex  // one judge / agent pass at a time (inbox_agent.go)
@@ -280,6 +278,7 @@ type inboxBook struct {
 	passHook    func()      // tests: runs as each pass starts
 	translating sync.Mutex  // one translation pass at a time (inbox_translate.go)
 	replies     sync.Map    // item id -> *inboxReply: replies to one item, one at a time (inbox_triage.go)
+	handingOff  sync.Map    // item id -> *sync.Mutex: hand-offs of one item, one at a time (inbox_handoff.go)
 	telling     sync.Map    // item id -> *sync.Mutex: deliveries to one item's conversation, one at a time (deliverNotes)
 	mutes       []InboxMute
 	mutesMu     sync.Mutex // one read-change-save of the kept mutes at a time
@@ -384,319 +383,14 @@ func (b *inboxBook) sourceName(source string) string {
 	return source
 }
 
-// inboxStore is the database's inbox (table inbox_items); a store without it keeps the inbox in memory.
-type inboxStore interface {
-	PutInboxItem(ctx context.Context, id string, data []byte, updatedAt time.Time, doneAt *time.Time) error
-	InboxItems(ctx context.Context, doneSince time.Time) ([][]byte, error)
-	DeleteInboxItems(ctx context.Context, ids []string) error
-}
-
-// inboxBatchStore is an inboxStore that writes many items in one round trip (the database's PutInboxItems).
-type inboxBatchStore interface {
-	PutInboxItems(ctx context.Context, rows []db.InboxRow) error
-}
-
-func (s *Service) inboxDB() inboxStore {
-	st, _ := s.store().(inboxStore)
-	return st
-}
-
-// errInboxUnavailable: what the inbox keeps could not be read (CodeInboxUnavailable).
-var errInboxUnavailable = &rpc.Error{Code: assistantwire.CodeInboxUnavailable, Message: "收件箱暂时读不到存着的内容，稍后再试"}
-
-// inboxReady loads what the inbox keeps (its items and mutes) the first time anything needs it. A load that failed
-// (the database did not answer) is errInboxUnavailable and is tried again the next time: until one goes through
-// nothing is taken or written, so the items and mutes stored are not overwritten with what memory has.
-func (s *Service) inboxReady(ctx context.Context) error {
-	b := &s.inbox
-	b.init()
-	if b.loaded.Load() {
-		return nil
-	}
-	b.loadMu.Lock()
-	defer b.loadMu.Unlock()
-	if b.loaded.Load() {
-		return nil
-	}
-	if !s.loadInbox(ctx) {
-		return errInboxUnavailable
-	}
-	b.loaded.Store(true)
-	return nil
-}
-
-// inboxUp is inboxReady for a route: false when it answered 503 inbox_unavailable.
-func (s *Service) inboxUp(w http.ResponseWriter, r *http.Request) bool {
-	if err := s.inboxReady(r.Context()); err != nil {
-		apierr.WriteCode(w, http.StatusServiceUnavailable, assistantwire.CodeInboxUnavailable, err)
-		return false
-	}
-	return true
-}
-
-// loadInbox reads the items still remembered and the mutes; false when the database could not be read.
-func (s *Service) loadInbox(ctx context.Context) bool {
-	b := &s.inbox
-	if !s.loadInboxMutes(ctx) || !s.loadInboxPolicies(ctx) {
-		return false
-	}
-	st := s.inboxDB()
-	if st == nil {
-		return true
-	}
-	rows, err := st.InboxItems(ctx, time.Now().Add(-inboxForget))
-	if err != nil {
-		s.logf("inbox: load: %v", err)
-		return false
-	}
-	cfg := s.inboxConfig(ctx)
-	b.knowExtensions(cfg.Extensions)
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.larkAccount = cfg.LarkAccount
-	for _, raw := range rows {
-		var it InboxItem
-		if json.Unmarshal(raw, &it) == nil && it.ID != "" {
-			if _, have := b.items[it.ID]; have {
-				continue // newer in memory than in the database
-			}
-			b.larkRequestAccount(&it)
-			if it.ArrivedOf == "" { // stored before arrivals were stamped
-				it.ArrivedOf, it.ArrivedAt = it.Last, it.UpdatedAt
-			}
-			if len(it.Chain) == 0 { // stored before chains: received and triaged, from its fields
-				it.Chain = synthesizedChain(b.userLang(), &it)
-				it.ChainSeq = len(it.Chain)
-			}
-			b.items[it.ID] = &it
-		}
-	}
-	return true
-}
-
-// larkRequestAccount sets a Feishu item's OLAccount for the lark.account the hub runs with now.
-func (b *inboxBook) larkRequestAccount(it *InboxItem) {
-	if it.Lark == nil {
-		return
-	}
-	it.Lark.OLAccount = 0
-	if a := larkItemAccount(it); a != max(b.larkAccount, 1) {
-		it.Lark.OLAccount = a
-	}
-}
-
-// larkItemAccount is the gateway account a Feishu item came from; zero in rows from before accounts were recorded
-// is account 1.
-func larkItemAccount(it *InboxItem) int {
-	if it.Lark == nil {
-		return 0
-	}
-	return max(it.Lark.AccountID, 1)
-}
-
-// InboxCollected is inbox.collected: what one collection of the hub read. It applies what changed; the items a
-// plugin's connector starts enter the list once triaged (admitInbox, in the background): until then nothing lists,
-// stores or works on them. A round older than the last one applied of the hub's run is dropped (it was held up on the
-// way); while what the inbox keeps can't be read the round is refused (errInboxUnavailable: the hub hands it again).
-func (s *Service) InboxCollected(ctx context.Context, r assistantwire.InboxRound) error {
-	if err := s.inboxReady(ctx); err != nil {
-		return err
-	}
-	b := &s.inbox
-	b.running.Lock()
-	defer b.running.Unlock()
-	if r.Seq > 0 {
-		if r.Epoch == b.epoch && r.Seq <= b.seq {
-			s.logf("inbox: round %d is older than %d, which was applied: dropped", r.Seq, b.seq)
-			return nil
-		}
-		b.epoch, b.seq = r.Epoch, r.Seq
-	}
-	cfg := s.inboxConfig(ctx)
-	b.knowExtensions(cfg.Extensions)
-	b.srcMu.Lock()
-	for id, name := range r.Names {
-		b.names[id] = name
-	}
-	for _, src := range r.Sources {
-		b.names[src.ID] = src.Name
-		b.builtin[src.ID] = !src.Extension
-		if src.Extension {
-			b.extensions[src.ID] = true
-		}
-		for kind, d := range src.Kinds {
-			b.kinds[src.ID+"/"+kind] = d
-		}
-	}
-	b.srcMu.Unlock()
-	b.mu.Lock()
-	b.larkAccount = cfg.LarkAccount
-	b.batch = newInboxBatch()
-	b.mu.Unlock()
-	var changed []*InboxItem
-	// Mail (the hub's own), then the connectors in the order the hub has them.
-	if r.Mail != nil {
-		changed = append(changed, s.collectMail(ctx, r.Mail)...)
-	}
-	for _, src := range r.Sources {
-		if src.ReadError != "" && len(src.Things) == 0 {
-			continue // not read, and nothing held for it: what it had stays, and so does its held-back count
-		}
-		// A failed source may still carry what an earlier round read while the manager was away (the hub's held round,
-		// mergeRounds): those things are applied; the failure is noted below either way.
-		changed = append(changed, s.collectSource(ctx, src)...)
-	}
-	b.mu.Lock()
-	readsChanged := b.recordReads(r)
-	batch := b.batch
-	batch.registered = r.Names
-	for id, it := range b.items {
-		if it.DoneAt != nil && time.Since(*it.DoneAt) > inboxForget {
-			b.drop(id)
-		}
-	}
-	now := time.Now()
-	// The round's last step files and tiers what it changed: those writes are taken up again (roundWrite), and the
-	// mutes' filings join them. A row that fails is undone to what it holds, and the sources bring it again (#91).
-	for _, it := range changed {
-		b.roundWrite(it)
-	}
-	changed = append(changed, b.roundMuted(b.applyMutes(now))...)
-	changed, todo := b.sortBatch(batch, changed, now)
-	b.applyRuledPolicies(changed)
-	b.settleRound()
-	ws := b.roundSaved(changed)
-	b.batch = nil
-	b.mu.Unlock()
-	s.saveInboxUndo(ctx, changed, s.undoWrites(ws, "what the round changed"))
-	if readsChanged && len(changed) == 0 {
-		s.inboxChanged(ctx, nil) // nothing came in, but which sources could be read did (saveInbox tells otherwise)
-	}
-	s.triageInbox(ctx)
-	s.translateInbox(ctx)
-	s.admitInbox(ctx, batch, todo)
-	return nil
-}
-
 // drop forgets an item, under b.mu, with its reply and delivery locks: they would otherwise stay for the life of the
 // hub. A delivery holding or waiting for the lock finds the item gone and stops (deliverNotes).
 func (b *inboxBook) drop(id string) {
 	delete(b.items, id)
+	delete(b.filing, id)
 	b.replies.Delete(id)
 	b.telling.Delete(id)
-}
-
-// recordReads keeps which of a round's sources could not be read, under b.mu: a source read now (or off) is cleared,
-// one that failed is marked, one the hub no longer has goes, the others keep theirs. It says whether that changed.
-func (b *inboxBook) recordReads(r assistantwire.InboxRound) bool {
-	next := map[string]string{}
-	for id, code := range b.readErrs {
-		if _, there := r.Names[id]; r.Names == nil || there {
-			next[id] = code
-		}
-	}
-	for _, src := range r.Sources {
-		if src.ReadError != "" {
-			next[src.ID] = src.ReadError
-		} else {
-			delete(next, src.ID)
-		}
-	}
-	changed := len(next) != len(b.readErrs)
-	for id, code := range next {
-		changed = changed || b.readErrs[id] != code
-	}
-	b.readErrs = next
-	return changed
-}
-
-// saveInbox persists changed items and tells the hub (it tells the extensions and the apps). It returns the ids
-// whose rows could not be written (the in-memory state of those is the caller's to roll back: with saveInboxUndo).
-func (s *Service) saveInbox(ctx context.Context, changed []*InboxItem) map[string]bool {
-	return s.saveInboxUndo(ctx, changed, nil)
-}
-
-// saveInboxUndo is saveInbox with the rollback of what could not be written: undo runs with the failed ids, b.mu
-// held, before the next save may start. Undone after b.saving, a save queued behind the failed one (the store back
-// by then) would write the change first and the undo would leave memory behind the row until a restart (#4924).
-func (s *Service) saveInboxUndo(ctx context.Context, changed []*InboxItem, undo func(failed map[string]bool)) map[string]bool {
-	b := &s.inbox
-	if len(changed) == 0 {
-		return nil
-	}
-	if !b.loaded.Load() { // not read yet: what is stored stays as it is (inboxReady)
-		s.logf("inbox: %d changed items not saved: what is stored was not read", len(changed))
-		return nil
-	}
-	var told []assistantwire.InboxChangedItem
-	b.saving.Lock()
-	b.mu.Lock()
-	rows := make([]db.InboxRow, 0, len(changed))
-	now := time.Now()
-	for i, it := range changed {
-		if current := b.items[it.ID]; current != it {
-			continue // the item was forgotten or replaced while this save was waiting
-		}
-		it.arrived(now)
-		raw, _ := json.Marshal(it)
-		rows = append(rows, db.InboxRow{ID: it.ID, Data: raw, UpdatedAt: it.UpdatedAt, DoneAt: it.DoneAt})
-		if i < 50 { // a first round's hundreds: the plugin reads the inbox if it wants them all
-			told = append(told, assistantwire.InboxChangedItem{ID: it.ID, Source: it.Source, Kind: it.Kind, Title: it.Title})
-		}
-	}
-	b.mu.Unlock()
-	if len(rows) == 0 {
-		b.saving.Unlock()
-		return nil
-	}
-	var failed map[string]bool
-	if st := s.inboxDB(); st != nil {
-		failed = s.putInboxRows(ctx, st, rows)
-	}
-	if len(failed) > 0 && undo != nil {
-		b.mu.Lock()
-		undo(failed)
-		b.mu.Unlock()
-	}
-	b.saving.Unlock()
-	if len(failed) > 0 {
-		// What was not stored is not announced: the apps would otherwise drop items the database still holds open.
-		told = slices.DeleteFunc(told, func(i assistantwire.InboxChangedItem) bool { return failed[i.ID] })
-	}
-	s.inboxChanged(ctx, told)
-	return failed
-}
-
-// putInboxRows writes rows in one go when the store can (a round's hundreds are one round trip, not hundreds); when
-// that fails, or the store can't, each row is written on its own so one that fails does not keep the others out. It
-// returns the ids that were not written anywhere.
-func (s *Service) putInboxRows(ctx context.Context, st inboxStore, rows []db.InboxRow) map[string]bool {
-	if bs, ok := st.(inboxBatchStore); ok && len(rows) > 1 {
-		err := bs.PutInboxItems(ctx, rows)
-		if err == nil {
-			return nil
-		}
-		s.logf("inbox: save %d items at once: %v (one by one)", len(rows), err)
-	}
-	var failed map[string]bool
-	for _, r := range rows {
-		if err := st.PutInboxItem(ctx, r.ID, r.Data, r.UpdatedAt, r.DoneAt); err != nil {
-			s.logf("inbox: save %s: %v", r.ID, err)
-			if failed == nil {
-				failed = map[string]bool{}
-			}
-			failed[r.ID] = true
-		}
-	}
-	return failed
-}
-
-// inboxChanged tells the hub what changed (EventInboxChanged): it tells the extensions and the apps.
-func (s *Service) inboxChanged(ctx context.Context, items []assistantwire.InboxChangedItem) {
-	if items == nil {
-		items = []assistantwire.InboxChangedItem{}
-	}
-	s.hub.InboxChanged(ctx, assistantwire.InboxChanged{Items: items})
+	b.handingOff.Delete(id)
 }
 
 // ---- helpers ----
@@ -806,359 +500,6 @@ func (it *InboxItem) done(at time.Time, by string) {
 	it.DoneAt, it.DoneBy = &t, by
 }
 
-// ---- mail ----
-
-// collectMail applies a round's mail: each account's latest page, then the full text of the new mail (the round's
-// new items too: they are triaged on it) and of items collected before their text was read.
-func (s *Service) collectMail(ctx context.Context, read *assistantwire.InboxMailRead) []*InboxItem {
-	b := &s.inbox
-	b.readSource("mail", "邮箱")
-	var changed []*InboxItem
-	for _, a := range read.Accounts {
-		changed = append(changed, b.applyMail(a, a.Messages, time.Now())...)
-		b.mu.Lock()
-		var unread []*InboxItem
-		b.each(func(it *InboxItem) {
-			if it.Mail != nil && it.Mail.AccountID == a.ID && it.open() && !it.Read && it.BodyOf != it.Last {
-				unread = append(unread, it)
-			}
-		})
-		b.mu.Unlock()
-		for _, it := range unread {
-			if s.readMailBody(ctx, a, it) {
-				changed = append(changed, it)
-			}
-		}
-	}
-	return changed
-}
-
-// readMailBody replaces the list's 2 KB snippet with the newest message's text (HTML-only newsletters have nothing
-// but CSS in their first bytes). The hub reads it peeking: the mail stays unread.
-func (s *Service) readMailBody(ctx context.Context, a assistantwire.InboxMailAccount, it *InboxItem) bool {
-	b := &s.inbox
-	b.mu.Lock()
-	if it.Mail == nil || len(it.Mail.UIDs) == 0 {
-		b.mu.Unlock()
-		return false
-	}
-	uid, mailbox, last := it.Mail.UIDs[len(it.Mail.UIDs)-1], it.Mail.Mailbox, it.Last
-	b.mu.Unlock()
-	m, err := s.inboxMailBody(ctx, assistantwire.InboxMailRef{AccountID: a.ID, UID: uid, Mailbox: mailbox})
-	if err != nil {
-		s.logf("inbox: read mail %s/%d: %v", a.Email, uid, err)
-		return false
-	}
-	text := strings.TrimSpace(m.Text)
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	defer b.settleRound()
-	b.roundWrite(it)
-	it.BodyOf = last
-	if text == "" {
-		return true
-	}
-	it.Preview = clip(oneLine(text), 200)
-	var to []string
-	for _, t := range m.To {
-		to = append(to, t.Email)
-	}
-	var cc []string
-	for _, t := range m.Cc {
-		cc = append(cc, t.Email)
-	}
-	it.Context = fmt.Sprintf("邮箱 %s 收到的未读邮件（共 %d 封，下面是最新一封）：\n发件人：%s <%s>\n收件人：%s\n抄送：%s\n时间：%s\n主题：%s\n\n%s",
-		a.Email, len(it.Mail.UIDs), m.From.Name, m.From.Email, strings.Join(to, ", "), strings.Join(cc, ", "), m.Date, m.Subject, clip(text, 3000))
-	return true
-}
-
-var replyPrefix = regexp.MustCompile(`(?i)^\s*((re|fw|fwd|aw|回复|答复|转发)\s*[:：]\s*|\[[^\]]{1,30}\]\s*)+`)
-
-// mailThread is what keeps replies in one item: the subject without Re: / Fwd: / [list] prefixes. A subject that is
-// empty once they are gone says nothing about which mails go together: those are grouped by who sent them too, so a
-// subject-less mail from one person is not folded under another's (#4852).
-func mailThread(subject string, from ...string) string {
-	s := strings.ToLower(strings.Join(strings.Fields(replyPrefix.ReplaceAllString(subject, "")), " "))
-	if s == "" && len(from) > 0 && strings.TrimSpace(from[0]) != "" {
-		s = "\x00from:" + strings.ToLower(strings.TrimSpace(from[0]))
-	}
-	sum := sha1.Sum([]byte(s))
-	return hex.EncodeToString(sum[:6])
-}
-
-// applyMail turns one account's latest inbox page into items: unseen messages grouped by thread.
-func (b *inboxBook) applyMail(a assistantwire.InboxMailAccount, msgs []assistantwire.InboxMailSummary, now time.Time) []*InboxItem {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	defer b.settleRound()
-	var changed []*InboxItem
-	index := b.threads(func(it *InboxItem) (string, bool) {
-		if it.Mail == nil || it.Mail.AccountID != a.ID {
-			return "", false
-		}
-		return it.Mail.Thread, true
-	})
-	superseded, stay := b.supersedeSubjectless(index, msgs, now)
-	changed = append(changed, superseded...)
-	threads := map[string][]assistantwire.InboxMailSummary{}
-	var order []string
-	for _, m := range msgs {
-		t := mailThread(m.Subject, m.From.Email)
-		if stay[m.UID] {
-			t = subjectlessThread // the old item that keeps its mail (supersedeSubjectless)
-		}
-		if _, ok := threads[t]; !ok {
-			order = append(order, t)
-		}
-		threads[t] = append(threads[t], m)
-	}
-	for _, t := range order {
-		list := threads[t]
-		sort.Slice(list, func(i, j int) bool { return list[i].UID < list[j].UID })
-		var unseen []assistantwire.InboxMailSummary
-		for _, m := range list {
-			d, _ := time.Parse(time.RFC3339, m.Date)
-			if !m.Seen && now.Sub(d) <= inboxWindow {
-				unseen = append(unseen, m)
-			}
-		}
-		open, done := index.openFor(t)
-		if open == nil && done != nil {
-			last, _ := strconv.ParseUint(done.Last, 10, 32)
-			var fresh []assistantwire.InboxMailSummary
-			for _, m := range unseen {
-				if uint64(m.UID) > last {
-					fresh = append(fresh, m)
-				}
-			}
-			unseen = fresh
-		}
-		// Mail the thread's other items hold (a done one still unread on the server, an older one moved back) is
-		// theirs: it does not come into the open one too, counted twice (#3796).
-		held := map[uint32]bool{}
-		for _, it := range index.by[t] {
-			if k, ok := index.key(it); ok && k == t && it != open {
-				for _, uid := range it.Mail.UIDs {
-					held[uid] = true
-				}
-			}
-		}
-		if len(held) > 0 {
-			unseen = slices.DeleteFunc(unseen, func(m assistantwire.InboxMailSummary) bool { return held[m.UID] })
-		}
-		if len(unseen) == 0 {
-			// Read in another client: done unless it needs the user.
-			if open != nil && !open.Read {
-				b.roundWrite(open)
-				open.Read = true
-				if open.Tier != TierAction && open.Tier != "" {
-					b.file(open, now, "read")
-				}
-				changed = append(changed, open)
-			}
-			continue
-		}
-		newest := unseen[len(unseen)-1]
-		if open != nil && open.Last == strconv.FormatUint(uint64(newest.UID), 10) && len(open.Mail.UIDs) == len(unseen) {
-			continue
-		}
-		it := open
-		var prev inboxSeen
-		if it != nil {
-			prev = seenOf(it)
-			b.roundWrite(it)
-		}
-		if it == nil {
-			it = &InboxItem{ID: fmt.Sprintf("mail:%s:%s:%d", a.ID, t, unseen[0].UID), Source: "mail", Kind: KindMail,
-				Account: a.ID, Mail: &InboxMail{AccountID: a.ID, Mailbox: newest.Mailbox, Thread: t}}
-			it.StartedAt, _ = time.Parse(time.RFC3339, unseen[0].Date)
-			b.add("mail", it)
-			b.roundNew(it)
-			index.note(it)
-		}
-		it.AccountName = a.Email
-		it.Title = newest.Subject
-		if it.Title == "" {
-			it.Title = "（无主题）"
-		}
-		it.Sender = newest.From.Name
-		if it.Sender == "" {
-			it.Sender = newest.From.Email
-		}
-		it.Preview = clip(oneLine(newest.Snippet), 200)
-		it.Count = len(unseen)
-		it.UpdatedAt, _ = time.Parse(time.RFC3339, newest.Date)
-		it.Read = false
-		it.Last = strconv.FormatUint(uint64(newest.UID), 10)
-		it.Mail.UIDs = it.Mail.UIDs[:0]
-		for _, m := range unseen {
-			it.Mail.UIDs = append(it.Mail.UIDs, m.UID)
-		}
-		it.Mail.MessageID, it.Mail.From = newest.MessageID, newest.From
-		it.Mail.Direct = false
-		for _, to := range newest.To {
-			if strings.EqualFold(to.Email, a.Email) {
-				it.Mail.Direct = true
-			}
-		}
-		it.Context = mailContext(a, unseen)
-		b.noteReceived(it, prev, mailMessages(unseen, prev.uids))
-		changed = append(changed, it)
-	}
-	return changed
-}
-
-// subjectlessThread is the key every subject-less mail had before #4852 grouped them by sender too.
-var subjectlessThread = mailThread("")
-
-// supersedeSubjectless settles an open item from before #4852 that holds subject-less mail of several senders under
-// the empty subject's key, under b.mu: no round matches it by its senders any more, so each mail is listed once
-// (#3796, #4920).
-//
-//   - One the owner has to act on (Needs you) or the AI twin worked on keeps its mail as it was (stay: those UIDs stay under
-//     the empty subject's key), with its tier and draft; it is read and filed like any item. A sender item a round
-//     since #4852 opened with only that mail is filed as superseded.
-//   - Any other is filed as superseded once every unread mail of it on the page has a sender (each goes into its
-//     sender's item); while some have none it stays open for those, and the round keeps them in it.
-//   - When all of its mail on the page is read elsewhere it is read like any item; while none is on the page it is
-//     left alone.
-//
-// An item the owner moved back (Move back) is filed as superseded again the same way.
-func (b *inboxBook) supersedeSubjectless(index *threadIndex, msgs []assistantwire.InboxMailSummary, now time.Time) ([]*InboxItem, map[uint32]bool) {
-	open, _ := index.openFor(subjectlessThread)
-	if open == nil {
-		return nil, nil
-	}
-	byUID := make(map[uint32]assistantwire.InboxMailSummary, len(msgs))
-	for _, m := range msgs {
-		byUID[m.UID] = m
-	}
-	if open.Tier == TierAction || open.Agent != nil {
-		stay := map[uint32]bool{}
-		for _, uid := range open.Mail.UIDs {
-			stay[uid] = true
-		}
-		// A hub that already ran #4852 opened sender items for the same mail: one holding only mail the old item
-		// keeps would list it a second time and no round touches it again, so it is filed. One with other mail too
-		// keeps only that (the round lists its thread's mail, without these); one the owner has to act on, or with a
-		// draft, is left as it is.
-		var filed []*InboxItem
-		for _, it := range b.items {
-			if it == open || !it.open() || it.Mail == nil || it.Mail.AccountID != open.Mail.AccountID ||
-				it.Mail.Mailbox != open.Mail.Mailbox || it.Mail.Thread == subjectlessThread ||
-				it.Tier == TierAction || it.Agent != nil || len(it.Mail.UIDs) == 0 ||
-				slices.ContainsFunc(it.Mail.UIDs, func(uid uint32) bool { return !stay[uid] }) {
-				continue
-			}
-			b.roundWrite(it)
-			it.done(now, "superseded")
-			filed = append(filed, it)
-		}
-		return filed, stay
-	}
-	onPage, seen, moved, remain := 0, 0, 0, 0
-	for _, uid := range open.Mail.UIDs {
-		m, ok := byUID[uid]
-		switch {
-		case !ok:
-			continue
-		case m.Seen:
-			seen++
-		case strings.TrimSpace(m.From.Email) != "" && mailThread(m.Subject, m.From.Email) != subjectlessThread:
-			moved++
-		default:
-			remain++
-		}
-		onPage++
-	}
-	switch {
-	case moved > 0 && remain == 0:
-		b.roundWrite(open)
-		open.done(now, "superseded")
-	case onPage > 0 && seen == onPage && !open.Read:
-		b.roundWrite(open)
-		open.Read = true
-		if open.Tier != "" {
-			open.done(now, "read")
-		}
-	default:
-		return nil, nil // nothing on the page, or mail without a sender that the round keeps in it
-	}
-	return []*InboxItem{open}, nil
-}
-
-// mailMessages are the mails of a batch (those not in the item before) for its received entry.
-func mailMessages(unseen []assistantwire.InboxMailSummary, had []uint32) []InboxChainMessage {
-	var out []InboxChainMessage
-	for _, m := range unseen {
-		if slices.Contains(had, m.UID) {
-			continue
-		}
-		sender := m.From.Name
-		if sender == "" {
-			sender = m.From.Email
-		}
-		msg := InboxChainMessage{Sender: sender, Text: clip(oneLine(m.Snippet), chainMessageText)}
-		if d, err := time.Parse(time.RFC3339, m.Date); err == nil {
-			d = d.UTC()
-			msg.At = &d
-		}
-		out = append(out, msg)
-	}
-	return out
-}
-
-func mailContext(a assistantwire.InboxMailAccount, msgs []assistantwire.InboxMailSummary) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "邮箱 %s 收到的未读邮件：\n", a.Email)
-	for _, m := range msgs {
-		var to []string
-		for _, t := range m.To {
-			to = append(to, t.Email)
-		}
-		fmt.Fprintf(&b, "---\n发件人：%s <%s>\n收件人：%s\n时间：%s\n主题：%s\n%s\n", m.From.Name, m.From.Email, strings.Join(to, ", "),
-			m.Date, m.Subject, clip(oneLine(m.Snippet), inboxText))
-	}
-	return strings.TrimSpace(b.String())
-}
-
-// ---- the connectors' ----
-
-// collectSource applies one connector's things: its batches go to be related to events (in the background), a
-// migrated connector's things with extra keep the items' own blocks, the others become generic items; then the open
-// items its rules now leave out are filed.
-func (s *Service) collectSource(ctx context.Context, src assistantwire.InboxSource) []*InboxItem {
-	b := &s.inbox
-	b.readSource(src.ID, src.Name)
-	if len(src.Things) == 0 && !src.Settles {
-		return nil
-	}
-	// Batches of new messages go to the model, not the list.
-	things := s.relateBatches(ctx, src, src.Things)
-	var own []connector.InboxThing // a migrated connector's things that keep the inbox's own item shape
-	if src.Migrated {
-		generic := things[:0:0]
-		for _, t := range things {
-			if t.Extra.HasBlock() { // only rule_tier (GitHub's, #2830): a generic item like any connector's
-				own = append(own, t)
-			} else {
-				generic = append(generic, t)
-			}
-		}
-		things = generic
-	}
-	var changed []*InboxItem
-	b.mu.Lock()
-	changed = append(changed, b.applyConnector(src.ID, src.Name, things, time.Now())...)
-	changed = append(changed, b.applyMigrated(src.ID, own, time.Now())...)
-	b.settleRound()
-	b.mu.Unlock()
-	if src.Settles {
-		changed = append(changed, s.settleConnector(ctx, src.ID)...)
-	}
-	return changed
-}
-
 // ---- API ----
 
 var errNoInboxItem = i18n.ErrEnglish("inbox-errors.no_item")
@@ -1178,6 +519,7 @@ func (s *Service) inboxRoutes() {
 	s.inboxParentRoutes()
 	s.inboxBulkRoutes()
 	s.inboxSuggestionRoutes()
+	s.inboxHandoffRoutes()
 	s.translateRoutes()
 	// Items of connectors (GitHub…) only go to apps that draw them (?sources=all): an older app would show a PR as
 	// a mail and send a reply as one. triage says how many new items wait for the model, and why (inbox_admit.go).
@@ -1412,37 +754,34 @@ func (s *Service) setInboxDone(ctx context.Context, id string, done, dismiss boo
 		b.mu.Unlock()
 		return InboxItem{}, errNoInboxItem
 	}
-	// Keep the state we are changing so a failed write restores it: the request must not look done while the row
-	// (what a restart reads) still holds the other state.
-	prevDoneAt, prevDoneBy, prevChain, prevSeq := it.DoneAt, it.DoneBy, it.Chain, it.ChainSeq
-	tell := false
+	w := b.beginFiling(it, time.Now(), doneByOf(dismiss))
 	if done {
 		if it.open() {
-			b.file(it, time.Now(), doneByOf(dismiss))
-			tell = b.closeHandling(it, doneByOf(dismiss), time.Now()) // its conversation stops
+			b.file(it, w.now, w.why)
+			w.close = true
 		} else {
-			it.done(time.Now(), doneByOf(dismiss))
+			// Another filing may still be waiting on storage. Taking over its marker also takes over the closure;
+			// an item already durably filed keeps its handling as before.
+			if w.previousWrite != nil && w.previousWrite.close {
+				// This is another attempt while the earlier filing is uncommitted, with its own chain entry.
+				b.file(it, w.now, w.why)
+				w.close = true
+			} else {
+				it.done(w.now, w.why)
+			}
 		}
 	} else {
 		it.DoneAt, it.DoneBy = nil, ""
 	}
-	newDoneAt, newDoneBy := it.DoneAt, it.DoneBy
-	gen := b.touched(id)
-	out := it.listed()
+	b.settleFiling(w)
 	b.mu.Unlock()
-	failed := s.saveInboxUndo(ctx, []*InboxItem{it}, func(failed map[string]bool) {
-		// Restore only when the item is still ours, still holds the state this request wrote and no same-valued
-		// mutation (a concurrent reopen) landed: a concurrent file/reopen must not be rewound by our failed write.
-		if failed[id] && b.items[id] == it && b.mark[id] == gen && it.DoneAt == newDoneAt && it.DoneBy == newDoneBy {
-			it.DoneAt, it.DoneBy, it.Chain, it.ChainSeq = prevDoneAt, prevDoneBy, prevChain, prevSeq
-		}
-	})
+	failed := s.saveInboxFilings(ctx, []*inboxFiling{w})
 	if failed[id] {
 		return InboxItem{}, errInboxNotPersisted
 	}
-	if tell {
-		s.tellSoon(ctx, it)
-	}
+	b.mu.Lock()
+	out := it.listed()
+	b.mu.Unlock()
 	return out, nil
 }
 

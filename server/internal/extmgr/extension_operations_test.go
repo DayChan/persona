@@ -243,7 +243,8 @@ func TestMarketClientGitHubProxy(t *testing.T) {
 			return &url.URL{Scheme: "http", Host: env}, nil
 		}
 		for host, want := range map[string]string{"api.github.com": "127.0.0.1:3128", "objects.githubusercontent.com": "127.0.0.1:3128",
-			"github.com": "127.0.0.1:3128", "example.com": env, "notgithub.com": env} {
+			"ghcr.io": "127.0.0.1:3128", "pkg-containers.githubusercontent.com": "127.0.0.1:3128",
+			"github.com": "127.0.0.1:3128", "example.com": env, "registry-mirror.example.com": env, "notgithub.com": env, "notghcr.io": env} {
 			req, _ := http.NewRequest("GET", "https://"+host+"/x", nil)
 			u, err := tr.Proxy(req)
 			got := ""

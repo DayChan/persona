@@ -22,6 +22,8 @@
   "feature_reports_description": "When tasks from the main chat finish, wait for you or get cut off, a card sums them up here",
   "feature_board": "A standing \"waiting for you\" card in Lark",
   "feature_board_description": "/tasks sends one card of everything waiting for you, then keeps it up to date in place instead of sending a new one",
+  "feature_only_conclusions": "Only conclusions to Lark",
+  "feature_only_conclusions_description": "Tasks from the main chat push only their conclusion (done, cannot be done, needs your decision); started, waiting and interrupted stay in the to-do list and the briefing",
   "feature_agents_description": "/agents lists the agents on your computers; after you pick one, messages go to it",
   "voice_name": "Voice",
   "voice_description": "Talk with Persona by voice in the app; tasks go to the main chat",

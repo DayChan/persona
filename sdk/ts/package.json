@@ -14,6 +14,8 @@
   "scripts": {
     "test": "bun test",
     "test:portable": "bun run scripts/check-portable.ts",
+    "check:source": "node scripts/check-source-bundle.mjs",
+    "test:source": "node --test scripts/source-authoring-tests.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.ui.json && tsc -p tsconfig.ui.json --jsx react-jsxdev && bun run scripts/check-negative-types.ts"
   },
   "devDependencies": {

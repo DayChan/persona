@@ -181,7 +181,7 @@ func TestMarketTokenFrom(t *testing.T) {
 	pkg := tarDir(t, dir)
 	index := marketIndex(t, "Private", marketEntry(t, dir, "pkg/example-ui.tar.gz", pkg))
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer secret-1" || strings.HasSuffix(r.URL.Path, extension.SigSuffix) {
+		if r.Header.Get("Authorization") != "Bearer secret-1" || strings.HasSuffix(r.URL.Path, ".sig") {
 			http.NotFound(w, r)
 			return
 		}

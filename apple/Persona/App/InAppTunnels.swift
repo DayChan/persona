@@ -99,8 +99,7 @@ final class InAppTunnels {
         } catch {
             if current(), tunnels[id]?.route == route, tunnels[id]?.hub == hub {
                 // Up before (a reopen whose connect failed): it is not the way to the hub any more.
-                tunnels[id] = nil
-                HubTransport.route(hub, via: nil)
+                if let local = tunnels.removeValue(forKey: id)?.local { HubTransport.unroute(hub, from: local) }
                 routed.remove(id)
             }
             if current(), !(error is CancellationError) { states[id] = .down(error.localizedDescription) }
@@ -125,7 +124,7 @@ final class InAppTunnels {
         if forget { recent.remove(id) }
         states[id] = nil
         if let t = tunnels.removeValue(forKey: id) {
-            HubTransport.route(t.hub, via: nil)
+            HubTransport.unroute(t.hub, from: t.local)
             let target = t.route.target
             let shared = tunnels.values.contains { $0.route.target == target }
             enqueue { if !shared { await InAppTunnel.stopForward(target) } }

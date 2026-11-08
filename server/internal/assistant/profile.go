@@ -315,11 +315,12 @@ func stateDirOn(home, dataDir, name string) string {
 
 type assistantView struct {
 	Settings
-	Manager        string          `json:"manager"`
-	Cwd            string          `json:"cwd"`
-	Conversations  []proto.Session `json:"conversations"`
-	NotesEffective string          `json:"notes_effective"`  // what the assistant is told about the user
-	MainTasksQuiet bool            `json:"main_tasks_quiet"` // in effect (the setting's own is left out while unset)
+	Manager            string             `json:"manager"`
+	PermissionDefaults permissionDefaults `json:"permission_defaults"`
+	Cwd                string             `json:"cwd"`
+	Conversations      []proto.Session    `json:"conversations"`
+	NotesEffective     string             `json:"notes_effective"`  // what the assistant is told about the user
+	MainTasksQuiet     bool               `json:"main_tasks_quiet"` // in effect (the setting's own is left out while unset)
 	// StartRequestedTasks is in effect, like MainTasksQuiet.
 	StartRequestedTasks bool `json:"start_requested_tasks"`
 	// RecordingDays and DoneNeedsDelivery are in effect, like MainTasksQuiet.
@@ -337,7 +338,7 @@ func (s *Service) view(ctx context.Context, withArchived bool, space ...string) 
 	}
 	v := s.settings(ctx)
 	v.Launcher = s.launcherNow(ctx)
-	out := assistantView{Settings: v, Manager: s.managerIdentity(), Conversations: []proto.Session{}, NotesEffective: s.notes(ctx), MainTasksQuiet: quietOn(v.MainTasksQuiet),
+	out := assistantView{Settings: v, Manager: s.managerIdentity(), PermissionDefaults: s.permissionDefaults(), Conversations: []proto.Session{}, NotesEffective: s.notes(ctx), MainTasksQuiet: quietOn(v.MainTasksQuiet),
 		StartRequestedTasks: quietOn(v.StartRequestedTasks), RecordingDays: s.recordingDays(ctx),
 		DoneNeedsDelivery: v.DoneNeedsDelivery != nil && *v.DoneNeedsDelivery}
 	if d, ok := s.device(ctx, v.MachineID); ok {

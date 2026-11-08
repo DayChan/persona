@@ -162,6 +162,7 @@ func (p *Proxy) cancelIOLocked(ext string) {
 
 // runtimeDial retains proxy registration policy but pins the checked DNS address
 // even through an upstream CONNECT. A proxy must not resolve the hostname again.
+// Every address is checked before any is dialed; dialRace then tries only those.
 func (p *Proxy) runtimeDial(ctx context.Context, host, port string, configured bool) (net.Conn, error) {
 	ips, err := p.resolveAll(ctx, host)
 	if err != nil {
@@ -186,21 +187,17 @@ func (p *Proxy) runtimeDial(ctx context.Context, host, port string, configured b
 	if err != nil {
 		return nil, err
 	}
-	var last error
-	for _, ip := range ips {
-		target := net.JoinHostPort(ip.String(), port)
-		var c net.Conn
-		if up != nil {
-			c, err = p.connectVia(ctx, up, target)
-		} else {
-			c, err = p.dial(ctx, "tcp", target)
-		}
-		if err == nil {
-			return c, nil
-		}
-		last = err
+	// Each attempt dials one checked address. Through the upstream proxy each attempt is its own CONNECT to
+	// that address (the proxy never sees the name), so an address the proxy cannot reach is raced the same way.
+	attempt := func(ctx context.Context, target string) (net.Conn, error) { return p.dial(ctx, "tcp", target) }
+	if up != nil {
+		attempt = func(ctx context.Context, target string) (net.Conn, error) { return p.connectVia(ctx, up, target) }
 	}
-	return nil, fmt.Errorf("egress dial failed: %w", last)
+	c, err := dialRace(ctx, ips, port, attempt)
+	if err != nil {
+		return nil, fmt.Errorf("egress dial failed: %w", err)
+	}
+	return c, nil
 }
 
 var _ io.Writer = (*boundedResponse)(nil)

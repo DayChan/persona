@@ -245,8 +245,8 @@ func TestMergeListOneManager(t *testing.T) {
 	}
 }
 
-// Acting on an inbox item's suggestion goes to the item's manager, as its reply does: the one the request names, else
-// the default; the assistant being offline says nothing of another manager's item.
+// Acting on an inbox item's suggestion or handing it off goes to the item's manager, as its reply does: the one the
+// request names, else the default; the assistant being offline says nothing of another manager's item.
 func TestInboxSuggestionGoesToTheItemsManager(t *testing.T) {
 	h := newTestHub(t)
 	h.bus.idents = &memIdents{}
@@ -266,7 +266,7 @@ func TestInboxSuggestionGoesToTheItemsManager(t *testing.T) {
 	})
 	srv := httptest.NewServer(h.routes())
 	t.Cleanup(srv.Close)
-	for _, route := range []string{"reply", "suggestion"} {
+	for _, route := range []string{"reply", "suggestion", "handoff"} {
 		path := "/api/v1/inbox/item-m-0a0b0c/" + route + "?manager=m-0a0b0c"
 		if code, out := ownershipGet(t, h, srv, http.MethodPost, path, nil); code != http.StatusOK || out["who"] != "m-0a0b0c" {
 			t.Fatalf("%s: %d %v, want m-0a0b0c's", route, code, out)
@@ -274,7 +274,7 @@ func TestInboxSuggestionGoesToTheItemsManager(t *testing.T) {
 	}
 	_ = a.bus.ws.Close(websocket.StatusNormalClosure, "test")
 	eventually(t, 5*time.Second, "the assistant offline", func() bool { return h.busConnOf(assistantwire.AssistantID) == nil })
-	for _, route := range []string{"reply", "suggestion"} {
+	for _, route := range []string{"reply", "suggestion", "handoff"} {
 		path := "/api/v1/inbox/item-m-0a0b0c/" + route
 		if code, out := ownershipGet(t, h, srv, http.MethodPost, path, map[string]string{ManagerHeader: "m-0a0b0c"}); code != http.StatusOK || out["who"] != "m-0a0b0c" {
 			t.Fatalf("%s with the assistant offline: %d %v, want m-0a0b0c's", route, code, out)

@@ -343,6 +343,8 @@ A manager's own sections of the configuration are in its `manager.json`, not in 
 - `inbox.rules`: personal rules for Inbox AI triage (natural language, e.g. "anything from this person needs me", "this alert group is only noise"), appended to the triage prompt and preferred over default judgments (`docs/assistant/inbox.md`).
   When a connector item carries its own rules (`rules`, e.g. an extension's `triage_rules` setting), those are used instead of this setting.
 - `kb`: knowledge base (`docs/assistant/knowledge.md`): `enabled` (on by default), `read_only` (off by default), `text_days` (text retention days, 365), `attachment_days` (attachments, 30),
+  `attachment_days_by_source` (attachment days for one source's chats, e.g. `{"<source>": 3650}` for a chat source whose history is imported with its images; sources not listed and values of 0 or less keep `attachment_days`;
+  used both when deciding whether to download an attachment and when cleanup deletes attachment days),
   `ai` (model for compression and tagging, same fields as `ai`; defaults to `inbox.triage_ai`, then `ai`), `extra_dirs` (note directories you maintain on the manager's machine, the hub machine for the built-in manager,
   e.g. a git repo of facts / lessons: `kb_search` also searches Markdown in these directories (read-only, skips dot directories such as `.git`), and the assistant's CLAUDE.md mentions them; `~/` is that machine's home).
   With `enabled: true, read_only: true`, the manager serves existing local archives without collection, model calls,
@@ -433,7 +435,7 @@ A manager's own sections of the configuration are in its `manager.json`, not in 
   `dir` (working directory), `env` (extra environment variables), `disabled` (`true` disables while keeping the config), `config` (the extension's own settings), see `docs/extensions/extensions.md` ("Extensions in manager.json");
   extensions installed with `personad extension install` are registered in the database, not here. For personad's built-in voice extension (GPT-Live), use `"command": "personad", "args": ["voice"]`,
   with upstreams in `config.providers` (`docs/extensions/extensions.md` ("Built-in voice extension")). Restart the hub after changes.
-- `trusted_extension_markets` (optional): signing public keys of additional trusted extension markets (key id, or `ed25519:…` from `market.pub`); extensions installed from these markets default to no sandbox, just like the official market (`docs/extensions/extensions.md` ("Sandbox")).
+- `trusted_extension_markets` (legacy): retained for configuration decoding only. Nonofficial signing metadata and saved keys no longer grant a sandbox exemption; installed extensions keep the default sandbox unless the owner explicitly chooses otherwise (`docs/extensions/extensions.md` ("Sandbox")).
 
 <a id="ddnspublicddns"></a>
 

@@ -36,6 +36,9 @@ internal fun MachinesScreen(
     val roster = LocalManagerRoster.current
     val managerGroup = LocalManagerGroup.current
     var choosingManager by remember(machineId) { mutableStateOf(false) }
+    var renaming by remember(machineId) { mutableStateOf(false) }
+    // The hub renames computers (feature machine_rename); a linked hub's computer is renamed on that hub.
+    val renames = MachineRenameFeature in LocalHubFeatures.current
     val machines by model.sessions.machines.collectAsStateWithLifecycle()
     val sessions by model.sessions.sessions.collectAsStateWithLifecycle()
     val machine = machines.firstOrNull { it.id == machineId }
@@ -72,6 +75,7 @@ internal fun MachinesScreen(
     if (addComputerHelp) ReadinessHelpDialog(ReadinessHelp.AddComputer, null, onDismiss = { addComputerHelp = false }, onAction = {})
     val addComputer = { if (adds && canAdd) navigator.navigate(AddComputerRoute()) else addComputerHelp = true }
     val confirmComputer: (String) -> Unit = { id -> navigator.navigate(AddComputerRoute(confirm = id)) }
+    if (renaming && actions != null && machine != null) RenameMachineDialog(machine, onRename = { actions.rename(machine.id, it) }, onDismiss = { renaming = false })
     if (choosingManager && actions != null && machineId != null) roster?.let { r ->
         val current = r.ownerOf(machines.firstOrNull { it.id == machineId }?.manager)
         MoveToManagerSheet(r, current, onMove = { m -> actions.moveTo(machineId, m.id, m.shownName) }, onDismiss = { choosingManager = false })
@@ -130,7 +134,8 @@ internal fun MachinesScreen(
                 canReconnect = offlineManagerOf(roster, machine, managerGroup) == null,
                 onEngine = { navigator.navigate(EngineRoute(machine.id)) }, onReconnect = { actions.reconnect(machine.id) },
                 botmux = acting.botmux, botmuxSaving = acting.botmuxSaving, onBotmux = { actions.setBotmux(machine.id, it) },
-                move = owner?.let { id -> MachineMoveRow(roster?.manager(id)?.shownName ?: id, acting.moving) { choosingManager = true } })
+                move = owner?.let { id -> MachineMoveRow(roster?.manager(id)?.shownName ?: id, acting.moving) { choosingManager = true } },
+                rename = MachineRenameRow(acting.renaming) { renaming = true }.takeIf { renames && machine.kind != "hub" })
             // As iOS: what the computer can do and its browser come before the monitoring.
             if (machine != null && health != null) {
                 machineHealth(machine, healthState, allChecks, { allChecks = !allChecks }, { health.check(machine.id) }, { confirmFix = true },

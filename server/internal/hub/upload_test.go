@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nwverse/persona/server/internal/nodeproto"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -90,12 +91,17 @@ func uploadHub(t *testing.T, f *uploadNode) http.Handler {
 // uploadHubOf is uploadHub with its hub and its machine m1.
 func uploadHubOf(t *testing.T, f *uploadNode) (*Hub, *Machine, http.Handler) {
 	t.Helper()
+	return uploadHubHandler(t, f.handle)
+}
+
+func uploadHubHandler(t *testing.T, handler rpc.Handler) (*Hub, *Machine, http.Handler) {
+	t.Helper()
 	h := newTestHub(t)
 	toNode, nodeIn := io.Pipe()
 	toHub, hubIn := io.Pipe()
 	hubPeer := rpc.New("h", nodeIn)
 	nodePeer := rpc.New("n", hubIn)
-	nodePeer.OnRequest = f.handle
+	nodePeer.OnRequest = handler
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); toNode.Close(); toHub.Close() })
 	go hubPeer.Serve(ctx, toHub)
@@ -327,6 +333,73 @@ func TestUploadIntoFolder(t *testing.T) {
 		}
 		if old.noEcho && !old.aborted {
 			t.Fatal("the ignored upload was not aborted")
+		}
+	}
+}
+
+// The caller stops waiting for the chunk, but the node still owns its write.
+// Deferred cleanup must send abort with a live context and must never send end.
+func TestUploadCancelledDuringChunkAborts(t *testing.T) {
+	f := &uploadNode{}
+	entered, release, settled := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	aborted := make(chan error, 1)
+	_, _, mux := uploadHubHandler(t, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if method == "file.upload.chunk" {
+			close(entered)
+			<-release
+			defer close(settled)
+		}
+		out, err := f.handle(ctx, method, params)
+		if method == "file.upload.abort" {
+			aborted <- ctx.Err()
+		}
+		return out, err
+	})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest("POST", "/api/v1/machines/m1/files?name=cancelled.bin", bytes.NewReader([]byte("data"))).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { mux.ServeHTTP(rec, req); close(done) }()
+	wait := func(ch <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatal("canceled upload did not settle")
+		}
+	}
+	wait(entered)
+	cancel()
+	select {
+	case err := <-aborted:
+		if err != nil {
+			t.Fatalf("abort inherited cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no abort while chunk was outstanding")
+	}
+	wait(done)
+	if rec.Code == http.StatusOK {
+		t.Fatal("canceled HTTP upload succeeded")
+	}
+	close(release)
+	wait(settled)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.aborted {
+		t.Fatal("canceled upload was not aborted")
+	}
+	for _, method := range f.calls {
+		if method == "file.upload.end" {
+			t.Fatal("canceled upload was finalized")
 		}
 	}
 }

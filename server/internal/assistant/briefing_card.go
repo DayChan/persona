@@ -79,10 +79,25 @@ func (s *Service) briefCard(f *briefFacts, label, answer string) (card *feishubo
 	var accept []briefBlock
 	for i, r := range f.Accept {
 		md := boardRowMarkdown(l, i+1, r)
+		btnLabel := i18n.T(l, "assistant-reports.accept_pass")
+		a, asked := f.Asks[r.id]
+		if asked && !a.Conclusion { // a conclusion's row says its verdict already (boardRows); deployed work's says it here (#1226)
+			md += "\n" + feishubot.EscapeMarkdown(verdictText(l, &a))
+		}
 		if ch := f.Changed[r.id]; ch != "" {
 			md += "\n" + feishubot.EscapeMarkdown(clip(oneLine(ch), 80))
 		}
-		btn := feishubot.Btn(i18n.T(l, "assistant-reports.accept_pass"), feishubot.Primary,
+		if rec := recommendText(l, &a); asked && rec != "" {
+			md += "\n" + feishubot.EscapeMarkdown(rec)
+			btnLabel = i18n.T(l, "assistant-reports.verdict_take")
+		} else if asked && decideAsk(&a) {
+			// Nothing recommended: there is nothing for a button to take, the owner answers its card.
+			accept = append(accept, briefBlock{md: md, plain: boardRowPlain(l, i+1, r)})
+			continue
+		} else if asked && a.Conclusion {
+			btnLabel = i18n.T(l, "assistant-reports.verdict_ack")
+		}
+		btn := feishubot.Btn(btnLabel, feishubot.Primary,
 			map[string]any{"a": "accept", "id": r.id, "asked_at": r.asked.UTC().Format(timeKeyLayout)})
 		accept = append(accept, briefBlock{md: md, plain: boardRowPlain(l, i+1, r), btn: btn, todo: r.id})
 	}
@@ -149,7 +164,14 @@ func (b *briefBudget) section(c *feishubot.Card, plain *[]string, l i18n.Lang, h
 		if added >= briefRowsMax {
 			break
 		}
-		if hasButtons {
+		if hasButtons && bl.btn == nil { // a row without one among rows with buttons (a decision with nothing recommended)
+			n := mdCost(bl.md)
+			if n > b.bytes || b.els < 1 {
+				break
+			}
+			c.Markdown(bl.md)
+			b.bytes, b.els = b.bytes-n, b.els-1
+		} else if hasButtons {
 			n := feishuElBytes(func(x *feishubot.Card) { x.Markdown(bl.md).Buttons(bl.btn) })
 			if n > b.bytes || b.els < 2 {
 				break

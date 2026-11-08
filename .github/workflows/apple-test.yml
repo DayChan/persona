@@ -1,17 +1,31 @@
 name: Apple CI
 on:
   workflow_call:
+    inputs:
+      lane:
+        description: Apple platform lane
+        type: string
+        default: ios
+        required: false
   workflow_dispatch:
+    inputs:
+      lane:
+        description: Apple platform lane
+        type: choice
+        options: [ios, macos]
+        default: ios
+        required: true
 permissions:
   contents: read
 jobs:
   apple:
-    name: Apple builds and unit tests (Xcode 26.0)
+    name: ${{ inputs.lane == 'macos' && 'macOS builds and unit tests (Xcode 26.0)' || 'iOS, Watch and HTML tests (Xcode 26.0)' }}
     runs-on: macos-26
     timeout-minutes: 75
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
       CI_SPM_CACHE: ${{ github.workspace }}/.ci-cache/spm
+      APPLE_CI_LANE: ${{ inputs.lane }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,4 +41,14 @@ jobs:
           key: spm-${{ runner.os }}-${{ runner.arch }}-xcode-26.0-${{ hashFiles('apple/**/Package.resolved', 'apple/**/Package.swift', 'apple/project.yml') }}
           restore-keys: spm-${{ runner.os }}-${{ runner.arch }}-xcode-26.0-
       - name: Apple checks
-        run: scripts/ci/apple.sh
+        env:
+          CI_APPLE_DIAGNOSTICS: ${{ runner.temp }}/persona-apple-diagnostics-${{ inputs.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: scripts/ci/apple.sh "$APPLE_CI_LANE"
+      - name: Upload Apple failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-${{ inputs.lane }}-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/persona-apple-diagnostics-${{ inputs.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7

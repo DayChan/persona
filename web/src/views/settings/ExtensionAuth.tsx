@@ -3,7 +3,7 @@
 // the code to enter, and the link's QR code for another phone), or a QR code to scan. A device code / QR step is asked
 // again every interval (lib/extension-auth.ts pollAuth) until it is done or another step comes. The rules and words are
 // in lib/extension-auth.ts; the QR code is the one the connectors' sign-in draws (LoginSteps.tsx).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { fieldInput } from "../../lib/connectors";
 import {
@@ -79,54 +79,90 @@ export function AuthGroup({ id, auth, enabled, start, onChange }: {
 }
 
 /** The sign-in, one step at a time; closes itself when the extension says it is done (onDone asks for the new state). */
-export function SignInDialog({ id, title, onClose, onDone }: { id: string; title: string; onClose: () => void; onDone: () => void }) {
+export function SignInDialog(props: { id: string; title: string; onClose: () => void; onDone: () => void }) {
+  return <SignInFlow key={props.id} {...props} />;
+}
+
+type AuthRun = { busy: boolean };
+
+function SignInFlow({ id, title, onClose, onDone }: Parameters<typeof SignInDialog>[0]) {
   const [prompt, setPrompt] = useState<AuthPrompt | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(true);
   const [failure, setFailure] = useState("");
-  const live = useRef(true);
-  useEffect(() => {
-    live.current = true;
-    return () => void (live.current = false);
+  const run = useRef<AuthRun | null>(null);
+  const currentPrompt = useRef<AuthPrompt | null>(null);
+  const stopPolling = useRef<(() => void) | undefined>(undefined);
+  const callbacks = useRef({ onClose, onDone });
+  // Status pushes replace the parent's callbacks; completion uses the latest committed ones without restarting auth.
+  useLayoutEffect(() => { callbacks.current = { onClose, onDone }; }, [onClose, onDone]);
+
+  const close = useCallback(() => {
+    if (!run.current) return;
+    run.current = null;
+    stopPolling.current?.();
+    callbacks.current.onClose();
   }, []);
 
-  const take = useCallback((p: AuthPrompt) => {
-    if (!live.current) return;
+  const take = useCallback((p: AuthPrompt, owner: AuthRun) => {
+    if (run.current !== owner) return;
     setFailure("");
     if (p.done) {
+      run.current = null;
+      stopPolling.current?.();
       toast(p.account ? t("settings-extensionauth.signed_in_as", { account: p.account }) : t("settings-extensionauth.signed_in"), "ok");
+      const { onDone, onClose } = callbacks.current;
       onDone();
       onClose();
       return;
     }
-    setPrompt((cur) => {
-      if ((p.step ?? "") !== (cur?.step ?? "") || !cur) setValues({}); // a new step: its fields start empty
-      return p;
-    });
-  }, [onClose, onDone]);
+    const cur = currentPrompt.current;
+    if (!cur || (p.step ?? "") !== (cur.step ?? "")) setValues({}); // a new step: its fields start empty
+    currentPrompt.current = p;
+    setPrompt(p);
+  }, []);
 
-  const send = useCallback(async (step: string, vals: Record<string, string>) => {
+  const send = useCallback(async (step: string, vals: Record<string, string>, owner = run.current) => {
+    if (!owner || run.current !== owner || owner.busy) return;
+    owner.busy = true; // Form submission, Next and Restart share synchronous admission before React rerenders.
     setBusy(true);
     try {
-      take(await authStep(id, step, vals));
+      take(await authStep(id, step, vals), owner);
     } catch (e) {
-      if (live.current) setFailure(errorText(e));
+      if (run.current === owner) setFailure(errorText(e));
     } finally {
-      if (live.current) setBusy(false);
+      if (run.current === owner) {
+        owner.busy = false;
+        setBusy(false);
+      }
     }
   }, [id, take]);
 
-  useEffect(() => {
-    void send("", {});
+  useLayoutEffect(() => {
+    const owner: AuthRun = { busy: false };
+    run.current = owner;
+    // StrictMode replays setup/cleanup before this task; only the surviving lifetime may start a mutating step.
+    void Promise.resolve().then(() => send("", {}, owner));
+    return () => {
+      // Retire at commit, before a replaced identity's pending requests can publish into the next flow.
+      if (run.current === owner) run.current = null;
+    };
   }, [send]);
 
   // a device code or QR code: the same step again every interval, until it is done or another step comes
   const view = prompt ? authStepView(prompt) : null;
-  const polled = isPolled(prompt);
   useEffect(() => {
-    if (!prompt || !polled) return;
-    return pollAuth(prompt, (step) => authStep(id, step), take, (e) => live.current && setFailure(errorText(e)));
-  }, [prompt?.step, view, polled, id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const owner = run.current;
+    if (!owner || !prompt || !isPolled(prompt)) return;
+    const stop = pollAuth(prompt, (step) => authStep(id, step), (p) => take(p, owner), (e) => {
+      if (run.current === owner) setFailure(errorText(e));
+    });
+    stopPolling.current = stop;
+    return () => {
+      stop();
+      if (stopPolling.current === stop) stopPolling.current = undefined;
+    };
+  }, [prompt, id, take]);
 
   const fields = prompt?.fields ?? [];
   const canSend = view === "fields" && !busy && fields.every((f) => (values[f.name] ?? "").trim().length > 0);
@@ -134,20 +170,23 @@ export function SignInDialog({ id, title, onClose, onDone }: { id: string; title
     if (canSend && prompt) void send(prompt.step ?? "", values);
   };
   const restart = () => {
+    if (!run.current || run.current.busy) return;
+    currentPrompt.current = null;
     setPrompt(null);
     setValues({});
+    setFailure("");
     void send("", {});
   };
 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={title}
       width={400}
       footer={
         <>
-          <Button tone="quiet" onClick={onClose}>{t("common.cancel")}</Button>
+          <Button tone="quiet" onClick={close}>{t("common.cancel")}</Button>
           {view === "fields" && (
             <Button tone="accent" disabled={!canSend} busy={busy} onClick={submit}>
               {busy ? t("settings-extensionauth.verifying") : t("settings-extensionauth.next")}
@@ -177,7 +216,7 @@ export function SignInDialog({ id, title, onClose, onDone }: { id: string; title
       )}
       {prompt && view === "unsupported" && (
         <div className="-mx-4">
-          <UnsupportedStep onRestart={restart} onCancel={onClose} />
+          <UnsupportedStep onRestart={restart} onCancel={close} />
         </div>
       )}
       {prompt && view === "fields" && (

@@ -57,7 +57,7 @@ describe("市场的规矩", () => {
     expect(marketLine(m, () => "1 小时前")).toBe("3 个扩展 · 1 小时前读过 · 有 token");
     expect(marketLine({ ...m, has_token: false, fetched_at: undefined }, () => "")).toBe("3 个扩展 · 还没读过");
     expect(marketLine({ ...m, signature: { state: "verified", key_id: "32ed46cdbe349656" } }, () => "1 小时前")).toBe("3 个扩展 · 1 小时前读过 · 有 token · 签名已验证");
-    expect(marketLine({ ...m, signature: { state: "key_changed" } }, () => "1 小时前")).toContain("签名的 key 换了");
+    expect(marketLine({ ...m, signature: { state: "key_changed" } }, () => "1 小时前")).toContain("官方签名 key 不匹配，等待验签");
     expect(specLabel("github:example/x")).toBe("example/x");
     expect(specLabel("https://extensions.example.com/persona/persona-extensions.json")).toBe("extensions.example.com/persona/persona-extensions.json");
     expect(specLabel("https://example.com/")).toBe("example.com");

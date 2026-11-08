@@ -194,5 +194,11 @@
     <string name="machines_move_offline">%1$s · オフライン</string>
     <string name="machines_notice_moved">「%1$s」に移動しました</string>
     <string name="machines_notice_move_failed">移動できませんでした：%1$s</string>
+    <string name="machines_rename">名前を変更</string>
+    <string name="machines_rename_title">コンピュータの名前を変更</string>
+    <string name="machines_rename_save">保存</string>
+    <string name="machines_rename_hint">すべてのアプリとこのコンピュータの Persona Link に表示されます。空欄なら ID を使います。ID は変わりません。</string>
+    <string name="machines_notice_renamed">「%1$s」に変更しました</string>
+    <string name="machines_notice_rename_failed">名前を変更できませんでした：%1$s</string>
     <string name="machines_manager_offline">管理者「%1$s」がオフラインです。管理者が戻ると、このコンピューターもオンラインに戻ります。</string>
 </resources>

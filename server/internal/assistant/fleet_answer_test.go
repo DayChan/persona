@@ -157,6 +157,42 @@ func TestResolveRoute(t *testing.T) {
 	}
 }
 
+// A second answer between the first one's claim and its outcome reaching the history (#1230) is the same outcome
+// again, told from the claim: 200 already with the first answer, not 410. A card its end claimed (expired, its hook
+// gone) has no answer to tell and stays 410.
+func TestResolveRouteRightAfterAnotherAnswer(t *testing.T) {
+	ft, ix, _ := answerFleet(t)
+	h := ft.s.fleetHandler(http.NotFoundHandler())
+	post := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/interactions/"+ix.ID+"/resolve", strings.NewReader(`{"answers":{"发吗？":"不发"}}`)))
+		return w
+	}
+	ft.s.fleet.mu.Lock()
+	p := ft.s.fleet.interactions[ix.ID]
+	p.claimed, p.resolution = true, &proto.Resolution{Answers: map[string]string{"发吗？": "发"}}
+	ft.s.fleet.mu.Unlock()
+	if status, _, _ := ft.st.InteractionOutcome(context.Background(), ix.ID); status != "pending" {
+		t.Fatalf("the history has %q already", status)
+	}
+	w := post()
+	var out struct {
+		Already    bool              `json:"already"`
+		Status     string            `json:"status"`
+		Resolution *proto.Resolution `json:"resolution"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if w.Code != http.StatusOK || !out.Already || out.Status != "resolved" || out.Resolution == nil || out.Resolution.Answers["发吗？"] != "发" {
+		t.Fatalf("right after another answer: %d %s", w.Code, w.Body)
+	}
+	ft.s.fleet.mu.Lock()
+	p.resolution = nil // claimed by its end instead
+	ft.s.fleet.mu.Unlock()
+	if w := post(); w.Code != http.StatusGone {
+		t.Fatalf("right after it ended: %d %s", w.Code, w.Body)
+	}
+}
+
 // An MCP form or URL request (elicitation) is only shown while an app that takes one is connected (the hub says,
 // fleet.clients); else it goes back to the terminal at once. Its answer must be one of its actions.
 func TestElicitationNeedsAnApp(t *testing.T) {

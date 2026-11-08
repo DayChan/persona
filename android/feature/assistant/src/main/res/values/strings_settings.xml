@@ -24,7 +24,7 @@
     <string name="assistant_settings_machine_offline">Offline</string>
     <string name="assistant_settings_cwd">Working directory</string>
     <string name="assistant_settings_offline_notice">“%1$s” is offline. Until it\'s back, Persona can\'t reply or read its memory.</string>
-    <string name="assistant_settings_where_caption">Each chat runs a Claude Code in the background in this directory on this machine, outside herdr. Pick the model under Settings › Model settings › Main chat.</string>
+    <string name="assistant_settings_where_caption">Each chat runs Claude Code or Codex in the background in this directory on this machine. Choose the backend and model under Settings › Model settings › Main chat.</string>
     <string name="assistant_settings_proactive_header">On its own</string>
     <string name="assistant_settings_proactive">Scheduled tasks, follow-ups and runs</string>
     <string name="assistant_settings_proactive_subtitle">Starts work on time, follows up on what it promised, and notifies your phone when done</string>

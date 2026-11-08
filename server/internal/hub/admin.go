@@ -128,7 +128,7 @@ func (h *Hub) adminRoutes(mux *http.ServeMux, api, web http.Handler) http.Handle
 	h.adminHubRoutes(closed)
 	h.adminAssistantRoutes(closed)
 	h.adminMachineRoutes(closed)
-	h.adminUsageRoutesRelayed(closed) // the usage sources page, the manager's (devices_link.go, #2595)
+	h.adminUsageRoutesRelayed(closed) // the usage sources page, the manager's (devices_routes.go, #2595)
 	h.adminDeviceRoutes(closed)
 	h.adminNetworkRoutes(closed)
 	h.adminExtensionRoutes(closed)

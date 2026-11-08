@@ -142,7 +142,7 @@ final class SSHTunnels {
         if forget { recent.remove(id) }
         guard let t = tunnels.removeValue(forKey: id) else { states[id] = nil; return }
         t.tunnel.stop()
-        HubTransport.route(t.hub, via: nil)
+        if let url = t.tunnel.localURL { HubTransport.unroute(t.hub, from: url) }
         states[id] = nil
     }
 

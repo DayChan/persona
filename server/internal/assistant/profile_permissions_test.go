@@ -43,7 +43,8 @@ func TestDefaultPermissionSettingsScopeAndReload(t *testing.T) {
 		v.Former = []FormerMain{{MachineID: "server", SessionID: "old-main"}}
 	})
 	w, view := permissionSettingsRequest(t, s, "GET", "/api/v1/assistant", "assistant", "full", "")
-	if w.Code != 200 || view.Manager != "assistant" || view.DefaultPermissionMode != "" {
+	if w.Code != 200 || view.Manager != "assistant" || view.DefaultPermissionMode != "" || view.PermissionDefaults.Version != 1 ||
+		view.PermissionDefaults.Manager != view.Manager || !reflect.DeepEqual(view.PermissionDefaults.Modes, proto.PermissionModes) {
 		t.Fatalf("legacy defaults: %d %+v", w.Code, view)
 	}
 	before, _ := s.savedSettings(ctx)
@@ -168,9 +169,40 @@ func TestDefaultPermissionManagersKeepIndependentStores(t *testing.T) {
 				}
 			}
 			w, view := permissionSettingsRequest(t, s, "GET", "/api/v1/assistant", id, "full", "")
-			if w.Code != 200 || view.Manager != id || view.DefaultPermissionMode != modes[i] {
+			if w.Code != 200 || view.Manager != id || view.DefaultPermissionMode != modes[i] || view.PermissionDefaults.Manager != id || view.PermissionDefaults.Version != 1 {
 				t.Fatalf("pass %d %s: %d %+v", pass, id, w.Code, view)
 			}
+		}
+	}
+}
+
+// The saved preference reaches new conversations regardless of the chosen native backend.
+func TestDefaultPermissionSavedForBothLaunchers(t *testing.T) {
+	for _, launcher := range []string{"claude", "codex-l"} {
+		for _, mode := range proto.PermissionModes {
+			t.Run(launcher+"/"+mode, func(t *testing.T) {
+				f := newFakeHub().withMachine()
+				st := &memStore{}
+				s := newServiceOn(t, f, st)
+				setSettings(t, s, func(v *Settings) { v.Launcher = launcher; v.Main = "existing-main" })
+				w, _ := permissionSettingsRequest(t, s, "PUT", "/api/v1/assistant", "assistant", "full", `{"default_permission_mode":"`+mode+`"}`)
+				if w.Code != http.StatusOK {
+					t.Fatalf("save: %d %s", w.Code, w.Body)
+				}
+				s = newServiceOn(t, f, st)
+				w, view := permissionSettingsRequest(t, s, "GET", "/api/v1/assistant", "assistant", "full", "")
+				if w.Code != http.StatusOK || view.DefaultPermissionMode != mode || view.Main != "existing-main" {
+					t.Fatalf("reload: %d %+v", w.Code, view)
+				}
+				session, err := s.Start(context.Background(), StartParams{Untitled: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				sent := f.sends[len(f.sends)-1]
+				if sent["launcher"] != launcher || sent["permission_mode"] != mode || session.PermissionMode != mode {
+					t.Fatalf("new %s session: %v %+v", launcher, sent, session)
+				}
+			})
 		}
 	}
 }

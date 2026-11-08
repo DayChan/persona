@@ -33,8 +33,13 @@ FAKE_XCRUN = textwrap.dedent('''\
     elif a[0] == "create":
         st["devices"].setdefault(a[3], []).append({"udid": st["next"], "name": a[1], "state": "Shutdown", "isAvailable": True}); save()
         print(st["next"])
-    elif a[0] == "boot": dev(a[1])["state"] = "Booted"; save()
-    elif a[0] == "bootstatus": sys.exit(0 if dev(a[1])["state"] == "Booted" else 1)
+    elif a[0] == "boot":
+        if st.get("boot_rc"): sys.exit(st["boot_rc"])
+        dev(a[1])["state"] = "Booted"; save()
+    elif a[0] == "bootstatus":
+        print(st.get("boot_progress", "Boot phase: waiting for SpringBoard"))
+        print(st.get("boot_error", "bootstatus stderr diagnostic"), file=sys.stderr)
+        sys.exit(st.get("bootstatus_rc", 0 if dev(a[1])["state"] == "Booted" else 1))
     else: sys.exit("unexpected simctl " + " ".join(a))
     ''')
 FAKE_SIMSLIM = textwrap.dedent('''\
@@ -173,6 +178,59 @@ class SimBootTests(unittest.TestCase):
         self.assertEqual(self.verdict(r), f"sim-boot: stock stock {PHONE}")
         self.assertIn(f"simslim off {PHONE} --preserve-boot-state", calls)
         self.assertEqual(self.device(PHONE)["state"], "Booted")
+
+    def test_boot_progress_stays_on_stderr_and_stdout_is_only_the_udid(self):
+        self.state.update(boot_progress="Waiting on Data Migration", boot_error="boot diagnostic")
+        self.save()
+        r, _ = self.run_boot("--profile", "stock", "mine", simslim=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), PHONE)
+        self.assertIn("Waiting on Data Migration", r.stderr)
+        self.assertIn("boot diagnostic", r.stderr)
+
+    def test_failed_boot_reports_the_original_diagnostic_without_a_success_udid(self):
+        self.state.update(bootstatus_rc=1, boot_error="SpringBoard did not become ready")
+        self.save()
+        r, _ = self.run_boot("--profile", "stock", "mine", simslim=False)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("SpringBoard did not become ready", r.stderr)
+        self.assertIn("did not finish booting", r.stderr)
+
+    def test_bootstatus_timeout_preserves_exit_124(self):
+        self.state.update(bootstatus_rc=124)
+        self.save()
+        r, _ = self.run_boot("--profile", "stock", "mine", simslim=False)
+        self.assertEqual(r.returncode, 124, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("bootstatus exit 124", r.stderr)
+
+    def test_boot_failure_preserves_exit_and_does_not_wait(self):
+        self.state.update(boot_rc=7)
+        self.save()
+        r, calls = self.run_boot("--profile", "stock", "mine", simslim=False)
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("boot exit 7", r.stderr)
+        self.assertFalse(any("bootstatus" in c for c in calls))
+
+    def test_bootstatus_diagnostics_are_preserved_without_polluting_udid(self):
+        r, calls = self.run_boot('--profile', 'stock', 'mine')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), PHONE)
+        self.assertIn('Boot phase: waiting for SpringBoard', r.stderr)
+        self.assertIn('bootstatus stderr diagnostic', r.stderr)
+
+    def test_failed_bootstatus_is_reported_without_automatic_retry(self):
+        self.state['bootstatus_rc'] = 1
+        self.save()
+        r, calls = self.run_boot('--profile', 'stock', 'mine')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.stdout, '')
+        self.assertIn('Boot phase: waiting for SpringBoard', r.stderr)
+        self.assertIn('did not finish booting', r.stderr)
+        self.assertEqual(calls.count(f'xcrun simctl boot {PHONE}'), 1)
+        self.assertFalse(any(call.startswith('xcrun simctl shutdown') for call in calls))
 
     def test_usage_errors_exit_2_and_touch_nothing(self):
         for args in (("--profile", "nope", "mine"), ("44444444-4444-4444-4444-444444444444",), ()):

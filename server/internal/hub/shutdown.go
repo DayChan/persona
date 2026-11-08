@@ -12,7 +12,9 @@ import (
 
 // These are shutdown policy budgets, not measured service latencies.
 const (
-	defaultShutdownTimeout = 8 * time.Second
+	// DefaultShutdownTimeout is the hub's whole shutdown without hub.json's shutdown_timeout_seconds (a container's
+	// supervisor, internal/supervise, waits that long and a little more before it kills the hub).
+	DefaultShutdownTimeout = 8 * time.Second
 	shutdownStepTimeout    = 2 * time.Second
 	websocketCloseGrace    = 500 * time.Millisecond
 )
@@ -26,7 +28,7 @@ type shutdownBudget struct {
 }
 
 func newShutdownBudget(cfg *Config) *shutdownBudget {
-	timeout := defaultShutdownTimeout
+	timeout := DefaultShutdownTimeout
 	if cfg.ShutdownTimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.ShutdownTimeoutSeconds) * time.Second
 	}

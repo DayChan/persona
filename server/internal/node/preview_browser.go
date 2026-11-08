@@ -111,13 +111,11 @@ func executable(p string) bool {
 	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
 }
 
-// previewProfileDir is the browser's own profile: a sign-in to the dev app is still there next time.
-var previewProfileDir = func() string {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		base = os.TempDir()
-	}
-	return filepath.Join(base, "persona", "preview-browser")
+// previewProfileDir is the browser's own profile: a sign-in to the dev app is still there next time. It holds those
+// sign-ins, so it is a private cache folder of this user (privateCacheDir): never a fixed name in the shared temp
+// folder, where another local user could make it first and read them.
+var previewProfileDir = func() (string, error) {
+	return privateCacheDir("preview-browser")
 }
 
 // browserArgs are the switches the browser runs with: headless, CDP over the pipe, its own profile, nothing that
@@ -259,9 +257,9 @@ func startPreviewBrowser(ctx context.Context) (*previewBrowser, error) {
 	if err != nil {
 		return nil, err
 	}
-	profile := previewProfileDir()
-	if err := os.MkdirAll(profile, 0o700); err != nil {
-		return nil, err
+	profile, err := previewProfileDir()
+	if err != nil {
+		return nil, fmt.Errorf("the preview browser's profile folder: %w", err)
 	}
 	args := browserArgs(profile)
 	b, v, err := connectBrowser(ctx, bin, args)

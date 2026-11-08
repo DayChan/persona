@@ -210,14 +210,14 @@ func (b *BusHub) onHello(res json.RawMessage) error {
 			if b.client.Wait(ctx) == nil {
 				d.BusUp()
 				if svc != nil {
-					svc.FleetUp(ctx) // the interactions, the lists and the fleet (fleet.go)
+					svc.FleetUp(ctx) // the interactions, the lists and the fleet (fleet_events.go)
 				}
 			}
 		}()
 	}
 	reported.seal()
 	if svc != nil && h.Mutes != nil {
-		svc.setMutes(*h.Mutes) // the hub's, before anything is pushed (fleet.go)
+		svc.setMutes(*h.Mutes) // the hub's, before anything is pushed (fleet_mutes.go)
 	}
 	if svc != nil {
 		svc.workReconnected() // turns that ended while it was away are looked for at the next tick (agents_work.go)
@@ -775,7 +775,7 @@ func (b *BusHub) event(ctx context.Context, ev busEvent) error {
 		s.ChannelNoted(ctx, p)
 	case "managers": // the bus's roster: nothing the assistant needs
 	default:
-		if s.FleetEvent(ctx, ev.name, ev.params) { // the hub's fleet.* (fleet.go)
+		if s.FleetEvent(ctx, ev.name, ev.params) { // the hub's fleet.* (fleet_events.go)
 			return nil
 		}
 		if ok, err := s.kbEvent(ctx, ev.name, ev.params); ok { // the knowledge base's (kb_bus.go)

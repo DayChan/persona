@@ -211,6 +211,15 @@ func (h *Hub) takeMachineEntries(owner string, st devicewire.States) {
 	if d.reported == nil {
 		d.reported = reportedMachines{}
 	}
+	for mid, k := range d.kept { // a kept machine its report lacks (its list does not read): as last reported
+		if k == owner {
+			if _, has := next[mid]; !has {
+				if p, had := prev[mid]; had {
+					next[mid] = p
+				}
+			}
+		}
+	}
 	d.reported[owner] = next
 	if d.reportedSince == nil {
 		d.reportedSince = map[string]bool{}

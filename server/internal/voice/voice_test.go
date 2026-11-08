@@ -254,7 +254,7 @@ func TestLiveDialectConversation(t *testing.T) {
 			}
 		}
 	})
-	pl := testPlugin(t, Config{Owner: "老板", Providers: []Provider{{ID: "rt", URL: up.url(), Key: "k"}}}, hub.server(t))
+	pl := testPlugin(t, Config{Owner: "老板", Providers: []Provider{{ID: "rt", URL: up.url(), Key: "k", Tools: new(false)}}}, hub.server(t))
 	a := dialApp(t, pl, map[string]any{"type": "start", "model": "rt/m1", "voice": "v1"})
 
 	ready := a.until(ofType("ready"))
@@ -339,7 +339,7 @@ func TestLiveDialectTools(t *testing.T) {
 			}})
 		}
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Key: "k", Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Key: "k", Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, map[string]any{"type": "start"})
 	a.until(ofType("ready"))
 	start := up.next("session.start")["session"].(map[string]any)

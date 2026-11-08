@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -49,6 +50,14 @@ type acceptAsk struct {
 	// the owner is asked by the briefing, the board and the web app instead. An empty MessageID without it (and with
 	// AskedAt) is a card that did not go out yet: retryAcceptance posts it.
 	NoCard bool `json:"no_card,omitempty"`
+	// Conclusion: the ask is a supervised task's conclusion (#1226, conclusion.go), told once its review gives a result: its
+	// card says the verdict, one sentence of why and one link instead of the three lines. Outcome is the verdict
+	// (outcomeDone, outcomeCannot, outcomeDecide; "" reads as done: a deployed task's ask says that on top of its three
+	// lines), Reason the sentence, Recommend the option a decision recommends, which "OK" takes.
+	Conclusion bool   `json:"conclusion,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Recommend  string `json:"recommend,omitempty"`
 }
 
 // acceptPostWindow is how long after an ask its card that did not go out (the bot's status could not be read, the send
@@ -137,26 +146,34 @@ func (s *Service) askAcceptance(t Todo, machine, session, reply string) {
 		return
 	}
 	var earlier []string
-	if old := b.asks[t.ID]; old != nil && !acceptAskStale(old, t) {
+	if old := b.asks[t.ID]; old != nil && (old.AskedAt.IsZero() || !old.Conclusion) && !acceptAskStale(old, t) {
 		b.mu.Unlock()
 		return
 	} else if old != nil {
-		// asked before the task's latest reopen: the new round gets its own card, the old ones stay dead
+		// asked before the task's latest reopen, or a conclusion (conclusion.go): the new round gets its own card, the old
+		// ones stay dead
 		earlier = lastOf(slices.Concat(old.Earlier, old.Messages), acceptEarlierMost)
 		delete(b.asks, t.ID)
 	}
 	b.asks[t.ID] = &acceptAsk{Earlier: earlier} // claimed: a second turn ending meanwhile does not ask twice
 	b.mu.Unlock()
-	// No card is due when the bot is off or not paired, or its task reports are off. A status that cannot be read (the
-	// manager away) is not that: the card is for later, and the ask waits for it without one (not NoCard).
-	st, stErr := s.feishuStatus(ctx)
 	a := s.acceptLines(ctx, t, machine, session, reply)
 	a.MachineID, a.SessionID, a.AskedAt, a.Earlier = machine, session, time.Now().UTC(), earlier
+	s.postAsk(ctx, t, a)
+}
+
+// postAsk posts the card of ask a, which task t claimed in the book, when the bot can, and keeps a in the claim's place;
+// true when its card went out. No card is due when the bot is off or not paired, or its task reports are off. A status
+// that cannot be read (the manager away) is not that: the card is for later, and the ask waits for it without one (not
+// NoCard), for retryAcceptance.
+func (s *Service) postAsk(ctx context.Context, t Todo, a acceptAsk) bool {
+	b := &s.accept
+	st, stErr := s.feishuStatus(ctx)
 	switch {
 	case stErr != nil:
 		s.logf("task %s: acceptance: %v (its card is tried again later)", t.ID, stErr)
 	case st.Ready && st.Features.Reports:
-		mid, err := s.botPostKeyed(ctx, "", s.acceptCard(ctx, t, a, false), a.Changed, acceptCardKey(t.ID, a.AskedAt))
+		mid, err := s.botPostKeyed(ctx, "", s.acceptCard(ctx, t, a, false), askSummary(s.botLang(ctx), &a), acceptCardKey(t.ID, a.AskedAt))
 		if err != nil {
 			s.logf("task %s: acceptance: %v (its card is tried again later)", t.ID, err)
 			break
@@ -173,6 +190,7 @@ func (s *Service) askAcceptance(t Todo, machine, session, reply string) {
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
 	s.boardChanged() // it waits for the owner now
+	return a.MessageID != ""
 }
 
 // acceptLines are the card's three lines: the small model reads the task and the reply; without it (or when it
@@ -217,8 +235,12 @@ func (s *Service) acceptLines(ctx context.Context, t Todo, machine, session, rep
 	return a
 }
 
-// acceptCard is the "Please verify" card (again: the morning's reminder), or how it ended (accepted).
+// acceptCard is the "Please verify" card (again: the morning's reminder), or how it ended (accepted): the verdict line on
+// top, then the three lines. A conclusion has its own card (conclusionCard).
 func (s *Service) acceptCard(ctx context.Context, t Todo, a acceptAsk, again bool) *feishubot.Card {
+	if a.Conclusion {
+		return s.conclusionCard(ctx, t, a)
+	}
 	l := s.botLang(ctx)
 	head := "assistant-reports.accept_title"
 	if again {
@@ -230,6 +252,7 @@ func (s *Service) acceptCard(ctx context.Context, t Todo, a acceptAsk, again boo
 	if a.Link != "" {
 		link = "[" + feishubot.EscapeMarkdown(clip(a.Link, 80)) + "](" + a.Link + ")"
 	}
+	c.Markdown("**" + feishubot.EscapeMarkdown(verdictText(l, &a)) + "**")
 	c.Markdown(i18n.T(l, "assistant-reports.accept_lines", i18n.Args{"changed": feishubot.EscapeMarkdown(a.Changed), "link": link,
 		"how": feishubot.EscapeMarkdown(a.How)}))
 	if !a.AcceptedAt.IsZero() {
@@ -297,9 +320,10 @@ func (s *Service) acceptAskLocked(id string) *acceptAsk {
 // negations ("not passed", "can't pass", "no good") never match because the regex anchors on the approval word.
 var passWords = regexp.MustCompile(`(?i)^\s*(验收)?(通过|没问题|可以|好的?|ok|okay|lgtm|pass(ed)?|approved?|👍)(?:[了啦呀咯喽呗哒啊]{1,2})?\s*[。.!！]?\s*$`)
 
-// acceptReply answers a reply to a "Please verify" card (true: it was one): "Pass" marks it verified, anything else is the
-// user's change, written into the todo's decisions and sent to its agent. media: the reply also carried pictures or files;
-// only the words go on, and the answer says the rest did not (#5107).
+// acceptReply answers a reply to a "Please verify" card or a conclusion's (true: it was one): "Pass" marks it verified (a
+// decision: takes the option recommended), anything else is the user's change (a decision: their choice), written into the
+// todo's decisions and sent to its agent. media: the reply also carried pictures or files; only the words go on, and the
+// answer says the rest did not (#5107).
 func (s *Service) acceptReply(ctx context.Context, messageID, text string, media bool, ids ...string) bool {
 	id, earlier := s.acceptFor(ids...)
 	if id == "" {
@@ -318,7 +342,13 @@ func (s *Service) acceptReply(ctx context.Context, messageID, text string, media
 		return true
 	}
 	t, ok := s.todoNow(id)
-	if passWords.MatchString(text) {
+	ask, _ := s.askCopy(id)
+	if decideAsk(&ask) && !ask.AcceptedAt.IsZero() { // taken, or its review moved on: over
+		s.botNote(ctx, messageID, i18n.T(l, "assistant-feishu_cards.already_handled"))
+		return true
+	}
+	// "OK" to a decision with nothing recommended takes nothing: it is their answer, and goes on as one.
+	if passWords.MatchString(text) && !(decideAsk(&ask) && ask.Recommend == "") {
 		// Approval on a pre-reopen card is answered but neither accepts nor reopens; a gone todo keeps old behavior.
 		if ok {
 			if a := s.acceptAskLocked(id); a != nil && acceptAskStale(a, t) {
@@ -326,8 +356,10 @@ func (s *Service) acceptReply(ctx context.Context, messageID, text string, media
 				return true
 			}
 		}
-		if s.accepted(ctx, id, "") {
-			s.botNote(ctx, messageID, i18n.T(l, "assistant-reports.accepted"))
+		if ok, err := s.acceptTry(ctx, id, ""); err != nil {
+			s.botNote(ctx, messageID, i18n.T(l, "assistant-reports.accept_not_sent", i18n.Args{"error": clip(oneLine(err.Error()), 120)}))
+		} else if ok {
+			s.botNote(ctx, messageID, acceptedNote(l, &ask))
 		}
 		return true
 	}
@@ -339,10 +371,18 @@ func (s *Service) acceptReply(ctx context.Context, messageID, text string, media
 		s.botNote(ctx, messageID, i18n.T(l, "assistant-feishu_cards.already_handled"))
 		return true
 	}
+	question, msg := i18n.T(l, "assistant-reports.accept_question"), i18n.T(l, "assistant-reports.accept_to_agent", i18n.Args{"feedback": text})
+	switch {
+	case decideAsk(&ask):
+		question = cmp.Or(ask.Reason, i18n.T(l, "assistant-reports.verdict_decide"))
+		msg = i18n.T(l, "assistant-reports.verdict_decided_to_agent", i18n.Args{"decision": text})
+	case ask.Conclusion:
+		msg = i18n.T(l, "assistant-reports.verdict_to_agent", i18n.Args{"feedback": text})
+	}
 	if st := s.todoDB(); st != nil {
 		at := decisionNow()
 		if ok, err := s.insertDecision(ctx, st, db.TodoDecisionRow{ID: "dec_" + randomHex(8), TodoID: id,
-			Question: i18n.T(l, "assistant-reports.accept_question"), Choice: decisionText(text), Source: db.DecisionManual,
+			Question: question, Choice: decisionText(text), Source: db.DecisionManual,
 			SourceMessage: "feishu-" + messageID, CreatedAt: at}); err != nil {
 			s.logf("task %s: acceptance decision: %v", id, err)
 		} else if ok {
@@ -357,16 +397,22 @@ func (s *Service) acceptReply(ctx context.Context, messageID, text string, media
 			s.logf("task %s: acceptance reopen: %v", id, err)
 		}
 	}
-	msg := i18n.T(l, "assistant-reports.accept_to_agent", i18n.Args{"feedback": text})
 	if _, err := s.routeToTask(ctx, t.Origin, id, msg); err != nil {
 		s.logf("task %s: acceptance to agent: %v", id, err)
 		s.botNote(ctx, messageID, withMediaDropped(l, i18n.T(l, "assistant-reports.accept_not_sent", i18n.Args{"error": clip(oneLine(err.Error()), 120)}), media))
 		return true
 	}
-	// Changed again: the next deploy asks again.
+	if decideAsk(&ask) {
+		s.userDecided(ctx, id) // decided: its agent's next stop goes back to the supervisor
+	}
+	// Changed again: the next deploy asks again. A decision is answered: its card stays known, and says so to a reply.
 	b := &s.accept
 	b.mu.Lock()
-	delete(b.asks, id)
+	if a := b.asks[id]; a != nil && decideAsk(a) {
+		a.AcceptedAt = time.Now().UTC()
+	} else {
+		delete(b.asks, id)
+	}
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
 	s.botNote(ctx, messageID, withMediaDropped(l, i18n.T(l, "assistant-reports.accept_sent"), media))
@@ -384,28 +430,55 @@ func withMediaDropped(l i18n.Lang, note string, media bool) string {
 // accepted marks task id verified; false when already handled, never asked, or asked before the latest reopen. A card-less
 // ask (NoCard) can be accepted too, from the web app. card is the message pressed ("" from a reply, which acceptFor already
 // matched, from the web app, or when Feishu does not say): a card that is not this round's (an earlier round's, once the
-// next one has its own) accepts nothing (#4853).
+// next one has its own) accepts nothing (#4853). A decision (a conclusion that needs the owner) is accepted by taking the
+// option it recommends, which goes to the task's agent (takeRecommendation); one with nothing recommended, or no longer
+// waiting, takes nothing; one whose recommendation could not reach the agent is not taken (acceptTry says why).
 func (s *Service) accepted(ctx context.Context, id, card string) bool {
+	ok, _ := s.acceptTry(ctx, id, card)
+	return ok
+}
+
+// acceptTry is accepted, with the error of a decision whose recommendation did not reach the task's agent: then nothing
+// was taken, the ask still waits, and the owner can try again.
+func (s *Service) acceptTry(ctx context.Context, id, card string) (bool, error) {
 	t, todoOK := s.todoNow(id)
 	b := &s.accept
 	b.mu.Lock()
 	if !s.loadAcceptLocked(ctx) {
 		b.mu.Unlock()
-		return false
+		return false, nil
 	}
 	a, ok := b.asks[id]
-	if !ok || a.AskedAt.IsZero() || !a.AcceptedAt.IsZero() || (todoOK && acceptAskStale(a, t)) || (card != "" && card != a.MessageID && !slices.Contains(a.Messages, card)) {
+	if !ok || a.AskedAt.IsZero() || !a.AcceptedAt.IsZero() || (todoOK && acceptAskStale(a, t)) || (card != "" && card != a.MessageID && !slices.Contains(a.Messages, card)) ||
+		decideAsk(a) && (a.Recommend == "" || todoOK && acceptAskEnded(a, t)) {
 		b.mu.Unlock()
-		return false
+		return false, nil
 	}
 	a.AcceptedAt = time.Now().UTC()
 	cp := *a
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
 	s.boardChanged() // it no longer waits
-	s.setTaskStage(ctx, id, "verify", "")
-	s.threadPost(id, threadEvent{kind: threadTodoAccepted}) // and the todo's chat thread
-	s.sourceReportSoon(id, sourceReportWait)                // and where the request came from (todo_source.go)
+	switch {
+	case decideAsk(&cp):
+		if err := s.takeRecommendation(ctx, id, cp); err != nil {
+			// Not taken after all: the owner can take it again, and is told why it did not go.
+			b.mu.Lock()
+			if a := b.asks[id]; a != nil && a.AskedAt.Equal(cp.AskedAt) {
+				a.AcceptedAt = time.Time{}
+				s.saveAcceptLocked(ctx)
+			}
+			b.mu.Unlock()
+			s.boardChanged()
+			return false, err
+		}
+	case cp.Conclusion:
+		// Seen: the review already closed the task and told where it came from; "verified" is for deployed work.
+	default:
+		s.setTaskStage(ctx, id, "verify", "")
+		s.threadPost(id, threadEvent{kind: threadTodoAccepted}) // and the todo's chat thread
+		s.sourceReportSoon(id, sourceReportWait)                // and where the request came from (todo_source.go)
+	}
 	if t, ok := s.todoNow(id); ok {
 		for _, mid := range cp.Messages {
 			if err := s.botUpdateCard(ctx, mid, s.acceptCard(ctx, t, cp, false)); err != nil {
@@ -413,7 +486,7 @@ func (s *Service) accepted(ctx context.Context, id, card string) bool {
 			}
 		}
 	}
-	return true
+	return true, nil
 }
 
 // acceptLoop posts the cards that did not go out when their ask was made (retryAcceptance), and again, each morning, the
@@ -473,7 +546,7 @@ func (s *Service) retryAcceptance(now time.Time) {
 			b.mu.Unlock()
 			continue
 		}
-		if !ok || acceptAskEnded(t) || acceptAskStale(a, t) {
+		if !ok || acceptAskEnded(a, t) || acceptAskStale(a, t) {
 			// The todo is gone, it ended without the hub's auto-judge, or the ask is from before its latest reopen: it
 			// can never be passed, so its card is not posted and the ask is dropped (as remindAcceptance does).
 			delete(b.asks, id)
@@ -498,7 +571,7 @@ func (s *Service) retryAcceptance(now time.Time) {
 		}
 		cp := *a
 		b.mu.Unlock()
-		mid, err := s.botPostKeyed(ctx, "", s.acceptCard(ctx, t, cp, false), cp.Changed, acceptCardKey(id, cp.AskedAt))
+		mid, err := s.botPostKeyed(ctx, "", s.acceptCard(ctx, t, cp, false), askSummary(s.botLang(ctx), &cp), acceptCardKey(id, cp.AskedAt))
 		if err != nil {
 			s.logf("task %s: acceptance: %v (tried again on the next tick)", id, err)
 			continue
@@ -544,8 +617,9 @@ func (s *Service) remindAcceptance(now time.Time) {
 	var due []string
 	seen := map[string]time.Time{} // each due card's AskedAt: the round the sweep judges
 	for id, a := range b.asks {
-		// A card again only for an ask that has a card; a card-less one (NoCard) is listed by the briefing and the board.
-		if a.MessageID != "" && a.AcceptedAt.IsZero() && a.AskedAt.Before(today) && a.RemindedAt.Before(today) {
+		// A card again only for an ask that has a card; a card-less one (NoCard) is listed by the briefing and the board,
+		// and so is a conclusion: it was pushed once, and the next pushes are the briefing's (#1226).
+		if a.MessageID != "" && !a.Conclusion && a.AcceptedAt.IsZero() && a.AskedAt.Before(today) && a.RemindedAt.Before(today) {
 			due = append(due, id)
 			seen[id] = a.AskedAt
 		}
@@ -570,7 +644,7 @@ func (s *Service) remindAcceptance(now time.Time) {
 			b.mu.Unlock()
 			continue
 		}
-		if !ok || acceptAskEnded(t) || acceptAskStale(a, t) {
+		if !ok || acceptAskEnded(a, t) || acceptAskStale(a, t) {
 			// The todo is gone, it ended without the hub's auto-judge (the owner closed it or a review did), or the
 			// card is from before its latest reopen: it can never be passed, so stop asking and drop it.
 			delete(b.asks, id)
@@ -659,14 +733,14 @@ func (s *Service) snapshotUnaccepted(ctx context.Context, loc *time.Location) ([
 		if !ok {
 			continue
 		}
-		if acceptAskEnded(t) || acceptAskStale(&x.a, t) {
+		if acceptAskEnded(&x.a, t) || acceptAskStale(&x.a, t) {
 			ended = append(ended, x) // closed by the owner or a review, or asked before the todo's latest reopen
 			continue
 		}
 		total++
 		if len(out) < 8 { // the oldest eight; the total says how many more
-			out = append(out, prompts.SnapshotAccept{Title: clip(oneLine(t.Title), 40), Changed: x.a.Changed, Link: x.a.Link,
-				Since: x.a.AskedAt.In(loc)})
+			out = append(out, prompts.SnapshotAccept{Title: clip(oneLine(t.Title), 40), Verdict: verdictText(s.botLang(ctx), &x.a),
+				Changed: x.a.Changed, Link: x.a.Link, Since: x.a.AskedAt.In(loc)})
 		}
 	}
 	if len(ended) > 0 {
@@ -690,9 +764,14 @@ func (s *Service) snapshotUnaccepted(ctx context.Context, loc *time.Location) ([
 // acceptAskEnded says the todo a "Please verify" card waits on has ended without the hub's auto-judge: the owner closed it in
 // the todos themselves (DoneBy "") or a review did (DoneByReview). Such a card can never be passed, so it is neither
 // reminded nor counted. An auto-closed task (DoneByAuto) is the normal state: the judge finished it, but the owner
-// still has to pass the card.
-func acceptAskEnded(t Todo) bool {
-	return t.DoneAt != nil && t.DoneBy != db.DoneByAuto
+// still has to pass the card, and so is a supervised task its review accepted (#1226: the review's conclusion is that
+// card, with the verdict on top). A conclusion is told after its review closed the task, so that does not end it; a
+// decision ends once the task is closed or no longer waits for the user (the supervisor reviewed it again).
+func acceptAskEnded(a *acceptAsk, t Todo) bool {
+	if a.Conclusion {
+		return a.Outcome == outcomeDecide && (t.DoneAt != nil || t.Supervision.state(t) != reviewNeedsUser)
+	}
+	return t.DoneAt != nil && t.DoneBy != db.DoneByAuto && !(t.DoneBy == db.DoneByReview && t.Supervision.state(t) == reviewAccepted)
 }
 
 // acceptAskStale says an ask belongs to an earlier round: the todo was reopened (PATCH done:false, change feedback

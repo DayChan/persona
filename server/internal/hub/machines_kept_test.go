@@ -150,6 +150,14 @@ func TestAManagerKeepsItsOwnList(t *testing.T) {
 	if st, err := os.Stat(copies[0]); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("the copy's mode: %v %v", st, err)
 	}
+	if cfg := h.devicesConfigFor(devicesOwner); cfg.Machines != nil || !cfg.MachinesOwn {
+		t.Fatalf("the hand-over to a manager that holds its own list: machines %v, machines_own %v", cfg.Machines, cfg.MachinesOwn)
+	}
+	eventually(t, 10*time.Second, "a devices.config with no machines sent to it", func() bool {
+		h.devices.mu.Lock()
+		defer h.devices.mu.Unlock()
+		return strings.Contains(string(h.devices.sent[devicesOwner]), `"machines":null`)
+	})
 	if r := h.pendingRestart(""); len(r.Reasons) != 0 {
 		t.Fatalf("a machine moved out of hub.json asks for a restart: %v", r.Reasons)
 	}
@@ -470,6 +478,17 @@ func TestSettleOwnListAsTheKeeperHasIt(t *testing.T) {
 		t.Fatalf("removing a manager that keeps machines: %d %v", code, out)
 	}
 
+	// It holds its list: its hand-over carries none, the computers waiting to be confirmed still.
+	if cfg := h.devicesConfigFor(a.id); cfg.Machines != nil || !cfg.MachinesOwn || cfg.PendingUnknown != h.trustUnknown() {
+		t.Fatalf("the hand-over to a keeper: %+v", cfg)
+	}
+	h.devices.mu.Lock()
+	h.devices.ownListHeld[a.id] = false // before it said it holds it: the hand-over carries what is staged for it
+	h.devices.mu.Unlock()
+	if cfg := h.devicesConfigFor(a.id); cfg.Machines == nil {
+		t.Fatal("a manager that has not said it holds its list is handed nothing to take over")
+	}
+
 	// Its build no longer names machines.own: it is handed no list at all.
 	a.stop()
 	eventually(t, 15*time.Second, "a gone", func() bool { return h.busConnOf(a.id) == nil })
@@ -565,5 +584,44 @@ func TestADedicatedKeptMachineNeverGoesToTheCarrier(t *testing.T) {
 	h.releaseMachines(ctx, b.id)
 	if c.has("ded") == nil || h.entryOwner("ded") != c.id {
 		t.Fatalf("the release of b took c's dedicated machine: owner %s", h.entryOwner("ded"))
+	}
+}
+
+// A manager's new connection holds its own list only once its report says so: its first hand-over carries what
+// hub.json stages for it, whatever the last connection said.
+func TestANewConnectionHoldsItsListOnlyOnceItSaysSo(t *testing.T) {
+	h := newTestHub(t)
+	h.devices.mu.Lock()
+	h.devices.ownListHeld = map[string]bool{devicesOwner: true}
+	h.devices.lastNamed = map[string]map[string]bool{devicesOwner: {"box": true}}
+	h.devices.mu.Unlock()
+	h.devicesConnected(devicesOwner)
+	if h.listHeld(devicesOwner) {
+		t.Fatal("a new connection counted as holding its list")
+	}
+	h.devices.mu.Lock()
+	_, named := h.devices.lastNamed[devicesOwner]
+	h.devices.mu.Unlock()
+	if named {
+		t.Fatal("the last connection's report kept for the new one")
+	}
+}
+
+// A kept machine its keeper's report lacks (its list does not read) is still known as last reported, not as its id
+// alone.
+func TestAKeptMachineMissingFromAReportStaysAsReported(t *testing.T) {
+	ctx := context.Background()
+	h := newTestHub(t)
+	h.startDevices(ctx)
+	h.devices.moving.Lock()
+	err := h.setKept(ctx, "far", "m-0a0a0a")
+	h.devices.moving.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.takeMachineEntries("m-0a0a0a", devicewireStates("far", json.RawMessage(`{"id":"far","name":"Far","kind":"link"}`)))
+	h.takeMachineEntries("m-0a0a0a", devicewire.States{})
+	if mc := h.knownEntry("far"); mc == nil || mc.Kind != kindLink || mc.Name != "Far" {
+		t.Fatalf("far after a report without it: %+v", mc)
 	}
 }

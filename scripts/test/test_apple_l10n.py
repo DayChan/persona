@@ -39,6 +39,12 @@ class CatalogValidationTest(unittest.TestCase):
     def test_complete_entry(self):
         self.assertEqual(apple_l10n.catalog_problems(catalog()), [])
 
+    def test_nested_string_entry_cannot_hide_as_an_extra_locale(self):
+        data = catalog()
+        locales = data["strings"]["Open"]["localizations"]
+        locales["Desktop label"] = {"localizations": copy.deepcopy(locales), "extractionState": "manual"}
+        self.assertTrue(any("nested string entry" in p for p in apple_l10n.catalog_problems(data)))
+
     def test_english_source_required(self):
         data = catalog()
         data["sourceLanguage"] = "zh-Hans"

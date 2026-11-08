@@ -39,6 +39,8 @@ describe("lark summary cards", () => {
 
   it("maps Lark gateway media paths onto the hub", () => {
     expect(hubMediaURL("/api/media/avatar-1")).toBe("/api/v1/lark/media/avatar-1");
+    expect(hubMediaURL("/agent/v1/media/default-avatar_1?ol_account=2")).toBe("/api/v1/lark/media/default-avatar_1?ol_account=2");
+    expect(hubMediaURL("https://cdn.example.com/a.png")).toBe("https://cdn.example.com/a.png");
     expect(hubMediaURL("/api/v1/lark/media/x")).toBe("/api/v1/lark/media/x");
     expect(hubMediaURL(undefined)).toBeUndefined();
   });

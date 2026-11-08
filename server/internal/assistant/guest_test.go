@@ -14,7 +14,11 @@ import (
 )
 
 // guestExt is the extensions' tools for the guest tests: a connector's two (lark_agent_reply, lark_chats) and Cua's.
-type guestExt struct{ called, sent []string }
+// mail.attachment requests it is asked are kept in attachments.
+type guestExt struct {
+	called, sent []string
+	attachments  []proto.MailAttachmentRequest
+}
 
 func (e *guestExt) AgentTools(context.Context, bool) (agents, assistantOnly []proto.Tool) {
 	return nil, []proto.Tool{{Name: "computer_run"}, {Name: "lark_chats"}, {Name: "lark_agent_reply"}}
@@ -45,6 +49,11 @@ func (e *guestExt) AnswerComputerElicit(context.Context, string, json.RawMessage
 func (e *guestExt) RecordNodeSent(_ context.Context, machine string, params json.RawMessage) (any, error) {
 	e.sent = append(e.sent, machine+" "+string(params))
 	return struct{}{}, nil
+}
+
+func (e *guestExt) MailAttachment(_ context.Context, req proto.MailAttachmentRequest) (proto.MailAttachment, error) {
+	e.attachments = append(e.attachments, req)
+	return proto.MailAttachment{Filename: "statement.pdf", Mime: "application/pdf", Size: 4, Data: []byte("%PDF")}, nil
 }
 
 func guestService(t *testing.T) (*fakeHub, *Service, *guestExt) {

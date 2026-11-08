@@ -46,7 +46,7 @@ A new line is written when usage changes too. A `null` `goal` means cleared. The
   maps to `complete`, `met: false` to `active`, and the check's reason goes into `reason`. Achievement and Codex's non-active statuses produce a `notice` in the chat, only when the status changes.
 - **node**: a goal may be set at the start of a transcript hundreds of MB long, which the quick meta (reading only the last 384 KB) cannot see. So `bgScan` reads it, together with `/loop` and background tasks:
   the whole file once, then only appended data, parsing only lines containing a marker (`goal_status`, `Goal set: `, `Goal cleared`, `thread_goal_updated`).
-  The session list carries `goal`, and the list signature (`listKey` / `listKeySized` in `node/sessions.go`) includes the goal, status, and reason, so any change triggers a push.
+  The session list carries `goal`, and the list signature (`listKey` / `listKeySized` in `node/listkey.go`) includes the goal, status, and reason, so any change triggers a push.
 - **Protocol**: `Session.goal`, see `docs/protocol/protocol.md`. Fields are only added; old clients that don't know it simply don't show it.
 - **Clients**: `GoalBar` on iOS / Mac (`Views/Session/SessionPanes.swift`) and the `GoalSheet` details; the activity row in `views/chat/Activity.tsx` on the web.
   Android (#2888): `Session.goal` (`GoalInfo`) in `core:contracts`, `ChatGoalBar` below the chat's top bar (`feature/chat/ChatGoal.kt`, the design system's `JActivityBar`), tapping opens `ChatGoalSheet`;

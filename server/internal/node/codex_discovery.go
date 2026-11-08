@@ -5,7 +5,6 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -33,7 +32,7 @@ func codexProcessArgs(pid int, args []string, env string) (codexProcess, bool) {
 	if len(args) == 0 {
 		return codexProcess{}, false
 	}
-	if at < 1 && filepath.Base(args[0]) != "codex" {
+	if at < 1 && progName(args[0]) != "codex" { // progName: codex.exe on Windows
 		return codexProcess{}, false
 	}
 	p := codexProcess{pid: pid}
@@ -76,8 +75,12 @@ func scanCodexProcesses() []codexProcess {
 }
 
 // scanCodexProcessesChecked is scanCodexProcesses, and whether the processes could be listed and read: a resume
-// (codex_resume.go) must not take "could not tell" for "no Codex holds it".
+// (codex_resume.go) must not take "could not tell" for "no Codex holds it". Windows reads its process table
+// (scanCodexProcessesOS).
 func scanCodexProcessesChecked() ([]codexProcess, bool) {
+	if runtime.GOOS == "windows" {
+		return scanCodexProcessesOS()
+	}
 	var out []codexProcess
 	ok := true
 	if runtime.GOOS == "linux" {

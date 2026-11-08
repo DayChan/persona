@@ -35,7 +35,7 @@ final class ReturnToChatTests: XCTestCase {
         return nil
     }
 
-    /// Opens the first agent of the list, then another agent of its space from the header's tabs: the chat it shows.
+    /// Opens the known multi-agent weather fixture, then another agent of its space from the header's tabs.
     /// `fresh`: starts on the list (`-dev.openChat ""`, which also hides from the app what it remembers while it runs:
     /// not for a test of what it remembers within a launch; the split shows the list anyway).
     @MainActor private func openSibling(fresh: Bool = true, extra: [String] = [], regularOnly: Bool = false) throws -> String {
@@ -43,11 +43,21 @@ final class ReturnToChatTests: XCTestCase {
         app.launchArguments = base + (fresh ? ["-dev.openChat", ""] : []) + ["-openAgentsFresh", "YES"] + extra
         app.launchPinned()
         if regularOnly, app.windows.firstMatch.frame.width <= 600 { throw XCTSkip("needs a regular width (iPad, iPhone Duo open)") }
-        let row = app.buttons.matching(identifier: "agents.row").firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "no agent in the list")
-        sleep(1)
+        let row = app.buttons.matching(NSPredicate(format: "identifier == 'agents.row' AND label CONTAINS %@",
+                                                  "给天气 App 加主屏幕小组件")).firstMatch // i18n-ignore: bundled synthetic fixture title
+        if !row.exists || !row.isHittable {
+            app.revealAgentsSearch()
+            let search = app.searchFields.firstMatch
+            XCTAssertTrue(search.waitForExistence(timeout: 5), "the Agents search did not open")
+            search.tap()
+            search.typeText("天气") // i18n-ignore: bundled synthetic fixture title
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the multi-agent fixture is not in the list")
         row.tap()
         guard let first = shownChat() else { XCTFail("the chat did not open"); return "" }
+        XCTAssertTrue(first.hasSuffix("macbook/a1f3c2d4-0000-4000-8000-000000000001"), "the intended fixture did not open")
+        let compact = app.buttons["chat.compactTitle"].firstMatch
+        if compact.exists && compact.isHittable { compact.tap() }
         sleep(2)
         // The tabs read 「<tab>，<state>」 to VoiceOver; the one open is selected.
         let tab = ["review", "widget", "release", "decide"].lazy

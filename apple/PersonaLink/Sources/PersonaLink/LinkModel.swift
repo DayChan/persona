@@ -26,6 +26,9 @@ struct LinkStatus: Decodable, Equatable {
     /// What the hub calls itself, and (while connected) how many hubs its mesh has; older hubs send neither.
     var hubName: String?
     var meshHubs: Int?
+    /// What the hub calls this computer (docs/operations/link.md "The computer's name"); older hubs say nothing: `machine`,
+    /// its id, is shown instead.
+    var machineName: String?
     /// active (this Mac dials the hub) | passive (the hub dials this Mac); older helpers say nothing: active.
     var mode: String?
     /// Passive mode: where it listens, the addresses the hub may use, when the hub last came in and from where, and
@@ -44,12 +47,18 @@ struct LinkStatus: Decodable, Equatable {
 
     var passive: Bool { mode == "passive" }
     var systemTrust: Bool { trust == "system" }
+    /// The name to show for this computer: the hub's, else its id.
+    var shownMachine: String? { machineName.flatMap { $0.isEmpty ? nil : $0 } ?? machine.flatMap { $0.isEmpty ? nil : $0 } }
+    /// This computer can be renamed from here: active mode, connected to a hub that renames computers (it says the name),
+    /// and confirmed (a computer still waiting to be confirmed cannot rename itself).
+    var renamable: Bool { !passive && state == "connected" && !(machineName ?? "").isEmpty && pending != true }
 
     enum CodingKeys: String, CodingKey {
         case state, machine, address, kind, since, node, error, retry, endpoints, mode, listen, addrs, from, trust, pending
         case nodeError = "node_error"
         case hubName = "hub_name"
         case meshHubs = "mesh_hubs"
+        case machineName = "machine_name"
         case lastSeen = "last_seen"
         case codeExpires = "code_expires"
     }
@@ -455,6 +464,13 @@ enum LinkText {
         readConfig()
         guard r.ok, PairLink.isConnectorOutput(r.out) else { return (false, r.message, nil) }
         return (true, r.err, r.out)
+    }
+
+    /// `persona-link name <name>` ("" is the id again: `--reset`): the running helper asks the hub over its link, and says
+    /// what the hub calls this computer now, or why not.
+    func rename(_ name: String) async -> (ok: Bool, message: String) {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return await Self.runHelper(["name", n.isEmpty ? "--reset" : n], stdin: nil)
     }
 
     /// `persona-link mode <mode>`: switches without pairing again; the helper follows within a second.

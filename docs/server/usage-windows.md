@@ -196,7 +196,7 @@ User decision: the hub is only a communication center, and computers belong to t
 | --- | --- |
 | Manager: asks each node for `usage.windows`, merges accounts, reads account-pool gateways (it holds the keys), keeps the gateway's account list (`devices.usage_gateway_accounts`; the extensions' `usage.gateway_accounts` is served by `extmgr/extension_usage.go` asking it in the same process), the API for the admin UI's "Subscription usage sources" page | `server/internal/devices/usagewindows.go`, `usagegateways.go`, `admin_usage.go` (moved from the hub as-is, receiver changed from `Hub` to `Devices`); edits to `manager.json` go through `managerconf.Edit` (`server/internal/managerconf`, under a lock on its directory) |
 | Route tables shared by both sides | `server/internal/devicewire/` (`UsageRoutes`, `AdminUsageRoutes`), the admin UI marker `assistantwire.AdminHeader` |
-| hub: forwarding | `server/internal/hub/devices_link.go` (`usageRoutesRelayed`, `adminUsageRoutesRelayed`) |
+| hub: forwarding | `server/internal/hub/devices_routes.go` (`usageRoutesRelayed`, `adminUsageRoutesRelayed`) |
 
 - The hub forwards `GET /api/v1/usage/windows` as an `http.request`, like the manager's other routes (still not usable with extension tokens, `testdata/route_scopes.txt`).
 - `/api/v1/admin/usage-sources…` is forwarded only from the hub's admin UI route group: the hub first checks the admin session (plus CSRF for writes), then adds `X-Persona-Admin: 1` (the header is always stripped if a client sends it); the manager returns 403 without this marker, and the App's API has none of these routes.

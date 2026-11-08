@@ -6,9 +6,14 @@ permissions:
   contents: read
 jobs:
   android:
-    name: Android lint, tests and build
+    name: Android ${{ matrix.lane }}
     runs-on: ubuntu-latest
+    # Retain headroom until hosted cold/warm timings establish a safe lower bound.
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [lint-build, test-core, test-feature-0, test-feature-1, test-platform-app]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -18,10 +23,46 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The default also installs the legacy `tools` package, which the SDK repository no longer has.
+          packages: platform-tools
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          # Only a manual main run may populate caches; PRs and other refs only restore.
+          cache-read-only: ${{ github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' }}
+      - name: Restore public Robolectric runtime dependencies
+        if: matrix.lane != 'lint-build'
+        id: robolectric
+        uses: actions/cache/restore@v4
+        with:
+          # Never cache Maven settings, credentials or unrelated/private artifacts.
+          path: |
+            ~/.m2/repository/org/robolectric/android-all
+            ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: ${{ runner.os }}-robolectric-v1-${{ matrix.lane }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-robolectric-v1-${{ matrix.lane }}-
       - name: Android checks
-        run: scripts/ci/android.sh
+        run: scripts/ci/android.sh --lane '${{ matrix.lane }}' --profile
+      - name: Save public Robolectric runtime dependencies
+        if: success() && matrix.lane != 'lint-build' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.robolectric.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.m2/repository/org/robolectric/android-all
+            ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: ${{ steps.robolectric.outputs.cache-primary-key }}
+      - name: Upload Android reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports-${{ matrix.lane }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            android/build/reports/profile/
+            android/**/build/reports/lint-results*
+            android/**/build/reports/tests/
+            android/**/build/test-results/

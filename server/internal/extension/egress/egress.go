@@ -584,18 +584,18 @@ func (p *Proxy) dialOut(ctx context.Context, host, port string, rule Rule) (net.
 		return nil, err
 	}
 	var last error = fmt.Errorf("%s: no address", host)
+	var ok []net.IP
 	for _, ip := range ips {
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsLinkLocalMulticast() {
 			last = fmt.Errorf("%s %w", host, errInternal)
 			continue
 		}
-		c, err := p.dial(ctx, "tcp", net.JoinHostPort(ip.String(), port))
-		if err == nil {
-			return c, nil
-		}
-		last = err
+		ok = append(ok, ip)
 	}
-	return nil, last
+	if len(ok) == 0 {
+		return nil, last
+	}
+	return dialRace(ctx, ok, port, func(ctx context.Context, target string) (net.Conn, error) { return p.dial(ctx, "tcp", target) })
 }
 
 // fromEnvironment is the hub's own proxy for u, from its environment.
@@ -823,15 +823,7 @@ func (p *Proxy) dialConfigured(ctx context.Context, host, port string) (net.Conn
 	if up, err := upstream(&url.URL{Scheme: "https", Host: target}); err == nil && up != nil {
 		return p.connectVia(ctx, up, target)
 	}
-	var last error
-	for _, ip := range ok {
-		c, err := p.dial(ctx, "tcp", net.JoinHostPort(ip.String(), port))
-		if err == nil {
-			return c, nil
-		}
-		last = err
-	}
-	return nil, last
+	return dialRace(ctx, ok, port, func(ctx context.Context, target string) (net.Conn, error) { return p.dial(ctx, "tcp", target) })
 }
 
 // resolveAll is host's addresses (itself, for an IP).

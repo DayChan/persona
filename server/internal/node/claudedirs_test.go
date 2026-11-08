@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/proto"
+	"github.com/nwverse/persona/server/internal/transcript"
 )
 
 func TestParsePSEnv(t *testing.T) {
@@ -303,5 +304,54 @@ func TestCwdBlocked(t *testing.T) {
 	}
 	if n.cwdBlocked("/data00/home/user/projects/my-repo") {
 		t.Fatal("normal repo should not be blocked")
+	}
+}
+
+// A session copied into another project and resumed there (#1325): the hook named the old copy and the node had it
+// open, so the session page and agent_read kept showing the old conversation while Claude wrote the new one.
+func TestAResumedCopyInAnotherProjectIsFollowed(t *testing.T) {
+	n, _ := claudeHome(t)
+	n.files, n.pathsAt = map[string]*transcript.File{}, map[string]time.Time{}
+	const id = "eeeeeeee-0000-0000-0000-000000000005"
+	lines := func(uuid, text string) string {
+		return `{"type":"user","uuid":"` + uuid + `u","timestamp":"2026-10-30T10:00:00Z","cwd":"/src/app","message":{"role":"user","content":"` + text + `"}}` + "\n" +
+			`{"type":"assistant","uuid":"` + uuid + `a","timestamp":"2026-10-30T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"` + text + ` reply"}]}}` + "\n"
+	}
+	projects := filepath.Join(n.home, ".claude", "projects")
+	old := filepath.Join(projects, "-src-app", id+".jsonl")
+	cur := filepath.Join(projects, "-src-other", id+".jsonl")
+	_ = os.MkdirAll(filepath.Dir(cur), 0o700)
+	_ = os.WriteFile(old, []byte(lines("1", "before")), 0o600)
+	n.rememberTranscript(hookInput{SessionID: id, TranscriptPath: old})
+	f, err := n.file(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Copied to the other project, resumed there and answered; the old copy stays on disk, untouched.
+	_ = os.WriteFile(cur, []byte(lines("1", "before")+lines("2", "after")), 0o600)
+	_ = os.Chtimes(old, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
+	n.pathsAt[id] = time.Now().Add(-time.Minute)
+
+	g, err := n.file(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Where() != cur {
+		t.Fatalf("reading %s", g.Where())
+	}
+	items, err := g.Refresh()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for _, it := range items {
+		texts = append(texts, it.Text)
+	}
+	if !slices.Contains(texts, "after reply") {
+		t.Fatalf("items after the move: %q", texts)
 	}
 }

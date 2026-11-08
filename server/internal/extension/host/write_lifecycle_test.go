@@ -317,10 +317,42 @@ func (f *lifecycleFixture) fill(t *testing.T) {
 	f.waitBytes(t, f.capacity)
 }
 func TestWriteLifecycleActiveCancel(t *testing.T) {
+	for _, delayedDisposal := range []bool{false, true} {
+		t.Run(fmt.Sprint(delayedDisposal), func(t *testing.T) {
+			testWriteLifecycleActiveCancel(t, delayedDisposal)
+		})
+	}
+}
+
+func testWriteLifecycleActiveCancel(t *testing.T, delayedDisposal bool) {
 	grace := StopGrace
 	StopGrace = 20 * time.Millisecond
 	t.Cleanup(func() { StopGrace = grace })
-	f := lifecycleStart(t, true)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	observer := &terminalObserver{}
+	var preparations atomic.Int32
+	var disposed atomic.Bool
+	f := lifecycleStart(t, true, func(s *Spec) {
+		s.Observe = observer
+		s.Prepare = func(command string, args []string) (string, []string, []string, []*os.File, func(), error) {
+			preparations.Add(1)
+			return command, args, nil, nil, func() {
+				close(entered)
+				if delayedDisposal {
+					select {
+					case <-release:
+					case <-time.After(3 * time.Second):
+					}
+				}
+				disposed.Store(true)
+			}, nil
+		}
+	})
+	// Release before the fixture's cleanup waits, including on a failed assertion.
+	t.Cleanup(unblock)
 	f.p.mu.Lock()
 	peer := f.p.sess.peer
 	f.p.mu.Unlock()
@@ -350,12 +382,63 @@ func TestWriteLifecycleActiveCancel(t *testing.T) {
 		}
 		ctx, stop := context.WithTimeout(context.Background(), time.Second)
 		defer stop()
-		if err := f.p.StopContext(ctx); err != nil {
-			t.Fatal(err)
+		stopErr := f.p.StopContext(ctx)
+		if delayedDisposal && !errors.Is(stopErr, ErrTeardownTimeout) {
+			t.Fatal("FAIL held disposal did not report teardown failure", stopErr)
 		}
-		if alive(f.pid) {
-			t.Fatal("FAIL admitted cancel child not reaped")
+		if stopErr != nil {
+			var failure *teardownFailure
+			if !errors.Is(stopErr, ErrTeardownTimeout) || !errors.As(stopErr, &failure) || failure.cause != nil {
+				t.Fatal("FAIL unexpected teardown error", stopErr)
+			}
+			f.p.mu.Lock()
+			retained := f.p.teardownErr
+			f.p.mu.Unlock()
+			if !errors.Is(retained, ErrTeardownTimeout) {
+				t.Fatal("FAIL teardown failure not retained")
+			}
+			assertTeardownLocalized(t, stopErr)
+			t.Log("PASS bounded teardown failure remains distinct from actual completion")
 		}
+		if delayedDisposal {
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal("TIMEOUT actual reap/disposal entry")
+			}
+			gone, groupErr := ownedGroupAbsent(f.pid)
+			if alive(f.pid) || !gone || groupErr != nil || disposed.Load() {
+				t.Fatal("FAIL disposal gate did not follow actual reap and group absence", groupErr)
+			}
+			select {
+			case <-f.p.Done():
+				t.Fatal("FAIL held disposal reported ownership complete")
+			default:
+			}
+			if observer.active.Load() != 1 || observer.starts.Load() != 1 || observer.stops.Load()+observer.exits.Load() != 0 || preparations.Load() != 1 {
+				t.Fatal("FAIL teardown failure released active run or admitted replacement")
+			}
+			if state, _ := f.p.Status(); state != StateError {
+				t.Fatal("FAIL teardown failure reported stopped")
+			}
+		}
+		unblock()
+		select {
+		case <-f.p.Done():
+		case <-ctx.Done():
+			t.Fatal("TIMEOUT actual admitted cancel teardown completion")
+		}
+		gone, groupErr := ownedGroupAbsent(f.pid)
+		if alive(f.pid) || !gone || groupErr != nil || !disposed.Load() {
+			t.Fatal("FAIL admitted cancel completion before group cleanup, reap and disposal", groupErr)
+		}
+		if observer.active.Load() != 0 || observer.starts.Load() != 1 || observer.stops.Load()+observer.exits.Load() != 1 || preparations.Load() != 1 {
+			t.Fatal("FAIL admitted cancel terminal event or replacement")
+		}
+		if stopErr != nil && !errors.Is(f.p.StopContext(ctx), ErrTeardownTimeout) {
+			t.Fatal("FAIL late completion erased teardown failure")
+		}
+		t.Log("PASS admitted cancel independently completed owned group cleanup, reap and disposal")
 	case <-time.After(250 * time.Millisecond):
 		t.Fatal("TIMEOUT active cancel")
 	}

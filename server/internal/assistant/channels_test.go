@@ -1340,7 +1340,7 @@ func TestNewConversationsFirstMessageFoldedIsAnswered(t *testing.T) {
 		{ID: "d6", Seq: 6, Role: "system", Kind: "turn_duration", TurnDuration: &proto.TurnDuration{DurationMS: 5}},
 	}}
 	s := withSettings(t, f, New(Options{Hub: h, Store: func() Store { return &memStore{} }, Logf: testLogf(t)}))
-	// As feishu.go's rt.isNew path leaves it, then as its session.send path does.
+	// As feishu_message.go's rt.isNew path leaves it, then as its session.send path does.
 	s.startChannelRun(&channel.Run{ID: "fb_om1", Channel: channel.Feishu, ReplyTo: "om1", MachineID: "server", SessionID: "s1",
 		TargetKind: targetPersona, Started: time.Now().UTC(), Ext: map[string]string{}})
 	s.startChannelRun(&channel.Run{ID: "fb_om2", Channel: channel.Feishu, ReplyTo: "om2", MachineID: "server", SessionID: "s1",

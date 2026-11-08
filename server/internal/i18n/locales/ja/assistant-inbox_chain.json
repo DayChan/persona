@@ -34,5 +34,6 @@
   "suggested_agent": "マネージャーが Agent の起動を提案",
   "suggested_handback": "マネージャーが提案、判断をお願いします",
   "confirmed_agent": "確認しました：Agent を起動",
-  "failed_agent": "Agent を起動できませんでした"
+  "failed_agent": "Agent を起動できませんでした",
+  "handed_main": "Persona のメインチャットに渡しました"
 }

@@ -29,6 +29,7 @@ Place necessary historical text under its module directory and list it below.
 | `integrations/msg-render-verification.md` | Real-data verification of the message pipeline lane (stages 2–4) |
 | `integrations/session-verify.md` | Real-data verification of session reading and message sending (2026-10-31) |
 | `operations/tab-switch-performance-739.md` | Persona/Agents switching CPU and request measurements, targeted fixes and the separate Mac/TestFlight acceptance boundary (#739) |
+| `operations/apple-tab-switch-validation-739.md` | Original Apple 240-sample matrix, cadence/payload observations, hidden HTTP follow-up and open acceptance gates (#739 / #1159) |
 | `operations/node-link-update-validation.md` | Persona Link node update acceptance (#1158) |
 | `operations/persona-only-277-acceptance.md` | Persona-only naming acceptance (#277) |
 | `apple/plan-chat-topbar.md` | Superseded Apple chat-header proposal and decisions; current implementation is in the iOS guide |

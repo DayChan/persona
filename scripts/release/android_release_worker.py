@@ -32,8 +32,11 @@ def atomic_json(path, value):
 
 
 def digest(path):
+    hasher = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(64 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def version_code(checkout, sha, base=VERSION_BASE):
@@ -173,7 +176,26 @@ def finish_verified(config, directory, sha, code, complete):
     print("Published " + sha)
 
 
-def cycle(config):
+def recovery_request(config, checkout, sha, directory, code):
+    """Validate the existing artifact before a verification-only retry."""
+    if run(["git", "remote", "get-url", "origin"], checkout, True).strip() != config["git_url"]:
+        raise ValueError("recovery repository mismatch")
+    if run(["git", "rev-parse", "HEAD"], checkout, True).strip() != sha:
+        raise ValueError("recovery checkout must retain the artifact source")
+    request = json.loads((directory / "build.json").read_text())
+    signature = json.loads((directory / "signature.json").read_text())
+    expected = dict(repository=config["repository"], source_sha=sha,
+                    package=config["application_id"], version_code=code)
+    if any(request.get(k) != v or signature.get(k) != v for k, v in expected.items()):
+        raise ValueError("recovery artifact identity mismatch")
+    if (signature.get("certificate_sha256") != config["certificate_sha256"]
+            or signature.get("signed_sha256") != digest(directory / "signed.apk")
+            or signature.get("unsigned_sha256") != request.get("unsigned_sha256")):
+        raise ValueError("recovery artifact digest or certificate mismatch")
+    return request
+
+
+def cycle(config, verify_source=None):
     state = Path(config["state_directory"]).expanduser().resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (state / "worker.lock").open("a") as lock:
@@ -182,7 +204,12 @@ def cycle(config):
         except BlockingIOError:
             print("Another Android release is already running")
             return
-        checkout, sha = prepare(config)
+        if verify_source is None:
+            checkout, sha = prepare(config)
+        else:
+            if not re.fullmatch(r"[0-9a-f]{40}", verify_source):
+                raise ValueError("verification source must be a complete commit SHA")
+            checkout, sha = Path(config["checkout"]).expanduser().resolve(), verify_source
         complete = state / "published.json"
         previous = json.loads(complete.read_text()) if complete.exists() else {}
         if previous and previous.get("repository") != config["repository"]:
@@ -208,9 +235,21 @@ def cycle(config):
                     sys.stdout.flush(); sys.stderr.flush()
                     os.dup2(log.fileno(), 1); os.dup2(log.fileno(), 2)
                     print("SOURCE_SHA=" + sha, flush=True)
-                    request = build(config, checkout, sha, directory)
-                    signing(config, request, directory)
-                    publish(config, checkout, request, directory)
+                    if verify_source is None:
+                        request = build(config, checkout, sha, directory)
+                        signing(config, request, directory)
+                        publish(config, checkout, request, directory)
+                    else:
+                        request = recovery_request(config, checkout, sha, directory, code)
+                        # Preserve the failed attempt before the adapter replaces its reports.
+                        attempt = directory / ("verification-retry-" + str(time.time_ns()))
+                        attempt.mkdir()
+                        for name in ("failure.json", "android-live-test-attempt.xml"):
+                            if (directory / name).exists():
+                                shutil.copyfile(directory / name, attempt / name)
+                        env = dict(os.environ, **config.get("build_environment", {}))
+                        env["PERSONA_ANDROID_VERIFY_ONLY"] = "1"
+                        run(config["verify_command"] + [str(directory / "signature.json")], checkout, env=env)
                     signature = json.loads((directory / "signature.json").read_text())
                     atomic_json(directory / "verified.json", dict(
                         request=request, signed_sha256=signature["signed_sha256"],
@@ -231,12 +270,13 @@ def cycle(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--verify-source", help="Retry only verification for an existing signed source; never fetch, build, sign or publish")
     args = parser.parse_args()
     os.umask(0o077)
     config = json.loads(args.config.read_text())
     if not re.fullmatch(r"[0-9a-f]{64}", config["certificate_sha256"]):
         parser.error("certificate_sha256 must be the existing signing certificate digest")
-    cycle(config)
+    cycle(config, args.verify_source)
 
 
 if __name__ == "__main__":

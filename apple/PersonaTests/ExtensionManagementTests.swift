@@ -152,7 +152,7 @@ struct ExtensionManagementTests {
         }
     }
 
-    private func installedHub(_ answer: @escaping (LocalRequest) throws -> Data) -> FakeHub {
+    private func installedHub(_ answer: @escaping FakeHub.Route) -> FakeHub {
         let hub = FakeHub()
         hub.on("GET", "/api/v1/plugins/-/catalog", json: #"{"plugins":[{"market":"market","id":"example","name":"示例扩展","version":"1.0.0","installed":"1.0.0","from_this_market":true}]}"#)
         hub.on("GET", path, json: detail)

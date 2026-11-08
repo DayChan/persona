@@ -25,7 +25,7 @@ import (
 // continuing one, renaming a space) go. The user picks them per machine in the app; the hub stores them and tells
 // the node with engine.use when it connects and when they change (docs/protocol/protocol.md "Engines"). Only the hosts in the
 // set are registered, and each runs isolated from the others: refreshes in parallel, each watcher refreshing only its
-// own host (sessions.go, herdrevents.go), so one host that is slow or down does not hold up another.
+// own host (placement.go, herdrevents.go), so one host that is slow or down does not hold up another.
 
 // engineState is the engine in use and the change stream watching it.
 type engineState struct {
@@ -88,7 +88,7 @@ func engineHosts(engine string, logf func(format string, args ...any)) []host.Ho
 // node had before engines), herdr-core at the socket hc would use, Orca's runtime. Paseo is no terminal host: its
 // sessions are its runtime's (runtimecontrol.go), run while the set holds it (engine.use in node.go). The empty set has
 // none. The hosts stay isolated from each other — their refreshes run in parallel and each watcher only refreshes its
-// own host (sessions.go, herdrevents.go).
+// own host (placement.go, herdrevents.go).
 func engineHostsFor(c proto.EngineChoice, logf func(format string, args ...any)) []host.Host {
 	var hs []host.Host
 	for _, kind := range c.Hosts {

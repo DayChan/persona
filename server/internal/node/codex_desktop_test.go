@@ -27,15 +27,10 @@ type fakeCodexBus struct {
 
 func startFakeCodexBus(t *testing.T, owned string) (home string, bus *fakeCodexBus) {
 	t.Helper()
-	// A short path: a unix socket path over ~104 bytes (macOS's t.TempDir()) cannot be bound.
-	home, err := os.MkdirTemp("/tmp", "cxbus")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(home) })
-	os.MkdirAll(filepath.Join(home, "ipc"), 0o700)
-	l, err := net.Listen("unix", codexDesktopSocket(home))
-	if err != nil {
+	// The home of an App: its sidebar state is there (on Windows the bus is found only next to one). A test that
+	// wants another writes its own.
+	home, l := listenFakeCodexBus(t) // codex_desktop_unix_test.go, codex_desktop_windows_test.go
+	if err := os.WriteFile(filepath.Join(home, ".codex-global-state.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { l.Close() })
@@ -164,6 +159,7 @@ func TestSendCodexDesktopRefusesThreadTheAppHasNotLoaded(t *testing.T) {
 }
 
 func TestCodexDesktopAvailableNeedsTheSocket(t *testing.T) {
+	noFakeCodexBus(t)
 	if codexDesktopAvailable(t.TempDir()) || codexDesktopAvailable("") {
 		t.Fatal("no App bus here")
 	}

@@ -17,6 +17,7 @@ import { ModelEffortPopover } from "./ModelEffortPopover";
 import { UltraMark } from "./Ultracode";
 import { t } from "../../i18n";
 import { AlwaysPermissions } from "./AlwaysPermissions";
+import { DelegatedHistory } from "./Delegated";
 import { appArchiveDeps, archiveAgent } from "../../lib/agent-archives";
 
 interface SessionInfo {
@@ -96,6 +97,7 @@ export function SessionInfoDialog({ session, machineName, open, onClose }: { ses
       {error && <p className="py-4 text-[13px] text-red">{error}</p>}
       <div className="flex flex-col gap-3">
         {open && session.assistant && <AlwaysPermissions key={session.session_id} session={session.session_id} />}
+        {open && !session.assistant && <DelegatedHistory key={`${session.machine_id}/${session.session_id}`} session={session} />}
         {groups.map((g) => {
           const rows = g.rows.filter(([, v]) => v);
           if (!rows.length) return null;

@@ -58,5 +58,35 @@ class PersonaServiceEnvironmentTests(unittest.TestCase):
                     self.assertFalse((home / 'Library/LaunchAgents' / ('com.' + FORMER_NAME + '.node.plist')).exists())
 
 
+    def test_restart_idle_works_with_older_systemd(self):
+        """restart-idle signals the node's main process with an option every systemd reads: --kill-whom= is only
+        systemd 252's new name; 241 and 245 (seen on two Linux dev machines) know only --kill-who=, which 252 and
+        later still accept. With the new name the signal never went out and deploys left the resident node on its old
+        binary."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            state = home / '.persona'
+            (state / 'bin').mkdir(parents=True)
+            commands = home / 'commands'
+            commands.mkdir()
+            calls = home / 'calls'
+            for name, body in {
+                'uname': '#!/bin/sh\necho Linux\n',
+                # systemd 245: no --kill-whom=.
+                'systemctl': '#!/bin/sh\necho "$*" >> "$HOME/calls"\n'
+                             'for a in "$@"; do case $a in --kill-whom=*) echo "systemctl: unrecognized option \'$a\'" >&2; exit 1;; esac; done\n'
+                             'exit 0\n',
+            }.items():
+                path = commands / name
+                path.write_text(body)
+                path.chmod(0o755)
+            env = {k: v for k, v in os.environ.items() if not k.startswith(('PERSONA_', FORMER_PREFIX))}
+            env.update({'HOME': str(home), 'PATH': str(commands) + ':' + os.environ['PATH']})
+            result = subprocess.run(['bash', str(SCRIPT), 'restart-idle'], env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('restarts once no conversation is busy', result.stdout)
+            self.assertIn('--user kill -s HUP --kill-who=main personad-node.service', calls.read_text().splitlines())
+
+
 if __name__ == '__main__':
     unittest.main()

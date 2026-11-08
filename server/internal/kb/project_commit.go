@@ -53,7 +53,7 @@ func (e *Engine) commitProject(snapshot *Project, input prompts.KBProjectInput, 
 	}
 	protected := current.Tagging
 	now := time.Now().UTC()
-	applyTags(&current.Tagging, d.Importance, d.Relevance, d.Tags, now)
+	applyTags(&current.Tagging, d.Importance, int(d.Relevance), d.Tags, now)
 	if protected.fieldLocked("importance") {
 		current.Importance = protected.Importance
 	}

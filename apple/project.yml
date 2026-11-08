@@ -596,6 +596,7 @@ targets:
       - path: PersonaTests/PersonaSelectionTests.swift
       - path: PersonaTests/ExtensionStreamTreeTests.swift
       - path: PersonaTests/ExtensionPageStreamTests.swift
+      - path: PersonaTests/DelegateTests.swift
       - path: PersonaTests/FakeHub.swift
     dependencies:
       - target: PersonaMac

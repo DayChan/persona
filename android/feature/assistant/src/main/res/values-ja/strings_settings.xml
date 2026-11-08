@@ -21,7 +21,7 @@
     <string name="assistant_settings_machine_offline">オフライン</string>
     <string name="assistant_settings_cwd">作業ディレクトリ</string>
     <string name="assistant_settings_offline_notice">「%1$s」は現在オフラインです。接続されるまでPersonaは返信できず、メモリも読み込めません。</string>
-    <string name="assistant_settings_where_caption">各チャットはこのマシンのこのディレクトリでClaude Codeをバックグラウンド実行し、herdrには入りません。使うモデルは「設定 › モデル設定 › メインチャット」で選びます。</string>
+    <string name="assistant_settings_where_caption">各チャットはこのマシンのこのディレクトリでClaude CodeまたはCodexをバックグラウンド実行します。「設定 › モデル設定 › メインチャット」で実行環境とモデルを選びます。</string>
     <string name="assistant_settings_proactive_header">自発的な作業</string>
     <string name="assistant_settings_proactive">定期タスク、フォローアップ、実行履歴</string>
     <string name="assistant_settings_proactive_subtitle">時間になると作業を始め、約束したことをフォローアップし、終わったらスマートフォンに通知します</string>

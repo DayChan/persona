@@ -360,6 +360,9 @@ extension Theme {
         static let sshTunnel = "network.badge.shield.half.filled"
         /// A hub reached through the app's own in-app tunnel (docs/operations/network.md「经 App 内隧道连 hub」).
         static let inAppTunnel = "lock.shield"
+        /// A hub reached through a SOCKS5 proxy another app on this device serves (Settings › hub › Local Proxy,
+        /// docs/operations/network.md "Connecting to hub through a local SOCKS5 proxy").
+        static let localProxy = "app.connected.to.app.below.fill"
         /// This device's own SSH key (its public half, to copy onto the server).
         static let sshKey = "key.horizontal"
         /// The SSH server's key fingerprint, confirmed and pinned.

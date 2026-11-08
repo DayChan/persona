@@ -69,28 +69,72 @@ func (t *Tagging) fieldLocked(field string) bool {
 
 // putEntity rereads protected fields while holding the metadata lock. A stale pipeline object cannot
 // restore locked links or overwrite a hand edit made while a model or connector was running.
-func (s *Store) putEntity(kind, id string, v any, t *Tagging, manual bool) error {
+func (s *Store) putEntity(kind, id string, v any, t *Tagging, manual bool) (err error) {
 	if s.readOnly {
 		return ErrReadOnly
 	}
 	s.metaMu.Lock()
+	if kind == KindChat {
+		s.mu.Lock()
+	}
+	changed := false
+	defer func() {
+		if kind == KindChat {
+			s.mu.Unlock()
+		}
+		s.metaMu.Unlock()
+		if err == nil && changed {
+			s.notify(kind, id, "metadata")
+		}
+	}()
+	if kind == KindChat {
+		if err := s.pendingIngestLocked(id); err != nil {
+			return err
+		}
+	}
 	path := s.entityPath(kind, id)
 	current := map[string]json.RawMessage{}
 	exists, err := readJSON(path, &current)
 	if err != nil {
-		s.metaMu.Unlock()
 		return err
 	}
 	if !exists && t.persisted {
-		s.metaMu.Unlock()
 		return nil
 	} // forgotten during an external call
+	incoming := protectedEntity(v, t, current, manual)
+	before, _ := json.Marshal(current)
+	after, _ := json.Marshal(incoming)
+	changed = !exists || !bytes.Equal(before, after)
+	if changed {
+		err = writeJSON(path, incoming)
+	}
+	if err == nil {
+		switch entity := v.(type) {
+		case *Chat:
+			*entity = Chat{}
+		case *Person:
+			*entity = Person{}
+		case *Project:
+			*entity = Project{}
+		case *Item:
+			*entity = Item{}
+		case *Recording:
+			*entity = Recording{}
+		}
+		_ = json.Unmarshal(after, v)
+		t.persisted = true
+	}
+	return err
+}
+
+// protectedEntity merges fields held by a person or extension into a pipeline write.
+func protectedEntity(v any, t *Tagging, current map[string]json.RawMessage, manual bool) map[string]json.RawMessage {
 	incoming := entityMap(v)
 	// Keep an explicit clear in metadata; omitting it makes detail clients fall back to cached tags.
 	if t.Tags != nil && len(t.Tags) == 0 {
 		incoming["tags"] = json.RawMessage(`[]`)
 	}
-	if exists {
+	if len(current) > 0 {
 		var protected Tagging
 		raw, _ := json.Marshal(current)
 		_ = json.Unmarshal(raw, &protected)
@@ -114,33 +158,7 @@ func (s *Store) putEntity(kind, id string, v any, t *Tagging, manual bool) error
 			}
 		}
 	}
-	before, _ := json.Marshal(current)
-	after, _ := json.Marshal(incoming)
-	changed := !exists || !bytes.Equal(before, after)
-	if changed {
-		err = writeJSON(path, incoming)
-	}
-	if err == nil {
-		switch entity := v.(type) {
-		case *Chat:
-			*entity = Chat{}
-		case *Person:
-			*entity = Person{}
-		case *Project:
-			*entity = Project{}
-		case *Item:
-			*entity = Item{}
-		case *Recording:
-			*entity = Recording{}
-		}
-		_ = json.Unmarshal(after, v)
-		t.persisted = true
-	}
-	s.metaMu.Unlock()
-	if err == nil && changed {
-		s.notify(kind, id, "metadata")
-	}
-	return err
+	return incoming
 }
 
 func (s *Store) putSummary(kind, id, text string, manual bool) error {

@@ -35,6 +35,9 @@ class MachineActionsTest {
         override suspend fun launcherQuota(machineId: String, name: String, refresh: Boolean) = persona.core.contracts.api.LauncherQuotaAnswer()
         override suspend fun reconnect(machineId: String) { calls += "reconnect:$machineId"; failure?.let { throw it }; onReconnect() }
         override suspend fun deploy(machineId: String) { calls += "deploy:$machineId"; failure?.let { throw it } }
+        override suspend fun rename(machineId: String, name: String): String {
+            calls += "rename:$machineId:$name"; failure?.let { throw it }; return name.ifBlank { machineId }
+        }
         override suspend fun herdr(machineId: String): persona.core.contracts.api.HerdrState = error("unused")
         override suspend fun startHerdr(machineId: String): persona.core.contracts.api.HerdrState = error("unused")
         override suspend fun setEngine(machineId: String, engine: String) = Machine(machineId, engine = engine)
@@ -162,6 +165,29 @@ class MachineActionsTest {
             assertEquals(UiText.Plain("mac: machine is offline"), model.state.value.launchersError)
             // What was read before stays listed.
             assertEquals(2, model.state.value.launchers?.size)
+        } finally { model.viewModelScope.cancel() }
+    }
+
+    @Test fun renameSaysTheHubsNameAndRefreshesOrSaysWhyNot() = test {
+        val sessions = Sessions(listOf(Machine("mac", online = true)))
+        val management = Management()
+        val model = MachineActionsViewModel(management, sessions)
+        try {
+            model.rename("mac", "  Studio  ")
+            assertTrue(model.state.value.renaming)
+            model.rename("mac", "again") // one at a time
+            runCurrent()
+            assertEquals(listOf("rename:mac:Studio"), management.calls)
+            assertEquals(MachineNotice.Renamed("Studio"), model.notices.first())
+            assertEquals(1, sessions.refreshes)
+            assertFalse(model.state.value.renaming)
+            model.rename("mac", "")
+            runCurrent()
+            assertEquals(MachineNotice.Renamed("mac"), model.notices.first())
+            management.failure = HubFailure(HubError.Server, "The name can be at most 40 characters, on one line", 400)
+            model.rename("mac", "x".repeat(41))
+            runCurrent()
+            assertEquals(MachineNotice.RenameFailed(UiText.Plain("The name can be at most 40 characters, on one line")), model.notices.first())
         } finally { model.viewModelScope.cancel() }
     }
 

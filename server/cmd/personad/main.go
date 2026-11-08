@@ -22,6 +22,7 @@ import (
 	"github.com/nwverse/persona/server/internal/hubcli"
 	"github.com/nwverse/persona/server/internal/managercli"
 	"github.com/nwverse/persona/server/internal/relay"
+	"github.com/nwverse/persona/server/internal/supervise"
 	"github.com/nwverse/persona/server/internal/update"
 	"github.com/nwverse/persona/server/internal/voice"
 )
@@ -60,6 +61,9 @@ const usage = `usage:
 ` + nodecmd.Usage + `
   personad relay [config]   run the push relay (config ~/.persona/relay.json): pushes for hubs without the app's APNs
                            key, payloads sealed to the phone (docs/operations/push-relay.md)
+  personad supervise [--manager-only [--hub <hub address>]]
+                           the hub and the built-in manager side by side in one container, each started again when it
+                           stops (the hub image runs it; docs/operations/docker.md)
   personad voice            the built-in voice extension: the hub runs it (hub.json extensions, docs/extensions/extensions.md「内置语音扩展」)
   personad extension …      extensions on the hub's machine: list, install, upgrade, rollback, enable, disable, config,
                            secret, uninstall, markets (docs/extensions/extensions.md「命令行」; personad extension for the details;
@@ -124,6 +128,10 @@ func main() {
 			path = os.Args[2]
 		}
 		err = relay.Run(ctx, path)
+	case "supervise": // the hub image's: the hub and the built-in manager side by side (docs/operations/docker.md)
+		if err = supervise.Run(ctx, os.Args[2:], os.Stderr); errors.Is(err, supervise.ErrStopped) {
+			os.Exit(1) // it said why in its log
+		}
 	case "voice":
 		err = voice.Run(ctx)
 	case "extension", "ext", "plugin": // plugin: its name before #1844

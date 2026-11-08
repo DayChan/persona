@@ -1,4 +1,4 @@
-Read one message in full: headers, plain text, HTML and the attachment list. Does not mark the message as read.
+Read one message in full: headers, plain text, HTML and the attachment list (each with its id for mail_save_attachment). Does not mark the message as read.
 
 ```json
 {

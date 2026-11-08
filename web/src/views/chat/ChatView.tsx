@@ -202,6 +202,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const siblings = useStore((s) => (session?.space_id ? (s.sessions[mid] ?? []).filter((x) => x.space_id === session.space_id && stateOf(x) !== "offline") : []));
   const interactions = useStore((s) => s.interactions.filter((i) => i.machine_id === mid && i.session_id === sid));
   const answered = useStore((s) => Object.values(s.answered).filter((a) => a.ix.machine_id === mid && a.ix.session_id === sid));
+  const delegated = useStore((s) => Object.values(s.delegated).filter((d) => d.ix.machine_id === mid && d.ix.session_id === sid));
   // the list as pushed: its updated_at is what tells the page it fell behind (useTranscript)
   const viewed = readOnly ? (listed?.find((a) => a.session_id === sid) ?? null) : null;
   const tr = useTranscript(mid, sid, { starting: Boolean(launching) && !readOnly, updatedAt: (readOnly ? viewed : session)?.updated_at, cache: mainCache });
@@ -1090,6 +1091,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         <PendingCards
           interactions={focusedFirst(interactions, focusedCard())}
           answered={answered}
+          delegated={delegated}
           // the agent's own page only (#4091): in a side panel the link would change the page under it, and Persona's
           // conversations list what the tasks' agents ask in TaskQuestions
           offerNext={inPage && !readOnly && !assistant ? { mid, sid } : undefined}

@@ -93,6 +93,15 @@ struct HubsView: View {
                 }
                 .accessibilityIdentifier("hubs.ssh.\(h.id)")
             }
+            // Each paired hub's local SOCKS5 proxy (docs/operations/network.md "Connecting to hub through a local SOCKS5
+            // proxy"), keyed apart like the SSH rows.
+            ForEach(members, id: \.localProxyRowID) { h in
+                NavigationLink(value: SettingsPage.localProxy(h.id)) {
+                    SettingsRow(title: members.count > 1 ? String(localized: "Local Proxy · \(h.displayName)") : String(localized: "Local Proxy"),
+                                symbol: Theme.Icon.localProxy, tint: Theme.Hue.indigo, value: localProxyValue(h), look: .oneLine)
+                }
+                .accessibilityIdentifier("hubs.proxy.\(h.id)")
+            }
             // Each paired hub's in-app tunnel (docs/operations/network.md「经 App 内隧道连 hub」): only a hub whose extension
             // contributes one has it, titled with the tunnel's name. Keyed apart like the SSH rows.
             ForEach(members.filter { $0.inAppTunnel != nil }, id: \.inAppTunnelRowID) { h in
@@ -157,6 +166,13 @@ struct HubsView: View {
         return route.always ? String(localized: "Always [Hubs View 1d325d]") : String(localized: "Fallback")
     }
 
+    /// What the Local Proxy row says, as the SSH one does.
+    private func localProxyValue(_ h: PairedHub) -> String {
+        guard let route = h.localProxy, route.isUsable else { return String(localized: "Not set") }
+        if LocalProxies.shared.routed.contains(h.id) { return String(localized: "In Use [Hubs View fa48e8]") }
+        return route.always ? String(localized: "Always [Hubs View 1d325d]") : String(localized: "Fallback")
+    }
+
     /// What the in-app tunnel's row says, as the SSH one does.
     private func inAppTunnelValue(_ h: PairedHub) -> String {
         guard let route = h.inAppTunnel, route.isUsable else { return String(localized: "Not set") }
@@ -168,6 +184,7 @@ struct HubsView: View {
     private func footer(_ g: String) -> String {
         let n = model.registry.members(g).count + meshOnly(g).count
         let inApp = model.inAppTunnelState(g).flatMap { $0.routed ? $0.route.title : nil }
+            ?? (model.localProxyState(g)?.routed == true ? String(localized: "Local Proxy") : nil)
         let routed = model.tunnel(g)?.routed == true
         let state = model.isLive(g)
             ? (inApp.map { String(localized: "Connected (via \($0))") } ?? (routed ? String(localized: "Connected (via SSH tunnel)") : String(localized: "Connected [V N C Page 5be032]")))
@@ -204,6 +221,7 @@ struct HubsView: View {
                     Text(h.displayName).lineLimit(1)
                     if inUse { Chip(text: String(localized: "In Use [Hubs View 564c83]"), look: .outline) }
                     if SSHTunnels.shared.routed.contains(h.id) { Chip(text: "SSH", look: .neutral) }
+                    if LocalProxies.shared.routed.contains(h.id) { Chip(text: String(localized: "Proxy"), look: .neutral) }
                     if InAppTunnels.shared.routed.contains(h.id) { Chip(text: String(localized: "Tunnel [Hubs View 55d2d3]"), look: .neutral) }
                 }
                 Text(h.config.url.absoluteString).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
@@ -238,4 +256,6 @@ private extension PairedHub {
     var sshRowID: String { "ssh." + id }
     /// The in-app tunnel row's identity, apart from the hub's own row and its SSH row.
     var inAppTunnelRowID: String { "tunnel." + id }
+    /// The Local Proxy row's identity, apart from the hub's other rows.
+    var localProxyRowID: String { "proxy." + id }
 }

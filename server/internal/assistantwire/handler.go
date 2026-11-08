@@ -1,0 +1,147 @@
+package assistantwire
+
+import (
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/nwverse/persona/server/internal/proto"
+)
+
+// ---- what the hub sends the assistant (Handler) ----
+
+// RoleHeader carries the role of the device a relayed request came from (the hub's auth decides it and sets the
+// header, replacing any the client sent). Absent (a test's own request) means a full device.
+const RoleHeader = "X-Persona-Role"
+
+// ExtensionHeader carries the extension a relayed request came from when RoleHeader is "extension" (set by the hub
+// like RoleHeader; never the client's).
+const ExtensionHeader = "X-Persona-Extension"
+
+// AdminHeader is "1" on a relayed request that came through the hub's admin UI with a signed-in admin session (the
+// hub's admin routes it relays, devicewire.AdminUsageRoutes); set by the hub like RoleHeader, never the client's.
+// Its value is the one extwire.HeaderAdmin carries on the extensions' relay.
+const AdminHeader = "X-Persona-Admin"
+
+// DeviceNameHeader carries the name of the device a relayed request came from ("" for the hub's own token), so a
+// manager can say who did something (a model profile's switch, docs/assistant/model-profiles.md); set by the hub like
+// RoleHeader, never the client's.
+const DeviceNameHeader = "X-Persona-Device-Name"
+
+// ToolCall is assistant.tool's params.
+type ToolCall struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	MachineID string          `json:"machine_id"` // the machine of the conversation that called it
+	SessionID string          `json:"session_id"` // the conversation; "" when it is not known
+}
+
+// SessionRef names one session on one machine.
+type SessionRef struct {
+	MachineID string `json:"machine_id"`
+	SessionID string `json:"session_id"`
+}
+
+// ContextParams is assistant.context's params. MachineID is the asking node's machine: the hub sets it from the
+// node's connection, never from the node's params. With Ack the call only confirms that a message carrying those
+// view errors (ContextResult.ViewErrors) was delivered, and answers nothing.
+type ContextParams struct {
+	SessionID string             `json:"session_id"`
+	MachineID string             `json:"machine_id,omitempty"`
+	Ack       []ViewErrorReceipt `json:"ack,omitempty"`
+}
+
+// ContextResult is assistant.context's answer: the <persona-context> text, and the <persona-view-errors> block of the
+// conversation's rich views that failed their check and were not reported yet (docs/assistant/assistant-views.md "Feedback next turn").
+// Reading it consumes nothing: the node acks Receipts once the message is delivered.
+type ContextResult struct {
+	Text       string             `json:"text"`
+	ViewErrors string             `json:"view_errors,omitempty"`
+	Receipts   []ViewErrorReceipt `json:"view_error_receipts,omitempty"`
+}
+
+// ViewErrorReceipt names the reported errors of one reply as they were read: an ack whose digest no longer matches
+// (the errors changed since) confirms nothing.
+type ViewErrorReceipt struct {
+	ItemID string `json:"item_id"`
+	Digest string `json:"digest"`
+}
+
+// Action is manager.action's params (appkit.Action): op answer, with the user's answer (a proto.Resolution).
+type Action struct {
+	ActionID           string          `json:"action_id"`
+	SessionID          string          `json:"session_id,omitempty"`
+	Op                 string          `json:"op"` // answer
+	TurnID             string          `json:"turn_id,omitempty"`
+	InteractionID      string          `json:"interaction_id"`
+	InteractionVersion uint64          `json:"interaction_version,omitempty"`
+	Answer             json.RawMessage `json:"answer,omitempty"`
+}
+
+// ActionResult is manager.action's answer.
+type ActionResult struct {
+	OK  bool   `json:"ok"`
+	Seq uint64 `json:"seq"`
+}
+
+// InteractionResolved is interaction.resolved's params: the card, the answer, and resolved / dismissed / failed.
+type InteractionResolved struct {
+	Interaction proto.Interaction `json:"interaction"`
+	Resolution  proto.Resolution  `json:"resolution"`
+	Status      string            `json:"status"`
+}
+
+// InteractionRaised is interaction.raised's params: an agent of a quiet task (#1731) asks the user something; the
+// hub sends no push for it, the main conversation is told instead. The card carries its task's title.
+type InteractionRaised struct {
+	Interaction proto.Interaction `json:"interaction"`
+}
+
+// MessageCard is a message the inbox's AI twin drafted a reply to, about one of the user's tasks: what the card in the
+// task's conversation shows until the item is sent or done (the app sends the draft through the inbox, by the item's
+// id).
+type MessageCard struct {
+	TodoID  string `json:"todo_id"`
+	Source  string `json:"source"`            // lark | mail | …
+	Account string `json:"account,omitempty"` // Lark / the mail address
+	Chat    string `json:"chat"`              // the chat's name / the mail's subject
+	Sender  string `json:"sender,omitempty"`
+	Text    string `json:"text"` // the message, clipped
+	Draft   string `json:"draft"`
+	// SentAt: the reply to the item went out (from this card or from the inbox, on any device) and Sent is what it
+	// said; set when the inbox sent the reply (the inbox is the assistant's too), never cleared, so the card stays sent
+	// when the item opens again. A card sent before that was recorded has no Sent (the draft is what went out).
+	SentAt *time.Time `json:"sent_at,omitempty"`
+	Sent   string     `json:"sent,omitempty"`
+}
+
+// APIErrorMarkers start what Claude Code answers when the model call itself failed (an error card in the app). Both
+// sides read a turn by them: the hub's session lists say an agent's turn was cut off (proto.Session.TurnError), the
+// assistant's scheduled runs and tasks act on it. "Not logged in · Please run /login" is what Claude Code answers when
+// it has no credentials (a model of its own, "<synthetic>"): the turn did not run, the user must sign in
+// (docs/assistant/onboarding.md 4.4). Its separator is in the marker, so a reply that talks about being logged out is a reply.
+var APIErrorMarkers = []string{"API Error:", "There's an issue with the selected model", "Failed to authenticate",
+	"OAuth token has expired", "Invalid API key", "Not logged in ·"}
+
+// InterruptedSummary is what is said of a turn the model service cut off, instead of its last words (the error is no
+// conclusion, #1516): an interrupted task's receipt, the push.
+const InterruptedSummary = "模型服务出错，中断了"
+
+// CutOff: an agent's answer is the model API error that ended its turn (it starts with one).
+func CutOff(answer string) bool {
+	answer = strings.TrimSpace(answer)
+	for _, marker := range APIErrorMarkers {
+		if strings.HasPrefix(answer, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// DeviceSessions is sessions.changed's params: the list as the node sent it, and when the node's connection to the hub
+// began (a new one: the node may have restarted and forgotten what it was told, e.g. the herdr todo marks).
+type DeviceSessions struct {
+	MachineID string          `json:"machine_id"`
+	Sessions  []proto.Session `json:"sessions"`
+	Connected time.Time       `json:"connected,omitzero"`
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nwverse/persona/server/internal/i18n"
 	"io"
 	"net/http"
 	"net/url"
@@ -125,8 +126,7 @@ type MarketIndex struct {
 	Name          string `json:"name"`
 	Description   string `json:"description,omitempty"`
 	Homepage      string `json:"homepage,omitempty"`
-	// SigningKey is the key the market says it signs with (ed25519:<base64>): only a hint, never trusted by itself
-	// (CheckSignature).
+	// SigningKey is legacy catalog metadata, never a trust grant.
 	SigningKey string `json:"signing_key,omitempty"`
 	// Extensions are "extensions" in an index; the old key "plugins" is read too, and still the one written out (the
 	// hub keeps the index it read, which a hub rolled back to a build before #1844 reads again).
@@ -157,6 +157,10 @@ type MarketEntry struct {
 	Packages []MarketPackage `json:"packages"`
 	// Parsed is Manifest, read.
 	Parsed *Manifest `json:"-"`
+	// Only ParseCatalog can create this proof; public fields remain checked
+	// against the snapshot before the registry accepts official provenance.
+	verifiedKey   string
+	verifiedEntry [sha256.Size]byte
 }
 
 // MarketPackage is a package of an entry.
@@ -242,6 +246,15 @@ func (e *MarketEntry) check() (*Manifest, error) {
 		if b, err := hex.DecodeString(p.SHA256); err != nil || len(b) != sha256.Size {
 			return nil, fmt.Errorf("%s：包要有 sha256（64 位十六进制）", m.ID)
 		}
+		if strings.HasPrefix(p.URL, "oci:") {
+			if _, err := parseOCI(p.URL); err != nil || p.Size <= 0 || p.Size > PackageMost {
+				return nil, i18n.Err("extension-market_security.package")
+			}
+			continue
+		}
+		if p.Size < 0 || p.Size > PackageMost {
+			return nil, i18n.Err("extension-market_security.package")
+		}
 		if p.URL == "" || strings.HasPrefix(p.URL, "http://") || strings.Contains(p.URL, "://") && !strings.HasPrefix(p.URL, "https://") {
 			return nil, fmt.Errorf("%s：包的地址要是相对路径或 https", m.ID)
 		}
@@ -284,6 +297,8 @@ type Market struct {
 	Dir string
 	// Cache is where downloaded packages are kept by their sha256 ("": none), docs/protocol/protocol.md "Extension install, upgrade and uninstall progress".
 	Cache string
+	// Mirrors receive no market credentials, and always verify before fallback.
+	RegistryMirror, CatalogMirror string
 	// allowLocal lets tests clone a local repository.
 	allowLocal bool
 	// viaFallback: some file of this read came from githubFallback's hosts.
@@ -320,9 +335,26 @@ func (m *Market) get(ctx context.Context, u, accept string, w io.Writer, limit i
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	}
 	sent := req.Header.Get("Authorization") != "" // the token goes to the market's own origin only
-	res, err := m.client().Do(req)
+	client := *m.client()
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || next.URL.User != nil || next.URL.Scheme != "https" && !sameOrigin(next.URL.String(), u) {
+			return i18n.Err("extension-market_security.redirect")
+		}
+		if !sameOrigin(next.URL.String(), m.origin()) || via[len(via)-1].Header.Get("Authorization") == "" {
+			next.Header.Del("Authorization")
+		}
+		if previous != nil {
+			return previous(next, via)
+		}
+		return nil
+	}
+	res, err := client.Do(req)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return i18n.Err("extension-market_security.request")
 	}
 	defer res.Body.Close()
 	switch {
@@ -383,6 +415,18 @@ func retryIn(h http.Header, now time.Time) string {
 	return fmt.Sprintf("约 %d 分钟后", int((wait+time.Minute-1)/time.Minute))
 }
 
+// SharesTokenWith limits explicit address moves and token reuse to the original
+// HTTPS origin, or repositories belonging to the same registered GitHub owner.
+func (m *Market) SharesTokenWith(target MarketSpec) bool {
+	if m.Spec.Kind != target.Kind {
+		return false
+	}
+	if m.Spec.Kind == "github" {
+		return strings.EqualFold(m.Spec.Owner, target.Owner)
+	}
+	return sameOrigin(m.Spec.URL, target.URL)
+}
+
 // origin is where the token may go.
 func (m *Market) origin() string {
 	if m.Spec.Kind == "github" {
@@ -391,7 +435,7 @@ func (m *Market) origin() string {
 	return m.Spec.URL
 }
 
-// notFound is a 404 from a market: for an index, the hub then tries its old name.
+// notFound is a catalog or package that the origin could not find.
 type notFound struct{ error }
 
 func (e notFound) Unwrap() error { return e.error }
@@ -471,14 +515,13 @@ func escapePath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-// Fetched is a market's index as read: parsed, and its raw bytes with its signature (nil when it has none).
+// Fetched keeps the full catalog envelope for restart-time verification.
 type Fetched struct {
-	Index    *MarketIndex
-	Warnings []string
-	Raw, Sig []byte
+	Index        *MarketIndex
+	Warnings     []string
+	Raw, Payload []byte
 }
 
-// Fetch reads the market's index.
 func (m *Market) Fetch(ctx context.Context) (*MarketIndex, []string, error) {
 	f, err := m.FetchSigned(ctx)
 	if err != nil {
@@ -487,113 +530,111 @@ func (m *Market) Fetch(ctx context.Context) (*MarketIndex, []string, error) {
 	return f.Index, f.Warnings, nil
 }
 
-// FetchSigned reads the market's index and its signature, <index>.sig next to it. A signature that is not there is
-// nil; one that cannot be read (the network, no rights) fails the read, so it is never taken for a missing one.
+// FetchSigned reads one document, and enforces the compiled-in pin for all official aliases. A failure is
+// ErrCatalogUnavailable (nothing read) or ErrCatalogUnverified (read, and it does not verify). A catalog mirror
+// that cannot be read or does not verify is skipped for the origin, whose answer alone decides: a mirror can
+// neither stand in an unverified catalog nor, when the origin is unreachable, quarantine the market.
 func (m *Market) FetchSigned(ctx context.Context) (*Fetched, error) {
 	limit := marketFetchFor
 	if m.Spec.Kind == "git" {
-		limit = gitFor // a clone over SSH can be slow
+		limit = gitFor
 	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
-	raw, sig, err := m.fetchRaw(ctx)
-	if err == nil && m.Spec.Kind == "github" && sig != nil {
-		// The index and its signature are two reads: a push in between pairs a new index with an old signature.
-		// Read both again once when they do not agree; CheckSignature has the last word.
-		var sf sigFile
-		if json.Unmarshal(sig, &sf) == nil && !signedByAny(raw, sf) {
-			raw, sig, err = m.fetchRaw(ctx)
-			// raw.githubusercontent.com caches each file for minutes, on its own: a new index can come with the old
-			// signature for a while. Not a read to judge the signature by; the last good index stays.
-			if err == nil && m.viaFallback && sig != nil && json.Unmarshal(sig, &sf) == nil && !signedByAny(raw, sf) {
-				err = errOfKind(ErrRateLimited, "GitHub 限流了，备用地址上的索引和签名暂时对不上：过几分钟再试；填一个 GitHub token 就不走备用地址")
+	key := ""
+	if IsOfficialMarket(m.Spec.String()) {
+		key = Official.SigningKey
+		if _, err := ParseSigningKey(key); err != nil {
+			return nil, catalogFailure(ErrCatalogUnverified, i18n.Err("extension-market_security.signature"))
+		}
+	}
+	if key != "" && m.CatalogMirror != "" {
+		mirrorCtx, stop := context.WithTimeout(ctx, mirrorFetchFor)
+		var b strings.Builder
+		anonymous := *m
+		anonymous.Token = ""
+		err := anonymous.get(mirrorCtx, m.CatalogMirror, "application/json", &b, IndexMost)
+		stop()
+		if err == nil {
+			if f, err := ParseCatalog([]byte(b.String()), key); err == nil {
+				return f, nil
 			}
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	raw, err := m.fetchRaw(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("读不到 %s：%w", m.Spec, err)
+		return nil, catalogFailure(ErrCatalogUnavailable, err)
 	}
-	ix, warnings, err := ParseIndex(raw)
-	if err != nil {
-		return nil, err
-	}
-	return &Fetched{Index: ix, Warnings: warnings, Raw: raw, Sig: sig}, nil
+	return ParseCatalog(raw, key)
 }
 
-// signedByAny is whether sig verifies raw with the key raw's own signing_key names (a cheap consistency check).
-func signedByAny(raw []byte, sf sigFile) bool {
-	var v struct {
-		SigningKey string `json:"signing_key"`
-	}
-	if json.Unmarshal(raw, &v) != nil {
-		return false
-	}
-	k, err := ParseSigningKey(v.SigningKey)
-	return err == nil && verifies(k, raw, sf)
-}
-
-// fetchRaw reads the canonical index (or an explicitly registered JSON URL) and its adjacent signature.
-func (m *Market) fetchRaw(ctx context.Context) ([]byte, []byte, error) {
+// fetchRaw never reads an adjacent signature or another catalog filename.
+func (m *Market) fetchRaw(ctx context.Context) ([]byte, error) {
 	var b strings.Builder
 	var err error
-	name := IndexFile
-	if m.Spec.Kind == "git" {
-		if m.Token != "" {
-			return nil, nil, errors.New("git 市场用 hub 机器自己的凭据（SSH key），不收 token")
-		}
+	switch m.Spec.Kind {
+	case "git":
 		if err = m.syncGit(ctx); err == nil {
 			err = m.gitFile(IndexFile, &b, IndexMost)
 		}
-	} else if m.Spec.Kind == "github" {
+	case "github":
 		err = m.getRepoFile(ctx, IndexFile, &b, IndexMost)
-	} else {
-		name = m.Spec.URL
+	default:
 		err = m.get(ctx, m.Spec.URL, "application/json", &b, IndexMost)
 	}
-	if err != nil {
-		return nil, nil, err
-	}
-	var s strings.Builder
-	switch m.Spec.Kind {
-	case "git":
-		if err = m.gitFile(name+SigSuffix, &s, sigFileMost); errors.Is(err, os.ErrNotExist) {
-			return []byte(b.String()), nil, nil
-		}
-	case "github":
-		if err = m.getRepoFile(ctx, name+SigSuffix, &s, sigFileMost); errors.As(err, new(notFound)) {
-			return []byte(b.String()), nil, nil
-		}
-	default:
-		u, _ := url.Parse(name)
-		u.Path += SigSuffix
-		if err = m.get(ctx, u.String(), "application/json", &s, sigFileMost); errors.As(err, new(notFound)) {
-			return []byte(b.String()), nil, nil
-		}
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("签名：%w", err)
-	}
-	return []byte(b.String()), []byte(s.String()), nil
+	return []byte(b.String()), err
 }
 
 // Download fetches pkg into dir (a fresh staging directory) and checks its sha256; it returns the file and the
 // name it goes by (for its type). A package in the cache (Cache) is taken from there; a download that gets no data
 // for StallAfter gives up (ErrDownloadStalled).
 func (m *Market) Download(ctx context.Context, pkg *MarketPackage, dir string) (string, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	totalBudget := 5 * time.Minute
+	if m.RegistryMirror != "" {
+		totalBudget += mirrorFetchFor
+	}
+	ctx, cancel := context.WithTimeout(ctx, totalBudget)
 	defer cancel()
+	if pkg == nil {
+		return "", "", i18n.Err("extension-market_security.package")
+	}
+	if digest, err := hex.DecodeString(pkg.SHA256); err != nil || len(digest) != sha256.Size {
+		return "", "", i18n.Err("extension-market_security.package")
+	}
+	if err := ValidateMarketMirrors(MarketMirrors{RegistryMirror: m.RegistryMirror, CatalogMirror: m.CatalogMirror}); err != nil {
+		return "", "", err
+	}
+	if pkg.Size < 0 || pkg.Size > PackageMost {
+		return "", "", i18n.Err("extension-market_security.package")
+	}
+	var oci *ociReference
+	if strings.HasPrefix(pkg.URL, "oci:") {
+		ref, err := parseOCI(pkg.URL)
+		if err != nil {
+			return "", "", err
+		}
+		if pkg.Size <= 0 {
+			return "", "", i18n.Err("extension-market_security.package")
+		}
+		oci = &ref
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", err
 	}
 	file := filepath.Join(dir, "download")
 	if from, name := cached(m.Cache, pkg.SHA256); from != "" {
+		validName := true
+		if oci != nil {
+			name = path.Base(name)
+			validName = ociTitle.MatchString(name)
+		}
 		if err := os.Link(from, file); err != nil {
 			if err := copyFile(from, file, 0o600); err != nil {
 				return "", "", err
 			}
 		}
-		if got, err := fileSum(file); err == nil && strings.EqualFold(got, pkg.SHA256) {
-			fi, _ := os.Stat(file)
+		fi, statErr := os.Stat(file)
+		if got, err := fileSum(file); err == nil && strings.EqualFold(got, pkg.SHA256) && validName && statErr == nil && fi.Size() <= PackageMost && (pkg.Size <= 0 || fi.Size() == pkg.Size) {
 			report(ctx, StepDownload, StepEvent{State: StepDone, Bytes: fi.Size(), Total: fi.Size(), Cached: true})
 			reportState(ctx, StepVerify, StepDone)
 			return file, name, nil
@@ -601,32 +642,64 @@ func (m *Market) Download(ctx context.Context, pkg *MarketPackage, dir string) (
 		_ = os.Remove(from) // not what it should be: download it again
 		_ = os.Remove(file)
 	}
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return "", "", err
+	attempts := []bool{false}
+	if oci != nil && m.RegistryMirror != "" {
+		attempts = []bool{true, false}
 	}
-	h := sha256.New()
-	dctx, pw, stop := watchDownload(ctx, io.MultiWriter(f, h), pkg.Size)
-	name, err := m.download(dctx, pkg.URL, pw)
-	stalled := stop()
-	f.Close()
-	if err != nil {
-		if stalled {
-			// The stalled connection stays pooled (HTTP/2 keeps it once the stream is reset), and a retry on it stalled
-			// as well: the idle ones go.
-			m.client().CloseIdleConnections()
-			return "", "", errOfKind(ErrDownloadStalled, "下载 %s：%d 秒没有收到数据", pkg.URL, int(StallAfter/time.Second))
+	var name string
+	var lastErr error
+	for _, mirror := range attempts {
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
 		}
-		return "", "", fmt.Errorf("下载 %s：%w", pkg.URL, err)
+		budget := 5 * time.Minute
+		if mirror {
+			budget = mirrorFetchFor
+		}
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, budget)
+		// Truncate the staging file and recreate every writer, hash and watchdog.
+		f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			cancelAttempt()
+			return "", "", err
+		}
+		h := sha256.New()
+		dctx, pw, stop := watchDownload(attemptCtx, io.MultiWriter(f, h), pkg.Size)
+		if oci != nil {
+			name, err = m.downloadOCI(dctx, *oci, mirror, pw)
+		} else {
+			name, err = m.download(dctx, pkg.URL, pw)
+		}
+		stalled := stop()
+		closeErr := f.Close()
+		cancelAttempt()
+		if err == nil {
+			err = closeErr
+		}
+		if err == nil && (pw.n > PackageMost || pkg.Size > 0 && pw.n != pkg.Size) {
+			err = i18n.Err("extension-market_security.checksum")
+		}
+		if err == nil {
+			reportState(ctx, StepVerify, StepRunning)
+			if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, pkg.SHA256) {
+				err = errOfKind(ErrChecksum, "%s", i18n.Err("extension-market_security.checksum"))
+			}
+		}
+		if err != nil {
+			lastErr = err
+			if stalled {
+				m.client().CloseIdleConnections()
+				lastErr = errOfKind(ErrDownloadStalled, "%s", i18n.Err("extension-market_security.stalled"))
+			}
+			_ = os.Remove(file)
+			continue
+		}
+		report(ctx, StepDownload, StepEvent{State: StepDone, Bytes: pw.n, Total: max(pw.n, pkg.Size)})
+		reportState(ctx, StepVerify, StepDone)
+		keep(m.Cache, pkg.SHA256, name, file)
+		return file, name, nil
 	}
-	report(ctx, StepDownload, StepEvent{State: StepDone, Bytes: pw.n, Total: max(pw.n, pkg.Size)})
-	reportState(ctx, StepVerify, StepRunning)
-	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, pkg.SHA256) {
-		return "", "", errOfKind(ErrChecksum, "下载的包 sha256 是 %s，不是索引里写的 %s", got, strings.ToLower(pkg.SHA256))
-	}
-	reportState(ctx, StepVerify, StepDone)
-	keep(m.Cache, pkg.SHA256, name, file)
-	return file, name, nil
+	return "", "", lastErr
 }
 
 // fileSum is the sha256 of a file, in hex.
@@ -691,6 +764,11 @@ func (m *Market) download(ctx context.Context, ref string, w io.Writer) (string,
 			return "", errors.New("包的相对路径不能跳出市场")
 		}
 		if m.Spec.Kind == "git" {
+			// A catalog mirror supplies no repository files. A fresh Market used by
+			// installation may also have an old checkout from a previous read.
+			if err := m.syncGit(ctx); err != nil {
+				return "", err
+			}
 			return clean, m.gitFile(clean, w, PackageMost)
 		}
 		if m.Spec.Kind == "github" {
@@ -728,8 +806,8 @@ type MarketRecord struct {
 	Error       string          `json:"error,omitempty"`
 	FetchedAt   *time.Time      `json:"fetched_at,omitempty"`
 	AddedAt     time.Time       `json:"added_at"`
-	// SigningKey is the key the hub trusts for this market (ed25519:<base64>): the first it saw, or the one its owner
-	// accepted; "" while the market has never been signed.
+	// SigningKey is a legacy stored official pin. Unofficial pins are cleared on load;
+	// official verification uses the compiled-in key and quarantines unrecognized pins.
 	SigningKey string `json:"-"`
 	// Signature is the state of the index last read.
 	Signature MarketSignature `json:"signature"`

@@ -8,8 +8,8 @@ A line under an agent is something waiting for the user: a question lists its op
   "properties": {
     "state": {
       "type": "string",
-      "enum": ["active", "needs_you", "working", "unread", "idle", "all"],
-      "description": "default active = needs_you + working + unread"
+      "enum": ["active", "needs_you", "working", "unread", "idle", "archived", "all"],
+      "description": "default active = needs_you + working + unread; archived: only the archived sessions (agent_unarchive restores them); the others leave archived ones out, all lists them marked archived"
     },
     "machine": {
       "type": "string"

@@ -294,6 +294,7 @@ def mock_workspaces():
 # ---------- node self-check (#2429, docs/server/machines.md "Self-check") ----------
 # GET /api/v1/machines/{mid}/doctor and POST …/doctor/fix: the report `personad node doctor` prints, as the hub relays it.
 #   MOCK_TOKENS=none (a hub without per-machine token usage: no card tokens, the usage route 404s) | empty (nothing ran)
+#               | lopsided (the server ran nearly everything, the others a thousandth as much)
 #   MOCK_DOCTOR=healthy (default) | stale (hooks and MCP files out of date, "Repair" puts them right) | broken (node.sock gone)
 #                | mixed (stale files, the user's own PermissionRequest hook, no runtime.sock) | old (the node has no such method)
 #                | error (the check fails) | slow (the check takes MOCK_DOCTOR_SECONDS, default 3)
@@ -468,7 +469,8 @@ def machine_metrics(mid, span, step):
 
 
 # Token usage by machine (docs/server/machines.md "Token usage", #4973). MOCK_TOKENS=none: a hub before it (the usage route
-# answers 404, the cards have no tokens); =empty: no machine ran anything. The studio's node is an older one (its usage
+# answers 404, the cards have no tokens); =empty: no machine ran anything; =lopsided: the server ran nearly all of it
+# (the Machines page's share bar with minimum-width parts). The studio's node is an older one (its usage
 # names no launcher), the NAS is offline (its monitoring stops 3 hours ago, and so does its usage).
 MOCK_TOKENS = os.environ.get("MOCK_TOKENS", "")
 USAGE_MIX = {  # machine: [(model, launcher, share)]
@@ -490,7 +492,8 @@ def usage_minute(mid, minute):
     h = int(hashlib.md5(f"u{mid}{minute}".encode()).hexdigest()[:6], 16) / 0xFFFFFF
     if h < 0.25 and work < 0.2:
         return []
-    w = work * (0.5 + h) * USAGE_SCALE[mid] * (1.6 if mid == "server" and minute > T0 - 25 * 60 else 1)
+    scale = USAGE_SCALE[mid] * (0.001 if MOCK_TOKENS == "lopsided" and mid != "server" else 1)
+    w = work * (0.5 + h) * scale * (1.6 if mid == "server" and minute > T0 - 25 * 60 else 1)
     out = []
     for model, launcher, share in USAGE_MIX[mid]:
         f = w * share
@@ -2051,7 +2054,7 @@ MANAGERS = {"list": _managers_seed(), "default": "assistant"}
 # with `manager`, and computers, sessions and cards carry their computer's, with one manager too (MOCK_MANAGERS=1: all
 # the hub's own). 工作 has the MacBook, an inbox item and the second extension; 家里 (offline) a mail and the third
 # extension, and with MOCK_MANAGER_NAS=1 the NAS. A hub from before the roster (MOCK_MANAGERS=0) stamps nothing.
-# A computer of an offline manager is offline with the hub's words for it (devices_link.go offlineLocal): so 家里 has
+# A computer of an offline manager is offline with the hub's words for it (devices_reports.go offlineLocal): so 家里 has
 # none by default, and the computers the other screenshots count stay as they were.
 MANAGED_MACHINES = {"macbook": "m-3fa21c", **({"nas": "m-8b04d2"} if os.environ.get("MOCK_MANAGER_NAS") == "1" else {})}
 # With the NAS 家里's, the agent it had: the hub keeps an offline manager's sessions, in state unknown (stamp_row).
@@ -3376,6 +3379,122 @@ if os.environ.get("MOCK_SETTINGS_INPUT"):
         "created_at": ago(minutes=1), "expires_at": later(minutes=15),
         "fields": [{"key": "password", "label": "密码 / 授权码", "placeholder": "填写邮箱授权码", "secret": True}],
     })
+
+# MOCK_DELEGATE=1 (#544, docs/assistant/assistant.md "Assistant answers questions first"): questions the assistant takes
+# first. The tests question is one it is still looking at (delegating); GET /mock/delegate?handover=ix_tests hands it to
+# the user (sent again without delegating, with what it filled in). The PR review session asks one it already handed
+# over (delegate, recommending one of the options). The release session asks one it is looking at that GET
+# /mock/delegate?answer=ix_release_delegate answers as the assistant (interaction_resolved with answered_by, reason and
+# answers); its history holds one more it answered an hour ago, in the hub's shape ({interaction, status, resolution,
+# resolved_at}). POST …/reanswer takes a change of answer as the hub does: 409 for a question the assistant did not
+# answer, 400 without an answer, else interaction_reanswered to every app (GET /mock/reanswered lists them).
+DELEGATE_CONTEXT = {
+    "ix_tests": {"what": "网络层的测试用哪个框架", "why_now": "第一批测试要按它来写，之后再换就得重写",
+                 "recommend": "Swift Testing (Recommended)", "cost": "不选的话这批测试先停着",
+                 "reason": "现有的 UI 测试用的是 XCTest，换不换是你的约定", "deadline": later(hours=24)},
+}
+DELEGATE_ANSWERS = {
+    "ix_release_delegate": ({"发布说明里写不写已知问题？": "写，单列一段"}, "上一版的发布说明也单列了已知问题，照旧"),
+}
+DELEGATE_HISTORY = []
+REANSWERED = []
+if os.environ.get("MOCK_DELEGATE"):
+    INTERACTIONS[0]["delegating"] = True
+    for _s in SESSIONS:
+        if _s["session_id"] in (REVIEW, RELEASE):
+            _s.update(status="blocked", state="needs_you", pending_interactions=1)
+    INTERACTIONS.append(
+        {"id": "ix_review_delegate", "machine_id": "macbook", "session_id": REVIEW, "session_title": "检查 PR #42 的改动",
+         "cwd": "/Users/me/code/weather", "kind": "question", "created_at": ago(minutes=3), "expires_at": later(hours=24),
+         "tool_name": "AskUserQuestion", "tool_use_id": "toolu_d1",
+         "questions": [{"question": "两条命名建议要不要直接推到 PR 的分支上？", "header": "推送", "multi_select": False, "options": [
+             {"label": "先不推，留评论", "description": "让作者自己改"},
+             {"label": "直接推到 review/naming", "description": "改动只有两处，推完在 PR 里说一声"}]}],
+         "delegate": {"what": "要不要往别人的 PR 分支上推提交", "why_now": "评论已经写好，推不推决定下一步",
+                      "recommend": "先不推，留评论", "cost": "不答的话 PR 停在待改",
+                      "reason": "往别人的分支上推，作者会看到，要你来定", "deadline": later(hours=24)}})
+    INTERACTIONS.append(
+        {"id": "ix_release_delegate", "machine_id": "macbook", "session_id": RELEASE, "session_title": "整理发布说明",
+         "cwd": "/Users/me/code/weather", "kind": "question", "created_at": ago(minutes=1), "expires_at": later(hours=24),
+         "tool_name": "AskUserQuestion", "tool_use_id": "toolu_d2", "delegating": True,
+         "questions": [{"question": "发布说明里写不写已知问题？", "header": "已知问题", "multi_select": False, "options": [
+             {"label": "写，单列一段", "description": "放在最后，附上绕过的办法"},
+             {"label": "不写", "description": "只写新功能和修复"}]}]})
+    DELEGATE_HISTORY.append(
+        {"interaction": {"id": "ix_release_lang", "machine_id": "macbook", "session_id": RELEASE, "session_title": "整理发布说明",
+                         "kind": "question", "created_at": ago(minutes=62), "tool_name": "AskUserQuestion",
+                         "questions": [{"question": "发布说明先写哪种语言？", "header": "语言", "multi_select": False, "options": [
+                             {"label": "中文", "description": "再翻成英文"}, {"label": "英文", "description": "再翻成中文"}]}]},
+         "status": "resolved", "resolved_at": ago(minutes=61),
+         "resolution": {"answers": {"发布说明先写哪种语言？": "中文"}, "answered_by": "assistant",
+                        "reason": "这个仓库的提交和文档都是中文先写"}})
+
+
+def delegate_history(q):
+    """The questions the assistant answered (MOCK_DELEGATE) for GET …/interactions/history: of the machine and session
+    asked for, as the hub filters them."""
+    with REQUEST_LOCK:
+        rows = list(DELEGATE_HISTORY)
+    for key in ("machine_id", "session_id"):
+        want = q.get(key, [""])[0]
+        rows = [r for r in rows if not want or r["interaction"].get(key) == want]
+    return [r for r in rows if not reshaped() or kept(r["interaction"].get("machine_id"))]
+
+
+def mock_delegate(q):
+    """GET /mock/delegate?answer=<id>: the assistant answers a question it is looking at (MOCK_DELEGATE);
+    ?handover=<id>: it hands the question to the user instead."""
+    answer, handover = q.get("answer", [""])[0], q.get("handover", [""])[0]
+    with REQUEST_LOCK:
+        ix = next((x for x in mock_interactions() if x["id"] in (answer, handover) and x.get("delegating")), None)
+        if ix is None:
+            return {"error": "no question the assistant is looking at: " + (answer or handover)}, 404
+        if handover:
+            ix.pop("delegating", None)
+            ix["delegate"] = DELEGATE_CONTEXT.get(ix["id"], {})
+            event = {"type": "interaction", "interaction": ix}
+        else:
+            answers, reason = DELEGATE_ANSWERS.get(
+                ix["id"], ({x["question"]: x["options"][0]["label"] for x in ix["questions"]}, "按惯例选的"))
+            for lst in (MOCK_INTERACTIONS, INTERACTIONS):
+                lst[:] = [x for x in lst if x["id"] != ix["id"]]
+            DELEGATE_HISTORY.insert(0, {"interaction": {k: v for k, v in ix.items() if k != "delegating"},
+                                        "status": "resolved",
+                                        "resolved_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                                        "resolution": {"answers": answers, "answered_by": "assistant", "reason": reason}})
+            event = {"type": "interaction_resolved", "id": ix["id"], "answered_by": "assistant", "reason": reason,
+                     "answers": answers}
+            # its agent goes on with the answer, as the hub's next sessions push says
+            answered_in = next((s for s in SESSIONS if s["machine_id"] == ix["machine_id"] and s["session_id"] == ix["session_id"]), None)
+            if answered_in and not any(x["session_id"] == ix["session_id"] for x in mock_interactions()):
+                answered_in.update(status="working", state="working", pending_interactions=0, updated_at=ago())
+    for out, _ in list(LIVE):
+        try: out(event)
+        except Exception: pass
+    if not handover:
+        push_machine(ix["machine_id"])
+    push_fleet()
+    return {"ok": True}, 200
+
+
+def mock_reanswer(request_id, body):
+    """POST /api/v1/interactions/{id}/reanswer as the hub takes it (assistant/fleet_delegate.go): only for a question
+    the assistant answered, and only the answers to its questions that say something go."""
+    with REQUEST_LOCK:
+        rec = next((r for r in DELEGATE_HISTORY if r["interaction"]["id"] == request_id), None)
+        if rec is None:
+            return {"error": "this question was not answered by the assistant"}, 409
+        asked = {q["question"] for q in rec["interaction"].get("questions") or []}
+        answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+        said = {k: v.strip() for k, v in answers.items() if k in asked and isinstance(v, str) and v.strip()}
+        if not said:
+            return {"error": "no answers"}, 400
+        REANSWERED.append({"id": request_id, "answers": said})
+    for out, _ in list(LIVE):
+        try: out({"type": "interaction_reanswered", "id": request_id, "resolution": {"answers": said}})
+        except Exception: pass
+    return {"ok": True}, 200
+
 
 # MOCK_ELICITATION=1: two MCP elicitation requests on the PR review session (docs/protocol/protocol.md "MCP elicitation"), a
 # form in the schema subset the clients render and a link to open first; =unsupported makes the form one they don't.
@@ -8698,7 +8817,9 @@ def echo_sent(parts, body):
 
     def written():
         before = ITEMS.get(sid, [])[-1]["seq"] if ITEMS.get(sid) else 0
-        seq = before + 1
+        # one numbering with it(): a reply written after this line (/mock/say) must come after it, not before (#1144)
+        _seq[0] = max(_seq[0], before) + 1
+        seq = _seq[0]
         pics = [{"id": "%s#%d" % (uuid.uuid4(), 0), "seq": seq, "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                  "role": "user", "kind": "image", "image": {"mime": im.get("mime") or "image/jpeg", "data": im.get("data") or ""}}
                 for im in images]
@@ -8713,6 +8834,7 @@ def echo_sent(parts, body):
             if sid in subs:
                 try: out({"type": "items", "machine_id": mid, "session_id": sid, "items": line, **span(line, before)})
                 except Exception: pass
+        sync_moved(sid)
     threading.Timer(float(os.environ.get("MOCK_ECHO_SECONDS", "1.5")), written).start()
 
 
@@ -8819,6 +8941,71 @@ def span(items, frm=None, to=None):
 #   GET /mock/delay?s=3   the same, from now on (0 turns it off)
 #   GET /mock/down?s=8    the hub is gone for that long: open WebSockets drop, new connections are closed unanswered
 NET = {"delay": float(os.environ.get("MOCK_DELAY", "0")), "down_until": 0.0}
+
+# ---------- frames lost, doubled, late or out of order (#1073) ----------
+# POST /mock/wire {"rules": [{"type": "items", "action": "drop" | "dup" | "delay" | "hold", "ms": 1500, "count": 1,
+# "session": "<id>"}]} adds rules: each takes the next `count` frames of that type (for that session, when given) going
+# to any app and drops it, sends it twice, sends it `ms` later, or keeps it until POST /mock/wire/release
+# {"order": "held" | "reverse", "clear": true} sends what was kept (and, with clear, drops the rules no frame took yet).
+# GET /mock/wire: the rules left and what they did; /mock/reset clears both. Every socket's frames go through it, as
+# they go out: a delta app's session list is already its delta and recorded as sent, as the hub records it when it
+# queues the frame. A short outage is /mock/down.
+WIRE = {"rules": [], "held": [], "log": []}
+WIRE_LOCK = threading.Lock()
+WIRE_ACTIONS = ("drop", "dup", "delay", "hold")
+
+
+def wire_rule(obj):
+    """The rule that takes this frame (its count goes down), or None."""
+    typ = obj.get("type")
+    sid = obj.get("session_id") or (obj.get("interaction") or {}).get("session_id")
+    with WIRE_LOCK:
+        for r in WIRE["rules"]:
+            if r["type"] == typ and (not r.get("session") or r["session"] == sid):
+                r["count"] -= 1
+                if r["count"] <= 0:
+                    WIRE["rules"].remove(r)
+                WIRE["log"].append({"type": typ, "action": r["action"], "session": sid})
+                return r
+    return None
+
+
+def wire_set(body):
+    rules = body.get("rules") if isinstance(body, dict) else None
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("rules: a list of {type, action, ms?, count?, session?}")
+    out = []
+    for r in rules:
+        if not isinstance(r, dict) or not isinstance(r.get("type"), str) or r.get("action") not in WIRE_ACTIONS:
+            raise ValueError("each rule needs a type and an action (%s)" % ", ".join(WIRE_ACTIONS))
+        out.append({"type": r["type"], "action": r["action"], "ms": int(r.get("ms") or 1000), "count": int(r.get("count") or 1),
+                    **({"session": r["session"]} if r.get("session") else {})})
+    with WIRE_LOCK:
+        WIRE["rules"].extend(out)
+        return {"rules": list(WIRE["rules"]), "held": len(WIRE["held"])}
+
+
+def wire_release(order, clear=False):
+    with WIRE_LOCK:
+        held, WIRE["held"] = WIRE["held"], []
+        if clear:
+            WIRE["rules"] = []
+    if order == "reverse":
+        held.reverse()
+    for deliver, obj in held:
+        try: deliver(obj)
+        except OSError: pass  # that socket went meanwhile: lost with it
+    return {"released": len(held)}
+
+
+def wire_state():
+    with WIRE_LOCK:
+        return {"rules": list(WIRE["rules"]), "held": [obj.get("type") for _, obj in WIRE["held"]], "log": list(WIRE["log"])}
+
+
+def wire_reset():
+    with WIRE_LOCK:
+        WIRE.update(rules=[], held=[], log=[])
 # /mock/paging?on=1: pages of history as the hub cuts them (node.go PageTurns): the latest page and the backlog of a
 # first subscribe hold the last 2 whole turns, an older page `turns` more; otherwise the whole history comes at once.
 # ChatFollowTests' cold start at a saved place far up needs it (#597). /mock/reset turns it off.
@@ -10111,6 +10298,71 @@ def truth():
             "titles": {keys[s["session_id"]]: s.get("title") or "" for s in agents}}
 
 
+# ---------- a chat as the shared sync cases see it (#1073, spec/fixtures/sync) ----------
+# POST /mock/sync/card {"session": "<id>"}: a permission card in that session (an assistant conversation too), sent as
+# the hub sends one; answering it tells every app it ended, as the hub does (interaction_resolved).
+# GET /mock/sync/truth?session=<id>: what the chat should show: each turn's user message and its answer (the agent's
+# last words in it), the session's pending cards and its state.
+SYNC_CARDS = {"n": 0}
+# MOCK_SYNC_REVS=1: a transcript that grows (a reply, an echoed send) moves its session's updated_at and rev and the list
+# says so, as the hub's does: what tells a page that missed the items push to catch up (#3139). Off, the list stays.
+MOCK_SYNC_REVS = os.environ.get("MOCK_SYNC_REVS") == "1"
+
+
+def sync_moved(sid):
+    if not MOCK_SYNC_REVS:
+        return
+    row = next((x for x in SESSIONS + ASSISTANT if x["session_id"] == sid), None)
+    if row is not None:
+        row.update(updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), rev=(row.get("rev") or 0) + 1)
+        push_machine(row["machine_id"])
+
+
+def sync_card(body):
+    sid = (body or {}).get("session")
+    s = next((x for x in SESSIONS + ASSISTANT if x["session_id"] == sid), None)
+    if s is None:
+        raise ValueError("no session %r" % sid)
+    SYNC_CARDS["n"] += 1
+    n = SYNC_CARDS["n"]
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    ix = {"id": "ix_sync_%d" % n, "machine_id": s["machine_id"], "session_id": sid, "session_title": s.get("title") or "",
+          "cwd": s.get("cwd") or "", "kind": "permission", "created_at": now, "expires_at": later(hours=1), "tool_name": "Bash",
+          "tool_use_id": "call_sync_%d" % n, "tool_input": {"command": "ls step-%d" % n}, "summary": "List step %d" % n}
+    with REQUEST_LOCK:
+        INTERACTIONS.append(ix)
+    for out, _ in list(LIVE):
+        try: out({"type": "interaction", "interaction": ix})
+        except Exception: pass
+    return {"id": ix["id"]}
+
+
+def sync_resolved(request_id):
+    """A card from /mock/sync/card was answered: every app hears it ended."""
+    if not request_id.startswith("ix_sync_"):
+        return
+    for out, _ in list(LIVE):
+        try: out({"type": "interaction_resolved", "id": request_id})
+        except Exception: pass
+
+
+def sync_truth(sid):
+    messages, answer = [], None
+    for x in ITEMS.get(sid, []):
+        if x.get("role") == "user" and x.get("kind") == "text" and not x.get("injected") and not x.get("from"):
+            messages.append({"from": "user", "text": x.get("text") or "", "state": "shown"})
+            answer = None
+        elif x.get("role") == "assistant" and x.get("kind") == "text":
+            if answer is None:
+                messages.append({"from": "agent", "text": x.get("text") or ""})
+                answer = len(messages) - 1
+            else:
+                messages[answer] = {"from": "agent", "text": x.get("text") or ""}
+    s = next((x for x in SESSIONS + ASSISTANT if x["session_id"] == sid), None)
+    return {"messages": messages, "cards": sorted(ix["id"] for ix in mock_interactions() if ix.get("session_id") == sid),
+            "state": (s or {}).get("state")}
+
+
 def push_machine(mid):
     if not kept(mid): return
     ss = out_by_machine([s for s in all_sessions() if s["machine_id"] == mid])
@@ -10158,7 +10410,7 @@ def incoming_message(query):
         if sid in subscribed:
             try: send({"type": "items", "machine_id": mid, "session_id": sid, "items": [item], **span([item], before)})
             except OSError: pass
-    return {"session": decorated_session(session), "item": item}, 200
+    return {"session": stamp_row(decorated_session(session)), "item": item}, 200
 
 
 def quiet_capsule():
@@ -10317,6 +10569,9 @@ def say(text, user=None, stream=False, steps=10, ms=300, late=0, drop=False):
                 items = ITEMS[sid]
             before = items[-1]["seq"]
             new = ([it("user", "text", 0, text=user)] if user else []) + [it("assistant", "text", 0, text=text)]
+            if MOCK_SYNC_REVS:  # written now, as the hub's lines are: the page compares their time with the list's
+                for x in new:
+                    x["ts"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             ITEMS[sid] = items + new
             LOG.write("  SAY: %d items to %s after seq %d%s\n" % (len(new), sid, before, " (push dropped)" if drop else "")); LOG.flush()
             if drop:
@@ -10330,6 +10585,7 @@ def say(text, user=None, stream=False, steps=10, ms=300, late=0, drop=False):
                 send({"type": "items", "machine_id": mid, "session_id": sid, "items": new, **span(new, before)})
             except Exception:
                 pass
+            sync_moved(sid)
 
 
 if os.environ.get("MOCK_COMPUTER", "") not in ("", "off"):
@@ -12290,6 +12546,8 @@ class H(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
         if p == "/mock/lark_churned": return self.send_json(LARK_CHURN)
         if p == "/mock/truth": return self.send_json(truth())
+        if p == "/mock/wire": return self.send_json(wire_state())
+        if p == "/mock/sync/truth": return self.send_json(sync_truth(q.get("session", [""])[0]))
         if p == "/mock/bump": return self.send_json(bump(q.get("what", ["last"])[0], q.get("session", [None])[0]))
         if p == "/mock/mark": return self.send_json({"ok": True})  # a test's marker in the request log (explore)
         if p == "/mock/photo": return self.send_json(set_photo(q.get("on", ["1"])[0] == "1"))  # PhotoSaveTests' own fixture
@@ -12411,7 +12669,10 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/v1/interactions": return self.send_json({"interactions": out_by_machine(mock_interactions())})
         if p == "/api/v1/fleet":
             return self.send_json({"fleet": mock_fleet() if MOCK_FLEET else {"phase": "", "needsYou": 0, "working": 0, "unread": 0, "items": []}})
-        if p == "/api/v1/interactions/history": return self.send_json({"interactions": out_by_machine(INTERACTION_HISTORY)})
+        if p == "/api/v1/interactions/history":
+            return self.send_json({"interactions": out_by_machine(INTERACTION_HISTORY) + delegate_history(q)})
+        if p == "/mock/delegate": return self.send_json(*mock_delegate(q))
+        if p == "/mock/reanswered": return self.send_json({"reanswered": REANSWERED})
         if p == "/mock/resolved": return self.send_json({"resolved": RESOLVED})
         if p == "/mock/phone":
             with FAULT_LOCK:
@@ -12447,6 +12708,7 @@ class H(BaseHTTPRequestHandler):
             return self.send_json({"close": ARCHIVE_CLOSE["mode"], "archived": [x["session_id"] for x in ARCHIVED_AGENTS]})
         if p == "/mock/reset":  # MachinePagesTests: each test starts from the same machines
             BOTMUX_ON.clear()
+            wire_reset()
             SEND_FAIL["on"] = False  # a FailedSendPlacementTests run that died before turning it off
             COOKIES_FAILED[0] = False  # MOCK_COOKIES_FAIL: the next read fails again
             HERDR_STOPPED.clear(); HERDR_STOPPED.update(herdr_env()); HERDR_STARTS.clear()  # the herdr row (#1916)
@@ -13164,6 +13426,14 @@ class H(BaseHTTPRequestHandler):
                 reply["web_url"] = web + "#token=" + tok
                 reply["web_qr"] = _mock_qr(reply["web_url"])
             return self.send_json(reply)
+        if p in ("/mock/wire", "/mock/wire/release", "/mock/sync/card") and self.command == "POST":  # #1073
+            try:
+                body = json.loads(self.last_body or b"{}")
+                if p == "/mock/wire": return self.send_json(wire_set(body))
+                if p == "/mock/wire/release": return self.send_json(wire_release((body or {}).get("order"), bool((body or {}).get("clear"))))
+                return self.send_json(sync_card(body))
+            except ValueError as e:
+                return self.send_json({"error": str(e), "code": "invalid"}, 400)
         if p == "/mock/fault" and self.command == "POST":
             try:
                 body = json.loads(self.last_body or b"{}")
@@ -14179,6 +14449,8 @@ class H(BaseHTTPRequestHandler):
             FEISHU_BOT.update(owner=None, agents=[], target="", pairing=None)
             return self.send_json({k: v for k, v in FEISHU_BOT.items() if v is not None})
         if p == "/api/v1/bots/feishu/test": return self.send_json({"ok": True})
+        if p.startswith("/api/v1/interactions/") and p.endswith("/reanswer") and p.count("/") == 5:
+            return self.send_json(*mock_reanswer(p.split("/")[4], json.loads(self.last_body or b"{}")))
         if p.startswith("/api/v1/interactions/") and p.endswith("/resolve"):  # notification buttons (UI test reads it back)
             RESOLVED.append({"id": p.split("/")[4], "resolution": json.loads(self.last_body or b"{}")})
             if os.environ.get("MOCK_CODEX") and p.split("/")[4] == "cxa_orders_curl" and \
@@ -14189,6 +14461,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send_json({"error": "终端上的对话框已经变了（可能在电脑上答过了），这次什么都没按：看看新的再答。",
                                        "code": "prompt_changed", "delivered": "none"}, 409)
             resolve_mock_interaction(p.split("/")[4], json.loads(self.last_body or b"{}"))
+            sync_resolved(p.split("/")[4])
             push_fleet()
             return self.send_json({"ok": True})
         if p.startswith("/api/v1/machines/") and p.endswith("/claude-dirs/blocked") and self.command == "PUT":
@@ -14397,6 +14670,24 @@ class H(BaseHTTPRequestHandler):
                 if delta and obj.get("type") == "sessions":
                     obj = sessions_for_delta_app(obj, have)
                     if obj is None: return
+            # /mock/wire (#1073), on the frame as it goes out (a delta app's list already its delta, recorded as sent)
+            r = wire_rule(obj) if obj.get("type") else None
+            if r is None:
+                return write(obj)
+            if r["action"] == "dup":
+                write(obj)
+                return write(obj)
+            if r["action"] == "delay":
+                def late():
+                    try: write(obj)
+                    except OSError: pass  # the socket went meanwhile: lost with it
+                threading.Timer(r["ms"] / 1000, late).start()
+            elif r["action"] == "hold":
+                with WIRE_LOCK:
+                    WIRE["held"].append((write, obj))
+
+        def write(obj):
+            with lock:
                 data = json.dumps(obj, ensure_ascii=False).encode()
                 n = len(data)
                 hdr = bytes([0x81]) + (bytes([n]) if n < 126 else bytes([126]) + struct.pack(">H", n) if n < 65536 else bytes([127]) + struct.pack(">Q", n))

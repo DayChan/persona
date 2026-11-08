@@ -18,6 +18,8 @@
   "also_done": "Also mark as done",
   "ask_label": "What should it do",
   "target_label": "Hand to",
+  "target_main": "Persona (main chat)",
+  "target_main_sub": "Send to your main chat with Persona",
   "target_persona": "Persona (new chat)",
   "target_persona_sub": "Start a new chat with Persona"
 }

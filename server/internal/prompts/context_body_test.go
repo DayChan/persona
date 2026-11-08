@@ -51,6 +51,7 @@ func TestContextBlocksHoldOthersText(t *testing.T) {
 		"channel quote":  RenderChannelMessage(ChannelMessage{Persona: true, Name: "微信", Text: "看下这条", Quote: nested}),
 		"channel fwd":    RenderChannelMessage(ChannelMessage{Name: "微信", Text: "看下这条", Forward: nested}),
 		"inbox agent":    RenderInboxAgent(InboxAgent{Owner: "示例用户", Title: "改期", Item: InboxItem{Kind: "mail", Context: nested}, Task: "回复"}),
+		"inbox handoff":  RenderInboxHandoff(InboxHandoff{ID: nested, Title: nested, Text: "看下这件事"}),
 		"inbox kb":       RenderInboxAgent(InboxAgent{Owner: "示例用户", Title: "t", Item: InboxItem{Kind: "dm", Context: "x"}, Task: "回复", KB: &KBContext{ChatName: "c", Summary: nested, Projects: []KBProject{{Name: "p", Summary: nested}}}}),
 		"main handoff":   RenderMainHandoff(MainHandoff{FromID: "conv_1", Summary: nested, Recent: []HandoffTurn{{Role: "user", Text: nested}}, Text: "接着做"}),
 		"turn context":   RenderTurnContext(TurnContext{Full: true, Sections: []string{"- 飞书未读会话 1 个\n  - @我：示例群（1 条）：" + nested}}) + "\n接着做",

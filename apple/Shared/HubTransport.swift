@@ -23,6 +23,14 @@ nonisolated enum HubTransport {
         routes[key(hub)] = local
     }
 
+    /// Requests to `hub` go straight to it again, unless another tunnel routes them by now: a hub can have more than
+    /// one way through, and closing one must not take the route of the one that replaced it.
+    static func unroute(_ hub: URL, from local: URL) {
+        lock.lock()
+        defer { lock.unlock() }
+        if routes[key(hub)] == local { routes[key(hub)] = nil }
+    }
+
     /// The tunnel requests to `hub` go through, nil when they go straight to it.
     static func via(_ hub: URL) -> URL? {
         lock.lock()
@@ -156,6 +164,103 @@ nonisolated struct InAppTunnelRoute: Codable, Hashable, Sendable {
         targetHost = try c.decode(String.self, forKey: .targetHost)
         targetPort = try c.decodeIfPresent(Int.self, forKey: .targetPort) ?? Self.defaultTargetPort
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        always = try c.decodeIfPresent(Bool.self, forKey: .always) ?? false
+    }
+}
+
+/// A paired hub's local proxy (Settings › hub › Local Proxy, docs/operations/network.md "Connecting to hub through a
+/// local SOCKS5 proxy"): a SOCKS5 proxy on this device that another app serves, the login it may ask for (RFC 1929),
+/// and the hub's address as the proxy's network sees it. Kept with the pairing (the keychain), the password included.
+nonisolated struct LocalProxyRoute: Codable, Hashable, Sendable {
+    var host: String = LocalProxyRoute.defaultHost
+    var port: Int
+    /// Empty: the proxy asks for no login.
+    var username: String = ""
+    var password: String = ""
+    /// The hub's host as the proxy's network sees it; nil: the paired address's.
+    var targetHost: String?
+    /// The hub's HTTP port as the proxy's network sees it; nil: the paired address's (`targetPort(for:)`).
+    var targetPort: Int?
+    /// Through the proxy every time, not only when the hub's own addresses do not answer.
+    var always = false
+
+    static let defaultHost = "127.0.0.1"
+    /// The hub's HTTP port (hub.json `listen`), what an https address is reached at through the proxy: the forward
+    /// carries plain HTTP, as the SSH and in-app tunnels do.
+    static let hubHTTPPort = 18660
+
+    init(host: String = LocalProxyRoute.defaultHost, port: Int, username: String = "", password: String = "",
+         targetHost: String? = nil, targetPort: Int? = nil, always: Bool = false) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.targetHost = targetHost
+        self.targetPort = targetPort
+        self.always = always
+    }
+
+    var isUsable: Bool {
+        !host.trimmingCharacters(in: .whitespaces).isEmpty && (1...65535).contains(port)
+            && targetPort.map { (1...65535).contains($0) } ?? true
+    }
+
+    /// `host:port` of the proxy, what lists show.
+    var label: String {
+        let h = host.trimmingCharacters(in: .whitespaces)
+        return (h.contains(":") ? "[\(h)]" : h) + ":\(port)"
+    }
+
+    /// The proxy is on this device (localhost, 127.x.x.x, ::1). Anywhere else, what goes through it (the hub's plain
+    /// HTTP, this device's credential, the proxy's password) crosses the network unencrypted.
+    var isOnThisDevice: Bool {
+        let h = host.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if h == "localhost" || h == "::1" { return true }
+        let parts = h.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts.allSatisfy { UInt8($0) != nil } && parts[0] == "127"
+    }
+
+    /// The username to sign in with, nil when the proxy asks for none.
+    var login: (username: String, password: String)? {
+        let u = username.trimmingCharacters(in: .whitespaces)
+        return u.isEmpty ? nil : (u, password)
+    }
+
+    /// The hub's host the proxy is asked for: the one set here, else the paired address's.
+    func targetHost(for hub: URL) -> String {
+        let t = targetHost?.trimmingCharacters(in: .whitespaces) ?? ""
+        return t.isEmpty ? Self.host(of: hub) : t
+    }
+
+    /// The hub's port the proxy is asked for: the one set here, else the paired address's when it is http (80 when it
+    /// names none), else the hub's HTTP port.
+    func targetPort(for hub: URL) -> Int {
+        targetPort ?? Self.defaultTargetPort(for: hub)
+    }
+
+    static func defaultTargetPort(for hub: URL) -> Int {
+        guard hub.scheme?.lowercased() == "http" else { return hubHTTPPort }
+        return hub.port ?? 80
+    }
+
+    /// A URL's host without the brackets of an IPv6 literal.
+    static func host(of url: URL) -> String {
+        (url.host(percentEncoded: false) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case host, port, username, password, always
+        case targetHost = "target_host", targetPort = "target_port"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? Self.defaultHost
+        port = try c.decode(Int.self, forKey: .port)
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
+        targetHost = try c.decodeIfPresent(String.self, forKey: .targetHost)
+        targetPort = try c.decodeIfPresent(Int.self, forKey: .targetPort)
         always = try c.decodeIfPresent(Bool.self, forKey: .always) ?? false
     }
 }

@@ -137,4 +137,5 @@
     <string name="assistant_settings_permission_auto">自动</string>
     <string name="assistant_settings_permission_full">完全允许</string>
     <string name="assistant_settings_permission_failed">未能保存默认权限</string>
+    <string name="assistant_settings_permission_unavailable">此助手尚未确认支持默认权限设置，暂不可修改。其他设置仍可使用。</string>
 </resources>

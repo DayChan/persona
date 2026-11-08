@@ -69,7 +69,7 @@ func TestOfficialExtensionMarketIsAddedOnceAndFirst(t *testing.T) {
 	// Its index calls itself after its publisher; the apps are shown "Official extensions" all the same (#5017).
 	ix, _ := json.Marshal(map[string]any{"market_version": 1, "name": "Example 扩展", "signing_key": key.text,
 		"extensions": []any{marketEntry(t, dir, "release:v1/example-ui-1.0.0.tar.gz", pkg)}})
-	gh.files[extension.IndexFile], gh.files[extension.IndexFile+extension.SigSuffix] = ix, key.sign(ix)
+	gh.files[extension.IndexFile] = key.sign(ix)
 	useOfficialMarket(t, "github:example/plugins", key.text)
 
 	// The owner's market, added long before (an internal one): it stays, after the official one.
@@ -127,6 +127,9 @@ func TestOfficialExtensionMarketIsAddedOnceAndFirst(t *testing.T) {
 // market, first, and no second one is added.
 func TestOfficialExtensionMarketAddedByHandIsNotAddedAgain(t *testing.T) {
 	h, phone, _ := marketHub(t)
+	server := httptest.NewTLSServer(&fakeGitHub{files: map[string][]byte{}, assets: map[string][]byte{}})
+	defer server.Close()
+	h.extensions.markets.client, h.extensions.markets.githubAPI = server.Client(), server.URL
 	useOfficialMarket(t, "github:example/plugins", newMarketKey(t).text)
 	now := time.Now()
 	st := h.marketStore()
@@ -138,6 +141,7 @@ func TestOfficialExtensionMarketAddedByHandIsNotAddedAgain(t *testing.T) {
 		}
 	}
 	list := marketList(t, h, phone)
+	waitMarketsRead(t, h)
 	if len(list) != 2 || list[0]["id"] != byHand.ID || list[0]["official"] != true || list[1]["id"] != own.ID {
 		t.Fatalf("the official repository added by hand: %v", list)
 	}
@@ -152,7 +156,7 @@ func TestOfficialExtensionMarketKeyIsPinned(t *testing.T) {
 	h.extensions.markets.client, h.extensions.markets.githubAPI = srv.Client(), srv.URL
 	pinned, other := newMarketKey(t), newMarketKey(t)
 	ix, _ := json.Marshal(map[string]any{"market_version": 1, "name": "冒充的", "signing_key": other.text, "extensions": []any{}})
-	gh.files[extension.IndexFile], gh.files[extension.IndexFile+extension.SigSuffix] = ix, other.sign(ix)
+	gh.files[extension.IndexFile] = other.sign(ix)
 	useOfficialMarket(t, "github:example/plugins", pinned.text)
 
 	list := marketList(t, h, phone)

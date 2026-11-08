@@ -2,12 +2,8 @@
 
 package node
 
-import (
-	"errors"
-	"net"
-)
+import "net"
 
-var errNoPeer = errors.New("the process at the other end of a socket is not known on this system")
-
-// peerPID: not known here, so no caller counts as the assistant.
+// peerPID: not known here. No command line counts as the assistant (cliCall); an MCP server must name a session the
+// node knows as the assistant's (mcpAssistantOf).
 func peerPID(net.Conn) (int, error) { return 0, errNoPeer }

@@ -1,6 +1,30 @@
 package extension
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
+
+func TestOfficialMarketPinnedKey(t *testing.T) {
+	key, err := ParseSigningKey(Official.SigningKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := KeyID(key); got != "3cce0f471911a1cf" {
+		t.Fatalf("official pin key ID = %q, want the designated rebuilt-market key", got)
+	}
+	var retired []string
+	for _, text := range Official.PreviousSigningKeys {
+		key, err := ParseSigningKey(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retired = append(retired, KeyID(key))
+	}
+	if !slices.Equal(retired, []string{"32ed46cdbe349656"}) {
+		t.Fatalf("retired official pins = %v, want only the recognized previous public-market pin", retired)
+	}
+}
 
 // The official market is its repository however the owner wrote it; other repositories and sites are not.
 func TestOfficialMarketIs(t *testing.T) {

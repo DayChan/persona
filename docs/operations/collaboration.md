@@ -78,10 +78,10 @@ gh issue list --state open --search "<keywords>"
 gh pr list --state open --search "<keywords>"
 # Search issues and PRs at once
 gh search issues "<keywords>" --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)" --state open --include-prs
-# Recently closed issues, merged PRs, commits on master: don't redo finished work
+# Recently closed issues, merged PRs, commits on main: don't redo finished work
 gh issue list --state closed --search "<keywords>" --limit 10
 gh pr list --state merged --search "<keywords>" --limit 10
-git fetch origin && git log origin/master --oneline -i --grep "<keywords>" | head
+git fetch origin && git log origin/main --oneline -i --grep "<keywords>" | head
 ```
 
 If you find an issue that means the same thing (whoever created it, however the title is worded), claim it there instead of creating another; if someone else has claimed it, follow the "Take over" rules. Create a new one only if there really is none.
@@ -152,9 +152,9 @@ Take over uses the template above, also posted with `--body-file -`.
 ### 5. Link the issue when opening a PR
 
 ```sh
-# Check once more before opening: the issue's comments, and whether someone already fixed it on master
+# Check once more before opening: the issue's comments, and whether someone already fixed it on main
 gh issue view <number> --comments
-git fetch origin && git merge origin/master   # prefer merge to rebase, see below
+git fetch origin && git merge origin/main   # prefer merge to rebase, see below
 
 gh pr create --title "fix(ios): <English title>" --body-file - <<'EOF'
 <English: what changed and why>
@@ -163,13 +163,13 @@ Fixes #<number>
 EOF
 ```
 
-- Updating a PR branch with master: prefer `git merge origin/master` on the branch to a rebase. PRs are squash-merged, so the merge commit never reaches master;
+- Updating a PR branch with `main`: prefer `git merge origin/main` on the branch to a rebase. PRs are squash-merged, so the merge commit never reaches `main`;
   conflicts are resolved once instead of once per commit, and the push is a plain push with no force while other Agents work in the repository (#5988).
-  In a merge "ours" is your branch and "theirs" is master, the reverse of a rebase: mind it with `git checkout --ours/--theirs` and `scripts/i18n/apple_l10n.py merge`.
+  In a merge "ours" is your branch and "theirs" is `main`, the reverse of a rebase: mind it with `git checkout --ours/--theirs` and `scripts/i18n/apple_l10n.py merge`.
   A rebase is still allowed, for example for a single-commit branch.
 - Merging: once the PR's CI passes, `scripts/hooks/merge-pr.sh <number>`, not `gh pr merge` directly. It first scans the PR's changed files, commit messages, title and body with this machine's private values, and only squash-merges and deletes the branch if that passes (`docs/operations/testing.md`, "Privacy scan").
 - `Fixes #N` / `Closes #N`: GitHub closes the issue automatically after merging. `Refs #N`: links without closing (an issue split into several PRs, or only partly fixed).
-- PR titles and bodies are in English (after a squash merge they are the commit on master); issues and comments are also in English.
+- PR titles and bodies are in English (after a squash merge they are the commit on `main`); issues and comments are also in English.
 
 ## Automatically closing PRs with no linked issue
 

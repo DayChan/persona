@@ -295,7 +295,7 @@ func TestLateCaptionOnTheSocket(t *testing.T) {
 			u.send(c, map[string]any{"type": "session.started", "session": map[string]any{}})
 		}
 	})
-	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: true}}}, hub.server(t))
+	pl := testPlugin(t, Config{Providers: []Provider{{ID: "rt", URL: up.url(), Models: []string{"m1"}, Tools: new(true)}}}, hub.server(t))
 	a := dialApp(t, pl, boundStart("a1", nil))
 	a.until(ofType("ready"))
 	mu.Lock()

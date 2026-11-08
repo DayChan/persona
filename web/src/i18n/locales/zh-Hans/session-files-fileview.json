@@ -51,5 +51,10 @@
   "hub_too_old_media": "hub 版本太旧，放不了大文件",
   "hub_too_old_media_detail": "{size} · 更新 hub 后可以直接播放，或者先下载。",
   "empty_folder": "空文件夹",
-  "folder_truncated": "只列出了前 500 项"
+  "folder_truncated": "只列出了前 500 项",
+  "file_changed": "加载期间文件已更改",
+  "file_changed_detail": "读取分页期间文件发生了更改。请重新加载，从头读取。",
+  "reload": "重新加载文件",
+  "read_incomplete": "未能完整读取文件。请重试或重新加载。",
+  "download_failed": "无法下载此文件：{error}"
 }

@@ -62,7 +62,11 @@ type Chat struct {
 	LastAt   time.Time `json:"last_at,omitempty"`
 	Messages int       `json:"messages"`
 	Mine     bool      `json:"mine,omitempty"` // the owner wrote in it (a mail exchange, not just mail received)
-	// History backfill (Backfill): the oldest position read, and whether it reached the retention limit or the start.
+	// HistoryMode: how its older history was imported (WriteHistory): HistoryFull, every message; HistoryAnchor, only
+	// windows around the owner's messages, the gaps marked by an omission line. "": none imported.
+	HistoryMode string `json:"history_mode,omitempty"`
+	// Oldest and BackfillDone were an earlier backfill's progress; kept so files that have them still read the same.
+	// History imports keep theirs under history/state/ (HistoryState).
 	Oldest       string `json:"oldest,omitempty"`
 	BackfillDone bool   `json:"backfill_done,omitempty"`
 	// Compression state: messages archived since the last summary, and the time of the last one it covered.
@@ -175,18 +179,25 @@ type Item struct {
 
 // Store reads and writes the data dir. Writes of one entity are serialized; files are replaced atomically.
 type Store struct {
-	readOnly  bool
-	Dir       string
-	mu        sync.Mutex
-	metaMu    sync.Mutex
-	applyMu   sync.Mutex
-	recMu     sync.Mutex // a recording's read-compare-write (recordings.go)
-	dedupeMu  sync.Mutex // projects/.dedupe.json's read-modify-write (dedupe.go)
+	readOnly bool
+	Dir      string
+	mu       sync.Mutex
+	metaMu   sync.Mutex // acquire before mu when both are needed (projectInput reads Log under metaMu)
+	applyMu  sync.Mutex
+	recMu    sync.Mutex // a recording's read-compare-write (recordings.go)
+	dedupeMu sync.Mutex // projects/.dedupe.json's read-modify-write (dedupe.go)
+	ingestMu sync.Mutex // live identity filtering through attachment preparation and commit
+	// chatMu: a chat's read-modify-write of meta.json by the pipeline (Ingest, saveArchived, WriteHistory in history.go,
+	// and compression's write-back, putCompressed), so none writes back a stale copy over what another wrote. Each
+	// reads the chat again under it and changes only the fields it owns. (A person's edits, edit.go, are not under it.)
+	chatMu    sync.Mutex
 	observeMu sync.RWMutex
 	changed   func(Change)
 	zone      *time.Location // the user's zone, the archive's days and times are written in (zone.go); nil: time.Local
 	// settled: the zone every file was last moved into without an error (Rezone skips the walk while it holds).
 	settled string
+	// ingestWrite is a per-store failure-injection seam; nil uses fsync and atomic replacement.
+	ingestWrite func(string, []byte) error
 }
 
 func NewStore(dir string) (*Store, error) {
@@ -196,6 +207,9 @@ func NewStore(dir string) (*Store, error) {
 		}
 	}
 	s := &Store{Dir: dir}
+	if err := s.recoverIngests(); err != nil {
+		return nil, err
+	}
 	_ = writeIfMissing(filepath.Join(dir, "README.md"), prompts.RenderKBReadme())
 	return s, nil
 }
@@ -448,7 +462,9 @@ type Line struct {
 func (l Line) Format(zone *time.Location) string {
 	text := strings.TrimSpace(l.Text)
 	text = strings.ReplaceAll(text, "\n", "\n  ")
-	return fmt.Sprintf("- %s %s: %s\n", l.At.In(zone).Format("15:04"), l.Sender, text)
+	// A sender is one line: a line break in a name would split the message into lines no reader takes for one.
+	sender := strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(l.Sender)
+	return fmt.Sprintf("- %s %s: %s\n", l.At.In(zone).Format("15:04"), sender, text)
 }
 
 // AppendMessages writes lines to their day files (messages/YYYY-MM-DD.md, in the archive's zone).
@@ -544,19 +560,40 @@ func (s *Store) Since(chatID string, t time.Time, max int) string {
 
 // Prune deletes message days older than textDays and attachment days older than attachmentDays.
 func (s *Store) Prune(now time.Time, textDays, attachmentDays int) (removed int) {
+	return s.PruneBySource(now, textDays, func(string) int { return attachmentDays })
+}
+
+// PruneBySource is Prune with each chat's attachments kept as many days as attachmentDays says for the chat's source
+// (Engine.AttachmentDaysFor).
+func (s *Store) PruneBySource(now time.Time, textDays int, attachmentDays func(source string) int) (removed int) {
 	if s.readOnly {
 		return 0
 	}
-	zone := s.Zone()
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	s.lockArchive()
+	defer s.unlockArchive()
+	if err := s.recoverIngestsLocked(); err != nil {
+		return 0
+	}
+	zone := s.zoneLocked()
 	textCut := now.AddDate(0, 0, -textDays).In(zone).Format("2006-01-02")
-	attCut := now.AddDate(0, 0, -attachmentDays).In(zone).Format("2006-01-02")
 	for _, id := range s.IDs(KindChat) {
 		for _, d := range s.Days(id) {
 			if d < textCut && os.Remove(s.path(KindChat, id, "messages", d+".md")) == nil {
 				removed++
 			}
 		}
+		_ = s.pruneReceipts(id, textCut, zone)
 		entries, _ := os.ReadDir(s.path(KindChat, id, "attachments"))
+		if len(entries) == 0 {
+			continue
+		}
+		source := ""
+		if c, ok := s.Chat(id); ok {
+			source = c.Source
+		}
+		attCut := now.AddDate(0, 0, -attachmentDays(source)).In(zone).Format("2006-01-02")
 		for _, e := range entries {
 			if e.IsDir() && e.Name() < attCut && os.RemoveAll(s.path(KindChat, id, "attachments", e.Name())) == nil {
 				removed++
@@ -592,49 +629,6 @@ func addUnique(list []string, v ...string) []string {
 		}
 	}
 	return list
-}
-
-// PrependMessages writes lines older than what a chat's day files hold: each day file gets them before its own lines.
-func (s *Store) PrependMessages(c *Chat, lines []Line) error {
-	if s.readOnly {
-		return ErrReadOnly
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := s.settleChatLocked(c.ID); err != nil {
-		return err
-	}
-	zone := s.zoneLocked()
-	byDay := map[string][]Line{}
-	var days []string
-	for _, l := range lines {
-		d := l.At.In(zone).Format("2006-01-02")
-		if _, ok := byDay[d]; !ok {
-			days = append(days, d)
-		}
-		byDay[d] = append(byDay[d], l)
-	}
-	for _, d := range days {
-		ls := byDay[d]
-		sort.SliceStable(ls, func(i, j int) bool { return ls[i].At.Before(ls[j].At) })
-		p := s.path(KindChat, c.ID, "messages", d+".md")
-		header := fmt.Sprintf("# %s · %s\n\n", c.Name, d)
-		old, _ := os.ReadFile(p)
-		body := string(old)
-		if i := strings.Index(body, "\n\n"); strings.HasPrefix(body, "# ") && i >= 0 {
-			body = body[i+2:]
-		}
-		var b strings.Builder
-		b.WriteString(header)
-		for _, l := range ls {
-			b.WriteString(l.Format(zone))
-		}
-		b.WriteString(body)
-		if err := writeFile(p, []byte(b.String())); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // FirstAt is the time of a chat's oldest archived line (zero when there is none).

@@ -18,12 +18,16 @@ const (
 	ToolSearch   = "mail_search"
 	ToolRead     = "mail_read"
 	ToolSend     = "mail_send"
+	// ToolSaveAttachment writes a file on the machine the agent runs on, so that machine's node answers it
+	// (node/mailattachment.go) with the bytes FetchAttachment hands over its mail.attachment request; it is listed
+	// here with the others so that it comes and goes with mail.
+	ToolSaveAttachment = "mail_save_attachment"
 )
 
 // Tools returns the MCP tool definitions for mail (descriptions and schemas in prompts/mcp/mail).
 func (s *Service) Tools() []proto.Tool {
 	var out []proto.Tool
-	for _, n := range []string{ToolAccounts, ToolSearch, ToolRead, ToolSend} {
+	for _, n := range []string{ToolAccounts, ToolSearch, ToolRead, ToolSaveAttachment, ToolSend} {
 		t := prompts.Tool(n)
 		out = append(out, proto.Tool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
 	}
@@ -127,7 +131,7 @@ func (s *Service) Call(ctx context.Context, name string, args json.RawMessage, a
 		if len(msg.Attachments) > 0 {
 			b.WriteString("Attachments:\n")
 			for _, att := range msg.Attachments {
-				fmt.Fprintf(&b, "- %s (%s, %d bytes)\n", att.Filename, att.Mime, att.Size)
+				fmt.Fprintf(&b, "- %s (%s, %d bytes) id=%s\n", att.Filename, att.Mime, att.Size, att.ID)
 			}
 		}
 		b.WriteString("\n")
@@ -140,6 +144,10 @@ func (s *Service) Call(ctx context.Context, name string, args json.RawMessage, a
 			b.WriteString("\n\n[An HTML version of this message also exists.]")
 		}
 		return proto.TextResult(b.String(), false)
+
+	case ToolSaveAttachment:
+		// Only a caller with no node of its own gets here (the node on the agent's machine answers it otherwise).
+		return proto.TextResult(ToolSaveAttachment+" saves files on the computer the agent runs on and is not available here.", true)
 
 	case ToolSend:
 		res, _ := s.callSend(ctx, args, approve)

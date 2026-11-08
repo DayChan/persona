@@ -70,6 +70,6 @@ The resolver supports systemd unit resets, sorted drop-ins, `XDG_CONFIG_HOME`, `
 - Compile and unit-test Android with the available Linux SDK; keep the Health Connect `ViewPermissionUsageActivity` alias, which is a platform permission entry rather than a previous-brand alias.
 - On this Linux lane, Apple changes are text-only. Validate plist/YAML/symbol references statically, then build the project, all apps/extensions, tests, AppIntents and signing artifacts on a Mac. Screenshots and real-device upgrade behavior are separate acceptance checks.
 - Generate extension wire code centrally with `python3 scripts/gen/extension_schema.py`; `--check` must show no drift. Do not hand-edit generated Swift/Kotlin/Go/TypeScript.
-- Rebase onto the latest master before the single PR is pushed, rename any newly merged previous-brand additions, rerun affected verification, and scan the merged `origin/master` again.
+- Rebase onto the latest `origin/main` before the single PR is pushed, rename any newly merged previous-brand additions, rerun affected verification, and scan the merged `origin/main` again.
 
 Historical [acceptance](rename.md) and [audit](rename.md) records describe earlier stages, not authorization to run this incompatible cutover. Previous compatibility guarantees no longer apply to this version. Do not deploy, publish, restart live services, move live data or change live MCP configuration until the user approves the operational plan.

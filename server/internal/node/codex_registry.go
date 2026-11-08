@@ -238,7 +238,7 @@ func (n *Node) discoverCodex() {
 			}
 			home := canonicalCodexHome(firstNonEmpty(p.home, n.codexHome()), n.home)
 			for _, path := range paths {
-				if !strings.HasPrefix(path, home+string(filepath.Separator)) {
+				if !pathWithin(path, home) { // Windows paths do not tell case apart (codex_desktop.go)
 					continue
 				}
 				match := rolloutIDRe.FindStringSubmatch(path)

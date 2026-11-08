@@ -260,3 +260,40 @@ func TestManagerCodeOutputReturnsWriteFailure(t *testing.T) {
 type failedManagerCodeWriter struct{ err error }
 
 func (w failedManagerCodeWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// MintBuiltinCode (a container's supervisor): the built-in manager's code from the hub's database, only in service
+// mode; VoidBuiltinCode voids it while it is still good.
+func TestMintAndVoidBuiltinCode(t *testing.T) {
+	_, _, store := managersHub(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PERSONA_HOME", filepath.Join(home, ".persona"))
+	t.Setenv("PERSONA_DATABASE_URL", os.Getenv("PERSONA_TEST_DATABASE_URL"))
+	write := func(mode string) {
+		if err := os.MkdirAll(filepath.Join(home, ".persona"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".persona", "hub.json"), []byte(`{"token":"t","assistant":{"mode":"`+mode+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	write("child")
+	if _, err := MintBuiltinCode(ctx); err == nil {
+		t.Fatal("a code in child mode")
+	}
+	write("service")
+	code, err := MintBuiltinCode(ctx)
+	if err != nil || code == "" {
+		t.Fatalf("code %q, err %v", code, err)
+	}
+	if c, err := store.ManagerInstallCodeByHash(ctx, hashToken(code)); err != nil || c == nil || c.ManagerID != assistantwire.AssistantID || !c.ExpiresAt.After(time.Now()) {
+		t.Fatalf("the code in the database: %+v %v", c, err)
+	}
+	if err := VoidBuiltinCode(ctx, code); err != nil {
+		t.Fatal(err)
+	}
+	if voided, err := store.ExpireManagerInstallCode(ctx, hashToken(code)); err != nil || voided {
+		t.Fatalf("still good after VoidBuiltinCode: %v %v", voided, err)
+	}
+}

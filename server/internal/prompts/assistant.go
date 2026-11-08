@@ -211,8 +211,8 @@ type Snapshot struct {
 	Tasks         []SnapshotTask    // tasks opened from assistant conversations (task_plan), newest first
 	Plans         []SnapshotPlan    // plan cards in the main conversation waiting for "Start", newest first (at most five)
 	PlansTotal    int
-	// Unaccepted: deployed tasks the user has not passed yet (their "Please verify" ask, with a Lark card or without) (#2768), oldest first; the morning
-	// briefing brings them up again.
+	// Unaccepted: deployed tasks the user has not passed yet (their "Please verify" ask, with a Lark card or without) (#2768), and
+	// supervised tasks' conclusions the user has not answered (#1226), oldest first; the morning briefing brings them up again.
 	Unaccepted      []SnapshotAccept
 	UnacceptedTotal int // all of them (Unaccepted is the oldest eight)
 	// Approvals: open tasks whose finished work waits for the user's nod to go live (merge, deploy, turn on, send),
@@ -225,10 +225,11 @@ type SnapshotApproval struct {
 	ID, Title, Stage, Gate, Link string
 }
 
-// SnapshotAccept is a deployed task waiting for the user to check it: what changed, where to look, since when.
+// SnapshotAccept is a deployed task waiting for the user to check it, or a conclusion waiting for the user: its verdict
+// line as its card says it, what changed (deployed), where to look, since when.
 type SnapshotAccept struct {
-	Title, Changed, Link string
-	Since                time.Time // in the user's zone
+	Title, Verdict, Changed, Link string
+	Since                         time.Time // in the user's zone
 }
 
 func (s Snapshot) Up() []SnapshotMachine   { return s.machines(true) }

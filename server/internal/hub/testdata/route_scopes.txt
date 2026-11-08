@@ -236,6 +236,7 @@ agents.read          GET /api/v1/workspaces
 -                    GET /i/{code}
 -                    GET /i/{code}/docker
 -                    GET {base}/catalog
+-                    GET {base}/market-settings
 -                    GET {base}/markets
 -                    GET {bus.Path}
 -                    GET {devicewire.RelayPath}
@@ -330,6 +331,7 @@ inbox.write          POST /api/v1/inbox/refresh
 inbox.write          POST /api/v1/inbox/{id}/doc/status
 inbox.write          POST /api/v1/inbox/{id}/done
 inbox.write          POST /api/v1/inbox/{id}/draft
+inbox.write          POST /api/v1/inbox/{id}/handoff
 inbox.write          POST /api/v1/inbox/{id}/reply
 inbox.write          POST /api/v1/inbox/{id}/suggestion
 agents.control       POST /api/v1/interactions/{id}/choose
@@ -417,7 +419,6 @@ todos.write          POST /api/v1/todos
 -                    POST {base}/catalog/preview
 -                    POST {base}/markets
 -                    POST {base}/markets/{mid}/refresh
--                    POST {base}/markets/{mid}/trust
 -                    POST {bus.JoinPath}
 -                    POST {peerPairPath}
 -                    PUT /api/v1/admin/assistant
@@ -474,6 +475,7 @@ todos.write          PUT /api/v1/todos/{id}/agents/{mid}/{sid}
 todos.write          PUT /api/v1/todos/{id}/spaces/{mid}/{space...}
 -                    PUT /api/v1/todos/{id}/thread
 -                    PUT /api/v1/workspace-board/settings
+-                    PUT {base}/market-settings
 -                    PUT {base}/markets/{mid}
 -                    PUT {base}/markets/{mid}/token
 -                    {from}/

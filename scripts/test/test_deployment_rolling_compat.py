@@ -221,6 +221,72 @@ class DeploymentRollingCompatibilityTests(unittest.TestCase):
             identity.command_aliases(directory)
             self.assertEqual(os.readlink(directory / (FORMER + "d")), "personad")
             self.assertTrue(os.path.samefile(directory / "personad", directory / (FORMER + "d")))
+    def test_legacy_command_layout_upgrades_without_alias_loops(self):
+        for name in ("personad", "persona-link", "personad-wechat", "personad-telegram"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                legacy = name.replace("personad", FORMER + "d").replace("persona-link", FORMER + "-link")
+                old, current = directory / legacy, directory / name
+                executable(old, "#!/bin/sh\nexit 0\n")
+                current.symlink_to(legacy)
+                identity.command_aliases(directory)
+                self.assertFalse(old.is_symlink())
+                self.assertTrue(current.samefile(old))
+                new = directory / (name + ".new")
+                executable(new, "#!/bin/sh\nprintf new\n")
+                current.unlink()
+                new.replace(current)
+                identity.command_aliases(directory)
+                self.assertFalse(current.is_symlink())
+                self.assertEqual(os.readlink(old), name)
+                self.assertTrue(old.samefile(current))
+                inode = old.lstat().st_ino
+                identity.command_aliases(directory)
+                self.assertEqual(old.lstat().st_ino, inode)
+
+    def test_install_program_replaces_old_dangling_and_looped_symlinks(self):
+        source = (ROOT / "scripts/deploy/deploy.sh").read_text()
+        function = source.split("install_program() {", 1)[1].split("\n}\n", 1)[0]
+        function = "install_program() {" + function + "\n}\n"
+        for mode in ("local", "remote"):
+            for layout in ("old", "dangling", "loop"):
+                with self.subTest(mode=mode, layout=layout), tempfile.TemporaryDirectory() as temporary:
+                    home = Path(temporary)
+                    work = home / "server"
+                    work.mkdir()
+                    (work / "bin").mkdir()
+                    scripts = home / "scripts"
+                    scripts.mkdir()
+                    (scripts / "persona_identity.py").write_bytes((ROOT / "scripts/persona_identity.py").read_bytes())
+                    state = home / "state with spaces"
+                    binaries = state / "bin"
+                    binaries.mkdir(parents=True)
+                    current = binaries / "personad-wechat"
+                    old = binaries / (FORMER + "d-wechat")
+                    if layout == "old":
+                        executable(old, "#!/bin/sh\nprintf old\n")
+                    elif layout == "loop":
+                        old.symlink_to(current.name)
+                    current.symlink_to(old.name)
+                    script = r'''set -eu
+LDFLAGS=fixture
+PERSONA_HUB_SSH=unused
+is_here() { [ "$MODE" = local ]; }
+state_root() { printf '%s' "$PERSONA_HOME"; }
+go() { printf '#!/bin/sh\nprintf new\n' > bin/personad-wechat-linux-amd64; chmod 755 bin/personad-wechat-linux-amd64; }
+persona_alias_binaries() { python3 ../scripts/persona_identity.py --alias-binaries "$1"; }
+remote_state() { eval "$2"; }
+''' + function + 'install_program fixture linux-amd64 personad-wechat\n'
+                    env = environment(home)
+                    env.update(MODE=mode, PERSONA_HOME=str(state))
+                    result = subprocess.run(["bash", "--noprofile", "--norc"], input=script,
+                                            cwd=work, env=env, text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(current.is_symlink())
+                    self.assertIn("printf new", current.read_text())
+                    self.assertEqual(os.readlink(old), current.name)
+                    self.assertTrue(old.samefile(current))
+
     def test_compose_config_offline_uses_one_project_database_and_both_environment_names(self):
         import shutil
         if not shutil.which('docker'):
@@ -250,6 +316,32 @@ class DeploymentRollingCompatibilityTests(unittest.TestCase):
                 self.assertEqual(config['services']['postgres']['environment']['POSTGRES_USER'], FORMER)
                 self.assertEqual(config['services']['postgres']['environment']['POSTGRES_DB'], FORMER)
                 self.assertEqual(hub['image'], 'example.invalid/fixture-new:2' if canonical else 'example.invalid/fixture-old:1')
+
+    def test_compose_config_needs_one_image_spelling(self):
+        import shutil
+        if not shutil.which('docker'):
+            self.skipTest('Docker Compose is unavailable; no containers are started by this check')
+        for image in ('example.invalid/fixture-new:2', None):
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as directory:
+                env = {'PATH': os.environ['PATH'], 'HOME': directory,
+                       'COMPOSE_PROJECT_NAME': 'persona-test-' + os.urandom(4).hex()}
+                if os.environ.get('PERSONA_TEST_DOCKER_CONFIG'):
+                    env['DOCKER_CONFIG'] = os.environ['PERSONA_TEST_DOCKER_CONFIG']
+                if image:
+                    env['PERSONA_IMAGE'] = image
+                result = subprocess.run(['docker', 'compose', '-f', str(ROOT / 'deploy/docker/compose.yaml'),
+                                         'config', '--format', 'json'], env=env, capture_output=True, text=True, timeout=15)
+                if 'is not a docker command' in result.stderr:
+                    self.skipTest('Docker Compose is unavailable')
+                if image:
+                    # The former spelling unset: Compose before 5.0.2 still evaluated a required check inside the default.
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    hub = json.loads(result.stdout)['services']['hub']
+                    self.assertEqual((hub['image'], hub['environment']['PERSONA_IMAGE']), (image, image))
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn('"hub"', result.stderr)
+                    self.assertIn('image', result.stderr)
 
 
 if __name__ == "__main__":

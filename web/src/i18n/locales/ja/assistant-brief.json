@@ -24,5 +24,11 @@
   "later_more": "ほか {n} 件",
   "failed_task": "開始できませんでした・{time}",
   "failed_run": "実行に失敗・{time}",
-  "failed_skipped": "スキップ・{time}"
+  "failed_skipped": "スキップ・{time}",
+  "take": "おすすめで進める",
+  "take_row": "「{title}」をおすすめで進める",
+  "got_it": "了解",
+  "recommend": "おすすめ：{option}",
+  "noted": "確認しました",
+  "taken": "おすすめで進めました"
 }

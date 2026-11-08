@@ -724,3 +724,35 @@ func TestInstallBuiltinLaunchd(t *testing.T) {
 		t.Fatalf("calls %v\n%s", f.calls, out)
 	}
 }
+
+// BindBuiltin (a container's supervisor): a binding the hub takes stays and no code is asked for; not bound, or
+// refused, a code is asked for and traded; a code that cannot be had is the error.
+func TestBindBuiltin(t *testing.T) {
+	home := isolate(t)
+	data := filepath.Join(home, ".persona")
+	srv, trades := joinCounter(t)
+	defer func(f func(context.Context, *assistant.ManagerConfig) error) { probeToken = f }(probeToken)
+	taken := true
+	probeToken = func(context.Context, *assistant.ManagerConfig) error {
+		if taken {
+			return nil
+		}
+		return bus.ErrRevoked
+	}
+	asked := 0
+	code := func(context.Context) (string, error) { asked++; return "mi_builtin", nil }
+	if traded, err := BindBuiltin(context.Background(), data, srv.URL, code); err != nil || !traded || asked != 1 || trades() != 1 {
+		t.Fatalf("not bound: traded %v, err %v, asked %d, trades %d", traded, err, asked, trades())
+	}
+	if traded, err := BindBuiltin(context.Background(), data, srv.URL, code); err != nil || traded || asked != 1 || trades() != 1 {
+		t.Fatalf("bound: traded %v, err %v, asked %d", traded, err, asked)
+	}
+	taken = false
+	if traded, err := BindBuiltin(context.Background(), data, srv.URL, code); err != nil || !traded || asked != 2 || trades() != 2 {
+		t.Fatalf("refused: traded %v, err %v, asked %d", traded, err, asked)
+	}
+	none := errors.New("no database")
+	if _, err := BindBuiltin(context.Background(), data, srv.URL, func(context.Context) (string, error) { return "", none }); !errors.Is(err, none) {
+		t.Fatalf("no code: %v", err)
+	}
+}

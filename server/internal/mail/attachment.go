@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -118,6 +119,39 @@ func (s *Service) attachment(ctx context.Context, accountID string, uid uint32, 
 		return nil, Attachment{}, err
 	}
 	return file, metadata, nil
+}
+
+// MaxSavedAttachment bounds an attachment FetchAttachment hands over for mail_save_attachment: it crosses the node's
+// connection in one message (base64 in JSON, about 4/3 of it, under the connection's 64 MiB line), and 25 MB is the
+// most most providers let a mail carry.
+const MaxSavedAttachment = 25 << 20
+
+// ErrAttachmentTooLarge: the attachment is over FetchAttachment's limit.
+var ErrAttachmentTooLarge = errors.New("attachment too large")
+
+// FetchAttachment is one attachment's metadata and decoded bytes (the id mail_read lists and the HTTP route takes),
+// at most max bytes. Like the download, it does not mark the message as read.
+func (s *Service) FetchAttachment(ctx context.Context, accountID string, uid uint32, mailbox, id string, max int64) (Attachment, []byte, error) {
+	if uid == 0 {
+		return Attachment{}, nil, fmt.Errorf("invalid uid")
+	}
+	file, metadata, err := s.attachment(ctx, accountID, uid, mailbox, id)
+	if err != nil {
+		return Attachment{}, nil, err
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if metadata.Size > max {
+		return metadata, nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrAttachmentTooLarge, metadata.Size, max)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, max+1))
+	if err != nil {
+		return Attachment{}, nil, err
+	}
+	if int64(len(data)) != metadata.Size {
+		return Attachment{}, nil, fmt.Errorf("attachment changed while reading")
+	}
+	return metadata, data, nil
 }
 
 func (s *Service) handleAttachment(w http.ResponseWriter, r *http.Request) {

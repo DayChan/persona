@@ -32,6 +32,29 @@ How computers connect:
 - **ssh**: mount the NAS user's `~/.ssh` read-only into the container (there's a commented-out line in compose). It must contain the private key, the aliases in `config`, and `known_hosts`
   (the hub uses `BatchMode=yes`, so an unknown host just fails instead of prompting).
 
+## The hub and the built-in manager in one container
+
+The hub container runs two programs side by side: the hub (`personad hub run`) and the built-in manager (`personad assistant` with `PERSONA_ASSISTANT_DEPLOY=service`, [managers.md](../assistant/managers.md) ("The built-in manager as its own service")). Neither starts the other. The image's command goes through `personad supervise` (`server/internal/supervise`), a small supervisor that does the following:
+
+- **Mode check.** It reads `assistant.mode` in `hub.json` when the container starts. A new install's `hub.json` (written on first start) says `service`. Without it (a `hub.json` from before, or `child`), or with `assistant.external`, the supervisor becomes the hub itself (exec), and the hub starts the built-in manager as its child, exactly as before.
+- **Binding.** Before it starts the built-in manager, it binds it unless its binding works. The binding is a one-time code made in the hub's database (as `persona-hub manager-code` does), traded over loopback once the hub answers its health check. A failed binding is logged and tried again after 10 seconds, the wait doubling up to 5 minutes while it keeps failing; the hub runs meanwhile.
+- **Restarts.** A program that stops is started again, and the other is left running. The pause before the restart starts at 1 second and doubles, up to 30 seconds, while the program keeps stopping within a minute of its start. A hub that exits on purpose (the admin page's restart) comes back the same way. Each program runs in a session of its own. When it stops, even after a crash, whatever is left in that session is killed, its extensions' programs too, so that the program started again doesn't find the old ones still running.
+- **Stopping.** On `docker stop` both get SIGTERM and are killed if still running after the hub's shutdown budget and a second more: 9 seconds by default, inside Docker's own stop timeout (10 seconds). With a longer `shutdown_timeout_seconds` in `hub.json`, raise compose's `stop_grace_period` with it, or Docker kills the container first. The supervisor reads it when the container starts, so a change takes effect with the container's next start.
+- **Logs.** `docker compose logs hub` has both programs' lines, interleaved as they come. The supervisor's lines start with `supervise:`.
+
+**Older installs keep the hub's child** until you switch. Switch with `docker compose exec hub personad hub manager-mode service`, then `docker compose restart hub`. Step by step, with backups, checks and the way back: [upgrade.md](upgrade.md). To go back, use `manager-mode child` and restart. The supervisor decides when the container starts. If the hub starts again on its own (the admin page's restart) after the mode or its `listen` address changed in `hub.json`, the supervisor stops everything and says why, so that Docker starts the container again and the new mode takes effect.
+
+**Going back to an image from before this one** on an install in service mode (every install made with this image) leaves nothing to run the built-in manager: that image's hub doesn't start it, and it has no supervisor. First `docker compose exec hub personad hub manager-mode child`, then change the image.
+
+### The built-in manager in a container of its own
+
+`compose.yaml` has a commented `manager` service: the same image running `supervise --manager-only --hub http://hub:18660`. To use it:
+
+1. Uncomment it.
+2. Set `PERSONA_BUILTIN_MANAGER: separate` on the hub service, so that the hub's container runs the hub alone.
+
+It shares the hub's data folder (mounted at both of the hub container's paths) and database. It waits while `hub.json` doesn't say `service` (read again before each start), and binds itself to the hub over the compose network (a private address, which the hub counts as local). Like the side-by-side setup, it restarts the manager when it stops. Two built-in managers never run on one data folder: the second one stops with exit status 2 (a lock in `data/managers/assistant/`), and its supervisor tries it again later.
+
 ## Image
 
 `ghcr.io/<owner>/persona` (the image name follows the repo: `<owner>` is the account or organization that owns the repo, `persona` is the repo name; put it in `PERSONA_IMAGE` in `.env`), linux/amd64 and linux/arm64, built by `.github/workflows/hub-image.yml`:
@@ -65,7 +88,7 @@ The hub in the image is on the `docker` channel: it never replaces its own binar
 To be clear first: **the NAS is only the hub; the AI doesn't work on the NAS**. The image has no Claude Code, so the assistant and Agents all run on another computer of yours. After installing the hub you still need to add a computer (step 5 below); until then the App can pair and browse, but the main chat can't start.
 
 1. On the NAS, create a directory (e.g. `/volume1/docker/persona`) with a `data` subdirectory inside, both created with the NAS's file manager: if `data/` belongs to you, the hub's files belong to you (if Docker creates `data/` itself, it belongs to root, and then all files belong to 1000; see the table below). Put `deploy/docker/compose.yaml` and `deploy/docker/.env.example` in the directory, rename the latter to `.env`, and fill in two lines:
-   - `PERSONA_IMAGE`: the image, `ghcr.io/<owner>/persona:latest` (see "Image" above; for a private image, `docker login ghcr.io` first).
+   - `PERSONA_IMAGE`: the image, `ghcr.io/<owner>/persona:latest` (see "Image" above; for a private image, `docker login ghcr.io` first). An older `.env` that has only the image's former variable keeps working. With neither, `docker compose` stops with `service "hub" has neither an image nor a build context specified`.
    - `PERSONA_PUBLIC_URL`: how the phone reaches this NAS, usually `http://<NAS LAN address>:18660`.
 2. Run `docker compose up -d` in that directory.
 3. Pair the phone: `docker compose exec hub personad hub pair`, and scan the QR code in the terminal with the App.
@@ -171,6 +194,7 @@ Upgrading from 0.1.1 or earlier, the App won't prompt; switch manually: back the
 `ghcr.io/<owner>/persona`, and the old name won't get new versions. Change `PERSONA_IMAGE` in `.env` to the new name and version, replace `compose.yaml` with the new one
 (it passes `PERSONA_IMAGE` and `PERSONA_REGISTRY_TOKEN` to the hub, which is what lets later versions be announced), then run the command above.
 To set where node builds are fetched from with `PERSONA_NODE_PACKAGES` in `.env` (see "Node builds"), take the new `compose.yaml` as well: an older one does not pass it to the hub (`node_packages` in hub.json works either way).
+A new image doesn't change how the built-in manager runs on an existing install. Its `hub.json` keeps the hub's child until you switch (see "The hub and the built-in manager in one container"). An older `compose.yaml` works unchanged with either mode.
 
 ## Network
 

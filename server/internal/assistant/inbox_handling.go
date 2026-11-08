@@ -47,4 +47,17 @@ type InboxSuggestion struct {
 	At        time.Time   `json:"at"`
 	// Cwd is where an agent suggestion's Agent starts (the tool's cwd; "" home): kept, not listed.
 	Cwd string `json:"cwd,omitempty"`
+	// Conversation is the conversation the event was handed to that handed this suggestion in (Hand to AI, inbox_handoff.go);
+	// nil for the event's processing conversation. What the user does with it is told there, not to the processing one.
+	Conversation *SessionRef `json:"conversation,omitempty"`
+}
+
+// InboxHandoff is one hand-off of the event to Persona's main conversation (POST /api/v1/inbox/{id}/handoff): that
+// conversation may write back with inbox_suggest. Op is the request's client id (a repeat sends nothing): kept, not
+// listed.
+type InboxHandoff struct {
+	MachineID string    `json:"machine_id"`
+	SessionID string    `json:"session_id"`
+	At        time.Time `json:"at"`
+	Op        string    `json:"op,omitempty"`
 }

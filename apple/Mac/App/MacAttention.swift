@@ -12,8 +12,10 @@ enum MacAttention {
     /// The notifications to post for a session-list change: agents that turned needs-you or finished. Not for the
     /// chat on screen while the app is in front, a muted agent, a session the list just learned about, or a finish
     /// right after a needs-you (the same stop). Persona's own conversations ping when they ask, not when they reply.
+    /// `looking`: sessions whose every pending card is a question the assistant is still looking at (#544,
+    /// `lookingOnly`): the hub counts them as Needs You, but nothing is announced until a card is handed to the user.
     static func transitions(old: [Session], new: [Session], open: SessionKey?, appActive: Bool, prefs: NotifyPrefs,
-                            now: Date, muted: (SessionKey) -> Bool) -> [(Session, AgentState)] {
+                            now: Date, looking: Set<SessionKey> = [], muted: (SessionKey) -> Bool) -> [(Session, AgentState)] {
         let before = Dictionary(old.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let longTurn = TimeInterval(prefs.longTurnSeconds ?? 60) // the hub's default (notify.go)
         return new.compactMap { s in
@@ -21,7 +23,7 @@ enum MacAttention {
                   MacAttention.allowsBanner(key: s.key, open: open, appActive: appActive, muted: muted) else { return nil }
             switch s.state {
             case .needsYou:
-                return prefs.input ? (s, .needsYou) : nil
+                return prefs.input && !looking.contains(s.key) ? (s, .needsYou) : nil
             case .unread:
                 guard !s.assistant, was.state != .needsYou else { return nil }
                 switch prefs.done {
@@ -57,6 +59,8 @@ enum MacAttention {
                                 open: SessionKey?, appActive: Bool, prefs: NotifyPrefs,
                                 muted: (SessionKey) -> Bool) -> [Interaction] {
         guard prefs.input else { return [] }
+        // A question the assistant is still looking at is no news; handed to the user, it arrives (#544).
+        let old = old.filter { !$0.isDelegating }, new = new.filter { !$0.isDelegating }
         let alreadyThere = Set(old.map(\.uid))
         // The card each flip banner shows: the session's oldest still-waiting card, the one pendingInteractions
         // (oldest first) hands that banner in the watcher.
@@ -68,6 +72,14 @@ enum MacAttention {
             !alreadyThere.contains(ix.uid) && !announced.contains(ix.uid)
                 && allowsBanner(key: ix.sessionKey, open: open, appActive: appActive, muted: muted)
         }
+    }
+
+    /// The sessions whose every pending card is a question the assistant is still looking at (#544, the web's
+    /// `lookingOnly`).
+    static func lookingOnly(_ interactions: [Interaction]) -> Set<SessionKey> {
+        var looking = Set<SessionKey>(), other = Set<SessionKey>()
+        for ix in interactions { if ix.isDelegating { looking.insert(ix.sessionKey) } else { other.insert(ix.sessionKey) } }
+        return looking.subtracting(other)
     }
 
     /// The Dock badge: waiting cards, not sessions — an agent already asking with a second card counts both (#4081),
@@ -205,7 +217,7 @@ extension MacAttention {
         guard !model.isDemo, MacAttention.armed(connectedAt: connectedAt, now: now), !last.isEmpty else { return }
         let prefs = LiveActivityController.shared.prefs ?? NotifyPrefs()
         let ping = MacAttention.transitions(old: last, new: sessions, open: model.visibleSession, appActive: NSApp.isActive,
-                                            prefs: prefs, now: now, muted: mutedKey)
+                                            prefs: prefs, now: now, looking: MacAttention.lookingOnly(interactions), muted: mutedKey)
         // The flip banner of a Needs You turn already carries that session's oldest card: remember the flip for this
         // turn (cards in the same list) and for one settle-length grace in case the card event lands a turn later.
         for (s, state) in ping where state == .needsYou { flippedAt[s.key] = now }

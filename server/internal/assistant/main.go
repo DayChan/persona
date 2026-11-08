@@ -32,6 +32,7 @@ import (
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/managerconf"
+	"github.com/nwverse/persona/server/internal/managerupdate"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/update"
 )
@@ -352,7 +353,7 @@ func run(ctx context.Context, build update.Build, o runOptions) error {
 			if out, ok, err := svc.NodeAnswer(ctx, machine, method, params); ok {
 				return out, ok, err
 			}
-			return svc.NodeRequest(ctx, machine, method, params) // the interactions, the MCP tools (fleet.go)
+			return svc.NodeRequest(ctx, machine, method, params) // the interactions, the MCP tools (fleet_events.go)
 		},
 		Event:    func(machine, event string, params json.RawMessage) bool { return svc.NodeEvent(machine, event, params) },
 		Detached: func(machine string) { svc.NodeDetached(machine) },
@@ -364,14 +365,7 @@ func run(ctx context.Context, build update.Build, o runOptions) error {
 		// A node's new connection gets the launchers added in Persona, with their keys (models_launchers.go).
 		// Not one waiting to be confirmed: it gets them when it is (trustChanged, machine_trust.go).
 		NodeCalls: func(ctx context.Context, machine string) []devicewire.NodeCall {
-			if svc.machinePending(ctx, machine) {
-				return nil
-			}
-			b, err := json.Marshal(map[string]any{"launchers": svc.managedForNodes(ctx)})
-			if err != nil {
-				return nil
-			}
-			return []devicewire.NodeCall{{MachineID: machine, Method: DeviceLaunchersManaged, Params: b}}
+			return svc.managedNodeCalls(ctx, machine)
 		},
 		DialRelay: func(ctx context.Context, query string) (*websocket.Conn, error) {
 			return bus.DialAt(ctx, hub, token, httpClient, devicewire.RelayPath, query)
@@ -427,6 +421,15 @@ func run(ctx context.Context, build update.Build, o runOptions) error {
 		defer close(extDone)
 		_ = ext.Run(ctx) // after ctx: stops the extensions' programs (they are the manager's children)
 	}()
+	if o.ID != "assistant" {
+		go func() {
+			if err := bh.Wait(ctx); err == nil {
+				if err := managerupdate.MarkReady(home, build); err != nil {
+					logf("manager update readiness: %v", err)
+				}
+			}
+		}()
+	}
 	err = bh.Run(ctx, svc)
 	stop() // a refused token ends Run before ctx: the computers and the extensions stop with it
 	<-done
