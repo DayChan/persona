@@ -28,6 +28,14 @@ export function onCredentialChange(listener: (owner: string) => void): () => voi
   return () => { credentialListeners.delete(listener); };
 }
 
+/** React editors follow the shared credential subscription and other tabs' storage changes. */
+export function subscribeCredentialOwner(listener: () => void): () => void {
+  const stop = onCredentialChange(listener);
+  const storage = () => { credentialOwner(); };
+  window.addEventListener("storage", storage);
+  return () => { stop(); window.removeEventListener("storage", storage); };
+}
+
 export function getToken(): string {
   return storedCredentials().token;
 }
