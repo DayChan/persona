@@ -140,7 +140,7 @@ are still dispatched to connectors by the hub (the manager asks through `app.cal
 ### Knowledge-base ingestion
 
 - `Archive`: one cursor per account; `Changes(cursor)` returns changed conversations. The hub stores the cursor in `cursors/<id>.json`; conversation ids are `<connector id>-<conversation id>`.
-- `Chats`: for sources like Lark with per-conversation cursors, backfill (`kb.Backfiller`) and attachments, provide `kb.Source` directly; archiving, backfill, compression and tagging stay unchanged.
+- `Chats`: for sources like Lark with per-conversation cursors and attachments, provide `kb.Source` directly; archiving, compression and tagging stay unchanged. Older history is imported separately (`docs/assistant/knowledge.md`, "History import").
 - `Items`: Lark documents, meetings and calendar events.
 
 ### Settings › Connectors

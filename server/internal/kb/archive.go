@@ -26,7 +26,7 @@ type Source interface {
 	// Messages returns messages newer than after (the latest page when after is ""), oldest first,
 	// with the cursor to continue from.
 	Messages(ctx context.Context, chat SourceChat, after string, limit int) (msgs []SourceMessage, newer string, more bool, err error)
-	// DownloadFunc saves one media path to dst.
+	// Download saves one media path to dst.
 	Download(ctx context.Context, media, dst string) error
 }
 
@@ -235,17 +235,37 @@ func (e *Engine) archiveChat(ctx context.Context, src Source, sc SourceChat) (in
 	return total, e.saveArchived(c, cursor, total, sc.UpdatedAt)
 }
 
-// saveArchived records how far a chat's archive got: the cursor to go on from and the n lines written.
+// saveArchived records how far a chat's archive got: the cursor to go on from and the n lines written. c is the copy
+// the run started from and changed as it read; the chat is read again under chatMu and gets only what the run owns
+// (name, kind, cursor, LastAt, the owner's part, the people it noted, the counters), so what a history import or a
+// compression wrote meanwhile stays. c gets the chat as written.
 func (e *Engine) saveArchived(c *Chat, cursor string, n int, listed time.Time) error {
-	c.Cursor = cursor
-	c.Messages += n
-	c.Pending += n
-	if c.LastAt.IsZero() {
-		c.LastAt = listed
+	e.Store.chatMu.Lock()
+	defer e.Store.chatMu.Unlock()
+	cur, ok := e.Store.Chat(c.ID)
+	if !ok {
+		cur = c
+		cur.Messages, cur.Pending = 0, 0
+	} else {
+		cur.Name, cur.Kind = c.Name, c.Kind
+		cur.Mine = cur.Mine || c.Mine
+		for _, p := range c.People {
+			cur.People = addUnique(cur.People, p)
+		}
+		if c.LastAt.After(cur.LastAt) {
+			cur.LastAt = c.LastAt
+		}
 	}
-	if err := e.Store.PutChat(c); err != nil {
+	cur.Cursor = cursor
+	cur.Messages += n
+	cur.Pending += n
+	if cur.LastAt.IsZero() {
+		cur.LastAt = listed
+	}
+	if err := e.Store.PutChat(cur); err != nil {
 		return err
 	}
+	*c = *cur
 	e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
 	return nil
 }

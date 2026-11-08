@@ -77,10 +77,14 @@ func (s *Store) HistoryState(chatID string) (HistoryState, bool, error) {
 	return st, ok, nil
 }
 
-// PutHistoryState writes a chat's import state (atomically: a temporary file renamed over it).
+// PutHistoryState writes a chat's import state (atomically: a temporary file renamed over it). st.Source is required:
+// forgetting a source tells its files from those of a source whose name starts the same by it (forgetHistory).
 func (s *Store) PutHistoryState(chatID string, st HistoryState) error {
 	if s.readOnly {
 		return ErrReadOnly
+	}
+	if st.Source == "" {
+		return fmt.Errorf("history state of %s: no source", chatID)
 	}
 	if st.UpdatedAt.IsZero() {
 		st.UpdatedAt = time.Now().UTC()
@@ -92,8 +96,9 @@ func (s *Store) PutHistoryState(chatID string, st HistoryState) error {
 	return writeJSON(s.historyStatePath(chatID), st)
 }
 
-// forgetHistory removes the import states of a source's chats (ForgetSource): every file named like one of its chats
-// that does not say it belongs to another source (one whose name starts the same, "a" and "a-b").
+// forgetHistory removes the import states of a source's chats (ForgetSource): the files named like one of its chats
+// that say they are its. A file named so that does not read, or names no source, cannot be told from one of a source
+// whose name starts the same ("a" and "a-b") and goes too: its import starts over, which only rereads what is there.
 func (s *Store) forgetHistory(source string) error {
 	entries, err := os.ReadDir(s.historyStateDir())
 	if os.IsNotExist(err) {
@@ -110,7 +115,7 @@ func (s *Store) forgetHistory(source string) error {
 		}
 		var st HistoryState
 		p := filepath.Join(s.historyStateDir(), name)
-		if ok, err := readJSON(p, &st); ok && err == nil && st.Source != "" && st.Source != source {
+		if ok, err := readJSON(p, &st); ok && err == nil && st.Source != "" && st.Source != source { // another source's
 			continue
 		}
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
@@ -158,9 +163,15 @@ func (e *Engine) WriteHistory(ctx context.Context, c *Chat, msgs []SourceMessage
 		}
 		id = ChatID(c.Source, c.SourceID)
 	}
+	if len(msgs) == 0 {
+		return 0, nil
+	}
+	// Whether the chat can be written at all, before anything is downloaded into its directory.
 	source := c.Source
 	if stored, ok := e.Store.Chat(id); ok {
 		source = stored.Source
+	} else if source == "" {
+		return 0, fmt.Errorf("history: %s is a new chat without its source", id)
 	}
 	probe := &Chat{ID: id, Source: source}
 	cut := e.textCutoff()

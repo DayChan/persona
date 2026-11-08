@@ -475,3 +475,159 @@ func TestAnchorImportWritesOmissions(t *testing.T) {
 		t.Fatalf("%+v", line)
 	}
 }
+
+// downloading is a source that saves every attachment (or fails, when fail is set).
+type downloading struct {
+	named
+	fail bool
+}
+
+func (d downloading) Download(_ context.Context, _, dst string) error {
+	if d.fail {
+		return fmt.Errorf("gone")
+	}
+	return writeFile(dst, []byte("x"))
+}
+
+// Where an import meets the live archive, a message with attachments is the same message however its attachments
+// were written: a saved link, one "[附件]" for an old message's, or history's placeholder naming the kind.
+func TestWriteHistoryOverlapsLiveMedia(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		live Source // how the live archive saved them
+		dl   DownloadFunc
+		days int // the live archive's attachment days (the messages are 3 days old)
+	}{
+		{"saved, history downloads nothing", downloading{named: "chat"}, nil, 0},
+		{"saved, history download fails", downloading{named: "chat"}, func(context.Context, string, string) error { return fmt.Errorf("gone") }, 0},
+		{"saved, history downloads again", downloading{named: "chat"}, func(_ context.Context, _, dst string) error { return writeFile(dst, []byte("x")) }, 0},
+		{"live download failed", downloading{named: "chat", fail: true}, nil, 0},
+		{"too old for the live archive", downloading{named: "chat"}, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st, e, zone := histStore(t)
+			e.AttachmentDays = tc.days
+			now := time.Now().In(zone)
+			base := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, zone).AddDate(0, 0, -3)
+			msgs := []SourceMessage{
+				{ID: "i", Type: "IMAGE", SenderID: "u", SenderName: "甲", Media: []string{"pic.png"}, At: base},
+				{ID: "f", Type: "FILE", SenderID: "u", SenderName: "甲", Text: "报告", Media: []string{"doc.pdf"}, At: base.Add(time.Minute)},
+				{ID: "a", Type: "AUDIO", SenderID: "u", SenderName: "甲", Media: []string{"voice.opus"}, At: base.Add(2 * time.Minute)},
+				{ID: "v", Type: "VIDEO", SenderID: "u", SenderName: "甲", Media: []string{"a.mp4", "b.mp4"}, At: base.Add(3 * time.Minute)},
+				{ID: "p", Type: "POST", SenderID: "u", SenderName: "甲", Text: "图文", Media: []string{"x", "y"}, At: base.Add(4 * time.Minute)},
+			}
+			if n, err := e.Ingest(ctx, tc.live, SourceChat{ID: "g", Name: "群", Kind: "group"}, msgs); n != len(msgs) || err != nil {
+				t.Fatalf("live: %d %v", n, err)
+			}
+			before := dayText(t, st, "chat-g", base)
+			n, err := e.WriteHistory(ctx, &Chat{ID: "chat-g"}, msgs, HistoryWrite{Download: tc.dl})
+			if err != nil || n != 0 {
+				t.Fatalf("history added %d %v; day:\n%s", n, err, dayText(t, st, "chat-g", base))
+			}
+			if after := dayText(t, st, "chat-g", base); after != before {
+				t.Fatalf("day changed:\n%s\nwas:\n%s", after, before)
+			}
+		})
+	}
+}
+
+// Attachments count the same however they were written; the text before them still tells messages apart.
+func TestDupKey(t *testing.T) {
+	same := [][]string{
+		{"- 09:00 甲: [附件](attachments/2026-07-15/i-0.png)", "- 09:00 甲: [附件]", "- 09:00 甲:  [附件]"},
+		{"- 09:00 甲: 报告 [附件](attachments/2026-07-15/f-0.pdf)", "- 09:00 甲: 报告 [文件]", "- 09:00 甲: 报告 [附件]"},
+		{"- 09:00 甲: [附件](attachments/d/a-0.opus)", "- 09:00 甲: [语音]"},
+		{"- 09:00 甲: [附件](attachments/d/v-0.mp4) [附件](attachments/d/v-1.mp4)", "- 09:00 甲: [视频] [视频]", "- 09:00 甲: [附件]"},
+		{"- 09:00 甲: 两行\n  第二行 [附件](attachments/d/p-0.jpg)", "- 09:00 甲: 两行\n  第二行 [附件]"},
+	}
+	for _, g := range same {
+		for _, m := range g[1:] {
+			if dupKey(m) != dupKey(g[0]) {
+				t.Errorf("%q and %q differ", m, g[0])
+			}
+		}
+	}
+	differ := [][2]string{
+		{"- 09:00 甲: 报告 [文件]", "- 09:00 甲: 报告"},       // a file, and text alone
+		{"- 09:00 甲: 报告 [文件]", "- 09:00 甲: 总结 [文件]"},  // other text
+		{"- 09:00 甲: [附件] 之后还有字", "- 09:00 甲: 之后还有字"}, // not at the end: text
+		{"- 09:00 甲: [文件]", "- 09:00 乙: [文件]"},
+		{"- 09:00 甲: [附件](a b)", "- 09:00 甲: [附件]"}, // not a saved file's link (paths have no spaces)
+	}
+	for _, d := range differ {
+		if dupKey(d[0]) == dupKey(d[1]) {
+			t.Errorf("%q and %q match", d[0], d[1])
+		}
+	}
+}
+
+// A new chat that names no source fails before anything is downloaded into its directory.
+func TestWriteHistoryNewChatFailsFirst(t *testing.T) {
+	st, e, zone := histStore(t)
+	called := false
+	dl := func(context.Context, string, string) error { called = true; return nil }
+	at := time.Now().In(zone).Add(-time.Hour)
+	_, err := e.WriteHistory(context.Background(), &Chat{ID: "x-1"}, []SourceMessage{{ID: "i", Type: "IMAGE", Media: []string{"p"}, At: at}}, HistoryWrite{Download: dl})
+	if err == nil || called {
+		t.Fatalf("err %v, downloaded %v", err, called)
+	}
+	if _, err := os.Stat(st.Path(KindChat, "x-1")); !os.IsNotExist(err) {
+		t.Fatalf("chat directory: %v", err)
+	}
+}
+
+// importing is a model that has a page of history written into the chat while it writes the summary.
+type importing struct {
+	e    *Engine
+	at   time.Time
+	next Model
+}
+
+func (m importing) JSONMax(ctx context.Context, system, user string, n int, out any) error {
+	if strings.Contains(system, "项目档案") {
+		return m.next.JSONMax(ctx, system, user, n, out)
+	}
+	if _, err := m.e.WriteHistory(ctx, &Chat{ID: "chat-g"}, []SourceMessage{
+		{ID: "h1", SenderID: "u9", SenderName: "赵六", Text: "很久以前", At: m.at},
+	}, HistoryWrite{Mode: HistoryFull}); err != nil {
+		return err
+	}
+	if _, err := m.e.Ingest(ctx, named("chat"), SourceChat{ID: "g"}, []SourceMessage{
+		{ID: "l2", SenderID: "u1", SenderName: "张三", Text: "又一条", At: time.Now().Add(-time.Minute)},
+	}); err != nil {
+		return err
+	}
+	return m.next.JSONMax(ctx, system, user, n, out)
+}
+
+// What a history import and the live archive write while a compression waits on the model stays: compression writes
+// back only what it decided, and the message archived meanwhile stays pending.
+func TestCompressKeepsWhatHistoryWrote(t *testing.T) {
+	st, e, zone := histStore(t)
+	ctx := context.Background()
+	now := time.Now().In(zone)
+	e.Model = importing{e: e, at: now.AddDate(-1, 0, 0), next: &fakeModel{}}
+	if _, err := e.Ingest(ctx, named("chat"), SourceChat{ID: "g", Name: "群", Kind: "group"}, []SourceMessage{
+		{ID: "l1", SenderID: "u1", SenderName: "张三", Text: "实时一", At: now.Add(-2 * time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := st.Chat("chat-g")
+	if err := e.Compress(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Chat("chat-g")
+	if got.Messages != 3 || got.HistoryMode != HistoryFull || !slices.Contains(got.People, "chat-u9") || got.Pending != 2 ||
+		got.CompressedAt.IsZero() || got.OneLine == "" || got.CoveredUntil.After(now) {
+		t.Fatalf("after compression: %+v", got)
+	}
+}
+
+// A state names its source, or forgetting another source whose name starts the same could take it.
+func TestHistoryStateNeedsSource(t *testing.T) {
+	st, _, _ := histStore(t)
+	if err := st.PutHistoryState("a-b-1", HistoryState{Mode: HistoryFull, State: HistoryRunning}); err == nil {
+		t.Fatal("a state without its source was written")
+	}
+}

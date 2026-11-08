@@ -181,7 +181,8 @@ how far each chat got is kept.
 - **Writing** (`Engine.WriteHistory`): messages in any order go through the same line format as the live archive (the owner as `我`, an unknown sender as `?`), then
   `Store.MergeMessages` puts each into the day file it belongs to, in time order. A day file it touches is rewritten atomically, and every line it held stays byte for byte and in
   its order (headers, blank lines, hand edits, lines out of order or doubled); new lines go in front of the first existing message of a later minute. Day files carry no message
-  id, so a duplicate is the same minute, sender and text: the boundary with the live archive and a page read twice after a restart add nothing. A property test over thousands of
+  id, so a duplicate is the same minute, sender and text, where an attachment counts the same however it was written (a saved link, `[附件]` or the placeholders below):
+  the boundary with the live archive and a page read twice after a restart add nothing. A property test over thousands of
   random files and a fuzz target check that no existing line changes or goes missing.
 - **Archive only**: imported lines are searchable and counted in `messages`, and their senders are noted as people, but they add nothing to `pending` (no compression, tagging
   or project linking), never move the live archive's `cursor` or `last_at`, note no documents and reach neither the Inbox nor reminders. Messages past `text_days` are skipped.
@@ -194,9 +195,10 @@ how far each chat got is kept.
   here", sender `·`), stamped with the oldest message it stands for so it sorts between the windows. The filter holds at most 50 messages, and its state is saved with the
   chat's progress, so an import resumes mid-window. Sources that can search for anchors build the windows by position instead and write the gaps with `OmissionLine`.
 - **Progress** (`Store.HistoryState` / `PutHistoryState`): one `history/state/<chat id>.json` per chat (mode, cursor, read and written counts, state `running` / `done` /
-  `paused` / `error` / `unreadable`, last error, the anchor filter's state), written atomically after every page; a crash between writing a page and saving its state rereads
-  the page, which adds nothing. A temporary failure (pacing, timeout) is `paused`, one that needs a person (login expired, refused) `error`, and a conversation the account left
-  or that was dissolved `unreadable`: skipped for good, not a failure. Search, lists and cleanup ignore `history/`; forgetting a source removes its chats' states.
+  `paused` / `error` / `unreadable`, last error, the anchor filter's state), each write atomic. The contract the driver follows: it saves the state after every page (a crash
+  between writing a page and saving its state rereads the page, which adds nothing); a temporary failure (pacing, timeout) is recorded as `paused`, one that needs a person
+  (login expired, refused) as `error`, and a conversation the account left or that was dissolved as `unreadable`: skipped for good, not a failure. Search, lists and cleanup
+  ignore `history/`; forgetting a source removes its chats' states.
 - Page sizes are not exact (around a position a source may return more than asked for), so readers go on from the returned cursor or position, never from a count.
 
 ### Timezone (2026-11-01)

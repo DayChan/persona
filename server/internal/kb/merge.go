@@ -3,6 +3,7 @@ package kb
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,8 +22,9 @@ import (
 // their time order, and lines of one minute the order they came in.
 //
 // Day files hold no message ids, so a duplicate is a line that formats the same: the same minute, sender and text
-// (a message the live archive already has, the same page read twice after a restart). It is dropped, against the
-// file and within lines.
+// (a message the live archive already has, the same page read twice after a restart). The attachments at the end of
+// a line count the same however they were written (dupKey): the live archive links what it saved, history writes a
+// placeholder naming the kind. A duplicate is dropped, against the file and within lines.
 func (s *Store) MergeMessages(c *Chat, lines []Line) (added int, err error) {
 	if s.readOnly {
 		return 0, ErrReadOnly
@@ -90,7 +92,7 @@ func mergeDay(text string, lines []Line, zone *time.Location) (string, int) {
 		for j := i + 1; j < len(rows) && strings.HasPrefix(rows[j], "  "); j++ {
 			msg += "\n" + rows[j]
 		}
-		have[msg] = true
+		have[dupKey(msg)] = true
 	}
 	// The minute of every message line that has one ("" for the others): where new lines may go.
 	clock := make([]string, len(rows))
@@ -106,10 +108,11 @@ func mergeDay(text string, lines []Line, zone *time.Location) (string, int) {
 	var ins []insert
 	for _, l := range lines {
 		f := strings.TrimSuffix(l.Format(zone), "\n")
-		if have[f] {
+		key := dupKey(f)
+		if have[key] {
 			continue
 		}
-		have[f] = true
+		have[key] = true
 		hhmm := l.At.In(zone).Format("15:04")
 		at := len(rows)
 		for i, c := range clock {
@@ -158,4 +161,29 @@ func clockOf(row string) string {
 		return ""
 	}
 	return hhmm
+}
+
+// trailingMedia is one attachment at the end of a message as the archive writes it: "[附件]" with or without the link
+// to the saved file, or a placeholder naming the kind of one imported history did not download.
+var trailingMedia = regexp.MustCompile(`\s*\[(?:附件|文件|视频|语音)\](?:\([^()\s]*\))?\s*$`) // i18n-ignore: archive data
+
+// dupKey is what two messages (as Line.Format writes them, without the last "\n") are compared by: the text with its
+// trailing attachments, however many and however written, folded into one mark. The live archive writes a file as
+// "[附件](attachments/…)", or one "[附件]" for all of an old message's attachments; history writes "[文件]" per file
+// and "[附件]" for an image it did not save. The same message must match either way, or every attachment at the
+// boundary with the live archive would be written twice.
+func dupKey(msg string) string {
+	media := false
+	for {
+		loc := trailingMedia.FindStringIndex(msg)
+		if loc == nil {
+			break
+		}
+		msg, media = msg[:loc[0]], true
+	}
+	msg = strings.TrimRight(msg, " ")
+	if media {
+		msg += " \x00media"
+	}
+	return msg
 }

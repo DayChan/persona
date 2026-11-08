@@ -186,8 +186,9 @@ type Store struct {
 	applyMu  sync.Mutex
 	recMu    sync.Mutex // a recording's read-compare-write (recordings.go)
 	dedupeMu sync.Mutex // projects/.dedupe.json's read-modify-write (dedupe.go)
-	// chatMu: a chat's read-modify-write by Ingest and WriteHistory (history.go), so an import never writes back a
-	// stale copy of the live archive's counters.
+	// chatMu: a chat's read-modify-write of meta.json by the pipeline (Ingest, saveArchived, WriteHistory in history.go,
+	// and compression's write-back, putCompressed), so none writes back a stale copy over what another wrote. Each
+	// reads the chat again under it and changes only the fields it owns. (A person's edits, edit.go, are not under it.)
 	chatMu    sync.Mutex
 	observeMu sync.RWMutex
 	changed   func(Change)

@@ -219,8 +219,8 @@ func TestMergeKeepsEveryLine(t *testing.T) {
 		seen := blocks(text)
 		for _, l := range batch {
 			f := strings.TrimSuffix(l.Format(zone), "\n")
-			if !seen[f] {
-				seen[f] = true
+			if !seen[dupKey(f)] {
+				seen[dupKey(f)] = true
 				want++
 				rows += strings.Count(f, "\n") + 1
 			}
@@ -258,7 +258,7 @@ func blocks(text string) map[string]bool {
 			}
 			b += "\n" + c
 		}
-		out[b] = true
+		out[dupKey(b)] = true
 	}
 	return out
 }

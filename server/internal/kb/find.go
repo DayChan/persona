@@ -298,7 +298,7 @@ func (e *Engine) files() (files, days []string) {
 			p := filepath.Join(dir, d.name)
 			switch {
 			case d.dir:
-				// Attachments hold no text; history/ is bookkeeping (searchable).
+				// Attachments hold no text; history/ is bookkeeping, not searched (see searchable).
 				if d.name != "attachments" && (dir != e.Store.Dir || d.name != "history") {
 					walk(p)
 				}
