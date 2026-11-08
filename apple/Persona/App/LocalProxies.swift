@@ -426,7 +426,9 @@ final class LocalProxies {
 
     /// Answers a redirect with the redirect itself.
     private nonisolated final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        // @concurrent: without it Swift 6.4 (Xcode 27.1) crashes in SILGen on this async Objective-C delegate method
+        // under NonisolatedNonsendingByDefault (docs/lessons/ios.md, #1352).
+        @concurrent func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest) async -> URLRequest? { nil }
     }
 
