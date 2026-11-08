@@ -43,6 +43,10 @@ func TestSecretRunPurposeShows(t *testing.T) {
 		"Install":            false, // private use
 		"Install\U000e0001":   false, // a tag character (Cf)
 		"Install\U0010fffe":   false, // unassigned
+		"Install\U00000378":   false, // unassigned in the basic multilingual plane
+		"Install\U0000fffd":   false, // preserve rejection of the replacement character
+		"Backup\U00003000job": true,  // a graphic Unicode space (Zs)
+		"Backup \U0001f642":   true,  // a graphic symbol (So)
 		"Install\tthe daemon": false,
 		"Install\xff":         false,
 	} {

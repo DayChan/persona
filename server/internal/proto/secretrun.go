@@ -80,7 +80,8 @@ func SecretRunCommandProblem(command string) string {
 // point, and valid UTF-8.
 func SecretRunPurposeShows(text string) bool {
 	for _, r := range text {
-		if r == utf8.RuneError || unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Co, unicode.Cn) {
+		// Go has no Cn table; graphic categories exclude unassigned and other non-displayable code points.
+		if r == utf8.RuneError || !unicode.IsGraphic(r) {
 			return false
 		}
 	}

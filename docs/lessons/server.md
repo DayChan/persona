@@ -1,5 +1,13 @@
 # Lessons: hub / node and networking
 
+## Unicode category names are not all Go tables (#1534)
+
+Go does not export a `unicode.Cn` table for unassigned code points. A visible-text validator can use `unicode.IsGraphic`,
+which admits letters, marks, numbers, punctuation, symbols and space separators while excluding the other categories.
+Keep explicit replacement-character rejection when that was already part of the protocol. Test unassigned points in both
+the basic and supplementary planes, plus valid Unicode spaces. A missing symbol in the shared proto package also breaks
+unrelated Go helpers in the scripts lane; verify both the package and those consumers before merging.
+
 ## Mail account writes publish only committed candidates (#1302)
 
 Whole-account snapshots need one guard covering candidate capture, storage and publication across adds, OAuth
