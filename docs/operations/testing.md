@@ -60,7 +60,9 @@ apply to newly scheduled workflow versions, not retroactive cancellation of exis
 issue, not test execution time. Do not change repository settings/rulesets or procure paid/self-hosted capacity as part of these controls.
 
 Server keeps four independent shards (at most two concurrent runners): browser/node, hub/voice/assistant, all other packages, and
-formatting/vet/build/Windows/SDK checks.
+formatting/vet/build/Windows/SDK checks plus the database-free owned Node RPC race suite. Keep that race suite off the browser/node
+shard: cold race compilation and its full Postgres package tests exhausted the same 15-minute job even though the race suite passed.
+The race command retains its 420-second launcher and five-minute Go bounds; moving it changes neither the hosted limit nor coverage.
 Every package from `go list ./...` belongs to exactly one test shard, including future packages. Browser tests remain isolated from other
 packages. Go module/build caches are keyed by exact Go version, shard, dependency sums and source inputs, with same-shard fallback keys;
 `-count=1` keeps test execution uncached. Test-event summaries report the slowest real tests, rather than inferring runtime from `Sleep`

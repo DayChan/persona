@@ -12,6 +12,9 @@ if [ "$lane" = all ] || [ "$lane" = build ]; then
   ci_run 'Windows node build and vet' 600 bash -c 'cd server && GOOS=windows GOARCH=amd64 go build ./... && GOOS=windows GOARCH=amd64 go vet ./...'
   ci_run 'Extension schema and SDK bundle' 300 bash -c 'python3 scripts/test/test_extension_schema.py && python3 scripts/test/test_sdk_bundle.py'
   ci_run 'Go SDK tests' 300 bash -c 'cd sdk/go && go test -count=1 -timeout=4m ./...'
+  # This owned-transport suite needs no database or browser. Keep it off the
+  # browser/node shard so both retain their existing 15-minute hosted budget.
+  ci_run 'Node RPC withdrawal race tests' 420 bash -c 'cd server && go test -race -p 2 -count=1 -timeout=5m -run "^TestNodeRPC" ./internal/node'
 fi
 if [ "$lane" = build ]; then exit 0; fi
 
@@ -33,7 +36,6 @@ fi
 if [ "$lane" = all ] || [ "$lane" = node ]; then
   # The real-browser package has its own hosted runner, without build or other-package contention.
   ci_run 'Browser runner resources' 60 bash -e -o pipefail -c 'google-chrome --version; getconf _NPROCESSORS_ONLN; free -m; df -h /dev/shm'
-  ci_run 'Node RPC withdrawal race tests' 420 bash -c 'cd server && go test -race -p 2 -count=1 -timeout=5m -run "^TestNodeRPC" ./internal/node'
 fi
 for shard in node managers other; do
   if [ "$lane" = all ] || [ "$lane" = "$shard" ]; then

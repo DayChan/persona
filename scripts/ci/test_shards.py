@@ -1,5 +1,10 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +55,44 @@ class ShardTests(unittest.TestCase):
         for label in ("Go formatting", "Server vet", "Server build", "Windows node build and vet", "Go SDK tests"):
             self.assertIn(label, script)
         self.assertIn('lane="${1:-all}"', script)
+
+    def test_rpc_race_keeps_budgets_and_leaves_browser_node_isolated(self):
+        # Intercept only the CI command launcher: this checks lane selection,
+        # not actual Go/Postgres/browser execution or hosted acceptance.
+        with tempfile.TemporaryDirectory(prefix="persona-ci-lanes-") as directory:
+            root = Path(directory)
+            trace = root / "commands.jsonl"
+            launcher = root / "python3"
+            launcher.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "with open(os.environ['CI_TRACE'], 'a') as stream:\n"
+                "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            )
+            launcher.chmod(0o755)
+            docker = root / "docker"
+            docker.write_text("#!/bin/bash\nexit 0\n")
+            docker.chmod(0o755)
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "TMPDIR": str(root), "CI_TRACE": str(trace)}
+            for lane in ("all", "build", "node", "managers", "other"):
+                with self.subTest(lane=lane):
+                    trace.write_text("")
+                    subprocess.run(["bash", str(ROOT / "scripts/ci/server.sh"), lane],
+                                   env=env, check=True, capture_output=True, timeout=15)
+                    commands = [json.loads(line) for line in trace.read_text().splitlines()]
+                    rpc = [command for command in commands if "Node RPC withdrawal race tests" in command]
+                    self.assertEqual(len(rpc), int(lane in ("all", "build")))
+                    if rpc:
+                        command = rpc[0]
+                        self.assertEqual(command[command.index("--timeout") + 1], "420")
+                        self.assertIn('go test -race -p 2 -count=1 -timeout=5m -run "^TestNodeRPC" ./internal/node', command[-1])
+                    labels = [command[command.index("--label") + 1] for command in commands]
+                    for shard in ("node", "managers", "other"):
+                        self.assertEqual(f"Server {shard} tests with Postgres" in labels,
+                                         lane in ("all", shard))
+                    self.assertEqual("Browser runner resources" in labels, lane in ("all", "node"))
+                    self.assertEqual("Process RPC lifecycle race tests" in labels, lane in ("all", "other"))
 
 
 if __name__ == "__main__":
