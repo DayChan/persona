@@ -21,6 +21,8 @@ final class AgentSync {
     nonisolated static let workingGap = AgentSyncPacing.workingGap
 
     private var known: [SessionKey: Int64] = [:]
+    /// When each session's rev last changed here: a chat on screen that got no items since has lost some (`checkStall`).
+    private var revMoved: [SessionKey: Date] = [:]
     /// What has been pulled, by rev ("<machine>/<session>" → rev); kept across launches, beside the chats' disk cache it
     /// describes (`StateCache`). Not in UserDefaults: it changes with nearly every push, and each write to UserDefaults
     /// draws every `@AppStorage` view in the app again; the Agents list re-laid itself out under the finger
@@ -52,14 +54,20 @@ final class AgentSync {
 
     /// A machine's full session list arrived.
     func sessions(_ list: [Session]) {
-        for s in list { if let r = s.rev { known[s.key] = r } }
+        for s in list { if let r = s.rev { heard(r, for: s.key) } }
         schedule()
     }
 
     /// Only some transcripts grew (the light `revs` event).
     func revs(machine: MachineRef, _ changed: [String: Int64]) {
-        for (sid, r) in changed { known[SessionKey(group: machine.group, machineID: machine.id, sessionID: sid)] = r }
+        for (sid, r) in changed { heard(r, for: SessionKey(group: machine.group, machineID: machine.id, sessionID: sid)) }
         schedule()
+    }
+
+    /// A session's rev as the hub has it now. The first one heard is no move: a chat's backlog is its baseline.
+    private func heard(_ rev: Int64, for key: SessionKey) {
+        if let old = known[key], old != rev { revMoved[key] = .now }
+        known[key] = rev
     }
 
     /// After a burst of events, look once.
@@ -140,8 +148,8 @@ final class AgentSync {
         else { return }
         let updatedAt = model.latest(key)?.updatedAt // `session(_:)` keeps an older one on purpose
         guard let at = AgentSyncPacing.catchUpAt(updatedAt: updatedAt, newestLine: store.newestLineAt,
-                                                lastArrival: store.arrivedAt, lastPull: lastCatchUp[key],
-                                                pulledFor: caughtUpFor[key])
+                                                revMoved: revMoved[key], lastArrival: store.arrivedAt,
+                                                lastPull: lastCatchUp[key], pulledFor: caughtUpFor[key])
         else { return }
         guard at <= .now else { return lookAgain(key, at: at) }
         guard let api = model.api(key.group) else { return }

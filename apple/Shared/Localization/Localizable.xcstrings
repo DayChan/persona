@@ -71952,6 +71952,29 @@
       },
       "extractionState" : "manual"
     },
+    "Only Conclusions to Lark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only Conclusions to Lark"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Larkには結論だけ送る"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "飞书只推结论"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Only Its Alerts" : {
       "localizations" : {
         "en" : {
@@ -100467,6 +100490,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "任务"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Tasks from the main chat no longer send their progress (a finished turn, waiting for you, interrupted), which stays in the to-do list and the briefing; a conclusion card still comes when there is one: done, can't be done, or needs your decision" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tasks from the main chat no longer send their progress (a finished turn, waiting for you, interrupted), which stays in the to-do list and the briefing; a conclusion card still comes when there is one: done, can't be done, or needs your decision"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メインチャットのタスクの途中経過（ひと区切りの完了・あなた待ち・中断）は単独では送らずやることリストとブリーフィングにだけ残し、結論（完了・できない・あなたの判断が必要）が出たら結論カードをこれまでどおり送ります"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主对话派出的任务不再推中途进展（一轮做完、在等你、被打断，照样记在待办和早晚报里）；有结论时照样推一张结论卡：做完了、做不了、要你拍板"
           }
         }
       },

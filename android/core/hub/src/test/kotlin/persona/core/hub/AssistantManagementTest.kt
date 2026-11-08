@@ -3,6 +3,7 @@ package persona.core.hub
 import persona.core.contracts.JsonCodec
 import persona.core.contracts.SessionKey
 import persona.core.contracts.api.AgentSkill
+import persona.core.contracts.api.AlwaysGrant
 import persona.core.contracts.api.AssistantRefused
 import persona.core.contracts.api.AssistantSkills
 import persona.core.contracts.api.NewMainResult
@@ -109,6 +110,35 @@ class AssistantManagementTest {
             val archive = server.takeRequest()
             assertEquals("POST", (archive.method).zhAny())
             assertEquals("/api/v1/assistant/conversations/side-1/archive", (archive.path).zhAny())
+        }
+    }
+
+    @Test fun alwaysGrantsAreListedAndRevokedPerConversationAndAMissingRouteShowsNothing() = runBlocking {
+        MockWebServer().use { server ->
+            val api = HttpAssistantManagement(server.url("/").toString(), "test-token", OkHttpClient())
+            val session = SessionKey("demo", "side-1")
+            val hash = "a".repeat(64)
+            server.enqueue(MockResponse().setBody("""{"grants":[{"key_hash":"$hash","tool_name":"Bash","created_at":"2026-11-08T09:30:00Z"}]}"""))
+            assertEquals(listOf(AlwaysGrant(hash, "Bash", "2026-11-08T09:30:00Z")), api.alwaysGrants(session))
+            val list = server.takeRequest()
+            assertEquals("GET", (list.method).zhAny())
+            assertEquals("/api/v1/assistant/conversations/side-1/always", (list.path).zhAny())
+            server.enqueue(MockResponse().setBody("""{"ok":true,"restart_required":true}"""))
+            assertTrue(api.revokeAlwaysGrant(session, hash))
+            val revoke = server.takeRequest()
+            assertEquals("DELETE", (revoke.method).zhAny())
+            assertEquals("/api/v1/assistant/conversations/side-1/always/$hash", (revoke.path).zhAny())
+            server.enqueue(MockResponse().setBody("""{"ok":true,"restart_required":false}"""))
+            assertFalse(api.revokeAlwaysGrant(session, hash))
+            server.takeRequest()
+            // A hub before the route, or a device without full access: nothing to show rather than an error.
+            for (status in listOf(404, 403)) {
+                server.enqueue(MockResponse().setResponseCode(status).setBody("""{"error":"no"}"""))
+                assertNull(api.alwaysGrants(session))
+                server.takeRequest()
+            }
+            server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":"permission store unavailable"}"""))
+            try { api.alwaysGrants(session); fail("A server failure must throw") } catch (_: HubFailure) { }
         }
     }
 

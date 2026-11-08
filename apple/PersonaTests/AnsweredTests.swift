@@ -105,4 +105,19 @@ struct AnsweredTests {
         model.replaceInteractions("", [ix])
         #expect(model.interactions[ix.uid] == nil)
     }
+
+    /// The pending-card snapshot after a hello that resumed is card frames, not a list: it brought back a card this
+    /// device had answered (#1521). Another group's card with the same id is another card.
+    @Test func aCardFrameDoesNotResurrectALocallyEndedCard() {
+        let model = AppModel()
+        let ix = Interaction(id: "ended2", machineID: "m", sessionID: "s", kind: .screen)
+        model.endedInteractionIDs.insert(ix.uid)
+        model.handle(.interaction(ix), group: "")
+        #expect(model.interactions[ix.uid] == nil)
+
+        var other = ix
+        other.group = "work"
+        model.handle(.interaction(other), group: "work")
+        #expect(model.interactions[other.uid] != nil)
+    }
 }

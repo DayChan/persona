@@ -204,8 +204,8 @@ type FeishuFeatures struct {
 	Agents   bool `json:"agents"`
 	Reports  bool `json:"reports"` // the main conversation's tasks are told in the chat (#2768)
 	Board    bool `json:"board"`   // /tasks keeps one standing "waiting for you" card, edited in place (#6052)
-	// OnlyConclusions: a task's started / waiting / interrupted states are not pushed on their own; the task list and
-	// the briefing carry them, and only its conclusion card goes out (#1226).
+	// OnlyConclusions: a task's finished turn, waiting and interrupted states are not pushed on their own; the task list
+	// and the briefing carry them, and only its conclusion card goes out (#1226).
 	OnlyConclusions bool `json:"only_conclusions"`
 }
 

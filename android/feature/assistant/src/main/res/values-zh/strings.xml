@@ -17,6 +17,17 @@
     <string name="assistant_info_settings_text">体验模式里没有助手设置。连上自己的 hub 以后，可以选 Persona 在哪台机器上运行，改关于我和记忆。</string>
     <string name="assistant_info_session_none">当前还没有打开对话。</string>
     <string name="assistant_info_session_text">当前对话：%1$s</string>
+    <string name="assistant_always_title">这段对话中总是允许的权限</string>
+    <string name="assistant_always_scope">这些已保存的权限仅适用于这段对话。记录只保留工具名，没有目录或命令的详细范围。</string>
+    <string name="assistant_always_empty">没有已保存的权限。</string>
+    <string name="assistant_always_unnamed">未命名权限</string>
+    <string name="assistant_always_granted">%1$s 允许</string>
+    <string name="assistant_always_revoke">撤销</string>
+    <string name="assistant_always_revoke_title">撤销这项权限？</string>
+    <string name="assistant_always_revoke_text">撤销会停止当前回复，以清除运行中的权限。发送下一条消息即可继续。</string>
+    <string name="assistant_always_restart">已撤销保存的权限，但无法重置运行中的对话。请重启这段对话后再继续，确保撤销生效。</string>
+    <string name="assistant_always_not_revoked">没有撤销：%1$s</string>
+    <string name="assistant_always_retry">重试</string>
     <string name="assistant_info_launcher_text">启动器配置尚未接入。</string>
     <string name="assistant_voice_chat">语音对话</string>
     <string name="assistant_compact">压缩上下文</string>

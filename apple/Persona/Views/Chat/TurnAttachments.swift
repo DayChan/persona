@@ -180,6 +180,10 @@ struct ViewedImagesRow: View, Equatable {
                     Text(caption).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .padding(Theme.Space.m)
+                // The preview is drawn in the context menu's own host, which the app's environment does not reach: the
+                // thumbnail's model was missing there and the app crashed on a long press (#1490).
+                .environment(model)
+                .environment(\.fileScope, scope)
             }
     }
     @Namespace private var fallbackZoom

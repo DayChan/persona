@@ -41,8 +41,9 @@ struct ChatCatchUpPacingTests {
     /// The session's `updated_at`: the transcript grew since.
     var written: Date { line.addingTimeInterval(30) }
 
-    func at(_ updated: Date?, newest: Date?, arrival: Date?, pull: Date? = nil, pulledFor: Date? = nil) -> Date? {
-        AgentSyncPacing.catchUpAt(updatedAt: updated, newestLine: newest, lastArrival: arrival, lastPull: pull, pulledFor: pulledFor)
+    func at(_ updated: Date?, newest: Date?, revMoved: Date? = nil, arrival: Date?, pull: Date? = nil, pulledFor: Date? = nil) -> Date? {
+        AgentSyncPacing.catchUpAt(updatedAt: updated, newestLine: newest, revMoved: revMoved, lastArrival: arrival,
+                                  lastPull: pull, pulledFor: pulledFor)
     }
 
     @Test func aChatBehindItsSessionAsksOnceTheStreamIsQuiet() {
@@ -72,6 +73,29 @@ struct ChatCatchUpPacingTests {
         let asked = line.addingTimeInterval(20)
         #expect(at(written, newest: line, arrival: line, pull: asked, pulledFor: line.addingTimeInterval(10))
                 == asked.addingTimeInterval(AgentSyncPacing.stalePullEvery))
+    }
+
+    /// The last line of a burst, written 0.3 s after the one before, whose push was lost (#1179): its `updated_at` is
+    /// within the slack of the newest line here, but the rev moved after the last items came.
+    @Test func aLostLastLineOfABurstIsAskedForByItsRev() {
+        let next = line.addingTimeInterval(0.3)
+        #expect(at(next, newest: line, arrival: line) == nil) // the time alone cannot tell
+        let heard = line.addingTimeInterval(1.5) // the node's next tick
+        #expect(at(next, newest: line, revMoved: heard, arrival: line) == heard.addingTimeInterval(AgentSyncPacing.staleQuiet))
+        // without any `updated_at` too
+        #expect(at(nil, newest: line, revMoved: heard, arrival: line) == heard.addingTimeInterval(AgentSyncPacing.staleQuiet))
+        // paced like the rest
+        let asked = line.addingTimeInterval(1)
+        #expect(at(next, newest: line, revMoved: heard, arrival: line, pull: asked) == asked.addingTimeInterval(AgentSyncPacing.stalePullEvery))
+    }
+
+    @Test func aRevThatMovedBeforeTheLastItemsAsksNothing() {
+        // its lines came after it (a pull that found nothing counts: items came for the chat)
+        #expect(at(line, newest: line, revMoved: line.addingTimeInterval(-1), arrival: line) == nil)
+        #expect(at(line, newest: line, revMoved: line, arrival: line) == nil)
+        // the time rule still asks on its own
+        #expect(at(written, newest: line, revMoved: line.addingTimeInterval(-1), arrival: line)
+                == line.addingTimeInterval(AgentSyncPacing.staleQuiet))
     }
 }
 

@@ -58,7 +58,7 @@ Each step has one action, plus `expect`. A `socket` that opens may also carry `f
 | `{"hub": {…}}` | The hub's state changes. Nothing is delivered by itself. Keys, applied in this order: `restart` (`{resumable}`: a new process; a resumable one keeps the event stream and its numbering, another starts a new stream), `rewrite` (`{history, lines, to_seq}`: the transcript was replaced), `append` (items added), `to_seq` (the line count after them), `end` (`{id, status, by}`: `status` is `answered`, `dismissed`, `cancelled` or `expired`; `by` is a device name, `agent` or `hub`), `raise` (an interaction becomes pending), `session` (fields that change). Each `end` and each `raise` is one broadcast, numbered `event_seq + 1`, `+ 2`… in that order |
 | `{"frames": {"a": [frame…]}}` | These frames reach device `a`, in this order. They are the hub's wire JSON. A frame that is lost is simply not listed, a duplicate is listed twice, a late one comes in a later step. A frame only carries what the hub held at that step or before. Broadcast `interaction` / `interaction_resolved` frames carry the `event_seq` of their broadcast; the cards the hub sends right after a hello (its pending-card snapshot) carry none |
 | `{"socket": {"device": "a", "drop": true}}` | The connection goes. Writes in flight on this device stay in flight |
-| `{"socket": {"device": "a", "open": {"resumed": true}}}` | A new connection; its hello carries the hub's `event_stream` and `event_seq` and says `resumed`. `true` is only possible on the stream the device last saw; the step's `frames` must then hold every broadcast the device missed, in order (the hub replays them). `false`: the client does its full refresh, read from the hub's state |
+| `{"socket": {"device": "a", "open": {"resumed": true}}}` | A new connection; its hello carries the hub's `event_stream` and `event_seq` and says `resumed`. `true` is only possible on the stream the device last saw; the step's `frames` must then hold every broadcast the device missed, in order (the hub replays them). `false`: the client does its full refresh, read from the hub's state. After the hello the hub sends its connection snapshot: `machines`, the session list, then every pending card as an `interaction` frame without `event_seq` (`hub/http.go` `serveWS`). Consumers send the first two from the hub's state; the cards are listed in the step's `frames`, after any replayed broadcasts |
 | `{"user": {"device": "a", …}}` | The user does something: `send: {id, text}` (the client uses `id` as its `client_msg_id` / op id), `answer: {id, resolution}`, `retry: <message id>`, `discard: <message id>`, `open`, `close`, `background`, `foreground`, `relaunch` (the app is killed and starts again from what it stored) |
 | `{"reply": {"device": "a", "write": <id>, …}}` | The hub answers every request in flight for that write (a send's message id, a card's interaction id): `status` and `body`, or `cut: true` (the connection broke; no answer). `done` says whether the hub carried it out (default: true for 2xx, false otherwise). After a `done` one, `receipt` (`{status, body}`) is what later retries with the same op id get at once |
 | `{"wait": <ms>}` | Time moves on; timers due in that window run |
@@ -89,6 +89,7 @@ The clients draw the same states differently. A consumer maps what it draws onto
 - `answered`: a summary ("Allowed", the picks) or nothing.
 - Gap fills: iOS / Mac fills at once, the web and Android wait 1.5 s (`docs/protocol/protocol.md` "Continuity of items"). A step's `requests` is checked once the device's own timers for that step ran.
 - A message the hub queued (`session.queued`) may show in the queue strip instead of as a bubble; both are `pending`.
+- The web puts a failed message's words back into the composer instead of keeping a failed bubble (#1122): its `failed` is compared apart from its place in the list.
 
 ## Files
 
@@ -97,10 +98,20 @@ The clients draw the same states differently. A consumer maps what it draws onto
 | [sends.json](sends.json) | Sending, the receipt, the transcript copy, refusals and retries |
 | [cards.json](cards.json) | Answering cards; old snapshots and replays after an answer |
 | [reconnect.json](reconnect.json) | Disconnects, lost and duplicated pushes, gaps |
+| [relaunch.json](relaunch.json) | The app killed and started again from what it stored |
 | [restart.json](restart.json) | Hub restarts, resumable or not |
 | [devices.json](devices.json) | Two devices on the same chat |
 | [wake.json](wake.json) | Background tasks waking the agent |
 | [window.json](window.json) | Long chats: latest pages and the fill cap |
+
+## Consumers
+
+| Client | Test | Known failures |
+| --- | --- | --- |
+| Go (the files themselves) | `server/internal/proto/sync_scenarios_test.go` | — |
+| Web | `web/src/views/chat/sync/sync-scenarios.test.tsx`: the real store, `useTranscript`, chat page, composer and cards; a fake hub (`sync/fake-hub.ts`) answers reads from the case and holds writes; the page is read back through `data-*` marks (`sync/project.ts`) | `KNOWN` in the test, each with its issue and the reason it must fail for |
+| iOS / Mac | #1112 | |
+| Android | #1111 | |
 
 ## Checks
 

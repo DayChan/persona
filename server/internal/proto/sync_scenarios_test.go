@@ -434,6 +434,36 @@ func checkSyncCase(t *testing.T, c syncCase) {
 					d.ended[id] = true
 				}
 			}
+			// the pending-card snapshot every hello is followed by: each pending card once, without event_seq,
+			// after the replayed broadcasts
+			var snapshot []string
+			replays := true
+			for _, raw := range st.Frames[st.Socket.Device] {
+				var f syncInteractionFrame
+				if json.Unmarshal(raw, &f) != nil || f.Type != "interaction" {
+					continue
+				}
+				if f.EventSeq != nil {
+					if !replays {
+						t.Fatalf("%s: a replayed broadcast after the pending-card snapshot", where)
+					}
+					continue
+				}
+				replays = false
+				snapshot = append(snapshot, f.Interaction.ID)
+			}
+			want, listed := []string{}, map[string]bool{}
+			for _, id := range h.order {
+				if _, ok := h.pending[id]; ok && !listed[id] {
+					want, listed[id] = append(want, id), true
+				}
+			}
+			if snapshot == nil {
+				snapshot = []string{}
+			}
+			if !reflect.DeepEqual(snapshot, want) {
+				t.Fatalf("%s: a hello is followed by every pending card %v, the step's frames have %v", where, want, snapshot)
+			}
 			d.stream, d.seq = h.stream, h.seq
 		case st.User != nil:
 			d := dev(where, st.User.Device)

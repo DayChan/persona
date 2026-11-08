@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
@@ -141,7 +140,7 @@ func newUpdater(h *Hub) *updater {
 		exec: func(path string) error {
 			// The sockets systemd passed go on to the new binary (listen.go): it could not listen otherwise.
 			// The hub's arguments; `hub …` when it runs as persona-hub and path is personad (update.TargetArgs).
-			return syscall.Exec(path, append([]string{path}, update.TargetArgs(os.Args, path)...), append(os.Environ(), execListenEnv()...))
+			return execKeepingListeners(path, append([]string{path}, update.TargetArgs(os.Args, path)...), os.Environ())
 		},
 		startWatch: startWatchdog, target: ServerBinary, confirmIn: updateConfirmIn, idleEvery: updateIdleEvery,
 		manualIdle: updateManualIdle, state: "idle", confirmed: true,

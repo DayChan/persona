@@ -752,7 +752,10 @@ fun AssistantScreen(
     readinessHelp?.let { help ->
         ReadinessHelpDialog(help, readiness?.machine?.name, onDismiss = { readinessHelp = null }, onAction = { runReadinessAction(it) })
     }
-    info?.let { topic ->
+    // An open conversation's "Session info" also lists what it was always allowed (#890); the rest explain in a dialog.
+    val infoSession = active?.takeIf { info == AssistantInfo.Session && !demo }
+    if (infoSession != null && pageManagement != null) AssistantSessionInfoSheet(infoSession, pageManagement, onDismiss = { info = null })
+    else info?.let { topic ->
         JDialog(onDismiss = { info = null }, title = stringResource(topic.title),
             text = when (topic) {
                 AssistantInfo.Schedule -> stringResource(R.string.assistant_info_schedule_text)

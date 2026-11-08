@@ -76,8 +76,8 @@ type BotFeatures struct {
 	// Board: /tasks keeps one standing "waiting for you" card in the chat and edits it in place (#6052). Off by default
 	// (it changes what /tasks does), and for settings saved before it: they have no such key.
 	Board bool `json:"board"`
-	// OnlyConclusions: of the task reports only the conclusions are pushed; started, waiting and interrupted stay in the
-	// task list and the briefing (#1226). Off by default, and for settings saved before it: they have no such key.
+	// OnlyConclusions: of the task reports only the conclusions are pushed; a finished turn, waiting and interrupted stay
+	// in the task list and the briefing (#1226). Off by default, and for settings saved before it: they have no such key.
 	OnlyConclusions bool `json:"only_conclusions"`
 }
 

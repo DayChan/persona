@@ -14,7 +14,7 @@
   "feature_board_title": "Waiting-for-you board in Lark",
   "feature_board_detail": "/tasks sends one card listing everything waiting for you, then keeps it up to date in place instead of sending a new one",
   "feature_only_conclusions_title": "Only conclusions to Lark",
-  "feature_only_conclusions_detail": "Tasks from the main chat push only their conclusion (done, cannot be done, needs your decision); started, waiting and interrupted stay in the to-do list and the briefing",
+  "feature_only_conclusions_detail": "Tasks from the main chat no longer send their progress (a finished turn, waiting for you, interrupted), which stays in the to-do list and the briefing; a conclusion card still comes when there is one: done, can't be done, or needs your decision",
   "feature_agents_title": "Drive agents",
   "feature_agents_detail": "Use /agents to pick Claude Code or Codex on any of your computers and chat with it in Lark; /start begins a new one",
   "step_create_app": "On the Lark Developer Console, create a custom app and turn on the Bot feature",

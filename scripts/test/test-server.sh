@@ -7,7 +7,9 @@ eval "$(python3 scripts/persona_config.py env)"
 H="$PERSONA_HUB_SSH"
 # One copy per checkout: worktrees testing at the same time must not rsync over each other.
 D=".cache/persona-test-$(basename "$PWD")"
-python3 scripts/persona_identity.py --service hub --prepare --prefix scripts/deploy/db.sh | ssh "$H" 'bash -s' >/dev/null
+# Resolve the hub's state directory, never prepare it: a test run must not create it or its old-name alias (#1424). The
+# resolver exports _PERSONA_STATE_DIR, so db.sh uses that one too.
+python3 scripts/persona_identity.py --service hub --prefix scripts/deploy/db.sh | ssh "$H" 'bash -s' >/dev/null
 ssh "$H" "mkdir -p ~/$D/sdk ~/$D/schema"
 rsync -a --delete --exclude bin server/ "$H":"$D/server/"
 # Go's local SDK replacement must keep the same sibling path as in this checkout, including embedded schemas.

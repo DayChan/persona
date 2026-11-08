@@ -87,9 +87,11 @@ def prepare_dir(home=None, environment=None):
         raise OSError("state symlink target is unavailable; restore it before upgrading")
     os.makedirs(root, mode=0o700, exist_ok=True)
     home = os.path.expanduser("~") if home is None else os.fspath(home)
-    defaults = (os.path.join(home, ".persona"), os.path.join(home, ".jarvis"))
-    if root in defaults:
-        alias = defaults[1] if root == defaults[0] else defaults[0]
+    # An installation still kept under the former name gets the current name as an alias; one under the current name
+    # gets no alias under the former name (#1445). An alias already there is left as it is.
+    current, former = os.path.join(home, ".persona"), os.path.join(home, ".jarvis")
+    if root == former:
+        alias = current
         if not os.path.lexists(alias):
             try:
                 os.symlink(os.path.basename(root), alias)

@@ -69,7 +69,7 @@ func newBusHub(t *testing.T) (*Hub, *httptest.Server, *db.DB) {
 		for _, b := range list {
 			_, _ = store.DeleteBusIdentity(context.Background(), b.ID)
 		}
-		// A test's moves are kept in the database: the next test's hub would read them (ownership.go).
+		// A test's moves are kept in the database: the next test's hub would read them (ownership_moves.go).
 		_ = store.PutSetting(context.Background(), machineOwnersKey, map[string]string{})
 	}
 	clearBus()

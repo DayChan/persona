@@ -45,6 +45,13 @@ func (e *setupEnv) compatibleHubBinary() (string, error) {
 		}
 	}
 	if _, err := os.Lstat(alias); os.IsNotExist(err) {
+		// The former name is made only for an installation whose units still run it (#1445); one on personad's own
+		// units gets none. A binary kept under the former name still gets personad beside it.
+		if alias == old {
+			if units, err := e.compatibleHubUnits(); err != nil || !units.legacy {
+				return filepath.EvalSymlinks(primary)
+			}
+		}
 		if err := os.Symlink(filepath.Base(primary), alias); err != nil && !os.IsExist(err) {
 			return "", err
 		}

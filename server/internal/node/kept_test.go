@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/compat"
 )
 
 // The assistant's main conversation stays listed when 80 newer transcripts and a week of quiet would push it out
@@ -142,15 +144,17 @@ func TestIsAssistantProject(t *testing.T) {
 		t.Fatalf("own assistant project %q", own)
 	}
 	for base, want := range map[string]bool{
-		"-home-me--persona-assistant":              true,
-		"-data-home-me--persona-assistant":         true,
-		"-opt-persona-state-assistant":             true,
-		"-home-me--persona-assistant-worklog-data": false,
-		"-home-me--persona-health":                 true, // the health space (docs/assistant/health.md)
-		"-opt-persona-state-health":                true,
-		"-home-me--persona-health-notes":           false,
-		"-tmp":                                     false,
-		"-src-assistant":                           false,
+		"-home-me--persona-assistant": true,
+		"-home-me-" + nonAlnum.ReplaceAllString(compat.StateDir, "-") + "-assistant": true, // the former state directory (#1423)
+		"-home-me-" + nonAlnum.ReplaceAllString(compat.StateDir, "-") + "-health":    true,
+		"-data-home-me--persona-assistant":                                           true,
+		"-opt-persona-state-assistant":                                               true,
+		"-home-me--persona-assistant-worklog-data":                                   false,
+		"-home-me--persona-health":                                                   true, // the health space (docs/assistant/health.md)
+		"-opt-persona-state-health":                                                  true,
+		"-home-me--persona-health-notes":                                             false,
+		"-tmp":                                                                       false,
+		"-src-assistant":                                                             false,
 	} {
 		if got := isAssistantProject(base, own); got != want {
 			t.Errorf("isAssistantProject(%q) = %v, want %v", base, got, want)

@@ -2560,6 +2560,8 @@ Questions from a task's Agent are interactions as usual; clients draw them at th
 
 `personad mcp` handles each request separately (a tool waiting on the phone doesn't block other tools). When Claude Code sends `notifications/cancelled` (this turn was stopped), it cancels that call and doesn't answer; the socket to the node hangs up with it, and the hub withdraws its card via `rpc.cancel` (#3525, #2597).
 
+A call that asks for progress (`_meta.progressToken`, which Claude Code always sends) gets `notifications/progress` every minute while it waits (`keepAlive`, #1498). Claude Code ends a stdio MCP call that sends "no response or progress" for 30 minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), and a write approved on the phone waits up to 30 minutes, `ask_user` up to 2 hours: without progress the client gave up first, and the model got its generic abort instead of the hub's timeout reply. The deadlines stay the hub's and the manager's; `personad mcp` itself ends a call only after `CallTimeout` (2 hours 10 minutes, above `ask_user`'s wait, which a test in `assistant` keeps below it).
+
 | Tool | Executed by | Description |
 | --- | --- | --- |
 | `phone_*` | iPhone App | declared by the App via `register_phone` (contacts, calendar, reminders, location, health, photos, clipboard, device info, notifications…) |

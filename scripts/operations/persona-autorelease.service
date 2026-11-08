@@ -1,0 +1,16 @@
+[Unit]
+Description=Persona default-branch deployment and TestFlight worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/persona-autorelease/autorelease.py --config %h/.local/state/persona-autorelease/config.json
+TimeoutStartSec=4h
+SuccessExitStatus=75
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target

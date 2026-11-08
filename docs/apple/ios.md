@@ -68,9 +68,10 @@ Chat page:
   so opening is already current; scope active Agents + sessions used within 24 hours (at most 40, newest first, concurrency 3).
   Retained chats without a subscription owner keep their store and covered sequence unchanged until their next visible subscription replays `since_seq`.
   Eligibility is rechecked when queued work starts; a visible catch-up cannot apply after the last owner leaves or the store is replaced.
-  Currently viewed chats rely on their subscriptions without duplicate fetches. When a subscription stops (the session's `updated_at` is newer
-  than the open chat's newest line and no items came for 4 seconds), the chat fetches after its `covered` and merges silently: at most every
-  10 seconds, once per `updated_at` (`AgentSyncPacing.catchUpAt`, the rule of the web's `web/src/lib/stale-page.ts`). Working Agents fetch at most once per minute (`AgentSync.workingGap`; each fetch decodes and rewrites the entire disk cache),
+  Currently viewed chats rely on their subscriptions without duplicate fetches. When a subscription stops (the session's `rev` moved after the
+  chat's last items came, or its `updated_at` is newer than the open chat's newest line, and no items came for 4 seconds), the chat fetches
+  after its `covered` and merges silently: at most every 10 seconds, once per `updated_at` (`AgentSyncPacing.catchUpAt`, the rule of the
+  web's `web/src/lib/stale-page.ts`). The `rev` catches the last line of a burst whose push was lost, which `updated_at` cannot (#1179). Working Agents fetch at most once per minute (`AgentSync.workingGap`; each fetch decodes and rewrites the entire disk cache),
   immediately at turn end / Needs you (most likely to open); 19-minute real-hub replay: 45 calls/minute → 9 (2026-11-02 battery investigation). Lark (`LarkSync`): hub forwards gateway live events (`lark`), refreshing Inbox Lark chats and open chats
   (polling fallback only: list 90 seconds, chat 60); changed Inbox chats fetch the newest page into `lark-chat-<id>` cache; on hub connection catch up latest 20;
   unread chats open from cache if it reaches the first unread message.
@@ -523,7 +524,9 @@ Apps built with older Xcode do not extend under the status bar and camera on Duo
   `.splitDetailPage(ownsBack: true)`: an outer `navigationBarBackButtonHidden(false)` overrides the page's `true`, bringing back the system button
   and stacking two Back buttons (2026-11-04, TestFlight).
   With the keyboard open, this header becomes fog only (title, same-space Agents and sub-Agents hide until the keyboard closes): inner landscape leaves only about 390pt above the keyboard,
-  and the header, mode buttons and input previously occupied it all, leaving no message visible (2026-11-04). The side column's system title still names the session.
+  and the header, mode buttons and input previously occupied it all, leaving no message visible (2026-11-04). The system draws its bar's title over the content, not in the side
+  column, so it is removed while the header shows its own (`toolbar(removing: .title)`; the session's name showed twice, one above the other, 2026-11-08, TestFlight)
+  and comes back while typing, when the header is only fog.
   Persona's top bar remains custom at the content top; its fog extends horizontally under the side status bar (`BarFog`; limiting it to content width leaves a vertical edge in dark mode).
 - **Short outer screen** (about 678pt): on Persona's new-chat page, Needs you rows above the input shrink to the remaining space (see "Empty chat" under "New shell" above).
 - **Simulator verification**: iPhone Duo has only the iOS 27.1 runtime (which supports only it). Folding / unfolding / half-folding can only be switched in Xcode Device Hub,

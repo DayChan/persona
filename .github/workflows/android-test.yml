@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: android-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-android
+  cancel-in-progress: true
 jobs:
   android:
     name: Android ${{ matrix.lane }}
@@ -12,6 +15,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         lane: [lint-build, test-core, test-feature-0, test-feature-1, test-platform-app]
     steps:

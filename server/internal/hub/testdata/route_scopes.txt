@@ -363,6 +363,7 @@ agents.control       POST /api/v1/interactions/{id}/resolve
 -                    POST /api/v1/machines/{mid}/git/stash
 -                    POST /api/v1/machines/{mid}/git/switch
 -                    POST /api/v1/machines/{mid}/herdr/start
+-                    POST /api/v1/machines/{mid}/node-update/{action}
 -                    POST /api/v1/machines/{mid}/panes
 -                    POST /api/v1/machines/{mid}/panes/agent
 -                    POST /api/v1/machines/{mid}/panes/close

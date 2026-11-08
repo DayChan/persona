@@ -211,7 +211,7 @@ func (h *Hub) extensionRoutesRelayed(api *http.ServeMux) {
 	for _, pattern := range extwire.Routes {
 		api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.relayToManager(w, r, false) })
 	}
-	// The lists: every manager's extensions and sources (ownership.go).
+	// The lists: every manager's extensions and sources (ownership_lists.go).
 	for pattern, key := range mergedLists {
 		if p, ok := strings.CutPrefix(pattern, "GET "); ok && slices.Contains(extwire.Routes, p) {
 			api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {

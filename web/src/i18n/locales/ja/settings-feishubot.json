@@ -14,7 +14,7 @@
   "feature_board_title": "Larkの「あなた待ち」ボード",
   "feature_board_detail": "/tasks があなた待ちの項目をまとめた1枚のカードを送り、その後は新しく送らずにその場で更新します",
   "feature_only_conclusions_title": "Lark には結論だけ送る",
-  "feature_only_conclusions_detail": "メインチャットのタスクは結論（完了・できない・あなたの判断が必要）だけを送ります。開始・待機・中断はやることリストとブリーフィングにだけ残し、単独では送りません",
+  "feature_only_conclusions_detail": "メインチャットのタスクの途中経過（ひと区切りの完了・あなた待ち・中断）は単独では送らずやることリストとブリーフィングにだけ残し、結論（完了・できない・あなたの判断が必要）が出たら結論カードをこれまでどおり送ります",
   "feature_agents_title": "エージェントを操作",
   "feature_agents_detail": "/agents でお使いのコンピューター上の Claude Code / Codex を選んで Lark でチャットします。/start で新しく開始します",
   "step_create_app": "Lark 開発者コンソールでカスタムアプリを作成し、「ボット」機能を有効にします",

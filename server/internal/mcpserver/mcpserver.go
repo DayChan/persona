@@ -39,10 +39,18 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
+// notification is a JSON-RPC message the server sends unasked (no id): notifications/progress.
+type notification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params"`
+}
+
 // Serve answers MCP requests from in until it closes. Each request runs on its own: Claude Code calls tools in
 // parallel, and one waiting for the phone (ask_user, an approval) must not hold the others back. A tool call Claude
 // Code gives up on (notifications/cancelled: the user stopped the turn) is cancelled: the node hears the hang-up and
-// the hub takes its card off the phone, instead of leaving a card nobody waits for until it expires.
+// the hub takes its card off the phone, instead of leaving a card nobody waits for until it expires. A tool call that
+// asks for progress gets notifications/progress while it waits (keepAlive), so the client's idle limit doesn't end it.
 func Serve(ctx context.Context, version string, in io.Reader, out io.Writer) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -89,7 +97,15 @@ func Serve(ctx context.Context, version string, in io.Reader, out io.Writer) err
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			stopProgress := keepAlive(rctx, progressToken(req), func(n notification) {
+				mu.Lock()
+				defer mu.Unlock()
+				if err := enc.Encode(n); err != nil && werr == nil {
+					werr = err
+				}
+			})
 			res, rerr := handle(rctx, version, req)
+			stopProgress() // no progress line after the answer
 			mu.Lock()
 			defer mu.Unlock()
 			cancelled := rctx.Err() != nil
@@ -144,6 +160,84 @@ func rejectLine(line []byte) (json.RawMessage, *rpcError) {
 	return null, invalid
 }
 
+// CallTimeout ends a tool call whose answer never came. The deadlines that answer are the hub's and the manager's:
+// the longest is ask_user's 2 hours (assistant askUserWait, which a test there keeps below this), and keepAlive keeps
+// the client waiting that long. It was 40 minutes, which ended ask_user long before its own deadline (#1498).
+const CallTimeout = 2*time.Hour + 10*time.Minute
+
+// progressEvery is how often a tool call still waiting sends progress (keepAlive). Claude Code gives up on a stdio
+// MCP call that sends "no response or progress" for 30 minutes (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT); progress
+// restarts that clock, and a minute leaves room for a shorter setting. Swapped out by tests.
+var progressEvery = time.Minute
+
+// progressToken is the token a tools/call asks for progress under (MCP: params._meta.progressToken, a string or a
+// number), or nil when it asks for none: progress may only be sent for a token the client gave.
+func progressToken(req request) json.RawMessage {
+	if req.Method != "tools/call" {
+		return nil
+	}
+	var p struct {
+		Meta struct {
+			ProgressToken json.RawMessage `json:"progressToken"`
+		} `json:"_meta"`
+	}
+	if json.Unmarshal(req.Params, &p) != nil {
+		return nil
+	}
+	var v any
+	if json.Unmarshal(p.Meta.ProgressToken, &v) != nil {
+		return nil
+	}
+	switch v.(type) {
+	case string, float64:
+		return p.Meta.ProgressToken
+	}
+	return nil
+}
+
+// keepAlive sends notifications/progress for token every progressEvery until the returned stop is called or ctx
+// ends (#1498). A tool call can wait on the user far longer than the client's idle limit: a write approved on the
+// phone up to 30 minutes (hub phoneConfirmWait), ask_user up to 2 hours (assistant askUserWait). Without progress the
+// client aborted the call at its limit, so the model got a generic abort instead of the hub's own timeout reply
+// (which says to check before calling again), and ask_user never lived to its Lark nudge. The deadlines are the
+// hub's and the manager's; this only says the call is alive. progress counts the beats, so it only grows, as MCP
+// requires. stop waits until nothing more is sent, so no progress line follows the answer. No token: a no-op.
+func keepAlive(ctx context.Context, token json.RawMessage, send func(notification)) (stop func()) {
+	if token == nil {
+		return func() {}
+	}
+	quit, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		tick := time.NewTicker(progressEvery)
+		defer tick.Stop()
+		for beat := 1; ; beat++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-quit:
+				return
+			case <-tick.C:
+				// Whichever ended while the tick was due wins over it.
+				select {
+				case <-ctx.Done():
+					return
+				case <-quit:
+					return
+				default:
+				}
+				send(notification{JSONRPC: "2.0", Method: "notifications/progress", Params: map[string]any{
+					"progressToken": token, "progress": beat, "message": "still waiting",
+				}})
+			}
+		}
+	}()
+	return func() {
+		close(quit)
+		<-done
+	}
+}
+
 // idKey names a JSON-RPC id the same however it was spaced (a number or a string).
 func idKey(id json.RawMessage) string {
 	var v any
@@ -195,7 +289,7 @@ func handle(ctx context.Context, version string, req request) (any, *rpcError) {
 			return nil, rerr
 		}
 		// Phone round trips, approvals and ask_user can take a while (the user may need to unlock the phone).
-		ctx, cancel := context.WithTimeout(ctx, 40*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, CallTimeout)
 		defer cancel()
 		// pane: an agent's MCP server has no session id of its own; the node knows the session in its pane
 		// (report_to_supervisor and the todo tools need to know whose call it is: node callerTools).

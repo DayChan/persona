@@ -170,9 +170,118 @@ import Testing
             return Data(#"{"sessions":\#(sessions),"has_more":false,"revision":"r1","total":1}"#.utf8)
         }
         let detail = try await hub.client.sessionListDetail(SessionKey(machineID: "demo", sessionID: "s1"), title: "old title")
-        #expect(detail.title == "renamed")
-        #expect(detail.queued == ["full detail"])
+        #expect(detail?.title == "renamed")
+        #expect(detail?.queued == ["full detail"])
         #expect(hub.sent("GET", "/api/v1/sessions").count == 2)
+    }
+
+    @Test func aHubWithLookupIsAskedOnceForTheExactSession() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/sessions", json: #"{"sessions":[{"machine_id":"demo","session_id":"s1","title":"t","queued":["full detail"]}],"total":1}"#)
+        var client = hub.client
+        client.sessionLookup = true
+        let detail = try await client.sessionListDetail(SessionKey(machineID: "demo", sessionID: "s1"), title: "any title")
+        #expect(detail?.queued == ["full detail"])
+        let sent = hub.sent("GET", "/api/v1/sessions")
+        #expect(sent.count == 1)
+        #expect(sent.first?.query == ["machine_id": "demo", "session_id": "s1", "summary": "0"])
+    }
+
+    @Test func aHubWithoutLookupStillPages() async throws {
+        let hub = FakeHub()
+        var calls = 0
+        hub.on("GET", "/api/v1/sessions") { request in
+            calls += 1
+            #expect(request.query["session_id"] == nil)
+            if calls == 1 { return Data(#"{"sessions":[{"machine_id":"demo","session_id":"other"}],"has_more":true,"next_cursor":"c1","revision":"r1","total":2}"#.utf8) }
+            #expect(request.query["cursor"] == "c1")
+            return Data(#"{"sessions":[{"machine_id":"demo","session_id":"s1","title":"t"}],"has_more":false,"revision":"r1","total":2}"#.utf8)
+        }
+        let detail = try await hub.client.sessionListDetail(SessionKey(machineID: "demo", sessionID: "s1"), title: "")
+        #expect(detail?.sessionID == "s1")
+        #expect(calls == 2)
+    }
+
+    @Test func aSessionNoMachineListsIsNilNotAnError() async throws {
+        let lookup = FakeHub()
+        lookup.on("GET", "/api/v1/sessions", json: #"{"sessions":[],"total":0}"#)
+        var client = lookup.client
+        client.sessionLookup = true
+        #expect(try await client.sessionListDetail(SessionKey(machineID: "demo", sessionID: "gone"), title: "") == nil)
+        let paged = FakeHub()
+        paged.on("GET", "/api/v1/sessions", json: #"{"sessions":[{"machine_id":"demo","session_id":"other"}],"has_more":false,"revision":"r1","total":1}"#)
+        #expect(try await paged.client.sessionListDetail(SessionKey(machineID: "demo", sessionID: "gone"), title: "") == nil)
+    }
+
+    /// A chat model whose group lists sessions by page (the guard of the background detail read), reading through `hub`.
+    private func chatModel(_ hub: FakeHub, key: SessionKey, subscriber: UUID) async -> AppModel {
+        let model = AppModel()
+        let list = SessionListModel<Session>(id: { $0.id }, removalID: { _ in nil },
+            fetch: { _, _, _ in SessionListPage(sessions: [], remove: [], hasMore: false, nextCursor: nil, revision: "r1", total: 0) },
+            counts: { _ in counts() })
+        await list.load()
+        model.sessionLists.setForTests(list, group: key.group)
+        var client = hub.client
+        client.group = key.group
+        client.sessionLookup = true
+        model.apiForTests = client
+        // An opened chat that has its first page, so subscribing starts nothing but the detail read.
+        model.chat(key).apply([], span: ItemSpan(history: "old", from: nil, to: 0), backlog: true, hasMore: false)
+        model.subscribe(key, by: subscriber)
+        return model
+    }
+
+    /// Subscribing starts the detail read on its own task; wait (up to 2 s) for what it leaves behind.
+    private func eventually(_ done: @MainActor () -> Bool) async {
+        for _ in 0..<200 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    @Test func aChatOnAnUnlistedSessionShowsNoError() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/sessions", json: #"{"sessions":[],"total":0}"#)
+        let key = SessionKey(group: "detail-fixture", machineID: "demo", sessionID: "gone")
+        let model = await chatModel(hub, key: key, subscriber: UUID())
+        await eventually { hub.sent("GET", "/api/v1/sessions").count >= 1 }
+        // Nothing to wait for when the answer is "no error". A read asked for while the first still runs returns at
+        // once, so a second request means the first has finished; that read also ran to its end inside this await.
+        for _ in 0..<200 where hub.sent("GET", "/api/v1/sessions").count < 2 {
+            await model.refreshSessionDetail(key)
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(hub.sent("GET", "/api/v1/sessions").count == 2)
+        #expect(model.chat(key).error == nil)
+        #expect(model.latest(key) == nil)
+    }
+
+    @Test func aChatOnAListedSessionTakesItsCompleteRow() async throws {
+        let hub = FakeHub()
+        let id = UUID().uuidString.lowercased()
+        hub.on("GET", "/api/v1/sessions", json: #"{"sessions":[{"machine_id":"demo","session_id":"\#(id)","title":"t","queued":["full detail"]}],"total":1}"#)
+        let key = SessionKey(group: "detail-fixture", machineID: "demo", sessionID: id)
+        let model = await chatModel(hub, key: key, subscriber: UUID())
+        await eventually { model.latest(key) != nil }
+        #expect(model.latest(key)?.queued == ["full detail"])
+        #expect(model.chat(key).error == nil)
+    }
+
+    @Test func aFailedDetailReadStillShowsItsError() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/sessions") { _ in throw APIError(status: 500, message: "hub broke") }
+        let key = SessionKey(group: "detail-fixture", machineID: "demo", sessionID: UUID().uuidString.lowercased())
+        let model = await chatModel(hub, key: key, subscriber: UUID())
+        await eventually { model.chat(key).error != nil }
+        #expect(model.chat(key).error == "hub broke")
+    }
+
+    @Test func theHubLinkOffersLookupOnlyWhenTheHelloDoes() {
+        let group = "test-lookup-" + UUID().uuidString
+        let config = ServerConfig(url: URL(string: "https://fake.invalid")!, token: "t")
+        let link = HubLink(group: group, config: config, pins: PinsStore(deps: .init(api: { nil }, report: { _ in }, suffix: group)))
+        #expect(!link.api.sessionLookup, "never heard of: the paged lookup, which every paged hub has")
+        link.received(HubHello(features: ["sessions_list", "sessions_lookup"]))
+        #expect(link.api.sessionLookup)
+        link.received(HubHello(features: ["sessions_list"]))
+        #expect(!link.api.sessionLookup, "a hub rolled back")
     }
 
     @Test func aManualScrollCancelsAPendingRestore() async throws {

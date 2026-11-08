@@ -66,7 +66,27 @@ interface AssistantManagement {
      * (no assistant machine, the node did not answer) throws [AssistantRefused] with its own words.
      */
     suspend fun skills(): AssistantSkills = throw UnsupportedOperationException("Skills unavailable")
+    /**
+     * What "Always allow" remembered in an assistant conversation (GET /api/v1/assistant/conversations/{id}/always,
+     * docs/assistant/assistant.md "Always allow in this session"). Null when there is nothing to show here: a hub
+     * without the route, or a device that may not use it (404 / 403).
+     */
+    suspend fun alwaysGrants(session: SessionKey): List<AlwaysGrant>? = null
+    /**
+     * Revokes one of them (DELETE …/always/{hash}); idempotent. True when the grant is gone but the conversation's
+     * running process could not be reset, so it keeps the permission until the user restarts it (`restart_required`).
+     */
+    suspend fun revokeAlwaysGrant(session: SessionKey, keyHash: String): Boolean =
+        throw UnsupportedOperationException("Always-allowed permissions unavailable")
 }
+
+/** One remembered "Always allow": the tool it covers and when; only the key's hash is stored, not the exact scope. */
+@Serializable
+data class AlwaysGrant(
+    @SerialName("key_hash") val keyHash: String = "",
+    @SerialName("tool_name") val toolName: String = "",
+    @SerialName("created_at") val createdAt: String? = null,
+)
 
 /**
  * One scheduled task (docs/protocol/protocol.md `Task`). Read in full from the hub; [editable] is what the app writes back, so the

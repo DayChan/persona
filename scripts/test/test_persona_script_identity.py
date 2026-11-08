@@ -76,11 +76,14 @@ class PersonaScriptIdentityTests(unittest.TestCase):
                 self.assertEqual(sorted(p.name for p in home.iterdir()), before)
                 identity.prepare_dir(home, {})
                 identity.prepare_dir(home, {})
-                self.assertTrue(os.path.samefile(former, current))
                 if initial == 'former':
+                    # a former-name store gets the current name as an alias (#1445)
+                    self.assertTrue(os.path.samefile(former, current))
                     self.assertEqual((current / 'old.fixture').read_text(), 'old-data')
-                if initial == 'current':
-                    self.assertEqual((former / 'new.fixture').read_text(), 'new-data')
+                else:
+                    # a current-name store gets no former-name alias (#1445)
+                    self.assertFalse(os.path.lexists(former))
+                    self.assertEqual(sorted(p.name for p in home.iterdir()), ['.persona'])
 
     def test_dangling_canonical_root_is_not_repaired(self):
         for target in ('./missing', './.persona/.'):
@@ -118,13 +121,28 @@ class PersonaScriptIdentityTests(unittest.TestCase):
                 self.assertFalse((external / 'missing').exists())
                 self.assertFalse((external / '.persona').exists())
 
-    def test_initialization_creates_only_an_alias_to_the_same_store(self):
+    def test_former_name_alias_only_for_a_former_name_store(self):
+        # #1445: a current-name store gets no alias under the former name, and one an operator left (or removed)
+        # stays as it is; a former-name store gets the current name as an alias to the same store
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
+            former = home / ('.' + FORMER_NAME)
             identity.prepare_dir(home, {})
             identity.prepare_dir(home, {})
-            self.assertEqual(os.readlink(home / ('.' + FORMER_NAME)), '.persona')
-            self.assertTrue(os.path.samefile(home / '.persona', home / ('.' + FORMER_NAME)))
+            self.assertFalse(os.path.lexists(former))
+            former.symlink_to('.persona')
+            identity.prepare_dir(home, {})
+            self.assertEqual(os.readlink(former), '.persona')
+            former.unlink()
+            identity.prepare_dir(home, {})
+            self.assertFalse(os.path.lexists(former))
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            former = home / ('.' + FORMER_NAME)
+            former.mkdir()
+            identity.prepare_dir(home, {})
+            self.assertEqual(os.readlink(home / '.persona'), '.' + FORMER_NAME)
+            self.assertTrue(os.path.samefile(home / '.persona', former))
 
     def test_service_root_survives_an_ssh_environment_without_prefixes(self):
         for name in ('personad.service', 'personad-node.service', 'persona-link.service'):

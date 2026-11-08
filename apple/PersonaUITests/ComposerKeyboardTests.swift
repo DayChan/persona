@@ -109,7 +109,12 @@ final class ComposerKeyboardTests: XCTestCase {
             XCTAssertLessThanOrEqual(field.frame.maxY, mic.minY + 1)
         }
         shot("\(name)-keyboard-up")
-        if sideBars { XCTAssertFalse(before.subtracting(headerButtons()).isEmpty, "side-bars header did not fold") }
+        if sideBars {
+            XCTAssertFalse(before.subtracting(headerButtons()).isEmpty, "side-bars header did not fold")
+            // Only the fog, the header has no title meanwhile: the system bar's names the session.
+            XCTAssertTrue(app.navigationBars.staticTexts.allElementsBoundByIndex.contains { !$0.label.isEmpty },
+                          "side-bars: no title while typing")
+        }
 
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .default,

@@ -38,6 +38,7 @@ final class HubLink: Identifiable {
         var c = APIClient(config: config, group: group)
         c.extensionsAPI = hello.features.isEmpty ? Self.remembersExtensions(group) : features.contains("extensions")
         c.personaNaming = live.personaContracts
+        c.sessionLookup = features.contains("sessions_lookup")
         return c
     }
 

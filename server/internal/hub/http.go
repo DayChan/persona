@@ -48,6 +48,7 @@ func (h *Hub) routes() http.Handler {
 	h.sessionRoutes(api)
 	h.paneRoutes(api)
 	h.nodeDoctorRoutes(api)
+	h.nodeUpdateRelayRoutes(api)
 	api.HandleFunc("GET /api/v1/interactions", func(w http.ResponseWriter, r *http.Request) {
 		ixs := visibleInteractions(h.pendingInteractions(), h.requestHasElicitation(r))
 		if em := extensionManager(r); em != "" { // an extension's token: its manager's cards only

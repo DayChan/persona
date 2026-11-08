@@ -15,6 +15,7 @@ import (
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/manager"
 	"github.com/nwverse/persona/server/internal/managerconf"
+	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/tunnel"
 	"github.com/nwverse/persona/server/internal/update"
 )
@@ -29,6 +30,9 @@ func Assistant(ctx context.Context, build update.Build, args []string, stdin io.
 	if len(args) > 0 {
 		return clitext.UsageError("usage: " + clitext.CommandName() + " assistant [drop-shared-tables [--yes]]")
 	}
+	// What a parent left inheritable (an older hub's listening socket) stops here, not in every node, extension and
+	// agent the manager starts. Here, not in main: the sandbox's launcher hands its descriptors on by exec.
+	osproc.SealInherited()
 	if identity.Getenv("PERSONA_ASSISTANT_DEPLOY") == assistant.DeployService {
 		// A service of its own (its unit says so): on its binding, waiting when the hub refuses it. Not bound is a
 		// configuration mistake: exit 2, which its unit does not restart.

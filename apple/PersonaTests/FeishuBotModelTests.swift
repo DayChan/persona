@@ -84,8 +84,71 @@ import Testing
         #expect(m.nudgeAfter == 60 && !m.features.board)
         await m.set(\.pushes, true)
         let f = try #require(bodies.last?["features"] as? [String: Bool])
-        #expect(f["pushes"] == true && f["board"] == nil)
+        #expect(f["pushes"] == true && f["board"] == nil && f["only_conclusions"] == nil)
         #expect(bodies.last?["nudge_after"] == nil)
+    }
+
+    /// The status of a hub that also has "only conclusions" (#1226).
+    private static func newestStatus(onlyConclusions: Bool) -> String {
+        newerStatus.replacingOccurrences(of: "\"board\":false}", with: "\"board\":false,\"only_conclusions\":\(onlyConclusions)}")
+    }
+
+    /// The switch shows what the hub has, on or off.
+    @Test func onlyConclusionsReadsWhatTheHubHas() async throws {
+        for on in [true, false] {
+            let hub = FakeHub()
+            hub.on("GET", "/api/v1/bots/feishu", json: Self.newestStatus(onlyConclusions: on))
+            let m = model(hub)
+            await m.load()
+            #expect(m.hubKnowsOnlyConclusions)
+            #expect(m.features.onlyConclusions == on)
+        }
+    }
+
+    /// Turning it on or off sends that switch alone, and the page shows what the hub answered; another switch does not
+    /// carry it along.
+    @Test func onlyConclusionsGoesAlone() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/bots/feishu", json: Self.newestStatus(onlyConclusions: false))
+        var bodies: [[String: Any]] = []
+        var hubOn = false
+        hub.on("PUT", "/api/v1/bots/feishu") { req in
+            let body = try JSONSerialization.jsonObject(with: req.body ?? Data()) as? [String: Any] ?? [:]
+            bodies.append(body)
+            hubOn = (body["features"] as? [String: Bool])?["only_conclusions"] ?? hubOn
+            return Data(Self.newestStatus(onlyConclusions: hubOn).utf8)
+        }
+        let m = model(hub)
+        await m.load()
+        await m.set(\.onlyConclusions, true)
+        #expect(bodies.count == 1 && bodies[0].count == 1)
+        #expect(bodies[0]["features"] as? [String: Bool] == ["only_conclusions": true])
+        #expect(m.features.onlyConclusions && m.error == nil)
+        await m.set(\.reports, false)
+        #expect(bodies.last?["features"] as? [String: Bool] == ["reports": false])
+        await m.set(\.onlyConclusions, false)
+        #expect(bodies.last?["features"] as? [String: Bool] == ["only_conclusions": false])
+        #expect(!m.features.onlyConclusions)
+    }
+
+    /// A hub from before #1226 (it has the board and the nudge, not this switch) leaves it out: the page has no switch
+    /// for it, reads it as off, and sends nothing of it with another switch.
+    @Test func aHubWithoutOnlyConclusionsHidesItAndSendsNothingOfIt() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/bots/feishu", json: Self.newerStatus)
+        var bodies: [[String: Any]] = []
+        hub.on("PUT", "/api/v1/bots/feishu") { req in
+            bodies.append(try JSONSerialization.jsonObject(with: req.body ?? Data()) as? [String: Any] ?? [:])
+            return Data(Self.newerStatus.utf8)
+        }
+        let m = model(hub)
+        await m.load()
+        #expect(m.hubKnowsBoard && !m.hubKnowsOnlyConclusions && !m.features.onlyConclusions)
+        await m.set(\.pushes, true)
+        #expect(bodies.last?["features"] as? [String: Bool] == ["pushes": true])
+        // Encoding the whole object (as for a hub that replaces it) leaves the unknown switch out too.
+        let whole = try JSONSerialization.jsonObject(with: JSONEncoder().encode(m.features)) as? [String: Bool]
+        #expect(whole?["only_conclusions"] == nil && whole?["board"] == false)
     }
 
     /// A hub with the board but not the nudge setting: the board switch shows, the picker does not.
@@ -173,6 +236,8 @@ import Testing
         #expect(bodies.last?["features"] as? [String: Bool] == ["main": false])
         await m.set(\.reports, false)
         #expect(bodies.last?["features"] as? [String: Bool] == ["reports": false])
+        await m.set(\.board, true)
+        #expect(bodies.last?["features"] as? [String: Bool] == ["board": true])
     }
 
     /// The nudge delay goes alone, 0 included (0 is off, not absent); the picker lists the usual delays and the one in force.

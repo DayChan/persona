@@ -154,4 +154,6 @@ private class RoutedAssistantManagement(
     override suspend fun saveMemory(name: String, content: String) = api().saveMemory(name, content)
     override suspend fun deleteMemory(name: String) = api().deleteMemory(name)
     override suspend fun skills() = api().skills()
+    override suspend fun alwaysGrants(session: SessionKey) = api().alwaysGrants(session)
+    override suspend fun revokeAlwaysGrant(session: SessionKey, keyHash: String) = api().revokeAlwaysGrant(session, keyHash)
 }

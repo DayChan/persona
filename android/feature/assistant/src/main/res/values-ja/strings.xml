@@ -17,6 +17,17 @@
     <string name="assistant_info_settings_text">体験モードにはアシスタントの設定がありません。自分のハブに接続すると、Personaを実行するマシンを選んだり、「自分について」とメモリを編集したりできます。</string>
     <string name="assistant_info_session_none">開いているチャットはありません。</string>
     <string name="assistant_info_session_text">現在のチャット：%1$s</string>
+    <string name="assistant_always_title">この会話で常に許可している権限</string>
+    <string name="assistant_always_scope">保存された権限は、この会話だけに適用されます。記録にはツール名のみが保存され、ディレクトリやコマンドの詳細な範囲はありません。</string>
+    <string name="assistant_always_empty">保存された権限はありません。</string>
+    <string name="assistant_always_unnamed">名前のない権限</string>
+    <string name="assistant_always_granted">%1$s に許可</string>
+    <string name="assistant_always_revoke">取り消す</string>
+    <string name="assistant_always_revoke_title">この権限を取り消しますか？</string>
+    <string name="assistant_always_revoke_text">取り消すと、現在の応答を停止して権限を消去します。次のメッセージを送ると続行できます。</string>
+    <string name="assistant_always_restart">保存された権限は取り消されましたが、実行中の会話をリセットできませんでした。取り消しを有効にするため、この会話を再起動してください。</string>
+    <string name="assistant_always_not_revoked">取り消せませんでした：%1$s</string>
+    <string name="assistant_always_retry">再試行</string>
     <string name="assistant_info_launcher_text">ランチャーの設定はまだ接続されていません。</string>
     <string name="assistant_voice_chat">音声チャット</string>
     <string name="assistant_compact">コンテキストを圧縮</string>

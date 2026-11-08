@@ -31,6 +31,13 @@ func TestCompatibleHubBinaryPreservesOneInstallation(t *testing.T) {
 			if got != want {
 				t.Fatalf("primary %q, want %q", got, want)
 			}
+			if !legacy {
+				// personad's own units: no binary under the former name (#1445)
+				if _, err := os.Lstat(old); !os.IsNotExist(err) {
+					t.Fatal("the former binary name was made", err)
+				}
+				return
+			}
 			a, ae := os.Stat(current)
 			b, be := os.Stat(old)
 			if ae != nil || be != nil || !os.SameFile(a, b) {
@@ -52,6 +59,30 @@ func TestCompatibleHubBinaryPreservesOneInstallation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An installation whose units still run under the former names (their ExecStart names the former binary) keeps that
+// binary name next to personad (#1445).
+func TestCompatibleHubBinaryKeepsTheFormerNameForFormerUnits(t *testing.T) {
+	e, _ := testSetupEnv(t, setupTestHome(t), setupOptions{}, &fakeCommands{}, "systemctl")
+	current := filepath.Join(e.root, "bin", "personad")
+	old := filepath.Join(e.root, "bin", compat.DaemonBinary)
+	if err := os.MkdirAll(e.unitDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{".service", ".socket"} {
+		if err := os.WriteFile(filepath.Join(e.unitDir(), compat.HubService+kind), []byte("[Service]\nExecStart="+old+" hub\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.hubBinary(); err != nil {
+		t.Fatal(err)
+	}
+	a, ae := os.Stat(current)
+	b, be := os.Stat(old)
+	if ae != nil || be != nil || !os.SameFile(a, b) {
+		t.Fatal("the former units' binary name is missing", ae, be)
 	}
 }
 

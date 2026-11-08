@@ -50,6 +50,7 @@ final class ChatHeaderTests: XCTestCase {
         if sideBars { // the system's own back (UIKit's "BackButton", labelled with the page before) besides ours
             let system = app.navigationBars.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
             XCTAssertTrue(system.isEmpty, "\(what): the system's back as well as 返回: \(system.map(\.label))")
+            checkOneTitle(what)
         }
         let backs = app.buttons.matching(NSPredicate(format: "label == %@", "返回")).allElementsBoundByIndex
         if backs.count != 1 {
@@ -103,10 +104,20 @@ final class ChatHeaderTests: XCTestCase {
         checkSideBars("old side bars")
     }
 
+    /// The session's name once, in the header (`chat.title`): the system draws its bar's title over the content, not in
+    /// the side column, so it showed a second time right above the header's (2026-11-08, TestFlight).
+    @MainActor private func checkOneTitle(_ what: String) {
+        let header = app.buttons["chat.title"].firstMatch
+        XCTAssertTrue(header.exists, "\(what): no title in the header")
+        let system = app.navigationBars.staticTexts.allElementsBoundByIndex.filter { !$0.label.isEmpty && header.label.hasPrefix($0.label) }
+        XCTAssertTrue(system.isEmpty, "\(what): the system bar's title as well as the header's: \(system.map(\.label))")
+    }
+
     /// One back, the chat's own: as `check` on an iPhone width; the split's first page (iPad, iPhone Duo open) has none.
     @MainActor private func checkSideBars(_ what: String) {
         guard app.windows.firstMatch.frame.width > 600 else { return check(what, folded: false, sideBars: true) }
         shot(what)
+        checkOneTitle(what)
         let backs = app.buttons.matching(NSPredicate(format: "label == %@", "返回")).allElementsBoundByIndex.filter(\.isHittable)
         let system = app.navigationBars.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
         XCTAssertTrue(backs.isEmpty && system.isEmpty, "\(what): a back on the split's first page: \(backs.map(\.frame)) \(system.map(\.label))")

@@ -73,6 +73,66 @@ A build shows up in TestFlight about 10–30 minutes after archiving. `asc_testf
 (the reason is on the build page in App Store Connect). **Pass the build number release.sh printed**: a just-uploaded build can't be found yet, and without the build number
 "the latest build" is the previous one (long since VALID), so What to Test gets written to the old build (hit on 2026-10-25).
 
+## Unattended default-branch releases
+
+`scripts/operations/autorelease.py` is a standard-library worker for a user-level systemd timer, not an Agent-session task.
+Install the worker in `~/.local/lib/persona-autorelease/`, its private JSON configuration in
+`~/.local/state/persona-autorelease/config.json`, and the supplied `persona-autorelease.service` and
+`persona-autorelease.timer` from `scripts/operations/` in `~/.config/systemd/user/`.
+Enable linger for the user if the service must survive logout. The timer checks every ten minutes and coalesces intervening commits.
+
+CI admission belongs to the PR head: require the automatic `CI required` check and every relevant manually selected full lane before
+merging. For this scripts-only automation change, dispatch `ci.yml` with `lanes=scripts` and verify that its script shards actually ran.
+Full server, Android, scripts, iOS and Mac tests are manual; unselected lanes are not evidence that those platforms passed.
+The unattended worker consumes the newest already-merged `origin/main`, then applies path selection and local build/release verification.
+It neither waits for a full CI check on the main commit (none is automatically created) nor dispatches full platform CI on every timer tick.
+This keeps the release gate aligned with the PR-merge policy rather than waiting indefinitely for an obsolete main-branch check.
+
+Each target has its own last-success revision, path patterns, command argument vector, and timeout. Worker events are appended to
+`worker.log` in the private state directory; `log_output: true` additionally retains command output in mode-0600 per-step files
+under its `logs/` subdirectory. Do not enable shell tracing or print credentials from action commands. Recommended triggers:
+
+| Target | Paths |
+| --- | --- |
+| Hub | `server/**`, `integrations/**`, `sdk/go/**`, `schema/**`, `spec/**`, `scripts/deploy/**`, `scripts/operations/**`, `scripts/persona_config.py`, `scripts/persona_identity.py` |
+| Web | `web/**`, `schema/extension/**`, `spec/fixtures/injected/**`, `scripts/deploy/**`, `scripts/operations/**`, `scripts/persona_config.py`, `scripts/persona_identity.py` |
+| TestFlight | `apple/**`, `schema/**`, `spec/**`, `scripts/release/**`, `scripts/i18n/**`, `scripts/operations/**`, `scripts/persona_config.py`, `scripts/persona_identity.py`, `scripts/privacy_check.py`, `scripts/app/sim-boot.sh` |
+
+A missing baseline runs that target once. Later checks compare the last successful commit directly with the newest branch HEAD,
+including deleted paths. Failure does not advance that baseline; two failures at the same HEAD suspend that target until another
+HEAD appears. Lock contention exits 75 and is a deferral, not a failure. Successful actions only log; failures invoke the configured
+notification command, retaining failed notifications in a durable outbox for subsequent delivery attempts.
+
+Use a dedicated detached clean worktree on the hub and another on the build computer. The worker refuses to discard dirty files.
+`scripts/operations/hub_action.py deploy` retains the deployment lock through a live API and serving-binary verification;
+`testflight_action.py` retains the release lock through upload, `asc_testflight.py wait 45 <build>`, and Internal-group verification.
+Its checkpoint resumes processing a previously uploaded build instead of uploading it again. Set `NO_PUBLISH=1` for TestFlight-only
+work. Do not disable the deploy script's freshness check.
+
+Manual `deploy.sh` now takes the hub's existing `releases/hub/.publish.lock`, shared with release promotion; callers on another
+computer retain it through an SSH connection. Manual `release.sh` takes the build computer's
+`~/.local/state/persona/locks/release.lock`. Older checkouts that predate these locks must be updated before manual use.
+The release script runs under `PERSONA_XCODE_RUNNER` (default `~/.local/bin/xcode-slot`) when installed, covering every xcodebuild
+subprocess, not just archive. The unattended release uses no simulator.
+
+Failure notifications use hub-local `POST /api/v1/notify`, reading the runtime token inside the process. No credentials enter
+arguments or logs. `sent:true` is hub acceptance, not a phone-display receipt; verify a controlled failure on the phone during installation.
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now persona-autorelease.timer
+systemctl --user list-timers persona-autorelease.timer
+systemctl --user start persona-autorelease.service             # one immediate run
+systemctl --user disable --now persona-autorelease.timer       # pause future runs
+systemctl --user stop persona-autorelease.service              # also stop an active run
+systemctl --user enable --now persona-autorelease.timer        # resume
+journalctl --user -u persona-autorelease.service -n 100 --no-pager
+python3 ~/.local/lib/persona-autorelease/autorelease.py --config ~/.local/state/persona-autorelease/config.json --inject-failure
+```
+
+Keep a private STATE document alongside the configuration, recording the actual paths, notification receipt, last successful revisions,
+and TestFlight build evidence. Runtime/build configuration and signing keys remain outside the repository.
+
 ## Releasing with asc
 
 `scripts/release/asc_cli.py` runs the [App Store Connect CLI](https://github.com/rorkai/App-Store-Connect-CLI) (`asc`) with your own App Store Connect API key; it can do uploads, TestFlight, review submission, metadata and signing.

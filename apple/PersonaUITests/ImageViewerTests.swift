@@ -244,6 +244,27 @@ final class ImageViewerTests: XCTestCase {
         }
     }
 
+    /// Long-pressing a viewed image shows its preview and its menu, light and dark, and the app lives on (#1490: the
+    /// preview read the app's model, which the context menu's own host did not have, and the app crashed).
+    @MainActor func testLongPressingAViewedImageShowsItsPreview() throws {
+        mock("images?ok=1")
+        for scheme in ["light", "dark"] {
+            let app = openChat(Self.fresh + ["-ui.scheme", scheme])
+            dismissAlerts()
+            let tile = app.buttons["viewed-image-0"]
+            XCTAssertTrue(tile.waitForExistence(timeout: 30), "no viewed images:\n\(app.debugDescription)")
+            tile.press(forDuration: 1.2)
+            XCTAssertTrue(app.buttons["拷贝路径"].waitForExistence(timeout: 5), "the tile's menu did not open")
+            XCTAssertEqual(app.state, .runningForeground, "the app is gone")
+            shot(app, "\(scheme)-viewed-image-preview")
+            // Outside the preview and the menu (both sit in the upper half): the dimmed chat closes them.
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            XCTAssertTrue(app.buttons["拷贝路径"].waitForNonExistence(timeout: 5), "the menu did not close")
+            XCTAssertTrue(tile.exists, "the chat is gone")
+            app.terminate()
+        }
+    }
+
     /// A viewed image that did not load, on a wide and a narrow tile (#559), light and dark: the tile says so, and a tap
     /// asks the hub again (the mock counts what it is asked) and brings the picture without opening the viewer; once
     /// it is there, a tap opens the viewer as before.

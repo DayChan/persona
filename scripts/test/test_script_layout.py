@@ -29,7 +29,7 @@ class ScriptLayoutTests(unittest.TestCase):
         self.assertEqual(files, {"README.md", "persona_config.py", "persona_identity.py", "privacy_check.py",
                                  "compatibility-identifiers.json", "jarvis_config.py", *ALIASES})
         directories = {p.name for p in SCRIPTS.iterdir() if p.is_dir() and p.name != "__pycache__"}
-        self.assertEqual(directories, {"app", "assets", "ci", "deploy", "diag", "gen", "hooks", "i18n", "migrate", "mock", "release", "test"})
+        self.assertEqual(directories, {"app", "assets", "ci", "deploy", "diag", "gen", "hooks", "i18n", "migrate", "mock", "operations", "release", "test"})
         self.assertEqual(os.readlink(SCRIPTS / "jarvis_config.py"), "persona_config.py")
 
     def test_compatibility_entries_preserve_arguments_environment_stdin_and_exit(self):

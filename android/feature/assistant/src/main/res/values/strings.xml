@@ -18,6 +18,17 @@
     <string name="assistant_info_settings_text">Assistant settings aren\'t available in demo mode. Once you connect your own hub, you can choose which machine Persona runs on and edit About me and memory.</string>
     <string name="assistant_info_session_none">No chat is open.</string>
     <string name="assistant_info_session_text">Current chat: %1$s</string>
+    <string name="assistant_always_title">Always allowed in this conversation</string>
+    <string name="assistant_always_scope">These saved permissions apply only to this conversation. Records store the tool name, but not detailed directory or command scope.</string>
+    <string name="assistant_always_empty">No saved permissions.</string>
+    <string name="assistant_always_unnamed">Unnamed permission</string>
+    <string name="assistant_always_granted">Allowed %1$s</string>
+    <string name="assistant_always_revoke">Revoke</string>
+    <string name="assistant_always_revoke_title">Revoke this permission?</string>
+    <string name="assistant_always_revoke_text">Revoking stops the current response to clear its permissions. Send another message to continue.</string>
+    <string name="assistant_always_restart">The saved permission was revoked, but the running conversation could not be reset. Restart this conversation before relying on the revocation.</string>
+    <string name="assistant_always_not_revoked">Couldn\'t revoke: %1$s</string>
+    <string name="assistant_always_retry">Retry</string>
     <string name="assistant_info_launcher_text">Launcher settings aren\'t connected yet.</string>
     <string name="assistant_voice_chat">Voice chat</string>
     <string name="assistant_compact">Compact context</string>

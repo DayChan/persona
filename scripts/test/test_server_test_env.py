@@ -165,8 +165,10 @@ class ServerTestEnvironmentTests(unittest.TestCase):
             shutil.copy2(ROOT / "scripts/test/test-server.sh", checkout / "scripts/test/test-server.sh")
             shutil.copy2(ROOT / "scripts/test/server_test_env.py", checkout / "scripts/test/server_test_env.py")
             (checkout / "scripts/persona_config.py").write_text("print('export PERSONA_HUB_SSH=fake-hub')\n")
+            identity_calls = root / "identity-calls.jsonl"
             (checkout / "scripts/persona_identity.py").write_text(
-                "import shlex,sys\n"
+                "import json,shlex,sys\n"
+                f"open({str(identity_calls)!r},'a').write(json.dumps(sys.argv[1:])+'\\n')\n"
                 f"root={str(profile)!r}\n"
                 "print('export PERSONA_HOME='+shlex.quote(root))\n"
                 "if '--prepare' in sys.argv: print('test -f \"$PERSONA_HOME/hub.json\"')\n")
@@ -266,6 +268,11 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                     self.assertNotIn("synthetic-live-token", result.stdout + result.stderr)
                     self.assertNotIn("synthetic-live-password", result.stdout + result.stderr)
                     self.assertNotIn("postgres://", result.stdout + result.stderr)
+                    # a test run resolves the hub's state directory and never prepares it (#1424): preparing creates the
+                    # directory and its old-name alias
+                    calls = [json.loads(line) for line in identity_calls.read_text().splitlines()]
+                    self.assertTrue(calls)
+                    self.assertFalse([call for call in calls if "--prepare" in call], calls)
             capture.unlink(missing_ok=True)
             cache_capture.unlink(missing_ok=True)
             for source in (

@@ -13,8 +13,10 @@ import (
 )
 
 // TestMain runs the tests on a database of their own (dbtest, #583); re-run with PERSONA_TEST_ASSISTANT=1 the test
-// binary is the assistant's process (TestAssistantProcessIsSupervised).
+// binary is the assistant's process (TestAssistantProcessIsSupervised), and as the processes of the listening-socket
+// tests (listenHelpers, listen_unix_test.go) with theirs.
 func TestMain(m *testing.M) {
+	listenHelpers()
 	if os.Getenv("PERSONA_TEST_ASSISTANT") == "1" {
 		if err := assistant.Main(context.Background(), update.Build{Version: "test"}, os.Stdin); err != nil {
 			log.Fatal(err)

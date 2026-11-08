@@ -73,6 +73,8 @@ final class SyncRun {
     /// Reads to hold: device → paths (`/items`, `/interactions`, `/sessions`).
     var holds: [String: [String]] = [:]
     var heldReads: [(device: String, path: String, data: Data, cont: CheckedContinuation<Data, Error>)] = []
+    /// Requests a relaunched app had in flight: nobody hears their answers. Ended when the case is over.
+    private var dead: [CheckedContinuation<Data, Error>] = []
     var failures: [String] = []
 
     init(_ c: JSONValue) {
@@ -108,6 +110,8 @@ final class SyncRun {
         held = []
         for r in heldReads { r.cont.resume(throwing: URLError(.cancelled)) }
         heldReads = []
+        for c in dead { c.resume(throwing: URLError(.cancelled)) }
+        dead = []
         for d in devices.values { for link in d.model.links { link.live.disconnect() } }
         APIClient.local = nil
         LiveConnection.makeLocal = nil
@@ -134,6 +138,23 @@ final class SyncRun {
         d.answersSubscribe = nil
         d.requests = []
         d.noteCards()
+    }
+
+    /// `relaunch`: the app is killed and starts again from what it stored (`ChatCache`, the outbox), back on the chat it
+    /// showed, as iOS brings it back. What it had in flight dies with it: those requests are never answered (a resumed
+    /// write would let the dead app save its outbox over the new one's). The case's next `socket.open` greets it.
+    private func relaunch(_ d: SyncDevice) async {
+        await settle() // what the app saves on its own (the outbox, the chat's cache) is on disk by now
+        dead += held.filter { $0.device == d.name }.map(\.continuation) + heldReads.filter { $0.device == d.name }.map(\.cont)
+        held.removeAll { $0.device == d.name }
+        heldReads.removeAll { $0.device == d.name }
+        d.relaunch()
+        d.model.restoreOutbox() // as a paired app's launch does (AppModel.init)
+        d.connect()
+        AgentSync.shared.model = { [weak d] in d?.model ?? AppModel.shared }
+        d.model.subscribe(key, by: d.owner)
+        d.model.show(key, by: d.owner)
+        await settle()
     }
 
     private func nextSocket(_ d: SyncDevice, after made: Int) async throws -> SyncSocket {
@@ -192,7 +213,8 @@ final class SyncRun {
             if let answer = user["answer"] { d.answer(answer["id"]?.string ?? "", answer["resolution"] ?? .object([:])) }
             if let id = user["retry"]?.string { d.retry(id) }
             if let id = user["discard"]?.string { d.discard(id) }
-            for what in ["open", "close", "background", "foreground", "relaunch"] where user[what] != nil {
+            if user["relaunch"] != nil { await relaunch(d) }
+            for what in ["open", "close", "background", "foreground"] where user[what] != nil {
                 throw SyncUnplayable(description: "user \(what) is not played yet")
             }
         }

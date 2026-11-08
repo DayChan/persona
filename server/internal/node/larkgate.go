@@ -525,7 +525,7 @@ func (n *Node) larkGate(ctx context.Context, in hookInput, ix proto.Interaction)
 // larkCheck is the gate itself, for any agent: "allow" / "deny" with the reason to give the model, or "" when the
 // command is not the gate's to decide (the usual permission flow). Writes are confirmed on the phone here, so a
 // "deny" may carry the user's own words. Claude reaches it through the Bash PreToolUse hook (larkGate), Codex through
-// the app-server's command approvals (assistant_codex.go).
+// the app-server's command approvals (assistant_codex_approve.go).
 func (n *Node) larkCheck(ctx context.Context, session, cwd, command string, ix proto.Interaction) (string, string, error) {
 	cfg := n.assistantLark(ctx)
 	if slices.ContainsFunc(cfg.Gates, func(g proto.CommandGate) bool { return g.Auth != nil }) {

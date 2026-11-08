@@ -86,6 +86,10 @@ Why this one:
 - **Socket activation**: standard, a few lines of code, no effect on Docker / launchd / running by hand (without `LISTEN_FDS` the hub listens itself); rolling back means deleting the socket unit.
   Cost: during the ~1 s while the old process stops, connections wait and get no immediate response, which is far within the clients' grace periods.
 
+Every hub process takes the passed sockets first thing (`claimInherited` in `hub/listen.go`, at the top of `Serve`, `Run` and `RunSlot`), before anything can start another process: `LISTEN_*` are cleared and the sockets made close-on-exec, and so is anything else the process was handed past stderr (`osproc.SealInherited`).
+Until 2026-11-08 a hub without its edge took them only when it first listened, and `runHub` could start the built-in manager before that: the manager, and through it every node, extension and agent it started, then held the hub's listening socket for as long as it lived (several pids on `ss -tlnp` for the hub's port).
+The manager's and the node's run entries (`managercli.Assistant`, `manager run`, `node`, `node --attach`) seal what they were handed as well, so a socket an older hub still leaks stops there. Not in `main`: the sandbox's launcher and the source validator are the same binaries and hand descriptors on by exec on purpose.
+
 `hub-systemd.sh` writes both units: the first time (or when the address changes) it stops the service once to hand the port to the socket (only this once is there a ~1 s gap); after that it always just runs `restart personad`.
 `TimeoutStopSec=20` (headroom beyond the 8 s shutdown budget).
 
@@ -125,7 +129,7 @@ Why not two hubs serving at once (that gateway's parallel switch): the hub has m
 Old and new coexist only during the standby self-check, with a 1–2 second hold at handover. Measured (NAS, 2026-11-06): one switch took 0.68 seconds, with 607 requests across 4 concurrent streams during it and 0 failures.
 
 Cases that bypass the edge: Windows, Docker (image updates), `PERSONA_HUB_EDGE=0`, a data directory path that is too long (Unix socket address limit). In these the hub listens itself as before.
-The in-place exec problem on this path is fixed too: the fds from systemd are kept (close-on-exec), the flag is cleared before exec, and `LISTEN_FDS` / `LISTEN_PID` are passed along (`execListenEnv` in `listen.go`).
+The in-place exec problem on this path is fixed too: the fds from systemd are kept (close-on-exec), the flag is cleared before exec, and `LISTEN_FDS` / `LISTEN_PID` are passed along (`execKeepingListeners` in `listen.go`: it holds `syscall.ForkLock` for reading from clearing the flag to the exec, so no process started meanwhile inherits the sockets, and sets the flag again when the exec fails).
 
 ### Planned shutdown (`hub/restart.go`)
 

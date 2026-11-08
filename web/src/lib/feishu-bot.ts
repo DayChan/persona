@@ -14,7 +14,7 @@ export interface BotFeatures {
   reports?: boolean;
   /** /tasks keeps one standing "waiting for you" card, edited in place (#6052); a hub from before leaves it out. */
   board?: boolean;
-  /** Only tasks' conclusions are pushed; started, waiting and interrupted stay in the to-do list and the briefing (#1226); a hub from before leaves it out. */
+  /** Only tasks' conclusions are pushed; a finished turn, waiting and interrupted stay in the to-do list and the briefing (#1226); a hub from before leaves it out. */
   only_conclusions?: boolean;
 }
 

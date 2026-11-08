@@ -127,6 +127,8 @@ nonisolated struct APIClient: Sendable {
     var extensionsAPI = false
     /// Explicitly advertised by this hub's hello; absent/unknown stays compatible with pre-rename hubs.
     var personaNaming = false
+    /// The hub's hello has `sessions_lookup`: one session's complete row can be asked for by machine and id.
+    var sessionLookup = false
     /// Answers the demo config's requests (DemoHub registers it at launch); every endpoint goes through `request`.
     nonisolated(unsafe) static var local: (@Sendable (LocalRequest) async throws -> Data)?
 

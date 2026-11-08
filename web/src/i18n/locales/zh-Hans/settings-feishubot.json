@@ -14,7 +14,7 @@
   "feature_board_title": "飞书里的「等你处理」总卡",
   "feature_board_detail": "/tasks 发出一张列着所有等你的事的卡片，之后原地更新这一张，不再发新的",
   "feature_only_conclusions_title": "飞书只推结论",
-  "feature_only_conclusions_detail": "主对话派出的任务只推结论（做完了、做不了、要你拍板）；开始、在等、被打断这些只记在待办和早晚报里，不单独推送",
+  "feature_only_conclusions_detail": "主对话派出的任务不再推中途进展（一轮做完、在等你、被打断，照样记在待办和早晚报里）；有结论时照样推一张结论卡：做完了、做不了、要你拍板",
   "feature_agents_title": "驱动 Agent",
   "feature_agents_detail": "/agents 选各台电脑上的 Claude Code / Codex，在飞书里和它聊；/start 开新的",
   "step_create_app": "在飞书开放平台建一个企业自建应用，开启「机器人」能力",

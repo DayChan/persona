@@ -579,7 +579,7 @@ func TestConcurrentQueriesAndReplacement(t *testing.T) {
 					return
 				}
 				baseline := i.Revision()
-				if _, err := i.Query(Options{Since: baseline}); err != nil {
+				if _, err := queryDeltaOrRefresh(&i, baseline); err != nil {
 					t.Error(err)
 					return
 				}

@@ -21,7 +21,7 @@ import (
 // machines.own keeps its own list of computers in its manager.json, and the hub hands it MachinesOwn. The hub then
 // edits that list over the bus (devices.machines.*) instead of hub.json, and moves its entries out of hub.json once the
 // manager reports them as its own: from then on the hub knows them only as
-//   - who keeps each (machinesKeptKey, beside the owners of hub.json's machines: ownership.go), and
+//   - who keeps each (machinesKeptKey, beside the owners of hub.json's machines: ownership_moves.go), and
 //   - what the manager last reported of each (machine_entries.go: the entry without its secrets).
 // hub.json stays the staging area for what the hub adds while the manager is away (or for a manager from before): the
 // manager is put the entries hub.json gives it that its list lacks when it reports, and they move out then. An edit of

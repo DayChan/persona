@@ -34,6 +34,7 @@ import (
 	"github.com/nwverse/persona/server/internal/managerconf"
 	"github.com/nwverse/persona/server/internal/managerupdate"
 	"github.com/nwverse/persona/server/internal/netaddr"
+	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/update"
 )
 
@@ -542,6 +543,7 @@ func Run(ctx context.Context, build update.Build, dir string, out io.Writer) err
 }
 
 func (e *env) runManager(ctx context.Context, build update.Build, dir string) error {
+	osproc.SealInherited() // what a parent left inheritable reaches none of what the manager starts (osproc)
 	out := e.stdout
 	env := os.Environ() // as it started: RunManager points PERSONA_HOME at dir
 	c, err := assistant.ReadManagerConfig(dir)

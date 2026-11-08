@@ -11,6 +11,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/mcpserver"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -54,6 +55,15 @@ func TestAskUserCardOutlivesTheDefaultNudge(t *testing.T) {
 	if !ix.ExpiresAt.After(nudgeDue) {
 		t.Errorf("the ask_user card lives %v (expires %s) but the default nudge is due after %v (%s): the card is gone before the nudge",
 			ix.ExpiresAt.Sub(ix.CreatedAt), ix.ExpiresAt.Format(time.TimeOnly), nudgeDue.Sub(ix.CreatedAt), nudgeDue.Format(time.TimeOnly))
+	}
+}
+
+// The tool call that asked must live as long as the card: `personad mcp` ends a call at mcpserver.CallTimeout, and a
+// shorter cap ended ask_user before its own deadline, before the nudge (#1498; it was 40 minutes). The margin is for
+// the answer's way back from the phone.
+func TestAskUserWaitFitsTheMCPServersCap(t *testing.T) {
+	if margin := mcpserver.CallTimeout - askUserWait; margin < 5*time.Minute {
+		t.Errorf("ask_user waits %v but personad mcp ends a tool call after %v: raise mcpserver.CallTimeout with it", askUserWait, mcpserver.CallTimeout)
 	}
 }
 

@@ -39,6 +39,12 @@ nonisolated struct FeishuBotStatus: Codable, Hashable, Sendable {
         /// Whether the hub sent `board` at all: a hub from before doesn't know the switch, so the page hides it and the
         /// edit doesn't carry it.
         var hubKnowsBoard: Bool = false
+        /// Task reports push only conclusions; a finished turn, waiting and interrupted stay in the to-do list and the
+        /// briefing (#1226). Off unless the hub says so.
+        var onlyConclusions: Bool = false
+        /// Whether the hub sent `only_conclusions`: as with the board, a hub from before hides the switch and gets
+        /// nothing of it.
+        var hubKnowsOnlyConclusions: Bool = false
         /// Whether the hub sent `reports`. It came with the hub (0.1.12) that merges the switches it is sent over its own;
         /// a hub from before replaces the whole object, so an edit has to carry every switch to it.
         var hubMergesFeatures: Bool = false
@@ -46,12 +52,16 @@ nonisolated struct FeishuBotStatus: Codable, Hashable, Sendable {
         enum CodingKeys: String, CodingKey {
             case main, cards, pushes, sync, agents, reports, board
             case allCards = "all_cards"
+            case onlyConclusions = "only_conclusions"
         }
 
-        init(main: Bool, cards: Bool, allCards: Bool, pushes: Bool, sync: Bool, agents: Bool, reports: Bool = true, board: Bool? = nil) {
+        init(main: Bool, cards: Bool, allCards: Bool, pushes: Bool, sync: Bool, agents: Bool, reports: Bool = true, board: Bool? = nil,
+             onlyConclusions: Bool? = nil) {
             (self.main, self.cards, self.allCards, self.pushes, self.sync, self.agents, self.reports) = (main, cards, allCards, pushes, sync, agents, reports)
             self.board = board ?? false
             hubKnowsBoard = board != nil
+            self.onlyConclusions = onlyConclusions ?? false
+            hubKnowsOnlyConclusions = onlyConclusions != nil
         }
 
         init(from decoder: Decoder) throws {
@@ -68,6 +78,9 @@ nonisolated struct FeishuBotStatus: Codable, Hashable, Sendable {
             let board = try c.decodeIfPresent(Bool.self, forKey: .board)
             self.board = board ?? false
             hubKnowsBoard = board != nil
+            let onlyConclusions = try c.decodeIfPresent(Bool.self, forKey: .onlyConclusions)
+            self.onlyConclusions = onlyConclusions ?? false
+            hubKnowsOnlyConclusions = onlyConclusions != nil
         }
 
         func encode(to encoder: Encoder) throws {
@@ -80,6 +93,7 @@ nonisolated struct FeishuBotStatus: Codable, Hashable, Sendable {
             try c.encode(agents, forKey: .agents)
             try c.encode(reports, forKey: .reports)
             if hubKnowsBoard { try c.encode(board, forKey: .board) } // the hub merges what it is sent over what it has
+            if hubKnowsOnlyConclusions { try c.encode(onlyConclusions, forKey: .onlyConclusions) }
         }
 
         /// The wire name of a switch.
@@ -91,6 +105,7 @@ nonisolated struct FeishuBotStatus: Codable, Hashable, Sendable {
             if key == \.sync { return "sync" }
             if key == \.agents { return "agents" }
             if key == \.reports { return "reports" }
+            if key == \.onlyConclusions { return "only_conclusions" }
             return "board"
         }
 
@@ -210,6 +225,9 @@ extension APIClient {
 
     /// Whether the hub has the "board" switch.
     var hubKnowsBoard: Bool { status?.features.hubKnowsBoard == true }
+
+    /// Whether the hub has the "only conclusions" switch.
+    var hubKnowsOnlyConclusions: Bool { status?.features.hubKnowsOnlyConclusions == true }
 
     /// The delays to pick from, with the one in force among them.
     var nudgeChoices: [Int] {

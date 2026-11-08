@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -162,14 +163,16 @@ func (n *Node) assistantProject() string {
 }
 
 // isAssistantProject: base is the name of the projects directory Claude Code keeps for the assistant's directory
-// (own: this node's, assistantProject). The assistant may have run under ~/.persona or ~/.persona, through a symlinked
-// home, so the name is matched by its end as well.
+// (own: this node's, assistantProject). The assistant may have run under ~/.persona or the former state directory
+// (compat.StateDir), through a symlinked home, so the name is matched by its end as well (#1423: a copy under the
+// former name is the assistant's too).
 // The health space's directory (docs/assistant/health.md) sits next to it and counts as the assistant's too.
 func isAssistantProject(base, own string) bool {
 	if base == own || base == strings.TrimSuffix(own, "-assistant")+"-health" {
 		return true
 	}
-	for _, suffix := range []string{"--persona-assistant", "--persona-assistant", "--persona-health", "--persona-health"} {
+	former := "-" + nonAlnum.ReplaceAllString(compat.StateDir, "-") // "." becomes "-" as in the project's name
+	for _, suffix := range []string{"--persona-assistant", former + "-assistant", "--persona-health", former + "-health"} {
 		if strings.HasSuffix(base, suffix) {
 			return true
 		}

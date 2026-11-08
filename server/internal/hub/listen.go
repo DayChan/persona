@@ -6,6 +6,9 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
+
+	"github.com/nwverse/persona/server/internal/osproc"
 )
 
 // Socket activation (docs/operations/hub-restart.md "Zero gap"): systemd's personad.socket holds the hub's listening sockets and
@@ -24,11 +27,20 @@ var inherited struct {
 	names string
 }
 
+// claimInherited is the first thing every hub process does (Serve, Run, RunSlot), before anything can start another
+// process: it takes the sockets systemd passed (inheritedListeners) and makes whatever else it was handed past stderr
+// close-on-exec (osproc.SealInherited). Taken any later, they reached what the hub had started by then, the manager
+// first, and from it every node, extension and agent it ran: each held the hub's port open for as long as it lived.
+func claimInherited() {
+	inheritedListeners()
+	osproc.SealInherited()
+}
+
 // inheritedListeners takes the sockets systemd passed to this process, once: the environment is cleared so the
 // processes the hub starts (nodes, plugins) do not take them for theirs, and the fds are made close-on-exec so they
-// do not inherit them either. The fds themselves stay open: execListenEnv passes them on to a binary this process
-// execs (selfupdate.go without an edge), which would otherwise find the port taken by systemd's own socket and fail
-// to listen (address already in use).
+// do not inherit them either. The fds themselves stay open: execKeepingListeners passes them on to a binary this
+// process execs (selfupdate.go without an edge), which would otherwise find the port taken by systemd's own socket and
+// fail to listen (address already in use).
 func inheritedListeners() []net.Listener {
 	inherited.once.Do(func() {
 		pid, err := strconv.Atoi(os.Getenv("LISTEN_PID"))
@@ -55,8 +67,29 @@ func inheritedListeners() []net.Listener {
 	return inherited.lns
 }
 
+// execKeepingListeners replaces this process with path (argv, env), handing it the sockets systemd passed. They are
+// inheritable only from just before the exec until it fails, with syscall.ForkLock held for reading all along so that
+// no process this one starts meanwhile gets them; a failed exec makes them close-on-exec again.
+func execKeepingListeners(path string, argv, env []string) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	err := syscall.Exec(path, argv, append(env, execListenEnv()...))
+	sealListeners()
+	return err
+}
+
+// sealListeners makes the sockets systemd passed close-on-exec again (after execListenEnv, when the exec failed).
+func sealListeners() {
+	inherited.mu.Lock()
+	defer inherited.mu.Unlock()
+	for _, fd := range inherited.fds {
+		closeOnExec(fd)
+	}
+}
+
 // execListenEnv readies the sockets systemd passed for the binary this process is about to exec (the same process:
-// LISTEN_PID stays right) and returns the environment that says so; none when systemd passed none.
+// LISTEN_PID stays right) and returns the environment that says so; none when systemd passed none. Only
+// execKeepingListeners calls it.
 func execListenEnv() []string {
 	inheritedListeners()
 	inherited.mu.Lock()

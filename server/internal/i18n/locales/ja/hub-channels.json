@@ -23,7 +23,7 @@
   "feature_board": "Larkの「あなた待ち」ボード",
   "feature_board_description": "/tasks があなた待ちの項目をまとめた1枚のカードを送り、その後は新しく送らずにその場で更新します",
   "feature_only_conclusions": "Larkには結論だけ送る",
-  "feature_only_conclusions_description": "メインチャットのタスクは結論（完了・できない・あなたの判断が必要）だけを送ります。開始・待機・中断はやることリストとブリーフィングにだけ残し、単独では送りません",
+  "feature_only_conclusions_description": "メインチャットのタスクの途中経過（ひと区切りの完了・あなた待ち・中断）は単独では送らずやることリストとブリーフィングにだけ残し、結論（完了・できない・あなたの判断が必要）が出たら結論カードをこれまでどおり送ります",
   "feature_agents_description": "/agents でお使いのコンピューター上のエージェントを一覧表示し、選ぶと以降のメッセージがそのエージェントに送られます",
   "voice_name": "音声",
   "voice_description": "AppでPersonaと音声で会話します。やることはメインチャットに引き継ぎます",

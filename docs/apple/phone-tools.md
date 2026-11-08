@@ -85,7 +85,8 @@ if Claude calls again, it asks again.
 - **How long the hub waits** (`phoneConfirmWait` in `server/internal/hub/hub.go`, #4427): a confirmed write waits up to 30 minutes, other phone calls 2 minutes.
   The clock starts when the hub sends the `tool_call` to the phone (after waking it, if it had to), not when the dialog shows: a write queued behind another
   has less of its 30 minutes left when its turn comes, and the hub may have stopped waiting already. An approval after that is still carried out on the phone,
-  and the agent was told to check before calling again.
+  and the agent was told to check before calling again. Claude Code's own limit for a silent MCP call is also 30 minutes; `personad mcp` sends progress
+  while the call waits, so the hub's reply is the one the agent gets (#1498, `docs/protocol/protocol.md` "MCP tools").
 - **A result while the socket is down** (#4456, `ToolResultOutbox`): Allow tapped just as the app comes back from the background can land before the socket
   has reconnected. The result is kept (only tool results, at most 16 per hub group) and sent once that group connects again; the hub matches it to the call
   by `call_id` whatever connection it comes on. One older than 30 minutes is dropped: the hub no longer waits for it.

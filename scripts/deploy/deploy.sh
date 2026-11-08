@@ -11,6 +11,10 @@
 # a terminal, else keeps the default (lan) and says so.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# All callers, including remote build computers, serialize against the hub's lock.
+if [ "${PERSONA_OPERATION_DEPLOY_LOCKED:-}" != 1 ]; then
+  exec python3 scripts/operations/operation_lock.py deploy -- bash "$PWD/scripts/deploy/deploy.sh" "$@"
+fi
 # Normalize caller overrides before reading deployment options; never print their values.
 eval "$(python3 scripts/persona_identity.py --env)"
 # The question and its explanations live in install.sh (the public installer asks the same).

@@ -199,10 +199,12 @@ func (n *Node) refresh(id string, f *transcript.File) {
 
 // watchLoop pushes new transcript lines four times a second. (It used to read the pane's screen every 400 ms too, a
 // herdr call per watched session, for a live preview no view showed; the terminal pane reads the screen itself.)
+// About once a second it follows the copy the session list reads (followCopy): a stream that only refreshed the file
+// it opened kept pushing an old copy while the list's rev went on with the new one (#1423).
 func (n *Node) watchLoop(ctx context.Context, id string, f *transcript.File, w *watch) {
 	t := time.NewTicker(250 * time.Millisecond)
 	defer t.Stop()
-	for {
+	for tick := 1; ; tick++ {
 		select {
 		case <-ctx.Done():
 			// Drop the entry so the session is not left looking watched; a watch that ended with its connection has
@@ -215,6 +217,9 @@ func (n *Node) watchLoop(ctx context.Context, id string, f *transcript.File, w *
 			n.mu.Unlock()
 			return
 		case <-t.C:
+			if tick%4 == 0 { // the path is cached: a lookup and a stat, a search at most every 30 s
+				n.followCopy(id, f)
+			}
 			n.refresh(id, f)
 		}
 	}

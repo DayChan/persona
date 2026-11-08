@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "relaunch_after_accept_before_transcript",
+      "description": "The hub took a message, then the app was killed before the transcript had it. Started again from what it stored, the app shows the message as pending until the transcript's copy arrives, then shows it once.",
+      "source": {
+        "rule": "Never missing: a message the hub accepted stays on screen until its transcript copy replaces it, across a relaunch",
+        "docs": "docs/apple/ios.md"
+      },
+      "chat": {
+        "machine_id": "m1",
+        "session_id": "s1",
+        "assistant": true
+      },
+      "devices": [
+        "a"
+      ],
+      "start": {
+        "hub": {
+          "history": "h1",
+          "lines": [
+            {
+              "id": "l1#0",
+              "seq": 1,
+              "ts": "2026-01-02T03:04:05Z",
+              "role": "user",
+              "kind": "text",
+              "text": "Plan a weekend trip."
+            },
+            {
+              "id": "l2#0",
+              "seq": 2,
+              "ts": "2026-01-02T03:04:05Z",
+              "role": "assistant",
+              "kind": "text",
+              "text": "Saturday hike, Sunday museum."
+            }
+          ],
+          "to_seq": 3,
+          "interactions": [],
+          "session": {
+            "state": "idle"
+          },
+          "event_stream": "ev1",
+          "event_seq": 10
+        }
+      },
+      "steps": [
+        {
+          "user": {
+            "device": "a",
+            "send": {
+              "id": "m1",
+              "text": "Is the museum open on Sunday?"
+            }
+          }
+        },
+        {
+          "reply": {
+            "device": "a",
+            "write": "m1",
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "shown"
+                },
+                {
+                  "from": "agent",
+                  "text": "Saturday hike, Sunday museum."
+                },
+                {
+                  "from": "user",
+                  "text": "Is the museum open on Sunday?",
+                  "state": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "socket": {
+            "device": "a",
+            "drop": true
+          }
+        },
+        {
+          "user": {
+            "device": "a",
+            "relaunch": true
+          }
+        },
+        {
+          "socket": {
+            "device": "a",
+            "open": {
+              "resumed": false
+            }
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "shown"
+                },
+                {
+                  "from": "agent",
+                  "text": "Saturday hike, Sunday museum."
+                },
+                {
+                  "from": "user",
+                  "text": "Is the museum open on Sunday?",
+                  "state": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "hub": {
+            "append": [
+              {
+                "id": "l4#0",
+                "seq": 4,
+                "ts": "2026-01-02T03:04:05Z",
+                "role": "user",
+                "kind": "text",
+                "text": "Is the museum open on Sunday?",
+                "client_msg_id": "m1"
+              },
+              {
+                "id": "l5#0",
+                "seq": 5,
+                "ts": "2026-01-02T03:04:05Z",
+                "role": "assistant",
+                "kind": "text",
+                "text": "Yes, from 10:00 to 18:00."
+              }
+            ],
+            "to_seq": 6,
+            "session": {
+              "state": "idle"
+            }
+          }
+        },
+        {
+          "frames": {
+            "a": [
+              {
+                "type": "items",
+                "machine_id": "m1",
+                "session_id": "s1",
+                "history": "h1",
+                "items": [
+                  {
+                    "id": "l4#0",
+                    "seq": 4,
+                    "ts": "2026-01-02T03:04:05Z",
+                    "role": "user",
+                    "kind": "text",
+                    "text": "Is the museum open on Sunday?",
+                    "client_msg_id": "m1"
+                  },
+                  {
+                    "id": "l5#0",
+                    "seq": 5,
+                    "ts": "2026-01-02T03:04:05Z",
+                    "role": "assistant",
+                    "kind": "text",
+                    "text": "Yes, from 10:00 to 18:00."
+                  }
+                ],
+                "to_seq": 6,
+                "from_seq": 3
+              }
+            ]
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "shown"
+                },
+                {
+                  "from": "agent",
+                  "text": "Saturday hike, Sunday museum."
+                },
+                {
+                  "from": "user",
+                  "text": "Is the museum open on Sunday?",
+                  "state": "shown"
+                },
+                {
+                  "from": "agent",
+                  "text": "Yes, from 10:00 to 18:00."
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "end": {
+        "a": {
+          "messages": [
+            {
+              "from": "user",
+              "text": "Plan a weekend trip.",
+              "state": "shown"
+            },
+            {
+              "from": "agent",
+              "text": "Saturday hike, Sunday museum."
+            },
+            {
+              "from": "user",
+              "text": "Is the museum open on Sunday?",
+              "state": "shown"
+            },
+            {
+              "from": "agent",
+              "text": "Yes, from 10:00 to 18:00."
+            }
+          ],
+          "cards": {}
+        }
+      }
+    }
+  ]
+}

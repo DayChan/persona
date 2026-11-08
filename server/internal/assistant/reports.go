@@ -21,8 +21,8 @@ import (
 // what needs the user's decision on top (each with its own answerable card below it), then each task with its stage
 // (plan → develop → review → merge → deploy → verified), a line of what happened and links to its page, its PR and its agent.
 // The bot's reports switch turns it off (on by default). With only_conclusions on (#1226) the card carries only how tasks
-// ended (closed, did not start): started, waiting and interrupted stay in the task list and the briefing, and a decision
-// waiting still gets its own answerable card. A supervised task's review sends its conclusion card instead (conclusion.go).
+// ended (closed, did not start): a finished turn, waiting and interrupted stay in the task list and the briefing, and a
+// decision waiting still gets its own answerable card. A supervised task's review sends its conclusion card instead (conclusion.go).
 
 // reportDelay is how long a change waits for others before the card goes out (reportBook.delay overrides it).
 const reportDelay = time.Minute

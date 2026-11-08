@@ -48,18 +48,28 @@ gh workflow run pr-needs-issue.yml --ref main -f pr_number=<number> # metadata e
 
 All PR code runs with `contents: read`, without persisted checkout credentials, private config or new secrets. Forks use `pull_request`,
 never privileged execution. Issue-link enforcement remains manual and runs its metadata-only write-token job only from the default branch.
-Image publishing has `packages: write` only in its publishing job. One concurrency group per PR cancels stale runs.
+Image publishing has `packages: write` only in its publishing job. Concurrency keys use a stable workflow-file prefix, the qualified
+repository/branch, and lane. PRs use `pr-fast`; manual CI uses the requested `lanes` string. Use a stable comma-separated lane order when
+dispatching the same bundle. New work in the same group cancels stale pending/running work; different lanes and same-named fork branches
+remain independent. Direct and reusable Apple/server/Android/scripts calls share their file-specific lane group, never the CI caller's
+key: reusing only the caller-derived `github.workflow` would let a called workflow cancel its caller.
 
-Server uses four independent runners: browser/node, hub/voice/assistant, all other packages, and formatting/vet/build/Windows/SDK checks.
+Manual server and Android matrices allow at most **two** simultaneous shards each; the full scripts matrix allows **one**. All shards
+still execute with `fail-fast: false`; the caps trade manual wall-clock latency for available PR runner slots. These code-level controls
+apply to newly scheduled workflow versions, not retroactive cancellation of existing queued runs. Peak hosted queue time is a capacity
+issue, not test execution time. Do not change repository settings/rulesets or procure paid/self-hosted capacity as part of these controls.
+
+Server keeps four independent shards (at most two concurrent runners): browser/node, hub/voice/assistant, all other packages, and
+formatting/vet/build/Windows/SDK checks.
 Every package from `go list ./...` belongs to exactly one test shard, including future packages. Browser tests remain isolated from other
 packages. Go module/build caches are keyed by exact Go version, shard, dependency sums and source inputs, with same-shard fallback keys;
 `-count=1` keeps test execution uncached. Test-event summaries report the slowest real tests, rather than inferring runtime from `Sleep`
-inside fake-clock tests. The full manual scripts suite splits complete sorted discovery across two independent runner jobs; each has its
-own synthetic HOME and mock ports. Automatic PR checks run the fast CI-regression and documentation subset, not the full suite.
+inside fake-clock tests. The full manual scripts suite splits complete sorted discovery across two independently isolated jobs, scheduled
+one at a time; each has its own synthetic HOME and mock ports. Automatic PR checks run the fast CI-regression and documentation subset, not the full suite.
 Platform paths retain shared client contracts read by Go compatibility tests, and manual `auto` selects those dependencies.
 
-Android uses five independent runners: lint/build, core tests, two disjoint sorted feature-test shards, and platform/app tests. Module
-declarations are dynamically partitioned; unknown
+Android keeps five independently isolated shards, at most two concurrent: lint/build, core tests, two disjoint sorted feature-test shards,
+and platform/app tests. Module declarations are dynamically partitioned; unknown
 module prefixes use a fallback shard, while unsupported declarations fail rather than skip coverage. Every module's complete test selector
 retains all variants. Gradle workers remain bounded; build and public Robolectric dependency caches do not contain private config. Per-shard
 Gradle profiles and test/lint reports are uploaded for diagnosis. Local entry points without shard options still run complete verification.

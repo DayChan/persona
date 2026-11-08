@@ -656,9 +656,11 @@ function onMessage(msg: Record<string, unknown>) {
       upsertSession(s);
       break;
     }
-    case "interaction":
-      changeInteraction((msg.interaction as Interaction).id, msg.interaction as Interaction);
+    case "interaction": {
+      const ix = msg.interaction as Interaction;
+      if (!endedHere.has(ix.id)) changeInteraction(ix.id, ix);
       break;
+    }
     case "interaction_resolved":
       if (msg.answered_by === "assistant") answeredForUser(msg);
       changeInteraction(msg.id as string, null);
@@ -842,7 +844,7 @@ function changeInteraction(id: string, ix: Interaction | null) {
 
 /** The pending interactions from a snapshot asked for at revision `before`, with what changed since. */
 export function mergeInteractions(snapshot: Interaction[], before: number): Interaction[] {
-  const out = new Map(snapshot.map((i) => [i.id, i]));
+  const out = new Map(snapshot.filter((i) => !endedHere.has(i.id)).map((i) => [i.id, i]));
   for (const [id, c] of ixChanges) {
     if (c.rev <= before) continue;
     out.delete(id);
@@ -853,11 +855,21 @@ export function mergeInteractions(snapshot: Interaction[], before: number): Inte
 
 const ANSWERED_MS = 20_000;
 
+// Cards this page ended (answered, found over, handed back), newest last. Until the node ends one, the hub's pending
+// cards still list it: the snapshot after a hello that resumes the stream sends it again as an `interaction` frame, and
+// a full list read after the answer has it too. It is never answerable here again (#1541). A failed answer does not end
+// its card, so nothing has to come off this list.
+const endedHere = new Set<string>();
+const ENDED_KEPT = 500;
+
 /**
  * An interaction this page answered (or found over when it tried): its card goes at once, without waiting for the
  * hub's interaction_resolved, which may be late or lost with a socket. With `answer` it shows answered for a while.
  */
 export function endInteraction(id: string, answer?: AnsweredCard) {
+  endedHere.delete(id);
+  endedHere.add(id);
+  if (endedHere.size > ENDED_KEPT) endedHere.delete(endedHere.values().next().value!);
   changeInteraction(id, null);
   if (!answer) return;
   const card = { ...answer, at: answer.at ?? Date.now(), withdrawn: answer.withdrawn || answer.already === true || resolvedSeen.has(id) };
@@ -1241,6 +1253,7 @@ export function reset() {
   cursor = NO_CURSOR; // another login: another stream
   ixChanges.clear();
   resolvedSeen.clear();
+  endedHere.clear();
   // a /todos or /assistant answer still on its way belongs to the old login
   todosAsked.forget();
   assistantAsked.forget();

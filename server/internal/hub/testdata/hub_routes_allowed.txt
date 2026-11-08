@@ -124,6 +124,7 @@ POST /api/v1/machines/{mid}/git/push
 POST /api/v1/machines/{mid}/git/stage
 POST /api/v1/machines/{mid}/git/stash
 POST /api/v1/machines/{mid}/git/switch
+POST /api/v1/machines/{mid}/node-update/{action}
 POST /api/v1/machines/{mid}/panes
 POST /api/v1/machines/{mid}/panes/agent
 POST /api/v1/machines/{mid}/panes/close

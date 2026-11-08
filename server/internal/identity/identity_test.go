@@ -127,9 +127,9 @@ func TestStateDirectory(t *testing.T) {
 				t.Fatal("state was overwritten", err)
 			}
 			entries, err := os.ReadDir(home)
-			wantEntries := 2 // one store plus its compatibility symlink
+			wantEntries := 1 // one store, no alias under the former name (#1445)
 			if scenario == "external" || scenario == "relative-external" {
-				wantEntries = 3
+				wantEntries = 2
 			}
 			if err != nil || len(entries) != wantEntries {
 				t.Fatal("initialization created another state directory", err)
@@ -239,12 +239,64 @@ func TestConcurrentFirstRun(t *testing.T) {
 	}
 	wg.Wait()
 	entries, err := os.ReadDir(home)
-	if err != nil || len(entries) != 2 {
-		t.Fatal("concurrent initialization did not create one store and its alias", err)
+	if err != nil || len(entries) != 1 || entries[0].Name() != ".persona" {
+		t.Fatal("concurrent initialization did not create exactly one store", entries, err)
 	}
-	a, aerr := os.Stat(filepath.Join(home, ".persona"))
-	b, berr := os.Stat(filepath.Join(home, compat.StateDir))
-	if aerr != nil || berr != nil || !os.SameFile(a, b) {
-		t.Fatal("concurrent initialization split state", aerr, berr)
-	}
+}
+
+// The former-name alias (#1445): an installation still under the former name gets the current name as an alias, so
+// both reach the one store, also when several start at once; one under the current name gets none, and an alias an
+// operator left (or removed) stays as it is.
+func TestFormerNameAlias(t *testing.T) {
+	cleanRootEnv(t)
+	t.Run("a former-name store gets the current name", func(t *testing.T) {
+		home := t.TempDir()
+		legacy := filepath.Join(home, compat.StateDir)
+		if err := os.MkdirAll(legacy, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// either name, once the alias is there: the one store
+				got, err := PrepareHome(home)
+				a, aerr := os.Stat(got)
+				b, berr := os.Stat(legacy)
+				if err != nil || aerr != nil || berr != nil || !os.SameFile(a, b) {
+					t.Error(got, err)
+				}
+			}()
+		}
+		wg.Wait()
+		if target, err := os.Readlink(filepath.Join(home, ".persona")); err != nil || target != compat.StateDir {
+			t.Fatalf("current name: %q %v", target, err)
+		}
+	})
+	t.Run("a current-name store keeps an alias that is there, and gets none back once removed", func(t *testing.T) {
+		home := t.TempDir()
+		current, legacy := filepath.Join(home, ".persona"), filepath.Join(home, compat.StateDir)
+		if err := os.MkdirAll(current, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(".persona", legacy); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := PrepareHome(home); err != nil || got != current {
+			t.Fatal(got, err)
+		}
+		if target, err := os.Readlink(legacy); err != nil || target != ".persona" {
+			t.Fatalf("the operator's alias changed: %q %v", target, err)
+		}
+		if err := os.Remove(legacy); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := PrepareHome(home); err != nil || got != current {
+			t.Fatal(got, err)
+		}
+		if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
+			t.Fatal("the former name came back", err)
+		}
+	})
 }

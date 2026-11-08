@@ -43,10 +43,12 @@ export function bubbleLines(text: string, perLine = CHARS_PER_LINE): number {
   return text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil([...l].length / perLine)), 0);
 }
 
-export function UserBubble({ msg, mid, sid, pending }: { msg: UserMessage; mid: string; sid: string; pending?: boolean }) {
+/** `sendState`: a message not in the transcript yet (a sending bubble, the outbox's), marked for the sync scenarios
+ *  (spec/fixtures/sync); the transcript's own bubbles have none. */
+export function UserBubble({ msg, mid, sid, pending, sendState }: { msg: UserMessage; mid: string; sid: string; pending?: boolean; sendState?: "sending" | "sent" | "failed" }) {
   const own = isOwnMessage(msg);
   return (
-    <div className="ml-auto flex max-w-[488px] min-w-0 flex-col items-end gap-1.5 pl-[12%]" style={pending ? { animation: `fade-up 300ms ${EASE} both` } : undefined} data-user-bubble data-items={pending ? undefined : [msg.id, ...msg.images.map((i) => i.id)].join(" ")}>
+    <div className="ml-auto flex max-w-[488px] min-w-0 flex-col items-end gap-1.5 pl-[12%]" style={pending ? { animation: `fade-up 300ms ${EASE} both` } : undefined} data-user-bubble data-send-state={sendState} data-items={pending ? undefined : [msg.id, ...msg.images.map((i) => i.id)].join(" ")}>
       {msg.images.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5">
           {msg.images.map((im) => (
@@ -99,6 +101,7 @@ function BubbleText({ text: full, ts, mid, sid, own, pending }: { text: string; 
       {...fold}
       className={`text-[length:var(--chat-body)] leading-[1.6] whitespace-pre-wrap [overflow-wrap:anywhere] ${folded ? FOLDED : ""}`}
       data-folded={folded || undefined}
+      data-bubble-text
     >
       <PathText text={text} mid={mid} cwd={getSession(mid, sid)?.cwd} />
     </div>

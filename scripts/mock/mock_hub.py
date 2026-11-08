@@ -1240,7 +1240,41 @@ def tab_panes_items():
     return {PANES_LEAD: [it("user", "text", 15, text="把 token 刷新挪到中间件里，开两个窗格分别审改动和补测试"),
                          it("assistant", "text", 0, text="开了两个窗格分头审改动、补测试，我在合中间件。")],
             PANES_REVIEW: [it("user", "text", 10, text="审一下登录重构的改动"), it("assistant", "text", 1, text="有两处会吞掉错误，要我直接改吗？")],
-            PANES_TESTS: [it("user", "text", 10, text="补刷新失败的测试"), it("assistant", "text", 3, text="补了 6 个用例，都过了。")]}
+            PANES_TESTS: [it("user", "text", 10, text="补刷新失败的测试"), it("assistant", "text", 3, text="补了 6 个用例，都过了。")],
+            PANES_PEER_B: bench_items()}
+
+
+def bench_items():
+    """Read and idle in a tab of three, about two screens (ChatReenterTests reads it to its top, leaves and comes back): a
+    short greeting and its answer, then a turn whose work line folds 12 tool calls, 5 thoughts and 3 replies, ending in
+    a long Markdown answer, so rows' real heights are far from the list's estimates. Items are numbered as they are made."""
+    head = [it("user", "text", 40, text="hi"),
+            it("assistant", "text", 40, text="你好。这个 worktree 在 `feat/cache-bench` 分支上，有三个文件还没提交：\n\n"
+               "- `scripts/bench/run_b.js`\n- `tests/fixtures/cacheBench.json`\n- `tests/cacheBench.test.js`\n\n"
+               "最近一次提交是「准备方案 B 的基准」，这三处应该就是接着那一步做的。要我继续，还是有别的事？"),
+            it("user", "text", 31, text="切回最新主分支，分析一下方案 B 为什么比 A 慢")]
+    work = []
+    for n in range(12):
+        if n % 3 == 0:
+            work.append(it("assistant", "thinking", 30, text=f"先看第 {n // 3 + 1} 组基准的数据，再对比两种方案的读路径。"))
+        if n in (4, 9):
+            work.append(it("assistant", "text", 30, text=f"第 {n // 4} 组数据看完了，接着看序列化的开销。"))
+        work += tool("Bash", {"command": f"node scripts/bench/run_b.js --round {n + 1}"}, f"round {n + 1}: p50 4.{n} ms, p99 9.{n} ms", 30)
+    work.append(it("assistant", "thinking", 29, text="两种方案的命中率一样，差别只在读的时候多了一次序列化。"))
+    answer = ("## 方案 B 慢在哪：每次读都多一次序列化，不是命中率的问题\n\n"
+              "已经确认。两种方案的命中率都在 **97%** 左右，B 的读路径在命中以后还会把值序列化一次再交出去，"
+              "这一步占了多出来的大部分时间。\n\n"
+              "### 发生了什么\n\n"
+              "- **慢了多少**：12 轮里 B 的 p50 平均比 A 高 0.5 ms，p99 高 1.1 ms，换算下来慢 12% 左右。\n"
+              "- **慢在哪**：`readThrough()` 命中以后调用了 `encode()`，A 直接返回缓存里的对象。\n"
+              "- **为什么这样写**：B 想让调用方拿到的值和缓存里的隔开，避免被改坏；A 是靠只读类型做到的。\n"
+              "- **别的开销**：写路径两边一样，过期清理 B 还略快一点，可以忽略。\n\n"
+              "### 建议\n\n"
+              "1. B 也换成只读类型，去掉命中后的 `encode()`，预计能追平 A。\n"
+              "2. 基准里加一组大对象的数据，序列化的差别在大对象上会更明显。\n"
+              "3. 两种方案的内存占用还没比，下一步补上。\n\n"
+              "要我先改第 1 条，还是先把大对象的基准补上？")
+    return head + work + [it("assistant", "text", 29, text=answer)]
 
 
 if os.environ.get("MOCK_TAB_PANES"):
@@ -2107,9 +2141,9 @@ def inbox_owner(item_id):
 
 
 def merged_by_manager(items):
-    """A merged list as the hub writes it (ownership.go mergeList): the default's answer first, then each other installed
-    manager's (by id; an offline one's kept answer too), every item stamped. Each answer has the built-ins and that
-    manager's own ones."""
+    """A merged list as the hub writes it (ownership_lists.go mergeList): the default's answer first, then each other
+    installed manager's (by id; an offline one's kept answer too), every item stamped. Each answer has the built-ins
+    and that manager's own ones."""
     dflt = MANAGERS["default"]
     installed = sorted(m["id"] for m in MANAGERS["list"] if not m.get("installing"))
     order = [dflt] + [m for m in installed if m != dflt]

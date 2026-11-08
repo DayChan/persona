@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: server-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-server
+  cancel-in-progress: true
 jobs:
   server:
     name: Server ${{ matrix.shard }}
@@ -11,6 +14,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         shard: [node, managers, other, build]
     env:

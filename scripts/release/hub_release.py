@@ -92,7 +92,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--retry', action='store_true')
-    parser.add_argument('--scope', choices=('hub', 'manager'))
+    parser.add_argument('--scope', choices=('hub', 'manager', 'node'))
+    parser.add_argument('--node-id', help='one explicit target from node_targets')
+    parser.add_argument('--artifact-dir', type=Path, help='existing validated full release; node scope only')
     parser.add_argument('--manager-id', help='explicit manager target from manager_targets')
     parser.add_argument('--commit', type=full_commit,
                         help='pin a full commit that must belong to the configured source branch')
@@ -101,6 +103,18 @@ def main():
     args = parser.parse_args()
     cfg = json.loads(args.config.read_text())
     args.scope = args.scope or cfg.get('scope', 'hub')
+    if args.scope == 'node':
+        args.node_id = args.node_id or cfg.get('node_id')
+        if args.commit is None and cfg.get('node_commit') is not None:
+            args.commit = full_commit(cfg['node_commit'])
+        if args.artifact_dir is None and cfg.get('node_artifact_dir') is not None:
+            args.artifact_dir = Path(cfg['node_artifact_dir'])
+        args.validate_only = args.validate_only or cfg.get('node_apply') is not True
+        from pinned_node_release import run_pinned_node
+        run_pinned_node(args, cfg)
+        return
+    if args.node_id is not None or args.artifact_dir is not None:
+        parser.error('--node-id and --artifact-dir require --scope node')
     if args.scope not in ('hub', 'manager'):
         parser.error('Configured scope must be hub or manager')
     if args.scope == 'manager':

@@ -12,6 +12,7 @@ import time
 import unittest
 
 from persona_migration_fixtures import GO_MAIN, NODE_INSTALL, NODE_QUERY
+from migration_go import fixture_toolchain
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / 'scripts/persona_config.py'
@@ -97,7 +98,10 @@ class PersonaMigrationEdgesTests(unittest.TestCase):
             return cls.go_helper
         source = self.base / 'go-helper-source'
         source.mkdir(exist_ok=True)
-        (source / "go.mod").write_text("module github.com/nwverse/persona/server\n\ngo 1.23\n")
+        go, directives = fixture_toolchain(
+            self.go, ROOT / "server", self.clean_env())
+        (source / "go.mod").write_text(
+            "module github.com/nwverse/persona/server\n\n" + directives)
         for package in ("compat", "nodeproto", "proto", "dialogwire"):
             shutil.copytree(ROOT / "server/internal" / package, source / "internal" / package,
                             ignore=shutil.ignore_patterns("*_test.go"), dirs_exist_ok=True)
@@ -107,7 +111,7 @@ class PersonaMigrationEdgesTests(unittest.TestCase):
             (source / name).write_text(text.replace('package identity', 'package main', 1))
         (source / 'main.go').write_text(GO_MAIN)
         helper = self.base / 'go-helper'
-        result = self.run_command([self.go, 'build', '-buildvcs=false', '-o', str(helper), '.'],
+        result = self.run_command([go, 'build', '-buildvcs=false', '-o', str(helper), '.'],
                                   self.clean_env(GO111MODULE='on', GOWORK='off'),
                                   timeout=120, cwd=source)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -122,6 +126,14 @@ class PersonaMigrationEdgesTests(unittest.TestCase):
 
     def assert_same_directory(self, first, second):
         self.assertTrue(os.path.samefile(first, second), f'different stores: {first} / {second}')
+
+    def assert_former_alias(self, home, initial):
+        """A former-name store is reached under both names; a current-name one gets no former-name alias (#1445)."""
+        former = home / ('.' + FORMER_NAME)
+        if initial == 'former':
+            self.assert_same_directory(home / '.persona', former)
+        else:
+            self.assertFalse(os.path.lexists(former), f'former-name alias made for a current-name store: {former}')
 
     def write_profile(self, name):
         file = self.home / f'{name}.json'
@@ -344,7 +356,7 @@ except OSError as error:
                     self.assertEqual((home / '.persona').is_symlink(), initial == 'former')
                     if seed is not None:
                         self.assertEqual((seed / 'existing.fixture').read_text(), 'existing-payload')
-                    self.assert_same_directory(home / '.persona', home / ('.' + FORMER_NAME))
+                    self.assert_former_alias(home, initial)
                     if initial != 'fresh':
                         self.assertEqual((home / '.persona/existing.fixture').read_text(), 'existing-payload')
 
@@ -367,7 +379,7 @@ except OSError as error:
                     self.assertEqual((home / '.persona/python-state.fixture').read_text(), 'python-payload')
                     if initial != 'fresh':
                         self.assertEqual((seed / 'existing.fixture').read_text(), 'existing-payload')
-                    self.assert_same_directory(home / '.persona', home / ('.' + FORMER_NAME))
+                    self.assert_former_alias(home, initial)
                     if initial != 'fresh':
                         self.assertEqual((home / '.persona/existing.fixture').read_text(), 'existing-payload')
 

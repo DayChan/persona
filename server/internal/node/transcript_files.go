@@ -128,11 +128,7 @@ func (n *Node) file(id string) (*transcript.File, error) {
 	}
 	n.mu.Unlock()
 	if f != nil {
-		// Moved since it was opened (a Codex thread archived or restored), or a newer copy took over (resumed in another
-		// project or profile): read that one. Relocate to another inode starts over.
-		if p := n.transcriptPath(id); p != "" && p != f.Where() {
-			f.Relocate(p)
-		}
+		n.followCopy(id, f)
 		return f, nil
 	}
 	if _, _, sub := splitSubagent(id); sub {
@@ -187,6 +183,16 @@ func (n *Node) warmTranscripts(ctx context.Context) {
 		if f, err := n.file(id); err == nil {
 			n.refresh(id, f)
 		}
+	}
+}
+
+// followCopy points an open transcript at the file transcriptPath names now, when that is another: moved since it was
+// opened (a Codex thread archived or restored), or a newer copy took over (resumed in another project or profile, or
+// copied when its working directory moved). The session list's rev and updated_at read that file, so the items must
+// too (#1423). Relocate to another inode starts over.
+func (n *Node) followCopy(id string, f *transcript.File) {
+	if p := n.transcriptPath(id); p != "" && p != f.Where() {
+		f.Relocate(p)
 	}
 }
 

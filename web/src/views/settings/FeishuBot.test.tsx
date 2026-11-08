@@ -95,6 +95,19 @@ describe("Feishu bot dialog", () => {
     expect(calls.update[0].body).toEqual({ features: { cards: false, all_cards: false } });
   });
 
+  it("greys out only conclusions while task progress is off: the hub then sends neither progress nor conclusions", async () => {
+    const named = (key: string) => document.body.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t(key)}"]`)!;
+    const onlyConclusions = () => named("settings-feishubot.feature_only_conclusions_title");
+    await open(saved({ features: { ...saved().features, reports: false, only_conclusions: false } }));
+    expect(onlyConclusions().disabled).toBe(true);
+    await act(async () => named("settings-feishubot.feature_reports_title").click());
+    expect(calls.update[0].body).toEqual({ features: { reports: true } });
+    await act(async () => calls.update[0].resolve(saved({ features: { ...saved().features, reports: true, only_conclusions: false } })));
+    expect(onlyConclusions().disabled).toBe(false);
+    await act(async () => onlyConclusions().click());
+    expect(calls.update[1].body).toEqual({ features: { only_conclusions: true } });
+  });
+
   it("sends every switch to a hub from before 0.1.12, which replaces the whole set", async () => {
     const { reports: _reports, board: _board, ...old } = saved().features;
     await open(saved({ features: old }));

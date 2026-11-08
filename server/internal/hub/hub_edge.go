@@ -55,6 +55,7 @@ func edgeOff(b update.Build) string {
 
 // Serve is `personad hub run`: the hub behind its edge, or by itself where the edge does not run.
 func Serve(ctx context.Context, b update.Build) error {
+	claimInherited() // before anything can start a process (listen.go)
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	if why := edgeOff(b); why != "" {
 		if identity.Getenv(EnvEdge) != "" || runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
@@ -133,6 +134,7 @@ func restoreUpdateIn(dir string, build int64, cause error) (string, bool) {
 // RunSlot is `personad hub slot`: the hub as the edge started it. A standby checks itself (its config, the database)
 // and waits; once activated, or started active, it serves on the edge's sockets until the edge releases it.
 func RunSlot(ctx context.Context, b update.Build) error {
+	claimInherited() // before anything can start a process (listen.go); the edge's pipes stay readable here
 	slot, err := hubedge.FromEnv()
 	if err != nil {
 		return err

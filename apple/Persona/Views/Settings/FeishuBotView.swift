@@ -178,6 +178,11 @@ struct FeishuBotView: View {
             feature(\.pushes, Theme.Icon.unmute, "Also Send Notifications to Lark", "Persona's notifications and scheduled task results are also sent to Lark")
             feature(\.sync, Theme.Icon.inProgress, "Sync Main Chat", "Replies in the main chat, from the app or scheduled tasks, are also sent to Lark")
             feature(\.reports, Theme.Icon.inProgress, "Send Task Progress to Lark", "When tasks from the main chat finish, wait for you or get interrupted, they're combined into one card sent to Lark, with stages and links")
+            // Shown only when the hub's answer has it, like the board below.
+            if model.hubKnowsOnlyConclusions {
+                feature(\.onlyConclusions, Theme.Icon.concluded, "Only Conclusions to Lark", "Tasks from the main chat no longer send their progress (a finished turn, waiting for you, interrupted), which stays in the to-do list and the briefing; a conclusion card still comes when there is one: done, can't be done, or needs your decision")
+                    .disabled(!features.reports) // with task progress off the hub sends neither progress nor conclusions
+            }
             feature(\.agents, Theme.Icon.agents, "Drive Agents", "/agents picks Claude Code / Codex on any of your computers to chat with in Lark; /start opens a new one")
             // A hub from before these leaves them out of its answer: nothing to show, since it would ignore a change.
             if model.hubKnowsBoard {

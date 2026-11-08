@@ -1034,7 +1034,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
             </LiveClockContext.Provider>
             {!readOnly && shownPending.map((p) => (
               <div key={p.id} className="flex flex-col gap-3">
-                <UserBubble msg={p.msg} mid={mid} sid={sid} pending />
+                <UserBubble msg={p.msg} mid={mid} sid={sid} pending sendState="sending" />
               </div>
             ))}
             {!readOnly && <OutboxBubbles mid={mid} sid={sid} entries={outbox} />}

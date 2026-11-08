@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Persona's default branch every ten minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/10:00
+Persistent=true
+AccuracySec=1s
+Unit=persona-autorelease.service
+
+[Install]
+WantedBy=timers.target

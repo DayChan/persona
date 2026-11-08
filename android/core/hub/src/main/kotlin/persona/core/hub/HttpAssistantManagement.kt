@@ -66,6 +66,16 @@ class HttpAssistantManagement private constructor(
         (this[name] as? JsonArray).orEmpty().map { JsonCodec.decodeFromJsonElement<T>(it) }
 
     override suspend fun warm() { assistant("POST", "warm", body = buildJsonObject { }) }
+    override suspend fun alwaysGrants(session: SessionKey): List<AlwaysGrant>? = try {
+        assistant("GET", "conversations", session.sessionId, "always").list("grants")
+    } catch (failure: HubFailure) {
+        // A hub before the route, or a device without full access: no list to show, nothing to fix.
+        if (failure.status == 404 || failure.status == 403) null else throw failure
+    }
+    // The hub asks the conversation's computer to reset it first (up to 10 s) before it answers.
+    override suspend fun revokeAlwaysGrant(session: SessionKey, keyHash: String): Boolean =
+        (request("DELETE", listOf("api", "v1", "assistant", "conversations", session.sessionId, "always", keyHash), client = compactHttp)
+            ["restart_required"] as? JsonPrimitive)?.booleanOrNull ?: false
     // The hub waits up to 12 s for the computer's self-check, and a probe runs a real one-word turn on top of it.
     override suspend fun readiness(probe: Boolean): AssistantReadiness = JsonCodec.decodeFromJsonElement(
         request("GET", listOf("api", "v1", "assistant", "readiness"), client = if (probe) runHttp else http,

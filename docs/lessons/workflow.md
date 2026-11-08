@@ -24,6 +24,7 @@ Pitfalls, odd behavior and the trade-offs made at the time (formerly in `CLAUDE.
   `worker.mjs` wholesale with the old version, and for about 30 minutes the relay again rate-limited only by the entry's egress IP; the old `wrangler.jsonc` also tried to bind the site's apex domain, already handed to DNS, back to the Worker
   (Cloudflare rejected it with `externally managed DNS records`, publish exited 1, but the script had already uploaded). Run `git fetch` before creating the worktree, and check `git rev-parse HEAD origin/main`
   match before deploying; when publish errors, first check whether the live site already switched to this code, then decide how to fix it.
+- Unattended releases need locks shared with manual entry points, not only a worker lock (#1477). Use the hub's existing promotion lock for deployments from every build computer, resolving its state root from the installed service rather than assuming a default directory; use a build-computer release lock through upload and TestFlight processing. A successful upload followed by a processing timeout must resume the same build number, not upload another binary. Hub notification acceptance is not a phone-display receipt; installation acceptance needs an observed notification.
 - Two sessions releasing at once collide on the build number (2026-11-04): both started `release.sh` (without a build number) in the same minute and got the same time-based number `202611040002`;
   the one that finished uploading first went into TestFlight, the later upload was rejected by App Store Connect (`Redundant Binary Upload`, exit 70), and only one archive with that name was left in Organizer.
   Before releasing, check `pgrep -fl scripts/release/release.sh` for someone else releasing; to release, get a number with `asc_testflight.py next-build` and pass it explicitly to `release.sh <build number>`.
@@ -214,3 +215,13 @@ Keep automatic fast checks and their final result in one runner allocation;
 leave full heavy lanes manual when their queue-inclusive latency is not bounded.
 Record the failed samples as counterexamples and re-run fresh post-merge PRs.
 Do not cancel other work or change repository rules to manufacture a fast run.
+
+Bound manual matrix fan-out as well as automatic PR fan-out. A stale manual
+main/lane dispatch can consume capacity long after its source is obsolete.
+Group by workflow-file identity, qualified branch and lane, with cancellation
+of older work in the same group. The repository qualifier prevents unrelated
+forks with the same branch name cancelling each other. A reusable workflow's
+`github.workflow` is the caller's name: distinct file prefixes keep Apple or
+another lane from accidentally cancelling the caller, while allowing its direct
+and reusable invocations to deduplicate the same branch/lane. Keep every shard,
+set `max-parallel`, and measure normal-load PRs separately from peak queues.
