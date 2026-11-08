@@ -21,7 +21,7 @@ func (ps *extensions) extensionKBCall(ctx context.Context, id, method string, pa
 	default:
 		return nil, &rpc.Error{Code: extension.CodeUnknownMethod, Message: "unknown method " + method}
 	}
-	if ps.reg == nil || !ps.reg.HubScopeAllowed(id, scope) {
+	if ps.reg == nil || ps.reg.GetExact(id) == nil || !ps.reg.HubScopeAllowed(id, scope) {
 		data, _ := json.Marshal(map[string]string{"scope": scope})
 		return nil, &rpc.Error{Code: extension.CodePermissionDenied, Message: method + ": requires " + scope, Data: data}
 	}
@@ -31,7 +31,11 @@ func (ps *extensions) extensionKBCall(ctx context.Context, id, method string, pa
 	var out json.RawMessage
 	var ask any = params
 	if method == assistantwire.MethodKBUpdate { // the write is the extension's: say whose (#6100)
-		method, ask = assistantwire.MethodKBExtensionUpdate, assistantwire.KBExtensionUpdate{Extension: id, Params: params}
+		storageID, err := ps.assistantStorageID(ctx, ps.reg.SnapshotExact(id))
+		if err != nil {
+			return nil, err
+		}
+		method, ask = assistantwire.MethodKBExtensionUpdate, assistantwire.KBExtensionUpdate{Extension: id, StorageID: storageID, Params: params}
 	}
 	if err := ps.h.kbAsk(ctx, method, ask, &out); err != nil {
 		return nil, err

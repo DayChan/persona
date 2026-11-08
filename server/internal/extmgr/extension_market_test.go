@@ -19,7 +19,164 @@ import (
 	"testing"
 
 	"github.com/nwverse/persona/server/internal/extension"
+	"github.com/nwverse/persona/server/internal/extwire"
 )
+
+func TestExtensionIdentitySuccessorLookupIsSourceBoundAndUnique(t *testing.T) {
+	entry := func(id, replaces string) extension.MarketEntry {
+		return extension.MarketEntry{Parsed: &extension.Manifest{ID: id, Version: "1.1.0"}, Replaces: replaces}
+	}
+	index := &extension.MarketIndex{Extensions: []extension.MarketEntry{entry("successor", "previous")}}
+	ms := &markets{byID: map[string]*marketState{
+		"source":    {rec: extension.MarketRecord{ID: "source", Spec: "git:https://example.com/extensions.git"}, index: index},
+		"elsewhere": {rec: extension.MarketRecord{ID: "elsewhere"}, index: &extension.MarketIndex{}},
+	}}
+	if _, e, err := marketEntryLocked(ms, "source", "previous"); err != nil || e.Parsed.ID != "successor" {
+		t.Fatalf("successor: %v %+v", err, e)
+	}
+	if _, _, err := marketEntryLocked(ms, "elsewhere", "previous"); err == nil {
+		t.Fatal("cross-source successor discovered")
+	}
+	index.Extensions = append(index.Extensions, entry("other-successor", "previous"))
+	if _, _, err := marketEntryLocked(ms, "source", "previous"); err == nil {
+		t.Fatal("ambiguous successor chosen")
+	}
+	index.Extensions = append(index.Extensions, entry("previous", ""))
+	if _, e, err := marketEntryLocked(ms, "source", "previous"); err != nil || e.Parsed.ID != "previous" {
+		t.Fatalf("normal entry did not take precedence: %v %+v", err, e)
+	}
+}
+
+func TestExtensionIdentityCommittedOwnerAliasAndRetiredToken(t *testing.T) {
+	h, phone, _ := marketDevices(t)
+	mux := h.routes()
+	mk := newUpgradeMarket(t)
+	h.extensions.markets.client = mk.srv.Client()
+	dir := helperPackage(t)
+	mk.publish(dir)
+	code, market := call(t, mux, "POST", "/api/v1/extensions/-/markets", phone, fmt.Sprintf(`{"spec":%q}`, mk.srv.URL+"/plugins/"))
+	if code != 200 {
+		t.Fatalf("market: %d %+v", code, market)
+	}
+	mid := market["id"].(string)
+	code, pv := call(t, mux, "POST", "/api/v1/extensions/-/catalog/preview", phone, fmt.Sprintf(`{"market":%q,"extension":"example-helper"}`, mid))
+	if code != 200 {
+		t.Fatalf("preview: %d %+v", code, pv)
+	}
+	code, installed := call(t, mux, "POST", "/api/v1/extensions/-/install", phone, fmt.Sprintf(`{"preview_id":%q,"permissions_digest":%q}`, pv["preview_id"], pv["permissions_digest"]))
+	if code != 200 {
+		t.Fatalf("install: %d %+v", code, installed)
+	}
+	reg := h.extensions.reg
+	if err := reg.SetSecret(context.Background(), "example-helper", "api_key", "fixture-secret", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetConfig(context.Background(), "example-helper", json.RawMessage(`{"computers":["configured-node"]}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	u := h.extensionUpgrades()
+	u.loaded = true
+	u.settings.Off = []string{"example-helper"}
+	u.settings.Skipped = map[string]string{"example-helper": "1.0.9"}
+	old := reg.SnapshotExact("example-helper")
+	editManifest(t, dir, func(m map[string]any) { m["id"], m["version"] = "renamed-helper", "1.1.0" })
+	mk.publish(dir)
+	mk.mu.Lock()
+	var catalog map[string]any
+	if err := json.Unmarshal(mk.index, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	catalog["plugins"].([]any)[0].(map[string]any)["replaces"] = "example-helper"
+	mk.index, _ = json.Marshal(catalog)
+	mk.mu.Unlock()
+	if _, err := h.marketRead(context.Background(), mid); err != nil {
+		t.Fatal(err)
+	}
+	code, rename := call(t, mux, "POST", "/api/v1/extensions/-/catalog/preview", phone, fmt.Sprintf(`{"market":%q,"extension":"renamed-helper"}`, mid))
+	if code != 200 || rename["rename_from"] != "example-helper" {
+		t.Fatalf("rename preview: %d %+v", code, rename)
+	}
+	// A configured node that cannot be reached must not let the identity commit.
+	code, blocked := call(t, mux, "POST", "/api/v1/extensions/-/install", phone, fmt.Sprintf(`{"preview_id":%q,"permissions_digest":%q}`, rename["preview_id"], rename["permissions_digest"]))
+	if code == 200 || reg.GetExact("example-helper") == nil || reg.GetExact("renamed-helper") != nil {
+		t.Fatalf("unready node allowed identity commit: %d %+v", code, blocked)
+	}
+	_, _ = extensionNodeMachine(t, h, "configured-node", "linux", "amd64", false)
+	code, rename = call(t, mux, "POST", "/api/v1/extensions/-/catalog/preview", phone, fmt.Sprintf(`{"market":%q,"extension":"renamed-helper"}`, mid))
+	if code != 200 {
+		t.Fatalf("ready rename preview: %d %+v", code, rename)
+	}
+	// The final manager guard must recheck the declaration, not trust a preview-time catalog pointer.
+	staged := reg.PreviewOf(rename["preview_id"].(string))
+	ms := h.marketsState()
+	ms.mu.Lock()
+	var declared *extension.MarketEntry
+	for i := range ms.byID[mid].index.Extensions {
+		if ms.byID[mid].index.Extensions[i].Parsed.ID == "renamed-helper" {
+			declared = &ms.byID[mid].index.Extensions[i]
+		}
+	}
+	declared.Replaces = ""
+	ms.mu.Unlock()
+	if release, err := h.guardExtensionPlan(context.Background(), []*extension.Preview{staged}); err == nil {
+		if release != nil {
+			release()
+		}
+		t.Fatal("changed predecessor declaration passed final guard")
+	}
+	ms.mu.Lock()
+	declared.Replaces = "example-helper"
+	ms.mu.Unlock()
+	// Even generic install submission must act on the preview's predecessor, never create a second slot.
+	code, changed := call(t, mux, "POST", "/api/v1/extensions/-/install", phone, fmt.Sprintf(`{"preview_id":%q,"permissions_digest":%q}`, rename["preview_id"], rename["permissions_digest"]))
+	if code != 200 || changed["id"] != "renamed-helper" {
+		t.Fatalf("rename install: %d %+v", code, changed)
+	}
+	current := reg.SnapshotExact("renamed-helper")
+	if current == nil || current.Record.StorageKey() != old.Record.StorageKey() || reg.GetExact("example-helper") != nil {
+		t.Fatalf("second installation: %+v", current)
+	}
+	code, detail := call(t, mux, "GET", "/api/v1/extensions/example-helper/-/", phone, "")
+	if code != 200 || detail["id"] != "renamed-helper" {
+		t.Fatalf("owner alias: %d %+v", code, detail)
+	}
+	secrets, err := reg.Secrets(context.Background(), "example-helper")
+	if err != nil || secrets["api_key"] != "fixture-secret" {
+		t.Fatalf("same secrets: %v %v", secrets, err)
+	}
+	_, own := u.auto("renamed-helper")
+	if own || u.settings.Skipped[old.Record.StorageKey()] != "1.0.9" {
+		t.Fatal("stable upgrade choices lost")
+	}
+	token := h.extTokens.issue("example-helper", "Retired fixture", []string{extension.ScopeModels})
+	if auth := h.authorize(extwire.Authorize{Hash: hashToken(token), Pattern: "GET /api/v1/model-config", Method: "GET", Path: "/api/v1/model-config"}); auth.OK || auth.Extension != "" {
+		t.Fatalf("retired token gained alias authority: %+v", auth)
+	}
+	// Rollback retains both historical names, but the successor is not installed
+	// under its public ID until the owner explicitly confirms another rename.
+	code, rolled := call(t, mux, "POST", "/api/v1/extensions/renamed-helper/-/rollback", phone, `{}`)
+	if code != 200 || rolled["id"] != "example-helper" || reg.GetExact("renamed-helper") != nil {
+		t.Fatalf("identity rollback: %d %+v", code, rolled)
+	}
+	items := h.catalog("", mid)
+	if len(items) != 1 || items[0].RenameFrom != "example-helper" || items[0].Installed != "1.0.0" || !items[0].Upgradable {
+		t.Fatalf("successor alias hid rename after rollback: %+v", items)
+	}
+	for _, id := range []string{"example-helper", "renamed-helper"} {
+		code, rename = call(t, mux, "POST", "/api/v1/extensions/-/catalog/preview", phone, fmt.Sprintf(`{"market":%q,"extension":%q}`, mid, id))
+		if code != 200 || rename["rename_from"] != "example-helper" {
+			t.Fatalf("re-upgrade preview through %s: %d %+v", id, code, rename)
+		}
+	}
+	code, blocked = call(t, mux, "POST", "/api/v1/extensions/example-helper/-/upgrade", phone, fmt.Sprintf(`{"preview_id":%q,"permissions_digest":""}`, rename["preview_id"]))
+	if code == 200 || reg.GetExact("example-helper") == nil {
+		t.Fatalf("rollback alias bypassed explicit confirmation: %d %+v", code, blocked)
+	}
+	code, changed = call(t, mux, "POST", "/api/v1/extensions/example-helper/-/upgrade", phone, fmt.Sprintf(`{"preview_id":%q,"permissions_digest":%q}`, rename["preview_id"], rename["permissions_digest"]))
+	if code != 200 || changed["id"] != "renamed-helper" || reg.SnapshotExact("renamed-helper").Record.StorageKey() != old.Record.StorageKey() {
+		t.Fatalf("confirmed re-upgrade of the same slot: %d %+v", code, changed)
+	}
+}
 
 // marketTestStore keeps plugins and markets (the device tokens are the hub's).
 type marketTestStore struct {

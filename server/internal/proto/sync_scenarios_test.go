@@ -31,6 +31,7 @@ type syncCase struct {
 		MachineID string `json:"machine_id"`
 		SessionID string `json:"session_id"`
 		Assistant bool   `json:"assistant"`
+		New       bool   `json:"new,omitempty"` // the chat is the one a user.start starts: the hub has no session for it yet
 	} `json:"chat"`
 	Devices []string `json:"devices"`
 	Start   struct {
@@ -102,6 +103,10 @@ type syncUser struct {
 		ID   string `json:"id"`
 		Text string `json:"text"`
 	} `json:"send,omitempty"`
+	Start *struct { // a new conversation's first message (POST /assistant/conversations); id is its op id
+		ID   string `json:"id"`
+		Text string `json:"text"`
+	} `json:"start,omitempty"`
 	Answer *struct {
 		ID         string     `json:"id"`
 		Resolution Resolution `json:"resolution"`
@@ -293,6 +298,7 @@ type syncTruth struct {
 	events   []syncEvent
 	seen     map[string]Item // every item the hub held, by history and id
 	maxTo    map[string]int  // the furthest line read, by history
+	started  bool            // the chat exists on the hub (always, unless chat.new and no start was carried out yet)
 }
 
 func (h *syncTruth) note(items []Item) {
@@ -326,6 +332,7 @@ type syncSend struct {
 	status    int    // the last answer's status
 	receipt   bool   // a retry gets the hub's receipt
 	discarded bool
+	start     bool // the first message of a new conversation (user.start)
 }
 
 type syncDeviceState struct {
@@ -355,13 +362,19 @@ func checkSyncCase(t *testing.T, c syncCase) {
 		t.Fatalf("needs chat ids, devices and steps")
 	}
 	start := c.Start.Hub
-	if start.History == "" || start.EventStream == "" || !validState(start.Session.State) {
-		t.Fatalf("start.hub needs history, event_stream and a session state")
+	if start.History == "" || start.EventStream == "" || validState(start.Session.State) == c.Chat.New {
+		t.Fatalf("start.hub needs history, event_stream and a session state (none for a new chat)")
+	}
+	if c.Chat.New && (len(start.Lines) > 0 || start.ToSeq != 0 || len(start.Interactions) > 0 || len(start.Session.Queued) > 0) {
+		t.Fatalf("a new chat starts with nothing on the hub")
 	}
 	h := &syncTruth{history: start.History, lines: append([]Item(nil), start.Lines...), toSeq: start.ToSeq,
 		pending: map[string]Interaction{}, raised: map[string]Interaction{}, raisedAt: map[string]int64{}, ended: map[string]int64{},
-		state: start.Session.State, states: map[string]bool{start.Session.State: true}, stream: start.EventStream, seq: start.EventSeq,
-		seen: map[string]Item{}, maxTo: map[string]int{}}
+		state: start.Session.State, states: map[string]bool{}, stream: start.EventStream, seq: start.EventSeq,
+		seen: map[string]Item{}, maxTo: map[string]int{}, started: !c.Chat.New}
+	if h.started {
+		h.states[h.state] = true
+	}
 	checkLines(t, "start", h.lines, h.toSeq)
 	h.note(h.lines)
 	for _, ix := range start.Interactions {
@@ -469,9 +482,17 @@ func checkSyncCase(t *testing.T, c syncCase) {
 			d := dev(where, st.User.Device)
 			u := st.User
 			switch {
+			case u.Start != nil:
+				if !c.Chat.New || u.Start.ID == "" || strings.TrimSpace(u.Start.Text) == "" || d.send(u.Start.ID) != nil || slicesAny(d.sends, func(s *syncSend) bool { return s.start }) {
+					t.Fatalf("%s: a start is one new id and words, once, in a new chat", where)
+				}
+				d.sends = append(d.sends, &syncSend{id: u.Start.ID, text: u.Start.Text, atToSeq: h.toSeq, outcome: "inflight", start: true})
 			case u.Send != nil:
 				if u.Send.ID == "" || strings.TrimSpace(u.Send.Text) == "" || d.send(u.Send.ID) != nil {
 					t.Fatalf("%s: a send needs a new id and words", where)
+				}
+				if c.Chat.New && !slicesAny(d.sends, func(s *syncSend) bool { return s.start && (s.outcome == "accepted" || s.receipt) }) {
+					t.Fatalf("%s: a send in a new chat comes after this device's start was carried out and answered (or has its receipt)", where)
 				}
 				d.sends = append(d.sends, &syncSend{id: u.Send.ID, text: u.Send.Text, atToSeq: h.toSeq, outcome: "inflight"})
 			case u.Answer != nil:
@@ -496,7 +517,7 @@ func checkSyncCase(t *testing.T, c syncCase) {
 				t.Fatalf("%s: a user step needs one action", where)
 			}
 		case st.Reply != nil:
-			applyReply(t, where, dev(where, st.Reply.Device), st.Reply)
+			applyReply(t, where, c, h, dev(where, st.Reply.Device), st.Reply)
 		case st.Wait != nil:
 			if *st.Wait <= 0 {
 				t.Fatalf("%s: wait needs milliseconds", where)
@@ -606,6 +627,9 @@ func checkCard(t *testing.T, where string, c syncCase, ix Interaction) {
 }
 
 func applyHubChange(t *testing.T, where string, c syncCase, h *syncTruth, ch *syncHubChange) {
+	if !h.started && (ch.Rewrite != nil || len(ch.Append) > 0 || ch.ToSeq != nil || ch.End != nil || ch.Raise != nil || ch.Session != nil) {
+		t.Fatalf("%s: the chat's state changes before the hub started it", where)
+	}
 	if ch.Restart != nil {
 		if !ch.Restart.Resumable {
 			h.stream += "+"
@@ -678,7 +702,7 @@ func applyHubChange(t *testing.T, where string, c syncCase, h *syncTruth, ch *sy
 	}
 }
 
-func applyReply(t *testing.T, where string, d *syncDeviceState, r *syncReply) {
+func applyReply(t *testing.T, where string, c syncCase, h *syncTruth, d *syncDeviceState, r *syncReply) {
 	if r.Cut == (r.Status != 0) {
 		t.Fatalf("%s: a reply has a status or is cut", where)
 	}
@@ -702,6 +726,9 @@ func applyReply(t *testing.T, where string, d *syncDeviceState, r *syncReply) {
 	if s := d.send(r.Write); s != nil {
 		if s.outcome != "inflight" || s.receipt {
 			t.Fatalf("%s: reply to %s, which is not in flight", where, r.Write)
+		}
+		if s.start && done {
+			startChat(t, where, c, h, r)
 		}
 		switch {
 		case r.Cut && r.Receipt == nil:
@@ -731,6 +758,38 @@ func applyReply(t *testing.T, where string, d *syncDeviceState, r *syncReply) {
 	}
 }
 
+// startChat is the hub carrying out a start: the answer the app gets (or its retries get) is the new session, which
+// is the case's chat. One op id starts one conversation; a second carried out start would be another chat.
+func startChat(t *testing.T, where string, c syncCase, h *syncTruth, r *syncReply) {
+	if h.started {
+		t.Fatalf("%s: the hub carries out a start, but the chat exists already", where)
+	}
+	body := r.Body
+	if r.Receipt != nil {
+		body = r.Receipt.Body
+	}
+	var answer struct {
+		Session Session `json:"session"`
+	}
+	if err := strictDecode(body, &answer); err != nil {
+		t.Fatalf("%s: a carried out start answers {\"session\"}: %v", where, err)
+	}
+	if answer.Session.MachineID != c.Chat.MachineID || answer.Session.SessionID != c.Chat.SessionID || !validState(answer.Session.State) {
+		t.Fatalf("%s: the started session is the case's chat, with a state", where)
+	}
+	h.started, h.state = true, answer.Session.State
+	h.states[h.state] = true
+}
+
+func slicesAny(sends []*syncSend, f func(*syncSend) bool) bool {
+	for _, s := range sends {
+		if f(s) {
+			return true
+		}
+	}
+	return false
+}
+
 func outcomeOf(status int, done bool) string {
 	if status >= 200 && status < 300 && done {
 		return "accepted"
@@ -758,6 +817,9 @@ func deliverFrame(t *testing.T, where string, c syncCase, h *syncTruth, d *syncD
 	}
 	if !d.online {
 		t.Fatalf("%s: delivered while %s is disconnected", where, head.Type)
+	}
+	if !h.started && head.Type != "hub_restarting" {
+		t.Fatalf("%s: %s for a chat the hub has not started", where, head.Type)
 	}
 	switch head.Type {
 	case "items":
@@ -884,7 +946,7 @@ func checkView(t *testing.T, where string, d *syncDeviceState, v syncView, end b
 	for _, r := range v.Requests {
 		ok := (r.Get == "/items" && r.WS == "" && r.Post == "") ||
 			(r.WS == "subscribe" && r.Get == "" && r.Post == "") ||
-			((r.Post == "messages" || r.Post == "resolve") && r.Get == "" && r.WS == "" && (r.ID != "") != r.NewOp)
+			((r.Post == "messages" || r.Post == "resolve" || r.Post == "conversations") && r.Get == "" && r.WS == "" && (r.ID != "") != r.NewOp)
 		if !ok {
 			t.Errorf("%s: request %s", where, jsonString(r))
 		}

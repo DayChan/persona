@@ -14,7 +14,7 @@ struct ProviderProxyPage: View {
                             Text(mode.title).foregroundStyle(Color.primary).lineLimit(1)
                             Spacer()
                             if wizard.proxyMode == mode {
-                                Image(systemName: Theme.Icon.done).font(Theme.Font.label).foregroundStyle(Theme.accent)
+                                ThemedIcon(Theme.Icon.done).font(Theme.Font.label).foregroundStyle(Theme.accent)
                             }
                         }
                         .contentShape(.rect)

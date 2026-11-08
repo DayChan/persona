@@ -48,6 +48,8 @@ export interface Thread {
   /** UI version 5: a draft of the pending review; resolving it */
   pending?: boolean;
   resolve?: { id: string; confirm?: string; submit?: boolean; values?: Record<string, string> };
+  /** A session review's draft (#151, not an extension's): deleting it. */
+  remove?: { id: string };
 }
 
 // ── file tree ─────────────────────────────────────────

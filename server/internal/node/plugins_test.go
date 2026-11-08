@@ -22,6 +22,186 @@ import (
 	"github.com/nwverse/persona/server/internal/streams"
 )
 
+// Identity tests use only a temporary node directory and the test child process.
+func TestPluginIdentitySlotPersistenceAndStaleOperations(t *testing.T) {
+	n, _ := pluginTestNode(t)
+	ph := n.plugins()
+	if err := ph.own("notes"); err != nil {
+		t.Fatal(err)
+	}
+	data := ph.dataDir("notes")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "sentinel"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyProg, legacyPackage := testPackage(t, "1.0.0")
+	if err := put(t, n, legacyProg, legacyPackage); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := ph.start(context.Background(), startParams("1.0.0", "rpc")); err != nil || st.State != "running" {
+		t.Fatalf("old run: %+v %v", st, err)
+	}
+	ph.mu.Lock()
+	oldRun := ph.running["notes"]
+	ph.mu.Unlock()
+	identity := proto.PluginNodeIdentity{ID: "renamed-notes", StorageID: "notes", Revision: 2}
+	t.Cleanup(func() { ph.stop(identity.ID) })
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{identity}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{identity}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	prog, pkg := testPackage(t, "1.1.0")
+	prog.ID, prog.StorageID, prog.Revision = identity.ID, identity.StorageID, identity.Revision
+	if err := put(t, n, prog, pkg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ph.versionDir("notes", "1.1.0")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ph.dir, identity.ID)); !os.IsNotExist(err) {
+		t.Fatalf("second slot created: %v", err)
+	}
+	if st, _ := oldRun.proc.Status(); st != "stopped" {
+		t.Fatalf("old runtime still alive: %s", st)
+	}
+	start := startParams("1.1.0", "rpc")
+	start.ID, start.StorageID, start.Revision = identity.ID, identity.StorageID, identity.Revision
+	if st, err := ph.start(context.Background(), start); err != nil || st.State != "running" {
+		t.Fatalf("new run: %+v %v", st, err)
+	}
+	out, err := ph.call(context.Background(), proto.PluginNodeCall{ID: identity.ID, Method: "demo.env"})
+	var env map[string]string
+	if err != nil || json.Unmarshal(out, &env) != nil || env["data"] != data {
+		t.Fatalf("new run data slot: %s %v", out, err)
+	}
+	if _, err := ph.call(context.Background(), proto.PluginNodeCall{ID: "notes", Method: "demo.env"}); err == nil {
+		t.Fatal("retired runtime still routed")
+	}
+	ph.sync(proto.PluginNodeSync{Identity: true, Revision: identity.Revision, InstalledSlots: []proto.PluginNodeIdentity{identity}})
+	if !ph.has(prog) {
+		t.Fatal("disabled migrated slot lost rollback package")
+	}
+	// A legacy or older-revision sync must not delete the committed slot.
+	ph.sync(proto.PluginNodeSync{Installed: []string{identity.ID}})
+	ph.sync(proto.PluginNodeSync{Identity: true, InstalledSlots: []proto.PluginNodeIdentity{{ID: "notes", StorageID: "notes", Revision: 1}}})
+	if _, err := os.Stat(filepath.Join(data, "sentinel")); err != nil {
+		t.Fatal(err)
+	}
+	stale := prog
+	stale.ID, stale.Revision = "notes", 1
+	if ph.has(stale) {
+		t.Fatal("retired identity can access successor package")
+	}
+	if _, err := ph.begin(proto.PluginNodePutBegin{PluginNodeProgram: stale, Size: int64(len(pkg))}); err == nil {
+		t.Fatal("stale upload accepted")
+	}
+	if _, err := ph.start(context.Background(), proto.PluginNodeStart{ID: "notes", StorageID: "notes", Version: "1.1.0", Revision: 1}); err == nil {
+		t.Fatal("stale start accepted")
+	}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{{ID: "notes", StorageID: "notes", Revision: 1}}); err == nil {
+		t.Fatal("stale identity applied")
+	}
+	// Restarting a host reads the persisted binding before touching packages.
+	restarted := &pluginHost{dir: ph.dir}
+	restarted.lifecycle.Lock()
+	err = restarted.checkIdentity("notes", "notes", 0)
+	restarted.lifecycle.Unlock()
+	if err == nil {
+		t.Fatal("restart reopened the retired legacy identity")
+	}
+	// An explicit rollback is a newer committed revision, not another directory.
+	rollback := proto.PluginNodeIdentity{ID: "notes", StorageID: "notes", Revision: 3}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{rollback}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "sentinel")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPluginIdentityUninstallThenFreshCanonicalReinstall(t *testing.T) {
+	n, _ := pluginTestNode(t)
+	ph := n.plugins()
+	old := proto.PluginNodeIdentity{ID: "renamed-notes", StorageID: "notes", Revision: 2, InstalledAt: 1}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{old}); err != nil {
+		t.Fatal(err)
+	}
+	prog, pkg := testPackage(t, "1.1.0")
+	prog.ID, prog.StorageID, prog.Revision = old.ID, old.StorageID, old.Revision
+	if err := put(t, n, prog, pkg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ph.syncRequest(proto.PluginNodeSync{Identity: true, Revision: old.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ph.dir, "notes")); !os.IsNotExist(err) {
+		t.Fatalf("uninstalled slot remains: %v", err)
+	}
+	fresh := proto.PluginNodeIdentity{ID: old.ID, StorageID: old.ID, Revision: 4, InstalledAt: 3}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{fresh}); err != nil {
+		t.Fatal(err)
+	}
+	prog.StorageID, prog.Revision = fresh.StorageID, fresh.Revision
+	if err := put(t, n, prog, pkg); err != nil {
+		t.Fatal(err)
+	}
+	start := startParams("1.1.0", "rpc")
+	start.ID, start.StorageID, start.Revision = fresh.ID, fresh.StorageID, fresh.Revision
+	t.Cleanup(func() { ph.stop(fresh.ID) })
+	if st, err := ph.start(context.Background(), start); err != nil || st.State != "running" {
+		t.Fatalf("fresh canonical run: %+v %v", st, err)
+	}
+	data := ph.dataDir(fresh.StorageID)
+	if err := os.WriteFile(filepath.Join(data, "new-sentinel"), []byte("fresh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{old}); err == nil {
+		t.Fatal("old binding superseded fresh installation")
+	}
+	if _, err := ph.syncRequest(proto.PluginNodeSync{Identity: true, InstalledSlots: []proto.PluginNodeIdentity{old}}); err == nil {
+		t.Fatal("old sync revision accepted")
+	}
+	if _, err := ph.syncRequest(proto.PluginNodeSync{Identity: true, Revision: old.Revision}); err == nil {
+		t.Fatal("late empty uninstall snapshot accepted after fresh reinstall")
+	}
+	if _, err := os.Stat(filepath.Join(data, "new-sentinel")); err != nil {
+		t.Fatal(err)
+	}
+	if ph.has(proto.PluginNodeProgram{ID: old.ID, StorageID: old.StorageID, Revision: old.Revision, Version: prog.Version, Digest: prog.Digest}) {
+		t.Fatal("retired slot became available again")
+	}
+}
+
+func TestPluginIdentityRejectsForeignSlotAndLateRun(t *testing.T) {
+	n, events := pluginTestNode(t)
+	ph := n.plugins()
+	if err := os.MkdirAll(filepath.Join(ph.dir, "foreign"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ph.applyIdentities([]proto.PluginNodeIdentity{{ID: "renamed", StorageID: "foreign", Revision: 1}}); err == nil {
+		t.Fatal("foreign slot adopted")
+	}
+	if err := ph.own("foreign"); err == nil {
+		t.Fatal("foreign directory marked as owned")
+	}
+	old := &pluginRun{spec: proto.PluginNodeStart{ID: "notes"}}
+	current := &pluginRun{spec: proto.PluginNodeStart{ID: "notes"}}
+	ph.mu.Lock()
+	ph.running["notes"] = current
+	ph.mu.Unlock()
+	ph.sendRun(old, "plugin.node.state", proto.PluginNodeState{ID: "notes", State: "error"})
+	if events() != "" {
+		t.Fatal("late old run event forwarded")
+	}
+	ph.mu.Lock()
+	delete(ph.running, "notes")
+	ph.mu.Unlock()
+}
+
 // runTestPlugin is the test binary as a plugin's program on a computer (NODE_TEST_PLUGIN, from TestMain):
 // demo.echo, demo.secrets (what initialize brought), demo.env; "broken" exits at once.
 func runTestPlugin(mode string) {
@@ -37,7 +217,11 @@ func runTestPlugin(mode string) {
 		os.Exit(0)
 	}
 	var init extension.InitializeParams
-	_ = serve.Serve(context.Background(), os.Stdin, os.Stdout, serve.Program{ID: "notes", Version: os.Getenv("NODE_TEST_VERSION"),
+	publicID := os.Getenv("PERSONA_PLUGIN_ID")
+	if publicID == "" {
+		publicID = "notes"
+	}
+	_ = serve.Serve(context.Background(), os.Stdin, os.Stdout, serve.Program{ID: publicID, Version: os.Getenv("NODE_TEST_VERSION"),
 		Init: func(_ context.Context, p extension.InitializeParams, h *serve.Hub) (map[string]any, error) {
 			init = p
 			_ = h.Notify("notes.ready", map[string]string{"dir": p.Extension.Dir})

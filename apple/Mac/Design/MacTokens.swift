@@ -75,19 +75,17 @@ extension Theme {
 }
 
 extension Theme.Icon {
-    /// Shows or hides the window's sections column (the toolbar button beside the traffic lights, ⌃⌘S).
-    static let sidebar = "sidebar.left"
     /// A click with the mouse or trackpad (the Mac's version of a tap, Terminal Settings › Actions).
     static let click = "cursorarrow.click"
     /// The right-click menu.
     static let contextMenu = "contextualmenu.and.cursorarrow"
     /// A trackpad swipe sideways.
-    static let swipe = "arrow.left.arrow.right"
+    static let swipe = Theme.Icon.switchAgents
     /// This window takes the terminal over (iOS: `handoff`, the phone does).
     static let takeOverWindow = "macwindow.and.cursorarrow"
     /// Moving an item one place up / down in a list without an edit mode (Terminal Settings › Quick Commands).
-    static let moveUp = "arrow.up"
-    static let moveDown = "arrow.down"
+    static let moveUp = Theme.Icon.up
+    static let moveDown = Theme.Icon.down
 }
 
 extension Theme.Fill {

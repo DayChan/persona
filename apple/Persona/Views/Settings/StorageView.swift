@@ -35,10 +35,10 @@ nonisolated enum StorageKind: String, CaseIterable, Identifiable, Sendable {
 
     var icon: String {
         switch self {
-        case .agentChats: "bubble.left.and.text.bubble.right"
-        case .chatImages: "photo.on.rectangle"
+        case .agentChats: Theme.Icon.agentChat
+        case .chatImages: Theme.Icon.photos
         case .feishuMedia: "paperclip"
-        case .pageState: "list.bullet.rectangle"
+        case .pageState: Theme.Icon.list
         case .web: Theme.Icon.safari
         case .network: "network"
         case .other: "shippingbox"
@@ -275,7 +275,7 @@ struct StorageView: View {
 
     private func row(_ kind: StorageKind) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: kind.icon)
+            ThemedIcon(kind.icon)
                 .font(Theme.Font.bodyStrong)
                 .foregroundStyle(.white)
                 .scaledFrame(width: Theme.Size.wellS, height: Theme.Size.wellS)

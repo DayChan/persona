@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Run an extension action in ${applicationName}": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Run an extension action in ${applicationName}" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 ${applicationName} 中运行扩展操作" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "${applicationName} で拡張アクションを実行" } }
+      }
+    },
     "${applicationName} status": {
       "localizations": {
         "en": {

@@ -32,6 +32,8 @@ import Foundation
     let settle: Duration
     let cap: Duration
     private(set) var reasons: Set<Reason> = []
+    /// Invalidates an asynchronous landing permission when a new gesture or visibility edge is registered.
+    private(set) var activity: UInt64 = 0
     /// Since when something waits (nil: what shows is the latest).
     private(set) var waitingSince: Date?
     private var settleTask: Task<Void, Never>?
@@ -48,6 +50,7 @@ import Foundation
     /// The page's state. Scrolling starts at once and ends only after the list has rested `settle` (a move in between
     /// keeps it going); out of sight starts and ends at once.
     func set(_ reason: Reason, _ on: Bool) {
+        activity &+= 1
         if reason == .scrolling {
             settleTask?.cancel()
             settleTask = nil

@@ -852,6 +852,9 @@ func (h *Manager) launch(ctx context.Context, job previewJob, from *extOp, async
 			upgrade := ""
 			if pv.Upgrade {
 				upgrade = pv.Manifest.ID
+				if pv.RenameFrom != "" {
+					upgrade = pv.RenameFrom
+				}
 			}
 			_, _ = h.installOp(i18n.With(context.Background(), job.lang), op, upgrade, pv.ID, pv.Digest, refs, job.actor)
 		})
@@ -870,6 +873,12 @@ func (h *Manager) launch(ctx context.Context, job previewJob, from *extOp, async
 func (h *Manager) installOp(ctx context.Context, op *extOp, upgrade, previewID, digest string, refs []bundleRef, actor string) (*extension.Extension, error) {
 	reg := h.extensions.reg
 	pv := reg.PreviewOf(previewID)
+	if pv != nil && pv.RenameFrom != "" {
+		if upgrade != "" && upgrade != pv.Manifest.ID && reg.CanonicalID(upgrade) != pv.RenameFrom {
+			return nil, i18n.Err("extension-identity.invalid")
+		}
+		upgrade = pv.RenameFrom
+	}
 	h.installing(op, pv, digest)
 	p, err := h.installExtensionPlan(extension.WithProgress(ctx, h.progress(op)), upgrade, previewID, digest, refs, actor) // members and it together
 	if err != nil {

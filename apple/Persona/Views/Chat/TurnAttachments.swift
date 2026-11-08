@@ -271,7 +271,7 @@ struct ViewedImageThumb: View {
             } else if let p = image.payload, retries.attempt(p) > 0 { // asked again: the tap shows it was taken
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Image(systemName: symbol).font(Theme.Font.secondary).foregroundStyle(.tertiary)
+                ThemedIcon(symbol).font(Theme.Font.secondary).foregroundStyle(.tertiary)
             }
         }
         .scaledFrame(width: tileWidth(aspect, height: height), height: height)
@@ -280,7 +280,7 @@ struct ViewedImageThumb: View {
         .overlay(alignment: .bottomLeading) {
             // Not over the not-loaded placeholder on a small tile.
             if badge, !showsNotLoaded, image.source == .screenshot || image.source == .browser {
-                Image(systemName: symbol)
+                ThemedIcon(symbol)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(.white)
                     .scaledFrame(width: Theme.Size.iconXS, height: Theme.Size.iconXS)

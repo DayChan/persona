@@ -3,6 +3,7 @@ package i18n
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -13,7 +14,7 @@ func ExtensionStatusText(l Lang, text string) string { return extensionStatusTex
 
 var extensionStatusTemplates = makeCatalogTemplates(func(key string) bool {
 	return strings.HasPrefix(key, "extension-status.") && key != "extension-status.separator" ||
-		strings.HasPrefix(key, "extension-version.") || key == "hub-extensions.missing" ||
+		strings.HasPrefix(key, "extension-version.") || strings.HasPrefix(key, "extension-identity.") || key == "hub-extensions.missing" ||
 		key == "hub-extensions.socket_path_too_long" || key == "extension-market_git.git_missing" ||
 		key == "extension-sandbox.probe_tmp"
 })
@@ -254,6 +255,20 @@ func ExtensionClientJSON(l Lang, raw []byte) []byte {
 			body["warnings"], _ = json.Marshal(warnings)
 			if hasDetails {
 				body["warning_details"], _ = json.Marshal(details)
+			}
+		}
+		if manifest {
+			// Existing clients already show warnings but may not understand rename_from.
+			// Disclose the transition at the envelope boundary, never in author metadata.
+			var from, to string
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(body["rename_from"], &from) == nil && from != "" &&
+				json.Unmarshal(body["manifest"], &fields) == nil && json.Unmarshal(fields["id"], &to) == nil && to != "" {
+				notice := T(l, "extension-identity.confirmation", Args{"from": from, "to": to})
+				if !slices.Contains(warnings, notice) {
+					warnings = append([]string{notice}, warnings...)
+				}
+				body["warnings"], _ = json.Marshal(warnings)
 			}
 		}
 	}

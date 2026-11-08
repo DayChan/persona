@@ -18,7 +18,9 @@ import (
 // Extensions are the registry's rows.
 func (d *DB) Extensions(ctx context.Context) ([]extension.Record, error) {
 	rows, err := d.pool.Query(ctx, `SELECT id, source, origin, version, previous_version, manifest, granted, granted_digest, enabled,
-		config, remote, disabled_contributions, installed_at, updated_at, market_key, previous_origin, previous_market_key FROM plugins ORDER BY id`)
+		config, remote, disabled_contributions, installed_at, updated_at, market_key, previous_origin, previous_market_key, public_id, previous_id,
+ ARRAY(SELECT name FROM plugin_identities WHERE plugin = plugins.id AND name <> COALESCE(NULLIF(public_id, ''), plugins.id) ORDER BY name)
+ FROM plugins ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -27,9 +29,16 @@ func (d *DB) Extensions(ctx context.Context) ([]extension.Record, error) {
 	for rows.Next() {
 		var r extension.Record
 		var granted, remote, disabled []byte
+		var publicID string
 		if err := rows.Scan(&r.ID, &r.Source, &r.Origin, &r.Version, &r.PreviousVersion, &r.Manifest, &granted, &r.GrantedDigest, &r.Enabled,
-			&r.Config, &remote, &disabled, &r.InstalledAt, &r.UpdatedAt, &r.MarketKey, &r.PreviousOrigin, &r.PreviousMarketKey); err != nil {
+			&r.Config, &remote, &disabled, &r.InstalledAt, &r.UpdatedAt, &r.MarketKey, &r.PreviousOrigin, &r.PreviousMarketKey, &publicID, &r.PreviousID, &r.Aliases); err != nil {
 			return nil, err
+		}
+		if publicID != "" {
+			r.StorageID, r.ID = r.ID, publicID
+		}
+		if len(r.Aliases) == 0 {
+			r.Aliases = nil
 		}
 		if err := json.Unmarshal(granted, &r.Granted); err != nil {
 			return nil, err
@@ -50,17 +59,18 @@ func (d *DB) Extensions(ctx context.Context) ([]extension.Record, error) {
 
 // PutExtension writes an extension's row.
 func (d *DB) PutExtension(ctx context.Context, r extension.Record) error {
-	return putExtension(ctx, d.pool, r)
+	return d.PutExtensionPlan(ctx, []extension.Record{r})
 }
 
 type extensionExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 // PutExtensionPlan changes all records atomically, without deleting or rewriting any existing secrets.
 func (d *DB) PutExtensionPlan(ctx context.Context, records []extension.Record) error {
 	ordered := slices.Clone(records)
-	slices.SortFunc(ordered, func(a, b extension.Record) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(ordered, func(a, b extension.Record) int { return strings.Compare(a.StorageKey(), b.StorageKey()) })
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -75,7 +85,10 @@ func (d *DB) PutExtensionPlan(ctx context.Context, records []extension.Record) e
 			return err
 		}
 	}
-	err = tx.Commit(ctx)
+	return extensionCommitResult(tx.Commit(ctx))
+}
+
+func extensionCommitResult(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -89,6 +102,15 @@ func (d *DB) PutExtensionPlan(ctx context.Context, records []extension.Record) e
 }
 
 func putExtension(ctx context.Context, executor extensionExecutor, r extension.Record) error {
+	if r.ExpectedID != "" {
+		var id, version string
+		if err := executor.QueryRow(ctx, `SELECT COALESCE(NULLIF(public_id, ''), id), version FROM plugins WHERE id = $1 FOR UPDATE`, r.StorageKey()).Scan(&id, &version); err != nil {
+			return err
+		}
+		if id != r.ExpectedID || version != r.ExpectedVersion {
+			return extension.ErrIdentity
+		}
+	}
 	granted, err := json.Marshal(r.Granted)
 	if err != nil {
 		return err
@@ -111,15 +133,63 @@ func putExtension(ctx context.Context, executor extensionExecutor, r extension.R
 	if err != nil {
 		return err
 	}
-	_, err = executor.Exec(ctx, `INSERT INTO plugins (id, source, origin, version, previous_version, manifest, granted, granted_digest, enabled,
-		config, remote, installed_at, updated_at, disabled_contributions, market_key, previous_origin, previous_market_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+	publicID := ""
+	if r.StorageID != "" {
+		publicID = r.ID
+	}
+	tag, err := executor.Exec(ctx, `INSERT INTO plugins (id, source, origin, version, previous_version, manifest, granted, granted_digest, enabled,
+		config, remote, installed_at, updated_at, disabled_contributions, market_key, previous_origin, previous_market_key, public_id, previous_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		ON CONFLICT (id) DO UPDATE SET source = $2, origin = $3, version = $4, previous_version = $5, manifest = $6, granted = $7,
 		granted_digest = $8, enabled = $9, config = $10, remote = $11, updated_at = $13, disabled_contributions = $14, market_key = $15,
-		previous_origin = $16, previous_market_key = $17`,
-		r.ID, r.Source, r.Origin, r.Version, r.PreviousVersion, []byte(r.Manifest), granted, r.GrantedDigest, r.Enabled,
-		[]byte(config), remote, r.InstalledAt, r.UpdatedAt, off, r.MarketKey, r.PreviousOrigin, r.PreviousMarketKey)
-	return err
+		previous_origin = $16, previous_market_key = $17, public_id = $18, previous_id = $19
+ WHERE NOT $22 AND ($20 = '' OR COALESCE(NULLIF(plugins.public_id, ''), plugins.id) = $20 AND plugins.version = $21)`,
+		r.StorageKey(), r.Source, r.Origin, r.Version, r.PreviousVersion, []byte(r.Manifest), granted, r.GrantedDigest, r.Enabled,
+		[]byte(config), remote, r.InstalledAt, r.UpdatedAt, off, r.MarketKey, r.PreviousOrigin, r.PreviousMarketKey, publicID, r.PreviousID, r.ExpectedID, r.ExpectedVersion, r.NewInstallation)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return extension.ErrIdentity
+	}
+	names := append(slices.Clone(r.Aliases), r.ID)
+	// Even after a rename, the original storage key stays reserved to this slot.
+	names = append(names, r.StorageKey())
+	slices.Sort(names)
+	names = slices.Compact(names)
+	for _, name := range names {
+		tag, err = executor.Exec(ctx, `INSERT INTO plugin_identities (name, plugin) VALUES ($1, $2)
+   ON CONFLICT (name) DO UPDATE SET plugin = plugin_identities.plugin WHERE plugin_identities.plugin = EXCLUDED.plugin`, name, r.StorageKey())
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return extension.ErrIdentity
+		}
+	}
+	return nil
+}
+
+// DeleteExtensionRecord deletes only the installation identity/version that was
+// prepared for uninstall, keeping aliases and secret ownership in the same transaction.
+func (d *DB) DeleteExtensionRecord(ctx context.Context, row extension.Record) error {
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	tag, err := tx.Exec(ctx, `DELETE FROM plugins WHERE id=$1 AND COALESCE(NULLIF(public_id,''),id)=$2 AND version=$3 AND installed_at=$4`, row.StorageKey(), row.ID, row.Version, row.InstalledAt)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return extension.ErrIdentity
+	}
+	return extensionCommitResult(tx.Commit(ctx))
 }
 
 // DeleteExtension deletes an extension's row and (cascading) its secrets.

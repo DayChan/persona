@@ -29,7 +29,7 @@ func (s *blockingPlanStore) PutExtensionPlan(_ context.Context, records []Record
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, record := range records {
-		s.rows[record.ID] = record
+		s.rows[record.StorageKey()] = record
 	}
 	s.commits.Add(1)
 	return nil

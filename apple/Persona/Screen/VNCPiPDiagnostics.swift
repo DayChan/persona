@@ -63,7 +63,7 @@ struct VNCPiPDiagnostics: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: Theme.Icon.close) }
+                    Button { dismiss() } label: { ThemedIcon(Theme.Icon.close) }
                         .accessibilityLabel("Close")
                 }
             }

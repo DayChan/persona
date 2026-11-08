@@ -27,7 +27,7 @@ struct ComposerRow<MenuItems: View>: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: Theme.Space.s) {
             Menu { menu() } label: {
-                Image(systemName: Theme.Icon.add).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
+                ThemedIcon(Theme.Icon.add).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
             }
             #if os(macOS)
             // A Mac menu draws as a pull-down button with its arrow beside the label: clipped to the circle, the +
@@ -65,7 +65,7 @@ struct ComposerRow<MenuItems: View>: View {
                 SendGateButton(gate: gate)
             } else if let stop, !canSend {
                 Button(action: stop) {
-                    Image(systemName: Theme.Icon.interrupt).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
+                    ThemedIcon(Theme.Icon.interrupt).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
                 }
                 #if os(macOS)
                 .macRoundButton(prominent: true)
@@ -77,7 +77,7 @@ struct ComposerRow<MenuItems: View>: View {
                 .accessibilityLabel("Interrupt [Composer Buttons f9d193]")
             } else {
                 Button(action: sendTyped) {
-                    Image(systemName: Theme.Icon.send).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
+                    ThemedIcon(Theme.Icon.send).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
                 }
                 #if os(macOS)
                 .macRoundButton(prominent: true)
@@ -123,7 +123,7 @@ struct ComposerImages: View {
                         .clipShape(.rect(cornerRadius: Theme.Radius.control, style: .continuous))
                         .overlay(alignment: .bottomLeading) {
                             if edit != nil {
-                                Image(systemName: "pencil.tip.crop.circle.fill").font(Theme.Font.label).foregroundStyle(.white)
+                                ThemedIcon("pencil.tip.crop.circle.fill").font(Theme.Font.label).foregroundStyle(.white)
                                     .shadow(radius: 2).padding(Theme.Space.xs)
                             }
                         }
@@ -131,7 +131,7 @@ struct ComposerImages: View {
                         .accessibilityLabel(edit == nil ? String(localized: "Image \(idx + 1) [Composer Parts 0d2e3a]") : String(localized: "Image \(idx + 1), tap to edit"))
                         .overlay(alignment: .topTrailing) {
                             Button { images.remove(at: idx) } label: {
-                                Image(systemName: Theme.Icon.clear).symbolRenderingMode(.palette)
+                                ThemedIcon(Theme.Icon.clear).symbolRenderingMode(.palette)
                                     .foregroundStyle(.white, .black.opacity(0.6))
                             }
                             .offset(x: 5, y: -5)

@@ -11,12 +11,12 @@ struct TaskMark: View {
 
     var body: some View {
         if state == .failed {
-            Image(systemName: Theme.Icon.errorFilled)
+            ThemedIcon(Theme.Icon.errorFilled)
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(Theme.danger)
                 .accessibilityLabel("Didn't Start")
         } else if state == .done || state == .unread {
-            Image(systemName: Theme.Icon.successFilled)
+            ThemedIcon(Theme.Icon.successFilled)
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(state == .done ? Color.secondary : Theme.positive)
                 .accessibilityLabel(state == .done ? StateName.done.text : StateName.unread.text)
@@ -417,7 +417,7 @@ struct TaskNowLine: View {
         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
                 if state == .needsYou {
-                    Image(systemName: Theme.Icon.askFirst)
+                    ThemedIcon(Theme.Icon.askFirst)
                         .font(Theme.Font.label)
                         .foregroundStyle(state.agentState.tone.text)
                 }
@@ -471,7 +471,7 @@ struct TaskLine: View {
                     Text(todo.title).font(Theme.Font.secondaryMedium).lineLimit(1)
                     Spacer(minLength: Theme.Space.s)
                     Text(state.label).font(Theme.Font.caption).foregroundStyle(state.labelColor).lineLimit(1).fixedSize()
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, Theme.Space.m)
                 .padding(.vertical, Theme.Space.s)
@@ -609,7 +609,7 @@ struct AnsweredLine: View {
 
     private func header(expandable: Bool) -> some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.done).font(Theme.Font.labelStrong)
+            ThemedIcon(Theme.Icon.done).font(Theme.Font.labelStrong)
             HStack(spacing: Theme.Space.xs) {
                 if let id = item.ref, store.todos[id] != nil {
                     Button { store.detailTask = id } label: { Text(taskTitle).lineLimit(1) }
@@ -620,7 +620,7 @@ struct AnsweredLine: View {
                 Text("· \(item.answer ?? String(localized: "Answered"))").lineLimit(1)
             }
             if expandable {
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(open ? 90 : 0))
@@ -670,7 +670,7 @@ struct MessageCard: View {
         let state = store.messageState(item, itemID: itemID)
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: item.source == "mail" ? Theme.Icon.mail : Theme.Icon.groupChat)
+                ThemedIcon(item.source == "mail" ? Theme.Icon.mail : Theme.Icon.groupChat)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(Theme.loop)
                 Text([item.sender, item.chat].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
@@ -690,7 +690,7 @@ struct MessageCard: View {
                         Text(TaskNow(lead: store.leadSession(todo), working: state == .working)?.text ?? state.label)
                             .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, Theme.Space.m)
                     .padding(.vertical, Theme.Space.s)
@@ -786,7 +786,7 @@ struct ReceiptCard: View {
     var body: some View {
         let tint = item.failed ? Theme.danger : Theme.positive
         HStack(alignment: .top, spacing: Theme.Space.m) {
-            Image(systemName: item.failed ? Theme.Icon.errorFilled : Theme.Icon.successFilled)
+            ThemedIcon(item.failed ? Theme.Icon.errorFilled : Theme.Icon.successFilled)
                 .font(Theme.Font.heading)
                 .foregroundStyle(tint)
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -933,7 +933,7 @@ struct TaskDock: View {
         } label: {
             DockPillLabel(title: agent.title, state: agent.state, waiting: agent.isWaiting) {
                 StatusDot(state: agent.state, size: Theme.Size.dot)
-                Image(systemName: Theme.Icon.agents).font(Theme.Font.label)
+                ThemedIcon(Theme.Icon.agents).font(Theme.Font.label)
                     .foregroundStyle(agent.isWaiting ? AnyShapeStyle(agent.state.tone.text) : AnyShapeStyle(.secondary))
             }
         }
@@ -983,7 +983,7 @@ struct RouteChip: View {
                 Button {
                     withAnimation(Theme.Motion.state) { store.routes[conversation] = nil }
                 } label: {
-                    Image(systemName: Theme.Icon.close).font(Theme.Font.labelStrong)
+                    ThemedIcon(Theme.Icon.close).font(Theme.Font.labelStrong)
                         .scaledFrame(width: Theme.Size.badge, height: Theme.Size.badge)
                         .contentShape(.circle)
                 }

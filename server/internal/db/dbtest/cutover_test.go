@@ -72,9 +72,10 @@ spec = importlib.util.spec_from_file_location("persona_cutover_tests", sys.argv[
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 home = pathlib.Path(sys.argv[2])
-def cli_sql(source):
+def cli_sql(source, homes=()):
+    extra = [arg for other in homes for arg in ("--session-home", str(other))]
     result = subprocess.run([sys.executable, "-I", str(module.SCRIPT), "--source-name", source,
-                             "--home", str(home), "--print-database-sql"],
+                             "--home", str(home), "--print-database-sql", *extra],
                             capture_output=True, text=True, timeout=30, check=True)
     return result.stdout
 module.CUTOVER.database_sql = cli_sql
@@ -179,6 +180,11 @@ INSERT INTO devices (device_id,prefs,topic,relay_grant) VALUES ('fixture','{"loo
 	}
 	password, _ := parsed.User.Password()
 	home := t.TempDir()
+	// A stored session's folder under the previous root moves with it; any other folder stays (#1533).
+	if _, err := conn.Exec(ctx, `INSERT INTO node_sessions (machine_id,session_id,cwd) VALUES
+ ('fixture','assistant',$1),('fixture','project','/srv/code/app')`, home+"/.previous/assistant"); err != nil {
+		t.Fatal("seed stored sessions:", err)
+	}
 	script, err := filepath.Abs("../../../../scripts/migrate/persona-cutover.py")
 	if err != nil {
 		t.Fatal(err)
@@ -245,6 +251,21 @@ INSERT INTO devices (device_id,prefs,topic,relay_grant) VALUES ('fixture','{"loo
 	}
 	if err := json.Unmarshal(devices[0].Prefs, &prefs); err != nil || prefs.Look.Package != "persona-visor/r1" {
 		t.Fatal("Store device package lost", err)
+	}
+	folders := map[string]string{}
+	rows, err := conn.Query(ctx, "SELECT session_id, cwd FROM node_sessions WHERE machine_id='fixture'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id, cwd string
+		if err := rows.Scan(&id, &cwd); err != nil {
+			t.Fatal(err)
+		}
+		folders[id] = cwd
+	}
+	if rows.Err() != nil || folders["assistant"] != home+"/.persona/assistant" || folders["project"] != "/srv/code/app" {
+		t.Fatalf("stored session folders after cutover: %v %v", folders, rows.Err())
 	}
 	var after int
 	if err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&after); err != nil || after != migrationCount {

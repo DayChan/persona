@@ -98,8 +98,8 @@ func (ps *extensions) loadSandboxes(ctx context.Context) {
 	}
 	for _, p := range ps.reg.List() {
 		if sandboxApplies(p) {
-			if _, ok := sb.settings.On[p.Record.ID]; !ok {
-				sb.settings.On[p.Record.ID] = false
+			if _, ok := sb.settings.On[p.Record.StorageKey()]; !ok {
+				sb.settings.On[p.Record.StorageKey()] = false
 				ps.logf("extension %s: installed before sandboxes, keeps running without one (personad extension sandbox %s on)", p.Record.ID, p.Record.ID)
 			}
 		}
@@ -140,7 +140,7 @@ func (ps *extensions) sandboxOf(ctx context.Context, p *extension.Extension) san
 	st.Trusted = ps.fromTrustedMarket(ctx, p)
 	st.Default = !st.Trusted && !ps.sandboxes.noDefault
 	ps.sandboxes.mu.Lock()
-	on, chosen := ps.sandboxes.settings.On[p.Record.ID]
+	on, chosen := ps.sandboxes.settings.On[p.Record.StorageKey()]
 	ps.sandboxes.mu.Unlock()
 	st.Enabled, st.Chosen = st.Default, chosen
 	if chosen {
@@ -315,9 +315,9 @@ func (ps *extensions) setSandbox(ctx context.Context, p *extension.Extension, on
 		sb.settings.On = map[string]bool{}
 	}
 	if on == nil {
-		delete(sb.settings.On, p.Record.ID)
+		delete(sb.settings.On, p.Record.StorageKey())
 	} else {
-		sb.settings.On[p.Record.ID] = *on
+		sb.settings.On[p.Record.StorageKey()] = *on
 	}
 	sb.settings.Seeded = true
 	sb.mu.Unlock()
@@ -367,7 +367,7 @@ func (ps *extensions) confine(ctx context.Context, p *extension.Extension, hp *h
 		}
 		return nil
 	}
-	run := filepath.Join(ps.root, "run", id)
+	run := filepath.Join(ps.root, "run", p.Record.StorageKey())
 	// An agent runtime (permissions.agent_runtimes) reaches this machine's node through a socket of its own that leads
 	// to the node's runtime.sock and nowhere else (#5413): the node's is in the home directory, which the sandbox hides.
 	runtimeSock, proxySock := "", ""

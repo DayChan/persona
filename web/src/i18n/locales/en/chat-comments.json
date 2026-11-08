@@ -23,5 +23,8 @@
   "staged": "staged",
   "unstaged": "unstaged",
   "commit": "commit {sha}",
+  "review_uncommitted": "uncommitted",
+  "review_branch": "branch since {sha}",
+  "review_since": "since {sha}",
   "show_chat": "Show chat"
 }

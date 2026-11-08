@@ -88,9 +88,9 @@ struct ImageEditor: View {
                 toolButton(.box, String(localized: "Box"), "rectangle")
                 toolButton(.pen, String(localized: "Pen"), "scribble")
                 Spacer(minLength: 0)
-                Button { _ = marks.popLast() } label: { Image(systemName: Theme.Icon.undo).scaledFrame(width: Theme.Size.icon) }
+                Button { _ = marks.popLast() } label: { ThemedIcon(Theme.Icon.undo).scaledFrame(width: Theme.Size.icon) }
                     .themedButton().disabled(marks.isEmpty).accessibilityLabel("Undo")
-                Button { marks = [] } label: { Image(systemName: Theme.Icon.delete).scaledFrame(width: Theme.Size.icon) }
+                Button { marks = [] } label: { ThemedIcon(Theme.Icon.delete).scaledFrame(width: Theme.Size.icon) }
                     .themedButton().disabled(marks.isEmpty).accessibilityLabel("Clear [Image Editor bce237]")
             }
         }

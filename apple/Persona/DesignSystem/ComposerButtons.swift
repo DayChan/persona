@@ -15,7 +15,7 @@ struct ComposerMicButton: View {
 
     var body: some View {
         Button(action: toggle) {
-            Image(systemName: dictation.isListening ? Theme.Icon.dictating : Theme.Icon.dictate)
+            ThemedIcon(dictation.isListening ? Theme.Icon.dictating : Theme.Icon.dictate)
                 .font(Theme.Font.heading)
                 .fontWeight(.medium)
                 .foregroundStyle(dictation.isListening ? Theme.accent : ComposerInk.icon(theme))
@@ -50,7 +50,7 @@ struct ComposerRoundButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.bodyHeavy)
                 .foregroundStyle(AppStyle.current.usesBeautifulUI ? theme.colors.canvas : Theme.Shell.inkText)
                 .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
@@ -86,7 +86,7 @@ struct ComposerVoiceButton: View {
             ComposerRoundButton(symbol: Theme.Icon.voiceChannel, label: String(localized: "Voice Chat"), id: id, action: action)
         } else {
             Button(action: action) {
-                Image(systemName: Theme.Icon.voiceChannel)
+                ThemedIcon(Theme.Icon.voiceChannel)
                     .font(Theme.Font.heading)
                     .fontWeight(.medium)
                     .foregroundStyle(ComposerInk.icon(theme))

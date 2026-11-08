@@ -391,6 +391,66 @@ func TestHerdrStartThatNeverGetsReady(t *testing.T) {
 	}
 }
 
+// Claude comes up and exits before its input box (a launcher's bad config): herdr stops naming it and the pane's shell
+// is back in front, so the start fails within claudeGoneWait of that, not claudeReadyWait later, with the pane's last
+// lines, and closes its tab (#1447).
+func TestHerdrStartWhoseClaudeExitsFailsAtOnce(t *testing.T) {
+	n, f, home := herdrNode(t)
+	withStartWaits(n, time.Minute, time.Minute)
+	f.reply("session.snapshot", snapshot(nil, nil, nil, nil))
+	f.reply("tab.create", map[string]any{"tab": map[string]any{"tab_id": "w1:t2"}, "root_pane": map[string]any{"pane_id": "w1:p2"}})
+	f.reply("pane.list", map[string]any{"panes": []any{map[string]any{"pane_id": "w1:p2", "tab_id": "w1:t2"}}})
+	var mu sync.Mutex
+	gets := 0
+	f.handle("agent.get", func(map[string]any) any {
+		mu.Lock()
+		defer mu.Unlock()
+		if gets++; gets <= 2 { // claude runs for about a second
+			return map[string]any{"agent": map[string]any{"agent": "claude", "agent_status": proto.StatusUnknown, "pane_id": "w1:p2"}}
+		}
+		return map[string]any{"agent": map[string]any{"agent": "", "agent_status": "unknown", "pane_id": "w1:p2"}}
+	})
+	f.reply("pane.process_info", foreground([2]string{"zsh", "-zsh"}))
+	f.setScreen("w1:p2", "Invalid private gateway configuration; stopped\n~/proj %")
+	began := time.Now()
+	_, err := request(t, n, "session.start", map[string]any{"cwd": home, "workspace_id": "w1", "prompt": "hi"})
+	if err == nil || !strings.Contains(err.Error(), "claude exited before showing its input box") ||
+		!strings.Contains(err.Error(), "Invalid private gateway configuration") {
+		t.Fatalf("start: %v", err)
+	}
+	if d := time.Since(began); d > 15*time.Second {
+		t.Errorf("waited %s for a claude that had exited", d)
+	}
+	if got := f.trace("tab.close"); len(got) != 1 {
+		t.Errorf("closed %v", got)
+	}
+}
+
+// Herdr loses sight of claude for a moment while the pane still runs something other than a shell (a wrapper between
+// two runs of claude): the start keeps waiting and succeeds once claude is back with its input box.
+func TestHerdrStartRidesOutABlinkOfClaude(t *testing.T) {
+	n, f, home := herdrNode(t)
+	withStartWaits(n, time.Minute, 20*time.Second)
+	f.reply("session.snapshot", snapshot(nil, nil, nil, nil))
+	f.reply("tab.create", map[string]any{"tab": map[string]any{"tab_id": "w1:t2"}, "root_pane": map[string]any{"pane_id": "w1:p2"}})
+	var mu sync.Mutex
+	gets := 0
+	f.handle("agent.get", func(map[string]any) any {
+		mu.Lock()
+		defer mu.Unlock()
+		if gets++; gets > 1 && gets <= 12 { // ~5 s without an agent after the first look
+			return map[string]any{"agent": map[string]any{"agent": "", "agent_status": "unknown", "pane_id": "w1:p2"}}
+		}
+		return map[string]any{"agent": map[string]any{"agent": "claude", "agent_status": proto.StatusIdle, "pane_id": "w1:p2",
+			"tab_id": "w1:t2", "workspace_id": "w1"}}
+	})
+	f.reply("pane.process_info", foreground([2]string{"node", "my-claude-wrapper"}))
+	f.setScreen("w1:p2", screenFixture(t, "claude-2.1.312-empty-162.txt"))
+	if _, err := request(t, n, "session.start", map[string]any{"cwd": home, "workspace_id": "w1", "prompt": "hi"}); err != nil {
+		t.Fatalf("a wrapper between two runs of claude failed the start: %v", err)
+	}
+}
+
 // A machine whose Claude Code never ran (2.1.318): the start answers the style picker, then the security notes, then the
 // folder's trust dialog, and comes back with the agent ready. Before, the picker's unnumbered choices were not recognised
 // and the start timed out on it; nothing answered the security notes after it either.

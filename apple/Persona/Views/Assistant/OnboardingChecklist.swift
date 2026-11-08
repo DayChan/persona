@@ -220,13 +220,13 @@ struct ChecklistSettingsRow: View {
             Section {
                 Button { open = true } label: {
                     HStack(spacing: Theme.Space.m) {
-                        Image(systemName: Theme.Icon.todo).font(Theme.Font.heading).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.todo).font(Theme.Font.heading).foregroundStyle(Theme.caution)
                         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                             Text("\(n) steps to go").font(Theme.Font.heading).foregroundStyle(Color.primary).lineLimit(1)
                             Text("Connect a computer and a model so Persona can answer").font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                     }
                     .contentShape(.rect)
                 }

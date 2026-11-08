@@ -31,6 +31,15 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>PersonaAppGroup</key>
+	<string>$(PERSONA_WATCH_APP_GROUP)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array><string>persona</string></array>
+		</dict>
+	</array>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>

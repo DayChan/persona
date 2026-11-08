@@ -2,17 +2,30 @@
   "Persona\/App\/PerfSignpost.swift" : {
     "fixedFrame" : 1
   },
+  "Persona\/DesignSystem\/AgentMark.swift" : {
+    "rawSymbol" : 1
+  },
   "Persona\/DesignSystem\/Components.swift" : {
     "padding" : 3
   },
   "Persona\/DesignSystem\/Styling.swift" : {
     "animation" : 1
   },
+  "Persona\/DesignSystem\/ThemedIcon.swift" : {
+    "rawSymbol" : 2
+  },
+  "Persona\/Screen\/VNCPiPCard.swift" : {
+    "rawSymbol" : 1
+  },
   "Persona\/Views\/Assistant\/AssistantProfileView.swift" : {
     "padding" : 1
   },
   "Persona\/Views\/Assistant\/AssistantSidebar.swift" : {
-    "padding" : 1
+    "padding" : 1,
+    "rawSymbol" : 3
+  },
+  "Persona\/Views\/Assistant\/OnboardingChecklist.swift" : {
+    "rawSymbol" : 4
   },
   "Persona\/Views\/Chat\/ChatView.swift" : {
     "animation" : 7,
@@ -25,6 +38,12 @@
   "Persona\/Views\/Chat\/MessageMenu.swift" : {
     "animation" : 2,
     "hstackSpacing" : 1
+  },
+  "Persona\/Views\/Chat\/MessageViews.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Chat\/RenderedMarkdown.swift" : {
+    "rawSymbol" : 2
   },
   "Persona\/Views\/Chat\/TerminalKeys.swift" : {
     "animation" : 2
@@ -44,43 +63,96 @@
   "Persona\/Views\/Feishu\/Docs\/FeishuDocReader.swift" : {
     "animation" : 1,
     "cornerRadius" : 1,
-    "padding" : 2
+    "padding" : 2,
+    "rawSymbol" : 3
   },
   "Persona\/Views\/Feishu\/Docs\/FeishuDocRenderer.swift" : {
     "cornerRadius" : 1,
-    "hstackSpacing" : 1
+    "hstackSpacing" : 1,
+    "rawSymbol" : 5
   },
   "Persona\/Views\/Feishu\/Docs\/FeishuDocsComponents.swift" : {
     "cornerRadius" : 1,
     "padding" : 1
   },
+  "Persona\/Views\/Feishu\/Foundation\/FeishuFoundation.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/InboxActions.swift" : {
+    "rawSymbol" : 2
+  },
+  "Persona\/Views\/Inbox\/InboxEventViews.swift" : {
+    "rawSymbol" : 5
+  },
+  "Persona\/Views\/Inbox\/InboxView.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkAttachmentView.swift" : {
+    "rawSymbol" : 2
+  },
   "Persona\/Views\/Inbox\/Lark\/LarkCard.swift" : {
     "cornerRadius" : 2,
-    "hstackSpacing" : 1
+    "hstackSpacing" : 1,
+    "rawSymbol" : 6
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkChatPinsView.swift" : {
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Inbox\/Lark\/LarkChatView.swift" : {
     "cornerRadius" : 1,
-    "padding" : 1
+    "padding" : 1,
+    "rawSymbol" : 3
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkComposer.swift" : {
+    "rawSymbol" : 2
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkConversationRow.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkEncryption.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkEncryptionControls.swift" : {
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Inbox\/Lark\/LarkInline.swift" : {
-    "hexColor" : 32
+    "hexColor" : 32,
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkMedia.swift" : {
+    "rawSymbol" : 2
   },
   "Persona\/Views\/Inbox\/Lark\/LarkMessageContent.swift" : {
-    "hexColor" : 8
+    "hexColor" : 8,
+    "rawSymbol" : 4
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkOutbox.swift" : {
+    "rawSymbol" : 2
   },
   "Persona\/Views\/Inbox\/Lark\/LarkPeople.swift" : {
     "padding" : 2
   },
+  "Persona\/Views\/Inbox\/Lark\/LarkPinnedShelf.swift" : {
+    "rawSymbol" : 1
+  },
   "Persona\/Views\/Inbox\/Lark\/LarkReactionsMoments.swift" : {
     "hstackSpacing" : 1,
-    "padding" : 1
+    "padding" : 1,
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkReadReceipts.swift" : {
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Inbox\/Lark\/LarkSummaryCards.swift" : {
-    "hstackSpacing" : 1
+    "hstackSpacing" : 1,
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Inbox\/Lark\/LarkTime.swift" : {
     "cornerRadius" : 1,
     "padding" : 1
+  },
+  "Persona\/Views\/Inbox\/Lark\/LarkTopicCard.swift" : {
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Interactions\/InteractionViews.swift" : {
     "animation" : 1,
@@ -96,11 +168,16 @@
     "hexColor" : 16
   },
   "Persona\/Views\/Machines\/OSBadge.swift" : {
-    "hexColor" : 22
+    "hexColor" : 22,
+    "rawSymbol" : 2
   },
   "Persona\/Views\/Mail\/MailViews.swift" : {
     "hexColor" : 6,
-    "padding" : 1
+    "padding" : 1,
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Messages\/MessagesViews.swift" : {
+    "rawSymbol" : 1
   },
   "Persona\/Views\/Session\/SessionPanes.swift" : {
     "animation" : 1,
@@ -113,6 +190,24 @@
     "hstackSpacing" : 1,
     "padding" : 1
   },
+  "Persona\/Views\/Settings\/ChannelsViews.swift" : {
+    "rawSymbol" : 2
+  },
+  "Persona\/Views\/Settings\/ConnectorsViews.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Settings\/ExtensionAuthViews.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Settings\/ExtensionMarketViews.swift" : {
+    "rawSymbol" : 1
+  },
+  "Persona\/Views\/Settings\/ExtensionOperationViews.swift" : {
+    "rawSymbol" : 5
+  },
+  "Persona\/Views\/Settings\/ExtensionsViews.swift" : {
+    "rawSymbol" : 1
+  },
   "Persona\/Views\/Settings\/SettingsView.swift" : {
     "animation" : 1,
     "padding" : 1
@@ -120,8 +215,12 @@
   "Persona\/Views\/Settings\/StorageView.swift" : {
     "hstackSpacing" : 1
   },
+  "Persona\/Views\/Settings\/TriageSettingsView.swift" : {
+    "rawSymbol" : 1
+  },
   "PersonaWatch\/PersonaWatchApp.swift" : {
     "fixedFrame" : 4,
-    "padding" : 3
+    "padding" : 3,
+    "rawSymbol" : 10
   }
 }

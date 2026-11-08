@@ -109,7 +109,7 @@ struct InboxPage: View {
                             Button { composing = ComposeDraft(accountID: accounts.first?.id ?? "") } label: { Label("New Email", systemImage: Theme.Icon.compose) }
                                 .disabled(accounts.isEmpty)
                             Button { showingMutes = true } label: { Label("Muted [Inbox Mutes View e5e468]", systemImage: Theme.Icon.mute) }
-                        } label: { Image(systemName: Theme.Icon.moreMenu) }
+                        } label: { ThemedIcon(Theme.Icon.moreMenu) }
                         .accessibilityLabel("More")
                         .accessibilityIdentifier("inbox.more")
                     }
@@ -268,7 +268,7 @@ struct InboxPage: View {
             } label: {
                 HStack(spacing: Theme.Space.sm) {
                     Text("\(title) · \(count)").font(Theme.Font.sectionHeader).foregroundStyle(key == "action" ? Color.primary : .secondary)
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
                         .rotationEffect(.degrees(expanded.contains(key) ? 90 : 0))
                     Spacer(minLength: 0)
                 }
@@ -398,7 +398,7 @@ struct InboxPage: View {
             Haptics.tap()
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                if let symbol { Image(systemName: symbol).font(Theme.Font.label) }
+                if let symbol { ThemedIcon(symbol).font(Theme.Font.label) }
                 Text(title)
             }
             .font(on ? Theme.Font.secondaryStrong : Theme.Font.secondary)
@@ -460,7 +460,7 @@ struct InboxRow: View {
                 HStack(spacing: Theme.Space.sm) {
                     Text(translated.map(\.subject).flatMap { $0.isEmpty ? nil : $0 } ?? item.title).font(item.isDone ? Theme.Font.body : Theme.Font.heading).foregroundStyle(item.isDone ? .secondary : .primary).lineLimit(1)
                     if translated != nil {
-                        Image(systemName: Theme.Icon.translate).font(Theme.Font.label).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.translate).font(Theme.Font.label).foregroundStyle(.tertiary)
                             .accessibilityLabel("Translated")
                     }
                     if let label = item.kindLabel {
@@ -540,7 +540,7 @@ struct InboxRow: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                     .fill((LarkColor.text("orange") ?? Theme.accent).opacity(0.15))
                     .scaledFrame(width: Theme.Size.avatar, height: Theme.Size.avatar)
-                    .overlay(Image(systemName: Theme.Icon.moments).font(Theme.Font.bodyStrong).foregroundStyle(LarkColor.text("orange") ?? Theme.accent))
+                    .overlay(ThemedIcon(Theme.Icon.moments).font(Theme.Font.bodyStrong).foregroundStyle(LarkColor.text("orange") ?? Theme.accent))
             } else if item.isLark {
                 LarkAvatarImage(name: item.title, url: item.avatar, isGroup: item.lark?.isGroup ?? false, size: Theme.Size.avatar)
             } else {
@@ -554,7 +554,7 @@ struct InboxRow: View {
                 if let brand = item.isLark ? Theme.Brand.lark : item.connector != nil ? ConnectorText.brand(item.source) : nil {
                     BrandBadge(brand)
                 } else {
-                    Image(systemName: item.connector != nil ? Theme.Icon.connectors : Theme.Icon.mailFilled)
+                    ThemedIcon(item.connector != nil ? Theme.Icon.connectors : Theme.Icon.mailFilled)
                         .font(Theme.Font.labelHeavy).imageScale(.small).dynamicTypeSize(...DynamicTypeSize.large)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -632,7 +632,7 @@ struct InboxDraftCard: View {
             }
             Button(action: send) {
                 HStack(spacing: Theme.Space.xs) {
-                    if sending { ProgressView().controlSize(.mini).tint(.white) } else { Image(systemName: Theme.Icon.sendMail).font(Theme.Font.label) }
+                    if sending { ProgressView().controlSize(.mini).tint(.white) } else { ThemedIcon(Theme.Icon.sendMail).font(Theme.Font.label) }
                     Text("Send")
                 }
                 .font(Theme.Font.secondaryStrong).lineLimit(1)

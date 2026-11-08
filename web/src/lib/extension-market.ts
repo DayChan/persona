@@ -57,6 +57,10 @@ export interface CatalogItem {
   installed_source?: string;
   from_this_market?: boolean;
   upgradable?: boolean;
+  /** Source metadata alone never reserves an installed alias. */
+  replaces?: string;
+  /** Installed predecessor only after the hub verifies this market's ownership. */
+  rename_from?: string;
 }
 
 export interface Catalog {
@@ -77,6 +81,8 @@ export interface MarketPreview {
   warnings?: string[];
   expires_at: string;
   upgrade?: boolean;
+  /** The committed predecessor explicitly being upgraded, never a new install target. */
+  rename_from?: string;
   from?: string;
   more_permissions?: boolean;
   added_permissions?: ExtensionPermission[];
@@ -129,8 +135,8 @@ export const previewFromMarket = (market: string, extension: string, manager?: s
   api<MarketPreview>(`${M()}/catalog/preview`, { method: "POST", json: { market, extension, plugin: extension }, headers: itemHeaders(manager) });
 export const installPreview = (pv: MarketPreview, manager?: string) =>
   api<HubExtensionDetail>(`${M()}/install`, { method: "POST", json: previewConsent(pv), headers: itemHeaders(manager) }).then(changed);
-export const upgradePreview = (id: string, pv: MarketPreview) =>
-  api<HubExtensionDetail>(`${extRoot()}/${enc(id)}/-/upgrade`, { method: "POST", json: previewConsent(pv) }).then(changed);
+export const upgradePreview = (id: string, pv: MarketPreview, manager?: string) =>
+  api<HubExtensionDetail>(`${extRoot()}/${enc(pv.rename_from || id)}/-/upgrade`, { method: "POST", json: previewConsent(pv), headers: itemHeaders(manager) }).then(changed);
 export interface ExtensionRemovalResult {
   ok: boolean;
   /** The extension is gone, but these files need manual cleanup. Older hubs omit this. */
@@ -248,8 +254,13 @@ export const itemLine = (it: CatalogItem) => [it.version, it.publisher, it.marke
 /** A preview's version as it changes: "1.0.0 → 1.1.0" for an upgrade. */
 export const previewVersion = (pv: MarketPreview) => (pv.upgrade && pv.from ? `${pv.from} → ${pv.manifest.version}` : pv.manifest.version);
 
-/** The button that agrees: install, upgrade, or upgrade with more permissions. */
-export const agreeLabel = (pv: MarketPreview) => (pv.upgrade ? (pv.more_permissions ? t("lib-extension-market.agree_upgrade_more") : t("lib-extension-market.upgrade")) : t("lib-extension-market.agree_install"));
+/** Consent names the identity transition even when no additional permissions are requested. */
+export const renameConsent = (pv: Pick<MarketPreview, "manifest" | "rename_from">) => pv.rename_from
+  ? t("lib-extension-market.rename_detail", { from: pv.rename_from, to: pv.manifest.id }) : "";
+
+/** The button that agrees: explicit rename, install, or upgrade. */
+export const agreeLabel = (pv: MarketPreview) => pv.rename_from ? t("lib-extension-market.agree_rename")
+  : (pv.upgrade ? (pv.more_permissions ? t("lib-extension-market.agree_upgrade_more") : t("lib-extension-market.upgrade")) : t("lib-extension-market.agree_install"));
 
 // ── the settings route (?tab=extensions&extension=…) ──────────
 

@@ -140,3 +140,77 @@ func TestSwapProgramAndRestoreAll(t *testing.T) {
 		t.Fatalf("went back to %q %q %q", read("personad"), read("personad-old-program"), read("personad-new-program"))
 	}
 }
+
+// A program whose swap fails is still there after going back: the hub and the programs swapped before it go back,
+// the failed one stays as it was.
+func TestAFailedSwapLeavesTheProgram(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		had    bool
+		newBin func(t *testing.T, target string) string
+	}{
+		{"the new build cannot be read", true, func(t *testing.T, target string) string {
+			return filepath.Join(filepath.Dir(target), "gone")
+		}},
+		{"the copy to go back to cannot be written", true, func(t *testing.T, target string) string {
+			if err := os.MkdirAll(filepath.Join(target+".prev", "in-the-way"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(filepath.Dir(target), "new-program")
+		}},
+		{"a new program whose build cannot be read", false, func(t *testing.T, target string) string {
+			return filepath.Join(filepath.Dir(target), "gone")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			write := func(name, s string) string {
+				p := filepath.Join(dir, name)
+				if err := os.WriteFile(p, []byte(s), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return p
+			}
+			read := func(name string) string {
+				b, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil {
+					return "<none>"
+				}
+				return string(b)
+			}
+			target := write("personad", "old personad")
+			write("personad-first", "old first")
+			program := filepath.Join(dir, "personad-second")
+			want := "<none>"
+			if tc.had {
+				want = "old second"
+				write("personad-second", want)
+			}
+			newHub, newProg := write("new-personad", "new personad"), write("new-program", "new program")
+
+			prev, err := Swap(target, newHub)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := Pending{Target: target, Prev: prev}
+			first, err := SwapProgram(filepath.Join(dir, "personad-first"), newProg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := SwapProgram(program, tc.newBin(t, program))
+			if err == nil {
+				t.Fatal("the swap did not fail")
+			}
+			if read("personad-second") != want {
+				t.Fatalf("the failed swap changed the program: %q", read("personad-second"))
+			}
+			p.Programs = []Swapped{first, second}
+			if err := RestoreAll(p); err != nil {
+				t.Fatalf("going back (Swapped %+v): %v", second, err)
+			}
+			if read("personad") != "old personad" || read("personad-first") != "old first" || read("personad-second") != want {
+				t.Fatalf("went back to %q %q %q (Swapped %+v)", read("personad"), read("personad-first"), read("personad-second"), second)
+			}
+		})
+	}
+}

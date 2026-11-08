@@ -62,17 +62,25 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 	if old == nil || old.Record.Source != SourceInstalled {
 		return nil, fmt.Errorf("没有装过扩展 %s", id)
 	}
+	id = old.Record.ID
 	prev := old.Record.PreviousVersion
 	if prev == "" || old.Record.Remote != nil {
 		return nil, errors.New("没有可以回到的上一个版本")
 	}
-	data, err := os.ReadFile(ManifestPath(r.installedDir(id, prev)))
+	data, err := os.ReadFile(ManifestPath(r.installedDir(old.Record.StorageKey(), prev)))
 	if err != nil {
 		return nil, fmt.Errorf("上一个版本 %s 的包不在了", prev)
 	}
 	m, err := Parse(data)
 	if err != nil {
 		return nil, err
+	}
+	previousID := old.Record.PreviousID
+	if previousID == "" {
+		previousID = old.Record.ID
+	}
+	if m.ID != previousID || m.Version != prev {
+		return nil, ErrIdentity
 	}
 	var p *Extension
 	err = func() error {
@@ -82,6 +90,17 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 		if cur == nil || cur.Record.Version != old.Record.Version || cur.Record.PreviousVersion != prev {
 			return errors.New("扩展在回滚之前变了，请重试")
 		}
+		if previousID != id {
+			if occupied := r.extensions[r.canonicalID(previousID)]; occupied != nil && occupied.Record.StorageKey() != cur.Record.StorageKey() {
+				return ErrIdentity
+			}
+			delete(r.extensions, id)
+			defer func() {
+				if p == nil {
+					r.extensions[id] = cur
+				}
+			}()
+		}
 		if err := r.conflicts(m); err != nil {
 			return err
 		}
@@ -89,6 +108,12 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 			return err
 		}
 		row := snapshotExtension(cur).Record
+		row.ExpectedID, row.ExpectedVersion = cur.Record.ID, cur.Record.Version
+		row.ID, row.PreviousID = previousID, ""
+		if previousID != id && !slices.Contains(row.Aliases, id) {
+			row.Aliases = append(row.Aliases, id)
+		}
+		row.Aliases = slices.DeleteFunc(row.Aliases, func(alias string) bool { return alias == row.ID })
 		row.Version, row.PreviousVersion, row.UpdatedAt = prev, "", r.now()
 		// The old version's own provenance, never the current one's: a verified key goes back only with a snapshot.
 		row.MarketKey = ""
@@ -99,11 +124,16 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 		row.Manifest, _ = json.Marshal(m)
 		row.Granted, row.GrantedDigest = m.Permissions, Digest(m)
 		if err := r.store.PutExtension(ctx, row); err != nil {
+			var unknown *CommitUnknownError
+			if errors.As(err, &unknown) {
+				r.planProblem = err
+			}
 			return err
 		}
 		p = r.fromRow(row)
-		r.extensions[id] = p
-		r.prune(id, prev)
+		delete(r.extensions, id)
+		r.extensions[row.ID] = p
+		r.prune(row.StorageKey(), prev)
 		return nil
 	}()
 	if err != nil {
@@ -111,7 +141,7 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 	}
 	unlock()
 	r.audit(ctx, id, "rollback", actor, map[string]any{"from": old.Record.Version, "to": prev})
-	r.changed(Change{ID: id, Kind: "rolled_back", Old: old})
+	r.changed(Change{ID: p.Record.ID, Kind: "rolled_back", Old: old})
 	return p, nil
 }
 
@@ -136,6 +166,7 @@ func (r *Registry) Uninstall(ctx context.Context, id string, keepData bool, acto
 	if old.Record.Source != SourceInstalled {
 		return i18n.Err("extension-status.config_disable_only", i18n.Args{"id": id})
 	}
+	id = old.Record.ID
 	var trash string
 	err = func() error {
 		r.mu.Lock()
@@ -145,9 +176,10 @@ func (r *Registry) Uninstall(ctx context.Context, id string, keepData bool, acto
 			return fmt.Errorf("扩展 %s 在卸载之前变了，请重试", id)
 		}
 		old = snapshotExtension(cur)
-		dirs := []string{filepath.Join("installed", id), filepath.Join("tools", id)}
+		slot := old.Record.StorageKey()
+		dirs := []string{filepath.Join("installed", slot), filepath.Join("tools", slot)}
 		if !keepData {
-			dirs = append(dirs, filepath.Join("data", id))
+			dirs = append(dirs, filepath.Join("data", slot))
 		}
 		// Its directories move aside before the row goes: one that cannot move fails the uninstall with nothing
 		// changed, rather than leaving data behind an uninstall that said it worked. Load finishes or undoes a move
@@ -156,7 +188,17 @@ func (r *Registry) Uninstall(ctx context.Context, id string, keepData bool, acto
 		if err != nil {
 			return err
 		}
-		if err := r.store.DeleteExtension(ctx, id); err != nil {
+		if store, ok := r.store.(IdentityDeleteStore); ok {
+			err = store.DeleteExtensionRecord(ctx, old.Record)
+		} else {
+			err = r.store.DeleteExtension(ctx, slot)
+		}
+		if err != nil {
+			var unknown *CommitUnknownError
+			if errors.As(err, &unknown) {
+				r.planProblem = err
+				return err
+			} // Leave aside for committed-row reconciliation on restart.
 			if rerr := r.moveBack(aside); rerr != nil {
 				return putBackFailed(err, aside, rerr)
 			}
@@ -234,7 +276,7 @@ type asideMoves struct {
 // (the same file system, so a rename), after writing its manifest there. It returns that directory ("" when no dir
 // existed). On an error what moved is put back; when that fails too the directory is kept and named in the error.
 func (r *Registry) moveAside(row Record, dirs []string) (string, error) {
-	id := row.ID
+	id := row.StorageKey()
 	plan := asideMoves{ID: id, Version: row.Version, InstalledAt: row.InstalledAt.Unix()}
 	for i, d := range dirs {
 		if _, err := os.Lstat(filepath.Join(r.dir, d)); errors.Is(err, os.ErrNotExist) {
@@ -352,7 +394,7 @@ func (r *Registry) recoverUninstalls(rows []Record) {
 		_, cerr := os.Lstat(filepath.Join(aside, uninstallCommitted))
 		committed := cerr == nil
 		same := slices.ContainsFunc(rows, func(row Record) bool {
-			return row.ID == plan.ID && row.Source == SourceInstalled && row.Version == plan.Version && row.InstalledAt.Unix() == plan.InstalledAt
+			return row.StorageKey() == plan.ID && row.Source == SourceInstalled && row.Version == plan.Version && row.InstalledAt.Unix() == plan.InstalledAt
 		})
 		if !committed && same {
 			if err := r.moveBack(aside); err != nil {

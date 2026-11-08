@@ -40,6 +40,20 @@ struct RootView: View {
     /// the checklist after pairing (the same branches as `body`).
     private var shellShown: Bool { usesShell && model.isPaired && model.pairingEngineMachine == nil && !model.showsChecklist }
 
+    /// The tabs are on screen on an iPhone or iPad (Old Layout, iPad, iPhone Duo open), and with them a toast window of
+    /// their own (`ToastWindowHook`): the same branches as `body`, with no extension page in the app's place.
+    private var tabsToastWindow: Bool {
+        #if os(iOS)
+        !usesShell && model.isPaired && model.pairingEngineMachine == nil && !model.showsChecklist && model.extensionOpen == nil
+        #else
+        false
+        #endif
+    }
+
+    /// The toasts are drawn in this view's overlay: where no toast window is up (the welcome page, the engine step, the
+    /// checklist, an extension page in the app's place, the Mac, Apple Vision Pro).
+    private var overlayToasts: Bool { model.extensionOpen != nil || !(shellShown || tabsToastWindow) }
+
     var body: some View {
         #if DEBUG || PERF_SIGNPOST
         let _ = PerfTrace.body("RootView")
@@ -54,7 +68,7 @@ struct RootView: View {
                 #if os(visionOS)
                 RootTabs().visionShell()
                 #elseif os(iOS)
-                if usesShell { ShellView() } else { RootTabs() }
+                if usesShell { ShellView() } else { RootTabs().background { ToastWindowHook() } }
                 #else
                 RootTabs()
                 #endif
@@ -99,9 +113,10 @@ struct RootView: View {
         // List and sheet below. UIKit scroll views (MonoTextView, the terminal, web views) turn theirs off themselves.
         .scrollIndicators(.hidden)
         .markdownInlineImageProvider(MathInlineImages()).markdownImageProvider(WebMarkdownImages()) // inline formulas in every Markdown (MathMarkdown)
-        // The shell shows the toasts in a window of its own, over its sheets too (`ToastWindow`). Before the shell is on
-        // screen there is no such window: a pairing link that failed on the welcome page said nothing (#4273).
-        .overlay(alignment: .top) { if !shellShown || model.extensionOpen != nil { ToastOverlay().padding(.top, toastClearance) } }
+        // On iOS the shell and the tabs show the toasts in a window of their own (`ToastWindow`), over their covers and
+        // sheets too: drawn here, the tabs' Saved to Photos was under the image viewer and the share card (#1492). Where
+        // there is no such window they are drawn here: a pairing link that failed on the welcome page said nothing (#4273).
+        .overlay(alignment: .top) { if overlayToasts { ToastOverlay().padding(.top, toastClearance) } }
         #if os(iOS) || os(visionOS)
         // Settings › Appearance › Light & Dark on this scene's window (and any other open one) as it first shows.
         .onAppear { model.colorScheme.apply() }

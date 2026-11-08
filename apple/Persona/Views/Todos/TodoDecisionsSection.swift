@@ -152,7 +152,7 @@ struct TodoDecisionsSection: View {
                     }
                 }
             } label: {
-                Image(systemName: Theme.Icon.more)
+                ThemedIcon(Theme.Icon.more)
                     .font(Theme.Font.captionStrong)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Theme.Space.xs)

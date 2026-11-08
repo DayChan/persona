@@ -235,7 +235,7 @@ struct ProviderWizard: View {
                 step = .connect
             }
             pickRow(title: String(localized: "Custom Gateway"), detail: String(localized: "An Anthropic-compatible endpoint, like a Coding Plan or your company's proxy"), id: "wizard.kind.custom") {
-                Image(systemName: Theme.Icon.server).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.server).foregroundStyle(Theme.accent)
             } action: {
                 wizard.kind = .custom
                 step = .connect
@@ -245,10 +245,10 @@ struct ProviderWizard: View {
         }
         Section {
             pickRow(title: String(localized: "Import from ~/.zshrc"), detail: String(localized: "Turn the aliases that call claude on a computer into providers"), id: "wizard.kind.import") {
-                Image(systemName: Theme.Icon.terminal).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.terminal).foregroundStyle(Theme.accent)
             } action: { step = .importZshrc }
             pickRow(title: String(localized: "Other Connection Types"), detail: String(localized: "Direct API (Messages / Responses), providers from extensions"), id: "wizard.kind.other") {
-                Image(systemName: Theme.Icon.options).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.options).foregroundStyle(.secondary)
             } action: { other = true }
         }
     }
@@ -266,12 +266,12 @@ struct ProviderWizard: View {
             ForEach(wizard.presets) { p in
                 pickRow(title: p.title, detail: presetDetail(p), id: "wizard.preset.\(p.id)",
                         badge: p.isBuiltin ? nil : String(localized: "Extensions")) {
-                    Image(systemName: p.isBuiltin ? Theme.Icon.ai : Theme.Icon.plugins).foregroundStyle(Theme.accent)
+                    ThemedIcon(p.isBuiltin ? Theme.Icon.ai : Theme.Icon.plugins).foregroundStyle(Theme.accent)
                 } action: { pickPreset(p.id, from: .pick) }
             }
             pickRow(title: String(localized: "Custom compatible gateway"), detail: String(localized: "A relay, a company gateway or any Anthropic-compatible service; you enter the address and auth yourself"),
                     id: "wizard.kind.custom") {
-                Image(systemName: Theme.Icon.server).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.server).foregroundStyle(Theme.accent)
             } action: {
                 wizard.kind = .custom
                 step = .connect
@@ -288,7 +288,7 @@ struct ProviderWizard: View {
                 BrandMark(Theme.Brand.claude, side: Theme.Size.icon)
             } action: { step = .claude }
             pickRow(title: String(localized: "Where to get a model"), detail: String(localized: "No API key yet: see where each provider signs you up"), id: "wizard.path.get") {
-                Image(systemName: Theme.Icon.help).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.help).foregroundStyle(Theme.accent)
             } action: { step = .getModel }
             .disabled(wizard.signupPresets.isEmpty)
         }
@@ -297,11 +297,11 @@ struct ProviderWizard: View {
                 pickRow(title: String(localized: "Import from ~/.zshrc"),
                         detail: noComputer ? String(localized: "No computer yet: add one first, then import from it") : String(localized: "Turn the aliases that call claude on a computer into providers"),
                         id: "wizard.kind.import") {
-                    Image(systemName: Theme.Icon.terminal).foregroundStyle(noComputer ? Color.secondary : Theme.accent)
+                    ThemedIcon(Theme.Icon.terminal).foregroundStyle(noComputer ? Color.secondary : Theme.accent)
                 } action: { step = .importZshrc }
                 .disabled(noComputer)
                 pickRow(title: String(localized: "Other Connection Types"), detail: String(localized: "Direct API (Messages / Responses), providers from extensions"), id: "wizard.kind.other") {
-                    Image(systemName: Theme.Icon.options).foregroundStyle(.secondary)
+                    ThemedIcon(Theme.Icon.options).foregroundStyle(.secondary)
                 } action: { other = true }
             } label: { Text("Advanced").lineLimit(1) }
             .accessibilityIdentifier("wizard.pick.advanced")
@@ -321,7 +321,7 @@ struct ProviderWizard: View {
         if let p = wizard.preset {
             Section {
                 HStack(spacing: Theme.Space.m) {
-                    Image(systemName: p.isBuiltin ? Theme.Icon.ai : Theme.Icon.plugins).foregroundStyle(Theme.accent)
+                    ThemedIcon(p.isBuiltin ? Theme.Icon.ai : Theme.Icon.plugins).foregroundStyle(Theme.accent)
                         .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                     VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                         Text(p.title).font(Theme.Font.heading).lineLimit(1)
@@ -425,7 +425,7 @@ struct ProviderWizard: View {
         let summary = wizard.addedSummary
         Section {
             VStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.successFilled).font(Theme.Font.display).foregroundStyle(Theme.positive)
+                ThemedIcon(Theme.Icon.successFilled).font(Theme.Font.display).foregroundStyle(Theme.positive)
                 Text("\(wizard.addedTitle) is connected").font(Theme.Font.title).multilineTextAlignment(.center)
                 if !summary.assigned.isEmpty {
                     Text(summary.assigned).font(Theme.Font.body).multilineTextAlignment(.center)
@@ -500,7 +500,7 @@ struct ProviderWizard: View {
         Section {
             ForEach(wizard.signupPresets) { p in
                 HStack(spacing: Theme.Space.m) {
-                    Image(systemName: Theme.Icon.ai).foregroundStyle(Theme.accent)
+                    ThemedIcon(Theme.Icon.ai).foregroundStyle(Theme.accent)
                         .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                     VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                         Text(p.title).font(Theme.Font.heading).lineLimit(1)
@@ -538,7 +538,7 @@ struct ProviderWizard: View {
                     Text(detail).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: Theme.Space.s)
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
             .padding(.vertical, Theme.Space.xxs)
             .contentShape(.rect)
@@ -669,7 +669,7 @@ struct ProviderWizard: View {
             if picked {
                 Button {
                     withAnimation(Theme.Motion.standard) { expanded = expanded == m.id ? nil : m.id }
-                } label: { Image(systemName: Theme.Icon.info) }
+                } label: { ThemedIcon(Theme.Icon.info) }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Context and thinking level for \(m.title)")
             }
@@ -818,7 +818,7 @@ struct CheckRow<Content: View>: View {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .top, spacing: Theme.Space.m) {
-                Image(systemName: on ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+                ThemedIcon(on ? Theme.Icon.successFilled : Theme.Icon.unchecked)
                     .foregroundStyle(on ? Theme.accent : Color.secondary).font(Theme.Font.heading)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) { content }
                 Spacer(minLength: 0)
@@ -850,7 +850,7 @@ struct ProbeResultRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.m) {
-            Image(systemName: result.ok ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
+            ThemedIcon(result.ok ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
                 .foregroundStyle(result.ok ? Theme.positive : Theme.danger)
                 .scaledFrame(width: Theme.Size.iconS)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -877,7 +877,7 @@ struct ClaudeTryResult: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.m) {
-            Image(systemName: ok ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
+            ThemedIcon(ok ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
                 .foregroundStyle(ok ? Theme.positive : Theme.danger)
                 .scaledFrame(width: Theme.Size.iconS)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -919,7 +919,7 @@ struct LauncherImportSections: View {
                     Task { await imports.load() }
                 } label: {
                     HStack(spacing: Theme.Space.m) {
-                        Image(systemName: Theme.Icon.machine).foregroundStyle(m.online ? Theme.accent : Color.secondary)
+                        ThemedIcon(Theme.Icon.machine).foregroundStyle(m.online ? Theme.accent : Color.secondary)
                         Text(m.name).font(Theme.Font.body).foregroundStyle(.primary).lineLimit(1)
                         Spacer(minLength: Theme.Space.s)
                         if imports.phase == .loading, imports.machine == m.id { ProgressView() }
@@ -983,12 +983,12 @@ struct LauncherImportSections: View {
         Section {
             ForEach(created, id: \.self) { n in
                 Label { Text(n).font(Theme.Font.body.monospaced()) } icon: {
-                    Image(systemName: Theme.Icon.successFilled).foregroundStyle(Theme.positive)
+                    ThemedIcon(Theme.Icon.successFilled).foregroundStyle(Theme.positive)
                 }
             }
             ForEach(updated, id: \.self) { n in
                 Label { Text("\(n) (models merged)").font(Theme.Font.body.monospaced()) } icon: {
-                    Image(systemName: Theme.Icon.successFilled).foregroundStyle(Theme.accent)
+                    ThemedIcon(Theme.Icon.successFilled).foregroundStyle(Theme.accent)
                 }
             }
             if created.isEmpty && updated.isEmpty {

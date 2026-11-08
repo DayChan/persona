@@ -6,5 +6,7 @@
   "agent": "Agent",
   "link": "Link",
   "close": "Close panel",
-  "plan": "Plan"
+  "plan": "Plan",
+  "preview": "Preview",
+  "review": "Review"
 }

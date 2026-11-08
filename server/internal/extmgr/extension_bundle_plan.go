@@ -252,6 +252,13 @@ func (h *Manager) guardExtensionPlan(ctx context.Context, previews []*extension.
 	if !slices.ContainsFunc(previews, func(pv *extension.Preview) bool { return pv.Market != "" }) {
 		return nil, nil
 	}
+	for _, pv := range previews {
+		if pv.RenameFrom != "" {
+			if err := h.checkRenameNodeCapabilities(ctx, h.extensions.reg.SnapshotExact(pv.RenameFrom)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	ms := h.marketsState()
 	ms.mu.Lock()
 	fail := func(err error) (func(), error) { ms.mu.Unlock(); return nil, err }
@@ -259,9 +266,16 @@ func (h *Manager) guardExtensionPlan(ctx context.Context, previews []*extension.
 		if pv.Market == "" {
 			continue
 		}
-		rec, _, err := marketEntryLocked(ms, pv.Market, pv.Manifest.ID)
+		rec, entry, err := marketEntryLocked(ms, pv.Market, pv.Manifest.ID)
 		if err != nil {
 			return fail(err)
+		}
+		if pv.RenameFrom != "" {
+			old := h.extensions.reg.SnapshotExact(pv.RenameFrom)
+			target := h.extensions.reg.Snapshot(pv.Manifest.ID)
+			if entry.Parsed.ID != pv.Manifest.ID || entry.Replaces != pv.RenameFrom || old == nil || old.Record.Source != extension.SourceInstalled || old.Record.Origin != "market:"+pv.Market+"/"+pv.RenameFrom || (target != nil && target.Record.StorageKey() != old.Record.StorageKey()) {
+				return fail(i18n.Err("extension-identity.invalid"))
+			}
 		}
 		spec, key := pv.MarketTrust()
 		currentKey := rec.SigningKey

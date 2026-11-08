@@ -67,6 +67,7 @@ struct PersonaApp: App {
             if new == .active {
                 model.retryRegistry() // launched in the background before the first unlock: the pairing reads now
                 model.resumeLinks()
+                model.refreshExtensionSurfaces()
                 LiveActivityController.shared.look(model.fleetLook) { model.fleetFaces }
                 // The home screen icon in step with the Avatar and Light & Dark (a scheme from a launch argument, a switch the system
                 // cut short, the old App Icon setting); nothing happens when it already is, so no alert.
@@ -249,6 +250,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             completionHandler(.noData)
             return
         }
+        #if os(iOS)
+        if let widget = info["extension_widget"] as? [String: Any],
+           let owner = widget["extension"] as? String, let id = widget["id"] as? String,
+           !owner.isEmpty, !id.isEmpty, !AppModel.shared.isDemo {
+            let group = AppModel.shared.pushGroup(info)
+            ExtensionWidgetReconciliation.invalidate(group: group, owner: owner, contribution: id)
+            nonisolated(unsafe) let done = completionHandler
+            Task {
+                // Reconcile removals too: a stale subscription's wake can clear its last deleted widget.
+                await ExtensionWidgetReconciliation.reportConfigurations(group: group)
+                done(.newData)
+            }
+            return
+        }
+        #endif
         if let ids = info["resolved_interaction_ids"] as? [String] {
             // Cards answered elsewhere while suspended (#4349): their notifications leave the lock screen.
             nonisolated(unsafe) let done = completionHandler

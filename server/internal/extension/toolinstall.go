@@ -55,15 +55,21 @@ type ResolvedTool struct {
 }
 
 // ToolsDir is where an extension's tools are.
-func (r *Registry) ToolsDir(id string) string { return filepath.Join(r.dir, "tools", id) }
+func (r *Registry) ToolsDir(id string) string { return r.toolsDir(r.storageKey(id)) }
+
+func (r *Registry) toolsDir(id string) string { return filepath.Join(r.dir, "tools", id) }
 
 func (r *Registry) toolsVersionFile(id, version string) string {
-	return filepath.Join(r.ToolsDir(id), "versions", version+".json")
+	return filepath.Join(r.toolsDir(id), "versions", version+".json")
 }
 
 // Tools are the tools a version of id runs with (nil when it has none, or they are not installed).
 func (r *Registry) Tools(id, version string) []ResolvedTool {
-	b, err := os.ReadFile(r.toolsVersionFile(id, version))
+	return r.toolsAt(r.storageKey(id), version)
+}
+
+func (r *Registry) toolsAt(storageID, version string) []ResolvedTool {
+	b, err := os.ReadFile(r.toolsVersionFile(storageID, version))
 	if err != nil {
 		return nil
 	}
@@ -96,6 +102,10 @@ func (r *Registry) ToolPath(id, version, path string) string {
 // installTools installs the tools of version m.Version of extension m.ID, reporting StepTools on ctx. Nothing of a
 // failed install is left for that version (the tool directories it made may stay: they are complete or absent).
 func (r *Registry) installTools(ctx context.Context, m *Manifest) error {
+	return r.installToolsAt(ctx, m, r.storageKey(m.ID))
+}
+
+func (r *Registry) installToolsAt(ctx context.Context, m *Manifest, storageID string) error {
 	if len(m.Tools) == 0 {
 		reportState(ctx, StepTools, StepSkipped)
 		return nil
@@ -108,7 +118,7 @@ func (r *Registry) installTools(ctx context.Context, m *Manifest) error {
 	if platform == "" {
 		platform = Platform()
 	}
-	root := r.ToolsDir(m.ID)
+	root := r.toolsDir(storageID)
 	if err := os.MkdirAll(filepath.Join(root, "versions"), 0o755); err != nil {
 		return err
 	}
@@ -124,7 +134,7 @@ func (r *Registry) installTools(ctx context.Context, m *Manifest) error {
 		report(ctx, StepTools, StepEvent{State: StepRunning, Tool: t.Name, ToolState: StepDone, Reused: got.Reused})
 	}
 	b, _ := json.MarshalIndent(done, "", "  ")
-	if err := writeAtomic(r.toolsVersionFile(m.ID, m.Version), b); err != nil {
+	if err := writeAtomic(r.toolsVersionFile(storageID, m.Version), b); err != nil {
 		return err
 	}
 	reportState(ctx, StepTools, StepDone)
@@ -564,7 +574,7 @@ func sha256Sum(b []byte) []byte {
 
 // pruneTools keeps the tools of id's versions in keep (and what they use); everything else of id's goes.
 func (r *Registry) pruneTools(id string, keep ...string) {
-	root := r.ToolsDir(id)
+	root := r.toolsDir(id)
 	entries, err := os.ReadDir(filepath.Join(root, "versions"))
 	if err != nil {
 		return
@@ -576,7 +586,7 @@ func (r *Registry) pruneTools(id string, keep ...string) {
 			_ = os.Remove(filepath.Join(root, "versions", e.Name()))
 			continue
 		}
-		for _, t := range r.Tools(id, v) {
+		for _, t := range r.toolsAt(id, v) {
 			used[filepath.Base(filepath.Dir(t.Bin))] = true
 		}
 	}

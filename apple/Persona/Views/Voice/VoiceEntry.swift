@@ -86,7 +86,7 @@ struct VoiceEndedStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.voiceChannel).font(Theme.Font.labelStrong).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.voiceChannel).font(Theme.Font.labelStrong).foregroundStyle(.secondary)
                 Text("Voice ended · \(note.text)")
                     .font(Theme.Font.secondary)
                     .foregroundStyle(.secondary)

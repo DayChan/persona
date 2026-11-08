@@ -68,7 +68,7 @@ struct SessionAvatar: View {
                 .fill(Theme.Fill.chip)
                 .frame(width: size, height: size)
                 .overlay {
-                    Image(systemName: symbol ?? machine?.symbol ?? Theme.Icon.terminal)
+                    ThemedIcon(symbol ?? machine?.symbol ?? Theme.Icon.terminal)
                         .font(.system(size: size * 0.42, weight: .medium))
                         .foregroundStyle(tint)
                 }
@@ -148,7 +148,7 @@ struct Chip: View {
                 .background(Capsule().fill(fill))
                 .fixedSize()
         } else if AppStyle.current.usesBeautifulUI {
-            BUIPill(text, tone: pillTone, icon: symbol.map { .symbol($0) }, truncates: shrinks)
+            BUIPill(text, tone: pillTone, icon: symbol.map { .symbol(Theme.Icon.styled($0)) }, truncates: shrinks)
         } else {
             plain
         }
@@ -168,7 +168,7 @@ struct Chip: View {
         Group {
             if let symbol {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: symbol).font(Theme.Font.labelStrong)
+                    ThemedIcon(symbol).font(Theme.Font.labelStrong)
                     Text(text).lineLimit(1)
                 }
             } else {
@@ -216,7 +216,7 @@ struct LinkBadge: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.xs) {
-            Image(systemName: symbol).font(Theme.Font.label)
+            ThemedIcon(symbol).font(Theme.Font.label)
             Text(text).font(Theme.Font.labelMedium).lineLimit(1)
             if let detail, !detail.isEmpty {
                 Text(detail).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
@@ -246,7 +246,7 @@ struct FilterChip: View {
         } else {
             Button(action: tapped) {
                 HStack(spacing: Theme.Space.xs) {
-                    if let symbol { Image(systemName: symbol).font(Theme.Font.label) }
+                    if let symbol { ThemedIcon(symbol).font(Theme.Font.label) }
                     Text(title)
                     if let count { Text(count > 99 ? "99+" : "\(count)").monospacedDigit().opacity(0.7) }
                 }
@@ -353,7 +353,7 @@ struct EmptyStateView: View {
     var body: some View {
         if AppStyle.current.usesBeautifulUI {
             // BeautifulUI's empty state: the mark on a raised tile, the title, a line of help and one action.
-            BUIEmptyState(symbol: symbol, title: title, message: message, actionTitle: action?.title, action: action?.run)
+            BUIEmptyState(symbol: Theme.Icon.styled(symbol), title: title, message: message, actionTitle: action?.title, action: action?.run)
                 .frame(maxWidth: .infinity)
         } else {
             plain
@@ -362,7 +362,7 @@ struct EmptyStateView: View {
 
     private var plain: some View {
         VStack(spacing: Theme.Space.l) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.display).imageScale(.large)
                 .foregroundStyle((tint ?? Theme.accent).gradient)
                 .symbolEffect(.bounce, value: title)
@@ -443,7 +443,7 @@ struct CloseAgentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: Theme.Icon.close)
+            ThemedIcon(Theme.Icon.close)
                 .font(Theme.Font.title)
                 .foregroundStyle(Theme.danger)
                 .scaledFrame(width: Theme.Size.box56, height: Theme.Size.box56)
@@ -535,7 +535,7 @@ struct CloseAgentSheet: View {
         Label {
             Text(text).font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: symbol).font(Theme.Font.secondary).foregroundStyle(.secondary).scaledFrame(width: Theme.Size.iconS)
+            ThemedIcon(symbol).font(Theme.Font.secondary).foregroundStyle(.secondary).scaledFrame(width: Theme.Size.iconS)
         }
     }
 }
@@ -624,7 +624,7 @@ struct LoadableContent<Value, Content: View>: View {
             content(value)
         case .failed(let message):
             if AppStyle.current.usesBeautifulUI {
-                BUIEmptyState(symbol: Theme.Icon.error, title: message, actionTitle: retry == nil ? nil : String(localized: "Retry [Components b8784c]"), action: retry)
+                BUIEmptyState(symbol: Theme.Icon.styled(Theme.Icon.error), title: message, actionTitle: retry == nil ? nil : String(localized: "Retry [Components b8784c]"), action: retry)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView {

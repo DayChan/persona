@@ -773,7 +773,8 @@ iOS, Mac, visionOS, watch and extensions support Simplified Chinese, English and
   - Exceptions: user-sized terminal grid, Dynamic Island grid, fixed-image share cards, small-circle numbers/badges.
   - Monospace only character comparison/copying: code/commands/paths/branches/hashes/IDs/versions/terminal/tool output. Chinese explanations/values system font
     (session info chooses by row: model/branch/directory/version monospace, others system + monospaced digits; memory editor/Knowledge recent messages system).
-  - `Theme.Icon` (`Shared/Design/Icons.swift`): one meaning per SF Symbol, pages `Theme.Icon.copy`, not `"doc.on.doc"`.
+  - `Theme.Icon` (`Shared/Design/Icons.swift`): one meaning per SF Symbol, pages `Theme.Icon.copy`, not `"doc.on.doc"`; drawn with
+    `ThemedIcon` / `IconTile` so each style's icon language applies (`IconSpec`; rules, exceptions and checks in `docs/apple/icons.md`).
     Symbols used in two files must register; errors triangles (`error` / `errorFilled`), octagon only critical machine alerts (`critical`); Copy `doc.on.doc`,
     Paste `doc.on.clipboard`, Interrupt `stop.fill`, model/launcher `cube` (`cpu` only processor), code files `curlybraces`, `</>` only Agents.
     `IconVocabularyTests` rejects direct registered names, shared unregistered symbols and retired error symbols.

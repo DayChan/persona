@@ -181,6 +181,7 @@ func (r *Registry) SetContribution(ctx context.Context, id, point, cid string, o
 	if err != nil {
 		return err
 	}
+	id = p.Record.ID
 	if !slices.Contains(p.Full.Items(point), cid) {
 		return fmt.Errorf("扩展 %s 没有贡献 %s/%s", id, point, cid)
 	}

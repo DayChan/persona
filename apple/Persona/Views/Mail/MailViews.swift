@@ -188,7 +188,7 @@ struct MailDetailView: View {
                 Spacer()
                 Button {
                     reply = ComposeDraft.reply(to: summary, message: message)
-                } label: { Image(systemName: Theme.Icon.reply) }
+                } label: { ThemedIcon(Theme.Icon.reply) }
                     .disabled(message == nil)
             }
         }

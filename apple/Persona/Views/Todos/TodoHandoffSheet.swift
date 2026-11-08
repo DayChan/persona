@@ -93,7 +93,7 @@ struct TodoHandoffSheet: View {
                 } label: {
                     HStack(spacing: Theme.Space.s) {
                         if isSubmitting { ProgressView().tint(.white) }
-                        Image(systemName: Theme.Icon.handToAI)
+                        ThemedIcon(Theme.Icon.handToAI)
                         Text(mode == .newAgent ? String(localized: "Choose Computer and Launcher") : String(localized: "Hand to Agent"))
                     }
                     .font(Theme.Font.heading)
@@ -154,7 +154,7 @@ struct TodoHandoffSheet: View {
                             }
                             Spacer()
                             if selectedSessionKey == s.key {
-                                Image(systemName: Theme.Icon.done)
+                                ThemedIcon(Theme.Icon.done)
                                     .foregroundStyle(Theme.accent)
                             }
                         }
@@ -200,7 +200,7 @@ struct TodoPreviewCard: View {
 
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.todo)
+                    ThemedIcon(Theme.Icon.todo)
                         .font(Theme.Font.caption)
                     Text("To-do · \(title)")
                         .font(Theme.Font.bodyStrong)

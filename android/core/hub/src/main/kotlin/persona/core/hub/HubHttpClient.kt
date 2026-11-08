@@ -274,7 +274,10 @@ class HubHttpClient(
         expectedPin: String? = null,
     ): Health {
         val url = endpoint.baseUrl().hubUrl("/api/v1/health")
-        val caller = if (!fresh) client else client.newBuilder().connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS)).build()
+        // A pool of its own, keeping its one connection a second after the call: with no idle connection allowed, OkHttp
+        // closes it as soon as the body's Content-Length bytes are read, and over HTTP/2 the stream's end can still be on
+        // its way in a frame of its own; the read that waits for it then fails ("Connection failed", #1519).
+        val caller = if (!fresh) client else client.newBuilder().connectionPool(ConnectionPool(1, 1, TimeUnit.SECONDS)).build()
         caller.newCall(Request.Builder().url(url).build()).awaitResponse().use { response ->
             if (url.isHttps) {
                 // The trust manager accepts every pin of the group; the leaf must be this endpoint's own hub's.

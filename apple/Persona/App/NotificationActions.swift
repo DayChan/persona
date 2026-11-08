@@ -31,7 +31,7 @@ nonisolated enum NotificationActions {
                 UNNotificationAction(identifier: approvePlan, title: String(localized: "Approve [Notification Actions 8cbe69]"), options: [.authenticationRequired],
                                      icon: UNNotificationActionIcon(systemImageName: "checkmark")),
                 UNTextInputNotificationAction(identifier: rejectPlan, title: String(localized: "Send Back [Notification Actions cd3150]"), options: [.authenticationRequired],
-                                              icon: UNNotificationActionIcon(systemImageName: "arrow.uturn.backward"),
+                                              icon: UNNotificationActionIcon(systemImageName: Theme.Icon.undo),
                                               textInputButtonTitle: String(localized: "Send Back [Notification Actions a20f13]"), textInputPlaceholder: String(localized: "Tell the agent what to change…")),
             ],
             intentIdentifiers: [], options: [])
@@ -44,7 +44,7 @@ nonisolated enum NotificationActions {
             identifier: doneCategory,
             actions: [
                 UNTextInputNotificationAction(identifier: reply, title: String(localized: "Reply"), options: [.authenticationRequired],
-                                              icon: UNNotificationActionIcon(systemImageName: "arrowshape.turn.up.left"),
+                                              icon: UNNotificationActionIcon(systemImageName: Theme.Icon.reply),
                                               textInputButtonTitle: String(localized: "Send"), textInputPlaceholder: String(localized: "What next…")),
             ],
             intentIdentifiers: [], options: [])

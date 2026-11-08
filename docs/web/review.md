@@ -4,8 +4,7 @@ Review what an agent changed inside its session, the way you review a pull reque
 agent as its next message (#151). The idea comes from Claude Desktop's in-session review: comments become the
 agent's next message. Only the interaction is borrowed, not the code.
 
-This page covers the node call and the hub route, which are in place, and the web panel, which comes in the next PR.
-The iOS / Mac version is a follow-up (see the end).
+This page covers the node call, the hub route and the web panel. The iOS / Mac version is a follow-up (see the end).
 
 ## Scopes
 
@@ -95,18 +94,58 @@ files, binaries, deletions, odd names (spaces, a tab, CJK), generated files, a c
 branch, unrelated histories, no commit yet, guarded files and files too big for a page.
 `server/internal/hub/gitreview_test.go` covers the relay, the refusals and an old node.
 
-## Web: the Review panel (next PR)
+## Web: the Review panel
 
-- **The panel:** a `review` side panel feeds the existing diff review (`views/extensions/DiffReview.tsx`,
-  `lib/code-review.ts`) from `git/review` instead of an extension's view. You get word diffs, hidden whitespace,
-  viewed marks, folded generated / big files, keys `n` / `p` / `j` / `k`, line ranges and suggestions.
-- **Hidden lines:** the new side is the working tree, so they are read with `file`.
-- **Pending comments** are kept per session in this browser, so they survive a reload, and are drawn as threads at
-  their lines.
-- **Send review** sends the note and every comment as one message: each comment is a `Code comment N` block with the
-  file, lines and code (`docs/protocol/protocol.md` "Quote and comment blocks"). **Add to message box** lets you edit
-  it first. Sending is only ever your click.
-- **Entry points:** ⋯ › **Review changes**, and the Git panel's change list.
+`web/src/views/session/ReviewPanel.tsx`, logic in `web/src/lib/session-review.ts`, shown when the hub has `git_review`.
+
+- **Opening it:** ⋯ › **Review changes** in a session's chat, or **Review** over the Git panel's change list (that one
+  opens at Uncommitted). It is a session panel: it closes and comes back with the session, like Files and Git.
+- **What it draws:** the extension code review (`views/extensions/DiffReview.tsx`, `lib/code-review.ts`), fed with
+  `diff` items built from `git/review` instead of an extension's view: word diffs, Hide whitespace, viewed marks (kept
+  in this browser by path, revision and hunks), generated and big files folded, keys (`n` / `p`, `j` / `k`, `v`, `c`,
+  `?`, only while the focus is in the panel), ranges picked on the line numbers, suggestions.
+- **Scopes:** a segmented control picks Uncommitted / Branch / Since a commit. Since a commit opens a menu of the 30
+  latest commits (`git/log`). The choice is remembered per session, and the line beside it says what the files are
+  compared with.
+- **Lines between hunks:** the new side is the file on disk, so they are read with `file` once per file and review and
+  cached. A removed file has none.
+- **A big file** waits for **Load diff**. It is then asked for on its own with the base pinned (`scope=commit`,
+  `base=<hash>`), and if it is too big even then, it says so.
+- **What isn't shown:** a file the node refuses (a key) says it holds secrets; an empty file and a mode-only change say
+  so instead of "no changes".
+- **A comment on lines** offers **Start a review** / **Add to review** (a draft) or **Comment now** (straight to the
+  message box as a code comment card, as the Git panel's line comments do).
+  - Drafts are kept per session in `localStorage` (`persona.review:<mid>/<sid>`). They survive a reload, are drawn as
+    threads at their lines with **Delete**, and carry the diff rows of their lines (removed rows between them
+    included). A draft on old-side lines made against another scope shows as outdated, because those numbers belong
+    to that diff.
+- **Finish review** opens the summary.
+  - **Send review** sends one message: every draft as a `Code comment N` block, in file then line order, then the
+    summary. It goes through the session's composer (`ComposerHandle.send`, the same delivery as typing it). The
+    review is cleared only once the send succeeds; a failed send keeps it, the summary too.
+  - **Add to message box** puts the drafts above the message box as comment cards and the summary into it, to edit
+    first.
+  - **Discard drafts** asks first.
+  - On a phone the panel closes after either, back to the chat.
+- **When the agent changes files** (`fs_changed` for Git), a bar says so and offers **Refresh**: the diff doesn't move
+  under the reader.
+- **States:** reading; nothing changed (Uncommitted offers the branch, Branch offers Uncommitted); not a repository;
+  an old node; no default branch and no merge base (both offer Uncommitted); a commit or branch that isn't there; any
+  other failure with Retry. A chat that takes no messages shows the review read-only.
+
+The comment block names its diff in the `Diff:` line (`lib/comments.ts` `DiffScope` kind `review`):
+
+| Scope | `Diff:` |
+| --- | --- |
+| uncommitted | `uncommitted` |
+| branch | `branch since <base short hash>` |
+| commit | `since <base short hash>` |
+
+A sent or edited message reads it back (`parseDiffLabel`), and the comment card opens the Review panel at its line.
+
+Tests: `web/src/lib/session-review.test.ts` (the items, a comment's rows, drafts and their storage, the message and
+reading it back); `scripts/test/web_review_e2e.py` against the mock hub's `MOCK_FILES=1 MOCK_REVIEW=1`
+(`scripts/mock/mock_review.py`).
 
 ## iOS / Mac (follow-up)
 

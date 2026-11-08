@@ -175,11 +175,11 @@ struct CompactionNote: View {
                 Text("Compacting Context…").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
             case .done:
-                Image(systemName: Theme.Icon.successFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.positive)
+                ThemedIcon(Theme.Icon.successFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.positive)
                 Text("Context compacted").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
             case .failed(let k, let error):
-                Image(systemName: Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
+                ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
                 Text("Compacting failed: \(error)").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(3)
                 Spacer(minLength: 0)
                 Button {
@@ -188,7 +188,7 @@ struct CompactionNote: View {
                         model.compactionShown[key] = nil
                     }
                 } label: {
-                    Image(systemName: Theme.Icon.close).font(Theme.Font.labelStrong)
+                    ThemedIcon(Theme.Icon.close).font(Theme.Font.labelStrong)
                         .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                         .contentShape(.rect)
                 }

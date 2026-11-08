@@ -196,6 +196,13 @@ func TestKBRPCExtensionWrites(t *testing.T) {
 	if !strings.Contains(got, `\"by\":\"ext:curator\"`) && !strings.Contains(got, `"by":"ext:curator"`) {
 		t.Fatalf("provenance not in kb.get: %s", got)
 	}
+	if _, err := ask(assistantwire.MethodKBExtensionUpdate, `{"extension":"renamed-curator","storage_id":"curator","params":{"kind":"chats","id":"example-chat","summary":"reviewed again"}}`); err != nil {
+		t.Fatalf("renamed installation lost its own field: %v", err)
+	}
+	got, _ = ask(assistantwire.MethodKBGet, `{"kind":"chats","id":"example-chat","recent_chars":0}`)
+	if !strings.Contains(got, "ext:curator") || strings.Contains(got, "ext:renamed-curator") {
+		t.Fatalf("stored field ownership moved: %s", got)
+	}
 	if _, err := e.Apply(kb.KindChat, "example-chat", kb.Update{Name: "the user's name"}); err != nil {
 		t.Fatal(err)
 	}

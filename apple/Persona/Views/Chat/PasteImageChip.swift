@@ -69,7 +69,7 @@ struct PasteImageChip: View {
                 Button {
                     board.dismiss()
                 } label: {
-                    Image(systemName: Theme.Icon.close).font(Theme.Font.label).foregroundStyle(.secondary)
+                    ThemedIcon(Theme.Icon.close).font(Theme.Font.label).foregroundStyle(.secondary)
                         .scaledFrame(minWidth: Theme.Size.wellXS, minHeight: Theme.Size.wellXS).contentShape(.rect)
                 }
                 .buttonStyle(.plain)

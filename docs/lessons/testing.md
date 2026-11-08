@@ -118,6 +118,10 @@ Pitfalls, odd behavior, and the tradeoffs made at the time (originally in `CLAUD
   For pure SwiftUI symbol/text/geometry layouts, use public `ImageRenderer.render(rasterizationScale:renderer:)` to draw directly into the test's CGContext, explicitly preserving point-to-pixel scale. Retain nonempty, radius, bounds, and four-digit overflow assertions; calibrate with rectangles of known sizes/offsets. No production UI changes or loosened thresholds.
   Parameterized-case xcresult summaries count methods, not expanded arguments. Verify completeness from test-tree Arguments nodes, ensuring every digit range executed. If postprocessing counts are wrong, fix reading only; retain original script exit code separately from actual XCTest results.
 
+- `xcrun simctl privacy <udid> grant` can take about a minute on a just-booted stock simulator (2026-11-08, #1402). On the hosted
+  iOS lane it needed 54.5 s on a passing run and passed 60 s on a failing one, after `simctl bootstatus -b` had already returned.
+  Give the step room in `scripts/ci/apple.sh` (300 s) rather than retrying it, and read a grant timeout as slowness, not a refused permission.
+
 - Validate display names separately from persisted identity during compatible renaming (2026-11-04, #1189). After `persona-link` / `Persona Link` shipped, compressed-install regressions still asserted old display names, causing full release exit 1. Update only display contracts, while verifying real `persona-link` files, legacy download names, old/new executable commands, and actual installer calls; never blindly rename compatibility identities. Script tests must discover `scripts/test`, `release`, `deploy`, `mock`, and `app` separately; rename-only subsets miss old assertions elsewhere. Preserve original failed freeze/exit code; after merge, rerun with a new build number.
 
 - Do not use computer-use to click simulators for screenshots (Mac lock screen hides windows; unlocked it steals the user's mouse). Use DEBUG launch arguments (`docs/apple/ios.md`) to open pages directly, then capture.

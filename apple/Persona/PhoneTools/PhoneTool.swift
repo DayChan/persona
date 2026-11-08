@@ -40,15 +40,15 @@ enum PhoneDataSource: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
-        case .contacts: "person.crop.circle"
+        case .contacts: Theme.Icon.person
         case .calendar: "calendar"
         case .reminders: "checklist"
         case .location: "location"
         case .health: "heart"
-        case .photos: "photo.on.rectangle"
+        case .photos: Theme.Icon.photos
         case .device: "iphone"
-        case .clipboard: "doc.on.clipboard"
-        case .notifications: "bell.badge"
+        case .clipboard: Theme.Icon.paste
+        case .notifications: Theme.Icon.notifications
         }
     }
 

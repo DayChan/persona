@@ -36,6 +36,7 @@ func (r *Registry) SetEnabled(ctx context.Context, id string, on bool, actor str
 	if err != nil {
 		return err
 	}
+	id = p.Record.ID
 	r.mu.Lock()
 	held := r.keptOff[id]
 	r.mu.Unlock()
@@ -94,6 +95,7 @@ func (r *Registry) SetConfigClearing(ctx context.Context, id string, raw json.Ra
 	if err != nil {
 		return nil, err
 	}
+	id = p.Record.ID
 	if err := r.stillChecked(p, checked); err != nil {
 		return nil, err
 	}
@@ -143,10 +145,10 @@ func (r *Registry) clearBound(ctx context.Context, p *Extension, next json.RawMe
 	if len(names) == 0 {
 		return nil, nil
 	}
-	had, readErr := r.store.ExtensionSecrets(ctx, p.Record.ID) // only to say which went
+	had, readErr := r.store.ExtensionSecrets(ctx, p.Record.StorageKey()) // only to say which went
 	var cleared []string
 	for _, name := range names {
-		if err := r.store.DeleteExtensionSecret(ctx, p.Record.ID, name); err != nil {
+		if err := r.store.DeleteExtensionSecret(ctx, p.Record.StorageKey(), name); err != nil {
 			return cleared, fmt.Errorf("%w（%s：%v）", ErrSecretNotCleared, name, err)
 		}
 		if _, ok := had[name]; ok || readErr != nil {
@@ -186,6 +188,7 @@ func (r *Registry) SetSecret(ctx context.Context, id, name, value, actor string)
 	if err != nil {
 		return err
 	}
+	id = p.Record.ID
 	if err := r.secretSpec(p, name); err != nil {
 		return err
 	}
@@ -210,7 +213,7 @@ func (r *Registry) SetSecret(ctx context.Context, id, name, value, actor string)
 	if err != nil {
 		return err
 	}
-	if err := r.store.PutExtensionSecret(ctx, id, name, sealed); err != nil {
+	if err := r.store.PutExtensionSecret(ctx, p.Record.StorageKey(), name, sealed); err != nil {
 		return err
 	}
 	unlock()
@@ -230,13 +233,14 @@ func (r *Registry) DeleteSecret(ctx context.Context, id, name, actor string) err
 	if err != nil {
 		return err
 	}
+	id = p.Record.ID
 	if err := r.secretSpec(p, name); err != nil {
 		return err
 	}
 	if r.store == nil {
 		return nil
 	}
-	if err := r.store.DeleteExtensionSecret(ctx, id, name); err != nil {
+	if err := r.store.DeleteExtensionSecret(ctx, p.Record.StorageKey(), name); err != nil {
 		return err
 	}
 	unlock()
@@ -274,7 +278,7 @@ func (r *Registry) Secrets(ctx context.Context, id string) (map[string]string, e
 	if r.store == nil || r.seal == nil {
 		return nil, nil
 	}
-	sealed, err := r.store.ExtensionSecrets(ctx, id)
+	sealed, err := r.store.ExtensionSecrets(ctx, r.storageKey(id))
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +307,7 @@ func (r *Registry) SecretsSet(ctx context.Context, p *Extension) map[string]bool
 	if r.store == nil || p.ReadOnly() {
 		return out
 	}
-	sealed, err := r.store.ExtensionSecrets(ctx, p.Record.ID)
+	sealed, err := r.store.ExtensionSecrets(ctx, p.Record.StorageKey())
 	if err != nil {
 		return out
 	}

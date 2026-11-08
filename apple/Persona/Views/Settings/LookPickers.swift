@@ -44,7 +44,7 @@ struct ThemeColorPicker: View {
                                 }
                                 Spacer(minLength: Theme.Space.s)
                                 if model.themeColor == .extensionTheme, ExtensionThemesModel.shared.palette?.id == offer.id {
-                                    Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent)
+                                    ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent)
                                 }
                             }
                         }
@@ -81,7 +81,7 @@ struct ThemeColorPicker: View {
                     if c == .persona, model.persona.palette != nil {
                         PersonaAvatar(size: Theme.Size.iconL, persona: model.persona)
                     } else if selected {
-                        Image(systemName: Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(.white)
+                        ThemedIcon(Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(.white)
                     }
                 }
                 .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
@@ -200,7 +200,7 @@ private struct StyleCard: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).stroke(selected ? spec.accent : Color.primary.opacity(0.1), lineWidth: selected ? 2.5 : 1))
             VStack(spacing: Theme.Space.xxs) {
                 HStack(spacing: Theme.Space.xs) {
-                    if selected { Image(systemName: Theme.Icon.successFilled).foregroundStyle(spec.accent) }
+                    if selected { ThemedIcon(Theme.Icon.successFilled).foregroundStyle(spec.accent) }
                     Text(style.title).font(Theme.Font.captionStrong).lineLimit(1)
                 }
                 Text(style.subtitle).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)

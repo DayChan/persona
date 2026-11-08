@@ -35,7 +35,7 @@ struct TranslationSettingsView: View {
                             LabeledContent {
                                 Text(chats.isEmpty ? String(localized: "None [Translation Settings View bcb53d]") : String(localized: "\(chats.count) Chats [Claude Dirs Section 537bee]")).foregroundStyle(.secondary).lineLimit(1)
                             } label: {
-                                Label { Text("Lark Chats").foregroundStyle(Color.primary) } icon: { Image(systemName: Theme.Icon.conversation) }
+                                Label { Text("Lark Chats").foregroundStyle(Color.primary) } icon: { ThemedIcon(Theme.Icon.conversation) }
                             }
                         }
                         .accessibilityHint("Choose Lark chats to translate")
@@ -120,7 +120,7 @@ struct TranslationChatPicker: View {
                             LarkAvatarImage(name: c.name, url: conv?.avatar, isGroup: conv?.isGroup ?? true, size: Theme.Size.wellM)
                             Text(c.name).foregroundStyle(.primary).lineLimit(1)
                             Spacer(minLength: Theme.Space.s)
-                            Image(systemName: on ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+                            ThemedIcon(on ? Theme.Icon.successFilled : Theme.Icon.unchecked)
                                 .foregroundStyle(on ? Theme.accent : Color.secondary)
                         }
                     }

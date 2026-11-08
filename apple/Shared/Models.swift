@@ -1267,13 +1267,13 @@ extension Session {
     var spaceKey: String? { spaceID.map { "\(machineID)/\($0)" } }
 
     /// Tab label, or "#n" when the label is just herdr's default number.
-    var slotLabel: String? {
+    nonisolated var slotLabel: String? {
         guard let name = slotName, !name.isEmpty else { return slotIndex.map { "#\($0)" } }
         if let i = slotIndex, name == String(i) { return "#\(i)" }
         return name
     }
 
-    var displayTitle: String { title.isEmpty || title == "Claude Code" ? folderName : title }
+    nonisolated var displayTitle: String { title.isEmpty || title == "Claude Code" ? folderName : title }
     /// The line a list row shows under the title: why it waits for you when its host says so, what it concluded or
     /// waits for once the hub triaged its turn (`workLine`), else the last words; Awaiting Reply's question first unless
     /// it is muted (`replyLine`).
@@ -1328,7 +1328,7 @@ extension Session {
     }
 
     /// Idle or unclassified: folded away in busy spaces (an Awaiting Reply one stays out: `AgentListOrder.stays`).
-    var isQuiet: Bool { state == .idle || state == .unknown }
+    nonisolated var isQuiet: Bool { state == .idle || state == .unknown }
 }
 
 /// Unified agent state (docs/protocol/agent-states.md), computed by the hub from herdr status, pending interactions and

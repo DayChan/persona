@@ -48,7 +48,7 @@ func (s *memStore) Extensions(context.Context) ([]Record, error) {
 func (s *memStore) PutExtension(_ context.Context, r Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rows[r.ID] = r
+	s.rows[r.StorageKey()] = r
 	return nil
 }
 

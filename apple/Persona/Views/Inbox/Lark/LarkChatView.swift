@@ -1400,7 +1400,9 @@ struct LarkChatView: View {
         guard let api = chatAPI else { return }
         let prompt = String(localized: "Read the recent messages in my Lark chat “\(conversation.name)” (Lark gateway feedId \(conversation.id)), summarize the key points, list what I need to reply to or handle, and suggest replies.")
         do {
-            let s = try await api.startConversation(prompt: prompt)
+            let s = try await AssistantStart.run(receipts: model.hubFeatures.contains(AssistantStart.feature)) { op in
+                try await api.startConversation(prompt: prompt, opID: op)
+            }
             model.began(s, text: prompt)
             model.assistantCurrent = s.key
             model.selectedTab = .assistant

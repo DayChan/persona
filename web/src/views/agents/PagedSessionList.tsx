@@ -21,6 +21,8 @@ export interface PagedSessionListProps<T> {
   renderRow: (row: T) => ReactNode;
   personal?: boolean;
   label?: (dimension: string, value: string) => string;
+  /** "By repo" is the full, client-side tree (Sidebar's By repo), not a paged filter: offered only when the caller has it. */
+  onRepo?: () => void;
 }
 
 function scrollParent(el: HTMLElement | null): HTMLElement | null {
@@ -30,7 +32,7 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
-export function PagedSessionList<T>({ root, path, identity, compare, removeIdentity, event, renderRow, personal = false, label }: PagedSessionListProps<T>) {
+export function PagedSessionList<T>({ root, path, identity, compare, removeIdentity, event, renderRow, personal = false, label, onRepo }: PagedSessionListProps<T>) {
   const [query, setQuery] = useState("");
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
@@ -173,11 +175,21 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          <select aria-label={t("paged-agents.group_by")} className={control} value={dimension} onChange={(e) => { setDimension(e.target.value as typeof dimension); setValue(""); setGroupQuery(""); setMachine(""); }}>
+          <select
+            aria-label={t("paged-agents.group_by")}
+            className={control}
+            value={dimension}
+            onChange={(e) => {
+              // The repo tree cannot be a paged filter (it needs every session): it switches to the full By repo view.
+              if (e.target.value === "repo") { onRepo?.(); return; }
+              setDimension(e.target.value as typeof dimension); setValue(""); setGroupQuery(""); setMachine("");
+            }}
+          >
             <option value="">{t("paged-agents.recent")}</option>
             {!personal && <option value="machine">{t("paged-agents.machine")}</option>}
             {!personal && <option value="project">{t("paged-agents.project")}</option>}
             <option value="group">{t(personal ? "paged-agents.account" : "paged-agents.group")}</option>
+            {onRepo && <option value="repo">{t("lib-agent-groups.by_repo")}</option>}
           </select>
           {dimension === "group" && !personal && <select className={control} aria-label={t("paged-agents.machine")} value={machine} onChange={(e) => { setMachine(e.target.value); setValue(""); setGroupQuery(""); }}>
             <option value="">{t("paged-agents.all_machines")}</option>

@@ -25,8 +25,16 @@ const (
 
 // KBExtensionUpdate is an extension's kb.update params as it sent them, and who it is.
 type KBExtensionUpdate struct {
+	StorageID string          `json:"storage_id,omitempty"`
 	Extension string          `json:"extension"`
 	Params    json.RawMessage `json:"params"`
+}
+
+func (x KBExtensionUpdate) StorageKey() string {
+	if x.StorageID != "" {
+		return x.StorageID
+	}
+	return x.Extension
 }
 
 // KBConflict is the data of a conflict error: field → its holder ("user" or "ext:<id>"); fields of a linked entity

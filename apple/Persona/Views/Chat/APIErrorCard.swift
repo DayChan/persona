@@ -65,7 +65,7 @@ struct APIErrorCard: View {
             } label: {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.errorFilled).font(Theme.Font.heading).foregroundStyle(Theme.danger)
+                        ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.heading).foregroundStyle(Theme.danger)
                         Text(info.reason).font(Theme.Font.heading).foregroundStyle(Color.primary).multilineTextAlignment(.leading)
                     }
                     ToolChipGroup(chips, isOpen: open)
@@ -175,7 +175,7 @@ struct APIErrorCard: View {
             Spacer(minLength: 0)
             if copyable {
                 Button { copy(value) } label: {
-                    Image(systemName: Theme.Icon.copy).font(Theme.Font.caption)
+                    ThemedIcon(Theme.Icon.copy).font(Theme.Font.caption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)

@@ -3,6 +3,7 @@ import { screen } from "./screen/take";
 import { initI18n } from "./i18n";
 import "./styles.css";
 import { applyLook } from "./ui/look";
+import { logCaughtError } from "./lib/caught-error";
 
 // Theme color and text size (docs/web/web.md "Appearance") before anything draws.
 applyLook();
@@ -22,7 +23,8 @@ startPWA();
 
 // The live screen (/screen/<machine>) is a page of its own: no sign-in flow, no sidebar, and noVNC loads only there.
 const target = screen;
-const root = createRoot(document.getElementById("root")!);
+// a crash a boundary catches is logged with its component stack (lib/caught-error.ts)
+const root = createRoot(document.getElementById("root")!, { onCaughtError: logCaughtError });
 if (target) {
   const { ScreenView } = await import("./screen/ScreenView");
   root.render(createElement(StrictMode, null, createElement(ScreenView, { target })));

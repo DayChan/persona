@@ -207,7 +207,7 @@ struct FeishuBotView: View {
                         .font(Theme.Font.caption).foregroundStyle(.secondary)
                 }
             } icon: {
-                Image(systemName: Theme.Icon.replyReminder).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.replyReminder).foregroundStyle(Theme.accent)
             }
         }
         .disabled(model.saving)
@@ -244,7 +244,7 @@ struct FeishuBotView: View {
                     Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary)
                 }
             } icon: {
-                Image(systemName: symbol).foregroundStyle(Theme.accent)
+                ThemedIcon(symbol).foregroundStyle(Theme.accent)
             }
         }
         .disabled(model.saving)

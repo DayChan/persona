@@ -159,6 +159,7 @@ func (h *Manager) extensionRoutes(api *http.ServeMux) {
 				writeExtensionResponseError(w, r, http.StatusNotFound, "not_found", errNoExtension)
 				return
 			}
+			r.SetPathValue("id", p.Record.ID) // Owner aliases route to the committed public identity.
 			f(w, r, p)
 		}
 	}

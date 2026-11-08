@@ -21,6 +21,8 @@ The App Group itself (group.<bundle id>, or config.json app.app_group) can't be 
 API, only on the developer website (docs/operations/release.md "App Group"): each profile is checked for it, and a missing one
 prints those steps.
 """
+from __future__ import annotations
+
 import base64
 import os
 import plistlib
@@ -35,6 +37,7 @@ import persona_config  # noqa: E402
 
 APP = BUNDLE_ID
 WATCH = APP + ".watchkitapp"
+WATCH_WIDGETS = persona_config.watch_widget_bundle_id(CONFIG)
 LIVE = APP + ".liveactivity"  # the widget extension drawing the lock screen / Dynamic Island activity
 NOTIFY = APP + ".notify"  # the notification service extension opening relayed pushes (docs/operations/push-relay.md)
 SHARE = APP + ".share"  # the share extension sending to Persona's main conversation (#4586)
@@ -42,13 +45,16 @@ SHARE = APP + ".share"  # the share extension sending to Persona's main conversa
 PROFILES = persona_config.provisioning_profiles(CONFIG)
 TARGETS = {
     APP: ("Persona", PROFILES[APP], ["PUSH_NOTIFICATIONS", "USERNOTIFICATIONS_TIMESENSITIVE", "HEALTHKIT", "APP_GROUPS"]),
-    WATCH: ("Persona Watch", PROFILES[WATCH], []),
+    WATCH: ("Persona Watch", PROFILES[WATCH], ["APP_GROUPS"]),
+    WATCH_WIDGETS: ("Persona Watch Widgets", PROFILES[WATCH_WIDGETS], ["APP_GROUPS"]),
     LIVE: ("Persona Live Activity", PROFILES[LIVE], ["APP_GROUPS"]),
     NOTIFY: ("Persona Notify", PROFILES[NOTIFY], []),
     SHARE: ("Persona Share", PROFILES[SHARE], []),
 }
 # The App Group the app shares the Live Activity's persona with the widget extension through (docs/apple/live-activity.md).
 GROUP = persona_config.app_group(CONFIG)
+WATCH_GROUP = persona_config.watch_app_group(CONFIG)
+TARGET_GROUPS = {APP: GROUP, LIVE: GROUP, WATCH: WATCH_GROUP, WATCH_WIDGETS: WATCH_GROUP}
 PROFILE_DIR = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
 
 
@@ -110,7 +116,7 @@ NOT_READY = []
 
 
 def profile(bid: str, name: str, cert: str, kind: str = "IOS_APP_STORE", check_only: bool = False,
-            group: bool = False):
+            group: str | None = None):
     # Includes INVALID ones: changing the App ID's capabilities invalidates profiles, and a stale profile with the
     # same name blocks creating the new one. Recreating is cheap and keeps it in sync with the App ID.
     existing = get_all("/v1/profiles", {"filter[name]": name})
@@ -119,9 +125,9 @@ def profile(bid: str, name: str, cert: str, kind: str = "IOS_APP_STORE", check_o
         print("  profile", name, "ACTIVE" if current else "missing or invalid")
         if not current:
             NOT_READY.append(f"profile {name}: missing or invalid")
-        if current and group and GROUP not in groups(current[0]["attributes"]["profileContent"]):
-            print("  profile", name, "lacks the App Group", GROUP)
-            MISSING_GROUP.append(name)
+        if current and group and group not in groups(current[0]["attributes"]["profileContent"]):
+            print("  profile", name, "lacks the App Group", group)
+            MISSING_GROUP.append(f"{name}: {group}")
         return
     for p in existing:
         request("DELETE", f"/v1/profiles/{p['id']}")
@@ -141,9 +147,9 @@ def profile(bid: str, name: str, cert: str, kind: str = "IOS_APP_STORE", check_o
     with open(path, "wb") as f:
         f.write(base64.b64decode(created["attributes"]["profileContent"]))
     print("  installed", path)
-    if group and GROUP not in groups(created["attributes"]["profileContent"]):
-        print("  but it lacks the App Group", GROUP)
-        MISSING_GROUP.append(name)
+    if group and group not in groups(created["attributes"]["profileContent"]):
+        print("  but it lacks the App Group", group)
+        MISSING_GROUP.append(f"{name}: {group}")
 
 
 def main():
@@ -160,7 +166,7 @@ def main():
         ids[identifier] = bid
         for capability in capabilities:
             ensure_capability(bid, capability, check_only)
-        profile(bid, profile_name, cert, check_only=check_only, group="APP_GROUPS" in capabilities)
+        profile(bid, profile_name, cert, check_only=check_only, group=TARGET_GROUPS.get(identifier))
     if "--dev" in sys.argv:
         dev = certificate("dev")
         for identifier, (name, profile_name, capabilities) in TARGETS.items():
@@ -170,19 +176,18 @@ def main():
             development_name = (profile_name.replace("App Store", "Development") if "App Store" in profile_name
                                 else profile_name + " Development")
             profile(ids[identifier], development_name, dev,
-                    "IOS_APP_DEVELOPMENT", check_only, group="APP_GROUPS" in capabilities)
+                    "IOS_APP_DEVELOPMENT", check_only, group=TARGET_GROUPS.get(identifier))
     if NOT_READY:
         sys.exit(f"""
 Signing is not ready for a release: {"; ".join(NOT_READY)}.
 Run python3 scripts/release/asc_signing.py (with --dev too if you sign development builds with these profiles).""")
     if MISSING_GROUP:
         sys.exit(f"""
-{len(MISSING_GROUP)} profile(s) without the App Group {GROUP}: {", ".join(MISSING_GROUP)}.
+{len(MISSING_GROUP)} profile(s) without their required App Group: {", ".join(MISSING_GROUP)}.
 The API can't make an App Group or put one on an App ID. On developer.apple.com › Certificates, Identifiers & Profiles:
-  1. Identifiers › + › App Groups: description Persona, identifier {GROUP}.
-  2. Identifiers › {APP} › App Groups › Configure (Edit): tick {GROUP}, Continue, Save, Confirm.
-  3. The same for {LIVE}.
-Then run this again (docs/operations/release.md「App Group」).""")
+  1. Register {GROUP} and attach it to {APP} and {LIVE}.
+  2. Register {WATCH_GROUP} and attach it to {WATCH} and {WATCH_WIDGETS}.
+Then run this again (docs/operations/release.md "App Group").""")
     if not check_only:
         print("\nDone. Release builds sign with these profiles (release.sh generates the export options from the config).")
 

@@ -83,7 +83,7 @@ struct PersonalAgentSessionView: View {
                     pending.append(p)
                     Task { await send(p) }
                 } label: {
-                    Image(systemName: Theme.Icon.submit).font(Theme.Font.title)
+                    ThemedIcon(Theme.Icon.submit).font(Theme.Font.title)
                 }
                 .disabled(!session.canSend || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 // Match the main chat composer (ComposerRow): ⌘⏎ sends. SwiftUI does not fire the shortcut while

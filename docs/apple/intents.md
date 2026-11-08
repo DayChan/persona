@@ -25,6 +25,16 @@ They do not need the app in the foreground and do not use WebSocket: each call r
 | `IntentAnswerSnippet.swift` | The answer card for Ask Persona (question + full text) |
 | `PersonaShortcuts.swift` | `AppShortcutsProvider`, Chinese phrases and icons |
 
+## Extension actions (#1147)
+
+`apple/Shared/RunExtensionActionIntent.swift` adds **Run Extension Action** to the containing Apple apps, including watchOS 10; the phone's `PersonaShortcuts` offers its localized Siri phrase. Dynamic entity ids encode hub group, extension and action together. Execution uses `APIClient` with the exact selected group's App Group credential; missing groups never use the default hub. The watch's separate container contains only credentials already issued to the watch.
+
+App Intent parameters are compile-time metadata, so an extension manifest cannot add new `@Parameter` properties. Optional Text/Number/Toggle/Choice target the first parameter of that kind; optional JSON Values is a string-to-string object for multiple fields of the same kind and overrides the corresponding single-value inputs. Required values, finite numbers, boolean strings and choices are checked before submission, then validated by the hub. Choosing an action refreshes the directory; execution rereads the selected hub's actions before sending. No automatic write retry is added.
+
+Text is returned as both result value and Siri dialog. iOS/visionOS with compiler 6.4+ also show a read-only `ExtensionSurfaceView` snippet and optional Open link preserving the original group. Xcode 26.x, macOS and watchOS use the text/dialog fallback. This does not raise the minimum compiler. Widget and action details, cache/revocation behavior and device acceptance boundaries are in [Extensions](../extensions/extensions.md) ("Apple system surface boundaries").
+
+No Apple build, metadata extraction, simulator screenshot or device acceptance was run for this implementation while builds were paused; the Swift tests are additions, not passing evidence.
+
 ## Selection rules
 
 `AskClaudeIntent`:

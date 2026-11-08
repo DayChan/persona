@@ -234,7 +234,7 @@ struct MessagesChatRow: View {
         if chat.isGroup {
             Circle().fill(Theme.monogramFill)
                 .scaledFrame(width: Theme.Size.avatar, height: Theme.Size.avatar)
-                .overlay(Image(systemName: Theme.Icon.groupChat).font(Theme.Font.body).foregroundStyle(.secondary))
+                .overlay(ThemedIcon(Theme.Icon.groupChat).font(Theme.Font.body).foregroundStyle(.secondary))
         } else {
             Monogram(name: chat.name, size: Theme.Size.avatar, fill: Theme.monogramFill)
         }
@@ -432,7 +432,7 @@ struct MessagesAttachmentRow: View {
                 }
             }
         } icon: {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
         }
     }
 

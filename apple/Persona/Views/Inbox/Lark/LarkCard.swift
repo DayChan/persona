@@ -877,20 +877,20 @@ struct LarkCardIcon: View {
     nonisolated static func symbol(_ token: String?) -> (String, Color?)? {
         guard let t = token?.lowercased(), !t.isEmpty else { return nil }
         let table: [(String, String, Color?)] = [
-            ("warning", "exclamationmark.triangle.fill", .orange), ("alert", "exclamationmark.triangle.fill", .orange),
+            ("warning", "exclamationmark.triangle.fill", .orange), ("alert", "exclamationmark.triangle.fill", .orange), // icon: Lark card icon tokens
             ("error", "xmark.octagon.fill", .red), ("close", "xmark.circle.fill", .red), ("cancel", "xmark.circle.fill", .red), // icon: as Lark draws its card icons // icon: as Lark draws its card icons
-            ("info", "info.circle", nil), ("maybe", "questionmark.circle", nil), ("help", "questionmark.circle", nil), ("question", "questionmark.circle", nil),
-            ("succeed", "checkmark.circle.fill", .green), ("success", "checkmark.circle.fill", .green), ("done", "checkmark.circle.fill", .green), ("check", "checkmark.circle.fill", .green), ("yes", "checkmark.circle.fill", .green),
-            ("time", "clock", nil), ("clock", "clock", nil), ("calendar", "calendar", nil), ("alarm", "alarm", nil),
-            ("member", "person.2", nil), ("group", "person.2", nil), ("people", "person", nil), ("user", "person", nil), ("contacts", "person.crop.circle", nil),
-            ("link", "link", nil), ("external", "arrow.up.right.square", nil), ("doc", "doc.text", nil), ("file", "doc", nil), ("folder", "folder", nil),
-            ("bell", "bell", nil), ("notice", "bell", nil), ("fire", "flame.fill", .orange), ("star", "star.fill", .yellow), ("like", "hand.thumbsup", nil),
-            ("chat", "bubble.left", nil), ("message", "bubble.left", nil), ("mail", "envelope", nil), ("search", "magnifyingglass", nil),
-            ("setting", "gearshape", nil), ("edit", "pencil", nil), ("delete", "trash", nil), ("add", "plus.circle", nil), ("refresh", "arrow.clockwise", nil),
-            ("down", "chevron.down", nil), ("up", "chevron.up", nil), ("right", "chevron.right", nil), ("left", "chevron.left", nil),
-            ("robot", "sparkles", nil), ("ai", "sparkles", .purple), ("lock", "lock", nil), ("location", "mappin.and.ellipse", nil),
-            ("chart", "chart.bar", nil), ("data", "chart.bar", nil), ("code", "chevron.left.forwardslash.chevron.right", nil), ("bug", "ladybug", .red),
-            ("video", "video", nil), ("phone", "phone", nil), ("image", "photo", nil), ("tag", "tag", nil), ("flag", "flag", nil), ("pin", "pin", nil),
+            ("info", "info.circle", nil), ("maybe", "questionmark.circle", nil), ("help", "questionmark.circle", nil), ("question", "questionmark.circle", nil), // icon: Lark card icon tokens
+            ("succeed", "checkmark.circle.fill", .green), ("success", "checkmark.circle.fill", .green), ("done", "checkmark.circle.fill", .green), ("check", "checkmark.circle.fill", .green), ("yes", "checkmark.circle.fill", .green), // icon: Lark card icon tokens
+            ("time", "clock", nil), ("clock", "clock", nil), ("calendar", "calendar", nil), ("alarm", "alarm", nil), // icon: Lark card icon tokens
+            ("member", "person.2", nil), ("group", "person.2", nil), ("people", "person", nil), ("user", "person", nil), ("contacts", "person.crop.circle", nil), // icon: Lark card icon tokens
+            ("link", "link", nil), ("external", "arrow.up.right.square", nil), ("doc", "doc.text", nil), ("file", "doc", nil), ("folder", "folder", nil), // icon: Lark card icon tokens
+            ("bell", "bell", nil), ("notice", "bell", nil), ("fire", "flame.fill", .orange), ("star", "star.fill", .yellow), ("like", "hand.thumbsup", nil), // icon: Lark card icon tokens
+            ("chat", "bubble.left", nil), ("message", "bubble.left", nil), ("mail", "envelope", nil), ("search", "magnifyingglass", nil), // icon: Lark card icon tokens
+            ("setting", "gearshape", nil), ("edit", "pencil", nil), ("delete", "trash", nil), ("add", "plus.circle", nil), ("refresh", "arrow.clockwise", nil), // icon: Lark card icon tokens
+            ("down", "chevron.down", nil), ("up", "chevron.up", nil), ("right", "chevron.right", nil), ("left", "chevron.left", nil), // icon: Lark card icon tokens
+            ("robot", "sparkles", nil), ("ai", "sparkles", .purple), ("lock", "lock", nil), ("location", "mappin.and.ellipse", nil), // icon: Lark card icon tokens
+            ("chart", "chart.bar", nil), ("data", "chart.bar", nil), ("code", "chevron.left.forwardslash.chevron.right", nil), ("bug", "ladybug", .red), // icon: Lark card icon tokens
+            ("video", "video", nil), ("phone", "phone", nil), ("image", "photo", nil), ("tag", "tag", nil), ("flag", "flag", nil), ("pin", "pin", nil), // icon: Lark card icon tokens
         ]
         for (k, s, c) in table where t.contains(k) { return (s, c) }
         return nil
@@ -911,7 +911,7 @@ struct LarkCardField: View {
         case "date_picker", "picker_datetime": "calendar"
         case "picker_time": "clock"
         case "select_person", "multi_select_person": "person.crop.circle.badge.plus"
-        default: "chevron.up.chevron.down"
+        default: Theme.Icon.choices
         }
         Menu {
             ForEach(Array(options.enumerated()), id: \.offset) { _, o in

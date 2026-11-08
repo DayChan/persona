@@ -206,7 +206,8 @@ replies to my comments, and mentions of me in posts or comments. Likes and new f
 
 Connector activity needing me (`docs/plans/plan-connectors.md`) also enters the Inbox. A connector implements `connector.Inbox`, returning candidates (`InboxThing`, one per thread),
 which the manager turns into items (`server/internal/assistant/inbox_connectors.go`; hub delivers candidates each round). Rules match Lark chats: one unhandled item per thread, later activity merged with `count` incremented;
-after handling, new activity opens another. If the connector says an item ended (merged, closed, replied by me), automatically handle it (`done_by` = read / replied); read elsewhere and not Needs you means `read`.
+after handling, new activity opens another. A thing whose `at` is older than its open item's latest step is an earlier step read again (a connector re-reading after a restart): it is not counted and never moves the item back (#1527).
+A new item never takes the id of an existing one (`sha1(thread, last)`): that step already made an item, perhaps handled since. If the connector says an item ended (merged, closed, replied by me), automatically handle it (`done_by` = read / replied); read elsewhere and not Needs you means `read`.
 Triage, drafting, AI twin, done state, and retention use hub's generic logic.
 
 - **GitHub** (`server/internal/connector/github/inbox.go`): with no public hub endpoint for webhooks, poll `/notifications` (unread only), following `X-Poll-Interval` (usually 60 seconds),
@@ -220,11 +221,13 @@ Triage, drafting, AI twin, done state, and retention use hub's generic logic.
     - Human review requests, human mentions, requested changes (`CHANGES_REQUESTED`), assignments: Needs you.
     - Bot PR review requests, bot mentions / comments on my PRs, approvals, team mentions: FYI.
     - Ordinary human comments on my PRs: model decides (prompt: requests for changes / answers need you).
-  - **Group CI failures by (repository, branch)** (thread `ci:<owner>/<repo>@<branch>`). Read the branch from notification title (`<workflow> workflow run[, Attempt #N] failed for <branch> branch`;
+  - **Group CI failures by (repository, branch)** (thread `ci:<owner>/<repo>@<branch>`, title `<repo name> · <branch> 的 CI 失败` so items of several repositories' `main` differ). Read the branch from notification title (`<workflow> workflow run[, Attempt #N] failed for <branch> branch`;
     these notifications have no URL), merging reruns and later failures:
+    - The thing holds the newest failure: notifications come newest first, and one older than the thread's thing is skipped (several notifications per branch; after a restart all unread ones are read again, 30 per poll).
+    - GitHub notifies only the account that started a run, so failures from other people's pushes come from the follow-up check instead: the branch's newest failed run, ended at least 3 minutes before (its own notification, about 20 seconds after the run, is the same failure), joins the open item as its latest step.
     - Default branch and my open PRs: Needs you; other branches: FYI; automatic branches (`train/*`, configurable): excluded entirely.
-    - Automatically mark handled without deleting (`done_by=read`, explanatory `reason`) when the workflow later succeeds on that branch ("GitHub: later succeeded," immediately on a succeeded notification,
-      otherwise check Actions runs every 10 minutes), branch deleted, or PR merged / closed.
+    - Automatically mark handled without deleting (`done_by=read`, explanatory `reason`) when the branch is green again: every workflow's newest finished run on it passed, cancelled and running ones aside ("GitHub: later succeeded";
+      a succeeded notification has it checked at once, otherwise Actions runs are checked every 10 minutes), branch deleted, or PR merged / closed.
   - **Configuration** (Settings › Connectors › GitHub › Inbox; `github.inbox` in the manager's manager.json supplies defaults; stored as `connectors.options.github` in settings):
     - CI failures: Off / Default branch only / Include my PRs (default) / All (all Needs you).
     - Muted repositories: exclude all activity and handle existing items.

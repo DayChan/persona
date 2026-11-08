@@ -227,6 +227,13 @@ Pitfalls in the new multi-module Android App (`android/`, `docs/android/android.
   Only an obtained certificate that fails validation is a certificate mismatch: rejection by `SpkiTrustManager` (`CertificateException` in the cause chain), or by hostname verifier (another hub's pin in the group, `SSLPeerUnverifiedException`). Retry other handshake failures with ordinary network-error backoff (`HubFailure.from`).
 - `OkHttpHubConnection.request` throws `HubFailure` itself for non-2xx responses instead of returning them. Caller-side `if (!response.isSuccessful)` error-body parsing is unreachable with the real connection (unit tests returning MockWebServer responses directly miss this). Required hub error fields (such as rejected plugin-settings `field` and `message`) must enter `ErrorBody` / `HubFailure` (2026-11-04, #1206: a rejected field became a page-top error on the emulator). Unit-test again with a request that throws first like the connection (`HttpPluginManagementTest`).
 
+- Never give OkHttp a `ConnectionPool(0, …)` for HTTP/2 calls whose body is read to the end (2026-11-08, #1519). The exchange completes once
+  the body's Content-Length bytes arrive; with no idle connection allowed the pool closes the socket right then, and a server that
+  sends the stream's end in a frame of its own (MockWebServer flushes the body, then ends the stream) has not been heard yet. The
+  read that waits for it fails: `StreamResetException: CANCEL` on Linux, `SocketException: Socket closed` on macOS, both shown as
+  "Connection failed". It hit `health(fresh = true)` only now and then on hosted runners; a MockWebServer `DuplexResponseBody` that
+  ends the stream 300 ms after the body reproduces it every time. Keep one idle connection with a short keep-alive instead.
+
 ## Module facades must include default interface methods (2026-11-04, #1619)
 
 - `InboxModule`'s `InboxRepository` facade (`object : InboxRepository`) forwards calls to the active group's `it.inbox`.

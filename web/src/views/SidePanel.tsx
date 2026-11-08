@@ -24,6 +24,8 @@ import { PageBoundary } from "./PageBoundary";
 const FilesPanel = lazy(() => import("./session/FilesPanel").then((m) => ({ default: m.FilesPanel })));
 const FileViewerPanel = lazy(() => import("./session/FileViewer").then((m) => ({ default: m.FileViewerPanel })));
 const GitPanel = lazy(() => import("./session/GitPanel").then((m) => ({ default: m.GitPanel })));
+const PreviewPanel = lazy(() => import("./session/PreviewPanel").then((m) => ({ default: m.PreviewPanel })));
+const ReviewPanel = lazy(() => import("./session/ReviewPanel").then((m) => ({ default: m.ReviewPanel })));
 const LinkPanel = lazy(() => import("./link/LinkPanel").then((m) => ({ default: m.LinkPanel })));
 
 const WIDTH_KEY = "persona.panelWidth";
@@ -135,7 +137,7 @@ export function SidePanel() {
 }
 
 function panelLabel(p: Panel) {
-  return p.kind === "files" ? t("sidepanel.files") : p.kind === "git" ? "Git" : p.kind === "file" ? t("sidepanel.files") : p.kind === "task" ? t("sidepanel.task") : p.kind === "agent" ? t("sidepanel.agent") : p.kind === "plan" ? t("sidepanel.plan") : t("sidepanel.link");
+  return p.kind === "files" ? t("sidepanel.files") : p.kind === "git" ? "Git" : p.kind === "review" ? t("sidepanel.review") : p.kind === "file" ? t("sidepanel.files") : p.kind === "task" ? t("sidepanel.task") : p.kind === "agent" ? t("sidepanel.agent") : p.kind === "plan" ? t("sidepanel.plan") : p.kind === "preview" ? t("sidepanel.preview") : t("sidepanel.link");
 }
 
 function body(p: Panel) {
@@ -144,6 +146,8 @@ function body(p: Panel) {
       return <FilesPanel key={directoryPanelKey(p)} mid={p.mid} sid={p.sid} cwd={p.cwd} path={p.path} file={p.file} onClose={closePanel} />;
     case "git":
       return <GitPanel key={directoryPanelKey(p)} mid={p.mid} sid={p.sid} cwd={p.cwd} at={p.at} onClose={closePanel} />;
+    case "review":
+      return <ReviewPanel key={directoryPanelKey(p)} mid={p.mid} sid={p.sid} cwd={p.cwd} scope={p.scope} at={p.at} onClose={closePanel} />;
     case "file":
       return <FileViewerPanel key={`${p.mid}:${p.path}:${p.line ?? ""}-${p.to ?? ""}`} mid={p.mid} sid={p.sid} path={p.path} cwd={p.cwd} line={p.line} to={p.to} onClose={closePanel} />;
     case "link":
@@ -156,6 +160,8 @@ function body(p: Panel) {
       return <AgentPanel key={`${p.mid}/${p.sid}`} mid={p.mid} sid={p.sid} onClose={closePanel} />;
     case "plan":
       return <PlanPanel key={`${p.mid}/${p.sid}`} mid={p.mid} sid={p.sid} onClose={closePanel} />;
+    case "preview":
+      return <PreviewPanel key={`${p.mid}/${p.sid}/${p.port ?? ""}${p.path ?? ""}`} mid={p.mid} sid={p.sid} cwd={p.cwd} port={p.port} path={p.path} onClose={closePanel} />;
   }
 }
 

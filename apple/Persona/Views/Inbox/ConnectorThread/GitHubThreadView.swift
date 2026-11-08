@@ -174,7 +174,7 @@ struct GitHubThreadHeader: View {
                 Label {
                     Text("\(b.head) → \(b.base)").font(Theme.Font.code).lineLimit(1).truncationMode(.middle)
                 } icon: {
-                    Image(systemName: Theme.Icon.gitBranch).font(Theme.Font.caption)
+                    ThemedIcon(Theme.Icon.gitBranch).font(Theme.Font.caption)
                 }
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Merge \(b.head) into \(b.base)")
@@ -269,7 +269,7 @@ struct GitHubByline: View {
                 Label {
                     Text(detail).lineLimit(1)
                 } icon: {
-                    if let detailSymbol { Image(systemName: detailSymbol) }
+                    if let detailSymbol { ThemedIcon(detailSymbol) }
                 }
                 .labelStyle(.titleAndIcon)
                 .font(Theme.Font.captionMedium)
@@ -375,7 +375,7 @@ struct GitHubCodeRef: View {
             Label {
                 Text(code.line.map { "\(code.path):\($0)" } ?? code.path).lineLimit(1).truncationMode(.head)
             } icon: {
-                Image(systemName: Theme.Icon.code)
+                ThemedIcon(Theme.Icon.code)
             }
             .font(Theme.Font.code)
             .foregroundStyle(.secondary)
@@ -415,7 +415,7 @@ struct GitHubChecksCard: View {
         let failed = checks.filter { $0.check?.state == "failure" }
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.sm) {
-                Image(systemName: Self.symbol(worst)).foregroundStyle(Self.color(worst))
+                ThemedIcon(Self.symbol(worst)).foregroundStyle(Self.color(worst))
                 Text(GitHubThread.checksSummary(checks)).font(Theme.Font.captionStrong).lineLimit(1)
                 Spacer(minLength: Theme.Space.s)
                 if let at = checks.last?.at {
@@ -445,7 +445,7 @@ struct GitHubChecksCard: View {
         let isOpen = shown?.contains(id) == true
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Self.symbol(c.state)).font(Theme.Font.caption).foregroundStyle(Self.color(c.state))
+                ThemedIcon(Self.symbol(c.state)).font(Theme.Font.caption).foregroundStyle(Self.color(c.state))
                 Text(c.name).font(Theme.Font.secondary).lineLimit(1)
                 Spacer(minLength: Theme.Space.s)
                 if hasLog {
@@ -462,7 +462,7 @@ struct GitHubChecksCard: View {
                     .buttonStyle(.borderless)
                 } else if let u = c.url {
                     Button { open(u) } label: {
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.label).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.label).foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Open \(c.name) [Git Hub Thread View eb8679]")
@@ -507,7 +507,7 @@ struct GitHubEventLine: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.dot).font(Theme.Font.label).imageScale(.small).foregroundStyle(.tertiary)
+            ThemedIcon(Theme.Icon.dot).font(Theme.Font.label).imageScale(.small).foregroundStyle(.tertiary)
             (Text(message.text ?? "") + Text("  ") + Text(message.at, format: .relative(presentation: .named)).foregroundStyle(.tertiary))
                 .font(Theme.Font.caption)
                 .foregroundStyle(.secondary)

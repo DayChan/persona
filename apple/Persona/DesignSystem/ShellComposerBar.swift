@@ -245,7 +245,7 @@ struct ShellComposerBar<Attach: View, Modes: View>: View {
     /// An icon in the text area's corner, never competing with the model and send controls below it.
     private var enlargeButton: some View {
         Button(action: enlarge) {
-            Image(systemName: Theme.Icon.expandMessage)
+            ThemedIcon(Theme.Icon.expandMessage)
                 .font(Theme.Font.secondary)
                 .foregroundStyle(ink)
                 .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.tapTarget)
@@ -298,7 +298,7 @@ struct ShellComposerBar<Attach: View, Modes: View>: View {
 
     private var plus: some View {
         Menu { attach() } label: {
-            Image(systemName: Theme.Icon.add)
+            ThemedIcon(Theme.Icon.add)
                 .font(Theme.Font.title)
                 .fontWeight(.regular)
                 .foregroundStyle(ink)
@@ -468,7 +468,7 @@ private struct ComposerPageEditor: View {
                         commitTyped()
                         collapse()
                     } label: {
-                        Image(systemName: Theme.Icon.collapseMessage)
+                        ThemedIcon(Theme.Icon.collapseMessage)
                     }
                     .accessibilityLabel("Collapse the message box")
                     .accessibilityIdentifier("composer-page-collapse")

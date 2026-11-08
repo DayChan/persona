@@ -158,19 +158,19 @@ struct LinkSheet: View {
             Spacer(minLength: 6)
             if isFeishuDoc, key != nil {
                 // The native reader has no custom selection menu: the whole doc can still go along.
-                Button { pick("", kind: "context") } label: { Image(systemName: Theme.Icon.addContext) }
+                Button { pick("", kind: "context") } label: { ThemedIcon(Theme.Icon.addContext) }
                     .accessibilityLabel("Add this document as context")
             }
             if feishuRoute == nil {
-                Button { Haptics.tap(); WebViewPool.shared.reload(target.url) } label: { Image(systemName: Theme.Icon.reload) }
+                Button { Haptics.tap(); WebViewPool.shared.reload(target.url) } label: { ThemedIcon(Theme.Icon.reload) }
                     .accessibilityLabel("Refresh")
                     .accessibilityIdentifier("link-reload")
             }
             Menu {
                 Button { UIPasteboard.general.url = target.url; Haptics.success() } label: { Label("Copy Link", systemImage: Theme.Icon.link) }
                 if target.forwarded == nil { browserItems } // the phone's loopback means nothing to another app
-            } label: { Image(systemName: Theme.Icon.moreMenu) }
-            Button { dismiss() } label: { Image(systemName: Theme.Icon.clear).symbolRenderingMode(.hierarchical) }
+            } label: { ThemedIcon(Theme.Icon.moreMenu) }
+            Button { dismiss() } label: { ThemedIcon(Theme.Icon.clear).symbolRenderingMode(.hierarchical) }
                 .accessibilityLabel("Close")
                 .accessibilityIdentifier("link-close")
         }
@@ -379,9 +379,9 @@ struct ContextGroup: View {
                 toggleInPlace(pin, pinKey, animation: Theme.Motion.state, unfold: $unfold, closing: open) { open.toggle() }
             } label: {
                 HStack(spacing: Theme.Space.sm) {
-                    Image(systemName: refs.count == 1 ? refs[0].icon : Theme.Icon.contexts).font(Theme.Font.label)
+                    ThemedIcon(refs.count == 1 ? refs[0].icon : Theme.Icon.contexts).font(Theme.Font.label)
                     Text(ContextRef.summary(refs)).font(Theme.Font.labelMedium).lineLimit(1).truncationMode(.middle)
-                    Image(systemName: open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.label)
+                    ThemedIcon(open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.label)
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, Theme.Space.m)
@@ -429,12 +429,12 @@ private struct ContextRow: View {
                 toggleInPlace(pin, key, animation: Theme.Motion.state, unfold: $unfold, closing: open) { open.toggle() }
             } label: {
                 HStack(spacing: Theme.Space.s) {
-                    Image(systemName: ref.icon).font(Theme.Font.label).foregroundStyle(.secondary)
+                    ThemedIcon(ref.icon).font(Theme.Font.label).foregroundStyle(.secondary)
                         .scaledFrame(width: Theme.Size.markM)
                     Text(ref.label).font(Theme.Font.secondary).foregroundStyle(Color.primary).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: Theme.Space.s)
                     if ref.text.isEmpty { Text("Empty").font(Theme.Font.label).foregroundStyle(.tertiary).lineLimit(1) }
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.label).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.label).foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(open ? 90 : 0))
                 }
                 .padding(.horizontal, Theme.Space.m)

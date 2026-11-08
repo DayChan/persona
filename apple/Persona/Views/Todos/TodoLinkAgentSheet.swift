@@ -52,7 +52,7 @@ struct TodoLinkAgentSheet: View {
                                 Text(todo.title).font(Theme.Font.body).foregroundStyle(Color.primary).lineLimit(1)
                                 Spacer()
                                 if draft.selectedTodoID == todo.id {
-                                    Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent)
+                                    ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent)
                                 }
                             }
                         }

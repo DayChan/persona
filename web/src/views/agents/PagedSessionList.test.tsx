@@ -136,3 +136,26 @@ describe("paged state chips during count refreshes", () => {
     expect(labels()).toEqual([t("paged-agents.all")]);
   });
 });
+
+
+describe("the By repo entry in the paged list", () => {
+  it("offers By repo only when the caller has the full tree, and choosing it switches views instead of filtering", async () => {
+    await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list" renderRow={(row: Row) => <span>{row.id}</span>} />));
+    const select = () => host.querySelector<HTMLSelectElement>(`select[aria-label="${t("paged-agents.group_by")}"]`)!;
+    expect([...select().options].some((o) => o.value === "repo")).toBe(false);
+
+    const onRepo = vi.fn();
+    await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list" renderRow={(row: Row) => <span>{row.id}</span>} onRepo={onRepo} />));
+    const option = [...select().options].find((o) => o.value === "repo");
+    expect(option?.textContent).toBe(t("lib-agent-groups.by_repo"));
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(select(), "repo");
+      select().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(onRepo).toHaveBeenCalledTimes(1);
+    // it did not become a paged filter: the list still shows the unfiltered, recently updated projection
+    expect(select().value).toBe("");
+  });
+});

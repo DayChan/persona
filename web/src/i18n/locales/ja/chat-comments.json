@@ -23,5 +23,8 @@
   "staged": "ステージ済み",
   "unstaged": "未ステージ",
   "commit": "コミット {sha}",
+  "review_uncommitted": "未コミット",
+  "review_branch": "ブランチ（{sha} 以降）",
+  "review_since": "{sha} 以降",
   "show_chat": "チャットを表示"
 }

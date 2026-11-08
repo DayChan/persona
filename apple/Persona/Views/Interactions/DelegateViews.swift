@@ -17,7 +17,7 @@ struct DelegateNotes: View {
 
     private var looking: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.view)
+            ThemedIcon(Theme.Icon.view)
                 .font(Theme.Font.captionStrong)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -40,7 +40,7 @@ struct DelegateNotes: View {
             Label {
                 Text("What the assistant found").lineLimit(1)
             } icon: {
-                Image(systemName: Theme.Icon.ai)
+                ThemedIcon(Theme.Icon.ai)
             }
             .font(Theme.Font.captionStrong)
             .foregroundStyle(Theme.ai)
@@ -81,7 +81,7 @@ struct DelegatedCard: View {
                 Label {
                     Text("Answered by the assistant").lineLimit(1)
                 } icon: {
-                    Image(systemName: Theme.Icon.ai)
+                    ThemedIcon(Theme.Icon.ai)
                 }
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(Theme.ai)
@@ -89,7 +89,7 @@ struct DelegatedCard: View {
                 Button {
                     withAnimation(Theme.Motion.standard) { model.dropDelegated(answer.id) }
                 } label: {
-                    Image(systemName: Theme.Icon.close)
+                    ThemedIcon(Theme.Icon.close)
                         .font(Theme.Font.captionStrong)
                         .foregroundStyle(.secondary)
                         .scaledFrame(width: Theme.Size.wellXS, height: Theme.Size.wellXS)
@@ -147,7 +147,7 @@ struct DelegatedBody: View {
                     Label {
                         Text("You changed it").lineLimit(1)
                     } icon: {
-                        Image(systemName: Theme.Icon.done)
+                        ThemedIcon(Theme.Icon.done)
                     }
                     .font(Theme.Font.captionStrong)
                     .foregroundStyle(Theme.positive)
@@ -158,7 +158,7 @@ struct DelegatedBody: View {
                         Label {
                             Text("Change Answer").lineLimit(1)
                         } icon: {
-                            Image(systemName: Theme.Icon.edit)
+                            ThemedIcon(Theme.Icon.edit)
                         }
                     }
                     .themedButton()
@@ -225,7 +225,7 @@ struct ReanswerSheet: View {
                         Label {
                             Text(error)
                         } icon: {
-                            Image(systemName: Theme.Icon.error)
+                            ThemedIcon(Theme.Icon.error)
                         }
                         .foregroundStyle(Theme.danger)
                     }
@@ -267,7 +267,7 @@ struct ReanswerSheet: View {
                 }
                 Spacer(minLength: 0)
                 if on {
-                    Image(systemName: Theme.Icon.done)
+                    ThemedIcon(Theme.Icon.done)
                         .font(Theme.Font.bodyStrong)
                         .foregroundStyle(Theme.accent)
                 }
@@ -345,7 +345,7 @@ struct DelegatedHistorySection: View {
                 Label {
                     Text(error)
                 } icon: {
-                    Image(systemName: Theme.Icon.error)
+                    ThemedIcon(Theme.Icon.error)
                 }
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.danger)

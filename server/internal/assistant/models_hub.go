@@ -30,6 +30,8 @@ func (s *Service) modelsRequest(ctx context.Context, method string, params json.
 		HTTP    *quota.Request `json:"http"`
 	}
 	switch method {
+	case assistantwire.MethodExtensionIdentity:
+		return map[string]bool{"supported": true}, true, nil
 	case assistantwire.MethodModelsUsable, assistantwire.MethodModelsLauncherHTTP:
 	case assistantwire.MethodModelsLaunchers:
 		return map[string]any{"launchers": s.gatewayLaunchers(ctx)}, true, nil

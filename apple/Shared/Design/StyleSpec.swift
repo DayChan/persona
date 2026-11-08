@@ -79,6 +79,8 @@ nonisolated struct StyleSpec: Sendable {
     /// The persona's own color (`Theme.persona`), when it brings one (docs/apple/persona.md).
     var personaPrimary: Color?
     var workList: WorkList
+    /// How SF Symbols are drawn (`IconSpec`, docs/apple/icons.md).
+    var icons: IconSpec
 
     var usesGlass: Bool { surface == .glass }
 
@@ -113,6 +115,7 @@ nonisolated struct StyleSpec: Sendable {
         fontDesign = style.fontDesign
         components = style.components
         workList = style.workList
+        icons = style.icons
         lark = LarkChrome(blue: colors.larkBlue, myBubble: colors.larkMyBubble, otherBubble: style.larkOtherBubble ?? card,
                           cardBackground: style.larkCard ?? card, cardStroke: style.cardStroke)
         self.personaPrimary = personaPrimary
@@ -160,6 +163,8 @@ nonisolated struct ComponentSpec: Sendable {
     var previewCorner: CGFloat
     var components: StyleSpec.Components
     var workList: StyleSpec.WorkList = .card
+    /// How SF Symbols are drawn; `.system` leaves them as written.
+    var icons: IconSpec = .system
     var canvas: Canvas
     var cardStroke = StyleSpec.defaultStroke
     /// Soft buttons cast the color's shadow (Clay) instead of a plain one.

@@ -213,6 +213,8 @@ export interface UIReview {
   placeholder?: string;
   buttons: { title: string; action: UIAction; tone?: UITone }[];
   discard?: UIAction;
+  /** The summary already written (a session review whose send failed, #151); not sent by extensions. */
+  value?: string;
 }
 
 /** Where an extension draws (GET /api/v1/extensions/-/ui, and an extension detail's `ui`). */

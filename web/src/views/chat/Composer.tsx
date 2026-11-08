@@ -94,8 +94,6 @@ export function Composer({
   mention,
   onFocusChange,
   blocked,
-  resendRef,
-  onEdit,
 }: {
   draftKey: string;
   placeholder: string;
@@ -107,8 +105,9 @@ export function Composer({
   needsYou?: boolean;
   disabled?: boolean;
   commands?: Command[];
-  /** `fromBox`: the words were in this box and go back into it if the send fails. */
-  onSend: (m: Outgoing, fromBox?: boolean) => Promise<boolean>;
+  /** False: it did not go and nothing shows it (the chat keeps one that failed as a failed bubble, true), so the words go
+   *  back into the box. */
+  onSend: (m: Outgoing) => Promise<boolean>;
   onStop?: () => void;
   autoFocus?: boolean;
   footer?: React.ReactNode;
@@ -120,10 +119,6 @@ export function Composer({
   /** The main conversation cannot answer yet (docs/assistant/onboarding.md 4.4): the send button says what to do first and opens
    *  it; the box still takes typing and keeps the draft, nothing is sent or queued. */
   blocked?: { label: string; onClick?: () => void; onNudge?: () => void };
-  /** Set to this box's send (what is in it now): a failed send's "Send again" sends the words that were put back (#4270). */
-  resendRef?: React.MutableRefObject<(() => void) | null>;
-  /** You typed in the box (not a send putting words back). */
-  onEdit?: () => void;
 }) {
   const [draft, setDraft] = useState(() => storedValue(`draft:${draftKey}`) ?? "");
   const [atts, setAtts] = useState<Attachment[]>([]);
@@ -505,7 +500,8 @@ export function Composer({
     if (sending || disabled || blocked || (!text.trim() && !atts.length && !refs.length && !q.length)) return;
     setSending(true);
     // The message shows in the chat at once (a sending bubble), so the box empties at once too: waiting for the hub to
-    // hand it to the agent (seconds when it starts up) left the same words in both places. A failure puts them back.
+    // hand it to the agent (seconds when it starts up) left the same words in both places. A send that never went
+    // (onSend false) puts them back; one that failed stays in the chat as a failed bubble.
     const sent = atts;
     setDraft("");
     draftNow.current = "";
@@ -515,7 +511,7 @@ export function Composer({
     refs.forEach((r) => removeContext(draftKey, r.id));
     setQuotes(draftKey, []);
     // picked contexts ride in front as <persona-context> tags (docs/protocol/protocol.md "Tags in messages"), the quote as `> ` lines
-    const ok = await onSend({ text: withContexts(refs, withQuoteBlock(q, text), sent.length > 0), images: sent.map((a) => ({ mime: a.mime, data: a.data })) }, true);
+    const ok = await onSend({ text: withContexts(refs, withQuoteBlock(q, text), sent.length > 0), images: sent.map((a) => ({ mime: a.mime, data: a.data })) });
     setSending(false);
     if (ok) {
       history.record(text);
@@ -536,8 +532,6 @@ export function Composer({
     }
     input.current?.focus({ preventScroll: true });
   };
-
-  if (resendRef) resendRef.current = () => void submit();
 
   const pick = (c: Command) => {
     if (c.confirm && !confirm(c.confirm)) return;
@@ -644,7 +638,6 @@ export function Composer({
           }}
           onChange={(e) => {
             setDraft(e.target.value);
-            onEdit?.();
             setDismissed(false);
             setCaret(e.target.selectionStart);
           }}
@@ -842,7 +835,6 @@ export function Composer({
           selection={[input.current?.selectionStart ?? draft.length, input.current?.selectionEnd ?? draft.length]}
           onChange={(v) => {
             setDraft(v);
-            onEdit?.();
             setDismissed(false);
           }}
           onCollapse={(sel) => {

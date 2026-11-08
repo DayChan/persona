@@ -79,7 +79,7 @@ struct LauncherPresetSections: View {
                 }
                 Spacer(minLength: Theme.Space.s)
                 if picked {
-                    Image(systemName: Theme.Icon.done).font(Theme.Font.labelStrong).foregroundStyle(Theme.accent)
+                    ThemedIcon(Theme.Icon.done).font(Theme.Font.labelStrong).foregroundStyle(Theme.accent)
                 }
             }
             .contentShape(Rectangle())

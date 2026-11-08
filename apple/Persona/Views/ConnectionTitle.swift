@@ -42,7 +42,7 @@ struct ConnectionLabel: View {
         HStack(spacing: compact ? 5 : 7) {
             if phase == .rejected {
                 // Not trying anything the user can wait out: no spinner.
-                Image(systemName: Theme.Icon.error)
+                ThemedIcon(Theme.Icon.error)
                     .font(compact ? Theme.Font.label : Theme.Font.heading)
                     .foregroundStyle(Theme.caution)
             } else {
@@ -85,7 +85,7 @@ struct ConnectionDetails: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 HStack(spacing: Theme.Space.s) {
                     if phase == .online {
-                        Image(systemName: Theme.Icon.successFilled).foregroundStyle(Theme.positive)
+                        ThemedIcon(Theme.Icon.successFilled).foregroundStyle(Theme.positive)
                         Text("Connected to Hub").font(Theme.Font.heading)
                     } else {
                         ConnectionLabel(phase: phase)

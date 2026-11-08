@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 
 PLATFORMS = {'linux-amd64', 'darwin-arm64'}
@@ -42,6 +43,8 @@ def verify_archive(directory, artifact):
     if Path(name).name != name or not name.endswith('.gz'):
         raise ValueError('Invalid node artifact name')
     source = Path(directory) / name
+    if not stat.S_ISREG(source.lstat().st_mode):
+        raise ValueError('Node archive must be a regular non-symlink file')
     if source.stat().st_size != artifact['size'] or digest(source) != artifact['sha256']:
         raise ValueError('Node compressed checksum mismatch')
     with gzip.open(source, 'rb') as stream:
@@ -123,8 +126,12 @@ def prepare_nodes(root, staged, manifest):
         raise RuntimeError('Unmanaged node package directory must remain isolated')
     parent = root / 'releases/nodes'
     parent.mkdir(parents=True, exist_ok=True)
+    if not stat.S_ISDIR(parent.lstat().st_mode):
+        raise ValueError('Node release parent must be a non-symlink directory')
     destination = parent / manifest['version']
     temporary = parent / ('.stage-' + manifest['version'])
+    if destination.is_symlink() or temporary.is_symlink():
+        raise ValueError('Node release directories must not be symlinks')
     if destination.exists():
         if json.loads((destination / 'manifest.json').read_text()) != manifest:
             raise ValueError('Immutable node manifest changed')

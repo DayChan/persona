@@ -688,7 +688,7 @@ private struct SourceIcon: View {
         if let icon = source.appIcon {
             BrandMark(icon, side: Theme.Size.wellS)
         } else {
-            Image(systemName: source.symbol)
+            ThemedIcon(source.symbol)
                 .font(Theme.Font.heading)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -783,14 +783,14 @@ struct WelcomeView: View {
                 .padding(.top, Theme.Space.sm)
                 .padding(.horizontal, Theme.Space.xl)
             VStack(alignment: .leading, spacing: Theme.Space.l) {
-                feature("bubble.left.and.text.bubble.right", String(localized: "Get things done by chatting"), String(localized: "It reads files and runs commands on your computer, and asks you before it acts"))
+                feature(Theme.Icon.agentChat, String(localized: "Get things done by chatting"), String(localized: "It reads files and runs commands on your computer, and asks you before it acts"))
                 feature("bolt.horizontal", String(localized: "See what it's doing, live"), String(localized: "Thinking, tool calls, and the terminal, streamed"))
                 #if os(macOS)
                 feature(Theme.Icon.click, String(localized: "Decide in one window"), String(localized: "Answer questions, approve plans, and allow tools without switching to the terminal"))
                 feature(Theme.Icon.mailAccounts, String(localized: "Bring your mail and iPhone"), String(localized: "Gmail and other mail; calendar, contacts, and photos from Persona on your iPhone"))
                 #else
-                feature("hand.tap", String(localized: "Decide on your phone"), String(localized: "Answer questions, approve plans, and allow tools, even on your watch"))
-                feature("iphone.gen3", String(localized: "Bring your phone and mail"), String(localized: "Calendar, reminders, contacts, health, photos, Gmail"))
+                feature(Theme.Icon.tap, String(localized: "Decide on your phone"), String(localized: "Answer questions, approve plans, and allow tools, even on your watch"))
+                feature(Theme.Icon.thisDevice, String(localized: "Bring your phone and mail"), String(localized: "Calendar, reminders, contacts, health, photos, Gmail"))
                 #endif
             }
             .padding(.top, 40)
@@ -853,7 +853,7 @@ struct WelcomeView: View {
 
     private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: Theme.Space.l) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.title)
                 .foregroundStyle(Theme.accent)
                 .scaledFrame(width: Theme.Size.wellS)
@@ -1303,7 +1303,7 @@ struct SettingsRow: View {
     var body: some View {
         if AppStyle.current.usesBeautifulUI {
             BUIListRow(title, value: value.flatMap { $0.isEmpty ? nil : $0 }) {
-                if let brand { SettingsBrandMark(asset: brand) } else { BUIIconTile(symbol, tint: tint) }
+                if let brand { SettingsBrandMark(asset: brand) } else { IconTile(symbol, tint: tint) }
             }
         } else if let value {
             LabeledContent {

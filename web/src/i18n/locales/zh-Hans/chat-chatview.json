@@ -2,9 +2,6 @@
   "forked": "已分支到新聊天",
   "fork_failed": "分支失败：{error}",
   "session_loading": "正在读取会话信息，稍后再试",
-  "dialog_open": "电脑上开着一个对话框，先处理它再发",
-  "delivery_unknown": "不确定送到没有：先看一眼对话再决定要不要重发",
-  "send_failed": "没发出去：{error}",
   "not_delivered": "没送到：{error}",
   "interrupted": "已中断",
   "interrupt_failed": "中断失败：{error}",
@@ -45,6 +42,7 @@
   "attach": "实时接入",
   "terminal": "终端",
   "files": "文件",
+  "review_changes": "评审改动",
   "interrupt": "中断",
   "session_info": "会话信息",
   "rename": "重命名…",
@@ -76,9 +74,9 @@
   "not_live_reload": "重新加载",
   "switch_agent": "切换 Agent",
   "composer_source": "来源",
-  "unsent": "这条没发出去（{error}），字还在输入框里",
   "call_not_loaded": "这一步不在已载入的记录里，往上翻一翻再试",
   "refresh_failed": "刷新失败",
+  "preview": "预览",
   "archived_notice": "这个 Agent 已归档。恢复后会回到 Agent 列表；发一条新消息也会让它回来。",
   "restore": "恢复"
 }

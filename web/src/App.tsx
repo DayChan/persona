@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Component, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, errorText, getToken, handleUnauthorized, setToken } from "./lib/api";
 import { pair, takeToken } from "./lib/auth";
 import { useCloseOnBack } from "./lib/back-close";
@@ -442,9 +442,9 @@ export class OverlayBoundary extends Component<{ open: boolean; onClose: () => v
     return { failed: true };
   }
 
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: unknown, info: ErrorInfo) {
     // a chunk that would not load is a warning (a redeploy), anything else a render crash (docs/web/web.md "Error reports")
-    reportBoundary(error, "overlay_boundary", isChunkError(error));
+    reportBoundary(error, "overlay_boundary", isChunkError(error), info.componentStack);
     // left open, an open request would not change the state, and the entry points would do nothing until a reload
     this.props.onClose();
   }

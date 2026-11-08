@@ -56,5 +56,6 @@
   "viewed": "已看",
   "viewed_of": "已看 {viewed} / {files}",
   "whitespace_only": "只有空白的改动",
-  "wrap": "长行换行"
+  "wrap": "长行换行",
+  "delete_draft": "删除"
 }

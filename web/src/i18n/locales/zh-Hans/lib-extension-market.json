@@ -21,5 +21,10 @@
   "agree_upgrade_more": "同意新权限并升级",
   "upgrade": "升级",
   "agree_install": "同意并安装",
-  "official_name": "官方扩展"
+  "official_name": "官方扩展",
+  "rename_title": "扩展身份变更",
+  "rename_detail": "将 {from} 更名为 {to} 并升级。已安装的设置、secrets 和数据保留在原存储位置。即使没有新增权限，这次变更也需要你明确确认。",
+  "rename_from": "当前 ID",
+  "rename_to": "新 ID",
+  "agree_rename": "确认更名"
 }

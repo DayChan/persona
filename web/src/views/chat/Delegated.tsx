@@ -168,7 +168,7 @@ function ReanswerForm({ id, questions, before, manager, onClose }: { id: string;
       {questions.map((q, i) => (
         <div key={q.question} role="group" aria-label={q.question} className="flex flex-col gap-0.5">
           {questions.length > 1 && <span className="text-[12px] font-medium text-ink-2">{q.question}</span>}
-          {q.options.map((o) => (
+          {(q.options ?? []).map((o) => (
             <Choice key={o.label} on={(picked[i] ?? []).includes(o.label)} multi={q.multi_select} label={o.label} desc={o.description} onClick={() => toggle(i, q, o.label)} />
           ))}
           <label className="-mx-1.5 flex items-center gap-2 rounded-control px-1.5 py-1.5 transition-colors focus-within:bg-hover hover:bg-hover">

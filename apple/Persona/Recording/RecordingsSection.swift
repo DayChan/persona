@@ -51,7 +51,7 @@ struct RecordingRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: Theme.Icon.recording).font(Theme.Font.heading).foregroundStyle(Theme.accent)
+            ThemedIcon(Theme.Icon.recording).font(Theme.Font.heading).foregroundStyle(Theme.accent)
                 .scaledFrame(width: Theme.Size.icon)
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 Text(entry.displayTitle).font(Theme.Font.body).lineLimit(1)

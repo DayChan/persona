@@ -42,9 +42,9 @@ struct HubSwitcher: View {
                 }
             } label: {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.hubGroup)
+                    ThemedIcon(Theme.Icon.hubGroup)
                     Text(model.groupName(current)).lineLimit(1)
-                    Image(systemName: Theme.Icon.expand).font(Theme.Font.labelHeavy)
+                    ThemedIcon(Theme.Icon.expand).font(Theme.Font.labelHeavy)
                 }
                 .font(compact ? Theme.Font.label : Theme.Font.secondaryStrong)
                 .foregroundStyle(Color.secondary)

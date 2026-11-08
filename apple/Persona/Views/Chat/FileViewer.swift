@@ -331,7 +331,7 @@ struct FileViewer: View {
             } else if let local = page?.localFile {
                 ShareLink(item: local) { Label("Share", systemImage: Theme.Icon.share) }
             }
-        } label: { Image(systemName: Theme.Icon.moreMenu) }
+        } label: { ThemedIcon(Theme.Icon.moreMenu) }
         .arrowlessMenu()
         .accessibilityLabel("More")
     }
@@ -359,7 +359,7 @@ struct FileViewer: View {
 
     static func symbol(for path: String) -> String {
         switch (path as NSString).pathExtension.lowercased() {
-        case "md", "markdown", "txt": "doc.text"
+        case "md", "markdown", "txt": Theme.Icon.document
         case "png", "jpg", "jpeg", "gif", "webp", "heic": "photo"
         case "mp4", "mov", "m4v", "mpeg", "mpg", "webm", "mkv", "avi": Theme.Icon.video
         case "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "caf", "m4b", "ogg", "opus": Theme.Icon.voiceMessage

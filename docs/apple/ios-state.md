@@ -175,7 +175,22 @@ Truthfulness: time updates on every push (`AgentTime` lands with `show()` and is
 - badges computed in the model: `AppModel.badges` (`TabBadges`: Persona and Agents counts) recounts when pending items, sessions, or mutes change, publishing only when the numbers change;
   `RootView`, `MacRootView`, and the new shell's `WaitingBadge` read only these two numbers. `LiveUpdateTests.testTheAgentsBadgeIsTheHubs` checks that the badge matches the hub,
   adds one within 2 s of a question, and subtracts one when answered.
-- The original plan moved all of `AgentListOrder` into `AgentsFeed`; measurements showed list body already runs only on structure changes, so moving it would merely make that one run cheaper. Not done.
+- The original plan to move all of `AgentListOrder` into `AgentsFeed` was deferred at the earlier measurement checkpoint.
+  Retained shell tabs can also re-evaluate the body on selection or environment changes without a structural revision;
+  #1231 below separates projection lifetime from those body evaluations.
+
+- The list's derived data is an immutable `AgentListProjection` (#1231): filters and counts, pins, the Repository/Project tree,
+  repository headers, quiet flags and those sections' row entries, built once per published key (`AgentListProjectionCache.Key`:
+  the feed's structural `revision`, every hub group's link identity, address and token, and small settings such as grouping,
+  filter, search, pins, mutes and the held row). An unchanged retained page reads the published value without touching the
+  inventory. The first value, settings changes, critical landings, appended pages and credential changes are derived at once
+  on the main actor. Ordinary structural revisions, including what a released hold lands, are derived off the main actor from
+  a value snapshot by one serial worker. One derivation runs at a time and only the newest request waits behind it, so a
+  stream of revisions faster than one derivation still converges. A result publishes only if no immediate change or
+  credential switch superseded it, nothing newer has published, its partitions and settings are still the live ones, and
+  the list is not held, or the same scrolling activity authorized a capped landing; a later gesture or visibility edge
+  revokes that permission. `ReaderAnchor.willChange` runs just before it publishes.
+  Paging counts are overlaid when headers are drawn, so their arrival does not derive the inventory again.
 
 ### Step 4: one policy for "user is interacting": `Hold`
 

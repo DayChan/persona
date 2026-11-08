@@ -73,7 +73,7 @@ struct PersonaPicker: View {
                             if store.downloading.contains(p.id) {
                                 ProgressView().padding(Theme.Space.xxs).background(.regularMaterial, in: .circle)
                             } else if !here {
-                                Image(systemName: "arrow.down.circle.fill")
+                                ThemedIcon("arrow.down.circle.fill")
                                     .font(Theme.Font.heading)
                                     .foregroundStyle(.white, Theme.accent)
                                     .accessibilityHidden(true)
@@ -86,7 +86,7 @@ struct PersonaPicker: View {
                     .stroke(selected ? Theme.accent : Color.primary.opacity(0.1), lineWidth: selected ? 2.5 : 1))
                 VStack(spacing: Theme.Space.xxs) {
                     HStack(spacing: Theme.Space.xs) {
-                        if selected { Image(systemName: Theme.Icon.successFilled).foregroundStyle(Theme.accent) }
+                        if selected { ThemedIcon(Theme.Icon.successFilled).foregroundStyle(Theme.accent) }
                         Text(p.cardTitle).font(Theme.Font.captionStrong).lineLimit(1)
                     }
                     if p.isBuiltin {

@@ -241,7 +241,7 @@ describe("Composer suggestion", () => {
     const onSend = vi.fn(async () => true);
     show({ onSend });
     await act(async () => pill()!.querySelectorAll("button")[1].click());
-    expect(onSend).toHaveBeenCalledWith({ text: "跑一下测试", images: [] }, true);
+    expect(onSend).toHaveBeenCalledWith({ text: "跑一下测试", images: [] });
   });
 
   it("is not there while the agent works or something is in the box", () => {

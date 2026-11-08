@@ -39,6 +39,9 @@ class AppleCIPreparationTests(unittest.TestCase):
     def test_reminder_round_trip_is_enabled_with_owned_simulator_permission(self):
         script = SCRIPT.read_text()
         self.assertIn('xcrun simctl privacy "$SIM" grant reminders "$CI_BUNDLE_ID"', script)
+        # One attempt, with room for a slow first grant on a fresh stock simulator (#1402), never a retry loop.
+        self.assertIn("ci_run 'Grant Reminders access to the owned test app' 300 xcrun simctl privacy", script)
+        self.assertEqual(script.count('grant reminders'), 1)
         self.assertIn('export TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1', script)
         self.assertLess(script.index('Grant Reminders access'), script.index('iOS offline unit and design/token tests'))
         self.assertNotIn('skip-testing:PersonaTests/PlaceReminderTests', script)

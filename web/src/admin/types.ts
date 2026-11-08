@@ -276,6 +276,7 @@ export interface ExtensionPreview {
   warnings?: string[];
   expires_at: string;
   upgrade?: boolean;
+  rename_from?: string;
   from?: string;
   more_permissions?: boolean;
   added_permissions?: PermissionLine[];

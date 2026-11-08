@@ -293,6 +293,9 @@ When choosing a model for a new Agent (`GET /api/v1/machines/{mid}/launchers/{na
 but all preset models (`presetModels` in `assistant/models_presets.go`). Persona-managed entries use their stored preset; entries without one (manually added before extension presets existed) and ~/.zshrc entries
 match presets by gateway address (ignoring case and trailing `/`). Only `kind: launcher` presets and Claude Code launchers are eligible. Same-name entries already in `/model` are not duplicated;
 added entries use the preset name as `description`. One launcher per gateway can therefore select all its models, without a launcher per model; the picker follows updates to the extension's `dynamic_models`.
+A Persona-managed provider's own `models` (the field above) are listed the same way, after the `/model` entries and before the preset's,
+with the provider's display name as `description`: Claude Code's `/model` shows only its tier aliases, so a gateway's other models could not be
+picked otherwise. They also count for the send check (`launcherHasModel`), so a model picked from them is not dropped from a message.
 
 - iOS: `LauncherPresetModel` (`apple/Persona/Views/Settings/LauncherPresetModel.swift`, unit tests `LauncherPresetModelTests`), `LauncherPresetViews.swift`;
   DEBUG `-tab settings -openModelLaunchers YES -openLauncherEditor preset` opens From Extension directly (`-openLauncherEditor YES` opens the add page).

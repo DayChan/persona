@@ -152,7 +152,7 @@ struct VNCPage: View {
     /// A top-bar button's glyph in one square for every button: a themed button is sized by its label, and glyphs differ
     /// in height (⋯ is a few points tall).
     private func barIcon(_ name: String) -> some View {
-        Image(systemName: name).font(Theme.Font.labelStrong).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
+        ThemedIcon(name).font(Theme.Font.labelStrong).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
     }
 
     private var moreMenu: some View {
@@ -204,7 +204,7 @@ struct VNCPage: View {
                 Button { Task { await pasteFromPhone(andPaste: false) } } label: { Label("Copy to Mac's Clipboard Only", systemImage: Theme.Icon.clipboard) }
                 Button { Task { await copyToPhone() } } label: { Label(Self.toPhone, systemImage: Theme.Icon.copy) }
             } label: {
-                Image(systemName: Theme.Icon.clipboard).font(Theme.Font.heading).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
+                ThemedIcon(Theme.Icon.clipboard).font(Theme.Font.heading).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
             }
             .themedButton()
             .accessibilityLabel("Clipboard")
@@ -220,7 +220,7 @@ struct VNCPage: View {
             }
             #if os(iOS) || os(visionOS)
             Button { typing.toggle() } label: {
-                Image(systemName: Theme.Icon.keyboard).font(Theme.Font.heading).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
+                ThemedIcon(Theme.Icon.keyboard).font(Theme.Font.heading).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
             }
             .themedButton(prominent: typing)
             .accessibilityLabel("Keyboard")
@@ -483,7 +483,7 @@ struct VNCHelp: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: Theme.Icon.close) }.accessibilityIdentifier("vnc-help-close")
+                    Button { dismiss() } label: { ThemedIcon(Theme.Icon.close) }.accessibilityIdentifier("vnc-help-close")
                 }
             }
         }
@@ -497,7 +497,7 @@ struct VNCHelp: View {
                 Text(text).font(Theme.Font.label).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         } icon: {
-            Image(systemName: icon).foregroundStyle(Theme.accent)
+            ThemedIcon(icon).foregroundStyle(Theme.accent)
         }
     }
 }

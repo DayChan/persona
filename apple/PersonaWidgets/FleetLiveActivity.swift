@@ -268,16 +268,31 @@ struct FleetCounts: View {
     /// Numbers only (the symbols say which): when the island's numbers share the line.
     var short = false
     var body: some View {
-        HStack(spacing: short ? 8 : 10) {
-            if state.needsYou > 0 { chip(Image(systemName: FleetSymbol.needsYou), "\(state.needsYou)", StateName.count(.needsYou, state.needsYou), FleetPalette.needsYou) }
-            if state.working > 0 { chip(Image(systemName: FleetSymbol.working), "\(state.working)", StateName.count(.working, state.working), FleetPalette.working) }
-            if state.unread > 0 { chip(Image(systemName: FleetSymbol.unread).font(.system(size: 7)), "\(state.unread)", StateName.count(.unread, state.unread), FleetPalette.unread) }
+        // The words go first when the line is too narrow for them (all three kinds in Chinese, or long counts): numbers
+        // only, never a line wider than the card.
+        Group {
+            if short {
+                row(short: true)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    row(short: false)
+                    row(short: true)
+                }
+            }
         }
         .layoutPriority(1)
     }
 
+    private func row(short: Bool) -> some View {
+        HStack(spacing: short ? 8 : 10) {
+            if state.needsYou > 0 { chip(Image(systemName: FleetSymbol.needsYou), "\(state.needsYou)", StateName.count(.needsYou, state.needsYou), FleetPalette.needsYou, short) }
+            if state.working > 0 { chip(Image(systemName: FleetSymbol.working), "\(state.working)", StateName.count(.working, state.working), FleetPalette.working, short) }
+            if state.unread > 0 { chip(Image(systemName: FleetSymbol.unread).font(.system(size: 7)), "\(state.unread)", StateName.count(.unread, state.unread), FleetPalette.unread, short) }
+        }
+    }
+
     /// `full` is the count with its words, one localized string (「2 需要你」), so a language can reorder them.
-    private func chip(_ symbol: some View, _ count: String, _ full: String, _ color: Color) -> some View {
+    private func chip(_ symbol: some View, _ count: String, _ full: String, _ color: Color, _ short: Bool) -> some View {
         HStack(spacing: 4) {
             symbol.foregroundStyle(color).font(.footnote)
             Text(short ? count : full).font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1)

@@ -190,7 +190,7 @@ struct CodeHunkHeader: View {
         HStack(spacing: Theme.Space.s) {
             if let expand {
                 Button(action: expand) {
-                    Image(systemName: Theme.Icon.expand)
+                    ThemedIcon(Theme.Icon.expand)
                         .scaledFrame(width: Theme.Size.iconS, height: Theme.Size.iconS)
                 }
                 .buttonStyle(.plain)
@@ -271,7 +271,7 @@ struct CodeDiffFileHeader: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: folded ? Theme.Icon.disclosure : Theme.Icon.expand)
+                ThemedIcon(folded ? Theme.Icon.disclosure : Theme.Icon.expand)
                     .foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.iconS, height: Theme.Size.iconS)
                 if let l = CodeFileStatus.letter(status) {
@@ -317,7 +317,7 @@ struct CodeTreeRowView: View {
                 if !drills {
                     Group {
                         if n.isDir {
-                            Image(systemName: row.open ? Theme.Icon.expand : Theme.Icon.disclosure)
+                            ThemedIcon(row.open ? Theme.Icon.expand : Theme.Icon.disclosure)
                                 .foregroundStyle(.secondary)
                         } else {
                             Color.clear
@@ -325,7 +325,7 @@ struct CodeTreeRowView: View {
                     }
                     .scaledFrame(width: Theme.Size.iconS, height: Theme.Size.iconS)
                 }
-                Image(systemName: n.isDir ? Theme.Icon.folder : Theme.Icon.file)
+                ThemedIcon(n.isDir ? Theme.Icon.folder : Theme.Icon.file)
                     .foregroundStyle(n.isDir ? Theme.accent : Color.secondary)
                     .scaledFrame(width: Theme.Size.iconS, height: Theme.Size.iconS)
                 Text(n.name).font(Theme.Font.secondary).foregroundStyle(Color.primary).lineLimit(1).truncationMode(.middle)
@@ -342,7 +342,7 @@ struct CodeTreeRowView: View {
                 }
                 if let b = n.entry?.badge, !b.isEmpty { Chip(text: b, look: .neutral).lineLimit(1) }
                 if drills && n.isDir {
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
                 }
             }
             .padding(.leading, drills ? Theme.Space.m : Theme.Space.s + CGFloat(row.depth) * Theme.Space.l)
@@ -406,7 +406,7 @@ struct CodeCommentView: View {
     var body: some View {
         if event {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.dot).font(Theme.Font.caption).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.dot).font(Theme.Font.caption).foregroundStyle(.tertiary)
                 Text("\(author) \(markdown)").font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(2)
                 if let t = CodeTime.relative(at) { Text(t).font(Theme.Font.caption).foregroundStyle(.tertiary).lineLimit(1) }
                 Spacer(minLength: 0)

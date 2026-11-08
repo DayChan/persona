@@ -17,6 +17,10 @@ import (
 // test reassigns, since a start's goroutine reads them after the request that began it has returned (#4800).
 const claudeStartWait, claudeReadyWait = 3 * time.Minute, time.Minute
 
+// claudeGoneWait is how long herdr may go without naming the claude it saw in a starting pane, with only a shell in
+// front, before the start fails as claude having exited (#1447): a wrapper that runs claude twice is back in it sooner.
+const claudeGoneWait = 3 * time.Second
+
 // claudeWaits is how long this node's starts wait for the shell to run claude, then for claude's input box.
 func (n *Node) claudeWaits() (start, ready time.Duration) {
 	start, ready = claudeStartWait, claudeReadyWait
@@ -53,7 +57,9 @@ func (n *Node) waitReady(ctx context.Context, pane string) (*host.Agent, error) 
 		}
 	}
 	readyStreak := 0
-	unrecognised := false // at the last look herdr knew no claude in the pane while its input box was on screen
+	unrecognised := false   // at the last look herdr knew no claude in the pane while its input box was on screen
+	sawClaude := false      // herdr has named claude in the pane
+	var goneSince time.Time // since when herdr has named no agent there after sawClaude, with only a shell in front
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
@@ -87,10 +93,21 @@ func (n *Node) waitReady(ctx context.Context, pane string) (*host.Agent, error) 
 		if err != nil || a.Agent != "claude" {
 			if onHerdr && (err == nil || errors.Is(err, host.ErrNoAgent)) {
 				unrecognised = inputBoxVisible(screen)
+				// claude came up and exited (a launcher's bad config, a failed login): no input box will come, so the
+				// start ends now rather than at the deadline; the caller shows the pane's last lines, which say why.
+				switch {
+				case !sawClaude || !n.shellInFront(ctx, pane):
+					goneSince = time.Time{}
+				case goneSince.IsZero():
+					goneSince = time.Now()
+				case time.Since(goneSince) >= claudeGoneWait:
+					return nil, errors.New("claude exited before showing its input box")
+				}
 			}
 			readyStreak = 0
 			continue
 		}
+		sawClaude, goneSince = true, time.Time{}
 		unrecognised = false
 		started()
 		if a.AgentStatus == proto.StatusBlocked {
@@ -136,6 +153,28 @@ func (n *Node) unrecognisedClaude(ctx context.Context, pane string, wait time.Du
 		"herdr knows Claude by its process name, or by HERDR_AGENT=claude, which the node types in front of the launcher "+
 		"in a bash, zsh, fish, sh, dash or ksh pane; herdr on Windows and before 0.7.1 (0.7.5 on macOS) ignores it, and a "+
 		"launcher that runs another command first (an alias starting with export or cd) does not pass it on to claude", wait, sees)
+}
+
+// shellInFront: the pane's host names its foreground programs and they are all shells (the agent in it has exited).
+func (n *Node) shellInFront(ctx context.Context, pane string) bool {
+	h, ref, err := n.paneHost(pane)
+	if err != nil {
+		return false
+	}
+	f, ok := h.(host.ForegroundNamer)
+	if !ok {
+		return false
+	}
+	names, err := f.PaneForeground(ctx, ref)
+	if err != nil || len(names) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if !shellProgram(name) {
+			return false
+		}
+	}
+	return true
 }
 
 // inputBoxVisible reports whether Claude Code's prompt footer is rendered.

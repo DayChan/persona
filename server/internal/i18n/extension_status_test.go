@@ -6,6 +6,29 @@ import (
 	"testing"
 )
 
+func TestExtensionIdentityPreviewConsentIsLocalizedAndIdempotent(t *testing.T) {
+	raw := []byte(`{"preview_id":"fixture","rename_from":"old-name","manifest":{"id":"new-name","name":"Author name"},"warnings":["Author diagnostic"]}`)
+	for _, lang := range []Lang{En, ZhHans, Ja} {
+		projected := ExtensionClientJSON(lang, raw)
+		var body struct {
+			Warnings []string `json:"warnings"`
+			Manifest struct {
+				Name string `json:"name"`
+			} `json:"manifest"`
+		}
+		if err := json.Unmarshal(projected, &body); err != nil {
+			t.Fatal(err)
+		}
+		want := T(lang, "extension-identity.confirmation", Args{"from": "old-name", "to": "new-name"})
+		if len(body.Warnings) != 2 || body.Warnings[0] != want || body.Warnings[1] != "Author diagnostic" || body.Manifest.Name != "Author name" {
+			t.Fatalf("identity disclosure %s: %+v", lang, body)
+		}
+		if string(ExtensionClientJSON(lang, projected)) != string(projected) {
+			t.Fatal("replay duplicated the identity warning")
+		}
+	}
+}
+
 func TestExtensionStatusCopies(t *testing.T) {
 	for _, l := range []Lang{En, ZhHans, Ja} {
 		if got := ExtensionStatusText(l, "no such plugin"); got != T(l, "extension-status.missing_extension") || got == "no such plugin" {

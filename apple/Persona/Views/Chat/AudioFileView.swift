@@ -154,7 +154,7 @@ struct AudioFileView: View {
     private var player: some View {
         VStack(spacing: Theme.Space.xl) {
             Spacer()
-            Image(systemName: Theme.Icon.voiceMessage)
+            ThemedIcon(Theme.Icon.voiceMessage)
                 .font(Theme.Font.display)
                 .foregroundStyle(Theme.accent)
                 .scaledFrame(width: Theme.Size.box80, height: Theme.Size.box80)
@@ -183,16 +183,16 @@ struct AudioFileView: View {
                 .foregroundStyle(.secondary)
             }
             HStack(spacing: Theme.Space.xxl) {
-                Button { model.skip(-15) } label: { Image(systemName: Theme.Icon.skipBack) }
+                Button { model.skip(-15) } label: { ThemedIcon(Theme.Icon.skipBack) }
                     .accessibilityLabel("Back 15 Seconds")
                 Button { model.toggle() } label: {
-                    Image(systemName: model.playing ? Theme.Icon.pause : Theme.Icon.run)
+                    ThemedIcon(model.playing ? Theme.Icon.pause : Theme.Icon.run)
                         .font(Theme.Font.display)
                         .scaledFrame(width: Theme.Size.avatarXL, height: Theme.Size.avatarXL)
                 }
                 .accessibilityLabel(model.playing ? String(localized: "Pause") : String(localized: "Play"))
                 .accessibilityIdentifier("audio-play")
-                Button { model.skip(15) } label: { Image(systemName: Theme.Icon.skipForward) }
+                Button { model.skip(15) } label: { ThemedIcon(Theme.Icon.skipForward) }
                     .accessibilityLabel("Forward 15 Seconds")
             }
             .font(Theme.Font.title)

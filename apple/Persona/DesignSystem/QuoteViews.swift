@@ -165,7 +165,7 @@ struct QuoteBarRow: View {
                 .padding(.vertical, bui ? Theme.Space.s : Theme.Space.xxs)
                 .padding(.leading, bui ? Theme.Space.m : 0)
             Button(action: remove) {
-                Image(systemName: Theme.Icon.close).font(Theme.Font.labelStrong)
+                ThemedIcon(Theme.Icon.close).font(Theme.Font.labelStrong)
                     .foregroundStyle(bui ? theme.colors.ink3 : Color.secondary)
                     .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.tapTarget)
                     .contentShape(.rect)

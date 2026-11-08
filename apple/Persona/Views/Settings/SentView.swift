@@ -199,7 +199,7 @@ private struct SentRow: View {
                     Button { openChat(chat.machine, chat.session) } label: {
                         HStack(spacing: Theme.Space.xxs) {
                             Text("Open Chat").lineLimit(1)
-                            Image(systemName: Theme.Icon.disclosure).font(Theme.Font.label)
+                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.label)
                         }
                         .font(Theme.Font.label)
                     }
@@ -293,7 +293,7 @@ private struct SentDetailSheet: View {
                             Button { openChat(chat.machine, chat.session) } label: {
                                 HStack(spacing: Theme.Space.xxs) {
                                     Text("Open Chat").lineLimit(1)
-                                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.label)
+                                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.label)
                                 }
                             }
                             .buttonStyle(.borderless)

@@ -89,7 +89,9 @@ func (b *inboxBook) applyConnector(id, name string, things []connector.InboxThin
 			continue
 		}
 		if open != nil {
-			if open.Last != t.Last {
+			// A thing older than the item's newest move is an earlier move read again (a connector restarted, or
+			// several notifications of one thread): not a new move, and it never winds the item back.
+			if open.Last != t.Last && (t.At.IsZero() || !t.At.Before(open.UpdatedAt)) {
 				prev := seenOf(open)
 				b.roundWrite(open)
 				open.Count++
@@ -125,8 +127,11 @@ func (b *inboxBook) applyConnector(id, name string, things []connector.InboxThin
 			continue
 		}
 		sum := sha1.Sum([]byte(t.Thread + "\n" + t.Last))
-		it := &InboxItem{ID: id + ":" + hex.EncodeToString(sum[:8]), Source: id, Account: id, AccountName: name,
-			StartedAt: t.At, Count: 1}
+		itemID := id + ":" + hex.EncodeToString(sum[:8])
+		if b.has(itemID) {
+			continue // this move started an item already (one handled since): adding it again would replace that item
+		}
+		it := &InboxItem{ID: itemID, Source: id, Account: id, AccountName: name, StartedAt: t.At, Count: 1}
 		fillConnectorItem(it, t)
 		b.noteReceived(it, inboxSeen{}, nil)
 		if t.Tier != "" {

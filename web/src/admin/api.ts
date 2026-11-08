@@ -211,7 +211,7 @@ export const installExtension = async (pv: ExtensionPreview) =>
   adminApi<AdminExtension>(`${await extRoot()}/install`, "POST", previewConsent(pv));
 
 export const upgradeExtension = async (id: string, pv: ExtensionPreview) =>
-  adminApi<AdminExtension>(`${await extRoot()}/${enc(id)}/upgrade`, "POST", previewConsent(pv));
+  adminApi<AdminExtension>(`${await extRoot()}/${enc(pv.rename_from || id)}/upgrade`, "POST", previewConsent(pv));
 
 export const rollbackExtension = async (id: string) => adminApi<AdminExtension>(`${await extRoot()}/${enc(id)}/rollback`, "POST");
 

@@ -75,7 +75,7 @@ struct LocalProxyForm<Status: View>: View {
                         Text("This proxy isn't on this device: Persona's traffic to the hub, this device's credential and the proxy's password would cross the network unencrypted.")
                             .font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
                     } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                     }
                     .accessibilityIdentifier("proxy.remote")
                 }
@@ -111,7 +111,7 @@ struct LocalProxyForm<Status: View>: View {
                     Label {
                         Text(problem).font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
                     } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.danger)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.danger)
                     }
                     .accessibilityIdentifier("proxy.problem")
                 }

@@ -1486,6 +1486,307 @@
           "cards": {}
         }
       }
+    },
+    {
+      "name": "start_answer_cut_then_receipt",
+      "description": "The first message of a new conversation started it, but the answer was lost; the retry with the same op id gets the receipt, so one conversation opens and the message shows once, even though the session list already had it.",
+      "source": {
+        "rule": "Operation receipts: a repeated write replays the original answer without executing again; the start of an assistant conversation is one (assistant_start)",
+        "issue": "#1349",
+        "docs": "docs/protocol/protocol.md \"Operation receipts (client_ops)\"",
+        "code": {
+          "hub": "server/internal/hub/assistant_link.go startConversationOnce",
+          "ios": "apple/Persona/App/AssistantStart.swift"
+        }
+      },
+      "chat": {
+        "machine_id": "m1",
+        "session_id": "s1",
+        "assistant": true,
+        "new": true
+      },
+      "devices": [
+        "a"
+      ],
+      "start": {
+        "hub": {
+          "history": "h1",
+          "lines": [],
+          "to_seq": 0,
+          "interactions": [],
+          "session": {},
+          "event_stream": "ev1",
+          "event_seq": 10
+        }
+      },
+      "steps": [
+        {
+          "user": {
+            "device": "a",
+            "start": {
+              "id": "c1",
+              "text": "Plan a weekend trip."
+            }
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "pending"
+                }
+              ],
+              "requests": [
+                {
+                  "post": "conversations",
+                  "id": "c1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "reply": {
+            "device": "a",
+            "write": "c1",
+            "cut": true,
+            "done": true,
+            "receipt": {
+              "status": 200,
+              "body": {
+                "session": {
+                  "machine_id": "m1",
+                  "session_id": "s1",
+                  "title": "Weekend trip",
+                  "cwd": "/home/user/persona",
+                  "status": "working",
+                  "assistant": true,
+                  "state": "working",
+                  "updated_at": "2026-01-02T03:04:05Z",
+                  "rev": 101
+                }
+              }
+            }
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "frames": {
+            "a": [
+              {
+                "type": "sessions_delta",
+                "machine_id": "m1",
+                "upsert": [
+                  {
+                    "machine_id": "m1",
+                    "session_id": "s1",
+                    "title": "Weekend trip",
+                    "cwd": "/home/user/persona",
+                    "status": "working",
+                    "assistant": true,
+                    "state": "working",
+                    "updated_at": "2026-01-02T03:04:05Z",
+                    "rev": 101
+                  }
+                ],
+                "remove": []
+              }
+            ]
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "hub": {
+            "append": [
+              {
+                "id": "l1#0",
+                "seq": 1,
+                "ts": "2026-01-02T03:04:05Z",
+                "role": "user",
+                "kind": "text",
+                "text": "Plan a weekend trip."
+              }
+            ],
+            "to_seq": 1
+          }
+        },
+        {
+          "frames": {
+            "a": [
+              {
+                "type": "items",
+                "machine_id": "m1",
+                "session_id": "s1",
+                "history": "h1",
+                "items": [
+                  {
+                    "id": "l1#0",
+                    "seq": 1,
+                    "ts": "2026-01-02T03:04:05Z",
+                    "role": "user",
+                    "kind": "text",
+                    "text": "Plan a weekend trip."
+                  }
+                ],
+                "to_seq": 1,
+                "from_seq": 0
+              },
+              {
+                "type": "sessions_delta",
+                "machine_id": "m1",
+                "upsert": [
+                  {
+                    "machine_id": "m1",
+                    "session_id": "s1",
+                    "title": "Weekend trip",
+                    "cwd": "/home/user/persona",
+                    "status": "working",
+                    "assistant": true,
+                    "state": "working",
+                    "updated_at": "2026-01-02T03:04:06Z",
+                    "rev": 102
+                  }
+                ],
+                "remove": []
+              }
+            ]
+          }
+        },
+        {
+          "wait": 3000,
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "shown"
+                }
+              ],
+              "requests": [
+                {
+                  "post": "conversations",
+                  "id": "c1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "hub": {
+            "append": [
+              {
+                "id": "l2#0",
+                "seq": 2,
+                "ts": "2026-01-02T03:04:05Z",
+                "role": "assistant",
+                "kind": "text",
+                "text": "Saturday hike, Sunday museum."
+              }
+            ],
+            "to_seq": 2,
+            "session": {
+              "state": "idle"
+            }
+          }
+        },
+        {
+          "frames": {
+            "a": [
+              {
+                "type": "items",
+                "machine_id": "m1",
+                "session_id": "s1",
+                "history": "h1",
+                "items": [
+                  {
+                    "id": "l2#0",
+                    "seq": 2,
+                    "ts": "2026-01-02T03:04:05Z",
+                    "role": "assistant",
+                    "kind": "text",
+                    "text": "Saturday hike, Sunday museum."
+                  }
+                ],
+                "to_seq": 2,
+                "from_seq": 1
+              },
+              {
+                "type": "sessions_delta",
+                "machine_id": "m1",
+                "upsert": [
+                  {
+                    "machine_id": "m1",
+                    "session_id": "s1",
+                    "title": "Weekend trip",
+                    "cwd": "/home/user/persona",
+                    "status": "idle",
+                    "assistant": true,
+                    "state": "idle",
+                    "updated_at": "2026-01-02T03:04:07Z",
+                    "rev": 103
+                  }
+                ],
+                "remove": []
+              }
+            ]
+          },
+          "expect": {
+            "a": {
+              "messages": [
+                {
+                  "from": "user",
+                  "text": "Plan a weekend trip.",
+                  "state": "shown"
+                },
+                {
+                  "from": "agent",
+                  "text": "Saturday hike, Sunday museum."
+                }
+              ],
+              "status": "idle"
+            }
+          }
+        }
+      ],
+      "end": {
+        "a": {
+          "messages": [
+            {
+              "from": "user",
+              "text": "Plan a weekend trip.",
+              "state": "shown"
+            },
+            {
+              "from": "agent",
+              "text": "Saturday hike, Sunday museum."
+            }
+          ],
+          "cards": {},
+          "status": "idle"
+        }
+      }
     }
   ]
 }

@@ -11,8 +11,8 @@ nonisolated enum SessionModes {
 
     static let permissionModes: [Option] = [
         Option(id: "default", title: String(localized: "Ask First"), detail: String(localized: "Asks you before editing files or running commands"), symbol: Theme.Icon.askFirst),
-        Option(id: "acceptEdits", title: String(localized: "Auto-Edit"), detail: String(localized: "Edits files without asking, still asks before commands"), symbol: "pencil.line"),
-        Option(id: "plan", title: String(localized: "Plan Only"), detail: String(localized: "Reads code and writes a plan, acts only once you approve"), symbol: "list.bullet.clipboard"),
+        Option(id: "acceptEdits", title: String(localized: "Auto-Edit"), detail: String(localized: "Edits files without asking, still asks before commands"), symbol: Theme.Icon.editFile),
+        Option(id: "plan", title: String(localized: "Plan Only"), detail: String(localized: "Reads code and writes a plan, acts only once you approve"), symbol: Theme.Icon.plan),
         Option(id: "auto", title: String(localized: "Auto", comment: "Permission mode: the agent judges the risk itself"), detail: String(localized: "Judges the risk itself and does safe things right away"), symbol: "wand.and.sparkles"),
         Option(id: "bypassPermissions", title: String(localized: "Allow Everything"), detail: String(localized: "Never asks. Only available when starting"), symbol: Theme.Icon.allowEverything),
     ]
@@ -171,7 +171,7 @@ struct SessionModeBar: View {
                 Menu {
                     Picker("Permission Mode", selection: Binding(get: { mode ?? "" }, set: { new in change(mode: new) })) {
                         ForEach(options(SessionModes.switchableModes(session), current: mode)) { o in
-                            Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id)
+                            Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id)
                         }
                     }
                     .pickerStyle(.inline)
@@ -185,7 +185,7 @@ struct SessionModeBar: View {
             Menu {
                 Picker("Thinking Effort", selection: Binding(get: { effort ?? "" }, set: { new in change(effort: new) })) {
                     ForEach(SessionModes.effortOptions(session)) { o in
-                        Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id)
+                        Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id)
                     }
                 }
                 .pickerStyle(.inline)
@@ -284,7 +284,7 @@ struct SessionModesMenu: View {
             Section("Thinking Effort") {
                 Picker("Thinking Effort", selection: Binding(get: { effort ?? "" }, set: { new in change(effort: new) })) {
                     ForEach(SessionModes.effortOptions(session)) { o in
-                        Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id)
+                        Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id)
                     }
                 }
                 .pickerStyle(.inline)
@@ -294,7 +294,7 @@ struct SessionModesMenu: View {
             Picker(selection: Binding(get: { mode ?? "" }, set: { new in change(mode: new) })) {
                 let list = SessionModes.switchableModes(session)
                 ForEach(list + (mode.flatMap { m in list.contains { $0.id == m } ? nil : SessionModes.mode(m) }.map { [$0] } ?? [])) { o in
-                    Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id)
+                    Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id)
                 }
             } label: {
                 Label("Permission Mode: \(SessionModes.modeLabel(mode) ?? SessionModes.unknown)", systemImage: SessionModes.mode(mode)?.symbol ?? Theme.Icon.askFirst)
@@ -319,7 +319,7 @@ struct BypassWarning: View {
                 Text("Edits files and runs commands without asking")
             } icon: {
                 // A menu draws its images in the accent unless they carry their own colors.
-                Image(systemName: Theme.Icon.allowEverything).symbolRenderingMode(.palette).foregroundStyle(Theme.danger)
+                ThemedIcon(Theme.Icon.allowEverything).symbolRenderingMode(.palette).foregroundStyle(Theme.danger)
             }
         }
         .tint(Theme.danger)
@@ -335,9 +335,9 @@ struct ModeChip: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.xs) {
-            Image(systemName: symbol).font(Theme.Font.labelStrong)
+            ThemedIcon(symbol).font(Theme.Font.labelStrong)
             Text(text).lineLimit(1)
-            Image(systemName: Theme.Icon.choices).font(Theme.Font.labelHeavy).imageScale(.small).opacity(0.6)
+            ThemedIcon(Theme.Icon.choices).font(Theme.Font.labelHeavy).imageScale(.small).opacity(0.6)
         }
         .font(Theme.Font.labelMedium)
         .foregroundStyle(known ? (tint == .secondary ? Color.primary : tint) : Color.secondary)
@@ -359,7 +359,7 @@ struct NewSessionModePicker: View {
             Menu {
                 Picker("Permission Mode", selection: $mode) {
                     Text("Use Launcher's").tag("")
-                    ForEach(modes) { o in Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id) }
+                    ForEach(modes) { o in Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id) }
                 }
                 .pickerStyle(.inline)
             } label: {
@@ -370,7 +370,7 @@ struct NewSessionModePicker: View {
             Menu {
                 Picker("Thinking Effort", selection: $effort) {
                     Text("Use Launcher's").tag("")
-                    ForEach(SessionModes.startEffortLevels) { o in Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id) }
+                    ForEach(SessionModes.startEffortLevels) { o in Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id) }
                 }
                 .pickerStyle(.inline)
             } label: {

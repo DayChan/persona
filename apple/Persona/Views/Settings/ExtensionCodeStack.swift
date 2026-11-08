@@ -77,10 +77,10 @@ struct CodeBlockStack: View {
             if case .gap(let id) = b, id == CodePageBlocks.openMainSlot, let openMain {
                 Button(action: openMain) {
                     HStack(spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.code).foregroundStyle(Theme.accent)
+                        ThemedIcon(Theme.Icon.code).foregroundStyle(Theme.accent)
                         Text(mainTitle).font(Theme.Font.body).foregroundStyle(Color.primary).lineLimit(1)
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, Theme.Space.m)
                     .scaledFrame(minHeight: Theme.Size.box50)
@@ -367,7 +367,7 @@ struct CodeHeaderView: View {
                 CodeFlow(spacing: Theme.Space.m) {
                     ForEach(Array(facts.prefix(8).enumerated()), id: \.offset) { _, f in
                         HStack(spacing: Theme.Space.xs) {
-                            if let i = f.icon { Image(systemName: ExtensionUIStyle.icon(i)).foregroundStyle(.secondary) }
+                            if let i = f.icon { ThemedIcon(ExtensionUIStyle.icon(i)).foregroundStyle(.secondary) }
                             if let l = f.label, !l.isEmpty, f.icon == nil { Text(l).foregroundStyle(.secondary) }
                             Text(f.value).foregroundStyle(Color.primary)
                         }
@@ -656,7 +656,7 @@ struct CodeBackRow: View {
     var body: some View {
         Button(action: back) {
             HStack(spacing: Theme.Space.xs) {
-                Image(systemName: Theme.Icon.back)
+                ThemedIcon(Theme.Icon.back)
                 Text(title).lineLimit(1)
                 Spacer(minLength: 0)
             }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -93,23 +94,23 @@ type packageMove struct {
 
 // planTools installs the command-line programs of the plan's packages (StepTools) before anything is committed: a
 // tool that does not install leaves the extension as it was. It answers the manifests it installed tools for.
-func (r *Registry) planTools(ctx context.Context, id, previewID, digest string, refs []PreviewRef, complete bool) ([]*Manifest, error) {
+func (r *Registry) planTools(ctx context.Context, id, previewID, digest string, refs []PreviewRef, complete bool) ([]plannedRecord, error) {
 	r.mu.Lock()
 	plans, err := r.validatePlan(id, previewID, digest, refs, complete)
 	r.mu.Unlock()
 	if err != nil {
 		return nil, nil // commitPlan says why
 	}
-	var done []*Manifest
+	var done []plannedRecord
 	any := false
 	for _, plan := range plans {
 		if m := plan.preview.Manifest; plan.row.Remote == nil && len(m.Tools) > 0 {
 			any = true
-			if err := r.installTools(ctx, m); err != nil {
-				r.dropPlanTools(append(done, m))
+			if err := r.installToolsAt(ctx, m, plan.row.StorageKey()); err != nil {
+				r.dropPlanTools(append(done, plan))
 				return nil, &PlanError{"安装命令行", err}
 			}
-			done = append(done, m)
+			done = append(done, plan)
 		}
 	}
 	if !any {
@@ -119,17 +120,24 @@ func (r *Registry) planTools(ctx context.Context, id, previewID, digest string, 
 }
 
 // dropPlanTools undoes planTools for a plan that did not commit: what the versions that stay do not use goes.
-func (r *Registry) dropPlanTools(ms []*Manifest) {
-	for _, m := range ms {
+func (r *Registry) dropPlanTools(plans []plannedRecord) {
+	unlock, err := r.beginOperation()
+	if err != nil {
+		return
+	} // Indeterminate commits retain every potentially committed tool.
+	defer unlock()
+	for _, plan := range plans {
+		slot := plan.row.StorageKey()
 		var keep []string
-		if cur := r.Snapshot(m.ID); cur != nil && cur.Record.Source == SourceInstalled {
+		// A rename that failed has no new public name yet. Resolve the stable slot instead.
+		if cur := r.Snapshot(slot); cur != nil && cur.Record.Source == SourceInstalled {
 			keep = []string{cur.Record.Version, cur.Record.PreviousVersion}
 		}
 		if len(keep) == 0 {
-			_ = os.RemoveAll(r.ToolsDir(m.ID))
+			_ = os.RemoveAll(r.toolsDir(slot))
 			continue
 		}
-		r.pruneTools(m.ID, keep...)
+		r.pruneTools(slot, keep...)
 	}
 }
 
@@ -157,10 +165,13 @@ func (r *Registry) applyPlan(ctx context.Context, id, previewID, digest string, 
 		detail := map[string]any{"version": plan.row.Version, "origin": plan.row.Origin, "permissions": plan.row.Granted}
 		if plan.preview.Upgrade {
 			kind, action = "upgraded", "upgrade"
+			if plan.preview.RenameFrom != "" {
+				kind = "renamed"
+			}
 			detail = map[string]any{"from": plan.row.PreviousVersion, "to": plan.row.Version, "permissions": plan.row.Granted}
 			if unlock, err := r.beginOperation(); err == nil {
 				if current := r.Snapshot(plan.row.ID); current != nil && current.Record.Version == plan.row.Version {
-					r.prune(plan.row.ID, plan.row.Version, plan.row.PreviousVersion)
+					r.prune(plan.row.StorageKey(), plan.row.Version, plan.row.PreviousVersion)
 				}
 				unlock()
 			}
@@ -267,7 +278,7 @@ func (r *Registry) commitPlan(ctx context.Context, id, previewID, digest string,
 		if plan.row.Remote != nil {
 			continue
 		}
-		target := r.installedDir(plan.row.ID, plan.row.Version)
+		target := r.installedDir(plan.row.StorageKey(), plan.row.Version)
 		move := packageMove{preview: pv, target: target}
 		for _, parent := range []string{filepath.Join(r.dir, "installed"), filepath.Dir(target)} {
 			if _, e := os.Lstat(parent); os.IsNotExist(e) {
@@ -318,6 +329,9 @@ func (r *Registry) commitPlan(ctx context.Context, id, previewID, digest string,
 		if r.yielding(r.extensions[plan.row.ID]) {
 			r.yielded[plan.row.ID] = r.extensions[plan.row.ID]
 		}
+		if plan.old != nil && plan.old.Record.ID != plan.row.ID {
+			delete(r.extensions, plan.old.Record.ID)
+		}
 		r.extensions[plan.row.ID] = plan.next
 		delete(r.previews, plan.preview.ID)
 		if plan.preview.ID == previewID {
@@ -334,7 +348,7 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 	if main == nil || !r.now().Before(main.ExpiresAt) {
 		return nil, errors.New("预览过期了，重新预览一次")
 	}
-	if main.Upgrade != (id != "") || id != "" && main.Manifest.ID != id {
+	if main.Upgrade != (id != "") || id != "" && main.UpgradeID() != r.canonicalID(id) {
 		return nil, errors.New("安装/升级预览和请求对不上")
 	}
 	if len(refs) != len(main.Bundle) {
@@ -408,7 +422,16 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 				return nil, err
 			}
 		}
-		old := snapshotExtension(r.extensions[m.ID])
+		old := snapshotExtension(r.extensions[pv.UpgradeID()])
+		if pv.RenameFrom != "" {
+			if pv.replaces != pv.RenameFrom || old == nil || FromMarket(old.Record.Origin) != pv.Market || pv.Market == "" || pv.source.Kind != "market" {
+				return nil, ErrIdentity
+			}
+			if occupied := r.extensions[r.canonicalID(m.ID)]; occupied != nil && occupied.Record.StorageKey() != old.Record.StorageKey() {
+				return nil, ErrIdentity
+			}
+			delete(combined, old.Record.ID)
+		}
 		requested := pv.Digest
 		if pv == main {
 			requested = digest
@@ -418,10 +441,25 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 			if old == nil || old.Record.Source != SourceInstalled || old.Record.Version != pv.From {
 				return nil, errors.New("扩展在预览之后变了，重新预览一次")
 			}
-			if (requested != "" || MorePermissions(old, m) || pv != main) && requested != pv.Digest {
+			if pv.RenameFrom != "" && (requested == "" || pv.Digest == "" || requested != pv.Digest) {
 				return nil, errPlanDigest
 			}
-			row = old.Record
+			if (requested != "" || MorePermissions(old, m) || pv != main || pv.RenameFrom != "") && requested != pv.Digest {
+				return nil, errPlanDigest
+			}
+			row = snapshotExtension(old).Record
+			row.ExpectedID, row.ExpectedVersion = old.Record.ID, old.Record.Version
+			if pv.RenameFrom != "" {
+				row.StorageID = old.Record.StorageKey()
+				row.PreviousID = old.Record.ID
+				row.ID = m.ID
+				if !slices.Contains(row.Aliases, old.Record.ID) {
+					row.Aliases = append(row.Aliases, old.Record.ID)
+				}
+				row.Aliases = slices.DeleteFunc(row.Aliases, func(id string) bool { return id == m.ID })
+			} else if row.StorageID != "" {
+				row.PreviousID = old.Record.ID
+			}
 			row.DisabledContributions = m.StartsOff(old.Full, row.DisabledContributions)
 			row.PreviousVersion, row.Version, row.UpdatedAt = row.Version, m.Version, r.now()
 			// The replaced version's provenance goes with it, for a rollback to restore.
@@ -429,6 +467,12 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 			row.Origin = pv.source.String()
 			row.Granted, row.GrantedDigest = m.Permissions, pv.Digest
 		} else {
+			if pv.replaces != "" && r.extensions[pv.replaces] != nil {
+				return nil, ErrIdentity
+			}
+			if occupied := r.extensions[r.canonicalID(m.ID)]; occupied != nil && occupied.Record.ID != m.ID {
+				return nil, ErrIdentity
+			}
 			if requested != pv.Digest {
 				return nil, errPlanDigest
 			}
@@ -436,6 +480,7 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 				return nil, fmt.Errorf("已经有扩展 %s", m.ID)
 			}
 			row.DisabledContributions = m.StartsOff(nil, nil)
+			row.NewInstallation = !r.yielding(old)
 		}
 		// Overwrite on every install/upgrade, including a return to unsigned code.
 		row.MarketKey = pv.verifiedMarketKey
@@ -466,7 +511,13 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 			return nil, errors.New("数据库没有整份计划事务能力")
 		}
 	}
-	if err := r.checkDependencyGraph(manifests...); err != nil {
+	baseline := maps.Clone(r.extensions)
+	for _, plan := range plans {
+		if plan.preview.RenameFrom != "" {
+			delete(baseline, plan.preview.RenameFrom)
+		}
+	}
+	if err := checkCandidateDependencyGraph(baseline, manifests...); err != nil {
 		return nil, err
 	}
 	for _, plan := range plans {

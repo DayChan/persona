@@ -13,6 +13,8 @@ final class HubLink: Identifiable {
     private(set) var hello = HubHello()
     /// What the hub listed in its hello beyond the first protocol (`terminal_stream`, `file_upload`…).
     private(set) var features: Set<String> = []
+    /// The credential whose authenticated hello supplied these capabilities; nil before the first hello.
+    @ObservationIgnored private(set) var surfaceCapabilitiesConfig: ServerConfig?
     /// The group's last Fleet state (hub/liveactivity.go): merged with the other groups' for the Live Activity.
     var fleet: FleetState?
     /// The desktop apps connected to the hub (the 「Mac 上的 Persona 已登录」 banner shows the hub-level group's).
@@ -21,6 +23,11 @@ final class HubLink: Identifiable {
     @ObservationIgnored let pins: PinsStore
     /// Where requests go when the socket has not picked a hub yet: the group's first hub.
     @ObservationIgnored var fallback: ServerConfig
+    #if DEBUG
+    /// Unit tests: what answers this link's requests instead of the network or `APIClient.local`
+    /// (`AppModel.linkHooksForTests`).
+    @ObservationIgnored var transportForTests: APIClient.Transport?
+    #endif
 
     init(group: String, config: ServerConfig, pins: PinsStore) {
         self.group = group
@@ -39,6 +46,9 @@ final class HubLink: Identifiable {
         c.extensionsAPI = hello.features.isEmpty ? Self.remembersExtensions(group) : features.contains("extensions")
         c.personaNaming = live.personaContracts
         c.sessionLookup = features.contains("sessions_lookup")
+        #if DEBUG
+        c.transport = transportForTests
+        #endif
         return c
     }
 
@@ -83,6 +93,7 @@ final class HubLink: Identifiable {
 
     func received(_ hello: HubHello) {
         self.hello = hello
+        surfaceCapabilitiesConfig = config
         let f = Set(hello.features)
         let changed = f != features
         if changed { features = f }
@@ -383,7 +394,19 @@ extension AppModel {
     func watchConfigs() -> WatchConfigs {
         let (configs, missing) = registry.watchCredentials()
         return WatchConfigs(configs: configs, names: Dictionary(uniqueKeysWithValues: registry.groups.map { ($0, groupName($0)) }),
-                            missing: missing)
+                            missing: missing,
+                            deviceIDs: Dictionary(uniqueKeysWithValues: configs.keys.compactMap { group in
+                                registry.primary(group)?.watchDeviceID.map { (group, $0) }
+                            }), features: extensionSurfaceCapabilities.filter { configs[$0.key] != nil })
+    }
+
+    /// Only the authenticated hello of the hub whose credential is exported, never another mesh member's.
+    var extensionSurfaceCapabilities: [String: [String]] {
+        Dictionary(uniqueKeysWithValues: registry.groups.compactMap { group in
+            guard let primary = registry.primary(group), let link = link(group),
+                  link.surfaceCapabilitiesConfig == primary.config else { return nil }
+            return (group, link.features.sorted())
+        })
     }
 
     func pushWatchConfigs() {

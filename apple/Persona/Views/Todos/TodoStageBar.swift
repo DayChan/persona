@@ -50,7 +50,7 @@ struct TodoStageBar: View {
         if index < current {
             ZStack {
                 Circle().fill(Theme.positive)
-                Image(systemName: Theme.Icon.done)
+                ThemedIcon(Theme.Icon.done)
                     .font(Theme.Font.labelStrong)
                     .dynamicTypeSize(...DynamicTypeSize.xLarge)
                     .foregroundStyle(Theme.onSolid)

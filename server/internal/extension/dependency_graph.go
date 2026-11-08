@@ -200,7 +200,11 @@ func dependencyCycle(nodes map[string]*Extension, id string) []string {
 // checkDependencyGraph rejects newly introduced closed edges, not unchanged cycles in older records. This lets a
 // user keep their old data, repair a cycle, or install an unrelated extension. Called with r.mu held.
 func (r *Registry) checkDependencyGraph(candidates ...*Manifest) error {
-	nodes := maps.Clone(r.extensions)
+	return checkCandidateDependencyGraph(r.extensions, candidates...)
+}
+
+func checkCandidateDependencyGraph(installed map[string]*Extension, candidates ...*Manifest) error {
+	nodes := maps.Clone(installed)
 	seen := map[string]bool{}
 	for _, m := range candidates {
 		if seen[m.ID] {
@@ -210,7 +214,7 @@ func (r *Registry) checkDependencyGraph(candidates ...*Manifest) error {
 		nodes[m.ID] = &Extension{Full: m}
 	}
 	for _, m := range candidates {
-		old := r.extensions[m.ID]
+		old := installed[m.ID]
 		for _, dep := range m.Depends {
 			if old != nil && old.Full.DependsOn(dep.ID) {
 				continue

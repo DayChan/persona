@@ -18,9 +18,9 @@ enum SessionPane: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .chat: "bubble.left.and.text.bubble.right"
+        case .chat: Theme.Icon.agentChat
         case .terminal: "terminal"
-        case .git: "arrow.triangle.branch"
+        case .git: Theme.Icon.gitBranch
         case .files: "folder"
         }
     }
@@ -99,7 +99,7 @@ private struct PaneSegment: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
-            Image(systemName: pane.symbol).font(Theme.Font.labelStrong)
+            ThemedIcon(pane.symbol).font(Theme.Font.labelStrong)
             Text(pane.title).lineLimit(1).minimumScaleFactor(0.8)
             if let badge { badgeView(badge) }
         }
@@ -350,7 +350,7 @@ struct TerminalPanel: View {
                     suggestions = TerminalCompletion.suggestions(for: input, rows: feed.content.rows)
                 }
             Button(action: sendInput) {
-                Image(systemName: Theme.Icon.enter).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
+                ThemedIcon(Theme.Icon.enter).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
             }
             .themedButton(prominent: true)
             .disabled(input.isEmpty)
@@ -507,7 +507,7 @@ struct TerminalPanel: View {
                 if feed.loading { ProgressView().controlSize(.mini).tint(fg) }
                 Spacer(minLength: 0)
                 Button { Haptics.tap(); showSettings = true } label: {
-                    Image(systemName: Theme.Icon.options).font(Theme.Font.captionStrong).scaledFrame(width: Theme.Size.well, height: Theme.Size.iconL)
+                    ThemedIcon(Theme.Icon.options).font(Theme.Font.captionStrong).scaledFrame(width: Theme.Size.well, height: Theme.Size.iconL)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(fg.opacity(0.75))
@@ -865,10 +865,10 @@ struct TerminalTips: View {
             Text("Terminal Tips").font(Theme.Font.secondaryStrong)
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 if direct { tip("keyboard", "Keyboard button: type directly; taps go to the terminal") }
-                tip("arrow.up.left.and.arrow.down.right", "Pinch to change text size")
-                tip("hand.tap", "Double-tap the terminal to paste")
+                tip(Theme.Icon.enlarge, "Pinch to change text size")
+                tip(Theme.Icon.tap, "Double-tap the terminal to paste")
                 tip("bolt", "Bolt: quick commands; tap to type, double-tap to run")
-                tip("arrow.left.arrow.right", "Two-finger swipe: switch agents in this space")
+                tip(Theme.Icon.switchAgents, "Two-finger swipe: switch agents in this space")
             }
             .font(Theme.Font.caption)
             HStack(spacing: Theme.Space.m) {
@@ -885,7 +885,7 @@ struct TerminalTips: View {
 
     private func tip(_ symbol: String, _ text: LocalizedStringKey) -> some View {
         Label { Text(text).lineLimit(1).minimumScaleFactor(0.8) } icon: {
-            Image(systemName: symbol).foregroundStyle(Theme.accent).scaledFrame(width: Theme.Size.iconXS)
+            ThemedIcon(symbol).foregroundStyle(Theme.accent).scaledFrame(width: Theme.Size.iconXS)
         }
     }
 }
@@ -905,7 +905,7 @@ struct TerminalLinkStatus: View {
             let stale = lastOK.map { ctx.date.timeIntervalSince($0) > TerminalPanel.staleAfter } ?? false
             if failure != nil || stale {
                 HStack(spacing: Theme.Space.s) {
-                    Image(systemName: failure != nil ? Theme.Icon.offline : Theme.Icon.recent)
+                    ThemedIcon(failure != nil ? Theme.Icon.offline : Theme.Icon.recent)
                         .font(Theme.Font.labelStrong)
                     VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                         Text(Self.headline(lastOK: lastOK, now: ctx.date)).font(Theme.Font.labelStrong).lineLimit(1)
@@ -976,7 +976,7 @@ struct BackgroundTasksStrip: View {
                     .contentShape(.rect)
                 } else {
                     HStack(spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.backgroundTask)
+                        ThemedIcon(Theme.Icon.backgroundTask)
                             .font(Theme.Font.captionStrong)
                             .foregroundStyle(Theme.busy)
                         Text("\(tasks.count) background tasks").font(Theme.Font.captionStrong).lineLimit(1)
@@ -984,7 +984,7 @@ struct BackgroundTasksStrip: View {
                             Text(first.title).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
-                        Image(systemName: Theme.Icon.collapse)
+                        ThemedIcon(Theme.Icon.collapse)
                             .font(Theme.Font.labelHeavy)
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(expanded ? 0 : 180))
@@ -1012,7 +1012,7 @@ struct BackgroundTasksStrip: View {
     private func row(_ t: BackgroundTask) -> some View {
         Button { if t.outputFile != nil { openOutput(t) } } label: {
             HStack(alignment: .top, spacing: Theme.Space.m) {
-                Image(systemName: t.isAgent ? "person.2" : Theme.Icon.terminal)
+                ThemedIcon(t.isAgent ? Theme.Icon.subagent : Theme.Icon.terminal)
                     .font(Theme.Font.labelStrong).dynamicTypeSize(...DynamicTypeSize.xxLarge)
                     .foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.badge, height: Theme.Size.badge)
@@ -1101,7 +1101,7 @@ struct ActivityChips: View {
             HStack(spacing: Theme.Space.s) {
                 if let loop {
                     HStack(spacing: Theme.Space.xxs) {
-                        Image(systemName: Self.loopSymbol).font(Theme.Font.labelHeavy).foregroundStyle(Theme.loop)
+                        ThemedIcon(Self.loopSymbol).font(Theme.Font.labelHeavy).foregroundStyle(Theme.loop)
                         if background.isEmpty || typeSize < .xxxLarge {
                             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                                 Text(Self.shortLoopLabel(loop, now: ctx.date)).lineLimit(1)
@@ -1114,7 +1114,7 @@ struct ActivityChips: View {
                 }
                 if !background.isEmpty {
                     HStack(spacing: Theme.Space.xxs) {
-                        Image(systemName: Self.backgroundSymbol).font(Theme.Font.labelHeavy).foregroundStyle(Theme.busy)
+                        ThemedIcon(Self.backgroundSymbol).font(Theme.Font.labelHeavy).foregroundStyle(Theme.busy)
                         Text("\(background.count)").monospacedDigit().lineLimit(1)
                     }
                 }
@@ -1194,7 +1194,7 @@ struct LoopStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.inProgress)
+                ThemedIcon(Theme.Icon.inProgress)
                     .font(Theme.Font.captionHeavy)
                     .foregroundStyle(Theme.loop)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -1249,7 +1249,7 @@ struct LoopTickRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
-            Image(systemName: Theme.Icon.inProgress).font(Theme.Font.labelHeavy)
+            ThemedIcon(Theme.Icon.inProgress).font(Theme.Font.labelHeavy)
             Text("Loop Wake-Up").fontWeight(.semibold)
             if let ts = item.ts { Text(ts.formatted(date: .omitted, time: .shortened)) }
             Text(String((item.text ?? "").dropFirst(5)).trimmingCharacters(in: .whitespaces)).lineLimit(1).foregroundStyle(.tertiary)
@@ -1320,7 +1320,7 @@ struct AgentStrip: View {
             } else {
                 Button(action: open) {
                     HStack(spacing: Theme.Space.sm) {
-                        Image(systemName: Theme.Icon.list).font(Theme.Font.labelStrong)
+                        ThemedIcon(Theme.Icon.list).font(Theme.Font.labelStrong)
                         Text("All Subagents").lineLimit(1)
                         Text("\(all.count)").monospacedDigit().foregroundStyle(.secondary)
                     }
@@ -1353,9 +1353,9 @@ struct AgentStrip: View {
                 if running {
                     ProgressView().controlSize(.mini)
                 } else if done {
-                    Image(systemName: Theme.Icon.successFilled).font(Theme.Font.label).foregroundStyle(Theme.positive)
+                    ThemedIcon(Theme.Icon.successFilled).font(Theme.Font.label).foregroundStyle(Theme.positive)
                 } else if let symbol {
-                    Image(systemName: symbol).font(Theme.Font.labelStrong)
+                    ThemedIcon(symbol).font(Theme.Font.labelStrong)
                 }
                 Text(title).lineLimit(1).frame(maxWidth: 160)
             }
@@ -1404,7 +1404,7 @@ struct HeaderStatusLine: View {
         switch status {
         case .viewing(let a):
             line(label: String(localized: "Viewing Subagent"), title: String(localized: "\(a.title) (read-only)"), chevron: false) {
-                Image(systemName: Theme.Icon.view).font(Theme.Font.labelStrong).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.view).font(Theme.Font.labelStrong).foregroundStyle(Theme.accent)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(String(localized: "Viewing subagent: \(a.title), read-only"))
@@ -1447,7 +1447,7 @@ struct HeaderStatusLine: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if chevron {
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
         }
         .scaledFrame(minHeight: Theme.Size.wellS)
@@ -1497,7 +1497,7 @@ struct SubagentTreeSheet: View {
         return Button { select(a) } label: {
             HStack(alignment: .top, spacing: Theme.Space.s) {
                 if r.depth > 0 {
-                    Image(systemName: Theme.Icon.followOn)
+                    ThemedIcon(Theme.Icon.followOn)
                         .font(Theme.Font.label)
                         .foregroundStyle(.tertiary)
                 }
@@ -1545,7 +1545,7 @@ struct SubagentFooter: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: agent.running ? "person.2.wave.2" : "person.2")
+            ThemedIcon(agent.running ? Theme.Icon.subagentWorking : Theme.Icon.subagent)
                 .font(Theme.Font.secondaryStrong)
                 .foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {

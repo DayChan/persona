@@ -99,7 +99,7 @@ private struct ExtensionRowLabel: View {
                 Label {
                     Text(plugin.name).lineLimit(1)
                 } icon: {
-                    Image(systemName: Theme.Icon.plugins)
+                    ThemedIcon(Theme.Icon.plugins)
                 }
             }
         }
@@ -354,7 +354,7 @@ struct ExtensionDetailView: View {
             Section {
                 ForEach(ui) { place in
                     NavigationLink(value: SettingsPage.pluginPage(plugin: d.plugin.id, ui: place.id, title: place.title)) {
-                        Label { Text(place.title).lineLimit(1) } icon: { Image(systemName: Theme.Icon.pluginPage) }
+                        Label { Text(place.title).lineLimit(1) } icon: { ThemedIcon(Theme.Icon.pluginPage) }
                     }
                     .accessibilityIdentifier("plugin-page-\(place.id)")
                 }
@@ -384,7 +384,7 @@ struct ExtensionDetailView: View {
                                 Text("Sign-in, status and more Inbox settings").font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
                             }
                         } icon: {
-                            Image(systemName: Theme.Icon.connectors)
+                            ThemedIcon(Theme.Icon.connectors)
                         }
                     }
                     .accessibilityIdentifier("extension-connector-open-\(c.id)")
@@ -439,7 +439,7 @@ struct ExtensionDetailView: View {
                             .foregroundStyle(s.set || s.required != true ? Color.secondary : Theme.caution)
                             .lineLimit(1)
                     } label: {
-                        Label { Text(s.title).lineLimit(1) } icon: { Image(systemName: Theme.Icon.credentials) }
+                        Label { Text(s.title).lineLimit(1) } icon: { ThemedIcon(Theme.Icon.credentials) }
                     }
                 }
                 .foregroundStyle(Color.primary)
@@ -543,7 +543,7 @@ struct ExtensionDetailView: View {
                 Link(destination: url) { Label("Website", systemImage: Theme.Icon.openExternal).lineLimit(1) }
             }
             ForEach(ExtensionAuthText.warnings(d.plugin.warnings, shown: auth), id: \.self) { w in
-                Label { Text(w).font(Theme.Font.label) } icon: { Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution) }
+                Label { Text(w).font(Theme.Font.label) } icon: { ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution) }
             }
         } header: {
             SettingsHeading(String(localized: "About"))
@@ -804,7 +804,7 @@ private struct ExtensionListField: View {
                             next.remove(at: i)
                             store(next)
                         } label: {
-                            Image(systemName: Theme.Icon.clear).foregroundStyle(.secondary)
+                            ThemedIcon(Theme.Icon.clear).foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Delete \(item)")
@@ -818,7 +818,7 @@ private struct ExtensionListField: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit(add)
-                    Button(action: add) { Image(systemName: Theme.Icon.add) }
+                    Button(action: add) { ThemedIcon(Theme.Icon.add) }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.accent)
                         .disabled(adding.trimmingCharacters(in: .whitespaces).isEmpty)

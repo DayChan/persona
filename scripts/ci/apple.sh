@@ -152,7 +152,9 @@ PY
   # The real EventKit round-trip uses only this disposable simulator's store.
   # TCC grants can precede installation of the synthetic CI app.
   CI_BUNDLE_ID=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["app"]["bundle_id"])' "$PERSONA_CONFIG")
-  ci_run 'Grant Reminders access to the owned test app' 60 xcrun simctl privacy "$SIM" grant reminders "$CI_BUNDLE_ID"
+  # On a just-booted stock simulator the grant waits for the device's own services: 54.5 s on a passing hosted run,
+  # over 60 s on a failing one (#1402). A single attempt with room to spare; a hang still ends the lane.
+  ci_run 'Grant Reminders access to the owned test app' 300 xcrun simctl privacy "$SIM" grant reminders "$CI_BUNDLE_ID"
   export TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1
 
   IOS_TESTS=("${XCODE[@]}" -scheme Persona -destination "platform=iOS Simulator,id=$SIM" \

@@ -62,9 +62,9 @@ struct VNCPiPCard: View {
                 .frame(width: Theme.Size.icon, height: Theme.Size.icon)
                 .rotationEffect(.degrees(turn * 360))
         case .signIn:
-            Image(systemName: Theme.Icon.locked).font(Theme.Font.title).foregroundStyle(Theme.caution)
+            ThemedIcon(Theme.Icon.locked).font(Theme.Font.title).foregroundStyle(Theme.caution)
         case .failed:
-            Image(systemName: Theme.Icon.error).font(Theme.Font.title).foregroundStyle(Theme.danger)
+            ThemedIcon(Theme.Icon.error).font(Theme.Font.title).foregroundStyle(Theme.danger)
         }
     }
 
@@ -77,7 +77,7 @@ struct VNCPiPCard: View {
     }
 
     private var hint: Text? {
-        let back = Image(systemName: Theme.Icon.pictureInPictureExit)
+        let back = ThemedIcon(Theme.Icon.pictureInPictureExit)
         switch state {
         case .connecting: return nil
         case .signIn: return Text("Tap \(back) to go back to the app and sign in again")

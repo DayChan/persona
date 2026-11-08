@@ -13,10 +13,12 @@ nonisolated enum HubNaming {
         return scheme == "persona" || scheme == LegacyNames.urlScheme
     }
 
+    #if !WIDGET_EXTENSION
     static func operationHeaders(_ id: UUID) -> [String: String] {
         let value = id.uuidString.lowercased()
         return [OpRetry.header: value, LegacyNames.operationIDHeader: value]
     }
+    #endif
 
     /// Rewrite protocol tag names only, not product mentions, paths, URLs or JSON values in the user's text.
     /// Sanitized context bodies cannot close either generation's block (ContextText).

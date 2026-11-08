@@ -261,7 +261,79 @@ def json_operation(home, disk_path, output_path, transform, source_name, mode=No
             "state": "pending"}
 
 
-def plan(home, source_name, records=None, harnesses=()):
+# Claude Code shortens a longer project directory name and adds a hash this tool does not reproduce.
+PROJECT_KEY_LIMIT = 200
+
+
+def project_key(path):
+    """Claude Code's directory name for a folder's conversations: every character but ASCII letters and digits is '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(path))
+
+
+def project_operations(home, source_name, config):
+    """Move the conversation directories of folders under the previous root to the keys of the same folders under
+    .persona. Where the current key already has conversations, merge: move what it lacks, then retire the rest of
+    the previous directory (byte-identical copies only) into the journal. A file that differs in the two is refused;
+    the tool never picks one."""
+    projects = config / "projects"
+    guard(home, projects / "placeholder")
+    if not projects.is_dir() or projects.is_symlink():
+        return []
+    previous, current = project_key(home / ("." + source_name)), project_key(home / ".persona")
+    # A sibling such as ~/.<previous-name>-tools has the same key as the folder "tools" inside the root.
+    siblings = [project_key(home / entry.name) for entry in home.iterdir()
+                if entry.name.startswith("." + source_name) and entry.name != "." + source_name]
+    operations = []
+
+    def operation(action, path, **extra):
+        operations.append({"action": action, "path": str(path.relative_to(home)),
+                           "before": snapshot(path), "state": "pending", **extra})
+
+    def merge(source, target):
+        for child in sorted(source.iterdir()):
+            there = target / child.name
+            if not present(there):
+                operation("move", child, to=str(there.relative_to(home)))
+            elif (child.is_dir() and there.is_dir()) and not (child.is_symlink() or there.is_symlink()):
+                merge(child, there)
+            else:
+                mine, theirs = snapshot(child), snapshot(there)
+                if mine["kind"] != stat.S_IFREG or theirs["kind"] != stat.S_IFREG or mine["sha256"] != theirs["sha256"]:
+                    raise Refusal("a conversation file differs in the previous and current project directories; "
+                                  "merge it by hand: " + str(there.relative_to(home)))
+
+    for entry in sorted(projects.iterdir()):
+        name = entry.name
+        if name != previous and not name.startswith(previous + "-"):
+            continue
+        if any(name == key or name.startswith(key + "-") for key in siblings):
+            raise Refusal("project directory may belong to a sibling of the previous root; migrate it by hand: "
+                          + str(entry.relative_to(home)))
+        target = projects / (current + name[len(previous):])
+        if len(name) > PROJECT_KEY_LIMIT or len(target.name) > PROJECT_KEY_LIMIT:
+            raise Refusal("Claude Code shortens long project directory names; migrate it by hand: " + str(entry.relative_to(home)))
+        if entry.is_symlink():
+            if target.is_symlink() or not target.is_dir() or Path(os.path.realpath(entry)) != target:
+                raise Refusal("project directory alias is not the current key's directory")
+            operation("unlink_alias", entry)
+        elif not entry.is_dir():
+            raise Refusal("project entry is not a directory: " + str(entry.relative_to(home)))
+        elif not present(target):
+            operation("move", entry, to=str(target.relative_to(home)))
+        elif target.is_symlink():
+            if Path(os.path.realpath(target)) != entry:
+                raise Refusal("current project directory is an alias to somewhere else")
+            operation("unlink_alias", target)
+            operation("move", entry, to=str(target.relative_to(home)))
+        elif target.is_dir():
+            merge(entry, target)
+            operation("retire", entry)
+        else:
+            raise Refusal("current project entry is not a directory: " + str(target.relative_to(home)))
+    return operations
+
+
+def plan(home, source_name, records=None, harnesses=(), claude_dirs=()):
     operations = []
     roots = []
 
@@ -400,6 +472,14 @@ def plan(home, source_name, records=None, harnesses=()):
         if edit:
             edit["managed_harness"] = True
             operations.append(edit)
+    managed = [home / ("." + source_name), home / ".persona", home / ".config" / source_name, home / ".config" / "persona"]
+    for config in claude_dirs:
+        guard(home, config)
+        if not config.is_dir() or config.is_symlink():
+            raise Refusal("explicit Claude Code config directory must be an existing directory below the selected home")
+        if any(config == root or config.is_relative_to(root) for root in managed):
+            raise Refusal("Claude Code config directory inside a moved root; migrate it separately")
+        operations.extend(project_operations(home, source_name, config))
     if records:
         if records != home / ".persona-cutover-records.json":
             raise Refusal("rehearsal input must be .persona-cutover-records.json directly below the selected home")
@@ -485,14 +565,15 @@ def content_matches(current, expected):
                                        for key in ("kind", "mode", "sha256", "target"))
 
 
-def apply(home, source_name, journal, records=None, harnesses=()):
-    operations = plan(home, source_name, records, harnesses)  # Preflight every operation before any mutation.
+def apply(home, source_name, journal, records=None, harnesses=(), claude_dirs=()):
+    operations = plan(home, source_name, records, harnesses, claude_dirs)  # Preflight every operation before any mutation.
     validate_journal_path(home, journal)
     journal.mkdir(mode=0o700)  # Exclusive creation: never reuse another transaction.
     os.chmod(journal, 0o700)
     sync_dir(home)
     data = {"version": 1, "home": str(home), "source_name": source_name,
             "managed_harness_paths": [op["path"] for op in operations if op.get("managed_harness")],
+            "claude_project_dirs": [str((config / "projects").relative_to(home)) for config in claude_dirs],
             "status": "applying", "operations": operations}
     save(journal, data)
     try:
@@ -518,6 +599,11 @@ def apply(home, source_name, journal, records=None, harnesses=()):
                 op["backup"] = backup.name
                 op["after"] = {"kind": stat.S_IFREG, "mode": 0o600,
                                "sha256": hashlib.sha256(op["text"].encode("utf-8")).hexdigest()}
+            elif op["action"] == "retire":
+                retired = journal / ("retired-" + str(index))
+                if present(retired):
+                    raise Refusal("retired path exists in the journal; refusing to overwrite")
+                op["backup"] = retired.name
             op["state"] = "started"
             save(journal, data)  # Intent reaches disk before the filesystem changes.
             if op["action"] == "move":
@@ -525,6 +611,8 @@ def apply(home, source_name, journal, records=None, harnesses=()):
             elif op["action"] == "unlink_alias":
                 path.unlink()
                 sync_dir(path.parent)
+            elif op["action"] == "retire":
+                rename_exclusive(path, journal / op["backup"])
             elif op["action"] == "write_json":
                 replace_bytes(path, op["text"].encode("utf-8"), op["before"], 0o600)
             else:
@@ -551,14 +639,22 @@ def validate_journal(home, source_name, journal, data):
     if not isinstance(operations, list):
         raise Refusal("invalid journal operations")
     roots = ("." + source_name, ".persona", ".config/" + source_name, ".config/persona", ".persona-cutover-records.json")
+    projects = data.get("claude_project_dirs", [])
+    if not isinstance(projects, list) or not all(
+            isinstance(item, str) and item and not Path(item).is_absolute() and ".." not in Path(item).parts
+            and Path(item).name == "projects" for item in projects):
+        raise Refusal("invalid journal project directories")
     for op in operations:
-        if (not isinstance(op, dict) or op.get("action") not in ("move", "unlink_alias", "chmod", "write_json")
+        if (not isinstance(op, dict) or op.get("action") not in ("move", "unlink_alias", "chmod", "write_json", "retire")
                 or op.get("state") not in ("pending", "started", "done", "undo_started", "undone")):
             raise Refusal("invalid journal operation")
         for field in ("path", "to") if op["action"] == "move" else ("path",):
             relative = op.get(field)
             allowed_harness = op["action"] == "write_json" and relative in data.get("managed_harness_paths", [])
-            if not isinstance(relative, str) or not (allowed_harness or any(relative == root or relative.startswith(root + "/") for root in roots)):
+            allowed_project = (op["action"] in ("move", "unlink_alias", "retire") and isinstance(relative, str)
+                               and any(relative.startswith(item + "/") for item in projects))
+            in_roots = isinstance(relative, str) and any(relative == root or relative.startswith(root + "/") for root in roots)
+            if not isinstance(relative, str) or not (allowed_harness or allowed_project or (in_roots and op["action"] != "retire")):
                 raise Refusal("journal path is outside managed roots")
             lexical = Path(relative)
             if lexical.is_absolute() or ".." in lexical.parts:
@@ -567,8 +663,10 @@ def validate_journal(home, source_name, journal, data):
             raise Refusal("journal has no original identity")
         if op["action"] == "chmod" and op.get("mode") not in (0o600, 0o700):
             raise Refusal("invalid journal permissions")
-        if op.get("backup") and not re.fullmatch(r"(?:binary|json)-[0-9]+", op["backup"]):
+        if op.get("backup") and not re.fullmatch(r"(?:binary|json|retired)-[0-9]+", op["backup"]):
             raise Refusal("invalid backup name")
+        if op["action"] == "retire" and not op.get("backup") and op["state"] != "pending":
+            raise Refusal("retired directory has no journal entry")
     validate_journal_path(home, journal)
 
 
@@ -583,6 +681,14 @@ def restore_one(home, op, journal):
         if present(path):
             raise Refusal("rollback source exists; refusing to overwrite")
         rename_exclusive(destination, path)
+    elif op["action"] == "retire":
+        retired = journal / op["backup"]
+        if snapshot(path) == before and not present(retired):
+            return  # Intent was saved, but the directory never left (or is back).
+        expect(retired, before)
+        if present(path):
+            raise Refusal("rollback source exists; refusing to overwrite")
+        rename_exclusive(retired, path)
     elif op["action"] == "unlink_alias":
         if content_matches(snapshot(path), before):
             return
@@ -645,19 +751,39 @@ def rollback(home, source_name, journal):
     return len(data["operations"])
 
 
-def database_sql(source_name):
+def session_roots(source_name, homes):
+    """Previous and current data roots for the homes whose stored sessions share a database (POSIX paths only)."""
+    roots = []
+    for home in homes:
+        text = str(home)
+        if len(text) > 1:
+            text = text.rstrip("/")
+        if not re.fullmatch(r"/[^\x00-\x1f\x7f'\\]+", text) or "/../" in text + "/" or "/./" in text + "/":
+            raise Refusal("session home must be an absolute POSIX path without quotes, backslashes or traversal; "
+                          "rewrite other stored session folders by hand")
+        pair = (text + "/." + source_name, text + "/.persona")
+        if pair not in roots:
+            roots.append(pair)
+    return roots
+
+
+def database_sql(source_name, homes=()):
     """Emit a reviewed psql transaction; this program never connects to Postgres."""
     header = "\\set ON_ERROR_STOP on\n\\set source_name " + source_name + "\n"
-    return header + r"""BEGIN;
+    roots = "".join("INSERT INTO cutover_roots VALUES ('" + previous + "','" + current + "');\n"
+                    for previous, current in session_roots(source_name, homes))
+    return (header + r"""BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 SET LOCAL search_path = pg_temp, public;
 CREATE TEMP TABLE cutover_name (source text NOT NULL);
 INSERT INTO cutover_name VALUES (:'source_name');
-SELECT to_regclass('public.plugins') IS NOT NULL AS registry,
+CREATE TEMP TABLE cutover_roots (previous text NOT NULL, current text NOT NULL);
+__SESSION_ROOTS__SELECT to_regclass('public.plugins') IS NOT NULL AS registry,
        to_regclass('public.settings') IS NOT NULL AS settings,
        to_regclass('public.hub_settings') IS NOT NULL AS hub_settings,
-       to_regclass('public.devices') IS NOT NULL AS devices
+       to_regclass('public.devices') IS NOT NULL AS devices,
+       to_regclass('public.node_sessions') IS NOT NULL AS node_sessions
 \gset cutover_
 CREATE TEMP TABLE cutover_columns (table_name text, column_name text, data_type text);
 INSERT INTO cutover_columns VALUES
@@ -668,7 +794,8 @@ INSERT INTO cutover_columns VALUES
  ('plugins','installed_at','timestamp with time zone'), ('plugins','updated_at','timestamp with time zone'),
  ('plugin_secrets','plugin','text'), ('plugin_secrets','name','text'), ('plugin_secrets','sealed','text'),
  ('plugin_audit','plugin','text'), ('settings','key','text'), ('settings','value','jsonb'),
- ('hub_settings','key','text'), ('hub_settings','value','jsonb'), ('devices','prefs','jsonb');
+ ('hub_settings','key','text'), ('hub_settings','value','jsonb'), ('devices','prefs','jsonb'),
+ ('node_sessions','cwd','text');
 DO $check$
 BEGIN
  IF NOT EXISTS (SELECT 1 FROM cutover_columns WHERE to_regclass('public.' || table_name) IS NOT NULL) THEN
@@ -768,9 +895,23 @@ END $check$;
 SELECT 'devices.prefs.look.package old IDs' AS verification, count(*) AS remaining FROM public.devices
  WHERE prefs#>>'{look,package}' IS DISTINCT FROM pg_temp.cutover_look_id(prefs#>>'{look,package}');
 \endif
+\if :cutover_node_sessions
+LOCK TABLE public.node_sessions IN ACCESS EXCLUSIVE MODE;
+UPDATE public.node_sessions s SET cwd=r.current || substr(s.cwd,length(r.previous)+1)
+ FROM cutover_roots r WHERE s.cwd=r.previous OR left(s.cwd,length(r.previous)+1)=r.previous || '/';
+DO $check$
+BEGIN
+ IF EXISTS (SELECT 1 FROM public.node_sessions s JOIN cutover_roots r
+   ON s.cwd=r.previous OR left(s.cwd,length(r.previous)+1)=r.previous || '/') THEN
+   RAISE EXCEPTION 'Stored session folders remain under a previous root';
+ END IF;
+END $check$;
+SELECT 'node_sessions.cwd under a previous root' AS verification, count(*) AS remaining FROM public.node_sessions s
+ JOIN cutover_roots r ON s.cwd=r.previous OR left(s.cwd,length(r.previous)+1)=r.previous || '/';
+\endif
 COMMIT;
-\echo database-cutover: committed; all supported ID fields verified; services must remain stopped
-"""
+\echo database-cutover: committed; supported ID fields and stored session folders verified; services must remain stopped
+""").replace("__SESSION_ROOTS__", roots)
 
 
 def _settings_sql(table):
@@ -803,6 +944,12 @@ def main(argv=None):
     parser.add_argument("--records", type=Path, help="optional .persona-cutover-records.json offline database rehearsal")
     parser.add_argument("--managed-harness-json", type=Path, action="append", default=[],
                         help="explicit approved harness JSON below --home; typed MCP/env/permission namespaces only; repeatable")
+    parser.add_argument("--claude-config-dir", type=Path, action="append", default=[],
+                        help="explicit Claude Code config directory below --home; its conversation directories for folders "
+                             "under the previous root move to their new keys; repeatable")
+    parser.add_argument("--session-home", action="append", default=[],
+                        help="with --print-database-sql: home of another machine whose stored sessions share this database; "
+                             "--home is always included; repeatable")
     parser.add_argument("--journal", type=Path, help="new .persona-cutover-<id> private directory directly below --home (required for mutation)")
     parser.add_argument("--approve", action="store_true", help="explicit operator approval; not production authorization")
     parser.add_argument("--services-stopped", action="store_true", help="operator confirms every writer and auto-start path is stopped")
@@ -835,23 +982,39 @@ def main(argv=None):
         if path in harnesses:
             parser.error("duplicate managed harness path")
         harnesses.append(path)
+    claude_dirs = []
+    for path in args.claude_config_dir:
+        if not path.is_absolute() or ".." in path.parts:
+            parser.error("--claude-config-dir requires an absolute path without traversal")
+        if path.is_relative_to(args.home):
+            path = home / path.relative_to(args.home)
+        if path in claude_dirs:
+            parser.error("duplicate Claude Code config directory")
+        claude_dirs.append(path)
+    if args.session_home and not args.print_database_sql:
+        parser.error("--session-home only applies to --print-database-sql")
     try:
         if args.print_database_sql:
-            print(database_sql(args.source_name), end="")
+            # Stored sessions record the home as the node spelled it, so keep --home as given. Windows folders are
+            # not rewritten (see the runbook).
+            homes = ([] if os.name == "nt" else [os.path.normpath(args.home)]) + args.session_home
+            print(database_sql(args.source_name, homes), end="")
         elif args.apply:
             with transaction_lock(home):
-                count = apply(home, args.source_name, journal, records, harnesses)
+                count = apply(home, args.source_name, journal, records, harnesses, claude_dirs)
             print("apply: " + str(count) + " operations; services remain stopped; manual cutover still required")
         elif args.rollback:
             with transaction_lock(home):
                 count = rollback(home, args.source_name, journal)
             print("rollback: " + str(count) + " operations reversed; services remain stopped")
         else:
-            operations = plan(home, args.source_name, records, harnesses)
+            operations = plan(home, args.source_name, records, harnesses, claude_dirs)
             visible = [{key: value for key, value in op.items() if key in ("action", "path", "to", "mode")}
                        for op in operations]
-            print(json.dumps({"verdict": "plan", "operations": visible,
-                              "manual": ["services", "binary installation", "environment and MCP", "database", "clients"]}, indent=2))
+            manual = ["services", "binary installation", "environment and MCP", "database", "clients"]
+            if not claude_dirs:
+                manual.append("agent conversation directories (--claude-config-dir)")
+            print(json.dumps({"verdict": "plan", "operations": visible, "manual": manual}, indent=2))
         return 0
     except (Refusal, OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
         # Do not print file contents, credentials, environment or OS exception filenames.

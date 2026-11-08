@@ -41,7 +41,7 @@ struct GoalBar: View {
             showing = true
         } label: {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.goal)
+                ThemedIcon(Theme.Icon.goal)
                     .font(Theme.Font.labelHeavy)
                     .foregroundStyle(goal.tint)
                 Text(goal.headline)
@@ -77,7 +77,7 @@ struct GoalSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.l) {
                     HStack(spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.goal).font(Theme.Font.captionHeavy)
+                        ThemedIcon(Theme.Icon.goal).font(Theme.Font.captionHeavy)
                         Text(goal.statusLabel).font(Theme.Font.captionStrong).lineLimit(1)
                         if let usage = goal.usage {
                             Text(usage).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)

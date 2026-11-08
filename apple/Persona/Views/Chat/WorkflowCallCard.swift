@@ -111,7 +111,7 @@ struct WorkflowCallCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
             HStack(spacing: Theme.Space.s) {
                 WorkflowHead(run: run, onRail: WorkCardSlice.timeline)
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(open ? 90 : 0))

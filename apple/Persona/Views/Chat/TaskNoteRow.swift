@@ -125,7 +125,7 @@ struct TaskNoteRow: View {
                     if AppStyle.current.usesBeautifulUI {
                         let subject = TaskNoteText.subject(n, description: call.flatMap { index.descriptions[$0] })
                         // The tools' row: the task's icon, what it is, its description in a chip, how it went as a pill.
-                        ToolChipRow(BeautifulUI.ToolCall(id: item.id, .symbol(TaskNoteText.symbol(n)), label: TaskNoteText.label(n), chip: subject,
+                        ToolChipRow(BeautifulUI.ToolCall(id: item.id, .symbol(Theme.Icon.styled(TaskNoteText.symbol(n))), label: TaskNoteText.label(n), chip: subject,
                                                          monospacedChip: subject.unicodeScalars.allSatisfy(\.isASCII)),
                                     isOpen: open) {
                             Haptics.tap()
@@ -144,7 +144,7 @@ struct TaskNoteRow: View {
                             HStack(spacing: Theme.Space.m) {
                                 ZStack {
                                     Circle().fill(tint(n).opacity(0.14)).scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
-                                    Image(systemName: TaskNoteText.symbol(n))
+                                    ThemedIcon(TaskNoteText.symbol(n))
                                         .font(Theme.Font.labelStrong).dynamicTypeSize(...DynamicTypeSize.xLarge)
                                         .foregroundStyle(tint(n))
                                 }
@@ -160,7 +160,7 @@ struct TaskNoteRow: View {
                                         .foregroundStyle(n.failed ? AnyShapeStyle(Theme.danger) : AnyShapeStyle(.tertiary))
                                         .lineLimit(1).fixedSize()
                                 }
-                                Image(systemName: Theme.Icon.disclosure)
+                                ThemedIcon(Theme.Icon.disclosure)
                                     .font(Theme.Font.labelStrong)
                                     .foregroundStyle(.tertiary)
                                     .rotationEffect(.degrees(open ? 90 : 0))

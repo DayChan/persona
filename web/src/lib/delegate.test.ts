@@ -52,6 +52,9 @@ describe("recommendedLabels", () => {
     expect(recommendedLabels([q("用哪个库？", ["pgx", "sqlc"])], "先别换，等压测")).toEqual([[]]);
     expect(recommendedLabels([q("用哪个库？", ["pgx", "sqlc"])], undefined)).toEqual([[]]);
   });
+  it("a free-text question (options null, #1573) has no option to mark", () => {
+    expect(recommendedLabels([{ question: "Branch name?", options: null }], "release/2026-11")).toEqual([[]]);
+  });
 });
 
 describe("改答的表单", () => {

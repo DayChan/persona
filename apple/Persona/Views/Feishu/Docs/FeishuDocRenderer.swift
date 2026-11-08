@@ -375,9 +375,9 @@ struct FeishuDocsBlock: View {
     @ViewBuilder private var embed: some View {
         let kind = node.attr("kind") ?? ""
         let (symbol, hue, label): (String, String, String) = switch kind {
-        case "sheet": ("tablecells.fill", "green", String(localized: "Sheet [Feishu Doc Renderer 4ec5b2]"))
-        case "bitable", "base": ("square.grid.3x2.fill", "purple", String(localized: "Base"))
-        case "mindnote": ("point.3.connected.trianglepath.dotted", "wathet", String(localized: "Mindnote"))
+        case "sheet": (Theme.Icon.fileSheet, "green", String(localized: "Sheet [Feishu Doc Renderer 4ec5b2]"))
+        case "bitable", "base": (Theme.Icon.baseFilled, "purple", String(localized: "Base"))
+        case "mindnote": (Theme.Icon.connectors, "wathet", String(localized: "Mindnote"))
         case "chat": ("bubble.left.and.bubble.right.fill", "blue", String(localized: "Group chat"))
         case "calendarEvent": ("calendar", "orange", String(localized: "Event [Feishu Doc Renderer a14f23]"))
         default: ("link", "blue", String(localized: "Link [Feishu Doc Renderer 305378]"))

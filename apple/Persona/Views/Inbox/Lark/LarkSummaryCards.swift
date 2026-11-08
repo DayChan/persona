@@ -230,10 +230,10 @@ struct LarkGenericSummaryCard: View {
         case "vote": "chart.bar.fill"
         case "hongbao": "gift.fill"
         case "todo", "task": "checklist"
-        case "share-user": "person.crop.circle"
+        case "share-user": Theme.Icon.person
         case "location": "mappin.and.ellipse"
-        case "mail": "envelope.fill"
-        default: "doc.text.fill"
+        case "mail": Theme.Icon.mailFilled
+        default: Theme.Icon.fileText
         }
     }
 

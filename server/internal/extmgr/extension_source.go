@@ -73,7 +73,7 @@ func (ps *extensions) confineSource(ctx context.Context, p *extension.Extension,
 		return err
 	}
 	id := p.Record.ID
-	run := filepath.Join(ps.root, "run", id)
+	run := filepath.Join(ps.root, "run", p.Record.StorageKey())
 	sock := filepath.Join(run, "proxy.sock")
 	if err := checkSocketPath(sock); err != nil {
 		return err

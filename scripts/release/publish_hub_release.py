@@ -101,7 +101,7 @@ def main():
                 destination = validate_remote_upload(sftp, remote_root, namespace, staged, name)
                 sftp.put(str(args.artifact_dir / name), destination)
         sources = {name: Path(__file__).with_name(name + '.py').read_text()
-                   for name in ['hub_release_paths', 'node_artifacts', 'promote_hub_release']}
+                   for name in ['hub_release_paths', 'node_artifacts', 'node_package_mirror', 'promote_hub_release']}
         payload = {'root': remote_root, 'staged': staged, 'timeout': cfg.get('timeout',1200),
                    'publish_nodes': cfg.get('publish_nodes', False),
                    'release_namespace': cfg.get('release_namespace', 'hub')}

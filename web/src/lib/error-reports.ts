@@ -97,6 +97,23 @@ export function parseStack(stack: string | undefined, origin = pageOrigin()): Er
   return frames.reverse();
 }
 
+/** A React component stack (ErrorInfo.componentStack) as frames, innermost last: one per component, with its file and
+ *  position where the stack has them; a component or host element React gives no position (`at div (<anonymous>)`)
+ *  keeps its name. */
+export function componentFrames(stack: string | null | undefined, origin = pageOrigin()): ErrorFrame[] {
+  if (!stack) return [];
+  const frames: ErrorFrame[] = [];
+  for (const line of stack.split("\n")) {
+    if (!line.trim()) continue;
+    const [frame] = parseStack(line, origin);
+    const name = frame ? undefined : /^\s*(?:at )?([^\s@(]+)/.exec(line)?.[1];
+    if (frame) frames.push(frame);
+    else if (name) frames.push({ function: truncate(name, 200) });
+    if (frames.length >= MAX_FRAMES) break;
+  }
+  return frames.reverse();
+}
+
 function pageOrigin(): string {
   try {
     return typeof location === "undefined" ? "" : location.origin;
@@ -178,11 +195,12 @@ export class ErrorReporter {
     });
   }
 
-  /** Reports an error (anything thrown). Never throws; an error while reporting is not reported. */
-  capture(error: unknown, opts: { level?: ErrorLevel; mechanism?: string } = {}) {
+  /** Reports an error (anything thrown). Never throws; an error while reporting is not reported. `componentStack`:
+   *  where in the component tree a boundary caught it (React's ErrorInfo). */
+  capture(error: unknown, opts: { level?: ErrorLevel; mechanism?: string; componentStack?: string | null } = {}) {
     if (this.busy || this.gate === "off") return;
     this.guard(() => {
-      const report = this.build(error, opts.level ?? "error", opts.mechanism);
+      const report = this.build(error, opts.level ?? "error", opts.mechanism, opts.componentStack);
       if (!report) return;
       const key = `${report.message}|${topFrame(report)}`;
       const now = this.deps.now();
@@ -265,7 +283,7 @@ export class ErrorReporter {
     }
   }
 
-  private build(error: unknown, level: ErrorLevel, mechanism?: string): ErrorReport | null {
+  private build(error: unknown, level: ErrorLevel, mechanism?: string, componentStack?: string | null): ErrorReport | null {
     let type: string;
     let value: string;
     let frames: ErrorFrame[] = [];
@@ -282,6 +300,10 @@ export class ErrorReporter {
     value = truncate(scrubText(value), MAX_MESSAGE);
     const exception: ErrorException = { type, value };
     if (frames.length) exception.frames = frames;
+    const exceptions = [exception];
+    // where a boundary caught it, as the outer exception: the error stays the innermost cause the hub fingerprints by
+    const components = componentFrames(componentStack, this.deps.origin);
+    if (components.length) exceptions.unshift({ type: "ComponentStack", value: `caught by ${mechanism ?? "a boundary"}`, frames: components });
     const report: ErrorReport = {
       id: this.deps.uuid(),
       source: "web",
@@ -290,7 +312,7 @@ export class ErrorReporter {
       time: new Date(this.deps.now()).toISOString(),
       ...this.deps.platform,
       message: truncate(`${type}: ${value}`, MAX_MESSAGE),
-      exceptions: [exception],
+      exceptions,
     };
     if (this.crumbs.length) report.breadcrumbs = this.crumbs.slice();
     if (mechanism) report.tags = { mechanism };
@@ -359,9 +381,10 @@ export function requestCrumb(method: string, path: string, status: number) {
   reporter.breadcrumb("http", `${method.toUpperCase()} ${pattern} ${status || "network"}`, status >= 500 || status === 0 ? "error" : "warning");
 }
 
-/** What an error boundary caught. A chunk that would not load (a redeployed hub) is a warning, a render crash fatal. */
-export function reportBoundary(error: unknown, boundary: string, chunk: boolean) {
-  reporter?.capture(error, { level: chunk ? "warning" : "fatal", mechanism: boundary });
+/** What an error boundary caught, with its component stack. A chunk that would not load (a redeployed hub) is a
+ *  warning, a render crash fatal. */
+export function reportBoundary(error: unknown, boundary: string, chunk: boolean, componentStack?: string | null) {
+  reporter?.capture(error, { level: chunk ? "warning" : "fatal", mechanism: boundary, componentStack });
 }
 
 export function reportError(error: unknown, mechanism?: string) {

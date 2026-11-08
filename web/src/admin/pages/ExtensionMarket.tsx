@@ -7,7 +7,7 @@ import { tRich } from "../../i18n/rich";
 import { useEffect, useRef, useState } from "react";
 import { previewBlocked } from "../../lib/extension-model";
 import { ago } from "../../lib/format";
-import { canUninstall, isGitMarket, itemState, MARKET_SPEC_HINT, MARKET_SPEC_PLACEHOLDER, marketKind, marketLine, specLabel, wantsGitHubToken, GITHUB_TOKEN_URL, isGitHubMarket, type CatalogItem, type Catalog, type Market } from "../../lib/extension-market";
+import { agreeLabel, canUninstall, isGitMarket, itemState, MARKET_SPEC_HINT, MARKET_SPEC_PLACEHOLDER, marketKind, marketLine, specLabel, wantsGitHubToken, GITHUB_TOKEN_URL, isGitHubMarket, type CatalogItem, type Catalog, type Market } from "../../lib/extension-market";
 import { Button, cx, Dialog, IconButton, toast, useNow } from "../../ui/atoms";
 import { addMarket, AdminError, errorText, getCatalog, getMarkets, installExtension, previewFromMarket, refreshMarket, removeMarket, setMarketToken, upgradeExtension } from "../api";
 import { AdminIcon } from "../icons";
@@ -295,7 +295,7 @@ function MarketInstallDialog({ item, onClose, onDone }: { item: CatalogItem | nu
           </Button>
           {pv ? (
             <Button tone="primary" busy={busy} disabled={previewBlocked(pv, now)} onClick={() => void agree()}>
-              {pv.upgrade ? (pv.more_permissions ? t("admin-pages-extensionmarket.agree_upgrade") : t("admin-pages-extensionmarket.upgrade")) : t("admin-pages-extensionmarket.agree_install")}
+              {pv.rename_from ? agreeLabel(pv) : pv.upgrade ? (pv.more_permissions ? t("admin-pages-extensionmarket.agree_upgrade") : t("admin-pages-extensionmarket.upgrade")) : t("admin-pages-extensionmarket.agree_install")}
             </Button>
           ) : (
             <Button tone="primary" busy={busy} disabled={busy} onClick={look}>

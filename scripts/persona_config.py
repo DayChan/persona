@@ -55,6 +55,8 @@ def env(cfg: dict) -> dict:
     hub_ssh = machine(cfg, hub["machine"]).get("ssh", hub["machine"]) if hub.get("machine") else ""
     out = {
         "PERSONA_BUNDLE_ID": get(cfg, "app.bundle_id", ""),
+        "PERSONA_WATCH_WIDGET_BUNDLE_ID": watch_widget_bundle_id(cfg),
+        "PERSONA_WATCH_APP_GROUP": watch_app_group(cfg),
         "PERSONA_TEAM_ID": get(cfg, "app.team_id", ""),
         "ASC_KEY_ID": store.get("key_id", ""),
         "ASC_ISSUER_ID": store.get("issuer_id", ""),
@@ -85,12 +87,30 @@ def app_group(cfg: dict) -> str:
     return get(cfg, "app.app_group", "") or "group." + get(cfg, "app.bundle_id", "")
 
 
+def watch_widget_bundle_id(cfg: dict) -> str:
+    """A new identity only; existing registered Bundle IDs never change."""
+    bid = get(cfg, "app.bundle_id", "")
+    identifier = get(cfg, "app.watch_widget_bundle_id", "") or bid + ".watchkitapp.widgets"
+    if not isinstance(identifier, str) or not identifier.startswith(bid + ".watchkitapp."):
+        sys.exit("app.watch_widget_bundle_id must be a new child of the existing watch app Bundle ID")
+    return identifier
+
+
+def watch_app_group(cfg: dict) -> str:
+    """The wrist and its complication share a container, separate from the phone's credentials."""
+    group = get(cfg, "app.watch_app_group", "") or app_group(cfg) + ".watch"
+    if not isinstance(group, str) or not group.startswith("group.") or group == app_group(cfg):
+        sys.exit("app.watch_app_group must be a separate App Group, never the phone's App Group")
+    return group
+
+
 def provisioning_profiles(cfg: dict) -> dict[str, str]:
     """Configured signing names are account resources, not product display names."""
     bid = get(cfg, "app.bundle_id", "")
     profiles = {
         bid: "Persona App Store",
         bid + ".watchkitapp": "Persona Watch App Store",
+        watch_widget_bundle_id(cfg): "Persona Watch Widgets App Store",
         bid + ".liveactivity": "Persona Live Activity App Store",
         bid + ".notify": "Persona Notify App Store",
         bid + ".share": "Persona Share App Store",
@@ -132,6 +152,8 @@ def xcconfig(cfg: dict):
         f.write("PERSONA_BUNDLE_ID = %s\n" % get(cfg, "app.bundle_id", ""))
         # The App Group the app shares files with the widget extension (docs/operations/release.md "App Group").
         f.write("PERSONA_APP_GROUP = %s\n" % app_group(cfg))
+        f.write("PERSONA_WATCH_APP_GROUP = %s\n" % watch_app_group(cfg))
+        f.write("PERSONA_WATCH_WIDGET_BUNDLE_ID = %s\n" % watch_widget_bundle_id(cfg))
         f.write("DEVELOPMENT_TEAM = %s\n" % get(cfg, "app.team_id", ""))
         # The push relay the app registers with (docs/operations/push-relay.md); "//" starts a comment in xcconfig, hence $().
         f.write("PERSONA_PUSH_RELAY = %s\n" % get(cfg, "app.push_relay", "").rstrip("/").replace("//", "/$()/"))

@@ -37,7 +37,7 @@ struct InboxMutesView: View {
 
     private func row(_ m: InboxMute) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: Theme.Icon.mute).foregroundStyle(.secondary)
+            ThemedIcon(Theme.Icon.mute).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(m.name).font(Theme.Font.body).lineLimit(1)
                 Text([m.sourceName ?? m.source, m.tagName].joined(separator: " · "))

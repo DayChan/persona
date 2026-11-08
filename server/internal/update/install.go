@@ -11,14 +11,15 @@ import (
 )
 
 // Swap puts newBin in target's place: target is first copied to target.prev (the version to go back to), then newBin
-// is copied next to it and renamed over it, so target is never half-written. It returns the .prev path.
+// is copied next to it and renamed over it, so target is never half-written. It returns the .prev path, also when
+// only putting newBin in place failed (target is then as it was), and "" when target.prev could not be written.
 func Swap(target, newBin string) (string, error) {
 	prev := target + ".prev"
 	if err := copyFile(target, prev); err != nil {
 		return "", err
 	}
 	if err := copyFile(newBin, target); err != nil {
-		return "", err
+		return prev, err
 	}
 	return prev, nil
 }
@@ -72,18 +73,22 @@ type Pending struct {
 }
 
 // Swapped is one program swapped with the hub: Prev is the one to go back to, "" when there was none (going back
-// removes it).
+// removes it). The zero Swapped is a swap that changed nothing.
 type Swapped struct {
 	Target string `json:"target"`
 	Prev   string `json:"prev,omitempty"`
 }
 
-// SwapProgram puts a program's new build in place like Swap, also when the hub had none of it before.
+// SwapProgram puts a program's new build in place like Swap, also when the hub had none of it before. When it fails,
+// target is as it was and the Swapped it returns is still safe to go back with.
 func SwapProgram(target, newBin string) (Swapped, error) {
 	if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
 		return Swapped{Target: target}, copyFile(newBin, target)
 	}
 	prev, err := Swap(target, newBin)
+	if prev == "" {
+		return Swapped{}, err
+	}
 	return Swapped{Target: target, Prev: prev}, err
 }
 
@@ -103,6 +108,9 @@ func RestoreAll(p Pending) error {
 	}
 	for _, s := range p.Programs {
 		var err error
+		if s.Target == "" {
+			continue
+		}
 		if s.Prev == "" {
 			err = os.Remove(s.Target)
 			if errors.Is(err, os.ErrNotExist) {

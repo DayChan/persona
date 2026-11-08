@@ -1,6 +1,7 @@
 import Foundation
 
 /// System-level placements exist only on the new paths; reuses the schema types without pulling the app's view models into system extensions.
+#if !WIDGET_EXTENSION
 nonisolated extension APIClient {
     func extensionWidgets() async throws -> [ExtensionWidgetPlace] {
         let answer: ExtensionWidgetPlaces = try await get("/api/v1/extensions/-/widgets")
@@ -31,10 +32,10 @@ nonisolated extension APIClient {
             body: ExtensionShortcutRequest(values: values, context: .here()), timeout: 30))
     }
 }
+#endif
 
 nonisolated extension ExtensionWidgetAnswer {
     var expiration: Date? {
-        guard let data = try? JSON.encoder.encode(expiresAt) else { return nil }
-        return try? JSON.decoder.decode(Date.self, from: data)
+        JSON.parseDate(expiresAt)
     }
 }

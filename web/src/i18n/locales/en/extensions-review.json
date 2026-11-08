@@ -59,5 +59,6 @@
   "viewed": "Viewed",
   "viewed_of": "{viewed} / {files} viewed",
   "whitespace_only": "Whitespace-only changes",
-  "wrap": "Wrap long lines"
+  "wrap": "Wrap long lines",
+  "delete_draft": "Delete"
 }

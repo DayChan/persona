@@ -49,7 +49,7 @@ struct EngineSelectionView: View {
                                     }
                                 }
                                 Spacer(minLength: Theme.Space.s)
-                                Image(systemName: selection.selected == engine ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+                                ThemedIcon(selection.selected == engine ? Theme.Icon.successFilled : Theme.Icon.unchecked)
                                     .font(Theme.Font.heading)
                                     .accessibilityHidden(true)
                                     .foregroundStyle(selection.selected == engine ? Theme.accent : Color.secondary)

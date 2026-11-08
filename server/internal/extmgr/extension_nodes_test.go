@@ -24,9 +24,141 @@ import (
 	"github.com/nwverse/persona/server/internal/streams"
 )
 
+func TestExtensionIdentityRevisionSurvivesPostgresTimestampPrecision(t *testing.T) {
+	stamp := time.Date(2026, 11, 8, 12, 0, 0, 123456789, time.UTC)
+	before := &extension.Extension{Record: extension.Record{ID: "new-name", StorageID: "old-name", UpdatedAt: stamp, InstalledAt: stamp.Add(-time.Hour)}}
+	after := *before
+	after.Record.UpdatedAt = stamp.Truncate(time.Microsecond)
+	after.Record.InstalledAt = before.Record.InstalledAt.Truncate(time.Microsecond)
+	if extensionNodeIdentity(before) != extensionNodeIdentity(&after) {
+		t.Fatal("Postgres reload changed the node revision or installation generation")
+	}
+	legacy := *before
+	legacy.Record.StorageID = ""
+	if extensionNodeRevision(&legacy) != 0 {
+		t.Fatal("same-ID legacy wire gained an identity revision")
+	}
+}
+
+func TestExtensionIdentityChecksConfiguredNodesBeforeCommit(t *testing.T) {
+	h, _ := extensionTestHub(t)
+	reg := h.extensions.reg
+	pv, err := reg.Preview(t.Context(), "dir:"+helperPackage(t), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Install(t.Context(), pv.ID, pv.Digest, "test"); err != nil {
+		t.Fatal(err)
+	}
+	legacy, calls := extensionNodeMachine(t, h, "legacy-node", "linux", "amd64", false, false)
+	_, _ = extensionNodeMachine(t, h, "modern-node", "linux", "amd64", false)
+	if err := reg.SetConfig(t.Context(), "example-helper", json.RawMessage(`{"computers":["legacy-node"]}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.checkRenameNodeCapabilities(t.Context(), reg.SnapshotExact("example-helper")); err == nil {
+		t.Fatal("legacy configured node did not block identity commit")
+	}
+	for _, call := range calls() {
+		if call.Method != "plugin.node.identity" {
+			t.Fatal("capability preflight mutated a legacy node")
+		}
+	}
+	legacy.mu.Lock()
+	legacy.online = false
+	legacy.mu.Unlock()
+	if err := h.checkRenameNodeCapabilities(t.Context(), reg.SnapshotExact("example-helper")); err == nil {
+		t.Fatal("offline configured node did not block identity commit")
+	}
+	if err := reg.SetConfig(t.Context(), "example-helper", json.RawMessage(`{"computers":["modern-node"]}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.checkRenameNodeCapabilities(t.Context(), reg.SnapshotExact("example-helper")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPluginIdentityCapabilityBeforeAnyDestructivePhase(t *testing.T) {
+	ctx := context.Background()
+	h, _ := extensionTestHub(t)
+	reg := h.extensions.reg
+	pv, err := reg.Preview(ctx, "dir:"+helperPackage(t), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Install(ctx, pv.ID, pv.Digest, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetConfig(ctx, "example-helper", json.RawMessage(`{"computers":["legacy-node","modern-node"]}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetSecret(ctx, "example-helper", "api_key", "fixture-key", "test"); err != nil {
+		t.Fatal(err)
+	}
+	// A committed renamed-record fixture, kept in this test's fake registry/store.
+	p := reg.GetExact("example-helper")
+	p.Record.StorageID = "previous-helper"
+	legacy, seenLegacy := extensionNodeMachine(t, h, "legacy-node", "linux", "amd64", false, false)
+	h.syncExtensionNodes(ctx, legacy)
+	for _, call := range seenLegacy() {
+		if call.Method != "plugin.node.identity" {
+			t.Fatalf("legacy node got identity payload before capability: %+v", call)
+		}
+	}
+	modern, seenModern := extensionNodeMachine(t, h, "modern-node", "linux", "amd64", false)
+	h.syncExtensionNodes(ctx, modern)
+	var started, synced bool
+	for _, call := range seenModern() {
+		switch call.Method {
+		case "plugin.node.start":
+			started = true
+			if call.Params["id"] != "example-helper" || call.Params["storage_id"] != "previous-helper" {
+				t.Fatalf("public/storage identities: %+v", call.Params)
+			}
+		case "plugin.node.sync":
+			synced = true
+			if call.Params["identity"] != true || len(call.Params["installed_slots"].([]any)) == 0 {
+				t.Fatalf("missing stable installed slots: %+v", call.Params)
+			}
+		}
+	}
+	if !started || !synced {
+		t.Fatal("capable node did not apply identity and synchronize")
+	}
+	// A late old revision cannot replace the newly recorded node state.
+	h.extensions.keepNodeState(p.Record.ID, p.Record.Version, modern.cfg.ID, proto.PluginNodeState{ID: p.Record.ID, Version: p.Record.Version, Revision: 1, State: "error"})
+	for _, st := range h.extensions.nodes.views(p.Record.ID) {
+		if st.MachineID == modern.cfg.ID && st.State != "running" {
+			t.Fatalf("late revision overwrote current state: %+v", st)
+		}
+	}
+	// A fresh committed row after uninstall defaults StorageID to empty. The authenticated
+	// bound-slot probe adapts only this capable node; the registry and legacy wire stay unchanged.
+	p.Record.StorageID = ""
+	p.Record.InstalledAt = p.Record.UpdatedAt.Add(time.Second)
+	p.Record.UpdatedAt = p.Record.InstalledAt
+	h.syncExtensionNodes(ctx, modern)
+	var lastStart map[string]any
+	for _, call := range seenModern() {
+		if call.Method == "plugin.node.start" {
+			lastStart = call.Params
+		}
+	}
+	if lastStart["storage_id"] != "example-helper" || p.Record.StorageID != "" {
+		t.Fatalf("fresh reinstall adaptation mutated registry or used old slot: %+v", lastStart)
+	}
+	before := len(seenModern())
+	modern.mu.Lock()
+	modern.online = false
+	modern.mu.Unlock()
+	h.syncExtensionNodes(ctx, modern)
+	if len(seenModern()) != before {
+		t.Fatal("offline node received identity/start/destructive sync")
+	}
+}
+
 // extensionNodeMachine is a machine whose node answers plugin.node.* as one that runs plugins' programs does (or, old,
 // as one from before them), and says what it was asked.
-func extensionNodeMachine(t *testing.T, h *Manager, id, goos, goarch string, old bool) (*Machine, func() []browserCallSeen) {
+func extensionNodeMachine(t *testing.T, h *Manager, id, goos, goarch string, old bool, identity ...bool) (*Machine, func() []browserCallSeen) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	h2nR, h2nW := io.Pipe()
@@ -35,6 +167,7 @@ func extensionNodeMachine(t *testing.T, h *Manager, id, goos, goarch string, old
 	var mu sync.Mutex
 	var seen []browserCallSeen
 	have := map[string]bool{}
+	bound := map[string]proto.PluginNodeIdentity{}
 	nodeSide.OnRequest = func(_ context.Context, method string, params json.RawMessage) (any, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -45,6 +178,23 @@ func extensionNodeMachine(t *testing.T, h *Manager, id, goos, goarch string, old
 			return nil, &rpc.Error{Message: "unknown method " + method}
 		}
 		switch method {
+		case "plugin.node.identity":
+			if len(identity) > 0 && !identity[0] {
+				return nil, &rpc.Error{Message: "unknown method " + method}
+			}
+			var request proto.PluginNodeIdentityRequest
+			if err := json.Unmarshal(params, &request); err != nil {
+				return nil, err
+			}
+			for _, slot := range request.Slots {
+				bound[slot.StorageID] = slot
+			}
+			reply := proto.PluginNodeIdentityReply{Supported: true}
+			for _, slot := range bound {
+				reply.Slots = append(reply.Slots, slot)
+				reply.Revision = max(reply.Revision, slot.Revision)
+			}
+			return reply, nil
 		case "plugin.node.have":
 			return proto.PluginNodeHave{Have: have[p["digest"].(string)]}, nil
 		case "plugin.node.put.begin":
@@ -53,7 +203,11 @@ func extensionNodeMachine(t *testing.T, h *Manager, id, goos, goarch string, old
 		case "plugin.node.put.chunk", "plugin.node.put.commit", "plugin.node.renew", "plugin.node.stop":
 			return map[string]bool{"ok": true}, nil
 		case "plugin.node.start":
-			return proto.PluginNodeState{ID: p["id"].(string), Version: p["version"].(string), State: "running"}, nil
+			var start proto.PluginNodeStart
+			if err := json.Unmarshal(params, &start); err != nil {
+				return nil, err
+			}
+			return proto.PluginNodeState{ID: start.ID, Version: start.Version, Revision: start.Revision, State: "running"}, nil
 		case "plugin.node.sync":
 			return proto.PluginNodeStates{}, nil
 		case "plugin.node.call":

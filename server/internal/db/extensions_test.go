@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,99 @@ import (
 
 	"github.com/nwverse/persona/server/internal/extension"
 )
+
+func TestExtensionIdentityStableCiphertextAndCAS(t *testing.T) {
+	d, ctx := open(t), t.Context()
+	const slot = "identity-old"
+	cleanup := func() {
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := d.pool.Exec(c, `DELETE FROM plugins WHERE id IN ('identity-old','identity-target')`)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+	at := time.Date(2026, 11, 4, 1, 2, 3, 0, time.UTC)
+	old := extension.Record{ID: slot, Source: extension.SourceInstalled, Origin: "market:example/identity-old", Version: "1.0.0", Manifest: json.RawMessage(`{"id":"identity-old"}`), Granted: extension.Permissions{Network: []string{"example.com"}}, GrantedDigest: "original-permission-digest", Config: json.RawMessage(`{"saved":"retained"}`), Enabled: false, DisabledContributions: []string{"ui/example"}, InstalledAt: at, UpdatedAt: at}
+	if err := d.PutExtension(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutExtensionSecret(ctx, slot, "example", "synthetic-sealed-ciphertext"); err != nil {
+		t.Fatal(err)
+	}
+	var secretAt time.Time
+	if err := d.pool.QueryRow(ctx, `SELECT updated_at FROM plugin_secrets WHERE plugin=$1`, slot).Scan(&secretAt); err != nil {
+		t.Fatal(err)
+	}
+	next := old
+	next.ID, next.StorageID, next.PreviousID = "identity-new", slot, slot
+	next.Version, next.PreviousVersion = "2.0.0", old.Version
+	next.ExpectedID, next.ExpectedVersion = slot, old.Version
+	next.Aliases = []string{slot}
+	next.Manifest = json.RawMessage(`{"id":"identity-new"}`)
+	if err := d.PutExtensionPlan(ctx, []extension.Record{next}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := d.Extensions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(rows, func(r extension.Record) bool { return r.StorageKey() == slot })
+	if i < 0 {
+		t.Fatal("stable slot missing")
+	}
+	got := rows[i]
+	if got.ID != next.ID || got.PreviousID != slot || !reflect.DeepEqual(got.Aliases, []string{slot}) || got.Enabled != old.Enabled || got.GrantedDigest != old.GrantedDigest || !reflect.DeepEqual(got.Granted, old.Granted) || !reflect.DeepEqual(got.DisabledContributions, old.DisabledContributions) || !got.InstalledAt.Equal(at) {
+		t.Fatalf("identity transition lost state: %+v", got)
+	}
+	var cfg map[string]string
+	if json.Unmarshal(got.Config, &cfg) != nil || cfg["saved"] != "retained" {
+		t.Fatal("configuration changed")
+	}
+	sealed, err := d.ExtensionSecrets(ctx, slot)
+	if err != nil || sealed["example"] != "synthetic-sealed-ciphertext" {
+		t.Fatal("ciphertext changed", err)
+	}
+	var after time.Time
+	if err = d.pool.QueryRow(ctx, `SELECT updated_at FROM plugin_secrets WHERE plugin=$1`, slot).Scan(&after); err != nil || !after.Equal(secretAt) {
+		t.Fatal("secret rewritten", err)
+	}
+	if err = d.PutExtensionPlan(ctx, []extension.Record{next}); err == nil {
+		t.Fatal("stale identity CAS accepted")
+	}
+	conflicting := old
+	conflicting.ID = "identity-target"
+	conflicting.StorageID = "identity-target"
+	conflicting.Aliases = []string{slot}
+	if err = d.PutExtension(ctx, conflicting); err == nil {
+		t.Fatal("another slot stole historical name")
+	}
+	var count int
+	if err = d.pool.QueryRow(ctx, `SELECT count(*) FROM plugins WHERE id='identity-target'`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("conflicting record partially committed")
+	}
+	if err = d.DeleteExtensionRecord(ctx, old); err == nil {
+		t.Fatal("stale process uninstalled a renamed identity")
+	}
+	if err = d.DeleteExtensionRecord(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.pool.QueryRow(ctx, `SELECT count(*) FROM plugin_identities WHERE plugin=$1`, slot).Scan(&count); err != nil || count != 0 {
+		t.Fatal("aliases survived uninstall")
+	}
+	if err = d.PutExtensionPlan(ctx, []extension.Record{next}); err == nil {
+		t.Fatal("CAS resurrected an uninstalled slot")
+	}
+	old.NewInstallation = true
+	if err = d.PutExtensionPlan(ctx, []extension.Record{old}); err != nil {
+		t.Fatal("name not released", err)
+	}
+	if err = d.PutExtensionPlan(ctx, []extension.Record{old}); err == nil {
+		t.Fatal("concurrent new installation overwrote existing slot")
+	}
+}
 
 // A plugin's row round-trips; its secrets go with it; the audit keeps what happened.
 func TestExtensionRows(t *testing.T) {

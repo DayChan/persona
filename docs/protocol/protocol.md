@@ -76,7 +76,7 @@ The authenticated WS `hello.features` always lists server capabilities. The curr
 - New in P0: `tls`, `endpoints`, `client_hello`, `heartbeat`, `app_ping`, `error_codes`, `client_ops`, `ws_notify`, `lock_test`, `android_update`.
 - Existing: `client_msg_id`, `send_refusals`, `screen_dialog`, `resumable_interactions`, `secret_prompts`, `request_id`, `terminal_stream`, `terminal_control`, `terminal_scroll`, `terminal_click`, `terminal_mouse`, `herdr_client` (the web client's full herdr interface: `herdr_open` etc., see "Full herdr interface" below), `herdr_focus` (focus sync for the full interface: `herdr_focus` etc., see "Focus sync" below), `file_upload`.
 - Present depending on hub.json: `assistant_views` (`assistant.persona_view` on: declarative actions carry `expected_version`, live cards, and the APIs registered by in-body cards are available), `assistant_html_bridge` (additionally `assistant.html_views` not turned off: `…/html-actions` is available; whether a client runs HTML still depends on its own security sign-off, and it does not run JS based on this flag). See the card APIs under "Assistant" below and [assistant-views.md](../assistant/assistant-views.md).
-- Also: `assistant_compact` (manually compacting an assistant chat, the session's `compaction`), `assistant_main_new` (new main chat), see the two APIs under "Assistant" below; `assistant_readiness` (main chat readiness, see "Main chat readiness" below); `elicitation` (MCP forms and links), `model_configuration` (models configured by purpose), `plugins` ([plugins](../extensions/extensions.md)), `plugin_ui_slots` (plugin UI slots, UI version 2, `plugin_ui` events, [extensions.md](../extensions/extensions.md) "UI slots"), `plugin_auto_upgrade` (the toggle and list for auto-upgrading market plugins, `plugin_upgrade` events, [extensions.md](../extensions/extensions.md) "Auto-upgrade"), `extension_operations` (install, upgrade, uninstall in steps with progress, see "Extension install, upgrade and uninstall progress" below), `extension_auth` (extension sign-in `/api/v1/extensions/{id}/-/auth…`, `extension_auth` events, the install step `tools`, [extensions.md](../extensions/extensions.md) "Sign-in (auth)"), `desktops` (desktop client registration, see `register_desktop` below), `locale` (honors `Accept-Language`, `client_hello.locale` and the device's `locale`; human-readable text follows the language, [i18n.md](i18n.md)), `terminal_panes` (`GET/POST /machines/{mid}/panes` and terminal stream ids of the form `pane:<pane id>`, [terminal.md](../integrations/terminal.md) section 19), `machine_trust` (a machine's `trust` / `error_code` and `POST /machines/{id}/confirm`, `…/reject`, see "Computer trust" below), `machines_add` (a signed-in device adds a computer and gets the computer's pairing code via `add` on `POST /api/v1/auth/pair-codes`, see "Computer pairing codes" under "Temporary pairing" below), `todo_threads` (a to-do's chat thread: `PUT` / `DELETE /api/v1/todos/{id}/thread` and `thread` on the to-dos `GET` returns, [todos.md](../assistant/todos.md) "Chat thread"; the web shows its Topic section only when it is there).
+- Also: `assistant_compact` (manually compacting an assistant chat, the session's `compaction`), `assistant_main_new` (new main chat), see the two APIs under "Assistant" below; `assistant_start_ops` (`POST /api/v1/assistant/conversations` takes an operation ID, see "Operation receipts"); `assistant_readiness` (main chat readiness, see "Main chat readiness" below); `elicitation` (MCP forms and links), `model_configuration` (models configured by purpose), `plugins` ([plugins](../extensions/extensions.md)), `plugin_ui_slots` (plugin UI slots, UI version 2, `plugin_ui` events, [extensions.md](../extensions/extensions.md) "UI slots"), `plugin_auto_upgrade` (the toggle and list for auto-upgrading market plugins, `plugin_upgrade` events, [extensions.md](../extensions/extensions.md) "Auto-upgrade"), `extension_operations` (install, upgrade, uninstall in steps with progress, see "Extension install, upgrade and uninstall progress" below), `extension_auth` (extension sign-in `/api/v1/extensions/{id}/-/auth…`, `extension_auth` events, the install step `tools`, [extensions.md](../extensions/extensions.md) "Sign-in (auth)"), `desktops` (desktop client registration, see `register_desktop` below), `locale` (honors `Accept-Language`, `client_hello.locale` and the device's `locale`; human-readable text follows the language, [i18n.md](i18n.md)), `terminal_panes` (`GET/POST /machines/{mid}/panes` and terminal stream ids of the form `pane:<pane id>`, [terminal.md](../integrations/terminal.md) section 19), `machine_trust` (a machine's `trust` / `error_code` and `POST /machines/{id}/confirm`, `…/reject`, see "Computer trust" below), `machines_add` (a signed-in device adds a computer and gets the computer's pairing code via `add` on `POST /api/v1/auth/pair-codes`, see "Computer pairing codes" under "Temporary pairing" below), `todo_threads` (a to-do's chat thread: `PUT` / `DELETE /api/v1/todos/{id}/thread` and `thread` on the to-dos `GET` returns, [todos.md](../assistant/todos.md) "Chat thread"; the web shows its Topic section only when it is there).
 
 A feature flag means the implementation supports it; `tls` does not mean the listener is on, so also check `tls_port` / `fp`. A new client talking to an old hub falls back to the old behavior based on the flags. `node_version` / `node_mismatch` in the machine list flag whether the hub offers to redeploy the node: it runs another build than the one its platform gets (the hub's, or, with no build of the hub's version for that platform, the newest release its manager drives: `docs/operations/node-update.md` ("Node packages")) (the personad on that computer was not deployed by this hub deployment, i.e. `deploy.sh` deployed only part of it, or it was installed on its own; the hub also logs a line when it connects), or its manager cannot drive it. Another build alone is an upgrade offer, not a fault: whether a node can be used is decided by the node handshake (`node_protocol`, `node_incompatible`; see "Node handshake"). New fields are all optional, and the App currently checks whether a field is present. When a future request would be "misunderstood by an old hub", check here first.
 
@@ -252,6 +252,7 @@ Once the server declares `client_ops`, clients may send `X-Persona-Op-Id: <UUID>
 | --- | --- |
 | `message` | `POST /api/v1/sessions/{mid}/{sid}/messages` |
 | `start` | `POST /api/v1/sessions` |
+| `assistant_start` | `POST /api/v1/assistant/conversations` (hub feature `assistant_start_ops`) |
 | `resolve` | `POST /api/v1/interactions/{id}/resolve` |
 | `choose` | `POST /api/v1/interactions/{id}/choose` (also accepts a body `client_id`; see "Answering a question from its notification") |
 | `interrupt` / `close` / `rename` / `modes` | `POST /api/v1/sessions/{mid}/{sid}/interrupt`, `/close`, `/rename`, `/modes` |
@@ -272,6 +273,8 @@ For ordinary operations, HTTP 400 / 409 are usually recorded as `failed`; other 
 Lark sends and Inbox replies also derive receipts from the body's `client_id`; see "Lark API" below. They reuse `client_ops` too, but an existing upstream error response is replayed as-is. Don't apply that response rule to all ordinary operations.
 
 When a new session is started with an operation ID, the hub keeps finishing an accepted start after the caller disconnects and stores the receipt. Replaying the same ID won't start it again; an existing HTTP result is returned as-is even if marked `unknown`, and leftover operations with no result still return `202 {"state":"unknown"}`. Android persists the ID and parameters before sending, and queries the ID if the response is lost. Neither a 404 nor an unknown result proves it didn't start, so it keeps the pending-confirmation record and doesn't POST again. Only a clearly failed receipt allows editing the form and starting a new operation. Clients without the header keep the old behavior.
+
+A new assistant conversation (`assistant_start`, #1349) works the same way: an accepted start finishes after the caller disconnects, a repeat with the same ID gets the first answer (also when it was `502 assistant_in_doubt`, recorded as `unknown`), and nothing is started twice. `503 assistant_offline` keeps no receipt (nothing reached the assistant), so the same ID can try again once it is back. iOS / Mac send one ID per first message and, on a hub with `assistant_start_ops`, try it again through a gap (no network, a timeout, the hub restarting, `202 pending`) for up to a minute; on an older hub they send no ID and don't retry gaps.
 
 ## Device connections and lock screen test
 
@@ -2892,7 +2895,7 @@ At most one quote block starts a message (the quoted words; for a task card, the
 
 > Code comment 2                ← code comment: number, location, optional Side / Diff / Truncated, fenced code, comment
 > File: src/app.ts:12-14        ← path relative to the session directory (original path if outside it); line numbers are from the new file, with `Side: old` when only deleted lines are selected
-> Diff: staged                  ← absent for comments on files; staged | unstaged | commit <first 8 chars>; code lines carry `+`, `-`, space, and the fence uses `diff`
+> Diff: staged                  ← absent for comments on files; staged | unstaged | commit <first 8 chars>; a session review's (#151): uncommitted | branch since <base> | since <base> (Git's short hash); code lines carry `+`, `-`, space, and the fence uses `diff`
 > Truncated: the first 60 of 80 lines
 > ```ts
 > const a = 1;
@@ -2900,11 +2903,22 @@ At most one quote block starts a message (the quoted words; for a task card, the
 >
 > Why not use a constant?
 
+> Element comment 3             ← an element picked in a dev server preview (docs/web/preview.md): number, page, selector, optional Component (with its source) or Source, Text, Truncated, the element's HTML, comment
+> Page: http://localhost:5173/settings
+> Element: main > form > button.save
+> Component: SaveButton (src/settings/SaveButton.tsx:14)
+> Text: Save changes
+> ```html
+> <button class="save">Save changes</button>
+> ```
+>
+> Make it the primary color
+
 The user's typed text
 ```
 
 Limits: comments up to 4000 characters, attached code up to 60 lines (extra lines are counted in `Truncated` but not included); the fence has one more backtick than the longest run in the code. Numbers follow the order of comments above the input, starting at 1.
-On reading back, web only recognizes blocks after the first block whose first line is `Comment N` / `Code comment N` (`splitQuotes`), so ordinary `> ` quotes are unaffected; editing a sent message puts comments back above the input.
+On reading back, web only recognizes blocks after the first block whose first line is `Comment N` / `Code comment N` / `Element comment N` (`splitQuotes`), so ordinary `> ` quotes are unaffected; editing a sent message puts comments back above the input.
 
 ## Messages injected by Persona
 

@@ -49,7 +49,7 @@ func (s *Service) extensionPurposeDef(ctx context.Context, id string) (ModelPurp
 		return ModelPurpose{}, false
 	}
 	for _, x := range s.modelExtensions(ctx) {
-		if x.ID == ext {
+		if x.StorageKey() == ext {
 			l := s.requestCtxLang(ctx)
 			return ModelPurpose{ID: id, CategoryID: "kb", Name: x.Name, Group: mc(l, "group_extensions"), Kind: "api", Parent: "kb"}, true
 		}
@@ -131,7 +131,7 @@ func (s *Service) extensionComplete(ctx context.Context, raw json.RawMessage) (a
 		system = prompts.RenderJSONSchema(prompts.JSONSchema{System: p.System, Schema: indented.String()})
 	}
 
-	purpose := assistantwire.ExtensionPurposePrefix + call.Extension
+	purpose := assistantwire.ExtensionPurposePrefix + call.StorageKey()
 	if _, ok := s.extensionPurposeDef(ctx, purpose); !ok {
 		return nil, &rpc.Error{Code: assistantwire.CodeModelUnavailable, Message: "model.complete: the extension has no model purpose (is it on and granted models?)"}
 	}

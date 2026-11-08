@@ -407,7 +407,8 @@ func (h *Manager) Event(name string, params json.RawMessage) bool {
 // authorize says whose extension token hash is and whether it opens the hub's route.
 func (h *Manager) authorize(a extwire.Authorize) extwire.Authorized {
 	e, ok := h.extTokens.lookupHash(a.Hash)
-	if !ok {
+	if !ok || h.extensions != nil && h.extensions.reg != nil && h.extensions.reg.CanonicalID(e.extension) != e.extension {
+		// Owner aliases do not grant a retired program identity any authority.
 		return extwire.Authorized{}
 	}
 	p := e.principal()

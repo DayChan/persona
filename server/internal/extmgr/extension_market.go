@@ -107,6 +107,8 @@ func signedIndex(rec extension.MarketRecord, f *extension.Fetched, now time.Time
 
 // CatalogItem is a market's plugin as the catalog shows it, with what this hub has of it.
 type CatalogItem struct {
+	Replaces    string                     `json:"replaces,omitempty"`
+	RenameFrom  string                     `json:"rename_from,omitempty"`
 	Market      string                     `json:"market"`
 	MarketName  string                     `json:"market_name"`
 	ID          string                     `json:"id"`
@@ -713,7 +715,7 @@ func (h *Manager) catalogIn(l i18n.Lang, q, market string) []CatalogItem {
 			if q != "" && !strings.Contains(strings.ToLower(strings.Join(append([]string{m.ID, m.Name, m.Description, m.Publisher}, e.Tags...), "\n")), q) {
 				continue
 			}
-			it := CatalogItem{Market: s.rec.ID, MarketName: marketName(l, s.rec), ID: m.ID, Name: m.Name, Version: m.Version, Description: m.Description,
+			it := CatalogItem{Replaces: e.Replaces, Market: s.rec.ID, MarketName: marketName(l, s.rec), ID: m.ID, Name: m.Name, Version: m.Version, Description: m.Description,
 				Publisher: m.Publisher, Homepage: m.Homepage, Tags: append([]string{}, e.Tags...), Contributes: m.Contributions(), Permissions: extension.ExplainIn(l, m)}
 			if s.rec.Signature.Bad() || (extension.IsOfficialMarket(s.rec.Spec) && (s.rec.Signature.State != extension.SigSigned || s.rec.Signature.KeyID != keyIDOf(extension.Official.SigningKey))) {
 				it.Problem = i18n.T(l, "hub-extension_market.bad_signature", i18n.Args{"err": s.rec.Error})
@@ -722,7 +724,13 @@ func (h *Manager) catalogIn(l i18n.Lang, q, market string) []CatalogItem {
 			} else if _, err := extension.CheckEngines(m, h.build.Number); err != nil {
 				it.Problem = i18n.Localize(err, l)
 			}
-			if cur := h.extensions.reg.Get(m.ID); cur != nil {
+			cur := h.extensions.reg.GetExact(m.ID)
+			if cur == nil && e.Replaces != "" {
+				if old := h.extensions.reg.GetExact(e.Replaces); old != nil && old.Record.Source == extension.SourceInstalled && old.Record.Origin == "market:"+s.rec.ID+"/"+e.Replaces {
+					cur, it.RenameFrom = old, old.Record.ID
+				}
+			}
+			if cur != nil {
 				it.Installed, it.InstalledSource = cur.Record.Version, cur.Record.Source
 				it.FromThisMarket = extension.FromMarket(cur.Record.Origin) == s.rec.ID
 				it.Upgradable = cur.Record.Source == extension.SourceInstalled && extension.NewerVersion(m.Version, cur.Record.Version)
@@ -766,6 +774,9 @@ func (ms *markets) readLater(h *Manager, id string) {
 
 // marketEntry is a market's entry for plugin id.
 func (h *Manager) marketEntry(market, id string) (extension.MarketRecord, *extension.MarketEntry, error) {
+	if h.extensions != nil && h.extensions.reg != nil {
+		id = h.extensions.reg.CanonicalID(id)
+	}
 	ms := h.marketsState()
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -786,6 +797,21 @@ func marketEntryLocked(ms *markets, market, id string) (extension.MarketRecord, 
 			if e := &s.index.Extensions[i]; e.Parsed.ID == id {
 				return s.rec, e, nil
 			}
+		}
+		// Only an absent normal entry may resolve to its single declared successor in this source.
+		var successor *extension.MarketEntry
+		for i := range s.index.Extensions {
+			e := &s.index.Extensions[i]
+			if e.Replaces != id {
+				continue
+			}
+			if successor != nil {
+				return extension.MarketRecord{}, nil, i18n.Err("extension-identity.invalid")
+			}
+			successor = e
+		}
+		if successor != nil {
+			return s.rec, successor, nil
 		}
 	}
 	return extension.MarketRecord{}, nil, i18n.Err("hub-extension_market.not_in_market", i18n.Args{"id": id})
@@ -995,7 +1021,15 @@ func (h *Manager) marketRoutesAt(api *http.ServeMux, base string, allow func(w h
 		}
 		upgrade := ""
 		if cur := h.extensions.reg.Get(in.Extension); cur != nil && cur.Record.Source == extension.SourceInstalled {
-			upgrade = in.Extension
+			upgrade = cur.Record.ID
+		} else if e.Replaces != "" {
+			if old := h.extensions.reg.GetExact(e.Replaces); old != nil {
+				if old.Record.Source != extension.SourceInstalled || old.Record.Origin != "market:"+rec.ID+"/"+e.Replaces || h.extensions.reg.Get(e.Parsed.ID) != nil {
+					fail(w, i18n.Err("extension-identity.invalid"), "identity_conflict")
+					return
+				}
+				upgrade = old.Record.ID
+			}
 		}
 		kind := opInstall
 		if upgrade != "" {

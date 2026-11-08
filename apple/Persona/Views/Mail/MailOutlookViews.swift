@@ -68,7 +68,7 @@ struct OutlookSignInSection: View {
                     }
                     Spacer(minLength: Theme.Space.s)
                     Button { UIPasteboard.general.string = uri; Haptics.success() } label: {
-                        Image(systemName: Theme.Icon.copy)
+                        ThemedIcon(Theme.Icon.copy)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Copy redirect URI")

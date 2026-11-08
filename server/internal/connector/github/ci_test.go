@@ -31,6 +31,14 @@ func (f *fakeCI) note(id, title string, repo string) {
 		"repository": map[string]string{"full_name": repo, "html_url": "https://github.com/" + repo}})
 }
 
+// noteAt adds a notification updated at a given time; GitHub lists them newest first, so add the newest first.
+func (f *fakeCI) noteAt(id, title, repo string, at time.Time) {
+	f.note(id, title, repo)
+	f.mu.Lock()
+	f.notifications[len(f.notifications)-1]["updated_at"] = at.UTC().Format(time.RFC3339)
+	f.mu.Unlock()
+}
+
 func (f *fakeCI) server(t *testing.T) *Connector {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -108,6 +116,9 @@ func TestCIFailuresPerBranchAndTier(t *testing.T) {
 			t.Errorf("%s: %+v", thread, th)
 		}
 	}
+	if title := got["ci:example-org/example-repo@main"].Title; title != "example-repo · main 的 CI 失败" {
+		t.Errorf("title %q does not name the repository", title)
+	}
 	if u := got["ci:example-org/example-repo@feat/x"].URL; u != "https://github.com/example-org/example-repo/actions?query=branch%3Afeat%2Fx" {
 		t.Errorf("url %s", u)
 	}
@@ -116,8 +127,8 @@ func TestCIFailuresPerBranchAndTier(t *testing.T) {
 	}
 }
 
-// An open CI item is over when a later run of the workflow succeeded, the branch is gone or the PR merged; a later
-// success notification ends it at once.
+// An open CI item is over when the branch is green again (every workflow's newest finished run passed), the branch is
+// gone or the PR merged; a success notification has it checked at once.
 func TestCIFailuresSettleThemselves(t *testing.T) {
 	old := ciRecheck
 	ciRecheck = 0
@@ -131,8 +142,12 @@ func TestCIFailuresSettleThemselves(t *testing.T) {
 	c.poll(context.Background())
 	f.mu.Lock()
 	f.runs = map[string]string{
-		"main":   `[{"name":"CI","status":"completed","conclusion":"failure"},{"name":"CI","status":"completed","conclusion":"success"}]`,
-		"feat/y": `[{"name":"Lint","status":"completed","conclusion":"failure"},{"name":"CI","status":"completed","conclusion":"success"}]`,
+		// CI passes again but Lint's newest run still failed: the branch is still failing.
+		"main": `[{"name":"CI","status":"completed","conclusion":"success"},{"name":"Lint","status":"completed","conclusion":"failure"}]`,
+		// Every workflow's newest finished run passed (one still running, one cancelled since).
+		"feat/y": `[{"name":"Lint","status":"completed","conclusion":"success"},{"name":"CI","status":"in_progress"},` +
+			`{"name":"CI","status":"completed","conclusion":"cancelled"},{"name":"CI","status":"completed","conclusion":"success"},` +
+			`{"name":"Lint","status":"completed","conclusion":"failure"},{"name":"CI","status":"completed","conclusion":"failure"}]`,
 	}
 	f.prMerged = true
 	delete(f.branches, "feat/w")
@@ -151,12 +166,81 @@ func TestCIFailuresSettleThemselves(t *testing.T) {
 		}
 	}
 
-	// A success notification of a failing branch ends its item at once.
-	f.note("5", "CI workflow run succeeded for main branch", "example-org/example-repo")
+	// A success notification has the branch checked at once (not at the next round's recheck): over once every
+	// workflow passes.
+	ciRecheck = old
+	f.mu.Lock()
+	f.runs["main"] = `[{"name":"Lint","status":"completed","conclusion":"success"},{"name":"CI","status":"completed","conclusion":"success"},` +
+		`{"name":"Lint","status":"completed","conclusion":"failure"}]`
+	f.mu.Unlock()
+	f.note("5", "Lint workflow run succeeded for main branch", "example-org/example-repo")
 	c.inbox.fullAt = time.Time{}
 	c.poll(context.Background())
 	if th := things(t, c)["ci:example-org/example-repo@main"]; th.Done != connector.DoneRead || th.Why != "GitHub：后来成功了" {
 		t.Errorf("success notification: %+v", th)
+	}
+}
+
+// A branch failing for hours (#1527): its many unread notifications, read again after a restart a few per poll, leave
+// the thing at the newest failure (not the oldest read); failed runs GitHub sent no notification of (another
+// account's pushes) join the item once settled; a run just ended waits for its own notification.
+func TestCIThingKeepsNewestFailure(t *testing.T) {
+	oldDetails, oldRecheck := maxDetails, ciRecheck
+	maxDetails, ciRecheck = 2, 0
+	t.Cleanup(func() { maxDetails, ciRecheck = oldDetails, oldRecheck })
+	base := time.Now().Add(-14 * time.Hour).Truncate(time.Second)
+	f := &fakeCI{branches: map[string]bool{"main": true}}
+	f.noteAt("9", "android workflow run failed for main branch", "example-org/example-repo", base.Add(2*time.Hour+1*time.Second))
+	f.noteAt("8", "contracts workflow run failed for main branch", "example-org/example-repo", base.Add(2*time.Hour))
+	f.noteAt("7", "kotlin workflow run failed for main branch", "example-org/example-repo", base.Add(time.Hour+48*time.Minute))
+	f.noteAt("6", "contracts workflow run failed for main branch", "example-org/example-repo", base.Add(time.Hour+47*time.Minute))
+	f.noteAt("5", "contracts workflow run failed for main branch", "example-org/example-repo", base.Add(time.Hour))
+	f.noteAt("4", "contracts workflow run failed for main branch", "example-org/example-repo", base)
+	c := f.server(t)
+	const thread = "ci:example-org/example-repo@main"
+	newest := base.Add(2*time.Hour + time.Second)
+	for poll := range 4 {
+		c.inbox.fullAt = time.Time{}
+		if _, _, err := c.poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		th := things(t, c)[thread]
+		if !th.At.Equal(newest) || th.Last != newest.UTC().Format(time.RFC3339) || th.Preview != "android workflow run failed for main branch" {
+			t.Fatalf("poll %d: the thing went back to %v (%s)", poll, th.At, th.Preview)
+		}
+	}
+
+	// Later failures from another account's pushes: no notification; the follow-up finds them in the branch's runs.
+	settled, fresh := time.Now().Add(-time.Hour).UTC().Truncate(time.Second), time.Now().Add(-30*time.Second).UTC().Truncate(time.Second)
+	run := func(name, status, conclusion string, at time.Time) string {
+		return `{"name":"` + name + `","status":"` + status + `","conclusion":"` + conclusion + `","updated_at":"` + at.Format(time.RFC3339) + `"}`
+	}
+	f.mu.Lock()
+	f.runs = map[string]string{"main": "[" + run("contracts", "completed", "failure", settled.Add(-time.Minute)) + "," +
+		run("android", "completed", "failure", settled) + "," + run("contracts", "completed", "success", base) + "]"}
+	f.mu.Unlock()
+	if !c.followUpCI(context.Background()) {
+		t.Fatal("a newer failed run did not move the thing")
+	}
+	th := things(t, c)[thread]
+	if th.Done != "" || !th.At.Equal(settled) || th.Last != settled.Format(time.RFC3339) || th.Preview != "android workflow run failed for main branch" ||
+		!strings.Contains(th.Context, "android workflow run failed for main branch") {
+		t.Fatalf("the newer failure did not join: %+v", th)
+	}
+
+	// A run that ended moments ago waits: its notification, if it is the user's, is the same failure.
+	f.mu.Lock()
+	f.runs["main"] = "[" + run("apple", "completed", "failure", fresh) + "," + f.runs["main"][1:]
+	f.mu.Unlock()
+	if c.followUpCI(context.Background()) {
+		t.Fatalf("a run that just ended moved the thing: %+v", things(t, c)[thread])
+	}
+	// An older notification read after the fold leaves the thing where it is.
+	f.noteAt("3", "contracts workflow run failed for main branch", "example-org/example-repo", settled.Add(-2*time.Minute))
+	c.inbox.fullAt = time.Time{}
+	c.poll(context.Background())
+	if th := things(t, c)[thread]; !th.At.Equal(settled) {
+		t.Fatalf("an older notification wound the thing back to %v", th.At)
 	}
 }
 

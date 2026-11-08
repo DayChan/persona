@@ -94,7 +94,7 @@ struct AssistantTopBar: View {
     private var macBar: some View {
         let link = model.connection.shown
         return HStack(spacing: Theme.Space.s) {
-            MacTitleRowButton(String(localized: "Chat History [Shell Components 60636b]"), symbol: sidebarIsColumn ? "sidebar.left" : "line.3.horizontal", action: openSidebar)
+            MacTitleRowButton(String(localized: "Chat History [Shell Components 60636b]"), symbol: sidebarIsColumn ? Theme.Icon.sidebar : Theme.Icon.sidebarMenu, action: openSidebar)
                 .accessibilityIdentifier("assistant-sidebar-button")
             Menu { menuItems(link) } label: {
                 HStack(spacing: Theme.Space.xs) {
@@ -111,7 +111,7 @@ struct AssistantTopBar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     }
-                    Image(systemName: Theme.Icon.expand).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.expand).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                 }
                 .contentShape(.rect)
             }
@@ -165,7 +165,7 @@ struct AssistantTopBar: View {
     private var classicBar: some View {
         HStack(alignment: .top) {
             GlassEffectContainer {
-                Self.circle(sidebarIsColumn ? "sidebar.left" : "line.3.horizontal", label: String(localized: "Chat History [Shell Components 60636b]"), id: "assistant-sidebar-button") {
+                Self.circle(sidebarIsColumn ? Theme.Icon.sidebar : Theme.Icon.sidebarMenu, label: String(localized: "Chat History [Shell Components 60636b]"), id: "assistant-sidebar-button") {
                     Haptics.tap()
                     openSidebar()
                 }
@@ -174,7 +174,7 @@ struct AssistantTopBar: View {
             face
             Spacer(minLength: 8)
             GlassEffectContainer {
-                Self.circle("square.and.pencil", label: String(localized: "New Chat [Quick Actions ea4b29]"), id: "assistant-new") {
+                Self.circle(Theme.Icon.compose, label: String(localized: "New Chat [Quick Actions ea4b29]"), id: "assistant-new") {
                     Haptics.tap()
                     newConversation()
                 }
@@ -199,7 +199,7 @@ struct AssistantTopBar: View {
     /// The bar's round icon button; also the sidebar header's search button when the sidebar is the split's column.
     static func circle(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.heading)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.tapTarget)
@@ -218,7 +218,7 @@ struct AssistantTopBar: View {
             menu
             if let hint {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.successFilled).foregroundStyle(Theme.positive)
+                    ThemedIcon(Theme.Icon.successFilled).foregroundStyle(Theme.positive)
                     Text(hint).lineLimit(1)
                 }
                 .font(Theme.Font.labelStrong)
@@ -406,7 +406,7 @@ struct AssistantTopBar: View {
                             } label: {
                                 let title = [l.name, Fmt.model(l.model)].compactMap { $0 }.joined(separator: " · ")
                                 if l.name == launcher, model.assistantLaunchers[key] != nil {
-                                    Label { Text(title); Text("Just Once") } icon: { Image(systemName: Theme.Icon.done) }
+                                    Label { Text(title); Text("Just Once") } icon: { ThemedIcon(Theme.Icon.done) }
                                 } else if l.name == launcher { Label(title, systemImage: Theme.Icon.done) } else { Text(title) }
                             }
                         }

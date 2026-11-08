@@ -22,7 +22,7 @@ struct ExtensionMarketView: View {
             ForEach(page.markets.filter { $0.error?.isEmpty == false }) { m in
                 Section {
                     Label { Text("Couldn't read “\(m.title)”: \(m.error ?? "")") } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                     }
                     .font(Theme.Font.label)
                     // Most often GitHub's limit for a network without a token: the fix right where it shows. Not for the
@@ -82,7 +82,7 @@ struct ExtensionMarketView: View {
             if !page.markets.isEmpty {
                 Section {
                     NavigationLink(value: SettingsPage.pluginMarkets) {
-                        Label { Text("Manage Markets").lineLimit(1) } icon: { Image(systemName: Theme.Icon.pluginMarket) }
+                        Label { Text("Manage Markets").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.pluginMarket) }
                     }
                     .accessibilityIdentifier("market-manage")
                 }
@@ -341,19 +341,19 @@ struct MarketExtensionDetailView: View {
                 LabeledContent("Installed [Extension Market Views a8b6c3]", value: p.installed ?? p.version)
             case .unavailable:
                 Label { Text(p.problem ?? String(localized: "Can't install on this hub")) } icon: {
-                    Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                    ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                 }
                 .font(Theme.Font.label)
             }
             if p.installed != nil {
                 NavigationLink(value: SettingsPage.plugin(p.pluginID)) {
-                    Label { Text("Open Extension Settings").lineLimit(1) } icon: { Image(systemName: Theme.Icon.settings) }
+                    Label { Text("Open Extension Settings").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.settings) }
                 }
                 .accessibilityIdentifier("market-open-plugin")
             }
             if page.canUninstall {
                 Button(role: .destructive) { confirmRemove = true } label: {
-                    Label { Text("Uninstall").lineLimit(1) } icon: { Image(systemName: Theme.Icon.delete) }
+                    Label { Text("Uninstall").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.delete) }
                 }
                 .tint(Theme.danger) // a Mac form draws a button in the accent whatever its role (#1512)
                 .disabled(page.working)
@@ -385,7 +385,7 @@ struct MarketExtensionDetailView: View {
         FormAction {
             Button { Task { await page.prepare() } } label: {
                 HStack(spacing: Theme.Space.s) {
-                    if page.previewing { ProgressView().controlSize(.small) } else { Image(systemName: symbol) }
+                    if page.previewing { ProgressView().controlSize(.small) } else { ThemedIcon(symbol) }
                     Text(title).lineLimit(1)
                 }
                 .formActionWidth()
@@ -436,7 +436,7 @@ private struct PermissionLine: View {
             if !programs.isEmpty {
                 ForEach(programs, id: \.name) { t in
                     HStack(spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.terminal).font(Theme.Font.label).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.terminal).font(Theme.Font.label).foregroundStyle(.secondary)
                         Text(ExtensionAuthText.spec(t)).font(Theme.Font.label)
                     }
                 }
@@ -534,7 +534,7 @@ private struct ExtensionInstallSheet: View {
                 if let w = preview.warnings, !w.isEmpty {
                     Section {
                         ForEach(w, id: \.self) { t in
-                            Label { Text(t) } icon: { Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution) }
+                            Label { Text(t) } icon: { ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution) }
                                 .font(Theme.Font.label)
                         }
                     }
@@ -632,7 +632,7 @@ struct ExtensionMarketsView: View {
         #if os(iOS) || os(visionOS)
         .pageToolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { adding = true } label: { Image(systemName: Theme.Icon.add) }
+                Button { adding = true } label: { ThemedIcon(Theme.Icon.add) }
                     .accessibilityLabel("Add Market")
                     .accessibilityIdentifier("market-add")
             }
@@ -673,7 +673,7 @@ private struct MarketRow: View {
             if let d = market.description, !d.isEmpty { Text(d).font(Theme.Font.secondary).foregroundStyle(.secondary) }
             Text(ExtensionMarketText.marketSummary(market)).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
             if let e = market.error, !e.isEmpty {
-                Label { Text(e) } icon: { Image(systemName: Theme.Icon.error) }
+                Label { Text(e) } icon: { ThemedIcon(Theme.Icon.error) }
                     .font(Theme.Font.label)
                     .foregroundStyle(Theme.danger)
                 if market.wantsGitHubToken {
@@ -681,7 +681,7 @@ private struct MarketRow: View {
                 }
             }
             ForEach(market.warnings ?? [], id: \.self) { w in
-                Label { Text(w) } icon: { Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution) }
+                Label { Text(w) } icon: { ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution) }
                     .font(Theme.Font.label)
             }
         }
@@ -802,7 +802,7 @@ private struct MarketTokenSheet: View {
                     Section {
                         // Safari, not the app's browser: GitHub's page needs the user's GitHub session.
                         Link(destination: ExtensionMarketText.gitHubTokenURL) {
-                            Label { Text("Create on GitHub").lineLimit(1) } icon: { Image(systemName: Theme.Icon.openExternal) }
+                            Label { Text("Create on GitHub").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.openExternal) }
                         }
                         .accessibilityIdentifier("market-token-create")
                     } footer: {
@@ -818,7 +818,7 @@ private struct MarketTokenSheet: View {
                 }
                 if let problem {
                     Section {
-                        Label { Text(problem).textSelection(.enabled) } icon: { Image(systemName: Theme.Icon.error) }
+                        Label { Text(problem).textSelection(.enabled) } icon: { ThemedIcon(Theme.Icon.error) }
                             .font(Theme.Font.label)
                             .foregroundStyle(Theme.danger)
                     }

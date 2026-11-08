@@ -37,7 +37,7 @@ struct ThreadComposer: View {
                 ProgressView().scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
             } else if LarkComposer.canSend(text) {
                 Button(action: send) {
-                    Image(systemName: Theme.Icon.send).font(Theme.Font.heading)
+                    ThemedIcon(Theme.Icon.send).font(Theme.Font.heading)
                         .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
                 }
                 .themedButton(prominent: true)

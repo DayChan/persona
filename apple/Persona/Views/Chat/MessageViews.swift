@@ -311,7 +311,7 @@ struct PendingBubble: View {
                         Button(action: retry) { Label("Retry Now [Message Views f40f4f]", systemImage: Theme.Icon.retry) }
                         Button(role: .destructive, action: discard) { Label("Don't Send", systemImage: Theme.Icon.delete) }
                     } label: {
-                        Image(systemName: Theme.Icon.time).font(Theme.Font.caption).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.time).font(Theme.Font.caption).foregroundStyle(.secondary)
                             .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                             .contentShape(.rect)
                     }
@@ -321,7 +321,7 @@ struct PendingBubble: View {
                         Button(action: retry) { Label("Resend", systemImage: Theme.Icon.retry) }
                         Button(role: .destructive, action: discard) { Label("Delete", systemImage: Theme.Icon.delete) }
                     } label: {
-                        Image(systemName: Theme.Icon.errorFilled).font(Theme.Font.body).foregroundStyle(Theme.danger)
+                        ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.body).foregroundStyle(Theme.danger)
                     }
                     .accessibilityLabel("Failed to send. Resend or delete.")
                 }
@@ -580,12 +580,12 @@ struct ThinkingRow: View {
                 toggleInPlace(pin, pinKey, animation: Theme.Motion.standard, unfold: $unfold, closing: open) { open.toggle() }
             } label: {
                 HStack(spacing: Theme.Space.sm) {
-                    Image(systemName: Theme.Icon.memory).font(Theme.Font.label)
+                    ThemedIcon(Theme.Icon.memory).font(Theme.Font.label)
                     Text(open ? String(localized: "Thinking [Message Views a62acb]") : ToolPresentation.firstLine(item.text ?? ""))
                         .font(Theme.Font.label)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.label).rotationEffect(.degrees(open ? 90 : 0))
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.label).rotationEffect(.degrees(open ? 90 : 0))
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, compact ? 10 : 0)
@@ -691,7 +691,7 @@ struct CompactDivider: View {
                     rule
                     HStack(spacing: Theme.Space.xs) {
                         Text(title).lineLimit(1)
-                        Image(systemName: open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.caption)
+                        ThemedIcon(open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.caption)
                     }
                     .font(Theme.Font.label)
                     .foregroundStyle(.secondary)
@@ -748,7 +748,7 @@ struct NoticeRow: View {
             }
         } label: {
             HStack(alignment: .top, spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.info).font(Theme.Font.label).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.info).font(Theme.Font.label).foregroundStyle(.tertiary)
                 Text(item.text ?? "")
                     .font(Theme.Font.label)
                     .foregroundStyle(.secondary)
@@ -781,7 +781,7 @@ struct NoticeRow: View {
     private var wake: some View {
         let w = Self.wakeSummary(item)
         return HStack(spacing: Theme.Space.sm) {
-            Image(systemName: w.failed ? Theme.Icon.errorFilled : "bell.fill")
+            ThemedIcon(w.failed ? Theme.Icon.errorFilled : "bell.fill")
                 .foregroundStyle(w.failed ? Theme.danger : Theme.accent)
             Text(w.text).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
@@ -842,13 +842,13 @@ struct WakeChip: View {
                 if live {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: failed ? Theme.Icon.errorFilled : "bell.fill")
+                    ThemedIcon(failed ? Theme.Icon.errorFilled : "bell.fill")
                         .foregroundStyle(failed ? Theme.danger : Theme.accent)
                 }
                 Text(live ? String(localized: "Background task done · Processing") : summary?.text ?? String(localized: "\(notices.count) background tasks done"))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong)
             }
             .font(Theme.Font.caption)
             .foregroundStyle(.secondary)
@@ -877,6 +877,7 @@ struct WakeDrawer<Content: View>: View {
                 }
                 .padding(Theme.Space.l)
             }
+            .closesMessageBar()
             .background(Theme.pageBackground)
             .navigationTitle(notices.count > 1 ? String(localized: "\(notices.count) background tasks done") : String(localized: "Background Task Done"))
             .navigationBarTitleDisplayMode(.inline)
@@ -906,11 +907,11 @@ struct RecapCard: View {
             open = true
         } label: {
             HStack(spacing: Theme.Space.sm) {
-                Image(systemName: "arrow.uturn.backward.circle.fill").foregroundStyle(Theme.accent)
+                ThemedIcon("arrow.uturn.backward.circle.fill").foregroundStyle(Theme.accent)
                 Text("While You Were Away").lineLimit(1)
                 if items.count > 1 { Text("· \(items.count)×").lineLimit(1) }
                 if let ts = newest.ts, ts.isMeaningful { Text("· " + Fmt.relative(ts)).lineLimit(1) }
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong)
             }
             .font(Theme.Font.caption)
             .foregroundStyle(.secondary)
@@ -946,13 +947,13 @@ struct RecapStrip: View {
                 Capsule().fill(Theme.accent).frame(width: Theme.Size.bar)
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     HStack(spacing: Theme.Space.sm) {
-                        Image(systemName: "arrow.uturn.backward.circle.fill").foregroundStyle(Theme.accent)
+                        ThemedIcon("arrow.uturn.backward.circle.fill").foregroundStyle(Theme.accent)
                         Text("While You Were Away").font(Theme.Font.captionStrong).lineLimit(1)
                         if let ts = item.ts, ts.isMeaningful {
                             Text("· " + Fmt.relative(ts)).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
-                        Image(systemName: Theme.Icon.close).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.close).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
                     }
                     Text(Fmt.plain(item.text ?? ""))
                         .font(Theme.Font.secondary)

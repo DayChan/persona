@@ -13,6 +13,48 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
+func TestExtensionIdentityAssistantCapabilityAndRegisteredStorageOwner(t *testing.T) {
+	h := newTestManager(t)
+	_ = kbExtensionSpec(t, h, "current-models", extension.Permissions{Hub: []string{extension.ScopeModels, extension.ScopeKBWrite}})
+	p := h.extensions.reg.GetExact("current-models")
+	p.Record.StorageID = "previous-models"
+	supported := false
+	var calls []string
+	var envelope json.RawMessage
+	h.opts.Assistant = func(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		calls = append(calls, method)
+		if method == assistantwire.MethodExtensionIdentity {
+			if supported {
+				return json.RawMessage(`{"supported":true}`), nil
+			}
+			return nil, &rpc.Error{Code: extension.CodeUnknownMethod, Message: "unknown method " + method}
+		}
+		envelope = append(json.RawMessage{}, params...)
+		return json.RawMessage(`{}`), nil
+	}
+	params := json.RawMessage(`{"storage_id":"foreign-owner","messages":[{"role":"user","content":"fixture"}]}`)
+	if _, err := h.extensions.extensionModelCall(context.Background(), p.Record.ID, params); err == nil {
+		t.Fatal("old assistant silently received a renamed owner")
+	}
+	if len(calls) != 1 || calls[0] != assistantwire.MethodExtensionIdentity {
+		t.Fatalf("destructive call before capability: %v", calls)
+	}
+	supported = true
+	if _, err := h.extensions.extensionModelCall(context.Background(), p.Record.ID, params); err != nil {
+		t.Fatal(err)
+	}
+	var env assistantwire.ExtensionComplete
+	if err := json.Unmarshal(envelope, &env); err != nil || env.Extension != p.Record.ID || env.StorageID != "previous-models" || string(env.Params) != string(params) {
+		t.Fatalf("identity envelope: %s %v", envelope, err)
+	}
+	if _, err := h.extensions.extensionModelCall(context.Background(), "previous-models", params); err == nil {
+		t.Fatal("program authority resolved a storage/old identity")
+	}
+	if report := h.extensions.modelExtensions(); len(report) != 1 || report[0].ID != p.Record.ID || report[0].StorageID != "previous-models" {
+		t.Fatalf("model report: %+v", report)
+	}
+}
+
 // model.complete (extension_model_calls.go, #6102): only with the models scope itself, handed to the assistant with
 // the extension's id; plugins.models lists the extensions that have a purpose.
 func TestExtensionModelCallNeedsItsScopeAndIsAttributed(t *testing.T) {

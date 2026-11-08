@@ -175,7 +175,7 @@ struct HerdrNoticeRow: View {
         let starting = watch.starting.contains(machine.ref)
         HStack(spacing: Theme.Space.s) {
             Group {
-                if starting { ProgressView().controlSize(.mini) } else { Image(systemName: Theme.Icon.error) }
+                if starting { ProgressView().controlSize(.mini) } else { ThemedIcon(Theme.Icon.error) }
             }
             .foregroundStyle(Theme.caution)
             // Square: the Mac's spinner asks for more height than it draws, and the row grew by a line while it starts.

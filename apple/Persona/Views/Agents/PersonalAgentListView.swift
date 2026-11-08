@@ -61,7 +61,7 @@ struct PersonalAgentListView: View {
                 } header: {
                     if !g.label.isEmpty {
                         HStack(spacing: Theme.Space.xs) {
-                            if g.id == "pinned" { Image(systemName: Theme.Icon.pinned).imageScale(.small) }
+                            if g.id == "pinned" { ThemedIcon(Theme.Icon.pinned).imageScale(.small) }
                             Text(g.label)
                             Spacer()
                             if list.page?.paged != true, g.unread > 0 { Text("\(g.unread)").monospacedDigit() }
@@ -164,7 +164,7 @@ struct PersonalAgentListView: View {
                 update { $0.view.show = nil; $0.view.providers = nil }
             } label: { Label("View All", systemImage: Theme.Icon.listView) }
         } label: {
-            Image(systemName: prefs.view.isDefault ? Theme.Icon.filter : Theme.Icon.filterActive)
+            ThemedIcon(prefs.view.isDefault ? Theme.Icon.filter : Theme.Icon.filterActive)
         }
         .accessibilityLabel("Filter and sort")
     }
@@ -264,7 +264,7 @@ private struct PersonalAgentRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            if pinned { Image(systemName: Theme.Icon.pinned).imageScale(.small).foregroundStyle(.orange).accessibilityLabel("Pinned [Personal Agent List View fb47db]") }
+            if pinned { ThemedIcon(Theme.Icon.pinned).imageScale(.small).foregroundStyle(.orange).accessibilityLabel("Pinned [Personal Agent List View fb47db]") }
             PersonalAgentAvatar(session: session, size: 32)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(session.title.isEmpty ? session.sessionKey : session.title).lineLimit(1)
@@ -274,7 +274,7 @@ private struct PersonalAgentRow: View {
             .padding(.leading, session.parentSessionKey == nil ? 0 : Theme.Space.l)
             Spacer(minLength: Theme.Space.s)
             if !session.canSend {
-                Image(systemName: Theme.Icon.locked).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.locked).foregroundStyle(.secondary)
             }
             if session.unreadCount > 0 {
                 CountBadge(count: session.unreadCount, look: .tone(StatusPalette.unread))

@@ -179,7 +179,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// PushRequest is what a hub posts (hub/push.go builds it).
+// PushRequest is what a hub posts (hub/push_send.go builds it).
 type PushRequest = relayproto.PushRequest
 
 // liveActivityKeys are the aps keys a Live Activity push may carry (hub/liveactivity.go liveActivityPayload).

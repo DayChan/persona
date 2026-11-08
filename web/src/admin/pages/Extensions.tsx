@@ -5,6 +5,7 @@ import { t } from "../../i18n";
 import { tRich } from "../../i18n/rich";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dependencyText, previewBlocked } from "../../lib/extension-model";
+import { renameConsent } from "../../lib/extension-market";
 import { bytes } from "../../lib/format";
 import { Button, Collapse, cx, Dialog, toast, useNow } from "../../ui/atoms";
 import { Switch } from "../../views/settings/SettingsParts";
@@ -465,6 +466,9 @@ export function PreviewBody({ pv }: { pv: ExtensionPreview }) {
           {m.description && <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">{m.description}</p>}
         </div>
       </div>
+      {pv.rename_from && <Notice tone="orange" icon="alert" title={t("lib-extension-market.rename_title")}>
+        <p className="break-words" data-rename-consent>{renameConsent(pv)}</p>
+      </Notice>}
       {pv.upgrade && pv.more_permissions && (
         <Notice tone="orange" icon="alert" title={t("admin-pages-extensions.more_permissions_title")}>
           {t("admin-pages-extensions.more_permissions_detail")}

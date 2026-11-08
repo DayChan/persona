@@ -10,6 +10,10 @@ nonisolated struct WatchConfigs: Codable, Sendable, Equatable {
     /// The groups the phone has but could not get the watch a credential for yet (#1185: an older hub, or the hub
     /// not reachable when it asked); the watch asks the user to sync again. nil from an older phone.
     var missing: [String]? = nil
+    /// Watch token ids only; absent from older phones. Never the phone's device ids.
+    var deviceIDs: [String: String]? = nil
+    /// Authenticated phone hello capabilities by group; missing is unknown, an empty array is known unsupported.
+    var features: [String: [String]]? = nil
 }
 
 /// What the watch needs to render without its own WebSocket: live sessions and pending interactions.
@@ -145,7 +149,12 @@ final class WatchSync: NSObject, WCSessionDelegate {
 
     private func apply(_ ctx: [String: Any]) {
         #if os(watchOS)
-        if let language = ctx["language"] as? String { LanguageStore.shared.follow(language) }
+        if let language = ctx["language"] as? String {
+            LanguageStore.shared.follow(language)
+            if AppLanguage.codes.contains(language) {
+                LanguageStore.groupDefaults()?.set(language, forKey: LanguageStore.resolvedKey)
+            }
+        }
         #endif
         if let persona = ctx["persona"] as? String { onPersona?(persona) }
         if let data = ctx["configs"] as? Data, let all = try? JSONDecoder().decode(WatchConfigs.self, from: data) {

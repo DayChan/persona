@@ -2,6 +2,12 @@
 
 Pitfalls, odd behavior and the decisions made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
 
+## System extension credentials and compiler-free acceptance (#1147)
+
+A widget's App Group snapshot must not reuse Fleet's appearance store: it contains credentials, needs first-unlock protection and must clear removed groups. Serialize cross-process atomic writes and fence late render replies by pairing generation plus invalidation revision. Namespace caches and entity/deep-link identities by hub group; identical contribution ids on different hubs are not interchangeable. Export watch-only configs into a separate wrist App Group, never fall back to phone credentials, and preserve empty WidgetCenter reports as full replacement.
+
+`IntentParameterDependency` exposes an `IntentProjection`: its dynamic-member subscript returns `Value.UnwrappedType`. For an optional entity parameter, use `intent?.action.id`, not `intent?.action?.id`. The SDK interface can establish this type signature without building; it does not establish that the full target compiles. Runtime manifests cannot generate new App Intent parameters. Keep optional static fields and a validated JSON escape hatch, with the Swift 6.4 snippet boundary intact. New complication identities and watch App Group signing need explicit account setup and paired-device acceptance. While builds are paused, report source/static checks separately from unexecuted Swift tests, metadata, screenshots and device/APNs acceptance.
+
 ## Hosted simulator boot diagnostics (#1124)
 
 A successful minimum-Xcode app/Watch build does not prove the test simulator became ready. A stock iOS 26.0 boot failed its existing 900-second deadline before tests started; the shared helper had discarded `simctl bootstatus` output, and the workflow retained no diagnostic artifact. Keep boot command/phase errors on stderr (stdout remains the sole UDID), capture them separately, and collect `simctl list` before shutting down the owned simulator. Upload only those logs, runtime metadata and existing xcresult bundles after failure; never the source snapshot, configuration, keys or links outside result bundles. Keep the original boot/step timeouts and do not add automatic retries. A maintainer-approved manual rerun is distinct from a retry policy, but uses the original run's commit: diagnostic changes need a new-head run first.
@@ -20,6 +26,10 @@ A frozen transcript can reveal its withheld rows during Jump to Latest and move 
 A shell can keep a chat mounted after switching tabs: `onDisappear` alone does not release its transcript subscription or visible/read owner. Use paired `onTabVisibility` edges on iPhone as well as Mac, keep the store and scroll state, and resume with `since_seq` on return. This pauses client display traffic, not the Agent's work on the hub. Test hidden initial mounts, duplicate visibility notifications, shared subscription owners and returning after missed items. Linux source checks cannot establish SwiftUI frame times; compile, profile both directions and inspect light/dark simulator screenshots on a Mac before publishing the Apple build.
 
 Releasing the socket subscription is not enough if a background prefetch then applies HTTP items into the same hidden store (#1159). Keep disk prefetch for unseen recent chats, but defer retained stores to their next visible subscription. Recheck queued work and fence responses that outlive their last visible owner or store identity. Validate the actual HTTP journal and covered-sequence replay as well as zero delta deliveries: an empty replay after a hidden HTTP update does not prove that visibility owns transcript synchronization.
+
+## Cached Agent-list projections (#1231)
+
+Caching the Agents list's derived data needs a small key, not a fingerprint of thousands of sessions: the feed's structural revision plus the settings that change the result. Work moved off the main actor must take value snapshots only (no `AppModel`, bindings or model closures), and its completion must recheck the live state rather than captured flags: an immediate change or replaced hub link or token that superseded it, a newer published revision, a changed setting, or a list that became held while it ran. Do not cancel the running derivation for every newer revision: pushes faster than one derivation would then never publish. Run one at a time, keep only the newest waiting request, and let an older completed result land if nothing newer did. Publish through `ReaderAnchor.willChange` like any other change, and let a hold landing resume a result that finished while held. Pure helpers that the projection calls must be `nonisolated` explicitly (`Session.isQuiet`, `slotLabel`, `displayTitle`): the app target's default MainActor isolation applies to `apple/Shared` extensions too.
 
 ## Retired drawings and downloadable avatars (#1)
 
@@ -300,6 +310,10 @@ Use an invalidation revision as the task key and handle the flag after completio
   Supply dark / light appearance (copy shell window `overrideUserInterfaceStyle`; later `ColorSchemeChoice` updates all scene windows), `app` text size
   (`textSize.applied(to:)`; a new window otherwise follows only system), `AppModel` and BeautifulUI theme. VoiceOver will not move to a non-touch window; announce through `AccessibilityNotification.Announcement`.
   XCUITest still finds it in the `app` tree. Place it below the shell header, not at the status bar where it covers segments (`ShellNavigationClearance.needed(at:)`).
+- The tabs (Old Layout, iPad) kept the toast in `RootView`'s overlay after the shell moved to `ToastWindow`, so every toast raised from a
+  `fullScreenCover` or sheet was drawn under it: Saved to Photos from the image viewer and the share card never showed (#1492). `PhotoSaveTests`
+  passed all along, because XCUITest finds a covered toast's words. A test that a toast is seen compares the pixels where it is with and without it
+  (`PhotoSaveTests.expectDrawn`). Now the tabs get a toast window too (`ToastWindowHook`); the overlay is left only where no such window exists.
 - Both new-shell pages remain mounted, the hidden one only opacity-hidden; UIKit glass buttons and lists stay in accessibility, with identical switcher ids.
   `exists` / `isHittable` / `firstMatch` cannot identify the drawn page; inspect pixels (`ShellSwitchTests.agentsDrawn`) and select the tappable switcher.
 - Pushing from active `.searchable` forces the navigation bar visible (double chat titles); closing search after pushing does not help.
@@ -935,6 +949,14 @@ Formulas / diagrams (`MarkdownRenderer`, `docs/apple/ios.md` ("Formulas and diag
   - Preencoded values use `percentEncodedFragment` / `percentEncodedQuery`; raw values use `fragment` / `queryItems`, never both.
   - Leave only RFC 3986 unreserved `A–Z a–z 0–9 - . _ ~`; encode + (URLSearchParams reads raw + as space).
   - Test real-shaped `jd_…` tokens, decoding exactly as the page does and comparing.
+
+## Extension system-surface identities and test boundaries (2026-11-08, #1147)
+
+- Use a canonical encoding for AppEntity identities shared by the app, WidgetKit and Shortcuts. JSON is reversible, but its default encoder does not promise key order; set `sortedKeys` so another process/restart reconstructs exactly the same identifier.
+- Public hub health can omit `features` even with Authorization. Absence is unknown, not an old hub: read authenticated `hello` before querying a system catalog. An explicit unsupported capability must not issue that catalog request.
+- A DEBUG snapshot or unit host must not read/write the developer's real system-surface App Group credentials. Mac snapshots use their private temporary directory; unit hosts disable the default store and inject an explicit test store instead.
+- A new embedded watch widget changes both the provisioning target set and its expected App Group. Update the separate signing-profile tests in the same change, including `--only` selection; narrow configuration tests do not cover those call counts or arguments. Run `scripts/release/test_asc_signing_profiles.py` and `scripts/test/test_script_layout.py` before pushing signing changes, including Python 3.9 annotation guards.
+- WidgetKit does not guarantee a callback when the last widget is removed. Reconcile the complete configuration list on foreground entry, timeline generation and widget background wakes; retain the previous report on enumeration failure, and clear it with an explicit empty replacement when enumeration succeeds.
 
 ## All background Intent parameters are optional (2026-11-04, #1144)
 

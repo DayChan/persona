@@ -21,5 +21,10 @@
   "agree_upgrade_more": "Allow and upgrade",
   "upgrade": "Upgrade",
   "agree_install": "Allow and install",
-  "official_name": "Official extensions"
+  "official_name": "Official extensions",
+  "rename_title": "Extension identity change",
+  "rename_detail": "Rename {from} to {to} and upgrade. Your installed settings, secrets and data stay in the same storage slot. This change requires your confirmation, even without new permissions.",
+  "rename_from": "Current ID",
+  "rename_to": "New ID",
+  "agree_rename": "Confirm rename"
 }

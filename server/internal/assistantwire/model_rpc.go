@@ -8,6 +8,8 @@ import "encoding/json"
 // base"'s until the user picks another). The extension never sees a key. No budget and no cap (the user's decision):
 // what a call spent comes back in its usage.
 const (
+	// MethodExtensionIdentity probes the authenticated assistant's stable extension ownership support.
+	MethodExtensionIdentity = "extensions.identity"
 	// MethodModelComplete is the extension-facing method (schema/extension/models.schema.json).
 	MethodModelComplete = "model.complete"
 	// MethodModelsExtensionComplete is how the manager hands the assistant an extension's model.complete:
@@ -40,14 +42,30 @@ const ExtensionPurposePrefix = "extension."
 
 // ModelExtension is an extension with a model purpose of its own.
 type ModelExtension struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	StorageID string `json:"storage_id,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 }
 
 // ExtensionComplete is an extension's model.complete params as it sent them, and who it is.
 type ExtensionComplete struct {
+	StorageID string          `json:"storage_id,omitempty"`
 	Extension string          `json:"extension"`
 	Params    json.RawMessage `json:"params"`
+}
+
+func (x ModelExtension) StorageKey() string {
+	if x.StorageID != "" {
+		return x.StorageID
+	}
+	return x.ID
+}
+
+func (x ExtensionComplete) StorageKey() string {
+	if x.StorageID != "" {
+		return x.StorageID
+	}
+	return x.Extension
 }
 
 // ModelMessage is one turn: the user's (role user) or the model's earlier answer (role assistant).

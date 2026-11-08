@@ -76,7 +76,7 @@ func (s *Service) kbRPCRequest(ctx context.Context, method string, raw json.RawM
 		if strings.TrimSpace(env.Extension) == "" {
 			return nil, true, kbInvalidParams(method, "extension is required")
 		}
-		method, raw, extension = assistantwire.MethodKBUpdate, env.Params, env.Extension
+		method, raw, extension = assistantwire.MethodKBUpdate, env.Params, env.StorageKey()
 	}
 	switch method {
 	case assistantwire.MethodKBList:

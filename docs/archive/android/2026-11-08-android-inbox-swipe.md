@@ -53,3 +53,57 @@ android/gradlew -p android :feature:inbox:lintDebug --no-watch-fs
 These are JVM renderer/repository checks, not physical-device or live-source gesture acceptance.
 The existing APK release owner handles the merged source through the existing release chain;
 merged, published, client validation and installed statuses must be reported separately.
+
+## Follow-up after the first repair
+
+The first wrapper repair and APK update-path checks did not establish full gesture correctness.
+The follow-up compares the complete pre-grouping behavior and narrows implementation changes to reproduced defects.
+
+| Historical baseline | Behavior and evidence |
+| --- | --- |
+| `e3ef98cbd` (initial inbox) | Left-only Done; completed rows had an explicit Move back button. Not the later two-direction contract. |
+| `3a7e164d8` | Left Done/Move back at 85% distance, vetoed dismissal to spring back; per-item pending state and error restoration. |
+| `4f5f208cc`, `30486e160` | Shared component intentionally replaces that contract: right Done/Move back, left AI handoff, default Material threshold, reset after execution. No persistent reveal-button state. Each item owns its callback and action scope. |
+| `8ce5368ce` | Action background appears only during a drag; idle translucent rows must not retain it. |
+| `0eed796ec` | Conversation grouping omits the wrapper and admits a whole feed when any item matches a filter. |
+| `548da7dfd` (#1499) | Restores the wrapper but sends every grouped record, including hidden matches and already-completed records. The AI test checks background text, not sheet content. |
+
+The dependency actually resolved by this build is Material 3 1.4.0, Foundation 1.12.1.
+Material's default positional threshold is 56 dp, with velocity-based flings retained. The older 85% threshold
+belongs to the superseded one-direction implementation; it is not restored. Slow pointer samples test below
+and above the current threshold, cancellation, and return-to-origin bounds, separately from full flings.
+
+Reproductions before repair:
+
+- Search admits event `a`, hides `b` in the same feed: expected request `[a@version-a]`, actual `[a@version-a,b@version-b]`.
+- Mixed open `a` and completed `b`: the same unexpected extra target. A partial-failure retry also includes successful events again.
+- A shared swipe action changes its rendered action after invocation: the old callback causes
+  `AppNotIdleException: Compose did not get idle ... in 60 SECONDS`. Material's `SwipeToDismissBox`
+  keys its dismissal effect by both `state.settledValue` and `onDismiss`; the changing callback restarts it
+  before reset finishes. The independent `SwipeActionsStateTest` reproduces this with synthetic data.
+
+Repair: derive the displayed conversation records from the same filtered item set as the list. Both the
+representative AI target and Done targets now use that view. Done skips records already at the requested
+state; Reopen still addresses all completed records in the displayed conversation. Project pending writes
+into already-read conversation sections so failure rolls them back immediately. Unread source receipts
+remain independent of completion. Keep the shared dismissal callback stable, read current actions through
+`rememberUpdatedState`, and reset in `finally`. Thresholds, directions, navigation, and the existing
+repository/consent/idempotency paths remain in place. The swipe renderer is extracted without redesigning
+its visuals. No connector or Hub protocol changes are needed.
+
+Verification additions:
+
+- Real synthetic Compose gestures test filtered Done and filtered AI consent, mixed completion, partial-failure
+  retry, exact item versions, both slow-drag directions, below-threshold return, cancellation return, and sheet content.
+- Shared component tests check one callback per deliberate gesture, subsequent reuse, and saved-state restoration.
+  Saved-state replay and content replacement during a drag did not reproduce a defect; no speculative implementation
+  change was retained for either path. Vertical/click, pending suppression and empty-row coverage remain.
+- `InboxHandOffTest` retains operation-id semantics; the filtered sheet test checks failed consent retries reuse
+  the same operation id and never complete an item after a failed handoff. Repository tests retain rollback,
+  changed-version checks and manager routing. No real messages are used.
+- Screenshots still cover the production renderer in Glass/Board/Brief, light/dark, both directions. They show
+  drag visuals; sheet-internal and callback assertions establish behavior rather than relying on matching labels.
+
+Run the commands above, plus `:core:designsystem:testDebugUnitTest --tests '*SwipeActionsStateTest'` and
+`:core:designsystem:lintDebug`. These remain native-graphics JVM gesture checks, not installed-device acceptance.
+APK download/update success is tracked separately by the existing release owner.

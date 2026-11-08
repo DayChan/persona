@@ -9,7 +9,7 @@ import { useEffect, useRef } from "react";
 import { closePanel, directoryPanelKey, getPanel, openPanel, type Panel } from "./panel";
 
 /** The panels that belong to the session the page shows (the ones App closes when the page moves on). */
-export type SessionPanel = Extract<Panel, { kind: "files" | "git" | "file" }>;
+export type SessionPanel = Extract<Panel, { kind: "files" | "git" | "review" | "file" | "preview" }>;
 
 /** Where a Files panel is: the folder it shows and the file open in it (FilesPanel tells, `notePlace`). */
 export interface Place {
@@ -37,7 +37,7 @@ export function chatKey(sid: string): string {
 export function belongsTo(p: Panel | null, pane: { mid: string; sid: string } | null | undefined): p is SessionPanel {
   if (!p || !pane) return false;
   if (p.kind === "file") return true; // a file opened from this conversation (its links, its tool rows)
-  return (p.kind === "files" || p.kind === "git") && p.mid === pane.mid && p.sid === pane.sid;
+  return (p.kind === "files" || p.kind === "git" || p.kind === "review" || p.kind === "preview") && p.mid === pane.mid && p.sid === pane.sid;
 }
 
 /** The memory after the page left `session` with `panel` open (null: none of its own): kept, or forgotten. */

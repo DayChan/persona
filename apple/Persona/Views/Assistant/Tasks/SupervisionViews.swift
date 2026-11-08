@@ -69,7 +69,7 @@ private struct CriterionRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(color)
                 .scaledFrame(width: Theme.Size.markM)
@@ -124,7 +124,7 @@ struct TaskProgressLine: View {
         Label {
             Text(line).lineLimit(1)
         } icon: {
-            Image(systemName: Theme.Icon.reported).font(Theme.Font.labelStrong)
+            ThemedIcon(Theme.Icon.reported).font(Theme.Font.labelStrong)
         }
         .labelStyle(.titleAndIcon)
         .font(Theme.Font.caption)
@@ -142,7 +142,7 @@ struct ReviewFeedLine: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.supervised).font(Theme.Font.labelStrong)
+            ThemedIcon(Theme.Icon.supervised).font(Theme.Font.labelStrong)
             HStack(spacing: Theme.Space.xs) {
                 if let id = item.ref, store.todos[id] != nil {
                     Button { store.detailTask = id } label: { Text(taskTitle).lineLimit(1) }

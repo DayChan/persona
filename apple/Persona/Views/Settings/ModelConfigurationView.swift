@@ -75,7 +75,7 @@ struct ModelConfigurationView: View {
                 HStack(spacing: Theme.Space.s) {
                     categoryLabel(category)
                     Spacer(minLength: Theme.Space.s)
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                 }
                 .contentShape(.rect)
             }
@@ -116,7 +116,7 @@ private struct ModelLimitLine: View {
             Label {
                 Text(limit.text(now: context.date)).foregroundStyle(Theme.cautionText)
             } icon: {
-                Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
             }
             .font(font).lineLimit(2)
         }
@@ -296,7 +296,7 @@ struct ModelPurposeEditorView: View {
                 VStack(alignment: .trailing, spacing: Theme.Space.xxs) {
                     HStack(spacing: Theme.Space.xs) {
                         Text(choice.unlisted ?? String(localized: "Default [Prompt Composer 844b8c]")).lineLimit(1)
-                        Image(systemName: Theme.Icon.locked).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.locked).foregroundStyle(.secondary)
                     }
                     Text(locked).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(2)
                 }
@@ -449,7 +449,7 @@ struct ModelConfigurationLink: View {
     var body: some View {
         Button { showing = true } label: {
             if AppStyle.current.usesBeautifulUI {
-                BUIListRow(title) { BUIIconTile(Theme.Icon.model, tint: Theme.accent) } trailing: {
+                BUIListRow(title) { IconTile(Theme.Icon.model, tint: Theme.accent) } trailing: {
                     Text(summary ?? String(localized: "Managed centrally")).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
                 }
             } else {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BATCH,
+  componentFrames,
   ErrorReporter,
   MAX_AGE_MS,
   MAX_QUEUE,
@@ -96,6 +97,20 @@ describe("parseStack", () => {
   it("gives nothing for no stack", () => {
     expect(parseStack(undefined, ORIGIN)).toEqual([]);
     expect(parseStack("just text", ORIGIN)).toEqual([]);
+  });
+});
+
+describe("componentFrames", () => {
+  it("reads a production component stack, innermost last, keeping components that have no position by name", () => {
+    // as React 19's production build writes ErrorInfo.componentStack: minified names, a position only where it has one
+    const stack = ["", `    at Bq (${ORIGIN}/assets/App-abc.js:14:28)`, "    at div (<anonymous>)", "    at Xr (<anonymous>)", `    at PageBoundary (${ORIGIN}/assets/App-abc.js:9:20)`].join("\n");
+    expect(componentFrames(stack, ORIGIN)).toEqual([
+      { function: "PageBoundary", file: "/assets/App-abc.js", line: 9, column: 20, in_app: true },
+      { function: "Xr" },
+      { function: "div" },
+      { function: "Bq", file: "/assets/App-abc.js", line: 14, column: 28, in_app: true },
+    ]);
+    expect(componentFrames(undefined, ORIGIN)).toEqual([]);
   });
 });
 

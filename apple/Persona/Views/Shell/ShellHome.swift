@@ -169,7 +169,7 @@ private struct ShellErrorNote: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
-            Image(systemName: Theme.Icon.error)
+            ThemedIcon(Theme.Icon.error)
             Text(text).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
@@ -253,7 +253,7 @@ struct ShellNeedsYou: View {
                 let rest = more(all.dropFirst(shown))
                 Button(action: rest.open) {
                     BUIListRow(rest.text, accessory: .disclosure) {
-                        BUIIconTile(Theme.Icon.inbox, tint: Color.secondary)
+                        IconTile(Theme.Icon.inbox, tint: Color.secondary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -271,7 +271,7 @@ struct ShellNeedsYou: View {
             Button { model.open(ix.sessionKey) } label: {
                 BUIListRow(agentName(ix), detail: oneLine(ix.summary ?? ix.questions?.first?.question ?? ix.title),
                            accessory: .disclosure, detailLines: 1) {
-                    BUIIconTile(ix.kind.symbol, tint: Theme.needsYou)
+                    IconTile(ix.kind.symbol, tint: Theme.needsYou)
                 }
             }
             .buttonStyle(.plain)
@@ -292,7 +292,7 @@ struct ShellNeedsYou: View {
         if let brand = Self.brand(it) {
             BrandTile(brand)
         } else {
-            BUIIconTile(Self.symbol(it), tint: Theme.accent)
+            IconTile(Self.symbol(it), tint: Theme.accent)
         }
     }
 
@@ -305,7 +305,7 @@ struct ShellNeedsYou: View {
                 let rest = more(all.dropFirst(shown))
                 Button(action: rest.open) {
                     HStack(spacing: Theme.Space.m) {
-                        Image(systemName: Theme.Icon.inbox)
+                        ThemedIcon(Theme.Icon.inbox)
                             .font(Theme.Font.heading)
                             .foregroundStyle(.secondary)
                             .scaledFrame(width: Theme.Size.icon)
@@ -328,7 +328,7 @@ struct ShellNeedsYou: View {
         case .agent(let ix):
             Button { model.open(ix.sessionKey) } label: {
                 HStack(spacing: Theme.Space.m) {
-                    Image(systemName: ix.kind.symbol)
+                    ThemedIcon(ix.kind.symbol)
                         .font(Theme.Font.heading)
                         .foregroundStyle(Theme.needsYou)
                         .scaledFrame(width: Theme.Size.icon)
@@ -365,7 +365,7 @@ struct ShellNeedsYou: View {
             BrandMark(brand, side: Theme.Size.iconS)
                 .scaledFrame(width: Theme.Size.icon)
         } else {
-            Image(systemName: Self.symbol(it))
+            ThemedIcon(Self.symbol(it))
                 .font(Theme.Font.heading)
                 .foregroundStyle(.secondary)
                 .scaledFrame(width: Theme.Size.icon)

@@ -103,7 +103,7 @@ struct BrowserSection: View {
         return VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
                 if b.job?.running == true { ProgressView().controlSize(.small) } else {
-                    Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                    ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                 }
                 Text(b.job?.kind == "open" ? String(localized: "ego lite is open on that Mac. Follow the steps below to finish its first-run setup.") : String(localized: "ego lite is installed. Its first-run setup still needs to be finished."))
                     .font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
@@ -135,7 +135,7 @@ struct BrowserSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 if step.done {
-                    Image(systemName: Theme.Icon.success).foregroundStyle(Theme.positive)
+                    ThemedIcon(Theme.Icon.success).foregroundStyle(Theme.positive)
                 } else {
                     Text("\(GrantGuide.number(of: step, in: steps))").font(Theme.Font.labelStrong.monospacedDigit()).foregroundStyle(Theme.accent)
                 }
@@ -151,7 +151,7 @@ struct BrowserSection: View {
             Text(text).font(Theme.Font.secondary).foregroundStyle(ok ? Color.primary : Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: ok ? Theme.Icon.success : Theme.Icon.error).foregroundStyle(ok ? Theme.positive : Theme.caution)
+            ThemedIcon(ok ? Theme.Icon.success : Theme.Icon.error).foregroundStyle(ok ? Theme.positive : Theme.caution)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("browser-status")

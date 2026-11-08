@@ -94,7 +94,7 @@ struct MacHoverButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.captionStrong)
                 .foregroundStyle(.secondary)
                 .scaledFrame(width: Theme.Size.wellXS, height: Theme.Size.wellXS)

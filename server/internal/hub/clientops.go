@@ -144,16 +144,17 @@ type clientOpForgetter interface {
 // clientOpRetry: an inbox reply or hand-off the manager never got (assistant_offline) or that was cut off on the way
 // to it (assistant_in_doubt) keeps no receipt: the same request asked again goes to the manager, whose send id has it
 // sent once (inbox.go sendInboxOnce, a hand-off's session.send_once), instead of the stored refusal coming back for good.
-// A notification choice only releases a definitely offline receipt; uncertain delivery stays recorded.
+// A notification choice and a conversation's start only release a definitely offline receipt; uncertain delivery
+// stays recorded.
 func clientOpRetry(kind string, body []byte) bool {
-	if kind != "inbox_reply" && kind != "inbox_handoff" && kind != "choose" {
+	if kind != "inbox_reply" && kind != "inbox_handoff" && kind != "choose" && kind != "assistant_start" {
 		return false
 	}
 	var res struct {
 		Code string `json:"code"`
 	}
 	_ = json.Unmarshal(body, &res)
-	if kind == "choose" { // No request reached the manager; the same tap can safely retry.
+	if kind == "choose" || kind == "assistant_start" { // No request reached the manager; the same op can safely retry.
 		return res.Code == assistantwire.CodeAssistantOffline
 	}
 	return res.Code == assistantwire.CodeAssistantOffline || res.Code == assistantwire.CodeAssistantInDoubt
@@ -249,7 +250,7 @@ func (h *Hub) waitClientOp(w http.ResponseWriter, r *http.Request, op *db.Client
 		case "unknown":
 			// Start and reply retries must not repeat side effects or replace a recorded HTTP outcome.
 			// A recovered pending operation has no result and remains explicitly unknown.
-			if op.Kind == "start" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "inbox_handoff" || op.Kind == "lark_thread_reply" {
+			if op.Kind == "start" || op.Kind == "assistant_start" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "inbox_handoff" || op.Kind == "lark_thread_reply" {
 				var result clientOpResult
 				if json.Unmarshal(op.Result, &result) == nil && result.Status >= 200 && result.Status <= 599 {
 					writeClientOpResult(w, result)

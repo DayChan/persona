@@ -12,8 +12,8 @@ outside the repo, e.g. `~/.appstoreconnect/`), `app_store.app_id` (the app recor
 
 | Item | Notes |
 | --- | --- |
-| Bundle ID | iOS `<bundle_id>`, watch `<bundle_id>.watchkitapp`, Live Activity `<bundle_id>.liveactivity`, notification service extension `<bundle_id>.notify` (push relay, `docs/operations/push-relay.md`), share extension `<bundle_id>.share` (#4586); registered with `scripts/release/asc_signing.py` |
-| App ID capabilities | iOS: `PUSH_NOTIFICATIONS`, `USERNOTIFICATIONS_TIMESENSITIVE` (time-sensitive notifications, #1572), `HEALTHKIT`, `APP_GROUPS`; Live Activity: `APP_GROUPS`; watch: none. The App Group itself can only be created on the website and attached to App IDs ("App Group" below) |
+| Bundle ID | iOS `<bundle_id>`, watch `<bundle_id>.watchkitapp`, Live Activity `<bundle_id>.liveactivity`, notification service extension `<bundle_id>.notify` (push relay, `docs/operations/push-relay.md`), share extension `<bundle_id>.share` (#4586); new watch widget `app.watch_widget_bundle_id` (default `<bundle_id>.watchkitapp.widgets`, #1147). `scripts/release/asc_signing.py` covers these targets; #1147 did not register the new resources |
+| App ID capabilities | iOS: `PUSH_NOTIFICATIONS`, `USERNOTIFICATIONS_TIMESENSITIVE` (time-sensitive notifications, #1572), `HEALTHKIT`, `APP_GROUPS`; Live Activity: `APP_GROUPS`; watch app and watch widget: `APP_GROUPS` using the separate configured watch group. The App Group itself can only be created on the website and attached to App IDs ("App Group" below) |
 | Provisioning profiles | "Persona App Store", "Persona Watch App Store", "Persona Share App Store", etc. (`IOS_APP_STORE`; the share extension's was added 2026-11-06, so run `asc_signing.py` once before its first release to register its Bundle ID and profile); `asc_signing.py` deletes and recreates them and installs them into `~/Library/MobileDevice/Provisioning Profiles/` |
 | Signing identity | `Apple Distribution: … (team_id)` in the login keychain |
 | App Store Connect App ID | After creating the app record on the website, put it in the config's `app_store.app_id` |
@@ -212,10 +212,13 @@ Steps on the developer website (developer.apple.com › Account › Certificates
 1. Identifiers › "+" › choose **App Groups** › Continue › Description `Persona`, Identifier `group.<bundle id>` (matching the config's `app.app_group`) › Continue › Register.
 2. Identifiers › switch the top-right filter back to App IDs › click `<bundle id>` › check **App Groups** under Capabilities › click Configure next to it (Edit if already checked) ›
    check `group.<bundle id>` › Continue › Save › Confirm in the dialog (changing capabilities invalidates this App ID's existing profiles).
-3. Do step 2 for the Dynamic Island extension's App ID `<bundle id>.liveactivity` too. The watch and notification extension don't need it.
+3. Do step 2 for the Dynamic Island extension's App ID `<bundle id>.liveactivity` too. The notification extension does not need it.
+   For #1147, register the **separate watch group** (`app.watch_app_group`, default `<phone group>.watch`) and attach it to the existing watch app and the new configured watch widget App ID. These account changes and regenerated watch profiles require explicit approval; they have not been performed as part of the code change.
 4. Profiles: cloud-signed export (automatic signing) regenerates them itself; `release.sh`'s manual signing needs a rerun of `python3 scripts/release/asc_signing.py`,
    which checks every profile for the group, and if missing prints the steps above and exits non-zero.
-5. After a release export, `scripts/release/entitlements.py check` verifies that the signatures of both the App and PersonaWidgets in the ipa carry the group.
+5. After a release export, `scripts/release/entitlements.py check` verifies the App Groups of the app and its extensions, including both watch bundles.
+
+The #1147 system-surface store is independent of Fleet's avatar files, because it contains per-device credentials. Validate first unlock, offline expiry, pairing/rotation/removal, WidgetCenter full reports (including removal of the last configuration), paired-watch direct requests, and real background `extension_widget` pushes on devices before claiming acceptance. Simulator-only unsigned builds cannot validate App Group signing or background APNs delivery. No build, screenshots or device acceptance were run for #1147 while builds were paused.
 
 ## Changing the store name
 

@@ -205,7 +205,7 @@ struct VoiceOrb: View {
     /// What sits on a still orb whose voice is off: Paused's pause, Muted's slashed mic.
     @ViewBuilder private func glyph(disc: CGFloat, color: Color) -> some View {
         if let symbol = phase.glyph {
-            Image(systemName: symbol).font(.system(size: disc * 0.36, weight: .semibold)).foregroundStyle(color)
+            ThemedIcon(symbol).font(.system(size: disc * 0.36, weight: .semibold)).foregroundStyle(color)
                 .transition(.opacity)
         }
     }

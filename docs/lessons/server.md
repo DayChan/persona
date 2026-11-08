@@ -20,6 +20,22 @@
 - In a gated-writer fixture, close the actual endpoint before releasing the gate if the assertion requires the blocked frame to fail. Releasing first can legitimately finish that frame before concurrent Close, even though the connection is retired and approval withdrawal succeeds. A finite teardown failure likewise does not mean SIGKILL/Wait has already been scheduled: separately await actual member exit and leader reap, checking retained ownership throughout, without extending the reporting budget. Unknown diagnostic lines containing colons must not be treated as a translatable generic host envelope; keep raw details intact while translating recognized owned shutdown reasons.
 - Leader reap is not group completion. The TERM-ignoring group-member counterexample also fails before #1204; it is an outstanding acceptance gap, not a new regression. Keep the original leader unreaped while the single Wait owner signals its group. After reap, query only; do not signal a potentially reused numeric PGID, even directly after Wait. Require group absence before disposal/capacity release. Zombies, an occupied/reused PGID, query errors and unsupported platforms fail closed with a finite failure report, retained ownership and no replacement. A same-session joined helper is not a true fork descendant; test both, and do not force PID reuse on a shared host. Linux runtime evidence does not verify macOS/Windows or production sandbox resource enforcement.
 
+## A failed swap must not look like a new install
+
+`update.SwapProgram` recorded `Prev: ""` when copying the old program to `.prev` or putting the new build in place failed, and `Prev: ""` is how a swap says the program was new, so going back deleted a program the failed swap had never touched.
+A failing step reports what it actually changed: `copyFile` writes `.new` and renames, so a failed swap changed nothing (the zero `Swapped`, which `RestoreAll` skips) or only wrote `.prev` (putting that back is harmless).
+Don't add a `pending.json` field for it: older edges and watchdogs read the same file and know only `Prev == ""`.
+
+## Extension public identity is not storage or token authority (#1493)
+
+- An ID rename is not uninstall/reinstall: deleting the old row cascades secrets and node data. Keep the original storage primary key and directories, and commit public names, aliases, version and previous provenance atomically with compare-and-swap guards.
+- Source declarations reserve no names by themselves. Only an actual same-market, explicitly confirmed transition creates historical aliases. Validate the complete catalog graph, not a filtered list of declarations; a predecessor still present as a current entry is a collision even without a cycle.
+- Human compatibility lookup and program authentication differ. Resolve old owner-facing requests to the committed installation, but authenticate callbacks/tokens against exact public identity and current runtime generation. Internal model purposes and knowledge owners need the stable key too; do not fix only data and secrets.
+- Rollback keeps historical aliases; a successor alias is not a currently installed successor. Catalog presentation uses exact public IDs, while final conflict guards allow an alias only when it belongs to the same stable slot. Test the full rename → rollback → confirmed re-upgrade path, not just first migration.
+- Probe capabilities before sending identity-changing node messages. An old node can silently ignore extra fields and delete the absent old ID's data. New nodes retain slot/revision tombstones for stale messages, while authenticated fresh reinstall must establish its new binding rather than be permanently rejected.
+- Node identity revisions and installation generations must use Postgres timestamp precision before the first bind. Raw Go nanoseconds are truncated to microseconds on storage; after a reload, a node would reject that lower revision or mistake the installation time for a new generation. Normalize both fields and test before/after database precision, not only whole-second fixtures.
+- Persistent hook ownership must remain recognizable to the rollback binary. Stop and join the old process's heartbeat and cleanup before starting the replacement; a late cleanup can remove the new hook even when the database migration is correct.
+
 ## Mail account writes publish only committed candidates (#1302)
 
 Whole-account snapshots need one guard covering candidate capture, storage and publication across adds, OAuth
@@ -312,6 +328,12 @@ Splitting a registry at its first colon reads `[::1]:5000` as `[`, selecting HTT
 - Go `UnixListener.Close()` deletes the socket file by default: during redeploy, old node exit deleted the new node's `~/.persona/node.sock`,
   silently disabling every hook / MCP (unreachable hooks allow the TUI). Fixed with `SetUnlinkOnClose(false)` and a rebuild self-check every 15 seconds.
   Suspect inactive hooks / MCP? Run `personad node doctor` first (actual socket response, generated files matching the binary, command paths still present; `docs/integrations/claude-integration.md` ("Self-check")).
+- Whoever takes `node.sock` by remove-then-listen must take only what it checked (2026-11-08, #1556). Standby asked whether anything
+  answered (up to 1.3 s), then removed whatever file was at the path and listened: a node serving by itself that did its own
+  remove-then-listen in between lost its fresh socket file, kept listening on an unreachable one, and standby owned the path for good.
+  Standby also listened again in the same round it saw its file gone, beating that node's listen. `TestStandbyNeverTakesALiveSocket`
+  failed 6 of 100 runs with every CPU busy (a timeout, or the node's `bind` failing) and 0 of 300 after the fix: compare the
+  `os.Lstat` identity before asking and before removing, and let a path go for a round when the file changed under you.
 - macOS `lsof -p a,b,c` exits 1 if any pid has exited or is a zombie, but still prints other processes' results to stdout (2026-11-03, #541):
   a pid merely not listening doesn't count (exit 0). Short Agent commands often disappear between `ps` and `lsof`; discarding results as errors froze the port list and logged every 4 seconds.
   `lsof` complaints go only to stderr; parse stdout even on exit 1, and log the same error once.
@@ -727,6 +749,8 @@ home volume (docs/operations/link.md "Without systemd").
 - **Go nil slices become `null` in JS** (2026-11-05, #1926): list/clear with no cookies to import marshaled a nil slice as `const set = null`,
   and first-line `set.length` threw, breaking lists on every Mac. Real testing covered only import, while unit tests replaced `runEgo`, so this was missed.
   Script lists now always become empty slices first, and scripts guard against null `getAllCookies` results and null cookie fields; tests execute actual generated scripts with node (`TestCookieScriptTakesNullsFromEgo`).
+  The same on the wire (#1573): `proto.Question.Options` has no `omitempty`, so a Codex free-text question arrives as `"options": null`. iOS and Android decode it as empty;
+  the web typed it as a required array and `q.options.map` took the whole page down. A client type for a Go slice field without `omitempty` is optional (`?: T[] | null`), so the compiler finds every use.
 - **Don't show raw ego JS errors to users**: replace with "Can't read ego sign-ins on this Mac; tap Retry…"; original errors only in node logs (property names, no cookie values).
 
 ## New runtime packages must enter the hub image (2026-11-04, #1777)
@@ -1066,3 +1090,7 @@ Go's `http.Client` follows a 301, 302 or 303 as a GET for any method but GET and
 - A hub card snapshot can lag the manager's outcome. Resolve may return `200 already:true` for an earlier answer; a new notification choice must report `not_pending` rather than claim that its new selection took effect. A retry of the original operation instead replays its saved success receipt.
 - A dropped bus connection can wrap the offline error even after a request was sent. Notification choices use the send-aware forwarding path: only a definitely offline manager releases the receipt; a lost response keeps an unknown receipt so reconnecting cannot execute the same tap again.
 - Hub tests isolate `HOME` in `TestMain`. A subprocess such as the architecture guard's `go list -deps` can then lose the downloaded toolchain and module caches even though the parent `go test` compiled successfully. Before running tests with a downloaded `GOTOOLCHAIN`, export `GOPATH`, `GOMODCACHE` and `GOCACHE` from their original `go env` values; retain the isolated home rather than disabling it.
+
+## A source read newest first must not let an older entry replace a newer one
+
+A connector that folds several notifications into one thread (GitHub CI failures per repository and branch) read them newest first and let each replace the thread's thing, so the oldest one read won. It went unseen while the in-memory `seen` set skipped notifications already read; after every restart the whole unread backlog was read again, a few per poll, and the open item's time walked back by hours while its count rose once per step (#1527). Keep the newest per key by comparing times, never by reading order, and have the consumer ignore a step older than what it holds: a restart, a retry or a second page can each hand it an earlier one. Test it with a backlog larger than one poll's budget, read after a restart.

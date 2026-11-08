@@ -37,7 +37,7 @@ struct ReadinessCard: View {
     private var plain: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-                Image(systemName: tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error)
+                ThemedIcon(tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(color)
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -51,7 +51,7 @@ struct ReadinessCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let dismiss {
                     Button(action: dismiss) {
-                        Image(systemName: Theme.Icon.close).font(Theme.Font.label).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.close).font(Theme.Font.label).foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(Text("Later [Readiness Card 9d2055]"))
@@ -124,7 +124,7 @@ struct ReadinessCard: View {
         BUIListSection {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 BUIListRow(title, detail: detail, detailLines: 4) {
-                    BUIIconTile(tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error, tint: color)
+                    IconTile(tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error, tint: color)
                 } trailing: {
                     if busy { BUISpinner() }
                     if let dismiss {

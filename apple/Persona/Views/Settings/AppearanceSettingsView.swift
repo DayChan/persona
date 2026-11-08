@@ -127,7 +127,7 @@ struct StyleSettingsPage: View {
                 Group {
                     if AppStyle.current.usesBeautifulUI {
                         BUIListRow(String(localized: "Text Size")) {
-                            BUIIconTile(Theme.Icon.textSize, tint: Theme.Hue.gray)
+                            IconTile(Theme.Icon.textSize, tint: Theme.Hue.gray)
                         } trailing: {
                             BUISegmented(TextSize.allCases.map { .init($0, $0.title) },
                                          selection: Binding(get: { model.textSize }, set: { model.textSize = $0 }))
@@ -214,7 +214,7 @@ struct ColorSchemeSettingsPage: View {
             Section {
                 Picker("Light & Dark", selection: Binding(get: { model.colorScheme }, set: { model.colorScheme = $0 })) {
                     ForEach(ColorSchemeChoice.allCases) { c in
-                        Label { Text(c.title).lineLimit(1) } icon: { Image(systemName: c.symbol) }
+                        Label { Text(c.title).lineLimit(1) } icon: { ThemedIcon(c.symbol) }
                             .tag(c)
                             .accessibilityIdentifier("scheme-\(c.rawValue)")
                     }

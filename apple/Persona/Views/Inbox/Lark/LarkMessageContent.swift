@@ -262,7 +262,7 @@ nonisolated enum LarkPartRenderer {
         case "docs":
             var s = style
             s.link = p.url.flatMap(safeURL)
-            return [.symbol("doc.text", LarkColor.blue), .text(" " + (p.text ?? String(localized: "Document")), s)]
+            return [.symbol(Theme.Icon.document, LarkColor.blue), .text(" " + (p.text ?? String(localized: "Document")), s)]
         case "emotion":
             let key = p.refId ?? p.text ?? ""
             let label = LarkMedia.labelFallback(key, text: p.text)
@@ -457,19 +457,8 @@ struct LarkFileCard: View {
     }
 
     static func badge(_ ext: String) -> some View {
-        let (symbol, color): (String, Color) = switch ext.lowercased() {
-        case "pdf": ("doc.richtext.fill", .red)
-        case "doc", "docx", "pages", "txt", "md", "rtf": ("doc.text.fill", LarkColor.blue)
-        case "xls", "xlsx", "csv", "numbers": ("tablecells.fill", .green)
-        case "ppt", "pptx", "key": ("rectangle.on.rectangle.angled.fill", .orange)
-        case "zip", "rar", "7z", "gz", "tar", "tgz": ("doc.zipper", .brown)
-        case "png", "jpg", "jpeg", "gif", "heic", "webp": ("photo.fill", .teal)
-        case "mp4", "mov", "m4v", "avi", "mkv": ("film.fill", .purple)
-        case "mp3", "m4a", "wav", "aac", "opus": ("waveform", .pink)
-        case "apk", "ipa", "dmg", "exe", "pkg": ("shippingbox.fill", .indigo)
-        case "go", "py", "js", "ts", "swift", "json", "yaml", "yml", "sh", "java", "kt", "rs", "c", "cpp", "h", "html", "htm", "css", "xml", "sql": ("chevron.left.forwardslash.chevron.right", .gray)
-        default: ("doc.fill", .gray)
-        }
+        let kind = FeishuDocsFileKind.symbol(ext: ext, title: "")
+        let (symbol, color) = (kind.symbol, LarkColor.hue(kind.hue))
         return Image(systemName: symbol)
             .font(.system(size: 20)) // type-scale: glyph (in a 42 pt tile)
             .foregroundStyle(.white)

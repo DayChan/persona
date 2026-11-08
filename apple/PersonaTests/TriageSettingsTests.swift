@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Persona
 
@@ -101,5 +102,25 @@ import Testing
         let m = TriageSettingsModel(deps: .init(load: { throw CancellationError() }, save: { $0 }))
         await m.load()
         #expect(m.switches == nil && m.error == nil && !m.unsupported)
+    }
+
+    /// Each switch's example (#1413): with the triage off a stopped agent is Unread; on, it says what it waits for;
+    /// its decision is a question card; the reminder is worded as the hub's push.
+    @Test func theExamplesShowWhatEachSwitchChanges() throws {
+        let off = try #require(TriageExample.unread("x", title: "修登录测试"))
+        #expect(off.state == .unread && off.workLine() == nil && off.stateLabel(muted: false) == "完成未看")
+        let on = try #require(TriageExample.triaged())
+        #expect(on.workLine() == "在等 CI")
+        let card = TriageExample.decision()
+        #expect(card.kind == .question && card.questions?.first?.options.map(\.label) == ["推送", "先不"])
+        #expect(TriageExample.reminderTitle == "清理旧分支 还在等你回复")
+        #expect(TriageExample.continueSteps.count == 3 && TriageExample.wakeSteps.count == 3)
+    }
+
+    /// The example's type stays two steps under the reader's size, and never under the smallest.
+    @Test func examplesAreTwoTextSizesSmaller() {
+        #expect(ExampleFrame<EmptyView>.smaller(.large) == .small)
+        #expect(ExampleFrame<EmptyView>.smaller(.xSmall) == .xSmall)
+        #expect(ExampleFrame<EmptyView>.smaller(.accessibility1) == .xxLarge)
     }
 }

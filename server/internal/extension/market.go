@@ -152,6 +152,7 @@ func (ix *MarketIndex) UnmarshalJSON(data []byte) error {
 // MarketEntry is one plugin of a market: its manifest (so the permissions are known before downloading) and its
 // packages.
 type MarketEntry struct {
+	Replaces string          `json:"replaces,omitempty"`
 	Manifest json.RawMessage `json:"manifest"`
 	Tags     []string        `json:"tags,omitempty"`
 	Packages []MarketPackage `json:"packages"`
@@ -199,6 +200,18 @@ func ParseIndex(data []byte) (*MarketIndex, []string, error) {
 	if len(ix.Extensions) > IndexExtensionsMost {
 		return nil, nil, fmt.Errorf("索引里多于 %d 个扩展", IndexExtensionsMost)
 	}
+	// Identity declarations are never silently dropped or resolved first-entry-wins.
+	declaredTargets := map[string]bool{}
+	for _, e := range ix.Extensions {
+		if e.Replaces == "" {
+			continue
+		}
+		m, err := Parse(e.Manifest)
+		if err != nil || declaredTargets[m.ID] || !ValidID(e.Replaces) || e.Replaces == m.ID {
+			return nil, nil, ErrIdentity
+		}
+		declaredTargets[m.ID] = true
+	}
 	var warnings []string
 	seen := map[string]bool{}
 	kept := ix.Extensions[:0]
@@ -216,6 +229,9 @@ func ParseIndex(data []byte) (*MarketIndex, []string, error) {
 		}
 	}
 	ix.Extensions = kept
+	if err := ValidateReplacements(ix.Extensions); err != nil {
+		return nil, warnings, err
+	}
 	return &ix, warnings, nil
 }
 
@@ -226,6 +242,9 @@ func (e *MarketEntry) check() (*Manifest, error) {
 	m, err := Parse(e.Manifest)
 	if err != nil {
 		return nil, err
+	}
+	if e.Replaces != "" && (!ValidID(e.Replaces) || e.Replaces == m.ID) {
+		return nil, ErrIdentity
 	}
 	// An entry without tags of its own shows the manifest's (an index written from the source manifest as it is).
 	if len(e.Tags) == 0 {

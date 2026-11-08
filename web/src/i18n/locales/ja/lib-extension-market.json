@@ -21,5 +21,10 @@
   "agree_upgrade_more": "許可して更新",
   "upgrade": "更新",
   "agree_install": "許可してインストール",
-  "official_name": "公式拡張機能"
+  "official_name": "公式拡張機能",
+  "rename_title": "拡張機能の識別子変更",
+  "rename_detail": "{from} を {to} に変更して更新します。保存済みの設定、シークレット、データは元の保存先に残ります。新しい権限がなくても、この変更には明示的な確認が必要です。",
+  "rename_from": "現在の ID",
+  "rename_to": "新しい ID",
+  "agree_rename": "変更を確認"
 }

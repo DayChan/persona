@@ -130,23 +130,23 @@ struct AgentsListMenu: View {
     @ViewBuilder private func label(_ chosen: MachineChoice?, hub: String?) -> some View {
             if let m = chosen {
                 HStack(spacing: Theme.Space.sm) {
-                    Image(systemName: m.symbol)
+                    ThemedIcon(m.symbol)
                     Text(m.name).lineLimit(1)
-                    Image(systemName: Theme.Icon.expand).font(Theme.Font.labelHeavy)
+                    ThemedIcon(Theme.Icon.expand).font(Theme.Font.labelHeavy)
                 }
                 .font(Theme.Font.secondaryStrong)
                 .fixedSize()
             } else if let hub {
                 // One group of hubs shown (several groups): its name in the corner, like a machine's.
                 HStack(spacing: Theme.Space.sm) {
-                    Image(systemName: Theme.Icon.hubGroup)
+                    ThemedIcon(Theme.Icon.hubGroup)
                     Text(hub).lineLimit(1)
-                    Image(systemName: Theme.Icon.expand).font(Theme.Font.labelHeavy)
+                    ThemedIcon(Theme.Icon.expand).font(Theme.Font.labelHeavy)
                 }
                 .font(Theme.Font.secondaryStrong)
                 .fixedSize()
             } else {
-                Image(systemName: shownGrouping == .standard ? "line.3.horizontal.decrease" : shownGrouping.symbol)
+                ThemedIcon(shownGrouping == .standard ? "line.3.horizontal.decrease" : shownGrouping.symbol)
             }
     }
 }
@@ -351,9 +351,9 @@ struct AgentsGroupingMenu: View {
             }
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                Image(systemName: shown.symbol)
+                ThemedIcon(shown.symbol)
                 Text(shown.title)
-                Image(systemName: Theme.Icon.choices).font(Theme.Font.label)
+                ThemedIcon(Theme.Icon.choices).font(Theme.Font.label)
             }
             .agentsPill()
         }
@@ -376,9 +376,9 @@ struct AgentsPersonalPill: View {
             open()
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                Image(systemName: Theme.Icon.personalAgents)
+                ThemedIcon(Theme.Icon.personalAgents)
                 Text("Personal Agents")
-                Image(systemName: Theme.Icon.forward).font(Theme.Font.label)
+                ThemedIcon(Theme.Icon.forward).font(Theme.Font.label)
             }
             .agentsPill()
         }

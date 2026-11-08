@@ -75,7 +75,7 @@ func (ps *extensions) keepNodeState(id, version, machine string, st proto.Plugin
 	pn := &ps.nodes
 	pn.mu.Lock()
 	defer pn.mu.Unlock()
-	if !ps.installedAt(id, version) {
+	if !ps.installedAt(id, version) || !ps.nodeIdentityCurrent(id, st.Revision) {
 		return
 	}
 	pn.set(id, machine, st)
@@ -84,7 +84,7 @@ func (ps *extensions) keepNodeState(id, version, machine string, st proto.Plugin
 // installedAt says whether extension id is installed, in version unless that is "". Asked with nodes.mu held: the
 // registry never takes that lock.
 func (ps *extensions) installedAt(id, version string) bool {
-	p := ps.reg.Get(id)
+	p := ps.reg.GetExact(id)
 	return p != nil && (version == "" || p.Record.Version == version)
 }
 
@@ -309,6 +309,79 @@ func (ps *extensions) nodeInit(ctx context.Context, p *extension.Extension) (jso
 	return json.Marshal(params)
 }
 
+// Identity timestamps must match Postgres's microsecond precision before the
+// first node bind, or a database reload appears to move the revision backwards.
+func extensionIdentityTimestamp(stamp time.Time) int64 {
+	return stamp.Truncate(time.Microsecond).UnixNano()
+}
+
+func extensionNodeRevision(p *extension.Extension) int64 {
+	if p.Record.StorageID == "" {
+		return 0
+	}
+	return extensionIdentityTimestamp(p.Record.UpdatedAt)
+}
+
+func extensionNodeIdentity(p *extension.Extension) proto.PluginNodeIdentity {
+	return proto.PluginNodeIdentity{ID: p.Record.ID, StorageID: p.Record.StorageKey(), Revision: extensionNodeRevision(p), InstalledAt: extensionIdentityTimestamp(p.Record.InstalledAt)}
+}
+
+func (ps *extensions) nodeIdentityCurrent(id string, revision int64) bool {
+	p := ps.reg.GetExact(id)
+	return p != nil && (extensionNodeRevision(p) == revision || p.Record.StorageID == "" && revision == extensionIdentityTimestamp(p.Record.UpdatedAt))
+}
+
+// checkRenameNodeCapabilities runs before the source guard takes its market lock.
+// A configured legacy/offline node must not leave the old run active after the
+// public identity commits, or require a destructive old-wire sync to retire it.
+func (h *Manager) checkRenameNodeCapabilities(ctx context.Context, p *extension.Extension) error {
+	if p == nil {
+		return i18n.Err("extension-identity.invalid")
+	}
+	if !p.Record.Enabled || p.Manifest.NodeProgram() == nil {
+		return nil
+	}
+	for _, id := range h.extensions.nodeMachines(p) {
+		m := h.machineByID(id)
+		if m == nil || !m.isOnline() {
+			return i18n.Err("extension-identity.node_required")
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		var capability proto.PluginNodeIdentityReply
+		err := m.call(probeCtx, "plugin.node.identity", proto.PluginNodeIdentityRequest{}, &capability)
+		cancel()
+		if err != nil || !capability.Supported {
+			return i18n.Err("extension-identity.node_required")
+		}
+	}
+	return nil
+}
+
+func commitNodeIdentities(ctx context.Context, m *Machine, slots []proto.PluginNodeIdentity) error {
+	var supported proto.PluginNodeIdentityReply
+	if err := m.call(ctx, "plugin.node.identity", proto.PluginNodeIdentityRequest{}, &supported); err != nil {
+		return err
+	}
+	if !supported.Supported {
+		return errors.New("node does not support extension identity slots")
+	}
+	return m.call(ctx, "plugin.node.identity", proto.PluginNodeIdentityRequest{Slots: slots}, &supported)
+}
+
+func (ps *extensions) nodeSnapshotCurrent(all []*extension.Extension) bool {
+	current := ps.reg.List()
+	if len(current) != len(all) {
+		return false
+	}
+	for _, p := range all {
+		cur := ps.reg.SnapshotExact(p.Record.ID)
+		if cur == nil || cur.Record.Version != p.Record.Version || cur.Record.StorageKey() != p.Record.StorageKey() || !cur.Record.UpdatedAt.Equal(p.Record.UpdatedAt) || !cur.Record.InstalledAt.Equal(p.Record.InstalledAt) {
+			return false
+		}
+	}
+	return true
+}
+
 // syncExtensionNodes makes m run what it should of plugins' programs, and nothing else.
 func (h *Manager) syncExtensionNodes(ctx context.Context, m *Machine) {
 	ps := h.extensions
@@ -322,11 +395,46 @@ func (h *Manager) syncExtensionNodes(ctx context.Context, m *Machine) {
 	defer cancel()
 	var programs []proto.PluginNodeProgram
 	var installed []string
+	var slots []proto.PluginNodeIdentity
 	all := ps.reg.List()
-	for _, p := range all {
-		installed = append(installed, p.Record.ID)
-	}
 	online := m.isOnline()
+	var capability proto.PluginNodeIdentityReply
+	if online {
+		if err := m.call(ctx, "plugin.node.identity", proto.PluginNodeIdentityRequest{}, &capability); err != nil && !nodeOutdated(err) {
+			return
+		}
+	}
+	identityAware := capability.Supported
+	syncRevision := capability.Revision
+	for i, p := range all {
+		if capability.Supported && p.Record.Source == extension.SourceInstalled && p.Record.StorageID == "" && slices.ContainsFunc(capability.Slots, func(slot proto.PluginNodeIdentity) bool {
+			return slot.ID == p.Record.ID || slot.StorageID == p.Record.StorageKey()
+		}) {
+			// Fresh reinstall after a previous rename: only the capable node needs a new generation binding.
+			// Never mutate the registry or send these fields to a legacy node.
+			copy := *p
+			copy.Record.StorageID = p.Record.StorageKey()
+			p, all[i] = &copy, &copy
+		}
+		installed = append(installed, p.Record.StorageKey())
+		if p.Record.StorageID != "" {
+			slots = append(slots, extensionNodeIdentity(p))
+			syncRevision = max(syncRevision, extensionNodeRevision(p))
+		}
+	}
+	if !ps.nodeSnapshotCurrent(all) {
+		return
+	}
+	if online && len(slots) > 0 {
+		if err := commitNodeIdentities(ctx, m, slots); err != nil {
+			for _, p := range all {
+				if p.Record.StorageID != "" {
+					ps.keepNodeState(p.Record.ID, p.Record.Version, m.cfg.ID, proto.PluginNodeState{ID: p.Record.ID, Version: p.Record.Version, Revision: extensionNodeRevision(p), State: extensionNodeOutdated, Error: i18n.T(h.contextLang(ctx), "extension-identity.node_required")})
+				}
+			}
+			return // Never send a destructive old-node sync or create a second data directory.
+		}
+	}
 	for _, p := range all {
 		if p.Manifest.NodeProgram() == nil { // none, or built in (no package to keep there)
 			continue
@@ -341,8 +449,11 @@ func (h *Manager) syncExtensionNodes(ctx context.Context, m *Machine) {
 	if programs == nil {
 		programs = []proto.PluginNodeProgram{}
 	}
+	if !ps.nodeSnapshotCurrent(all) {
+		return
+	}
 	var states proto.PluginNodeStates
-	if err := m.call(ctx, "plugin.node.sync", proto.PluginNodeSync{Programs: programs, Installed: installed}, &states); err != nil &&
+	if err := m.call(ctx, "plugin.node.sync", proto.PluginNodeSync{Revision: syncRevision, Programs: programs, Installed: installed, InstalledSlots: slots, Identity: identityAware}, &states); err != nil &&
 		!nodeOutdated(err) {
 		h.logf("[%s] plugins' programs: %v", m.cfg.ID, err)
 	}
@@ -359,7 +470,7 @@ func (h *Manager) syncExtensionNode(ctx context.Context, p *extension.Extension,
 		return nil
 	}
 	if !online {
-		ps.keepNodeState(id, p.Record.Version, m.cfg.ID, proto.PluginNodeState{ID: id, Version: p.Record.Version, State: extensionNodeOffline})
+		ps.keepNodeState(id, p.Record.Version, m.cfg.ID, proto.PluginNodeState{ID: id, Version: p.Record.Version, Revision: extensionNodeRevision(p), State: extensionNodeOffline})
 		return nil
 	}
 	st, prog := h.startExtensionNode(ctx, p, m)
@@ -372,7 +483,13 @@ func (h *Manager) syncExtensionNode(ctx context.Context, p *extension.Extension,
 func (h *Manager) startExtensionNode(ctx context.Context, p *extension.Extension, m *Machine) (proto.PluginNodeState, *proto.PluginNodeProgram) {
 	ps := h.extensions
 	id := p.Record.ID
-	st := proto.PluginNodeState{ID: id, Version: p.Record.Version}
+	st := proto.PluginNodeState{ID: id, Version: p.Record.Version, Revision: extensionNodeRevision(p)}
+	if p.Record.StorageID != "" {
+		if err := commitNodeIdentities(ctx, m, []proto.PluginNodeIdentity{extensionNodeIdentity(p)}); err != nil {
+			st.State, st.Error = extensionNodeOutdated, i18n.T(h.contextLang(ctx), "extension-identity.node_required")
+			return st, nil
+		}
+	}
 	m.mu.Lock()
 	platform := strings.ToLower(m.info.OS + "-" + m.info.Arch)
 	m.mu.Unlock()
@@ -391,7 +508,7 @@ func (h *Manager) startExtensionNode(ctx context.Context, p *extension.Extension
 	if err != nil {
 		return fail(err)
 	}
-	prog := proto.PluginNodeProgram{ID: id, Version: p.Record.Version, Digest: pkg.digest}
+	prog := proto.PluginNodeProgram{ID: id, Version: p.Record.Version, Digest: pkg.digest, StorageID: p.Record.StorageID, Revision: extensionNodeRevision(p)}
 	if err := putNodePackage(ctx, m, prog, pkg); err != nil {
 		return fail(err)
 	}
@@ -399,13 +516,16 @@ func (h *Manager) startExtensionNode(ctx context.Context, p *extension.Extension
 	if err != nil {
 		return fail(err)
 	}
+	if current := ps.reg.SnapshotExact(id); current == nil || current.Record.Version != p.Record.Version || !current.Record.UpdatedAt.Equal(p.Record.UpdatedAt) {
+		return fail(errNodeVersionGone)
+	}
 	n := p.Manifest.Node
 	cmd, _ := n.Command.For(platform)
 	keep := n.KeepRunning
 	if keep == "" {
 		keep = extension.KeepLease
 	}
-	start := proto.PluginNodeStart{ID: id, Name: p.Manifest.Name, Version: p.Record.Version, Command: cmd, Args: n.Args, Env: n.Env,
+	start := proto.PluginNodeStart{ID: id, StorageID: p.Record.StorageID, Revision: extensionNodeRevision(p), Name: p.Manifest.Name, Version: p.Record.Version, Command: cmd, Args: n.Args, Env: n.Env,
 		RPC: n.SpeaksRPC(), HTTP: n.HTTP, Keep: keep, LeaseSeconds: int(extensionLease / time.Second), Init: init}
 	if err := m.call(ctx, "plugin.node.start", start, &st); err != nil {
 		st.Version = p.Record.Version
@@ -479,11 +599,14 @@ func (h *Manager) extensionNodeEvent(m *Machine, event string, params json.RawMe
 		var st proto.PluginNodeState
 		// A late word from a machine of a plugin that is gone (its "stopped" after the uninstall) is not kept.
 		if json.Unmarshal(params, &st) == nil && st.ID != "" && h.extensions.reg != nil {
-			h.extensions.keepNodeState(st.ID, "", m.cfg.ID, st)
+			h.extensions.keepNodeState(st.ID, st.Version, m.cfg.ID, st)
 		}
 	case "plugin.node.event":
 		var e proto.PluginNodeEvent
 		if json.Unmarshal(params, &e) != nil || e.ID == "" {
+			return
+		}
+		if !h.extensions.nodeIdentityCurrent(e.ID, e.Revision) {
 			return
 		}
 		if hp := h.extensions.get(e.ID); hp != nil && hp.proc != nil && hp.proc.Spec().RPC {
@@ -503,7 +626,7 @@ func (h *Manager) nodesCall(ctx context.Context, id string, params json.RawMessa
 	if err := json.Unmarshal(params, &p); err != nil || p.Machine == "" || p.Method == "" {
 		return nil, &rpc.Error{Code: extension.CodeUnsupported, Message: "nodes.call: machine and method"}
 	}
-	pl := h.extensions.reg.Get(id)
+	pl := h.extensions.reg.GetExact(id)
 	if pl == nil || pl.Manifest.NodeProgram() == nil {
 		return nil, &rpc.Error{Code: extension.CodePermissionDenied, Message: "nodes.call: the plugin has no program on computers"}
 	}
@@ -530,6 +653,7 @@ func (h *Manager) serveNodeExtensionHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id, mid := r.PathValue("id"), r.PathValue("mid")
+	requestedID := id
 	var p *extension.Extension
 	if h.extensions != nil {
 		p = h.extensions.reg.Get(id)
@@ -543,7 +667,8 @@ func (h *Manager) serveNodeExtensionHTTP(w http.ResponseWriter, r *http.Request)
 		writeErrCode(w, http.StatusConflict, extensionNodeOffline, i18n.Err("hub-extension_nodes.offline", i18n.Args{"name": m.cfg.Name}))
 		return
 	}
-	prefix := "/api/v1/extensions/" + id + "/-/machines/" + mid
+	id = p.Record.ID // Owner aliases route to the exact current node program.
+	prefix := "/api/v1/extensions/" + requestedID + "/-/machines/" + mid
 	dial := func(ctx context.Context, _, _ string) (net.Conn, error) { return dialNodeExtension(ctx, m, id) }
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {

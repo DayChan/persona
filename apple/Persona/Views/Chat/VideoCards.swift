@@ -35,7 +35,7 @@ struct AttachedVideoCard: View {
                     if received != nil {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: Theme.Icon.run).font(Theme.Font.heading).foregroundStyle(Theme.accent)
+                        ThemedIcon(Theme.Icon.run).font(Theme.Font.heading).foregroundStyle(Theme.accent)
                     }
                 }
                 .scaledFrame(width: Theme.Size.avatarL, height: Theme.Size.avatarL)

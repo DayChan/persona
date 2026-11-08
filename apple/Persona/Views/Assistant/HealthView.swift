@@ -116,7 +116,7 @@ struct HealthView: View {
                 Section {
                     Button { showReports = true } label: {
                         Label { Text("Upload a Checkup Report").foregroundStyle(Theme.Hue.pink).lineLimit(1) } icon: {
-                            Image(systemName: Theme.Icon.document).foregroundStyle(Theme.Hue.pink)
+                            ThemedIcon(Theme.Icon.document).foregroundStyle(Theme.Hue.pink)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
@@ -127,7 +127,7 @@ struct HealthView: View {
                     ForEach(HealthModel.suggestions, id: \.self) { q in
                         Button { send(q, []) } label: {
                             Label { Text(q).foregroundStyle(Color.primary).lineLimit(1) } icon: {
-                                Image(systemName: Theme.Icon.ai).foregroundStyle(Theme.Hue.pink)
+                                ThemedIcon(Theme.Icon.ai).foregroundStyle(Theme.Hue.pink)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(.rect)
@@ -142,7 +142,7 @@ struct HealthView: View {
                 Section {
                     NavigationLink { HealthReportsView(machine: machine) } label: {
                         HStack {
-                            Label { Text("Checkup reports").lineLimit(1) } icon: { Image(systemName: Theme.Icon.document) }
+                            Label { Text("Checkup reports").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.document) }
                             Spacer(minLength: Theme.Space.s)
                             if let n = page.reportCount, n > 0 {
                                 Text("\(n) [Health View cb8680]").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(1)
@@ -167,7 +167,7 @@ struct HealthView: View {
                 Section {
                     NavigationLink { AssistantMemoryView(space: Session.healthSpace) } label: {
                         HStack {
-                            Label { Text("Health Memory").lineLimit(1) } icon: { Image(systemName: Theme.Icon.memory) }
+                            Label { Text("Health Memory").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.memory) }
                             Spacer(minLength: Theme.Space.s)
                             if let n = page.memoryCount, n > 0 {
                                 Text("\(n) items [Assistant Profile View 29b8db]").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(1)
@@ -187,7 +187,7 @@ struct HealthView: View {
                 }
                 Section {
                     VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        Label { Text("Privacy").font(Theme.Font.heading) } icon: { Image(systemName: Theme.Icon.privacy) }
+                        Label { Text("Privacy").font(Theme.Font.heading) } icon: { ThemedIcon(Theme.Icon.privacy) }
                         ForEach(Self.privacy, id: \.self) { line in
                             Text("· " + line).font(Theme.Font.secondary).foregroundStyle(.secondary)
                         }
@@ -215,7 +215,7 @@ struct HealthView: View {
 
     private var hero: some View {
         VStack(spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.healthFilled)
+            ThemedIcon(Theme.Icon.healthFilled)
                 .font(Theme.Font.title)
                 .foregroundStyle(Theme.Hue.pink)
                 .scaledFrame(width: Theme.Size.box56, height: Theme.Size.box56)
@@ -235,7 +235,7 @@ struct HealthView: View {
         let title = s.title.isEmpty || s.title == "Claude Code" ? String(localized: "New Chat [Quick Actions ea4b29]") : s.title
         return Button { model.openAssistantConversation(s.key) } label: {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: Theme.Icon.healthFilled)
+                ThemedIcon(Theme.Icon.healthFilled)
                     .font(Theme.Font.secondary)
                     .foregroundStyle(Theme.Hue.pink)
                     .scaledFrame(width: Theme.Size.well, height: Theme.Size.well)
@@ -275,7 +275,7 @@ struct HealthView: View {
                 Text(body).font(Theme.Font.secondary).foregroundStyle(.secondary)
             }
         } icon: {
-            Image(systemName: symbol).foregroundStyle(symbol == Theme.Icon.health ? Theme.Hue.pink : .secondary)
+            ThemedIcon(symbol).foregroundStyle(symbol == Theme.Icon.health ? Theme.Hue.pink : .secondary)
         }
     }
 }

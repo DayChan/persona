@@ -50,7 +50,7 @@ struct TodoDetailView: View {
                         Label("Delete To-Do", systemImage: Theme.Icon.delete)
                     }
                 } label: {
-                    Image(systemName: Theme.Icon.more)
+                    ThemedIcon(Theme.Icon.more)
                 }
             }
         }
@@ -359,7 +359,7 @@ struct TodoDetailView: View {
         } label: {
             HStack(alignment: .top, spacing: Theme.Space.m) {
                 if isFailed {
-                    Image(systemName: Theme.Icon.errorFilled)
+                    ThemedIcon(Theme.Icon.errorFilled)
                         .foregroundStyle(Theme.danger)
                         .font(Theme.Font.body)
                         .padding(.top, Theme.Space.xs)
@@ -401,7 +401,7 @@ struct TodoDetailView: View {
                         .foregroundStyle(isFailed ? Theme.danger : s?.state == .needsYou ? StatusPalette.needsYou.text : .secondary)
                         .lineLimit(2)
                 }
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.label)
                     .foregroundStyle(.tertiary)
                     .padding(.top, Theme.Space.xs)
@@ -446,7 +446,7 @@ struct TodoDetailView: View {
                 showHandoff = true
             } label: {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.handToAI)
+                    ThemedIcon(Theme.Icon.handToAI)
                     Text("Hand to Agent").lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .font(Theme.Font.heading)
@@ -459,7 +459,7 @@ struct TodoDetailView: View {
                 store.toggleDone(todo)
             } label: {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: todo.isDone ? Theme.Icon.undo : Theme.Icon.done)
+                    ThemedIcon(todo.isDone ? Theme.Icon.undo : Theme.Icon.done)
                     Text(todo.isDone ? String(localized: "Reopen") : String(localized: "Done [Extension System Presentation c0b3fb]")).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .font(Theme.Font.heading)

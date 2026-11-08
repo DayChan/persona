@@ -186,7 +186,7 @@ struct ExtensionItemRow: View {
                 ExtensionActionButton(action: b.action, title: b.title, destructive: b.role == "destructive", model: model, link: $link) {
                     HStack(spacing: Theme.Space.s) {
                         if model.selected(b.action.id) {
-                            Image(systemName: Theme.Icon.success).foregroundStyle(Theme.positive).accessibilityLabel("Selected [Extension Components 7ecf1c]")
+                            ThemedIcon(Theme.Icon.success).foregroundStyle(Theme.positive).accessibilityLabel("Selected [Extension Components 7ecf1c]")
                         }
                         Text(b.title).lineLimit(1).minimumScaleFactor(0.8)
                         if model.running == b.action.id { ProgressView().controlSize(.small) }
@@ -196,7 +196,7 @@ struct ExtensionItemRow: View {
         case .link(let l):
             if let url = URL(string: l.url), url.scheme == "https" {
                 Button { link = LinkTarget(url: url) } label: {
-                    Label { Text(l.title.isEmpty ? (url.host() ?? "") : l.title).lineLimit(1) } icon: { Image(systemName: Theme.Icon.link) }
+                    Label { Text(l.title.isEmpty ? (url.host() ?? "") : l.title).lineLimit(1) } icon: { ThemedIcon(Theme.Icon.link) }
                 }
                 .accessibilityIdentifier("plugin-ui-link")
             }

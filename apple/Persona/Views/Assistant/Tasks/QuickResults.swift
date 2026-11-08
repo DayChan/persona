@@ -77,7 +77,7 @@ struct QuickResultCard: View {
     var body: some View {
         let undone = store.undone.contains(result.callID)
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: result.kind == .reminder ? Theme.Icon.addedReminder : Theme.Icon.addedEvent)
+            ThemedIcon(result.kind == .reminder ? Theme.Icon.addedReminder : Theme.Icon.addedEvent)
                 .font(Theme.Font.secondaryStrong)
                 .foregroundStyle(result.kind == .reminder ? Theme.caution : Theme.accent)
                 .scaledFrame(width: Theme.Size.wellS, height: Theme.Size.wellS)

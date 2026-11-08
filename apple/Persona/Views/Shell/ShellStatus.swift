@@ -147,12 +147,13 @@ struct ShellWindowHooks: UIViewRepresentable {
 /// window of their own above the shell's: it takes no touches, so what is under a toast takes the tap (a toast over the
 /// top bar's switch took the tap meant for it, 2026-11-02), and it moves nothing (opening the status row for a toast
 /// pushed the pages and the drawer down and back, #1053). Under the link's pill while that shows; the keyboard is at
-/// the bottom, out of its way.
+/// the bottom, out of its way. The tabs (Old Layout, iPad) have one too, without the pill (`ToastWindowHook`).
 @MainActor final class ToastWindow {
     private(set) weak var over: UIWindow?
     private var window: UIWindow?
 
-    init(over shell: UIWindow, notices: ShellNotices) {
+    /// `notices`: the hub's link to float above the toast (the shell's); nil for none.
+    init(over shell: UIWindow, notices: ShellNotices?) {
         over = shell
         guard let scene = shell.windowScene else { return }
         let w = PassThrough(windowScene: scene)
@@ -189,26 +190,56 @@ struct ShellWindowHooks: UIViewRepresentable {
     }
 }
 
+/// A toast window (`ToastWindow`, no link pill) over the window this view is in, for the tabs (Old Layout, iPad, iPhone
+/// Duo open; `RootView`). In `RootView`'s overlay their toasts were drawn under every cover and sheet: Saved to Photos
+/// from the image viewer and the share card never showed (#1492).
+struct ToastWindowHook: UIViewRepresentable {
+    func makeUIView(context: Context) -> Host {
+        let v = Host()
+        v.isUserInteractionEnabled = false
+        v.isAccessibilityElement = false
+        return v
+    }
+
+    func updateUIView(_ v: Host, context: Context) {}
+
+    static func dismantleUIView(_ v: Host, coordinator: ()) {
+        v.toasts?.close()
+    }
+
+    final class Host: UIView {
+        private(set) var toasts: ToastWindow?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Out of its window while a full-screen cover is up: the toast window stays, it is there for that.
+            guard let window, toasts?.over !== window else { return }
+            toasts?.close()
+            toasts = ToastWindow(over: window, notices: nil)
+        }
+    }
+}
+
 /// The toast window's content: the hub's link (when it is not reached) and the app's toast just below the top bars, in
 /// the app's text size and look. Right under the status bar it lay on the switch (Assistant / Agents unreadable while it
 /// showed) and on the drawer's title and search.
 private struct ToastWindowRoot: View {
     @Environment(\.dynamicTypeSize) private var systemTypeSize
     let model: AppModel
-    let notices: ShellNotices
+    let notices: ShellNotices?
     let onActionFrame: (CGRect) -> Void
 
     var body: some View {
         let size = model.textSize.applied(to: systemTypeSize)
         VStack(spacing: Theme.Space.s) {
-            if let phase = notices.pill {
+            if let phase = notices?.pill {
                 ShellLinkPill(phase: phase)
                     .accessibilityIdentifier("shell-connection")
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
             ToastOverlay(tapToDismiss: false, onActionFrame: onActionFrame)
         }
-            .animation(Theme.Motion.standard, value: notices.pill)
+            .animation(Theme.Motion.standard, value: notices?.pill)
             .padding(.top, ShellNavigationClearance.needed(at: size))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .environment(model)

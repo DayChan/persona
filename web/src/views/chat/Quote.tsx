@@ -11,7 +11,7 @@ import { plainMarkdown } from "../../lib/plain-markdown";
 import { cx, EASE } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { Markdown } from "../../ui/Markdown";
-import { CommentBlock, CommentCard } from "./CommentCard";
+import { CommentBlock, goToComment, CommentCard } from "./CommentCard";
 import { t } from "../../i18n";
 
 /** "Quoting Persona · 16:45" / "Quoting task "…" · 16:45": who said it, or which task, and when, as far as is known. */
@@ -80,7 +80,11 @@ export function QuoteStack({ blocks, mid, sid }: { blocks: readonly string[]; mi
         const spot = q.comment.spot;
         const cwd = mid && sid ? getSession(mid, sid)?.cwd : undefined;
         // the path the agent read is relative to the session's folder; with the folder known it opens again
-        const open = spot && mid && cwd ? () => openSpot({ ...spot, mid, sid, cwd, path: spot.diff || spot.file.startsWith("/") ? spot.path : `${cwd.replace(/\/+$/, "")}/${spot.file}` }) : undefined;
+        let open = spot && mid && cwd ? () => openSpot({ ...spot, mid, sid, cwd, path: spot.diff || spot.file.startsWith("/") ? spot.path : `${cwd.replace(/\/+$/, "")}/${spot.file}` }) : undefined;
+        // an element of a preview: that session's preview, at the page it was on (the port is the page's)
+        const el = q.comment.element;
+        const port = el ? Number(new URL(el.url, "http://localhost").port) : 0;
+        if (el && mid && sid && cwd && port) open = () => goToComment({ ...q, comment: { ...q.comment!, element: { ...el, mid, sid, cwd, port } } });
         return <CommentBlock key={i} quote={q} n={++n} open={open} />;
       })}
     </>

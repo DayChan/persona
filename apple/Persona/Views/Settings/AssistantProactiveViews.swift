@@ -137,13 +137,13 @@ enum AssistantScheduleText {
         let t = r.title // matched against the Chinese titles of the templates and of what Persona creates
         if t.contains("早") { return "sun.horizon" } // i18n-ignore
         if t.contains("晚") || t.contains("回顾") { return "moon.stars" } // i18n-ignore
-        if t.contains("周报") || t.contains("报告") { return "doc.text" } // i18n-ignore
-        if t.contains("会") { return "person.2" } // i18n-ignore
+        if t.contains("周报") || t.contains("报告") { return Theme.Icon.document } // i18n-ignore
+        if t.contains("会") { return Theme.Icon.meeting } // i18n-ignore
         if t.contains("盘点") || t.contains("待办") { return "checklist" } // i18n-ignore
         if t.contains("巡检") || t.contains("检查") { return "binoculars" } // i18n-ignore
         return switch r.repeats {
-        case .once: "arrow.turn.down.right"
-        case .interval: "arrow.triangle.2.circlepath"
+        case .once: Theme.Icon.followOn
+        case .interval: Theme.Icon.inProgress
         case .daily: "alarm"
         }
     }
@@ -251,7 +251,7 @@ struct AssistantRoutinesView: View {
                     }
                     Button { creating = AssistantRoutineTemplate.blank } label: { Label("Blank", systemImage: Theme.Icon.compose) }
                 } label: {
-                    Image(systemName: Theme.Icon.add)
+                    ThemedIcon(Theme.Icon.add)
                 }
                 .accessibilityLabel("New Scheduled Task")
             }
@@ -354,7 +354,7 @@ struct AssistantTaskRow: View {
                            Haptics.tap()
                            open()
                        }) {
-            BUIIconTile(AssistantScheduleText.symbol(t), tint: with?.danger == true ? Theme.danger : t.enabled ? Theme.accent : Theme.Hue.gray, size: 24)
+            IconTile(AssistantScheduleText.symbol(t), tint: with?.danger == true ? Theme.danger : t.enabled ? Theme.accent : Theme.Hue.gray)
         } trailing: {
             Toggle(AssistantScheduleText.title(t), isOn: Binding(get: { t.enabled }, set: toggle))
                 .labelsHidden()
@@ -370,7 +370,7 @@ struct AssistantTaskRow: View {
     @ViewBuilder private var plain: some View {
         let t = task
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: AssistantScheduleText.symbol(t))
+            ThemedIcon(AssistantScheduleText.symbol(t))
                 .font(Theme.Font.heading)
                 .foregroundStyle(.white)
                 .scaledFrame(width: Theme.Size.wellM, height: Theme.Size.wellM)
@@ -450,7 +450,7 @@ struct AssistantRoutineTemplate: Identifiable {
         .init(routine: .init(title: String(localized: "Meeting Prep"),
                              prompt: "看看今天飞书日历和 iPhone 日历里的会。对每个需要准备的会，用 schedule_followup 在会前 10 分钟" + // i18n-ignore: prompt for the assistant (docs/protocol/i18n.md: prompts stay Chinese)
                              "安排一次会前准备：相关文档、上次的会议纪要、还没定的事、我该说的要点。今天没有要准备的会就简单说一声。", // i18n-ignore
-                             time: "08:45", weekdays: AssistantScheduleText.workdays), symbol: "person.2.badge.gearshape"),
+                             time: "08:45", weekdays: AssistantScheduleText.workdays), symbol: Theme.Icon.meeting),
         .init(routine: .init(title: String(localized: "Weekly Report"),
                              prompt: "帮我起草这周的周报：从飞书日历、会议纪要、文档和消息里整理这周做了什么、进展和结果、" + // i18n-ignore
                              "遇到的问题、下周计划；各台电脑上的 Agent 这周完成的主要改动也算进去。先给我草稿，问我要不要改，不要直接发出去。", // i18n-ignore
@@ -636,7 +636,7 @@ struct AssistantTaskEditor: View {
                         HStack {
                             Label("Runs in the Same Chat", systemImage: Theme.Icon.conversation).lineLimit(1)
                             Spacer()
-                            Image(systemName: Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
+                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.caption).foregroundStyle(.tertiary)
                         }
                     }
                     .accessibilityIdentifier("task.ownConversation")
@@ -760,9 +760,9 @@ struct AssistantTaskEditor: View {
             LabeledContent {
                 Menu {
                     Picker("Permission Mode", selection: mode) {
-                        Label { Text("Default [Prompt Composer 844b8c]"); Text("As usual: asks before changing files or running commands") } icon: { Image(systemName: Theme.Icon.askFirst) }.tag("")
+                        Label { Text("Default [Prompt Composer 844b8c]"); Text("As usual: asks before changing files or running commands") } icon: { ThemedIcon(Theme.Icon.askFirst) }.tag("")
                         ForEach(SessionModes.permissionModes.filter { $0.id != "default" }) { o in
-                            Label { Text(o.title); Text(o.id == "bypassPermissions" ? String(localized: "Never asks; risky") : o.detail) } icon: { Image(systemName: o.symbol) }
+                            Label { Text(o.title); Text(o.id == "bypassPermissions" ? String(localized: "Never asks; risky") : o.detail) } icon: { ThemedIcon(o.symbol) }
                                 .tag(o.id)
                         }
                     }
@@ -770,7 +770,7 @@ struct AssistantTaskEditor: View {
                 } label: {
                     HStack(spacing: Theme.Space.xs) {
                         Text(SessionModes.modeLabel(draft.permissionMode) ?? String(localized: "Default [Prompt Composer 844b8c]")).lineLimit(1)
-                        Image(systemName: Theme.Icon.choices).font(Theme.Font.labelStrong).imageScale(.small)
+                        ThemedIcon(Theme.Icon.choices).font(Theme.Font.labelStrong).imageScale(.small)
                     }
                     .foregroundStyle(draft.permissionMode == "bypassPermissions" ? Theme.danger : Theme.accent)
                 }
@@ -1080,7 +1080,7 @@ struct AssistantMemoryView: View {
                     NavigationLink {
                         AssistantMemoryDetail(entry: AssistantMemoryEntry(index), title: String(localized: "Index"), space: page.space, onSaved: nil)
                     } label: {
-                        Label { Text("Index").foregroundStyle(Color.primary) } icon: { Image(systemName: Theme.Icon.list) }
+                        Label { Text("Index").foregroundStyle(Color.primary) } icon: { ThemedIcon(Theme.Icon.list) }
                     }
                 } footer: {
                     Text("MEMORY.md: the table of contents Persona keeps itself; it's updated when you delete a memory.")

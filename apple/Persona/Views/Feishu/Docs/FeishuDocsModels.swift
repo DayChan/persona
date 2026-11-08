@@ -117,17 +117,17 @@ nonisolated enum FeishuDocsKind: String, Sendable {
 
     var symbol: String {
         switch self {
-        case .folder: "folder.fill"
-        case .doc: "doc.text.fill"
-        case .sheet: "tablecells.fill"
-        case .bitable: "square.grid.3x2.fill"
-        case .mindnote: "point.3.connected.trianglepath.dotted"
-        case .file: "doc.fill"
-        case .slides: "play.rectangle.fill"
+        case .folder: Theme.Icon.folderFilled
+        case .doc: Theme.Icon.fileText
+        case .sheet: Theme.Icon.fileSheet
+        case .bitable: Theme.Icon.baseFilled
+        case .mindnote: Theme.Icon.connectors
+        case .file: Theme.Icon.fileOther
+        case .slides: Theme.Icon.fileSlides
         case .wiki: "books.vertical.fill"
         case .page: "rectangle.on.rectangle"
         case .whiteboard: "scribble.variable"
-        case .other: "doc.fill"
+        case .other: Theme.Icon.fileOther
         }
     }
 
@@ -148,22 +148,25 @@ nonisolated enum FeishuDocsKind: String, Sendable {
     }
 }
 
-/// A file's icon from its extension (pdf, zip, image…), as Feishu tells uploaded files apart.
+/// A file's icon from its extension (pdf, zip, image…), as Feishu tells uploaded files apart: one table for Feishu's
+/// files and Lark's attachments (docs/apple/icons.md). The hue is Feishu's palette name (`LarkColor.hue`).
 nonisolated enum FeishuDocsFileKind {
     static func symbol(ext: String?, title: String) -> (symbol: String, hue: String) {
         let e = (ext?.isEmpty == false ? ext! : (title.split(separator: ".").last.map(String.init) ?? "")).lowercased()
         switch e {
-        case "pdf": return ("doc.richtext.fill", "red")
-        case "zip", "rar", "7z", "tar", "gz", "bz2": return ("doc.zipper", "orange")
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "heic": return ("photo.fill", "turquoise")
-        case "mp3", "wav", "m4a", "flac", "ogg": return ("waveform", "violet")
-        case "mp4", "mov", "webm", "mkv", "avi": return ("film.fill", "carmine")
-        case "xls", "xlsx", "csv", "ods": return ("tablecells.fill", "green")
-        case "ppt", "pptx", "odp", "key": return ("play.rectangle.fill", "orange")
-        case "doc", "docx", "odt", "rtf", "pages": return ("doc.text.fill", "blue")
-        case "md", "txt", "json", "yaml", "yml", "js", "ts", "py", "go", "sh", "swift", "html", "css":
+        case "pdf": return (Theme.Icon.filePDF, "red")
+        case "zip", "rar", "7z", "tar", "gz", "tgz", "bz2": return (Theme.Icon.fileArchive, "orange")
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "heic": return (Theme.Icon.fileImage, "turquoise")
+        case "mp3", "wav", "m4a", "aac", "opus", "flac", "ogg": return (Theme.Icon.fileAudio, "violet")
+        case "mp4", "mov", "m4v", "webm", "mkv", "avi": return (Theme.Icon.fileVideo, "carmine")
+        case "xls", "xlsx", "csv", "ods", "numbers": return (Theme.Icon.fileSheet, "green")
+        case "ppt", "pptx", "odp", "key": return (Theme.Icon.fileSlides, "orange")
+        case "doc", "docx", "odt", "rtf", "pages": return (Theme.Icon.fileText, "blue")
+        case "apk", "ipa", "dmg", "exe", "pkg": return (Theme.Icon.fileApp, "indigo")
+        case "md", "txt", "json", "yaml", "yml", "js", "ts", "py", "go", "sh", "swift", "java", "kt", "rs", "c", "cpp", "h", "html",
+             "htm", "css", "xml", "sql":
             return (Theme.Icon.code, "indigo")
-        default: return ("doc.fill", "grey")
+        default: return (Theme.Icon.fileOther, "grey")
         }
     }
 }

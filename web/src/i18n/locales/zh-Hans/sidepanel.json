@@ -6,5 +6,7 @@
   "agent": "Agent",
   "link": "链接",
   "close": "关闭面板",
-  "plan": "计划"
+  "plan": "计划",
+  "preview": "预览",
+  "review": "评审"
 }

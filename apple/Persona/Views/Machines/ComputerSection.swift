@@ -174,7 +174,7 @@ struct ComputerSection: View {
                 if asking {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                    ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                 }
                 Text(failed.map { String(localized: "Couldn't request permission: \($0)") } ?? GrantGuide.header(c, asking: asking))
                     .font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
@@ -187,7 +187,7 @@ struct ComputerSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     if step.done {
-                        Image(systemName: Theme.Icon.success).foregroundStyle(Theme.positive)
+                        ThemedIcon(Theme.Icon.success).foregroundStyle(Theme.positive)
                     } else {
                         Text("\(GrantGuide.number(of: step, in: steps))").font(Theme.Font.labelStrong.monospacedDigit()).foregroundStyle(Theme.accent)
                     }
@@ -215,7 +215,7 @@ struct ComputerSection: View {
             Text(text).font(Theme.Font.secondary).foregroundStyle(ok ? Color.primary : Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: ok ? Theme.Icon.success : Theme.Icon.error).foregroundStyle(ok ? Theme.positive : Theme.caution)
+            ThemedIcon(ok ? Theme.Icon.success : Theme.Icon.error).foregroundStyle(ok ? Theme.positive : Theme.caution)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("computer-status")

@@ -15,10 +15,11 @@ import { t } from "../i18n";
 import { useSyncExternalStore } from "react";
 import { uuid } from "./format";
 import { openPanel } from "./panel";
-import { navigate } from "./router";
+import { navigate, parse as parseRoute } from "./router";
 import { BASE, stripBase } from "./base";
 import { contextBody } from "./context-body";
-import { larkOn, onHubEvent } from "./store";
+import { localhostLink, PREVIEW_FEATURE } from "./preview";
+import { getSession, getState, hubHas, larkOn, onHubEvent } from "./store";
 import { mediaMatches, NARROW } from "./viewport";
 
 /** What a Feishu document link points at, from the link alone (FeishuDocsKind.from). A wiki link does not say. */
@@ -179,8 +180,27 @@ export function linkRoute(url: string, lark = larkOn(), origin: string | string[
  * show one (the phone says so and offers Feishu), so the tab is one click shorter.
  */
 export function opensInApp(url: string): boolean {
+  if (previewTarget(url)) return true;
   const r = linkRoute(url);
   return (r.kind === "doc" && r.doc !== "bitable") || r.kind === "moments" || r.kind === "session" || r.kind === "agent" || r.kind === "task" || r.kind === "conversation";
+}
+
+/**
+ * A localhost link on an agent's page (`http://localhost:5173/x`, as a dev server prints it): that port of the
+ * agent's computer, shown in the preview panel (docs/web/preview.md) instead of a tab on this one's localhost. Null
+ * elsewhere, and on a hub without previews.
+ */
+export function previewTarget(url: string): { mid: string; sid: string; cwd: string; port: number; path: string } | null {
+  if (typeof location === "undefined" || !hubHas(getState().features, PREVIEW_FEATURE)) return null;
+  const at = localhostLink(url);
+  if (!at) return null;
+  const r = parseRoute(stripBase(location.pathname), location.search.replace(/^\?/, ""));
+  if (r.name !== "session" && r.name !== "tab") return null;
+  const mid = r.mid;
+  const sid = r.name === "session" ? r.sid : r.sid ?? "";
+  const s = sid ? getSession(mid, sid) : undefined;
+  if (!s?.cwd) return null;
+  return { mid, sid, cwd: s.cwd, ...at };
 }
 
 /** The href to put on an <a>: persona://session links become the in-app path, so ⌘-click opens a tab of that page. */
@@ -191,6 +211,11 @@ export function linkHref(url: string): string {
 
 /** Opens a link where it belongs (see the top of this file). `title` names it in the panel until the page says. */
 export function openLink(url: string, title?: string) {
+  const preview = previewTarget(url);
+  if (preview) {
+    openPanel({ kind: "preview", ...preview });
+    return;
+  }
   const r = linkRoute(url);
   switch (r.kind) {
     case "session":

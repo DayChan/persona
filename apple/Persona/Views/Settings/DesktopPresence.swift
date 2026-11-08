@@ -10,7 +10,7 @@ struct DesktopPresenceRow: View {
     var body: some View {
         Button { showSheet = true } label: {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.laptop)
+                ThemedIcon(Theme.Icon.laptop)
                     .foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.iconS)
                 Text(DesktopDevice.bannerTitle(model.desktops))

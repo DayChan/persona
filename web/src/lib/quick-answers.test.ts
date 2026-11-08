@@ -30,6 +30,8 @@ describe("quickAnswers (#4090, as iOS's 需要你 cards)", () => {
     expect(quickAnswers(ix({ kind: "question", questions: [{ ...one, multi_select: true }] }))).toBeNull();
     expect(quickAnswers(ix({ kind: "question", questions: [{ question: "a", options: opts(5) }] }))).toBeNull();
     expect(quickAnswers(ix({ kind: "question", questions: [{ question: "a", options: [] }] }))).toBeNull();
+    // a free-text question as the hub sends it (#1573: a Go nil slice)
+    expect(quickAnswers(ix({ kind: "question", questions: [{ question: "a", options: null }] }))).toBeNull();
   });
 
   it("presses a terminal dialog's plain options only, and only a dialog the hub read", () => {

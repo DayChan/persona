@@ -10,7 +10,7 @@ import { useRoster } from "../../lib/managers";
 import { ago } from "../../lib/format";
 import {
   addMarket, agreeLabel, canUninstall, getCatalog, installPreview, isGitMarket, itemLine, itemState, listMarkets, MARKET_SPEC_HINT, MARKET_SPEC_PLACEHOLDER, marketKind, marketLine, previewFromMarket,
-  previewVersion, refreshMarket, removeMarket, setMarketToken, specLabel, uninstallExtension, upgradePreview, wantsGitHubToken,
+  previewVersion, renameConsent, refreshMarket, removeMarket, setMarketToken, specLabel, uninstallExtension, upgradePreview, wantsGitHubToken,
   GITHUB_TOKEN_URL, isGitHubMarket, type Catalog, type CatalogItem, type Market, type MarketPreview,
 } from "../../lib/extension-market";
 import { extensionDetail, extensionUpgrades, pointText, setExtensionUpgrades, type ExtensionPermission } from "../../lib/extensions";
@@ -247,9 +247,10 @@ export function MarketCatalog({ onBack, onOpen, onMarkets }: { onBack: () => voi
  *  default's. */
 export function MarketItem({ market, id, manager, onBack, onInstalled }: { market: string; id: string; manager?: string; onBack: () => void; onInstalled: (id: string) => void }) {
   // what goes to the extension itself (its details, its upgrade, uninstalling it) names the manager while this is open
-  useLayoutEffect(() => pinManagerAt([`/extensions/${enc(id)}`, `/plugins/${enc(id)}`], manager), [id, manager]);
   const managerName = useRoster()?.managers.find((m) => m.id === manager)?.name ?? manager;
   const [it, setIt] = useState<CatalogItem | null>(null);
+  useLayoutEffect(() => pinManagerAt([id, it?.id, it?.rename_from].filter((key): key is string => !!key)
+    .flatMap((key) => [`/extensions/${enc(key)}`, `/plugins/${enc(key)}`]), manager), [id, it?.id, it?.rename_from, manager]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<MarketPreview | null>(null);
@@ -257,14 +258,14 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
   const [removing, setRemoving] = useState(false);
   // A hub with extension_operations installs in steps the page draws (and finds again when opened later, #3277).
   const stepped = useStore((s) => operationsOn(s.features));
-  const op = useOperation(id, market, manager);
+  const op = useOperation(it?.id || id, market, manager);
   const [previewOf, setPreviewOf] = useState(""); // the operation whose preview is open
   const seen = useRef<string>("");
   const load = () => {
     setLoading(true);
     getCatalog("", market, false, manager)
       .then((c) => {
-        const found = c.extensions.find((x) => x.id === id) ?? null;
+        const found = c.extensions.find((x) => x.id === id) ?? c.extensions.find((x) => x.replaces === id) ?? null;
         setIt(found);
         setError(found ? "" : t("settings-extensionmarket.gone"));
       })
@@ -305,10 +306,10 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
     setPreviewing(true);
     try {
       if (stepped) {
-        await startFromMarket(market, id, manager); // the steps show below; its preview opens when it is ready
+        await startFromMarket(market, it?.id || id, manager); // the steps show below; its preview opens when it is ready
         return;
       }
-      setPreview(await previewFromMarket(market, id, manager));
+      setPreview(await previewFromMarket(market, it?.id || id, manager));
     } catch (e) {
       toast(t("settings-extensionmarket.preview_failed", { error: errorText(e) }), "error");
     } finally {
@@ -454,7 +455,7 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
               setPreviewOf("");
               return;
             }
-            const d = preview.upgrade ? await upgradePreview(it.id, preview) : await installPreview(preview, manager);
+            const d = preview.upgrade ? await upgradePreview(it.id, preview, manager) : await installPreview(preview, manager);
             toast(preview.upgrade ? t("settings-extensionmarket.upgraded", { name: d.name, version: d.version ?? "" }) : t("settings-extensionmarket.installed", { name: d.name }), "ok");
             setPreview(null);
             onInstalled(d.id);
@@ -464,7 +465,7 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
       {removing && it && (
         <UninstallDialog
           name={it.name}
-          id={it.id}
+          id={it.rename_from || it.id}
           onClose={() => setRemoving(false)}
           onDone={() => {
             setRemoving(false);
@@ -544,6 +545,12 @@ export function PreviewDialog({ pv, managerName, onClose, onAgree }: { pv: Marke
           </div>
         </div>
         {managerName && <p className="rounded-[8px] bg-inset px-3 py-2 text-[12px] leading-relaxed text-ink-2 shadow-hairline" data-for-manager>{t("settings-extensionmarket.for_manager", { name: managerName })}</p>}
+        {pv.rename_from && (
+          <Group title={t("lib-extension-market.rename_title")} footer={renameConsent(pv)}>
+            <Row label={t("lib-extension-market.rename_from")} mono>{pv.rename_from}</Row>
+            <Row label={t("lib-extension-market.rename_to")} mono>{m.id}</Row>
+          </Group>
+        )}
         {pv.upgrade && pv.more_permissions && (
           <p className="rounded-[8px] bg-red-tint px-3 py-2 text-[12px] leading-relaxed text-red">{t("settings-extensionmarket.more_permissions")}</p>
         )}
@@ -570,6 +577,10 @@ export function PreviewDialog({ pv, managerName, onClose, onAgree }: { pv: Marke
             {pv.bundle.map((b) => (
               <div key={b.preview_id}>
                 <Row label={b.manifest.name} hint={b.manifest.id} mono>{previewVersion(b)}</Row>
+                {b.rename_from && <Group title={t("lib-extension-market.rename_title")} footer={renameConsent(b)}>
+                  <Row label={t("lib-extension-market.rename_from")} mono>{b.rename_from}</Row>
+                  <Row label={t("lib-extension-market.rename_to")} mono>{b.manifest.id}</Row>
+                </Group>}
                 {b.permissions.length ? b.permissions.map((p) => <PermissionRow key={p.key + p.title} p={p} />) : <p className="px-4 py-2.5 text-ink-3">{t("settings-extensionmarket.bundle_no_permissions")}</p>}
                 {b.warnings?.map((w) => <p key={w} className="px-4 py-2.5 text-orange">{w}</p>)}
               </div>

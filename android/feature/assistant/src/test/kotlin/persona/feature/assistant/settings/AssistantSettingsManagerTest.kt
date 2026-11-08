@@ -18,7 +18,7 @@ import persona.core.designsystem.*
 class AssistantSettingsManagerTest {
     @get:Rule val rule = createComposeRule()
 
-    private class Hub(
+    internal class Hub(
         private val values: MutableMap<String, AssistantConfig>,
         private val owner: String = "assistant",
     ) : AssistantManagement {

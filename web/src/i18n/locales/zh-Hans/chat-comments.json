@@ -23,5 +23,8 @@
   "staged": "已暂存",
   "unstaged": "未暂存",
   "commit": "提交 {sha}",
+  "review_uncommitted": "未提交",
+  "review_branch": "分支（自 {sha}）",
+  "review_since": "自 {sha} 以来",
   "show_chat": "查看对话"
 }

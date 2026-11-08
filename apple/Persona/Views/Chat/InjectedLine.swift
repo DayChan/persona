@@ -45,10 +45,10 @@ struct InjectedLine: View {
 
     private func header(todo: String?, expandable: Bool) -> some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: InjectedLook.icon(injected)).font(Theme.Font.labelStrong).foregroundStyle(InjectedLook.tint(injected))
+            ThemedIcon(InjectedLook.icon(injected)).font(Theme.Font.labelStrong).foregroundStyle(InjectedLook.tint(injected))
             Text(injected.line).lineLimit(1).truncationMode(.middle)
             if todo != nil || expandable {
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(open ? 90 : 0))

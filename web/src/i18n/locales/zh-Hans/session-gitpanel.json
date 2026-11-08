@@ -30,5 +30,6 @@
   "copy_hash": "拷贝提交哈希",
   "file_count_one": "{count} 个文件",
   "file_count_other": "{count} 个文件",
-  "diff_failed": "读不到改动"
+  "diff_failed": "读不到改动",
+  "review": "评审"
 }

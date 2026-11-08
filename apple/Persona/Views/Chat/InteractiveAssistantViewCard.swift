@@ -39,7 +39,7 @@ struct InteractiveAssistantViewCard: View {
             if let title = model.view.title, !title.isEmpty {
                 HStack(spacing: Theme.Space.s) {
                     if model.page != nil {
-                        Button { model.back() } label: { Image(systemName: Theme.Icon.back) }
+                        Button { model.back() } label: { ThemedIcon(Theme.Icon.back) }
                             .themedButton().accessibilityLabel("Back to the card's previous page")
                     }
                     Text(title).font(Theme.Font.heading).accessibilityAddTraits(.isHeader)
@@ -66,7 +66,7 @@ struct InteractiveAssistantViewCard: View {
             }
             if let record = model.record {
                 HStack(spacing: Theme.Space.s) {
-                    Image(systemName: Theme.Icon.success).foregroundStyle(Theme.positive)
+                    ThemedIcon(Theme.Icon.success).foregroundStyle(Theme.positive)
                     Text(status(record)).font(Theme.Font.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("assistant-view-answer")
                 }

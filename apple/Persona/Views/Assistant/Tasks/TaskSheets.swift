@@ -91,7 +91,7 @@ struct TaskDetailSheet: View {
             Spacer(minLength: Theme.Space.s)
             if showsMenu {
                 Menu { menu() } label: {
-                    Image(systemName: Theme.Icon.more).font(Theme.Font.secondaryStrong)
+                    ThemedIcon(Theme.Icon.more).font(Theme.Font.secondaryStrong)
                         .scaledFrame(width: Theme.Size.well, height: Theme.Size.well)
                 }
                 .themedButton()
@@ -156,7 +156,7 @@ extension TaskDetailSheet {
     /// ✕ at the sheet's trailing edge; ‹ at the pushed page's leading one.
     private var closeButton: some View {
         Button { dismiss() } label: {
-            Image(systemName: pushed ? Theme.Icon.back : Theme.Icon.close).font(Theme.Font.secondaryStrong)
+            ThemedIcon(pushed ? Theme.Icon.back : Theme.Icon.close).font(Theme.Font.secondaryStrong)
                 .scaledFrame(width: Theme.Size.well, height: Theme.Size.well)
         }
         .themedButton()
@@ -171,7 +171,7 @@ private struct AgentMarkLine: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.xs) {
-            Image(systemName: Theme.Icon.agents)
+            ThemedIcon(Theme.Icon.agents)
             Text(text).lineLimit(1)
         }
         .font(Theme.Font.caption)
@@ -207,7 +207,7 @@ struct TaskBoardSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .pageToolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: Theme.Icon.close) }
+                    Button { dismiss() } label: { ThemedIcon(Theme.Icon.close) }
                         .accessibilityLabel("Close")
                 }
             }
@@ -233,7 +233,7 @@ struct TaskBoardSheet: View {
                                 Text(subtitle(row.todo)).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: Theme.Space.s)
-                            Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                         }
                         .contentShape(.rect)
                     }
@@ -268,7 +268,7 @@ struct TaskBoardSheet: View {
                     AgentMarkLine(text: agentSubtitle(agent))
                 }
                 Spacer(minLength: Theme.Space.s)
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
             .contentShape(.rect)
         }

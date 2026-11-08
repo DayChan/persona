@@ -18,6 +18,29 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
+func TestExtensionIdentityKeepsModelPurposeWithoutModelCalls(t *testing.T) {
+	s, f, calls := extensionModelService(t, "unused")
+	f.modelExts = []assistantwire.ModelExtension{{ID: "curator", Name: "Curator"}}
+	if r := modelRequest(s, "PATCH", "extension.curator", `{"revision":0,"model":"stored-choice"}`); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	f.modelExts = []assistantwire.ModelExtension{{ID: "renamed-curator", StorageID: "curator", Name: "Renamed Curator"}}
+	p := purposeOf(t, s, "extension.curator")
+	if p.Name != "Renamed Curator" || p.Override.Model != "stored-choice" {
+		t.Fatalf("stored purpose lost: %+v", p)
+	}
+	if _, ok := s.extensionPurposeDef(context.Background(), "extension.renamed-curator"); ok {
+		t.Fatal("second model purpose created")
+	}
+	if len(calls()) != 0 {
+		t.Fatal("identity preference test called a model")
+	}
+	out, handled, err := s.modelsRequest(context.Background(), assistantwire.MethodExtensionIdentity, json.RawMessage(`{}`))
+	if !handled || err != nil || out.(map[string]bool)["supported"] != true {
+		t.Fatalf("identity capability: %v %v %v", out, handled, err)
+	}
+}
+
 // Model calls by extensions (model_rpc.go, #6102).
 
 // upstreamCall is one request the fake Messages API got.

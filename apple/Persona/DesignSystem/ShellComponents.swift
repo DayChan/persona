@@ -225,7 +225,7 @@ struct ShellCircleButton: View {
             Haptics.tap()
             action()
         } label: {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.heading)
                 .fontWeight(.medium) // a touch heavier and rounder, like ChatGPT's line icons
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

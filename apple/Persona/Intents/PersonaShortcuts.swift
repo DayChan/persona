@@ -13,7 +13,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Chat with \(.applicationName)",
             ],
             shortTitle: "Talk to Persona",
-            systemImageName: "waveform.badge.mic"
+            systemImageName: "waveform.badge.mic" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: AskPersonaIntent(),
@@ -24,7 +24,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Ask \(.applicationName) a question",
             ],
             shortTitle: "Ask Persona",
-            systemImageName: "sparkles"
+            systemImageName: "sparkles" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: AgentTaskIntent(),
@@ -36,7 +36,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Send a task to \(\.$agent) with \(.applicationName)",
             ],
             shortTitle: "Give an Agent a Task",
-            systemImageName: "person.crop.circle.badge.checkmark"
+            systemImageName: "person.crop.circle.badge.checkmark" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: AgentsStatusIntent(),
@@ -46,7 +46,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Check \(.applicationName) agents",
             ],
             shortTitle: "Agent Unread",
-            systemImageName: "tray.full"
+            systemImageName: "tray.full" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: AskClaudeIntent(),
@@ -57,7 +57,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Quick question for Claude in \(.applicationName)",
             ],
             shortTitle: "Ask Claude [Ask Claude Intent 946979]",
-            systemImageName: "bubble.left.and.text.bubble.right"
+            systemImageName: "bubble.left.and.text.bubble.right" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: PersonaStatusIntent(),
@@ -68,7 +68,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Check progress in \(.applicationName)",
             ],
             shortTitle: "Status",
-            systemImageName: "gauge.with.dots.needle.33percent"
+            systemImageName: "gauge.with.dots.needle.33percent" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: ApproveFirstIntent(),
@@ -77,7 +77,14 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "Approve pending in \(.applicationName)",
             ],
             shortTitle: "Approve First",
-            systemImageName: "checkmark.shield"
+            systemImageName: "checkmark.shield" // icon: App Shortcuts take only a literal
+        )
+        AppShortcut(
+            intent: RunExtensionActionIntent(),
+            phrases: ["Run an extension action in \(.applicationName)"],
+            shortTitle: "Run Extension Action",
+            // AppShortcuts metadata requires a literal; mirrored from ExtensionSurfaceTokens.actionIcon.
+            systemImageName: "puzzlepiece.extension" // icon: App Shortcuts take only a literal
         )
         AppShortcut(
             intent: AddTodoIntent(),
@@ -89,7 +96,7 @@ struct PersonaShortcuts: AppShortcutsProvider {
                 "New \(.applicationName) to-do",
             ],
             shortTitle: "New To-Do",
-            systemImageName: "checklist"
+            systemImageName: "checklist" // icon: App Shortcuts take only a literal
         )
     }
 

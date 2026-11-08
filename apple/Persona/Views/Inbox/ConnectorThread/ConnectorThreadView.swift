@@ -307,7 +307,7 @@ struct ThreadMediaView: View {
                         .frame(width: size.width, height: size.height)
                         .clipShape(.rect(cornerRadius: Theme.Radius.control, style: .continuous))
                         .overlay {
-                            Image(systemName: Theme.Icon.playMedia).font(Theme.Font.display).foregroundStyle(.white.opacity(0.9))
+                            ThemedIcon(Theme.Icon.playMedia).font(Theme.Font.display).foregroundStyle(.white.opacity(0.9))
                         }
                 } else {
                     placeholder(Theme.Icon.video, String(localized: "Video"))
@@ -324,7 +324,7 @@ struct ThreadMediaView: View {
             Label {
                 Text("Voice \(ThreadMediaText.duration(media.duration ?? 0))").font(Theme.Font.secondaryMedium).monospacedDigit()
             } icon: {
-                Image(systemName: Theme.Icon.voiceMessage)
+                ThemedIcon(Theme.Icon.voiceMessage)
             }
             .foregroundStyle(.primary)
         default:

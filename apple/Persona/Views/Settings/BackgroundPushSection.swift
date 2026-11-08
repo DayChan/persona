@@ -18,7 +18,7 @@ struct BackgroundPushSection: View {
                     }
                 }
             } icon: {
-                Image(systemName: icon).foregroundStyle(tint)
+                ThemedIcon(icon).foregroundStyle(tint)
             }
             .accessibilityIdentifier("notifications.backgroundPush")
         } header: {

@@ -4,7 +4,7 @@ import Foundation
 /// tab and starts more agents in the new panes to work on the same thing. They sit in the order of their panes, the
 /// starter (the top left pane, the others split from it) first. The same rules as the web's (`web/src/lib/herdr-tree.ts`),
 /// as plain functions so they are unit-tested (`TabPanesTests`) apart from the views.
-enum TabPanes {
+nonisolated enum TabPanes {
     /// The order herdr opened the pane in, from its id: herdr counts its panes up in base 36 ("w4R:pW", "w4R:p2E"),
     /// Herdr App numbers its terminals in decimal ("herdr-core:t1"). Ids that carry no order ("botmux:<uuid>") go last.
     static func paneNumber(_ s: Session) -> Int {
@@ -73,7 +73,7 @@ enum TabPanes {
     }
 
     /// A tab holding more than one agent.
-    struct Group: Identifiable, Equatable {
+    struct Group: Identifiable, Equatable, Sendable {
         var id: String
         /// In pane order.
         var sessions: [Session]
@@ -94,7 +94,7 @@ enum TabPanes {
     }
 
     /// A row of a list: one agent alone, or a tab's agents together.
-    enum Entry: Identifiable, Equatable {
+    enum Entry: Identifiable, Equatable, Sendable {
         case agent(Session)
         case tab(Group)
 

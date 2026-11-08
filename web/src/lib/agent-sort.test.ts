@@ -102,4 +102,30 @@ describe("最近更新", () => {
     expect(sorted[0]!.repos.map((r) => r.name)).toEqual(["zeta", "alpha"]);
     expect(ids(sorted[0]!.repos[1]!.worktrees[0]!.sessions)).toEqual(["alpha-idle", "alpha-needs"]);
   });
+
+  it("By repo: nested children decide repository order and sort their own agents and siblings", () => {
+    const a = "/home/u/orca/workspaces/myrepo/feature-a";
+    const b = "/home/u/orca/workspaces/myrepo/feature-b";
+    const c = "/home/u/orca/workspaces/myrepo/feature-c";
+    const parentId = `repo-a::${a}`;
+    const childId = `repo-a::${b}`;
+    const child = (id: string, state: AgentState, hour: number) => session(id, state, hour, {
+      cwd: b,
+      space_kind: "orca",
+      space_id: childId,
+      parent_space_id: parentId,
+    });
+    const tree = buildRepoMachineTree([
+      session("parent", "idle", 1, { cwd: a, space_kind: "orca", space_id: parentId }),
+      child("child-old", "needs_you", 1),
+      child("child-new", "idle", 8),
+      session("other-child", "idle", 9, { cwd: c, space_kind: "orca", space_id: `repo-a::${c}`, parent_space_id: parentId }),
+      session("zeta", "idle", 7, { cwd: "/src/zeta" }),
+    ], machines);
+    const sorted = repoMachinesByUpdate(tree);
+    expect(sorted[0]!.repos.map((r) => r.name)).toEqual(["feature-a", "zeta"]);
+    const parent = sorted[0]!.repos[0]!.worktrees[0]!;
+    expect(parent.children.map((w) => w.name)).toEqual(["feature-c", "feature-b"]);
+    expect(ids(parent.children[1]!.sessions)).toEqual(["child-new", "child-old"]);
+  });
 });

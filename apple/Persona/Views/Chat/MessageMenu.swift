@@ -235,6 +235,22 @@ extension View {
     func messageActionBar(id: String, text: String, isUser: Bool, date: Date? = nil, pending: Bool = false) -> some View {
         modifier(MessageActionBarHost(id: id, text: text, isUser: isUser, date: date, pending: pending))
     }
+    /// Messages shown with the bar outside the chat's list (the background tasks' drawer): a tap or a drag there closes
+    /// it, as on the list, and it closes with the sheet (#1388: it stayed until one of its buttons was used).
+    func closesMessageBar() -> some View { modifier(ClosesMessageBar()) }
+}
+
+private struct ClosesMessageBar: ViewModifier {
+    @Environment(MessageMenu.self) private var menu: MessageMenu?
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(TapGesture().onEnded { menu?.dismiss() })
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting { menu?.dismiss() }
+            }
+            .onDisappear { menu?.close() }
+    }
 }
 
 private struct MessageLongPress: ViewModifier {
@@ -322,7 +338,7 @@ private struct MessageActionBarHost: ViewModifier {
                 .overlay(alignment: .trailing) {
                     if drag < 0 {
                         let progress = min(1, -drag / MessageSwipe.threshold)
-                        Image(systemName: Theme.Icon.reply)
+                        ThemedIcon(Theme.Icon.reply)
                             .font(Theme.Font.labelStrong)
                             .foregroundStyle(armed ? Color.white : Color.secondary)
                             .scaledFrame(width: Theme.Size.wellM, height: Theme.Size.wellM)
@@ -395,7 +411,7 @@ struct MessageActionBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            action(String(localized: "Copy [Message Menu 63d90d]"), "doc.on.doc") {
+            action(String(localized: "Copy [Message Menu 63d90d]"), Theme.Icon.copy) {
                 UIPasteboard.general.string = text
                 Haptics.success()
             }
@@ -406,7 +422,7 @@ struct MessageActionBar: View {
             if !pending {
                 action(String(localized: "Quote"), "quote.opening") { menu.quote?(text, id, isUser, nil) }
             }
-            action(String(localized: "Share"), "square.and.arrow.up") {
+            action(String(localized: "Share"), Theme.Icon.share) {
                 menu.sharing = ShareMessage(text: text, isUser: isUser, source: menu.source(), date: date, agent: menu.agent())
             }
             if isUser && !pending {
@@ -437,7 +453,7 @@ struct MessageActionBar: View {
     private func label(_ title: String, _ symbol: String) -> some View {
         VStack(spacing: Theme.Space.xs) {
             // Symbols differ in height: a fixed box keeps every label on one line.
-            Image(systemName: symbol).font(Theme.Font.heading).dynamicTypeSize(...DynamicTypeSize.xxLarge).scaledFrame(height: Theme.Size.iconS)
+            ThemedIcon(symbol).font(Theme.Font.heading).dynamicTypeSize(...DynamicTypeSize.xxLarge).scaledFrame(height: Theme.Size.iconS)
             Text(title).font(Theme.Font.label).lineLimit(1).minimumScaleFactor(0.8) // Select Text on a narrow bar
         }
         .foregroundStyle(.white)

@@ -133,7 +133,7 @@ struct VoiceBar: View {
             Haptics.tap()
             call.muted.toggle()
         } label: {
-            Image(systemName: call.muted ? Theme.Icon.voiceUnmute : Theme.Icon.voiceMute)
+            ThemedIcon(call.muted ? Theme.Icon.voiceUnmute : Theme.Icon.voiceMute)
                 .font(Theme.Font.heading)
                 .fontWeight(.medium)
                 .foregroundStyle(call.muted ? Theme.accent : ComposerInk.icon(theme))
@@ -152,7 +152,7 @@ struct VoiceBar: View {
             Haptics.tap()
             VoiceCalls.shared.end(.user, from: call.surface)
         } label: {
-            Image(systemName: Theme.Icon.voiceEnd)
+            ThemedIcon(Theme.Icon.voiceEnd)
                 .font(Theme.Font.bodyHeavy)
                 .foregroundStyle(Theme.onSolid)
                 .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
@@ -215,7 +215,7 @@ struct VoiceBar: View {
     private func words(_ line: VoiceBarLine) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
             if let mark = Self.mark(line.kind) {
-                Image(systemName: mark.symbol).font(Theme.Font.labelStrong).foregroundStyle(mark.color)
+                ThemedIcon(mark.symbol).font(Theme.Font.labelStrong).foregroundStyle(mark.color)
             } else if [.working, .handing, .waiting, .paused].contains(line.kind) {
                 Circle().fill(Theme.busy).scaledFrame(width: Theme.Size.dotS, height: Theme.Size.dotS)
             }
@@ -268,7 +268,7 @@ struct VoiceBar: View {
                 Button { showModel = true } label: { Label("Model [Assistant View c98e11]", systemImage: Theme.Icon.model) }
             }
         } label: {
-            Image(systemName: Theme.Icon.more)
+            ThemedIcon(Theme.Icon.more)
                 .font(Theme.Font.bodyStrong)
                 .foregroundStyle(ComposerInk.icon(theme))
                 .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.wellXS)

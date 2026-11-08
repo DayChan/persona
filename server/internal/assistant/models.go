@@ -893,7 +893,7 @@ func (s *Service) modelConfigRoutes() {
 		}
 		// The extensions' own (model_rpc.go), after the categories: each with its own record, like Lark /agent.
 		for _, x := range s.modelExtensions(ctx) {
-			p, err := s.modelPurpose(ctx, assistantwire.ExtensionPurposePrefix+x.ID, providers)
+			p, err := s.modelPurpose(ctx, assistantwire.ExtensionPurposePrefix+x.StorageKey(), providers)
 			if err != nil {
 				apierr.Write(w, 500, err)
 				return

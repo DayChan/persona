@@ -18,6 +18,51 @@ import (
 	"github.com/nwverse/persona/server/internal/extension"
 )
 
+func TestExtensionIdentitySuccessorPreviewAndNotificationOnly(t *testing.T) {
+	h, mux, phone, mk, dir, mid := upgradeHub(t)
+	ctx := context.Background()
+	u := h.extensionUpgrades()
+	old := h.extensions.reg.Snapshot("example-ui")
+	editManifest(t, dir, func(m map[string]any) { m["id"], m["version"] = "renamed-ui", "1.1.0" })
+	mk.publish(dir)
+	mk.mu.Lock()
+	var catalog map[string]any
+	if err := json.Unmarshal(mk.index, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	catalog["plugins"].([]any)[0].(map[string]any)["replaces"] = "example-ui"
+	mk.index, _ = json.Marshal(catalog)
+	mk.mu.Unlock()
+	if _, err := h.marketRead(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+	up, _, _, ok := u.candidate(old)
+	if !ok || up.State != upgradeNeedsConsent || up.RenameFrom != "example-ui" || up.RenameTo != "renamed-ui" {
+		t.Fatalf("successor notification: %+v, %v", up, ok)
+	}
+	u.upgrade(ctx)
+	if installedVersion(h) != old.Record.Version || h.extensions.reg.GetExact("renamed-ui") != nil {
+		t.Fatal("automatic identity migration")
+	}
+	if u.settings.Notified[old.Record.StorageKey()] != "1.1.0" {
+		t.Fatal("successor notification not recorded by stable key")
+	}
+	for _, requested := range []string{"example-ui", "renamed-ui"} {
+		code, pv := call(t, mux, "POST", "/api/v1/extensions/-/catalog/preview", phone, fmt.Sprintf(`{"market": %q, "extension": %q}`, mid, requested))
+		if code != 200 || pv["rename_from"] != "example-ui" || pv["upgrade"] != true {
+			t.Fatalf("%s predecessor preview: %d %+v", requested, code, pv)
+		}
+	}
+	// Off and rollback history remain installation preferences, never successor defaults.
+	u.mu.Lock()
+	u.settings.Off = []string{old.Record.StorageKey()}
+	u.settings.Skipped = map[string]string{old.Record.StorageKey(): "1.0.9"}
+	u.mu.Unlock()
+	if up, _, _, ok := u.candidate(old); !ok || up.State != upgradeOff {
+		t.Fatalf("off successor: %+v", up)
+	}
+}
+
 // upgradeMarket is a site market serving one plugin's versions: the index lists the last one published.
 type upgradeMarket struct {
 	t     *testing.T

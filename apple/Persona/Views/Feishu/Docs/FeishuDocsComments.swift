@@ -32,7 +32,7 @@ struct FeishuDocsCommentsView: View {
                 if let model {
                     let shown = model.threads(resolved: resolved)
                     if model.threads == nil {
-                        FeishuDocsListState(loading: model.loadError == nil, error: model.loadError, empty: ("text.bubble", "", ""),
+                        FeishuDocsListState(loading: model.loadError == nil, error: model.loadError, empty: (Theme.Icon.conversation, "", ""),
                                             retry: { await model.load() })
                     } else if shown.isEmpty {
                         EmptyStateView(symbol: Theme.Icon.conversation, title: resolved ? String(localized: "No resolved comments") : String(localized: "No open comments"),

@@ -30,5 +30,6 @@
   "copy_hash": "コミットハッシュをコピー",
   "file_count_one": "{count}個のファイル",
   "file_count_other": "{count}個のファイル",
-  "diff_failed": "変更を読み取れません"
+  "diff_failed": "変更を読み取れません",
+  "review": "レビュー"
 }

@@ -31,7 +31,7 @@ At the end of the case, the consumer lets everything settle: the socket is open,
 
 | Field | Meaning |
 | --- | --- |
-| `chat` | The one chat the story is about. `assistant: true` is the Persona main chat (`session.assistant`), else an agent chat |
+| `chat` | The one chat the story is about. `assistant: true` is the Persona main chat (`session.assistant`), else an agent chat. `new: true`: the chat a `user.start` starts; until the hub carries the start out it has no session, lines or cards for it (`start.hub` has an empty `session`, no lines, `to_seq` 0), and no frame or hub change is about it |
 | `devices` | Device names used below (`a`, `b`) |
 | `start.hub` | The hub's state before the first step (see "The hub's state"). Every device already shows it: it opened the chat and loaded it the normal way |
 | `steps` | What happens, in order |
@@ -59,8 +59,8 @@ Each step has one action, plus `expect`. A `socket` that opens may also carry `f
 | `{"frames": {"a": [frame…]}}` | These frames reach device `a`, in this order. They are the hub's wire JSON. A frame that is lost is simply not listed, a duplicate is listed twice, a late one comes in a later step. A frame only carries what the hub held at that step or before. Broadcast `interaction` / `interaction_resolved` frames carry the `event_seq` of their broadcast; the cards the hub sends right after a hello (its pending-card snapshot) carry none |
 | `{"socket": {"device": "a", "drop": true}}` | The connection goes. Writes in flight on this device stay in flight |
 | `{"socket": {"device": "a", "open": {"resumed": true}}}` | A new connection; its hello carries the hub's `event_stream` and `event_seq` and says `resumed`. `true` is only possible on the stream the device last saw; the step's `frames` must then hold every broadcast the device missed, in order (the hub replays them). `false`: the client does its full refresh, read from the hub's state. After the hello the hub sends its connection snapshot: `machines`, the session list, then every pending card as an `interaction` frame without `event_seq` (`hub/http.go` `serveWS`). Consumers send the first two from the hub's state; the cards are listed in the step's `frames`, after any replayed broadcasts |
-| `{"user": {"device": "a", …}}` | The user does something: `send: {id, text}` (the client uses `id` as its `client_msg_id` / op id), `answer: {id, resolution}`, `retry: <message id>`, `discard: <message id>`, `open`, `close`, `background`, `foreground`, `relaunch` (the app is killed and starts again from what it stored) |
-| `{"reply": {"device": "a", "write": <id>, …}}` | The hub answers every request in flight for that write (a send's message id, a card's interaction id): `status` and `body`, or `cut: true` (the connection broke; no answer). `done` says whether the hub carried it out (default: true for 2xx, false otherwise). After a `done` one, `receipt` (`{status, body}`) is what later retries with the same op id get at once |
+| `{"user": {"device": "a", …}}` | The user does something: `send: {id, text}` (the client uses `id` as its `client_msg_id` / op id), `start: {id, text}` (in a `new` chat, once: the first message on the new-conversation page, `POST /api/v1/assistant/conversations` with `id` as its op id; it counts as a sent message for the invariants; `retry` of a start the hub refused sends it again from the new-conversation page with a new op id, since the old one's receipt holds the refusal), `answer: {id, resolution}`, `retry: <message id>`, `discard: <message id>`, `open`, `close`, `background`, `foreground`, `relaunch` (the app is killed and starts again from what it stored) |
+| `{"reply": {"device": "a", "write": <id>, …}}` | The hub answers every request in flight for that write (a send's message id, a start's id, a card's interaction id): `status` and `body`, or `cut: true` (the connection broke; no answer). `done` says whether the hub carried it out (default: true for 2xx, false otherwise). After a `done` one, `receipt` (`{status, body}`) is what later retries with the same op id get at once. A start the hub carried out answers `{"session": Session}` (the chat's ids), and from then on the chat exists; one op id starts one conversation, so a case never carries out a second start |
 | `{"wait": <ms>}` | Time moves on; timers due in that window run |
 | `{"hold": {"device": "a", "get": <path>}}` | The device's next read of `path` (`/interactions`, `/sessions`, `/items`) is answered with the hub's state at the moment the read arrives, but only at the matching `release`: a stale answer that lands late |
 | `{"release": {"device": "a", "get": <path>}}` | The held read is answered |
@@ -79,7 +79,7 @@ Reads a device makes on its own (filling a gap, a latest page, the card list aft
 | `cards` | `{id: state}` for cards on screen or just answered: `open` (its buttons work), `answering` (this device's answer is in flight: hidden or locked), `answered` (shown as answered, or gone). Ids not listed are not on screen. Only `open` against not-`open` is strict; see "Allowed differences" |
 | `status` | The chat's state: `working`, `needs_you`, `unread`, `idle` |
 | `live` | The streamed text on screen, or `null` |
-| `requests` | Requests the device must have sent since the last step that listed `requests` for it (or the start), in this order; others may come in between: `{"get": "/items", "after_seq": 4}`, `{"ws": "subscribe", "since_seq": 4}`, `{"post": "resolve", "id": "ix1"}`, `{"post": "messages", "id": "m1"}` (`id` is the op id; `"new_op": true` instead: an op id this message never had) |
+| `requests` | Requests the device must have sent since the last step that listed `requests` for it (or the start), in this order; others may come in between: `{"get": "/items", "after_seq": 4}`, `{"ws": "subscribe", "since_seq": 4}`, `{"post": "resolve", "id": "ix1"}`, `{"post": "messages", "id": "m1"}`, `{"post": "conversations", "id": "c1"}` (a start; `id` is the op id; `"new_op": true` instead: an op id this message never had) |
 
 ### Allowed differences
 
@@ -89,7 +89,7 @@ The clients draw the same states differently. A consumer maps what it draws onto
 - `answered`: a summary ("Allowed", the picks) or nothing.
 - Gap fills: iOS / Mac fills at once, the web and Android wait 1.5 s (`docs/protocol/protocol.md` "Continuity of items"). A step's `requests` is checked once the device's own timers for that step ran.
 - A message the hub queued (`session.queued`) may show in the queue strip instead of as a bubble; both are `pending`.
-- The web puts a failed message's words back into the composer instead of keeping a failed bubble (#1122): its `failed` is compared apart from its place in the list.
+- A `new` chat: until the device knows the started session, `messages` is the new-conversation page's first message (its spinning-up bubble is `pending`, its words with the reason and a way to send them again are `failed`); once it knows, the chat itself. The first message's transcript line carries no `client_msg_id` (it did not go through `/messages`): clients tie it by its words.
 
 ## Files
 

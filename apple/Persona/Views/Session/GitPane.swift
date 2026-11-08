@@ -67,7 +67,7 @@ struct GitPane: View {
     private func header(_ s: GitStatus) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.gitBranch).foregroundStyle(Theme.accent)
+                ThemedIcon(Theme.Icon.gitBranch).foregroundStyle(Theme.accent)
                 Text(s.branch ?? String(localized: "Detached HEAD")).font(Theme.Font.heading).lineLimit(1)
                 Spacer(minLength: Theme.Space.xs)
                 if s.ahead > 0 { sync(Theme.Icon.send, s.ahead, .secondary) }
@@ -362,7 +362,7 @@ struct GitDiffSheet: View {
                     Menu {
                         Button { UIPasteboard.general.string = diff?.diff } label: { Label("Copy Diff", systemImage: Theme.Icon.copy) }
                         Button { UIPasteboard.general.string = target.file.path } label: { Label("Copy Path", systemImage: Theme.Icon.copy) }
-                    } label: { Image(systemName: Theme.Icon.more) }
+                    } label: { ThemedIcon(Theme.Icon.more) }
                 }
             }
             .task(id: target) { await load() }

@@ -3,7 +3,7 @@
 // tabs) by their latest agent, except that "By repo" keeps its machines in order. Under "By status" the sections are the states, so the choice is not offered there.
 import { t } from "../i18n";
 import type { Space } from "./agent-groups";
-import type { RepoMachine } from "./agent-repos";
+import type { RepoMachine, RepoWorktree } from "./agent-repos";
 import { stateOf } from "./format";
 import type { HerdrMachine, HerdrSpace } from "./herdr-tree";
 import type { TodoTree, TreeAgent } from "./todo-tree";
@@ -82,15 +82,20 @@ export function machineTreeByUpdate(tree: readonly HerdrMachine[]): HerdrMachine
   return latestFirst(machines, (m) => latestOf(m.sessions), (m) => m.key);
 }
 
-/** "By repo" under "Recently updated": each machine's repositories by their latest agent, the machines keep their order (as on iOS,
- *  so a section does not jump when another computer's agent updates); a repository's main checkout still comes first,
- *  the agents in a working tree by time. */
+function repoWorktreeByUpdate(w: RepoWorktree): RepoWorktree {
+  const children = latestFirst(w.children.map(repoWorktreeByUpdate), (c) => latestOf(c.tree), (c) => c.key);
+  return { ...w, sessions: [...w.sessions].sort(byUpdated), children };
+}
+
+/** "By repo" under "Recently updated": each machine's repositories by their latest agent, including nested worktrees;
+ *  the machines keep their order (as on iOS, so a section does not jump when another computer's agent updates); a
+ *  repository's main checkout still comes first, child worktrees sort by their latest descendant, and agents by time. */
 export function repoMachinesByUpdate(list: readonly RepoMachine[]): RepoMachine[] {
   return list.map((m) => ({
     ...m,
     repos: latestFirst(
-      m.repos.map((r) => ({ ...r, worktrees: r.worktrees.map((w) => ({ ...w, sessions: [...w.sessions].sort(byUpdated) })) })),
-      (r) => latestOf(r.worktrees.flatMap((w) => w.sessions)),
+      m.repos.map((r) => ({ ...r, worktrees: r.worktrees.map(repoWorktreeByUpdate) })),
+      (r) => latestOf(r.worktrees.flatMap((w) => w.tree)),
       (r) => r.key,
     ),
   }));

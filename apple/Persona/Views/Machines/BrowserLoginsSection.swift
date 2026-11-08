@@ -134,7 +134,7 @@ struct BrowserLoginsSection: View {
 
     private func row(_ s: BrowserCookieSite) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: Theme.Icon.siteLogin).foregroundStyle(.secondary).scaledFrame(width: Theme.Size.icon)
+            ThemedIcon(Theme.Icon.siteLogin).foregroundStyle(.secondary).scaledFrame(width: Theme.Size.icon)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(s.domain).font(Theme.Font.body).lineLimit(1).accessibilityIdentifier("browser-logins-site")
                 Text(Self.detail(count: s.count, expires: s.expires)).font(Theme.Font.label.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
@@ -228,7 +228,7 @@ private struct CookiePickSheet: View {
                                 if file?.ticked.contains(s.site) == true { file?.ticked.remove(s.site) } else { file?.ticked.insert(s.site) }
                             } label: {
                                 HStack(spacing: Theme.Space.m) {
-                                    Image(systemName: f.ticked.contains(s.site) ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+                                    ThemedIcon(f.ticked.contains(s.site) ? Theme.Icon.successFilled : Theme.Icon.unchecked)
                                         .foregroundStyle(f.ticked.contains(s.site) ? Theme.accent : Color.secondary)
                                     VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                         Text(s.site).font(Theme.Font.body).foregroundStyle(.primary).lineLimit(1)

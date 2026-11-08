@@ -337,7 +337,7 @@ struct KeyCap: View {
     var body: some View {
         Group {
             if let symbol {
-                Image(systemName: symbol).font(Theme.Font.secondaryMedium).dynamicTypeSize(...DynamicTypeSize.large).scaledFrame(width: Theme.Size.wellL)
+                ThemedIcon(symbol).font(Theme.Font.secondaryMedium).dynamicTypeSize(...DynamicTypeSize.large).scaledFrame(width: Theme.Size.wellL)
             } else {
                 Text(label)
                     .font(Font(TerminalFont.jetbrains.font(size: 14, bold: false))) // the terminal's own JetBrains Mono
@@ -369,7 +369,7 @@ struct DirectionPad: View {
         Grid(horizontalSpacing: 6, verticalSpacing: 6) {
             GridRow {
                 Color.clear.frame(width: size, height: size)
-                pad("arrow.up", "up")
+                pad(Theme.Icon.up, "up")
                 Color.clear.frame(width: size, height: size)
             }
             GridRow {
@@ -379,7 +379,7 @@ struct DirectionPad: View {
             }
             GridRow {
                 Color.clear.frame(width: size, height: size)
-                pad("arrow.down", "down")
+                pad(Theme.Icon.down, "down")
                 Color.clear.frame(width: size, height: size)
             }
         }
@@ -388,7 +388,7 @@ struct DirectionPad: View {
     }
 
     @ViewBuilder private func pad(_ symbol: String, _ key: String, prominent: Bool = false) -> some View {
-        let label = Image(systemName: symbol).font(Theme.Font.title).frame(width: size, height: size)
+        let label = ThemedIcon(symbol).font(Theme.Font.title).frame(width: size, height: size)
         if prominent {
             Button { Haptics.tap(); press(key) } label: { label }
                 .themedButton(prominent: true).clipShape(.circle).accessibilityLabel(key)

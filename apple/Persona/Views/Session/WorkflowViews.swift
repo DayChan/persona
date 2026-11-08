@@ -18,7 +18,7 @@ struct WorkflowLine: View {
     var body: some View {
         if let run = runs.first {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
-                Image(systemName: Theme.Icon.workflow)
+                ThemedIcon(Theme.Icon.workflow)
                     .font(font)
                     .foregroundStyle(Theme.ai)
                 // Every minute: many rows tick at once.
@@ -147,7 +147,7 @@ struct WorkflowCard: View {
             HStack(spacing: Theme.Space.s) {
                 WorkflowHead(run: run)
                 if opens {
-                    Image(systemName: Theme.Icon.disclosure)
+                    ThemedIcon(Theme.Icon.disclosure)
                         .font(Theme.Font.labelStrong)
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
@@ -195,7 +195,7 @@ struct WorkflowEndedRow: View {
 
     private func line(opens: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.workflow)
+            ThemedIcon(Theme.Icon.workflow)
                 .font(Theme.Font.label)
                 .foregroundStyle(WorkflowLook.tint(run))
             Text(run.title)
@@ -211,7 +211,7 @@ struct WorkflowEndedRow: View {
                 .fixedSize()
             if opens {
                 // The same › as the running card's, the phases' and the chat card's: turned down while open.
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.label)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
@@ -242,7 +242,7 @@ struct WorkflowMark: View {
         ZStack {
             if onRail { Circle().fill(Theme.pageBackground) }
             Circle().fill(Theme.aiTint)
-            Image(systemName: Theme.Icon.workflow)
+            ThemedIcon(Theme.Icon.workflow)
                 .font(Theme.Font.labelStrong).dynamicTypeSize(...DynamicTypeSize.xLarge)
                 .foregroundStyle(Theme.ai)
         }
@@ -527,7 +527,7 @@ struct WorkflowPhaseView: View {
                     .animation(reduceMotion ? nil : Theme.Motion.state, value: block.count)
             }
             if opens {
-                Image(systemName: Theme.Icon.disclosure)
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.label)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
@@ -623,7 +623,7 @@ struct WorkflowPhaseMark: View {
         ZStack {
             switch state {
             case .done:
-                Image(systemName: failed ? Theme.Icon.error : Theme.Icon.done)
+                ThemedIcon(failed ? Theme.Icon.error : Theme.Icon.done)
                     .font(Theme.Font.labelHeavy).dynamicTypeSize(...DynamicTypeSize.xLarge)
                     .foregroundStyle(failed ? Theme.danger : Theme.positive)
                     .transition(.opacity)

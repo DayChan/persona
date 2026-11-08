@@ -9,7 +9,7 @@ struct TodoSpaceTag: View {
     var body: some View {
         if let todo = linkedTodo {
             Button { open(todo.id) } label: {
-                Image(systemName: Theme.Icon.todo).font(Theme.Font.caption).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.todo).font(Theme.Font.caption).foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.tapTarget)
                     .contentShape(.rect)
             }

@@ -47,7 +47,7 @@ struct MessageShareCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
-                Image(systemName: Theme.Icon.ai).font(.system(size: 11, weight: .semibold))
+                ThemedIcon(Theme.Icon.ai).font(.system(size: 11, weight: .semibold))
                 Text("Persona").font(.system(size: 12, weight: .semibold))
                 Spacer()
             }
@@ -68,10 +68,10 @@ struct MessageShareCard: View {
     /// keeps a terminal on green.
     @ViewBuilder private var avatar: some View {
         if message.isUser {
-            Image(systemName: Theme.Icon.user).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+            ThemedIcon(Theme.Icon.user).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 32, height: 32).background(Color.gray, in: .circle)
         } else if message.agent == "TRAEX" {
-            Image(systemName: Theme.Icon.terminalFilled).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+            ThemedIcon(Theme.Icon.terminalFilled).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(LinearGradient(colors: [Color(hex: 0x2FD38F), Color(hex: 0x12935E)], startPoint: .top, endPoint: .bottom), in: .circle)
         } else {

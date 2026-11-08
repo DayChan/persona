@@ -42,9 +42,9 @@ extension AppModel {
             Task {
                 // Normally the transcript shows it within a second or two. Behind a long turn it may only be written
                 // when that turn ends (Codex keeps its queue to itself): stay while the agent works, then go.
-                try? await Task.sleep(for: .seconds(60))
+                try? await clock.sleep(for: .seconds(60))
                 for _ in 0..<90 where store.pending.contains(where: { $0.id == id }) && session(key)?.status.isActive == true {
-                    try? await Task.sleep(for: .seconds(10))
+                    try? await clock.sleep(for: .seconds(10))
                 }
                 store.pending.removeAll { $0.id == id }
             }

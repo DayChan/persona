@@ -65,5 +65,12 @@ The node keeps each conversation's working folder in the hub's database (`node_s
 Claude Code names each folder's conversation directory after the folder's absolute path. The cutover moved `~/.<previous-name>` to `~/.persona`, so the assistant, now running in `~/.persona/assistant`, looked in an empty project directory; its earlier conversations were all still in the one for the old path, and the user saw every earlier conversation gone. The runbook had moved the root, the database and the config, but no harness state outside the root.
 
 - A rename that moves a directory agents run in must also move every harness's per-folder state that is keyed by that path: Claude Code's `projects/<key>` in each config directory, and the same for any other agent.
-- Copy without overwriting while nothing writes; a session that resumes before the copy keeps writing to the old directory.
+- Move it while nothing writes; don't copy it (next lesson).
 - A transcript also records the folder it ran in, and the server reads ownership from that: moving the project directory alone did not bring the conversations back into the assistant's list (#163).
+
+## A copied conversation directory diverges from its original (2026-11-08, #1533)
+
+The runbook copied Claude Code's project directories to the new keys and kept the old ones. The stored sessions still named folders in the old data directory, and an old-name alias made those folders resolve, so the restarted main conversation kept appending to the old copy while new sessions wrote to the new one. Readers picked different copies: the web took its items from one file and its revision from the other, and a sent message stayed "sending" (#1423).
+
+- Move per-folder state with its folder; when both keys exist, merge and refuse a file that differs, never pick one silently. `persona-cutover.py --claude-config-dir` does this.
+- Rewrite every stored path that is acted on in the same window (`node_sessions.cwd`): an alias hides a stale path instead of failing.

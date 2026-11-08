@@ -1,9 +1,13 @@
 // Installing in steps (#3277): what a step says, which operation a page shows, and that a pushed operation replaces an
 // older copy but never a newer one.
 import { describe, expect, it, vi } from "vitest";
-import { forget, latestFor, opError, opLine, operations, shownSteps, stepDetail, stepFraction, stepLabel, stepsDone, toolLines, track, wantsSignIn, type ExtensionOperation } from "./extension-operations";
+import { agreeTo, forget, latestFor, opError, opLine, operations, shownSteps, stepDetail, stepFraction, stepLabel, stepsDone, toolLines, track, wantsSignIn, type ExtensionOperation } from "./extension-operations";
 
 vi.mock("./extensions", async (original) => ({ ...(await original<typeof import("./extensions")>()), changed: vi.fn((r) => r) }));
+vi.mock("./store", async (original) => {
+  const store = await original<typeof import("./store")>();
+  return { ...store, getState: () => ({ ...store.getState(), features: ["extensions"] }) };
+});
 
 const op = (over: Partial<ExtensionOperation> = {}): ExtensionOperation => ({
   id: "op1",
@@ -29,6 +33,23 @@ const op = (over: Partial<ExtensionOperation> = {}): ExtensionOperation => ({
 });
 
 describe("extension operations", () => {
+  it("uses explicit predecessor consent for a stepped identity upgrade", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("localStorage", { getItem: () => "synthetic", setItem: () => {}, removeItem: () => {} });
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ operation: op({ id: "rename-op", extension: "new-name" }) }));
+    });
+    try {
+      await agreeTo({ preview_id: "rename-pv", manifest: { id: "new-name", name: "Example", version: "2.0.0" },
+        upgrade: true, rename_from: "old-name", permissions: [], permissions_digest: "confirmed", expires_at: "" }, "new-name");
+      expect(calls).toEqual([{ url: "/api/v1/extensions/old-name/-/upgrade", body: {
+        preview_id: "rename-pv", permissions_digest: "confirmed", async: true } }]);
+    } finally {
+      vi.unstubAllGlobals();
+      forget("rename-op");
+    }
+  });
   it("says what a download has done, and how far", () => {
     const d = op().steps[0];
     expect(stepDetail(d)).toBe("4.0 MB / 16.0 MB");

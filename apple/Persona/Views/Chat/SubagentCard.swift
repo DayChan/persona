@@ -125,7 +125,7 @@ struct SubagentCard: View {
                 if status == .running {
                     ProgressView().controlSize(.mini).tint(tint)
                 } else {
-                    Image(systemName: ToolPresentation.symbol(call.name))
+                    ThemedIcon(ToolPresentation.symbol(call.name))
                         .font(Theme.Font.labelStrong).dynamicTypeSize(...DynamicTypeSize.xLarge)
                         .foregroundStyle(tint)
                 }
@@ -139,7 +139,7 @@ struct SubagentCard: View {
                     .contentTransition(.opacity)
             }
             Spacer(minLength: Theme.Space.xs)
-            Image(systemName: Theme.Icon.disclosure)
+            ThemedIcon(Theme.Icon.disclosure)
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(open ? 90 : 0))

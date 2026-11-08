@@ -13,6 +13,8 @@ nonisolated extension ComponentSpec {
         s.components = .beautiful
         // BeautifulUI's work card (its card color and ring), not Liquid Glass's timeline.
         s.workList = .card
+        // Its own outline glyphs set the icons' weight and fill (docs/apple/icons.md).
+        s.icons = .lineGlyphs
         return s
     }()
 }

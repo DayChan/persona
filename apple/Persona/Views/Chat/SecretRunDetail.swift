@@ -134,7 +134,7 @@ private struct MachineLabel: View {
     var name: String
 
     var body: some View {
-        Label { Text(Self.shown(name)).lineLimit(1) } icon: { Image(systemName: Theme.Icon.machine) }
+        Label { Text(Self.shown(name)).lineLimit(1) } icon: { ThemedIcon(Theme.Icon.machine) }
             .font(Theme.Font.caption)
             .foregroundStyle(.secondary)
     }

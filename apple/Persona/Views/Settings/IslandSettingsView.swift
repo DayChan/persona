@@ -46,7 +46,7 @@ struct IslandSettingsView: View {
                             }
                             Spacer(minLength: Theme.Space.s)
                             if island.preset == preset {
-                                Image(systemName: Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(Theme.accent)
+                                ThemedIcon(Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(Theme.accent)
                             }
                         }
                         .contentShape(.rect)

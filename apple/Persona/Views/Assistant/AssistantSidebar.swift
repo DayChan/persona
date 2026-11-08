@@ -866,7 +866,7 @@ struct AssistantSidebar: View {
                     AssistantTopBar.circle(Theme.Icon.search, label: String(localized: "Search Chats [Assistant Sidebar 55c9e4]"), id: "assistant-sidebar-search", action: openSearch)
                 } else {
                     Button(action: openSearch) {
-                        Image(systemName: Theme.Icon.search)
+                        ThemedIcon(Theme.Icon.search)
                             .font(Theme.Font.heading)
                             .foregroundStyle(Color.primary)
                             .scaledFrame(width: Theme.Size.avatarL, height: Theme.Size.avatarL)
@@ -901,13 +901,13 @@ struct AssistantSidebar: View {
                 .autocorrectionDisabled()
         } else {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: Theme.Icon.search).font(Theme.Font.secondaryMedium).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.search).font(Theme.Font.secondaryMedium).foregroundStyle(.secondary)
                 TextField(String(localized: "Search Chats [Assistant Sidebar 55c9e4]"), text: $query)
                     .focused($searching)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                 if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: Theme.Icon.clear).foregroundStyle(.tertiary) }
+                    Button { query = "" } label: { ThemedIcon(Theme.Icon.clear).foregroundStyle(.tertiary) }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Clear Search")
                 }
@@ -974,7 +974,7 @@ struct AssistantSidebar: View {
         let symbol = ExtensionSlots.icon(p.icon)
         Group {
             if AppStyle.current.usesBeautifulUI {
-                BUISidebarRow(p.title, symbol: symbol, action: run) {
+                BUISidebarRow(p.title, symbol: Theme.Icon.styled(symbol), action: run) {
                     if let b = p.badge { ExtensionBadgeView(badge: b) }
                 }
             } else {
@@ -1088,7 +1088,7 @@ struct AssistantSidebar: View {
     @ViewBuilder private func action(_ title: String, _ symbol: String, id: String? = nil, count: Int = 0, run: @escaping () -> Void) -> some View {
         if AppStyle.current.usesBeautifulUI {
             // SidebarNav's primary items.
-            BUISidebarRow(title, symbol: symbol, action: run) {
+            BUISidebarRow(title, symbol: Theme.Icon.styled(symbol), action: run) {
                 if count > 0 { CountBadge(count: count, look: .solid(Theme.needsYou)) }
             }
             .accessibilityIdentifier(id ?? "sidebar-" + title)
@@ -1182,14 +1182,14 @@ struct AssistantSidebar: View {
         } label: {
             HStack(spacing: Theme.Space.m) {
                 if !isShell {
-                    Image(systemName: Theme.Icon.autoConversations).font(Theme.Font.label).foregroundStyle(.secondary)
+                    ThemedIcon(Theme.Icon.autoConversations).font(Theme.Font.label).foregroundStyle(.secondary)
                         .scaledFrame(width: Theme.Size.wellM, height: Theme.Size.wellM)
                 }
                 Text("Auto Chats").font(Theme.Font.body).foregroundStyle(Color.primary).lineLimit(1)
                 Text("\(split.auto.count)").font(Theme.Font.secondary.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: Theme.Space.xs)
                 stateMark(needsYou: split.needsYou, working: split.working, unread: split.unread)
-                Image(systemName: autoOpen ? Theme.Icon.collapse : Theme.Icon.expand)
+                ThemedIcon(autoOpen ? Theme.Icon.collapse : Theme.Icon.expand)
                     .font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, Theme.Space.m)
@@ -1218,7 +1218,7 @@ struct AssistantSidebar: View {
                            run: @escaping () -> Void) -> some View {
         Button(action: run) {
             HStack(spacing: Theme.Space.s) {
-                Image(systemName: symbol).font(Theme.Font.label).foregroundStyle(.secondary)
+                ThemedIcon(symbol).font(Theme.Font.label).foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.iconS)
                 Text(name).font(Theme.Font.secondary).foregroundStyle(Color.primary).lineLimit(1)
                 if let count {
@@ -1226,7 +1226,7 @@ struct AssistantSidebar: View {
                 }
                 Spacer(minLength: Theme.Space.xs)
                 stateMark(needsYou: needsYou, working: working, unread: 0)
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
             .padding(.leading, isShell ? Theme.Space.xl : Theme.Space.m + Theme.Size.wellM + Theme.Space.m)
             .padding(.trailing, Theme.Space.m)
@@ -1278,7 +1278,7 @@ struct AssistantSidebar: View {
     @ViewBuilder private func results(_ hits: [Session]) -> some View {
         if hits.isEmpty {
             VStack(spacing: Theme.Space.sm) {
-                Image(systemName: Theme.Icon.search).font(Theme.Font.title).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.search).font(Theme.Font.title).foregroundStyle(.tertiary)
                 Text("No Results for “\(query)”").font(Theme.Font.secondary).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -1296,7 +1296,7 @@ struct AssistantSidebar: View {
             BUISidebarHeading(text) {
                 if !HeadingMenu.isEmpty(items) {
                     SwiftUI.Menu { items } label: {
-                        Image(systemName: Theme.Icon.more).font(Theme.Font.captionStrong)
+                        ThemedIcon(Theme.Icon.more).font(Theme.Font.captionStrong)
                             .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.wellXS)
                             .contentShape(.rect)
                     }
@@ -1320,7 +1320,7 @@ struct AssistantSidebar: View {
             Spacer(minLength: 0)
             if !HeadingMenu.isEmpty(items) {
                 SwiftUI.Menu { items } label: {
-                    Image(systemName: Theme.Icon.more).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.more).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
                         .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.wellXS)
                         .contentShape(.rect)
                 }
@@ -1514,7 +1514,7 @@ struct AssistantSidebar: View {
             Spacer(minLength: Theme.Space.s)
             if let openSettings {
                 Button(action: openSettings) {
-                    Image(systemName: Theme.Icon.settings)
+                    ThemedIcon(Theme.Icon.settings)
                         .font(Theme.Font.heading)
                         .foregroundStyle(Color.primary)
                         .scaledFrame(width: Theme.Size.avatarL, height: Theme.Size.avatarL)
@@ -1557,7 +1557,7 @@ private struct AssistantProfileFooter: View {
                         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                             HStack(spacing: Theme.Space.xs) {
                                 Text(model.persona.name).font(Theme.Font.bodyStrong).foregroundStyle(Color.primary).lineLimit(1)
-                                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                             }
                             HStack(spacing: Theme.Space.xs) {
                                 Circle().fill(online ? Theme.positive : Color.secondary.opacity(0.5))
@@ -1576,7 +1576,7 @@ private struct AssistantProfileFooter: View {
                 Spacer(minLength: Theme.Space.s)
                 if let openSettings {
                     Button(action: openSettings) {
-                        Image(systemName: Theme.Icon.settings).font(Theme.Font.title).foregroundStyle(Color.primary)
+                        ThemedIcon(Theme.Icon.settings).font(Theme.Font.title).foregroundStyle(Color.primary)
                             .scaledFrame(width: Theme.Size.tapTarget, height: Theme.Size.tapTarget)
                             .contentShape(.rect)
                     }
@@ -1639,7 +1639,7 @@ struct ConversationMark: View {
             .fill(hue.opacity(0.14))
             .overlay(Circle().stroke(hue.opacity(0.25), lineWidth: Theme.Size.hairline))
             .scaledFrame(width: Theme.Size.wellM, height: Theme.Size.wellM)
-            .overlay(Image(systemName: Theme.Icon.conversation).font(Theme.Font.label).foregroundStyle(hue))
+            .overlay(ThemedIcon(Theme.Icon.conversation).font(Theme.Font.label).foregroundStyle(hue))
             .accessibilityHidden(true)
     }
 }

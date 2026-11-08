@@ -76,6 +76,8 @@ nonisolated struct PairedHub: Codable, Hashable, Sendable, Identifiable {
     var deviceID: String?
     /// The watch's answer-only credential there.
     var watch: ServerConfig?
+    /// The watch's own issued token id, used only to report its complication configurations.
+    var watchDeviceID: String? = nil
     /// The hubs its last hello listed in its group (itself included).
     var mesh: [MeshHub]?
     var addedAt: Date = .now

@@ -20,7 +20,7 @@ struct NoticeBanner<Action: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: symbol ?? (tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error))
+            ThemedIcon(symbol ?? (tone == .danger ? Theme.Icon.errorFilled : Theme.Icon.error))
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(color)
             #if os(macOS)

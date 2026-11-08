@@ -327,21 +327,12 @@ struct AssistantView: View {
         withAnimation(Theme.Motion.standard) { pending = PendingStart(text: text, imageCount: images.count) }
         do {
             let makesMain = space == nil && model.assistantMain == nil // the first one becomes the main conversation
-            var attempt = 0
-            var started: Session?
-            while started == nil {
-                do {
-                    started = try await api.startConversation(prompt: text, images: images, launcher: starterLauncher,
-                                                              permissionMode: starterMode.isEmpty ? nil : starterMode,
-                                                              effort: starterEffort.isEmpty ? nil : starterEffort,
-                                                              main: makesMain, space: space)
-                } catch where CodedFailure.passesBySelf(error) && attempt < 3 {
-                    // The assistant restarting: a few seconds, tried again without a word (docs/assistant/onboarding.md 4.6).
-                    attempt += 1
-                    try await Task.sleep(for: .seconds(2 * attempt))
-                }
+            let s = try await AssistantStart.run(receipts: model.hubFeatures.contains(AssistantStart.feature)) { op in
+                try await api.startConversation(prompt: text, images: images, launcher: starterLauncher,
+                                                permissionMode: starterMode.isEmpty ? nil : starterMode,
+                                                effort: starterEffort.isEmpty ? nil : starterEffort,
+                                                main: makesMain, space: space, opID: op)
             }
-            guard let s = started else { return }
             if makesMain { await model.refreshAssistant() }
             Haptics.success()
             model.began(s, text: text, images: images) // the message stays on screen until claude has written it
@@ -550,9 +541,9 @@ struct AssistantWelcome: View {
     private static let builtIn: [(symbol: String, title: String, prompt: String)] = [
         ("calendar", String(localized: "Today's Schedule"), String(localized: "Check my schedule for today: look at both my iPhone calendar and Lark calendar, merge them, and list everything by time.")),
         (Theme.Icon.mailAccounts, String(localized: "Emails to Handle"), String(localized: "Which recent emails in my inbox need me to act or reply? Just the important ones.")),
-        ("macbook.and.iphone", String(localized: "What My Computers Are Doing"), String(localized: "What are the agents on my computers doing right now? Which are waiting on me, and which finished but I haven't looked at yet?")),
-        ("bubble.left.and.text.bubble.right", String(localized: "Lark Messages"), String(localized: "Summarize the important messages I got on Lark today and which ones need a reply from me.")),
-        ("person.2.wave.2", String(localized: "Meeting Prep"), String(localized: "Look at my remaining meetings today, pick the most important one, and help me prepare: agenda, related docs, last meeting's notes, and open to-dos.")),
+        (Theme.Icon.machines, String(localized: "What My Computers Are Doing"), String(localized: "What are the agents on my computers doing right now? Which are waiting on me, and which finished but I haven't looked at yet?")),
+        (Theme.Icon.feishuChats, String(localized: "Lark Messages"), String(localized: "Summarize the important messages I got on Lark today and which ones need a reply from me.")),
+        (Theme.Icon.meeting, String(localized: "Meeting Prep"), String(localized: "Look at my remaining meetings today, pick the most important one, and help me prepare: agenda, related docs, last meeting's notes, and open to-dos.")),
         ("heart.text.square", String(localized: "This Week's Health"), String(localized: "Using the health data on my iPhone, summarize my steps, sleep, and workouts this week.")),
     ]
 
@@ -572,7 +563,7 @@ struct AssistantWelcome: View {
                             ask(s)
                         } label: {
                             BUIListRow(s.title, detail: s.local == nil ? s.prompt : nil, accessory: .disclosure, detailLines: 1) {
-                                BUIIconTile(s.symbol, tint: Theme.accent)
+                                IconTile(s.symbol, tint: Theme.accent)
                             }
                         }
                         .buttonStyle(.plain)
@@ -586,7 +577,7 @@ struct AssistantWelcome: View {
                             ask(s)
                         } label: {
                             VStack(alignment: .leading, spacing: Theme.Space.m) {
-                                Image(systemName: s.symbol)
+                                ThemedIcon(s.symbol)
                                     .font(Theme.Font.title)
                                     .foregroundStyle(Theme.accent)
                                 Text(s.title).font(Theme.Font.heading).foregroundStyle(Color.primary)
@@ -1006,12 +997,12 @@ struct AssistantToolsRow: View {
                                 Text("\(ToolPresentation.verb(last.name)) \(ToolPresentation.subject(last))").lineLimit(1)
                             }
                         } else {
-                            Image(systemName: Theme.Icon.unknownTool)
+                            ThemedIcon(Theme.Icon.unknownTool)
                             Text("Tools \(count)")
                             Text(sources(calls)).foregroundStyle(.tertiary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).rotationEffect(.degrees(open ? 90 : 0))
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).rotationEffect(.degrees(open ? 90 : 0))
                     }
                     .font(Theme.Font.label)
                     .foregroundStyle(.secondary)
@@ -1094,7 +1085,7 @@ struct StarterLauncherStatus: View {
                 model.retryAssistantLoad()
             } label: {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.error)
+                    ThemedIcon(Theme.Icon.error)
                     Text(String(localized: "Couldn't Load Settings")).lineLimit(1).minimumScaleFactor(0.8)
                     Text(String(localized: "Retry [Components b8784c]")).lineLimit(1).foregroundStyle(Theme.accent)
                 }
@@ -1194,13 +1185,13 @@ struct StarterModesMenu: View {
         Section("Thinking Effort") {
             Picker("Thinking Effort", selection: modes.$effort) {
                 Text("Use Launcher's").tag("")
-                ForEach(SessionModes.startEffortLevels) { o in Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id) }
+                ForEach(SessionModes.startEffortLevels) { o in Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id) }
             }
             .pickerStyle(.inline)
         }
         Picker(selection: modes.$mode) {
             Text("Use Launcher's").tag("")
-            ForEach(SessionModes.assistantModes) { o in Label { Text(o.title); Text(o.detail) } icon: { Image(systemName: o.symbol) }.tag(o.id) }
+            ForEach(SessionModes.assistantModes) { o in Label { Text(o.title); Text(o.detail) } icon: { ThemedIcon(o.symbol) }.tag(o.id) }
         } label: {
             Label("Permission Mode: \(SessionModes.mode(modes.mode)?.title ?? String(localized: "Use Launcher's"))", systemImage: SessionModes.mode(modes.mode)?.symbol ?? Theme.Icon.askFirst)
         }

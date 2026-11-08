@@ -129,8 +129,10 @@ As long as room is made through the window's safe area, it can't be fixed cleanl
   Liquid Glass, or the raised capsule under the BeautifulUI style). The keyboard is at the bottom and these are at the top, so they're never covered.
 - **Said once**: while a page whose own title shows connection status is in front (an agent's conversation, a subagent's included; Inbox and Machines pushed in the shell, `ConnectionTitle`),
   it registers with `.titleSaysLink()` and the shell's pill stays away (`ShellNotices.pill`), so "Connecting…" is not said again under the title; back on a page whose title doesn't show it (Assistant, the Agents list) the pill shows as before.
-- Old Layout, iPad, Mac: the toast is `ToastOverlay` (the same `ToastCapsule`, tap to dismiss), and connection status is in the title.
-  Before the shell is on screen (the welcome page, the engine step and the checklist after pairing) there is no `ToastWindow` either, so `ToastOverlay` is used there too: otherwise an error from opening a pairing link on the welcome page (hub out of reach, incomplete link) would never show (#4273).
+- Old Layout, iPad and iPhone Duo open: the toast floats in a toast window of the same kind (`ToastWindowHook` on `RootTabs`, no connection pill; nothing to tap but its button),
+  over the image viewer, the share card and every other cover or sheet. Before #1492 it was `RootView`'s overlay, under all of them: Saved to Photos never showed there. Connection status is in the title.
+- Mac and Apple Vision Pro: the toast is `ToastOverlay` in `RootView` (the same `ToastCapsule`, tap to dismiss).
+  Before the shell or the tabs are on screen (the welcome page, the engine step and the checklist after pairing), and while an extension's page takes the app's place, there is no `ToastWindow` either, so `ToastOverlay` is used there too: otherwise an error from opening a pairing link on the welcome page (hub out of reach, incomplete link) would never show (#4273).
 
 DEBUG: `-showConnectionCycle connecting:7:4` (from second 7, show Connecting… for 4 seconds, then recover; `waiting` / `connecting` / `updating`),
 `-showToasts "5:info:text;5.4:error:text"` (pop toasts at those times).

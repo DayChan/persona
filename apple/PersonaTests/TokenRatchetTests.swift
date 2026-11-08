@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 /// Literal design values in views (paddings, stack spacing, corner radii, hex colors, animations, weights added to a
-/// font level, fixed frames) may only go down, file by file, until the tokens cover them. `TokenBaseline.json` next to
+/// font level, fixed frames, SF Symbols drawn without `ThemedIcon`) may only go down, file by file, until the tokens cover them. `TokenBaseline.json` next to
 /// this file holds the counts; a file over its count fails. When a change lowers counts, the test fails too and says
 /// so: delete TokenBaseline.json, rerun to write it again, and commit it with the change.
 struct TokenRatchetTests {
@@ -19,6 +19,8 @@ struct TokenRatchetTests {
         ("animation", #"(?<![\w.]Motion)\.(snappy|smooth|spring|bouncy|easeInOut|easeOut|easeIn)\b"#),
         ("levelWeight", #"Theme\.Font\.\w+\.(weight|bold)\("#),
         ("fixedFrame", #"\.frame\((?:width|height|minWidth|minHeight): *[0-9]"#),
+        // An SF Symbol drawn as written, outside the style's icon language: `ThemedIcon` (docs/apple/icons.md).
+        ("rawSymbol", #"\bImage\(systemName:"#),
     ]
 
     static func counts() throws -> [String: [String: Int]] {

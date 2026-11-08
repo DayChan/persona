@@ -153,7 +153,7 @@ struct NewChatView: View {
                         DirectoryBrowser(ref: ref, start: cwd.isEmpty ? "" : cwd) { picked in cwd = picked }
                     } label: {
                         HStack {
-                            Image(systemName: Theme.Icon.folderFilled).foregroundStyle(Theme.accent)
+                            ThemedIcon(Theme.Icon.folderFilled).foregroundStyle(Theme.accent)
                             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                 Text(cwd.isEmpty ? String(localized: "Choose Directory") : (cwd as NSString).lastPathComponent).font(Theme.Font.heading)
                                 if !cwd.isEmpty {
@@ -170,7 +170,7 @@ struct NewChatView: View {
                                 Haptics.tap()
                             } label: {
                                 HStack {
-                                    Image(systemName: cwd == r.path ? Theme.Icon.successFilled : Theme.Icon.recent)
+                                    ThemedIcon(cwd == r.path ? Theme.Icon.successFilled : Theme.Icon.recent)
                                         .foregroundStyle(cwd == r.path ? Theme.accent : .secondary)
                                     VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                         Text(r.name).foregroundStyle(Color.primary)
@@ -191,7 +191,7 @@ struct NewChatView: View {
                         LauncherPicker(launchers: launchers, selection: $launcher, allowDefault: unifiedModels, defaultLabel: defaultLabel)
                     } label: {
                         HStack {
-                            Image(systemName: Theme.Icon.model).foregroundStyle(Theme.accent)
+                            ThemedIcon(Theme.Icon.model).foregroundStyle(Theme.accent)
                             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                 HStack(spacing: Theme.Space.sm) {
                                     Text(launcher.isEmpty ? (unifiedModels ? defaultLabel : String(localized: "Choose Launcher")) : launcher).font(Theme.Font.heading.monospaced()).lineLimit(1)
@@ -219,12 +219,12 @@ struct NewChatView: View {
                         Picker(selection: $mode) {
                             Text("Use Launcher's").tag("")
                             ForEach(SessionModes.permissionModes) { o in Label(o.title, systemImage: o.symbol).tag(o.id) }
-                        } label: { Label { Text("Permission Mode") } icon: { Image(systemName: Theme.Icon.permissions).foregroundStyle(Theme.accent) } }
+                        } label: { Label { Text("Permission Mode") } icon: { ThemedIcon(Theme.Icon.permissions).foregroundStyle(Theme.accent) } }
                         if !effortOptions.isEmpty {
                             Picker(selection: $effort) {
                                 Text("Use Launcher's").tag("")
                                 ForEach(effortOptions) { o in Label(o.title, systemImage: o.symbol).tag(o.id) }
-                            } label: { Label { Text("Thinking Effort") } icon: { Image(systemName: Theme.Icon.effort).foregroundStyle(Theme.accent) } }
+                            } label: { Label { Text("Thinking Effort") } icon: { ThemedIcon(Theme.Icon.effort).foregroundStyle(Theme.accent) } }
                         }
                     } header: { Text("Permissions & Thinking") } footer: {
                         Text(SessionModes.mode(mode)?.detail
@@ -350,7 +350,7 @@ struct NewChatView: View {
         } label: {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 HStack {
-                    Image(systemName: m.symbol).font(Theme.Font.title)
+                    ThemedIcon(m.symbol).font(Theme.Font.title)
                     Spacer()
                     Circle().fill(m.online ? Theme.positive : Color.secondary.opacity(0.4)).scaledFrame(width: Theme.Size.dot, height: Theme.Size.dot)
                 }
@@ -465,13 +465,13 @@ struct NewChatView: View {
     @ViewBuilder private var modelRow: some View {
         if let modelsError {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: Theme.Icon.error).foregroundStyle(Theme.cautionText)
+                ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.cautionText)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                     Text("Couldn't Load Models").font(Theme.Font.heading).lineLimit(1)
                     Text(modelsError).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(3)
                 }
                 Spacer(minLength: Theme.Space.s)
-                Button { Task { await loadModels(refresh: true) } } label: { Image(systemName: Theme.Icon.retry) }
+                Button { Task { await loadModels(refresh: true) } } label: { ThemedIcon(Theme.Icon.retry) }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Retry [Components b8784c]")
             }
@@ -498,7 +498,7 @@ struct NewChatView: View {
 
     private func modelLabel(title: String, detail: String?, trailing: String?) -> some View {
         HStack {
-            Image(systemName: Theme.Icon.ai).foregroundStyle(Theme.accent)
+            ThemedIcon(Theme.Icon.ai).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(title).font(Theme.Font.heading).lineLimit(1)
                 if let detail {
@@ -507,7 +507,7 @@ struct NewChatView: View {
             }
             Spacer()
             if modelsLoading { ProgressView().controlSize(.small) }
-            if let trailing { Image(systemName: trailing).foregroundStyle(.secondary) }
+            if let trailing { ThemedIcon(trailing).foregroundStyle(.secondary) }
         }
     }
 
@@ -604,7 +604,7 @@ struct LauncherPicker: View {
                     HStack {
                         Label(defaultLabel, systemImage: Theme.Icon.model).lineLimit(1)
                         Spacer()
-                        if selection.isEmpty { Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold) }
+                        if selection.isEmpty { ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold) }
                     }
                 }
                 .accessibilityIdentifier("launcherPicker.default")
@@ -628,7 +628,7 @@ struct LauncherPicker: View {
                             }
                         }
                         Spacer()
-                        if l.name == selection { Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold) }
+                        if l.name == selection { ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold) }
                     }
                 }
             }
@@ -670,7 +670,7 @@ struct DirectoryBrowser: View {
                         if loading {
                             ProgressView()
                         } else if editing, DirectoryPath.resolve(draft, from: list.path) != list.path {
-                            Button { go() } label: { Image(systemName: Theme.Icon.enter) }
+                            Button { go() } label: { ThemedIcon(Theme.Icon.enter) }
                                 .accessibilityLabel("Go [New Chat View fa9607]")
                         }
                     }
@@ -699,7 +699,7 @@ struct DirectoryBrowser: View {
                     ForEach(list.entries) { e in
                         Button { Task { await load(e.path) } } label: {
                             HStack {
-                                Image(systemName: e.isGit ? Theme.Icon.gitRepository : Theme.Icon.folder).foregroundStyle(e.isGit ? Theme.accent : .secondary)
+                                ThemedIcon(e.isGit ? Theme.Icon.gitRepository : Theme.Icon.folder).foregroundStyle(e.isGit ? Theme.accent : .secondary)
                                 Text(e.name).foregroundStyle(.primary)
                                 Spacer()
                                 if e.isGit { Chip(text: "git") }

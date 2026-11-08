@@ -150,7 +150,7 @@ struct TodayRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: row.symbol)
+            ThemedIcon(row.symbol)
                 .font(Theme.Font.secondaryStrong)
                 .foregroundStyle(row.tint)
                 .scaledFrame(width: Theme.Size.wellS, height: Theme.Size.wellS)

@@ -452,6 +452,11 @@ final class LiveConnection {
     /// The demo config's socket, made by `makeLocal` (DemoHub registers it at launch).
     @ObservationIgnored private var local: LocalSocket?
     @ObservationIgnored static var makeLocal: (() -> LocalSocket)?
+    #if DEBUG
+    /// Unit tests: this connection's own socket instead of `makeLocal`'s, for several models side by side, one per
+    /// device (`AppModel.linkHooksForTests`).
+    @ObservationIgnored var makeLocalForTests: (() -> LocalSocket)?
+    #endif
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var backoff: TimeInterval = 1
     /// The hub said `hub_restarting` on this socket: its close is a restart whatever the close code.
@@ -693,7 +698,11 @@ final class LiveConnection {
 
     /// Demo Mode: no network, no heartbeat; the made-up hub's messages arrive like a socket's.
     private func openLocal(_ gen: Int) {
-        guard let make = Self.makeLocal else {
+        var made = Self.makeLocal
+        #if DEBUG
+        if let mine = makeLocalForTests { made = mine }
+        #endif
+        guard let make = made else {
             state = .failed(String(localized: "Demo mode isn't available"))
             return
         }

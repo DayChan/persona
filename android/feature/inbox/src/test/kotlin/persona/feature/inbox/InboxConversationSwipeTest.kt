@@ -49,13 +49,18 @@ class InboxConversationSwipeTest {
         source = "lark", feedId = "synthetic-room", read = true,
     )
 
-    private class FakeInbox(records: List<InboxRecord>) : InboxRepository {
+    private class FakeInbox(records: List<InboxRecord>, query: String = "") : InboxRepository {
         override val entries = MutableStateFlow(emptyList<InboxEntry>())
         override val snapshot = MutableStateFlow(InboxSnapshot(records = records))
         override val connectionState = MutableStateFlow(ConnectionState.Online)
-        override val preferences = flowOf(InboxPreferences(expanded = listOf("action", "fyi", "read-pending", "done")))
+        override val preferences = flowOf(InboxPreferences(query = query, expanded = listOf("action", "fyi", "read-pending", "done")))
         override val conversationInbox = MutableStateFlow<InboxConversations?>(null)
         val calls = mutableListOf<Pair<List<InboxDoneTarget>, InboxBulkAction>>()
+        val handoffs = mutableListOf<InboxHandOffRequest>()
+        override suspend fun handOff(request: InboxHandOffRequest) {
+            handoffs += request
+            throw IllegalStateException("Synthetic handoff failure")
+        }
         var response: suspend (List<InboxDoneTarget>, InboxBulkAction) -> InboxBulkResult = { items, action ->
             val ids = items.map { it.id }
             snapshot.value = snapshot.value.copy(records = snapshot.value.records.map { record ->
@@ -109,12 +114,94 @@ class InboxConversationSwipeTest {
         }
     }
 
+    @Test fun filteredSwipeCannotFileHiddenItemsInTheSameConversation() {
+        val inbox = FakeInbox(listOf(record("a").let { it.copy(item = it.item.copy(preview = "Visible match")) },
+            record("b").let { it.copy(item = it.item.copy(preview = "Hidden event")) }), query = "Visible")
+        screen(inbox)
+        swipe(true)
+        rule.runOnIdle {
+            assertEquals(listOf(InboxDoneTarget("a", "version-a")), inbox.calls.single().first)
+            assertFalse(inbox.snapshot.value.records.single { it.item.id == "b" }.item.isDone)
+        }
+    }
+
+    @Test fun filingAMixedConversationDoesNotFileAlreadyCompletedEventsAgain() {
+        val inbox = FakeInbox(listOf(record("a"), record("b").let { it.copy(item = it.item.copy(doneAt = "2026-11-08T00:00:00Z")) }))
+        screen(inbox)
+        swipe(true)
+        rule.runOnIdle { assertEquals(listOf(InboxDoneTarget("a", "version-a")), inbox.calls.single().first) }
+    }
+
+    @Test fun anUpdatedVersionCancelsAnInFlightGestureRatherThanActingOnUnseenContent() {
+        var record by mutableStateOf(record("a"))
+        var count = 0
+        rule.setContent {
+            PersonaTheme(reduceMotion = true) {
+                InboxConversationItemRow(buildInboxConversations("scope", InboxSnapshot(records = listOf(record))).rows.single(),
+                    navigator, GroupPosition.of(0, 1), null, false, false, { count++ }, { count++ })
+            }
+        }
+        row().performTouchInput {
+            down(center)
+            moveTo(center + androidx.compose.ui.geometry.Offset(width * .35f, 0f), 500)
+        }
+        rule.runOnIdle { record = record.copy(item = record.item.copy(version = "new-version")) }
+        row().performTouchInput {
+            moveTo(center + androidx.compose.ui.geometry.Offset(width * .9f, 0f), 500)
+            up()
+        }
+        rule.waitForIdle()
+        rule.runOnIdle { assertEquals("A changed event needs a new deliberate gesture", 0, count) }
+    }
+
+    @Test fun partialFailureKeepsTheFailedEventOpenAndARetryOnlyAsksForThatEvent() {
+        val inbox = FakeInbox(listOf(record("a"), record("b")))
+        inbox.response = { _, _ ->
+            inbox.snapshot.value = inbox.snapshot.value.copy(records = inbox.snapshot.value.records.map {
+                if (it.item.id == "a") it.copy(item = it.item.copy(doneAt = "2026-11-08T00:00:00Z")) else it
+            })
+            InboxBulkResult(changed = listOf("a"), failed = listOf("b"))
+        }
+        screen(inbox)
+        swipe(true)
+        rule.onNodeWithText("previous state is back", substring = true).assertExists()
+        rule.runOnIdle {
+            assertEquals(InboxConversationSection.ReadPending, inbox.conversationInbox.value!!.state.value.rows.single().section)
+        }
+        swipe(true)
+        rule.runOnIdle {
+            assertEquals(2, inbox.calls.size)
+            assertEquals(listOf(InboxDoneTarget("b", "version-b")), inbox.calls.last().first)
+        }
+    }
+
     @Test fun leftSwipeOpensTheExistingConsentSheetWithoutExecutingOrFiling() {
         val inbox = FakeInbox(listOf(record("a")))
         screen(inbox)
         swipe(false)
-        rule.onNodeWithText("Hand to AI").assertExists()
+        rule.onNodeWithText("What should it do").assertExists()
         rule.runOnIdle { assertTrue(inbox.calls.isEmpty()); assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun filteredLeftSwipeUsesTheVisibleItemOnlyAfterConsentAndKeepsTheRetryOperationId() {
+        val inbox = FakeInbox(listOf(record("a").let { it.copy(item = it.item.copy(preview = "Hidden event")) },
+            record("b").let { it.copy(item = it.item.copy(preview = "Visible match")) }), query = "Visible")
+        screen(inbox)
+        swipe(false)
+        rule.onNodeWithText("What should it do").assertExists()
+        rule.runOnIdle { assertTrue(inbox.handoffs.isEmpty()); assertTrue(inbox.calls.isEmpty()) }
+        rule.onNodeWithText("Send").performClick()
+        rule.onNodeWithText("Couldn't hand off:", substring = true).assertExists()
+        rule.runOnIdle {
+            assertEquals("b", inbox.handoffs.single().itemId)
+            assertTrue(inbox.calls.isEmpty())
+        }
+        rule.onNodeWithText("Send").performClick()
+        rule.runOnIdle {
+            assertEquals(2, inbox.handoffs.size)
+            assertEquals(inbox.handoffs.first().operationId, inbox.handoffs.last().operationId)
+            assertTrue(inbox.snapshot.value.records.none { it.item.isDone })
+        }
     }
 
     @Test fun pendingBlocksBothDirectionsAndAFailureRestoresTheRowAndReportsIt() {
@@ -151,6 +238,38 @@ class InboxConversationSwipeTest {
         rule.runOnIdle { assertTrue(inbox.calls.isEmpty()) }
         row().performClick()
         rule.runOnIdle { assertEquals(1, opened.size); assertTrue(inbox.calls.isEmpty()) }
+    }
+
+    private fun drag(fraction: Float, release: Boolean = true) {
+        row().performTouchInput {
+            val origin = center
+            down(origin)
+            repeat(60) { step -> moveTo(origin + androidx.compose.ui.geometry.Offset(width * fraction * (step + 1) / 60, 0f), 16) }
+            if (release) up() else cancel()
+        }
+        rule.waitForIdle()
+    }
+
+    @Test fun slowDragsHonorTheHistoricalThresholdAndCancelSpringsBackInBothDirections() {
+        val inbox = FakeInbox(listOf(record("a")))
+        inbox.response = { items, _ -> InboxBulkResult(failed = items.map { it.id }) }
+        screen(inbox)
+        val origin = row().fetchSemanticsNode().boundsInRoot.left
+        for (direction in listOf(1f, -1f)) {
+            drag(direction * .10f) // 40 dp: below the shared component's 56 dp threshold.
+            rule.runOnIdle { assertTrue(inbox.calls.isEmpty()); assertTrue(opened.isEmpty()) }
+            rule.onNodeWithText("What should it do").assertDoesNotExist()
+            assertEquals(origin, row().fetchSemanticsNode().boundsInRoot.left, 1f)
+            drag(direction * .40f, release = false)
+            rule.runOnIdle { assertTrue(inbox.calls.isEmpty()); assertTrue(opened.isEmpty()) }
+            rule.onNodeWithText("What should it do").assertDoesNotExist()
+            assertEquals(origin, row().fetchSemanticsNode().boundsInRoot.left, 1f)
+        }
+        drag(.30f) // 120 dp: over the threshold, including touch slop.
+        rule.runOnIdle { assertEquals(1, inbox.calls.size) }
+        assertEquals(origin, row().fetchSemanticsNode().boundsInRoot.left, 1f)
+        drag(-.30f)
+        rule.onNodeWithText("What should it do").assertExists()
     }
 
     @Test fun emptyRowsHaveNoGestureOrActionAndEveryStyleDrawsBothDirections() {

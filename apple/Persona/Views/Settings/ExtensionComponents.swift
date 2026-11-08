@@ -27,13 +27,13 @@ struct ExtensionComponentRowLabel: View {
                     .animation(reduceMotion ? nil : Theme.Motion.state, value: b)
             }
             if let action = row.action, model?.selected(action.id) == true {
-                Image(systemName: Theme.Icon.success).font(Theme.Font.labelStrong).foregroundStyle(Theme.positive)
+                ThemedIcon(Theme.Icon.success).font(Theme.Font.labelStrong).foregroundStyle(Theme.positive)
                     .accessibilityLabel("Selected [Extension Components 7ecf1c]")
             } else if chevron {
                 if let a = row.action, model?.running == a.id {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                 }
             }
         }
@@ -59,7 +59,7 @@ struct ExtensionComponentRowLabel: View {
             .clipShape(.circle)
             .accessibilityHidden(true)
         } else if let i = row.icon, !i.isEmpty {
-            Image(systemName: ExtensionUIStyle.icon(i))
+            ThemedIcon(ExtensionUIStyle.icon(i))
                 .font(Theme.Font.heading)
                 .foregroundStyle(Theme.accent)
                 .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
@@ -296,7 +296,7 @@ struct ExtensionSearchRow: View {
             TextField(search.placeholder ?? String(localized: "Search"), text: Binding(get: { model.query }, set: { model.query = $0 }))
                 .font(Theme.Font.body).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .onSubmit { run() }
-            Button { run() } label: { Image(systemName: Theme.Icon.search) }
+            Button { run() } label: { ThemedIcon(Theme.Icon.search) }
                 .themedButton().accessibilityLabel("Search")
         }
         .padding(Theme.Space.s)

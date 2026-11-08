@@ -147,8 +147,14 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, n
 		stamp := n.UpdatedAt.UTC().Format(time.RFC3339)
 		st.mu.Lock()
 		known := st.seen[n.ID] == stamp
+		// Notifications come newest first and a CI thread gathers many: one older than the thread's thing is an
+		// earlier move, and the thing keeps the newest (InboxThing.At).
+		older := !known && st.things[thread] != nil && n.UpdatedAt.Before(st.things[thread].At)
+		if older {
+			st.seen[n.ID] = stamp
+		}
 		st.mu.Unlock()
-		if known || budget == 0 {
+		if known || older || budget == 0 {
 			continue
 		}
 		budget--
@@ -156,11 +162,12 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, n
 		var err error
 		switch {
 		case kind == "ci_failed" && !run.failed():
-			// A run of the branch that did not fail (succeeded, cancelled): a failure item of it is over if it succeeded.
+			// A run of the branch that did not fail (succeeded, cancelled): after a success the follow-up checks in
+			// this poll whether the branch's item is over (followUpCI: every workflow's newest run).
 			st.mu.Lock()
 			st.seen[n.ID] = stamp
-			if t := st.things[thread]; t != nil && t.Done == "" && run.status == "succeeded" {
-				t.Done, t.Why, moved = connector.DoneRead, "GitHub：后来成功了", true
+			if m := st.ci[thread]; m != nil && run.status == "succeeded" {
+				m.checked = time.Time{}
 			}
 			st.mu.Unlock()
 			continue

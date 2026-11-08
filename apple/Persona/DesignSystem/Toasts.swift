@@ -13,7 +13,7 @@ struct ToastCapsule: View {
 
     var body: some View {
         let row = HStack(spacing: Theme.Space.m) {
-            Image(systemName: toast.style == .error ? Theme.Icon.errorFilled : toast.style == .success ? Theme.Icon.successFilled : Theme.Icon.infoFilled)
+            ThemedIcon(toast.style == .error ? Theme.Icon.errorFilled : toast.style == .success ? Theme.Icon.successFilled : Theme.Icon.infoFilled)
                 .foregroundStyle(toast.style == .error ? Theme.danger : toast.style == .success ? Theme.positive : Theme.accent)
             Text(toast.message)
                 .font(Theme.Font.secondaryMedium)
@@ -51,8 +51,8 @@ struct ToastCapsule: View {
 }
 
 /// The app's toast at the top of what it covers, over the content (it moves nothing), gone after `ToastCapsule.shown`.
-/// `tapToDismiss`: a tap on it closes it (the tabs, the Mac); the iPhone's shell shows it in a window of its own that
-/// takes no touches (`ToastWindow`), so nothing under it ever misses a tap.
+/// `tapToDismiss`: a tap on it closes it (the Mac, the welcome page); on the iPhone and iPad it is shown in a window of
+/// its own that takes no touches (`ToastWindow`), so nothing under it ever misses a tap.
 struct ToastOverlay: View {
     @Environment(AppModel.self) private var model
     var tapToDismiss = true

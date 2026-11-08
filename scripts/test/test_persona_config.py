@@ -6,6 +6,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -122,6 +123,7 @@ class SigningProfileConfigTests(unittest.TestCase):
             'uploadSymbols': True, 'manageAppVersionAndBuildNumber': False,
             'provisioningProfiles': {
                 self.bid: 'Persona App Store', self.bid + '.watchkitapp': 'Persona Watch App Store',
+                self.bid + '.watchkitapp.widgets': 'Persona Watch Widgets App Store',
                 self.bid + '.liveactivity': 'Persona Live Activity App Store',
                 self.bid + '.notify': 'Persona Notify App Store', self.bid + '.share': 'Persona Share App Store',
             },
@@ -137,6 +139,66 @@ class SigningProfileConfigTests(unittest.TestCase):
             self.assertEqual(exported['provisioningProfiles'][bid], name)
         self.assertEqual(exported['provisioningProfiles'][self.bid + '.watchkitapp'], 'Persona Watch App Store')
         self.assertEqual(cfg['app_store']['provisioning_profiles'], names)
+
+    def test_watch_widget_identities_are_derived_without_changing_existing_ids(self):
+        cfg = {'app': {'bundle_id': self.bid, 'app_group': 'group.com.example.shared'}}
+        self.assertEqual(config.watch_widget_bundle_id(cfg), self.bid + '.watchkitapp.widgets')
+        self.assertEqual(config.watch_app_group(cfg), 'group.com.example.shared.watch')
+        before = json.dumps(cfg, sort_keys=True)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'apple').mkdir()
+            with patch.object(config, 'ROOT', str(root)):
+                config.xcconfig(cfg)
+            lines = (root / 'apple/Config.xcconfig').read_text().splitlines()
+        self.assertIn('PERSONA_BUNDLE_ID = ' + self.bid, lines)
+        self.assertIn('PERSONA_APP_GROUP = group.com.example.shared', lines)
+        self.assertIn('PERSONA_WATCH_APP_GROUP = group.com.example.shared.watch', lines)
+        self.assertIn('PERSONA_WATCH_WIDGET_BUNDLE_ID = ' + self.bid + '.watchkitapp.widgets', lines)
+        self.assertEqual(before, json.dumps(cfg, sort_keys=True))
+        generated = config.env(cfg)
+        self.assertEqual(generated['PERSONA_WATCH_APP_GROUP'], config.watch_app_group(cfg))
+        self.assertEqual(generated['PERSONA_WATCH_WIDGET_BUNDLE_ID'], config.watch_widget_bundle_id(cfg))
+
+    def test_watch_widget_overrides_apply_only_to_new_identities(self):
+        identifier = self.bid + '.watchkitapp.complication'
+        cfg = {'app': {'bundle_id': self.bid, 'watch_widget_bundle_id': identifier,
+                       'watch_app_group': 'group.com.example.wrist'},
+               'app_store': {'provisioning_profiles': {identifier: 'Existing Watch Widgets'}}}
+        self.assertEqual(config.watch_widget_bundle_id(cfg), identifier)
+        self.assertEqual(config.watch_app_group(cfg), 'group.com.example.wrist')
+        profiles = config.provisioning_profiles(cfg)
+        self.assertEqual(profiles[identifier], 'Existing Watch Widgets')
+        self.assertEqual(profiles[self.bid + '.watchkitapp'], 'Persona Watch App Store')
+        self.assertEqual(profiles[self.bid + '.liveactivity'], 'Persona Live Activity App Store')
+
+    def test_watch_identity_collisions_are_rejected(self):
+        for identifier in [self.bid, self.bid + '.watchkitapp', self.bid + '.liveactivity', 'com.example.unrelated', True]:
+            with self.subTest(identifier=identifier), self.assertRaises(SystemExit):
+                config.watch_widget_bundle_id({'app': {'bundle_id': self.bid, 'watch_widget_bundle_id': identifier}})
+        for group in ['group.' + self.bid, 'not-an-app-group', True]:
+            with self.subTest(group=group), self.assertRaises(SystemExit):
+                config.watch_app_group({'app': {'bundle_id': self.bid, 'watch_app_group': group}})
+
+    def test_signing_preflight_checks_the_watch_group_not_the_phone_group(self):
+        cfg = {'app': {'bundle_id': self.bid}}
+        fake_asc = types.SimpleNamespace(BUNDLE_ID=self.bid, CONFIG=cfg, APIError=RuntimeError,
+                                         create=lambda *args: None, get_all=lambda *args: [], request=lambda *args: None)
+        spec = importlib.util.spec_from_file_location('signing_under_test', ROOT / 'scripts/release/asc_signing.py')
+        signing = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {'asc': fake_asc, 'persona_config': config}):
+            spec.loader.exec_module(signing)
+        self.assertEqual(signing.TARGET_GROUPS[signing.WATCH], config.watch_app_group(cfg))
+        self.assertEqual(signing.TARGET_GROUPS[signing.WATCH_WIDGETS], config.watch_app_group(cfg))
+        self.assertEqual(signing.TARGET_GROUPS[signing.LIVE], config.app_group(cfg))
+        self.assertIn('APP_GROUPS', signing.TARGETS[signing.WATCH][2])
+        self.assertIn('APP_GROUPS', signing.TARGETS[signing.WATCH_WIDGETS][2])
+        profile = {'attributes': {'profileState': 'ACTIVE', 'profileContent': 'fixture'}}
+        with patch.object(signing, 'get_all', return_value=[profile]), \
+             patch.object(signing, 'groups', return_value=[config.app_group(cfg)]):
+            signing.profile('fixture-id', 'Fixture Watch Profile', 'fixture-cert', check_only=True,
+                            group=config.watch_app_group(cfg))
+        self.assertEqual(signing.MISSING_GROUP, ['Fixture Watch Profile: ' + config.watch_app_group(cfg)])
 
     def test_invalid_profile_config_is_rejected_before_export(self):
         for overrides in (None, [], 'Profile', {self.bid: ''}, {self.bid: '  '}, {self.bid: 42},

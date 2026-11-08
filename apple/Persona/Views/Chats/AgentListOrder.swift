@@ -2,7 +2,7 @@ import Foundation
 
 /// The Agents list's order, folds and sections (By Status / By Machine), as plain functions of the sessions and the user's pins
 /// and mutes, so they are unit-tested (`AgentListOrderTests`) apart from the view.
-struct AgentListOrder {
+nonisolated struct AgentListOrder {
     var isPinned: (SessionKey) -> Bool
     var isMuted: (Session) -> Bool
     /// Under a quick filter, or sorted by Recently Updated (`AgentSort`), rows are ordered by time only: an agent seen from a

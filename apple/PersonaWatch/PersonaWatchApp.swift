@@ -9,10 +9,16 @@ struct PersonaWatchApp: App {
     var body: some Scene {
         WindowGroup {
             WatchRootView()
+                .onOpenURL { model.openExtensionSurface($0) }
                 .environment(model)
                 .tint(Theme.accent)
         }
-        .onChange(of: phase) { _, p in if p == .active { Task { await model.refresh() } } }
+        .onChange(of: phase) { _, p in
+            if p == .active {
+                Task { await model.refresh() }
+                Task { await model.refreshExtensionSurfaces() }
+            }
+        }
     }
 }
 
@@ -23,6 +29,9 @@ struct PersonaWatchApp: App {
 final class WatchModel {
     /// Each group's credential ("" = the default group); one group from a phone before several hubs.
     var configs: [String: ServerConfig] = [:]
+    @ObservationIgnored var extensionDeviceIDs: [String: String] = [:]
+    var extensionCapabilities: [String: [String]] = [:]
+    var extensionSurface: WatchExtensionDestination?
     /// What the groups are called (labels, when there are several).
     var names: [String: String] = [:]
     /// The phone's groups it could not get the watch a credential for yet (#1185); the watch says so and offers to
@@ -78,6 +87,8 @@ final class WatchModel {
         seenInteractionUids = UserDefaults.standard.stringArray(forKey: Self.seenUidsKey) ?? []
         if let data = UserDefaults.standard.data(forKey: "configs"), let all = try? JSONDecoder().decode(WatchConfigs.self, from: data) {
             (configs, names, missing) = (all.configs, all.names, all.missing ?? [])
+            extensionDeviceIDs = all.deviceIDs ?? [:]
+            extensionCapabilities = all.features ?? [:]
         } else if let data = UserDefaults.standard.data(forKey: "config"), let c = try? JSONDecoder().decode(ServerConfig.self, from: data) {
             configs = ["": c]
         }
@@ -93,19 +104,33 @@ final class WatchModel {
         }
         #endif
         WatchSync.shared.onConfig = { [weak self] c in
-            self?.configs = ["": c]
-            self?.names = [:]
-            self?.missing = []
+            guard let self else { return }
+            guard configs != ["": c] || !names.isEmpty || !missing.isEmpty ||
+                  !extensionDeviceIDs.isEmpty || !extensionCapabilities.isEmpty else { return }
+            configs = ["": c]
+            names = [:]
+            missing = []
+            extensionDeviceIDs = [:]
+            extensionCapabilities = [:]
+            syncExtensionSurfaces()
             UserDefaults.standard.set(try? JSONEncoder().encode(c), forKey: "config")
             UserDefaults.standard.removeObject(forKey: "configs")
-            Task { await self?.refresh() }
+            Task { await self.refresh() }
+            Task { await self.refreshExtensionSurfaces() }
         }
         WatchSync.shared.onConfigs = { [weak self] all in
-            self?.configs = all.configs
-            self?.names = all.names
-            self?.missing = all.missing ?? []
+            guard let self else { return }
+            guard configs != all.configs || names != all.names || missing != (all.missing ?? []) ||
+                  extensionDeviceIDs != (all.deviceIDs ?? [:]) || extensionCapabilities != (all.features ?? [:]) else { return }
+            configs = all.configs
+            names = all.names
+            missing = all.missing ?? []
+            extensionDeviceIDs = all.deviceIDs ?? [:]
+            extensionCapabilities = all.features ?? [:]
+            syncExtensionSurfaces()
             UserDefaults.standard.set(try? JSONEncoder().encode(all), forKey: "configs")
-            Task { await self?.refresh() }
+            Task { await self.refresh() }
+            Task { await self.refreshExtensionSurfaces() }
         }
         WatchSync.shared.onPersona = { [weak self] id in
             self?.persona = id
@@ -127,8 +152,10 @@ final class WatchModel {
                        at: WatchGroupRefresh.dataDate(ofSummaryAt: s.at))
             if let inbox = s.inbox { self.applyInbox(inbox) }
         }
+        syncExtensionSurfaces()
         WatchRecordingTransfer.shared.start()
         WatchSync.shared.activate()
+        Task { await refreshExtensionSurfaces() }
         Task { await poll() }
     }
 
@@ -468,6 +495,9 @@ struct WatchRootView: View {
             }
         }
         .sheet(isPresented: $recordingOpen) { NavigationStack { WatchRecordingView() } }
+        .sheet(item: Binding(get: { model.extensionSurface }, set: { model.extensionSurface = $0 })) { destination in
+            NavigationStack { WatchExtensionSurfacePage(destination: destination) }
+        }
         #if DEBUG
         .onAppear { recordingOpen = UserDefaults.standard.bool(forKey: "openRecording") }
         #endif
@@ -501,10 +531,10 @@ extension InteractionKind {
 
     var watchSymbol: String {
         switch self {
-        case .question: "questionmark.bubble"
-        case .plan: "list.bullet.clipboard"
-        case .permission: "hand.raised"
-        case .screen: "terminal"
+        case .question: Theme.Icon.question
+        case .plan: Theme.Icon.plan
+        case .permission: Theme.Icon.askFirst
+        case .screen: Theme.Icon.terminal
         }
     }
 }

@@ -380,6 +380,19 @@ targets:
       - path: Shared/StatusPalette.swift
       - path: Shared/Design/Palette.swift
       - path: Shared/Design/IslandMetrics.swift
+      # Read-only extension system surfaces, independent of the app's renderer and Keychain.
+      - path: Shared/Generated/ExtensionWire.swift
+      - path: Shared/JSONValue.swift
+      - path: Shared/HubNaming.swift
+      - path: Shared/ExtensionUIContext.swift
+      - path: Shared/ExtensionSystemAPI.swift
+      - path: Shared/ExtensionSystemLink.swift
+      - path: Shared/ExtensionSurfaceStore.swift
+      - path: Shared/ExtensionSurfaceClient.swift
+      - path: Shared/ExtensionSurfaceEntities.swift
+      - path: Shared/ExtensionSurfaceView.swift
+      - path: Shared/ExtensionSystemWidget.swift
+      - path: Shared/Design/ExtensionSurfaceTokens.swift
       # The persona's face (the app's PersonaAvatar draws it too), on the activity's leading side.
       - path: Shared/Design/PersonaFace.swift
       # The app's String Catalog and interface language (docs/apple/ios.md「界面语言」).
@@ -531,6 +544,12 @@ targets:
     sources:
       - path: PersonaWatch
       - path: Shared
+    dependencies:
+      - target: PersonaWatchWidgets
+    entitlements:
+      path: PersonaWatch/PersonaWatch.entitlements
+      properties:
+        com.apple.security.application-groups: ["$(PERSONA_WATCH_APP_GROUP)"]
     info:
       path: PersonaWatch/Info.plist
       properties:
@@ -540,6 +559,9 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDevelopmentRegion: en
         WKApplication: true
+        PersonaAppGroup: $(PERSONA_WATCH_APP_GROUP)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [persona]
         WKCompanionAppBundleIdentifier: $(PERSONA_BUNDLE_ID)
         UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: "Persona records audio you start on Apple Watch, for example a meeting or a spoken note, then transfers it to your iPhone for on-device transcription; only the text is saved to the knowledge base on your hub."
@@ -555,6 +577,51 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
+  PersonaWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: PersonaWatchWidgets
+      - path: Shared/Generated/ExtensionWire.swift
+      - path: Shared/JSONValue.swift
+      - path: Shared/NativeStateMigration.swift
+      - path: Shared/HubNaming.swift
+      - path: Shared/ExtensionUIContext.swift
+      - path: Shared/ExtensionSystemAPI.swift
+      - path: Shared/ExtensionSystemLink.swift
+      - path: Shared/ExtensionSurfaceStore.swift
+      - path: Shared/ExtensionSurfaceClient.swift
+      - path: Shared/ExtensionSurfaceEntities.swift
+      - path: Shared/ExtensionSurfaceView.swift
+      - path: Shared/ExtensionSystemWidget.swift
+      - path: Shared/Design/ExtensionSurfaceTokens.swift
+      - path: Shared/Localization
+    entitlements:
+      path: PersonaWatchWidgets/PersonaWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: ["$(PERSONA_WATCH_APP_GROUP)"]
+    info:
+      path: PersonaWatchWidgets/Info.plist
+      properties:
+        CFBundleName: PersonaWatchWidgets
+        CFBundleDisplayName: Persona
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: en
+        PersonaAppGroup: $(PERSONA_WATCH_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PERSONA_WATCH_WIDGET_BUNDLE_ID)
+        PRODUCT_MODULE_NAME: PersonaWatchWidgets
+        PRODUCT_NAME: PersonaWatchWidgets
+        TARGETED_DEVICE_FAMILY: "4"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_EXTENSION"
   PersonaTests:
     type: bundle.unit-test
     platform: iOS

@@ -161,7 +161,10 @@ func ExtensionCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 				return err
 			}
 			if pv.Upgrade {
-				upgrade = id
+				upgrade = pv.Manifest.ID
+				if pv.RenameFrom != "" {
+					upgrade = pv.RenameFrom
+				}
 			}
 		} else if err := c.do(ctx, "POST", "/api/v1/extensions/-/preview", map[string]string{"source": source, "upgrade": upgrade}, &pv); err != nil {
 			return err
@@ -490,6 +493,9 @@ func ExtensionCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 
 func printPreview(w io.Writer, pv *extension.Preview) {
 	m := pv.Manifest
+	if pv.RenameFrom != "" {
+		fmt.Fprintln(w, i18n.T(i18n.Default, "extension-identity.confirmation", i18n.Args{"from": pv.RenameFrom, "to": m.ID}))
+	}
 	if pv.Upgrade {
 		fmt.Fprintf(w, "升级 %s：%s → %s\n", m.ID, pv.From, m.Version)
 	} else {

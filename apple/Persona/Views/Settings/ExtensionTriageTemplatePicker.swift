@@ -15,7 +15,7 @@ struct ExtensionTriageTemplatePicker: View {
                         .accessibilityIdentifier("extension-triage-template-\(template.id)")
                 }
             } label: {
-                Label { Text("Fill from Template").lineLimit(1) } icon: { Image(systemName: Theme.Icon.insert) }
+                Label { Text("Fill from Template").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.insert) }
             }
             .confirmationDialog("Replace the Current Rule Draft?", isPresented: Binding(
                 get: { selected != nil }, set: { if !$0 { selected = nil } }), titleVisibility: .visible) {

@@ -208,7 +208,7 @@ struct AttachmentRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: symbol).font(Theme.Font.body).foregroundStyle(.secondary)
+            ThemedIcon(symbol).font(Theme.Font.body).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 HStack {
                     Text(name).font(Theme.Font.secondary).lineLimit(1).truncationMode(.middle)
@@ -218,7 +218,7 @@ struct AttachmentRow: View {
                 if let progress { ProgressView(value: progress).tint(Theme.accent) }
             }
             Button(action: remove) {
-                Image(systemName: Theme.Icon.clear).font(Theme.Font.title).symbolRenderingMode(.hierarchical)
+                ThemedIcon(Theme.Icon.clear).font(Theme.Font.title).symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)

@@ -4,7 +4,9 @@
 // same fill; the number is the one the spot carries in the transcript (CommentMarks.tsx) and the one the agent reads.
 import { useLayoutEffect, useRef } from "react";
 import { jumpToComment } from "../../lib/comment-marks";
-import { codePreview, diffLabel, MAX_COMMENT_CHARS, openSpot, rangeLabel, type CodeSpot } from "../../lib/comments";
+import { codePreview, diffLabel, MAX_COMMENT_CHARS, openSpot, rangeLabel, type CodeSpot, type ElementSpot } from "../../lib/comments";
+import { openPanel } from "../../lib/panel";
+import { addressOf } from "../../lib/preview";
 import { cancelNote, editNote, setNote, type DraftQuote } from "../../lib/drafts";
 import { cx, EASE, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -13,12 +15,28 @@ import { composing } from "../../lib/send-history";
 
 /** `staged`, `unstaged`, `commit 1a2b3c4d`, worded for the reader. */
 export function diffName(d: NonNullable<CodeSpot["diff"]>): string {
+  if (d.kind === "review") return d.scope === "uncommitted" ? t("chat-comments.review_uncommitted") : t(d.scope === "branch" ? "chat-comments.review_branch" : "chat-comments.review_since", { sha: d.base });
   return d.kind === "commit" ? t("chat-comments.commit", { sha: diffLabel(d).slice(7) }) : t(d.kind === "staged" ? "chat-comments.staged" : "chat-comments.unstaged");
 }
 
 /** `src/app.ts:12-14 · staged`, worded for the reader. */
 export function spotWhere(s: CodeSpot): string {
   return [`${s.file}:${rangeLabel(s.from, s.to)}`, s.old ? t("chat-comments.side_old") : "", s.diff ? diffName(s.diff) : ""].filter(Boolean).join(" · ");
+}
+
+/** `button.save · /settings`: an element comment's element and the page it is on. */
+export function elementWhere(e: ElementSpot): string {
+  return [e.selector, e.port ? addressOf(e.url, e.port) : e.url].join(" · ");
+}
+
+/** Where a comment points, worded for the reader: a file's lines, or an element of a preview. */
+function whereOf(c: NonNullable<DraftQuote["comment"]>): string {
+  return c.element ? elementWhere(c.element) : c.spot ? spotWhere(c.spot) : "";
+}
+
+/** Lines of code (or of an element's HTML) a comment carries beyond the ones sent. */
+function omittedOf(c: NonNullable<DraftQuote["comment"]>): number {
+  return c.element?.omitted ?? c.spot?.omitted ?? 0;
 }
 
 /** The round number a comment carries, in the card and next to its words in the transcript. */
@@ -32,7 +50,7 @@ export function NumberDot({ n, className }: { n: number; className?: string }) {
 
 /** The words or the lines a comment is about: two lines in the card, code in mono, one line of it each. */
 function Excerpt({ q, lines }: { q: DraftQuote; lines: number }) {
-  const spot = q.comment?.spot;
+  const spot = q.comment?.spot ?? q.comment?.element;
   const text = q.text.trim();
   if (!text) return null;
   if (spot) {
@@ -57,6 +75,17 @@ function Excerpt({ q, lines }: { q: DraftQuote; lines: number }) {
 export function goToComment(q: DraftQuote): boolean {
   const c = q.comment;
   if (!c) return false;
+  if (c.element) {
+    const e = c.element;
+    // the preview of that session, at the page the element was on
+    if (!e.mid || !e.sid || !e.cwd || !e.port) {
+      toast(t("chat-comments.jump_code_gone"));
+      return false;
+    }
+    const path = addressOf(e.url, e.port);
+    openPanel({ kind: "preview", mid: e.mid, sid: e.sid, cwd: e.cwd, port: e.port, path: path.startsWith("/") ? path : "/" });
+    return true;
+  }
   if (c.spot) {
     const ok = openSpot(c.spot);
     if (!ok) toast(t("chat-comments.jump_code_gone"));
@@ -99,7 +128,7 @@ export function CommentCard({ draftKey, quote, n, editing, onRemove }: { draftKe
     if (cancel) cancelNote(draftKey, id, before.current);
     else setNote(draftKey, id, c.body, true);
   };
-  const where = c.spot ? spotWhere(c.spot) : "";
+  const where = whereOf(c);
   return (
     <div
       className="flex min-w-0 items-start gap-2 rounded-[10px] bg-inset py-1.5 pr-1 pl-2 shadow-hairline"
@@ -121,7 +150,7 @@ export function CommentCard({ draftKey, quote, n, editing, onRemove }: { draftKe
           </span>
           {where && <span className="truncate font-mono text-[11px] text-ink-3">{where}</span>}
           <Excerpt q={quote} lines={2} />
-          {c.spot && c.spot.omitted > 0 && <span className="text-[11px] text-ink-3">{t("chat-comments.omitted", { count: c.spot.omitted })}</span>}
+          {omittedOf(c) > 0 && <span className="text-[11px] text-ink-3">{t("chat-comments.omitted", { count: omittedOf(c) })}</span>}
         </button>
         {editing ? (
           <div className="flex flex-col gap-0.5">
@@ -181,7 +210,7 @@ export function CommentCard({ draftKey, quote, n, editing, onRemove }: { draftKe
  *  diff when the session's folder is known (`cwd`). */
 export function CommentBlock({ quote, n, open }: { quote: DraftQuote; n: number; open?: () => void }) {
   const c = quote.comment!;
-  const where = c.spot ? spotWhere(c.spot) : "";
+  const where = whereOf(c);
   const head = (
     <>
       <NumberDot n={n} />
@@ -202,7 +231,7 @@ export function CommentBlock({ quote, n, open }: { quote: DraftQuote; n: number;
         )}
         {where && <span className="max-w-full truncate font-mono text-[11px] text-ink-3">{where}</span>}
         <Excerpt q={quote} lines={3} />
-        {c.spot && c.spot.omitted > 0 && <span className="text-[11px] text-ink-3">{t("chat-comments.omitted", { count: c.spot.omitted })}</span>}
+        {omittedOf(c) > 0 && <span className="text-[11px] text-ink-3">{t("chat-comments.omitted", { count: omittedOf(c) })}</span>}
         {c.body && <span className="text-[13px] leading-[1.55] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{c.body}</span>}
       </div>
     </div>

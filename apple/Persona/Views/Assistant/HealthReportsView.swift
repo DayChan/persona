@@ -109,7 +109,7 @@ struct HealthReportsView: View {
     private func row(_ report: APIClient.HealthReport) -> some View {
         Menu { actions(report) } label: {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: Theme.Icon.document)
+                ThemedIcon(Theme.Icon.document)
                     .font(Theme.Font.secondary)
                     .foregroundStyle(Theme.Hue.pink)
                     .scaledFrame(width: Theme.Size.well, height: Theme.Size.well)

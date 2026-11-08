@@ -213,7 +213,7 @@ struct HubsView: View {
 
     private func hubRow(_ h: PairedHub, inUse: Bool) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: Theme.Icon.server)
+            ThemedIcon(Theme.Icon.server)
                 .scaledFrame(width: Theme.Size.icon)
                 .foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
@@ -234,7 +234,7 @@ struct HubsView: View {
 
     private func meshRow(_ m: MeshHub, inUse: Bool) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: Theme.Icon.hubGroup)
+            ThemedIcon(Theme.Icon.hubGroup)
                 .scaledFrame(width: Theme.Size.icon)
                 .foregroundStyle(m.online == false ? Color.secondary : Theme.accent)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {

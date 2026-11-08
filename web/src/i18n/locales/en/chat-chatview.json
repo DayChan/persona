@@ -2,9 +2,6 @@
   "forked": "Branched to a new chat",
   "fork_failed": "Couldn't branch: {error}",
   "session_loading": "Still loading the session. Try again in a moment.",
-  "dialog_open": "A dialog is open on the computer. Handle it first, then send.",
-  "delivery_unknown": "Not sure it was delivered. Check the chat before sending again.",
-  "send_failed": "Not sent: {error}",
   "not_delivered": "Not delivered: {error}",
   "interrupted": "Interrupted",
   "interrupt_failed": "Couldn't interrupt: {error}",
@@ -45,6 +42,7 @@
   "attach": "Live link",
   "terminal": "Terminal",
   "files": "Files",
+  "review_changes": "Review changes",
   "interrupt": "Interrupt",
   "session_info": "Session info",
   "rename": "Rename…",
@@ -76,9 +74,9 @@
   "not_live_reload": "Reload",
   "switch_agent": "Switch agent",
   "composer_source": "Source",
-  "unsent": "This message wasn't sent ({error}). It's still in the box.",
   "call_not_loaded": "That step is not in the loaded history; scroll up and try again",
   "refresh_failed": "Couldn’t refresh",
+  "preview": "Preview",
   "archived_notice": "This agent is archived. Restore it to bring it back to Agents; a new message brings it back too.",
   "restore": "Restore"
 }

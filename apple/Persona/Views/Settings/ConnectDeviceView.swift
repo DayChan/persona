@@ -196,7 +196,7 @@ struct ConnectDeviceSheet: View {
         case .paired(let name):
             Section {
                 VStack(spacing: Theme.Space.s) {
-                    Image(systemName: Theme.Icon.successFilled)
+                    ThemedIcon(Theme.Icon.successFilled)
                         .font(Theme.Font.display)
                         .foregroundStyle(Theme.positive)
                     Text("Connected: \(name)").font(Theme.Font.heading).lineLimit(1)

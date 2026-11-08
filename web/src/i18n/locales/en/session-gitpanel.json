@@ -30,5 +30,6 @@
   "copy_hash": "Copy commit hash",
   "file_count_one": "{count} file",
   "file_count_other": "{count} files",
-  "diff_failed": "Couldn't read the changes"
+  "diff_failed": "Couldn't read the changes",
+  "review": "Review"
 }

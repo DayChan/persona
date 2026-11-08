@@ -13,7 +13,7 @@ type PushRequest struct {
 }
 
 // MaxSealed is the longest base64 sealed payload the relay takes: with its envelope (about 130 bytes) the push stays
-// under APNs' 4 KB. The hub shortens a push's texts until it fits (hub/push.go sealFor).
+// under APNs' 4 KB. The hub shortens a push's texts until it fits (hub/push_transport.go sealFor).
 const MaxSealed = 3800
 
 // RegisterRequest is what /relay/v1/register takes (the phone at first, the hub again when a grant stops working);

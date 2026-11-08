@@ -19,7 +19,11 @@ nonisolated extension ExtensionUIContext {
     }
 
     static var appLocale: String {
+        #if WIDGET_EXTENSION
+        let lang = LanguageStore.shared.groupResolved ?? Bundle.main.preferredLocalizations.first ?? "en"
+        #else
         let lang = Bundle.main.preferredLocalizations.first ?? Locale.current.language.languageCode?.identifier ?? "zh-Hans"
+        #endif
         guard let region = Locale.current.region?.identifier, !lang.contains("-\(region)") else { return lang }
         return lang + "-" + region
     }

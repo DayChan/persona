@@ -153,7 +153,7 @@ struct LauncherModelPicker: View {
                 }
                 Spacer(minLength: Theme.Space.s)
                 if id == picked {
-                    Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold)
+                    ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent).fontWeight(.semibold)
                 }
             }
             .contentShape(.rect)

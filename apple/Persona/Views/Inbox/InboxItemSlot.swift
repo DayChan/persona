@@ -208,7 +208,7 @@ struct InboxItemSlotContent<Plain: View>: View {
     /// The plugin failed: today's body under a line saying so, with Retry.
     private func failed(_ why: String) -> some View {
         InboxSlotStrip {
-            Label { Text("\(name) couldn't show details: \(why)").lineLimit(1) } icon: { Image(systemName: Theme.Icon.plugins) }
+            Label { Text("\(name) couldn't show details: \(why)").lineLimit(1) } icon: { ThemedIcon(Theme.Icon.plugins) }
                 .font(Theme.Font.label)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

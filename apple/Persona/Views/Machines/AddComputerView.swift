@@ -652,7 +652,7 @@ struct AddComputerSheet: View {
         let system = page.machine.flatMap(AddComputerText.systemName)
         Section {
             VStack(spacing: Theme.Space.s) {
-                Image(systemName: page.machine.map { ComputerOS(reported: $0.os)?.symbol ?? $0.symbol } ?? page.os.symbol)
+                ThemedIcon(page.machine.map { ComputerOS(reported: $0.os)?.symbol ?? $0.symbol } ?? page.os.symbol)
                     .font(Theme.Font.display)
                     .foregroundStyle(Theme.accent)
                 Text(system.map { String(localized: "A computer wants to join: \(page.computerName) (\($0)). Is it yours?") }
@@ -727,7 +727,7 @@ struct AddComputerSheet: View {
     private func outcome(symbol: String, tone: Color, title: String, hint: String, id: String) -> some View {
         Section {
             VStack(spacing: Theme.Space.s) {
-                Image(systemName: symbol).font(Theme.Font.display).foregroundStyle(tone)
+                ThemedIcon(symbol).font(Theme.Font.display).foregroundStyle(tone)
                 Text(title).font(Theme.Font.heading).multilineTextAlignment(.center)
                 Text(hint).font(Theme.Font.secondary).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }

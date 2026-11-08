@@ -225,7 +225,7 @@ struct MachinesView: View {
                 .labelStyle(DotLabel(color: online == machines.count ? Theme.positive : .secondary))
             if let worst = alerts.max() {
                 HStack(spacing: Theme.Space.xs) {
-                    Image(systemName: Theme.Icon.errorFilled).foregroundStyle(MetricColor.level(worst))
+                    ThemedIcon(Theme.Icon.errorFilled).foregroundStyle(MetricColor.level(worst))
                     Text("\(alerts.count) machines running high")
                 }
             }
@@ -535,7 +535,7 @@ struct MetricCell<Chart: View>: View {
             HStack(spacing: Theme.Space.xs) {
                 Text(title).font(Theme.Font.label).foregroundStyle(Color.secondary)
                 if level > .normal {
-                    Image(systemName: Theme.Icon.errorFilled).font(Theme.Font.label).imageScale(.small).foregroundStyle(MetricColor.level(level))
+                    ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.label).imageScale(.small).foregroundStyle(MetricColor.level(level))
                 }
             }
             Text(value).font(Theme.Font.bodyStrong.monospacedDigit()).foregroundStyle(Color.primary).lineLimit(1).minimumScaleFactor(0.7)
@@ -554,7 +554,7 @@ struct AlertChip: View {
     var body: some View {
         let color = MetricColor.level(alert.level)
         HStack(spacing: Theme.Space.xs) {
-            Image(systemName: alert.level == .critical ? Theme.Icon.critical : Theme.Icon.errorFilled)
+            ThemedIcon(alert.level == .critical ? Theme.Icon.critical : Theme.Icon.errorFilled)
                 .foregroundStyle(color)
             Text(alert.label).foregroundStyle(Color.primary)
         }

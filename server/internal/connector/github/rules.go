@@ -161,17 +161,34 @@ func splitCIThread(thread string) (repo, branch string, ok bool) {
 	return repo, branch, ok
 }
 
+// ciItemTitle names the repository as well as the branch: the items of several repositories' main differ.
+func ciItemTitle(repo, branch string) string {
+	return path.Base(repo) + " · " + branch + " 的 CI 失败"
+}
+
+// ciContext is a CI item's context, with its newest failure.
+func ciContext(repo, branch string, pr int, failure string) string {
+	where := branch + " 分支"
+	if pr > 0 {
+		where += fmt.Sprintf("（PR #%d）", pr)
+	}
+	return fmt.Sprintf("仓库 %s 的 CI（GitHub Actions）在 %s 上失败了：%s", repo, where, failure)
+}
+
 // ciMeta is what the follow-up check of a CI item needs.
 type ciMeta struct {
-	repo, branch, workflow string
-	pr                     int       // my open PR of the branch, 0 when none
-	checked                time.Time // last follow-up check
+	repo, branch string
+	pr           int       // my open PR of the branch, 0 when none
+	checked      time.Time // last follow-up check
 }
 
 var (
-	ciRecheck   = 10 * time.Minute // how often an open CI item is checked for a later success, a deleted branch, a closed PR
+	ciRecheck   = 10 * time.Minute // how often an open CI item is checked for a later failure or success, a deleted branch, a closed PR
 	ciChecks    = 10               // follow-up checks per poll
 	repoMetaFor = 24 * time.Hour   // how long a repository's default branch is remembered
+	// ciFoldAfter is how long a failed run waits before the follow-up adds it to the item: GitHub notifies the
+	// account that started a run about 20 seconds after it ends, and that notification is the same failure.
+	ciFoldAfter = 3 * time.Minute
 )
 
 type repoMeta struct {
@@ -227,7 +244,7 @@ func (c *Connector) myOpenPR(ctx context.Context, repo, branch, me string) (int,
 func (c *Connector) describeCI(ctx context.Context, n notification, run ciRun, me string, o InboxOptions) (connector.InboxThing, bool, error) {
 	repo := n.Repository.FullName
 	t := connector.InboxThing{Kind: "ci_failed", Label: "CI 失败", Sender: "GitHub Actions", Preview: n.Subject.Title, At: n.UpdatedAt,
-		Title: run.branch + " 的 CI 失败", URL: n.Repository.HTMLURL + "/actions?query=" + url.QueryEscape("branch:"+run.branch)}
+		Title: ciItemTitle(repo, run.branch), URL: n.Repository.HTMLURL + "/actions?query=" + url.QueryEscape("branch:"+run.branch)}
 	def, err := c.defaultBranch(ctx, repo)
 	if err != nil {
 		return t, false, err
@@ -250,23 +267,20 @@ func (c *Connector) describeCI(ctx context.Context, n notification, run ciRun, m
 			t.Tier, t.Why = connector.TierFYI, "规则：功能分支的 CI 失败"
 		}
 	}
-	where := run.branch + " 分支"
-	if pr > 0 {
-		where += fmt.Sprintf("（PR #%d）", pr)
-	}
-	t.Context = fmt.Sprintf("仓库 %s 的 CI（GitHub Actions）在 %s 上失败了：%s", repo, where, n.Subject.Title)
+	t.Context = ciContext(repo, run.branch, pr, n.Subject.Title)
 	st := &c.inbox
 	st.mu.Lock()
 	if st.ci == nil {
 		st.ci = map[string]*ciMeta{}
 	}
-	st.ci[ciThread(repo, run.branch)] = &ciMeta{repo: repo, branch: run.branch, workflow: run.workflow, pr: pr, checked: time.Now()}
+	st.ci[ciThread(repo, run.branch)] = &ciMeta{repo: repo, branch: run.branch, pr: pr, checked: time.Now()}
 	st.mu.Unlock()
 	return t, true, nil
 }
 
-// followUpCI checks open CI items (at most ciChecks, each every ciRecheck): a later run of the workflow that
-// succeeded, the branch deleted, the PR merged or closed ends it.
+// followUpCI checks open CI items (at most ciChecks, each every ciRecheck). The branch green again (no workflow's
+// newest run failed), the branch deleted, the PR merged or closed ends the item; a newer failed run joins it, since
+// GitHub notifies only the account that started a run.
 func (c *Connector) followUpCI(ctx context.Context) bool {
 	st := &c.inbox
 	st.mu.Lock()
@@ -287,63 +301,98 @@ func (c *Connector) followUpCI(ctx context.Context) bool {
 		m := *st.ci[thread]
 		st.ci[thread].checked = time.Now()
 		st.mu.Unlock()
-		why, err := c.ciOver(ctx, m)
-		if err != nil || why == "" {
+		check, err := c.ciCheck(ctx, m, time.Now())
+		if err != nil {
 			continue
 		}
 		st.mu.Lock()
 		if t := st.things[thread]; t != nil && t.Done == "" {
-			t.Done, t.Why, moved = connector.DoneRead, why, true
+			switch {
+			case check.over != "":
+				t.Done, t.Why, moved = connector.DoneRead, check.over, true
+			case check.failed.at.After(t.At):
+				t.At, t.Last = check.failed.at, check.failed.at.UTC().Format(time.RFC3339)
+				t.Preview = check.failed.workflow + " workflow run failed for " + m.branch + " branch" // as GitHub titles its notification
+				t.Context = ciContext(m.repo, m.branch, m.pr, t.Preview)
+				moved = true
+			}
 		}
 		st.mu.Unlock()
 	}
 	return moved
 }
 
-// ciOver says why a branch's CI failure is over ("" while it is not).
-func (c *Connector) ciOver(ctx context.Context, m ciMeta) (string, error) {
+// ciState is what a follow-up check found: why the item is over ("" while it is not), else the branch's newest
+// failed run settled long enough to add (zero when none).
+type ciState struct {
+	over   string
+	failed struct {
+		workflow string
+		at       time.Time
+	}
+}
+
+// ciCheck reads where a CI item's branch stands now (now: the check's time).
+func (c *Connector) ciCheck(ctx context.Context, m ciMeta, now time.Time) (ciState, error) {
+	var s ciState
 	if m.pr > 0 {
 		var pr struct {
 			State  string `json:"state"`
 			Merged bool   `json:"merged"`
 		}
 		if _, err := c.Get(ctx, fmt.Sprintf("/repos/%s/pulls/%d", m.repo, m.pr), &pr); err != nil {
-			return "", err
+			return s, err
 		}
 		if pr.Merged {
-			return "GitHub：PR 已合并", nil
+			s.over = "GitHub：PR 已合并"
+			return s, nil
 		}
 		if pr.State == "closed" {
-			return "GitHub：PR 已关闭", nil
+			s.over = "GitHub：PR 已关闭"
+			return s, nil
 		}
 	}
 	var runs struct {
 		Runs []struct {
-			Name       string `json:"name"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
+			Name       string    `json:"name"`
+			Status     string    `json:"status"`
+			Conclusion string    `json:"conclusion"`
+			UpdatedAt  time.Time `json:"updated_at"`
 		} `json:"workflow_runs"`
 	}
 	if _, err := c.Get(ctx, "/repos/"+m.repo+"/actions/runs?"+url.Values{"branch": {m.branch}, "per_page": {"20"}}.Encode(), &runs); err != nil {
-		return "", err
+		return s, err
 	}
-	for _, r := range runs.Runs { // newest first
-		if r.Name != m.workflow {
+	// Each workflow stands where its newest run that succeeded or failed left it (newest first; runs still going,
+	// cancelled or skipped say neither).
+	settled, failing := map[string]bool{}, false
+	for _, r := range runs.Runs {
+		if settled[r.Name] || r.Status != "completed" {
 			continue
 		}
-		if r.Status == "completed" && r.Conclusion == "success" {
-			return "GitHub：后来成功了", nil
+		switch r.Conclusion {
+		case "success":
+			settled[r.Name] = true
+		case "failure", "timed_out", "startup_failure":
+			settled[r.Name], failing = true, true
+			if r.UpdatedAt.After(s.failed.at) && now.Sub(r.UpdatedAt) >= ciFoldAfter {
+				s.failed.workflow, s.failed.at = r.Name, r.UpdatedAt
+			}
 		}
-		break // the newest run of the workflow did not succeed (yet)
+	}
+	if len(settled) > 0 && !failing {
+		s.over = "GitHub：后来成功了"
+		return s, nil
 	}
 	code, _, err := c.request(ctx, http.MethodGet, "/repos/"+m.repo+"/branches/"+url.PathEscape(m.branch), nil, nil, nil)
 	if code == http.StatusNotFound {
-		return "GitHub：分支已删除", nil
+		s.over = "GitHub：分支已删除"
+		return s, nil
 	}
-	if err != nil && code != http.StatusNotFound {
-		return "", err
+	if err != nil {
+		return s, err
 	}
-	return "", nil
+	return s, nil
 }
 
 // ---- settling what the hub still has open ----

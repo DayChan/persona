@@ -330,7 +330,7 @@ struct TableFileView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button { UIPasteboard.general.string = sheet[at.row, at.column] } label: {
-                    Image(systemName: Theme.Icon.copy).font(Theme.Font.caption)
+                    ThemedIcon(Theme.Icon.copy).font(Theme.Font.caption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.accent)

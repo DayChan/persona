@@ -9,6 +9,7 @@ struct PersonaWidgetsBundle: WidgetBundle {
     }
 
     var body: some Widget {
+        ExtensionSystemWidget()
         FleetLiveActivity()
         CompatibleFleetLiveActivity()
         AskPersonaControl()

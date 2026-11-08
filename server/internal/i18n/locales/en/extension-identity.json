@@ -1,0 +1,6 @@
+{
+  "assistant_required": "Update the assistant before using this renamed extension's stored model or knowledge ownership. Existing settings are preserved.",
+  "invalid": "Invalid extension identity transition.",
+  "node_required": "Update this computer's node before changing the extension identity. Its existing data is preserved.",
+  "confirmation": "This update changes the extension ID from {from} to {to}. Explicit confirmation is required; settings and data stay with the same installation."
+}

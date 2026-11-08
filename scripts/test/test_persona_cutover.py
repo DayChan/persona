@@ -493,6 +493,140 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads((self.new / "hub.json").read_text())["relay_grant"], "sandbox-opaque-grant")
 
+    def projects(self):
+        return self.home / ".claude" / "projects"
+
+    def key(self, relative):
+        return self.projects() / CUTOVER.project_key(self.home / relative)
+
+    def rel(self, path):
+        return str(path.relative_to(self.home))
+
+    def tree(self, root):
+        return {self.rel(path)[len(self.rel(root)) + 1:]: path.read_text() for path in sorted(root.rglob("*")) if path.is_file()}
+
+    def test_claude_project_directories_move_with_the_root_and_roll_back(self):
+        self.old_store()
+        old_key, new_key = self.key(self.old.name + "/assistant"), self.key(".persona/assistant")
+        self.write(self.rel(old_key) + "/s1.jsonl", '{"cwd": "assistant"}\n')
+        self.write(self.rel(old_key) + "/memory/MEMORY.md", "notes")
+        unrelated = self.write(self.rel(self.key("code/app")) + "/s9.jsonl", "elsewhere")
+        root_key = self.write(self.rel(self.key(self.old.name)) + "/s0.jsonl", "root")
+        before = CUTOVER.snapshot(old_key)
+        result = self.cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn({"action": "move", "path": self.rel(old_key), "to": self.rel(new_key)},
+                      json.loads(result.stdout)["operations"])
+        self.assertTrue(old_key.is_dir())
+        result = self.apply_cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(CUTOVER.present(old_key))
+        self.assertEqual(CUTOVER.snapshot(new_key)["inode"], before["inode"])
+        self.assertEqual(self.tree(new_key), {"memory/MEMORY.md": "notes", "s1.jsonl": '{"cwd": "assistant"}\n'})
+        self.assertEqual((self.key(".persona") / "s0.jsonl").read_text(), "root")
+        self.assertFalse(CUTOVER.present(root_key))
+        self.assertEqual(unrelated.read_text(), "elsewhere")
+        result = self.rollback_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(CUTOVER.snapshot(old_key), before)
+        self.assertFalse(CUTOVER.present(new_key))
+        self.assertEqual(root_key.read_text(), "root")
+
+    def test_current_key_with_conversations_is_merged_not_copied(self):
+        old_key, new_key = self.key(self.old.name + "/assistant"), self.key(".persona/assistant")
+        old_files = {"s1.jsonl": "only before", "s2.jsonl": "copied", "memory/old.md": "o", "s1/subagents/a.jsonl": "sub"}
+        new_files = {"s2.jsonl": "copied", "s3.jsonl": "only after", "memory/new.md": "n"}
+        for name, text in old_files.items():
+            self.write(self.rel(old_key) + "/" + name, text)
+        for name, text in new_files.items():
+            self.write(self.rel(new_key) + "/" + name, text)
+        self.write(self.old.name + "/hub.json", "{}")
+        result = self.apply_cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(CUTOVER.present(old_key))
+        self.assertEqual(self.tree(new_key), {**old_files, **new_files})
+        retired = [op for op in self.journal_data()["operations"] if op["action"] == "retire"]
+        self.assertEqual([op["path"] for op in retired], [self.rel(old_key)])
+        self.assertEqual(self.tree(self.journal / retired[0]["backup"]), {"s2.jsonl": "copied"})
+        result = self.rollback_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.tree(old_key), old_files)
+        self.assertEqual(self.tree(new_key), new_files)
+
+    def test_conversation_file_differing_in_both_project_directories_is_refused(self):
+        old_key, new_key = self.key(self.old.name + "/assistant"), self.key(".persona/assistant")
+        self.write(self.rel(old_key) + "/s1.jsonl", "kept writing here")
+        self.write(self.rel(new_key) + "/s1.jsonl", "and here")
+        self.write(self.old.name + "/hub.json", "{}")
+        result = self.apply_cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("differs in the previous and current project directories", result.stderr)
+        self.assertFalse(CUTOVER.present(self.journal))
+        self.assertTrue(self.old.is_dir())
+        self.assertEqual((old_key / "s1.jsonl").read_text(), "kept writing here")
+        self.assertEqual((new_key / "s1.jsonl").read_text(), "and here")
+
+    def test_project_alias_to_the_current_key_is_removed_and_restored(self):
+        old_key, new_key = self.key(self.old.name + "/assistant"), self.key(".persona/assistant")
+        self.write(self.rel(new_key) + "/s1.jsonl", "conversation")
+        old_key.symlink_to(new_key.name)
+        self.write(self.old.name + "/hub.json", "{}")
+        result = self.apply_cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(CUTOVER.present(old_key))
+        self.assertEqual((new_key / "s1.jsonl").read_text(), "conversation")
+        self.assertEqual(self.rollback_cli().returncode, 0)
+        self.assertEqual(os.readlink(old_key), new_key.name)
+
+    def test_ambiguous_or_misplaced_project_directories_are_refused(self):
+        self.write(self.old.name + "/hub.json", "{}")
+        (self.home / ("." + SOURCE + "-tools")).mkdir()
+        self.write(self.rel(self.key("." + SOURCE + "-tools/x")) + "/s1.jsonl", "sibling")
+        result = self.cli("--claude-config-dir", self.home / ".claude")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("sibling of the previous root", result.stderr)
+        result = self.cli("--claude-config-dir", self.home / ".missing")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("existing directory", result.stderr)
+        (self.old / "claude").mkdir()
+        result = self.cli("--claude-config-dir", self.old / "claude")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("inside a moved root", result.stderr)
+        result = self.cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("agent conversation directories (--claude-config-dir)", json.loads(result.stdout)["manual"])
+
+    def test_journal_project_directories_are_validated(self):
+        self.write(self.rel(self.key(self.old.name + "/assistant")) + "/s1.jsonl", "conversation")
+        self.write(self.old.name + "/hub.json", "{}")
+        self.assertEqual(self.apply_cli("--claude-config-dir", self.home / ".claude").returncode, 0)
+        data = self.journal_data()
+        for bad in (["../outside/projects"], ["/abs/projects"], [".claude/other"], "projects"):
+            changed = dict(data, claude_project_dirs=bad)
+            with self.assertRaises(CUTOVER.Refusal):
+                CUTOVER.validate_journal(self.home, SOURCE, self.journal, changed)
+        moved = json.loads(json.dumps(data))
+        moved["claude_project_dirs"] = []
+        with self.assertRaises(CUTOVER.Refusal):
+            CUTOVER.validate_journal(self.home, SOURCE, self.journal, moved)
+
+    def test_database_sql_rewrites_stored_session_folders_of_listed_homes(self):
+        result = self.cli("--print-database-sql", "--session-home", "/srv/other/")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for root in (str(self.home), "/srv/other"):
+            self.assertIn("INSERT INTO cutover_roots VALUES ('" + root + "/." + SOURCE + "','" + root + "/.persona');",
+                          result.stdout)
+        for required in ("('node_sessions','cwd','text')", "\\if :cutover_node_sessions",
+                         "LOCK TABLE public.node_sessions IN ACCESS EXCLUSIVE MODE;",
+                         "Stored session folders remain under a previous root"):
+            self.assertIn(required, result.stdout)
+        for bad in ("relative/home", "/srv/it's", "/srv/a/../b", "/srv/back\\slash"):
+            result = self.cli("--print-database-sql", "--session-home", bad)
+            self.assertEqual(result.returncode, 1, bad)
+            self.assertIn("session home", result.stderr)
+        self.assertEqual(self.cli("--session-home", "/srv/other").returncode, 2)
+        self.assertEqual(list(self.home.iterdir()), [])
+
     def test_database_sql_is_output_only_with_transaction_guards_and_verification(self):
         result = self.cli("--print-database-sql")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -556,6 +690,7 @@ CREATE TABLE plugin_audit (id bigserial PRIMARY KEY,plugin text,detail jsonb DEF
 CREATE TABLE settings (key text PRIMARY KEY,value jsonb);
 CREATE TABLE hub_settings (key text PRIMARY KEY,value jsonb);
 CREATE TABLE devices (device_id text PRIMARY KEY,prefs jsonb,topic text,relay_grant text NOT NULL DEFAULT '');
+CREATE TABLE node_sessions (machine_id text,session_id text,cwd text NOT NULL DEFAULT '',PRIMARY KEY(machine_id,session_id));
 INSERT INTO plugins (id,source,manifest,config) VALUES
  ('previous-apps','installed','{"id":"previous-apps","name":"previous","contributes":{"looks":[{"id":"custom","app_icon_fallback":"previous"}]}}',
  '{"user_message":"previous"}');
@@ -612,8 +747,19 @@ INSERT INTO devices (device_id,prefs,topic) VALUES ('fixture','{"look":{"package
         self.assertEqual(self.sql("SELECT id FROM plugins").stdout.strip(), "persona-apps")
         self.assertEqual(self.sql("SELECT relay_grant FROM devices").stdout.strip(), "sandbox-opaque-grant")
 
+    def test_sql_moves_stored_session_folders_under_listed_homes_only(self):
+        self.sql("INSERT INTO node_sessions VALUES ('hub','a','/home/u/.previous/assistant'),('hub','b','/home/u/.previous'),"
+                 "('hub','c','/home/u/.previous-tools/x'),('hub','d','/home/u/code/app'),('mac','e','/Users/me/.previous/health'),"
+                 "('mac','f','/elsewhere/.previous/assistant'),('hub','g','')")
+        expected = {"a": "/home/u/.persona/assistant", "b": "/home/u/.persona", "c": "/home/u/.previous-tools/x",
+                    "d": "/home/u/code/app", "e": "/Users/me/.persona/health", "f": "/elsewhere/.previous/assistant", "g": ""}
+        for _ in range(2):
+            self.sql(CUTOVER.database_sql(SOURCE, ["/home/u", "/Users/me"]))
+            rows = self.sql("SELECT session_id || '=' || cwd FROM node_sessions ORDER BY session_id").stdout.splitlines()
+            self.assertEqual(dict(row.split("=", 1) for row in rows), expected)
+
     def test_sql_supports_hub_only_database(self):
-        self.sql("DROP TABLE plugin_secrets,plugin_audit,plugins,settings")
+        self.sql("DROP TABLE plugin_secrets,plugin_audit,plugins,settings,node_sessions")
         self.sql(CUTOVER.database_sql(SOURCE))
         self.assertEqual(self.sql("SELECT prefs#>>'{look,package}' FROM devices").stdout.strip(), "persona-visor/r1")
 

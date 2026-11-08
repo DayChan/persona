@@ -32,6 +32,7 @@ type Preview struct {
 	ExpiresAt   time.Time        `json:"expires_at"`
 	// Upgrade: of the installed plugin with this id, from version From; MorePermissions: it asks for more than the
 	// user granted, so the upgrade needs the digest.
+	RenameFrom      string `json:"rename_from,omitempty"`
 	Upgrade         bool   `json:"upgrade,omitempty"`
 	From            string `json:"from,omitempty"`
 	MorePermissions bool   `json:"more_permissions,omitempty"`
@@ -48,6 +49,7 @@ type Preview struct {
 	// Unresolved are the dependencies or members no registered market has (it does not install while one is missing).
 	Unresolved []string `json:"unresolved,omitempty"`
 
+	replaces              string    // source declaration pinned at preview
 	previous              *Manifest // immutable consent baseline captured when the preview was staged
 	source                Source
 	marketSpec, marketKey string
@@ -115,6 +117,29 @@ func (r *Registry) PreviewMarket(ctx context.Context, mk *Market, marketID strin
 	if r.store == nil {
 		return nil, i18n.Err("extension-status.install_no_database")
 	}
+	if e == nil || e.Parsed == nil {
+		return nil, ErrIdentity
+	}
+	if err := ValidateReplacements([]MarketEntry{*e}); err != nil {
+		return nil, err
+	}
+	if upgrade == "" && e.Replaces != "" && r.SnapshotExact(e.Replaces) != nil {
+		return nil, ErrIdentity // A successor cannot silently create a second installation.
+	}
+	if upgrade != "" {
+		upgrade = r.CanonicalID(upgrade)
+	}
+	renameFrom := ""
+	if upgrade != "" && upgrade != e.Parsed.ID {
+		old := r.SnapshotExact(upgrade)
+		if e.Replaces != upgrade || old == nil || FromMarket(old.Record.Origin) != marketID || marketID == "" {
+			return nil, ErrIdentity
+		}
+		if target := r.Get(e.Parsed.ID); target != nil && target.Record.StorageKey() != old.Record.StorageKey() {
+			return nil, ErrIdentity
+		}
+		renameFrom = upgrade
+	}
 	verifiedKey := ""
 	if IsOfficialMarket(mk.Spec.String()) {
 		if e.verifiedKey == "" || e.verifiedKey != Official.SigningKey || e.verifiedKey != mk.TrustedKey || e.verifiedEntry != entryFingerprint(e) {
@@ -127,7 +152,7 @@ func (r *Registry) PreviewMarket(ctx context.Context, mk *Market, marketID strin
 		return nil, fmt.Errorf("%s 没有这台 hub（%s）能用的包", e.Parsed.ID, Platform())
 	}
 	src := Source{Kind: "market", Path: marketID + "/" + e.Parsed.ID}
-	pv, err := r.preview(ctx, src, upgrade, func(dir string) (string, error) {
+	pv, err := r.previewIdentity(ctx, src, upgrade, renameFrom, func(dir string) (string, error) {
 		file, name, err := mk.Download(ctx, pkg, dir)
 		if err != nil {
 			return "", err
@@ -151,6 +176,7 @@ func (r *Registry) PreviewMarket(ctx context.Context, mk *Market, marketID strin
 	}
 	pv.Market, pv.marketSpec, pv.marketKey = marketID, mk.Spec.String(), mk.TrustedKey
 	pv.verifiedMarketKey = verifiedKey
+	pv.RenameFrom, pv.replaces = renameFrom, e.Replaces
 	return pv, nil
 }
 
@@ -203,6 +229,11 @@ func (r *Registry) PreviewUpload(ctx context.Context, name string, body io.Reade
 
 // preview checks what stage put into a fresh staging directory (or what a remote plugin says of itself).
 func (r *Registry) preview(ctx context.Context, src Source, upgrade string, stage func(dir string) (string, error), candidates ...*Manifest) (*Preview, error) {
+	return r.previewIdentity(ctx, src, upgrade, "", stage, candidates...)
+}
+
+func (r *Registry) previewIdentity(ctx context.Context, src Source, upgrade, renameFrom string, stage func(dir string) (string, error), candidates ...*Manifest) (*Preview, error) {
+	upgrade = r.CanonicalID(upgrade)
 	r.expire()
 	pv := &Preview{ID: newID(), source: src, ExpiresAt: r.now().Add(previewFor)}
 	var m *Manifest
@@ -278,15 +309,32 @@ func (r *Registry) preview(ctx context.Context, src Source, upgrade string, stag
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cur := r.extensions[m.ID]
+	if renameFrom != "" {
+		if src.Kind != "market" || renameFrom != upgrade {
+			return fail(ErrIdentity)
+		}
+		cur = r.extensions[renameFrom]
+		if cur == nil || FromMarket(cur.Record.Origin) != FromMarket(src.String()) {
+			return fail(ErrIdentity)
+		}
+		if occupied := r.extensions[r.canonicalID(m.ID)]; occupied != nil && occupied.Record.StorageKey() != cur.Record.StorageKey() {
+			return fail(ErrIdentity)
+		}
+		pv.RenameFrom = renameFrom
+	}
 	switch {
 	case upgrade == "" && cur != nil && !r.yielding(cur):
 		return fail(fmt.Errorf("已经有一个叫 %s 的扩展（%s）：要换新版本用升级", m.ID, cur.Record.Source))
-	case upgrade != "" && upgrade != m.ID:
+	case upgrade != "" && upgrade != m.ID && renameFrom == "":
 		return fail(fmt.Errorf("这个包是 %s，不是 %s", m.ID, upgrade))
 	case upgrade != "" && (cur == nil || cur.Record.Source != SourceInstalled):
 		return fail(i18n.Err("extension-status.upgrade_not_installed", i18n.Args{"id": upgrade}))
 	case upgrade != "" && !NewerVersion(m.Version, cur.Record.Version):
 		return fail(fmt.Errorf("%s 不比已装的 %s 新", m.Version, cur.Record.Version))
+	}
+	if renameFrom != "" {
+		delete(r.extensions, renameFrom)
+		defer func() { r.extensions[renameFrom] = cur }()
 	}
 	if len(candidates) == 0 && (r.conflicts(m) != nil || r.checkDependencyGraph(m) != nil) {
 		candidates = joint

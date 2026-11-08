@@ -13,6 +13,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # The image's own check (wget /api/v1/health) on a schedule from .env; each run makes dockerd rewrite and fsync
+    # the container's state, docs/operations/docker.md "Disk writes".
+    healthcheck:
+      interval: ${PERSONA_HUB_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${PERSONA_HUB_HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${PERSONA_HUB_HEALTHCHECK_RETRIES:-3}
+    logging: &logging
+      driver: ${PERSONA_LOG_DRIVER:-json-file}
+      options:
+        max-size: "${PERSONA_LOG_MAX_SIZE:-10m}"
+        max-file: "${PERSONA_LOG_MAX_FILE:-3}"
     environment:
       PUID: ${PUID:-}
       PGID: ${PGID:-}
@@ -59,6 +70,7 @@ services:
   #       condition: service_healthy
   #   healthcheck:
   #     disable: true
+  #   logging: *logging
   #   environment:
   #     PUID: ${PUID:-}
   #     PGID: ${PGID:-}
@@ -97,7 +109,19 @@ services:
         fi
         exec docker-entrypoint.sh "$$@"
       - postgres-entrypoint
-    command: ["postgres"]
+    # PostgreSQL's own defaults unless .env says otherwise (docs/operations/docker.md "Disk writes"). Settings given
+    # here win over ALTER SYSTEM and postgresql.conf.
+    command:
+      - postgres
+      - -c
+      - synchronous_commit=${PERSONA_POSTGRES_SYNCHRONOUS_COMMIT:-on}
+      - -c
+      - wal_compression=${PERSONA_POSTGRES_WAL_COMPRESSION:-off}
+      - -c
+      - checkpoint_timeout=${PERSONA_POSTGRES_CHECKPOINT_TIMEOUT:-5min}
+      - -c
+      - wal_writer_delay=${PERSONA_POSTGRES_WAL_WRITER_DELAY:-200ms}
+    logging: *logging
     environment:
       # These are persistent database identities, not product display names.
       # Installations explicitly migrated to another role/database must configure them.
@@ -110,6 +134,6 @@ services:
       - ./data/docker:/run/persona
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "${PERSONA_DB_USER:-jarvis}", "-d", "${PERSONA_DB_NAME:-jarvis}"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
+      interval: ${PERSONA_POSTGRES_HEALTHCHECK_INTERVAL:-5s}
+      timeout: ${PERSONA_POSTGRES_HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${PERSONA_POSTGRES_HEALTHCHECK_RETRIES:-30}

@@ -63,7 +63,7 @@ nonisolated struct RepoPlace: Equatable, Sendable {
 /// working tree in it, as Orca's projects with the machine above them. Plain data, unit-tested apart from the list
 /// (`AgentRepoTreeTests`); the list orders the agents inside a tree (`AgentListOrder`).
 nonisolated struct RepoTree {
-    struct Worktree: Identifiable {
+    struct Worktree: Identifiable, Sendable {
         /// Its fold id.
         var id: String
         var name: String
@@ -80,7 +80,7 @@ nonisolated struct RepoTree {
     }
 
     /// One repository on one machine.
-    struct Repo: Identifiable {
+    struct Repo: Identifiable, Sendable {
         /// Its fold id.
         var id: String
         var machine: MachineRef
@@ -94,7 +94,7 @@ nonisolated struct RepoTree {
     }
 
     /// One machine's repositories, by name.
-    struct Host: Identifiable {
+    struct Host: Identifiable, Sendable {
         var ref: MachineRef
         var repos: [Repo]
         var id: String { ref.path }
@@ -141,21 +141,26 @@ nonisolated struct RepoTree {
         let nested = sessions.filter { s in spaceKey(s).map { parentOf[$0] != nil } ?? false }
         let top = sessions.filter { s in spaceKey(s).map { parentOf[$0] == nil } ?? true }
         var repos: [String: Repo] = [:]
+        var worktreeIndices: [String: [String: Int]] = [:]
         /// Where each top space's first agent went: its repository's key and working tree's path.
         var placeOf: [String: (repo: String, worktree: String)] = [:]
         for s in top {
             let place = RepoPlace(cwd: s.cwd, repoRoot: s.repoRoot)
             let key = s.machineRef.path + "/" + place.repo
-            var repo = repos[key] ?? Repo(id: "repo/" + key, machine: s.machineRef,
-                                           name: place.name.isEmpty ? unnamed : place.name, path: place.repo, worktrees: [])
-            if let i = repo.worktrees.firstIndex(where: { $0.path == place.worktree }) {
-                repo.worktrees[i].sessions.append(s)
-            } else {
-                let name = place.worktree == place.repo ? repo.name : (place.worktree.split(separator: "/" as Character).last.map(String.init) ?? "")
-                repo.worktrees.append(Worktree(id: "tree/" + s.machineRef.path + "/" + place.worktree, name: name,
-                                               path: place.worktree, main: place.main, sessions: [s]))
+            if repos[key] == nil {
+                repos[key] = Repo(id: "repo/" + key, machine: s.machineRef,
+                                  name: place.name.isEmpty ? unnamed : place.name, path: place.repo, worktrees: [])
             }
-            repos[key] = repo
+            // Mutate the stored value in place: a local Repo copy detaches its growing arrays on every append.
+            if let i = worktreeIndices[key]?[place.worktree] {
+                repos[key]!.worktrees[i].sessions.append(s)
+            } else {
+                let name = place.worktree == place.repo ? repos[key]!.name : (place.worktree.split(separator: "/" as Character).last.map(String.init) ?? "")
+                let i = repos[key]!.worktrees.count
+                repos[key]!.worktrees.append(Worktree(id: "tree/" + s.machineRef.path + "/" + place.worktree, name: name,
+                                                    path: place.worktree, main: place.main, sessions: [s]))
+                worktreeIndices[key, default: [:]][place.worktree] = i
+            }
             if let space = spaceKey(s), placeOf[space] == nil { placeOf[space] = (key, place.worktree) }
         }
         // Each nested space a working tree of its own, under its top space's working tree: depth first, each level by

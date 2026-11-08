@@ -40,8 +40,9 @@ export function quickAnswers(ix: Interaction): QuickChoice[] | null {
     case "question": {
       const qs = ix.questions ?? [];
       const q = qs[0];
-      if (qs.length !== 1 || !q || q.multi_select || !q.options.length || q.options.length > 4) return null;
-      return q.options.map((o, i) => ({ key: `o${i}`, label: o.label, body: { answers: { [q.question]: o.label } }, hint: o.description }));
+      const options = q?.options ?? [];
+      if (qs.length !== 1 || !q || q.multi_select || !options.length || options.length > 4) return null;
+      return options.map((o, i) => ({ key: `o${i}`, label: o.label, body: { answers: { [q.question]: o.label } }, hint: o.description }));
     }
     case "screen": {
       const d = ix.dialog;

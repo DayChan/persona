@@ -33,7 +33,7 @@ Code locations refer to the current files and functions (checked 2026-11-06; aft
 | Local node | A child process of the hub (`node --stdio`), killed together with the hub by systemd's cgroup | `command` in `devices/machine.go` (the `local` branch) |
 | Extensions (the Lark extension and others) | Child processes of the hub (stdio RPC), killed with the hub's cgroup and respawned by the new hub; login state lives in each extension's own directory, so a restart only loses the hub-side session and readiness state | `spawn` in `extension/host/host.go` |
 | Connector programs (telegram, wechat) | Same, restarted with a 5 s backoff | `Conn.Run` in `connector/proc/proc.go` (`restartFirst`) |
-| persona-link (computers of kind link) | Receives 1001, reconnects with 1–60 s exponential backoff, status text "hub restarted" | `backoff`, `summary` in `link/client.go` |
+| persona-link (computers of kind link) | Receives 1001, reconnects with 1–60 s exponential backoff, status text "hub restarted" | `backoff` in `link/client.go`, `summary` in `link/client_race.go` |
 
 After the new hub comes up: the local node connects within 0.2 s; a Mac over ssh takes 2–8 s (measured: one at +2.4 s, another at +8 s). During that time the machine shows as offline and its session list is empty.
 

@@ -40,7 +40,7 @@ describe("PageBoundary", () => {
     vi.stubGlobal("location", { reload });
     const e = new Error("boom");
     const b = new PageBoundary({ page: "x", children: null });
-    b.componentDidCatch(e);
+    b.componentDidCatch(e, { componentStack: "" });
     expect(reports.list).toEqual([{ error: e, boundary: "page_boundary", chunk: false }]);
     expect(reload).not.toHaveBeenCalled();
     b.state = PageBoundary.getDerivedStateFromError(e);
@@ -53,10 +53,10 @@ describe("PageBoundary", () => {
     vi.stubGlobal("sessionStorage", { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => void stored.set(k, v) });
     const e = new TypeError("Failed to fetch dynamically imported module");
     const b = new PageBoundary({ page: "x", children: null });
-    b.componentDidCatch(e);
+    b.componentDidCatch(e, { componentStack: "" });
     expect(reload).toHaveBeenCalledTimes(1);
     expect(reports.list).toEqual([]);
-    b.componentDidCatch(e);
+    b.componentDidCatch(e, { componentStack: "" });
     expect(reload).toHaveBeenCalledTimes(1);
     expect(reports.list).toEqual([{ error: e, boundary: "page_boundary", chunk: true }]);
   });

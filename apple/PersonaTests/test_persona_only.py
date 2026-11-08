@@ -109,6 +109,7 @@ class PersonaOnlyTests(unittest.TestCase):
             "Persona": "Persona", "PersonaMac": "Persona", "PersonaVision": "Persona", "PersonaWatch": "Persona",
             "PersonaWidgets": "PersonaWidgets", "PersonaNotify": "PersonaNotify", "PersonaMacNotify": "PersonaNotify",
             "PersonaShare": "PersonaShare", "PersonaVisionShare": "PersonaShare",
+            "PersonaWatchWidgets": "PersonaWatchWidgets",
         }
         for target, module in modules.items():
             self.assertEqual(targets[target]["settings"]["base"]["PRODUCT_MODULE_NAME"], module)
@@ -120,7 +121,7 @@ class PersonaOnlyTests(unittest.TestCase):
     def test_plists_have_unique_keys_and_exact_compatible_url_schemes(self):
         registered = set()
         expected = {"Persona/Resources/Info.plist", "Mac/Resources/Info.plist",
-                    "Vision/Resources/Info.plist", "PersonaLink/Info.plist"}
+                    "Vision/Resources/Info.plist", "PersonaLink/Info.plist", "PersonaWatch/Info.plist"}
         for path in sorted(APPLE.rglob("*")):
             if path.suffix not in {".plist", ".entitlements"}:
                 continue
@@ -135,7 +136,7 @@ class PersonaOnlyTests(unittest.TestCase):
                     self.assertIn(relative, expected)
                     schemes = [scheme for entry in values["CFBundleURLTypes"]
                                for scheme in entry["CFBundleURLSchemes"]]
-                    self.assertEqual(schemes, ["persona", "jarvis"])
+                    self.assertEqual(schemes, ["persona"] if relative == "PersonaWatch/Info.plist" else ["persona", "jarvis"])
                     registered.add(relative)
         self.assertEqual(registered, expected)
         project = yaml.safe_load(source("project.yml"))
@@ -155,6 +156,49 @@ class PersonaOnlyTests(unittest.TestCase):
         for path, principal in [("PersonaNotify/Info.plist", "NotificationService"), ("PersonaShare/Info.plist", "ShareViewController")]:
             values = plistlib.loads((APPLE / path).read_bytes())
             self.assertEqual(values["NSExtension"]["NSExtensionPrincipalClass"], f"$(PRODUCT_MODULE_NAME).{principal}")
+
+    def test_extension_system_targets_keep_credentials_and_renderers_separate(self):
+        project = yaml.safe_load(source("project.yml"))
+        targets = project["targets"]
+        self.assertEqual(project["options"]["deploymentTarget"]["watchOS"], "10.0")
+        self.assertEqual(targets["PersonaWatchWidgets"]["settings"]["base"]["PRODUCT_BUNDLE_IDENTIFIER"],
+                         "$(PERSONA_WATCH_WIDGET_BUNDLE_ID)")
+        self.assertIn({"target": "PersonaWatchWidgets"}, targets["PersonaWatch"]["dependencies"])
+        for target in ["PersonaWatch", "PersonaWatchWidgets"]:
+            settings = targets[target]
+            self.assertEqual(settings["info"]["properties"]["PersonaAppGroup"], "$(PERSONA_WATCH_APP_GROUP)")
+            self.assertEqual(settings["entitlements"]["properties"]["com.apple.security.application-groups"],
+                             ["$(PERSONA_WATCH_APP_GROUP)"])
+            plist = plistlib.loads((APPLE / settings["info"]["path"]).read_bytes())
+            self.assertEqual(plist["PersonaAppGroup"], "$(PERSONA_WATCH_APP_GROUP)")
+        for target in ["PersonaWidgets", "PersonaWatchWidgets"]:
+            paths = [item["path"] for item in targets[target]["sources"]]
+            for path in ["Shared/ExtensionSurfaceStore.swift", "Shared/ExtensionSurfaceView.swift", "Shared/ExtensionSystemWidget.swift"]:
+                self.assertIn(path, paths)
+            self.assertNotIn("Shared/APIClient.swift", paths)
+            self.assertNotIn("Persona/Views/Settings/ExtensionUIRenderer.swift", paths)
+            self.assertIn("WIDGET_EXTENSION", targets[target]["settings"]["base"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"])
+        store = source("Shared/ExtensionSurfaceStore.swift")
+        self.assertIn("completeFileProtectionUntilFirstUserAuthentication", store)
+        self.assertIn("isExcludedFromBackup = true", store)
+        self.assertIn("flock(descriptor, LOCK_EX)", store)
+        self.assertNotIn("FleetLookStore", store)
+        watch = source("PersonaWatch/WatchExtensionSurfaces.swift")
+        self.assertIn("ExtensionSurfaceSync.credentials(configs", watch)
+        self.assertNotIn("HubStore", watch)
+        self.assertNotIn("registry", watch.replace("the phone's registry", ""))
+        self.assertIn("answerOnly: true", watch)
+        self.assertNotIn("/api/v1/extensions/-/ui", watch)
+        self.assertNotIn("api.request(\"POST\"", watch)
+        self.assertIn(".projection(link)", watch)
+        self.assertNotIn(".deviceTokens()", source("Shared/ExtensionSurfaceSync.swift"))
+        self.assertIn("credential.isAnswerOnly", source("Shared/ExtensionSurfaceClient.swift"))
+        self.assertIn("ExtensionSurfaceCapabilitiesUnknown()", source("Shared/ExtensionSurfaceClient.swift"))
+        intent = source("Shared/RunExtensionActionIntent.swift")
+        self.assertIn("intent?.action.id", intent)
+        self.assertIn("compiler(>=6.4)", intent)
+        self.assertNotIn("intent?.action?.id", intent)
+        self.assertNotIn("try IntentSupport.client", intent)
 
     def test_json_and_string_catalogs_have_unique_keys(self):
         for path in sorted(APPLE.rglob("*")):

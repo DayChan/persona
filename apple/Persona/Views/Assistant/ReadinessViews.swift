@@ -302,7 +302,7 @@ struct ReadinessHelpView: View {
 
     private func bullet(_ s: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.done).font(Theme.Font.label).foregroundStyle(Theme.accent)
+            ThemedIcon(Theme.Icon.done).font(Theme.Font.label).foregroundStyle(Theme.accent)
             para(s)
         }
     }

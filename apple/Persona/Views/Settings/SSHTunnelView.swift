@@ -111,7 +111,7 @@ struct SSHTunnelForm<Status: View>: View {
                                 .truncationMode(.middle).textSelection(.enabled)
                         }
                     } icon: {
-                        Image(systemName: Theme.Icon.hostKeyTrusted).foregroundStyle(Theme.positive)
+                        ThemedIcon(Theme.Icon.hostKeyTrusted).foregroundStyle(Theme.positive)
                     }
                     .accessibilityIdentifier("ssh.hostKey")
                 } header: {
@@ -135,7 +135,7 @@ struct SSHTunnelForm<Status: View>: View {
                     Label {
                         Text(problem).font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
                     } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.danger)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.danger)
                     }
                     .accessibilityIdentifier("ssh.problem")
                 }

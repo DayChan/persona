@@ -218,11 +218,11 @@ struct TerminalSettingsView: View {
                 .foregroundStyle(.secondary)
                 #else
                 Section("Gestures") {
-                    Label("Tap the terminal: the tap goes to the terminal (Claude's “Jump to bottom”, questions at the top)", systemImage: "hand.tap")
+                    Label("Tap the terminal: the tap goes to the terminal (Claude's “Jump to bottom”, questions at the top)", systemImage: Theme.Icon.tap)
                     Label("Drag up or down: scroll the terminal (Claude scrolls back through the chat)", systemImage: "arrow.up.and.down")
                     Label("Key bar's keyboard button: shows the keyboard; double-tap for Return", systemImage: Theme.Icon.keyboard)
                     Label("Pinch: change text size", systemImage: Theme.Icon.enlarge)
-                    Label("Two-finger swipe left or right: switch agents in this space", systemImage: "arrow.left.arrow.right")
+                    Label("Two-finger swipe left or right: switch agents in this space", systemImage: Theme.Icon.switchAgents)
                     Label("Two-finger swipe up or down: switch to the next space", systemImage: Theme.Icon.upDown)
                     Label("Double-tap the terminal: paste the clipboard", systemImage: Theme.Icon.paste)
                     Label("Long press: select, copy", systemImage: Theme.Icon.insert)
@@ -315,7 +315,7 @@ struct ThemeRow: View {
                         .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
                 }
             }
-            Image(systemName: Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(Theme.accent).opacity(on ? 1 : 0)
+            ThemedIcon(Theme.Icon.done).font(Theme.Font.heading).foregroundStyle(Theme.accent).opacity(on ? 1 : 0)
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)

@@ -403,7 +403,7 @@ private struct ConnectorRowLabel: View {
                     if let brand {
                         BrandMark(brand, side: Theme.Size.icon)
                     } else {
-                        Image(systemName: symbol)
+                        ThemedIcon(symbol)
                     }
                 }
             }
@@ -548,7 +548,7 @@ struct FeishuConnectorView: View {
                 Text(detail).font(Theme.Font.label).foregroundStyle(.secondary)
             }
         } icon: {
-            Image(systemName: symbol).foregroundStyle(Theme.accent)
+            ThemedIcon(symbol).foregroundStyle(Theme.accent)
         }
         .padding(.vertical, Theme.Space.xxs)
     }

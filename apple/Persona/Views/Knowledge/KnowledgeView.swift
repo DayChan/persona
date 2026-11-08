@@ -167,7 +167,7 @@ struct KnowledgeView: View {
                             Text("Not a Project").foregroundStyle(.secondary)
                             Text("\(ignored.count)").foregroundStyle(.tertiary).monospacedDigit()
                             Spacer()
-                            Image(systemName: Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
+                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
                                 .rotationEffect(.degrees(showIgnored ? 90 : 0))
                         }
                         .contentShape(.rect)
@@ -192,7 +192,7 @@ struct KnowledgeView: View {
                             Text(ranked.isEmpty ? String(localized: "All") : String(localized: "Not Yet Organized")).foregroundStyle(.secondary).lineLimit(1)
                             Text("\(rest.count)").foregroundStyle(.tertiary).monospacedDigit()
                             Spacer()
-                            Image(systemName: Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
+                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary)
                                 .rotationEffect(.degrees(showIgnored || ranked.isEmpty ? 90 : 0))
                         }
                         .contentShape(.rect)
@@ -237,7 +237,7 @@ struct KnowledgeView: View {
                 }
             }
         } label: {
-            Image(systemName: tag == nil ? Theme.Icon.filter : Theme.Icon.filterActive)
+            ThemedIcon(tag == nil ? Theme.Icon.filter : Theme.Icon.filterActive)
         }
         .accessibilityLabel(tag.map { String(localized: "Filter by tag, currently #\($0)") } ?? String(localized: "Filter by tag"))
     }
@@ -394,7 +394,7 @@ struct KBKindBar: View {
                 withAnimation(Theme.Motion.standard) { kind = k }
             } label: {
                 HStack(spacing: Theme.Space.xs) {
-                    if icons { Image(systemName: k.symbol).font(Theme.Font.captionStrong) }
+                    if icons { ThemedIcon(k.symbol).font(Theme.Font.captionStrong) }
                     Text(k.title)
                     if let n = counts[k], on { Text(Self.count(n)).monospacedDigit().opacity(0.75) }
                 }
@@ -474,7 +474,7 @@ struct KBAvatar: View {
             if kind == .people || kind == .chats, let c = entry.name.first(where: { !$0.isWhitespace && !"#@（(【[「『《〈\"'“‘".contains($0) }) { // i18n-ignore
                 Text(String(c).uppercased()).font(.system(size: size * 0.42, weight: .semibold)).foregroundStyle(tint)
             } else {
-                Image(systemName: kind?.symbol ?? Theme.Icon.unchecked).font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(tint)
+                ThemedIcon(kind?.symbol ?? Theme.Icon.unchecked).font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(tint)
             }
         }
         .frame(width: size, height: size)
@@ -925,7 +925,7 @@ struct KnowledgeDetailView: View {
                     Label {
                         Text(dir).font(Theme.Font.secondary.monospaced()).lineLimit(1).truncationMode(.head)
                     } icon: {
-                        Image(systemName: Theme.Icon.folder).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.folder).foregroundStyle(.secondary)
                     }
                 }
             } header: { sectionHeader(String(localized: "Code Folders"), dirs.count) }
@@ -1001,7 +1001,7 @@ struct KBMomentRow: View {
                 Spacer(minLength: 0)
                 if moment.comments > 0 {
                     HStack(spacing: Theme.Space.xxs) {
-                        Image(systemName: Theme.Icon.conversation)
+                        ThemedIcon(Theme.Icon.conversation)
                         Text("\(moment.comments)").monospacedDigit()
                     }
                     .font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1).fixedSize()

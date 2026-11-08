@@ -25,7 +25,7 @@ struct NotificationSettingsView: View {
                             Text("The settings below take effect only after you allow Persona to send notifications in Settings.").font(Theme.Font.caption).foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: Theme.Icon.muted).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.muted).foregroundStyle(Theme.caution)
                     }
                     openSystemSettings
                 }
@@ -42,7 +42,7 @@ struct NotificationSettingsView: View {
                             Text("Questions, plan approvals, tool permissions, a terminal waiting for input").font(Theme.Font.caption).foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: "exclamationmark.bubble").foregroundStyle(StatusPalette.needsYou.dot)
+                        ThemedIcon("exclamationmark.bubble").foregroundStyle(StatusPalette.needsYou.dot)
                     }
                 }
             } footer: {
@@ -83,7 +83,7 @@ struct NotificationSettingsView: View {
                             Text("One Live Activity sums up agents that need you, are working, or are done").font(Theme.Font.caption).foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: Theme.Icon.persona).foregroundStyle(Theme.brand)
+                        ThemedIcon(Theme.Icon.persona).foregroundStyle(Theme.brand)
                     }
                 }
                 Toggle(isOn: binding(\.lockDetails)) {
@@ -93,7 +93,7 @@ struct NotificationSettingsView: View {
                             Text("When off, the Lock Screen shows only counts and “A permission is waiting”, not agent names or content").font(Theme.Font.caption).foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: Theme.Icon.view).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.view).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(prefs?.liveActivity == false)
@@ -111,7 +111,7 @@ struct NotificationSettingsView: View {
                     Label {
                         Text("Live Activities for Persona are turned off in Settings").font(Theme.Font.caption)
                     } icon: {
-                        Image(systemName: Theme.Icon.errorFilled).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.errorFilled).foregroundStyle(Theme.caution)
                     }
                     Button {
                         UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)

@@ -44,10 +44,10 @@ struct TypeScaleTests {
         #expect(found.isEmpty, "system text styles on a page:\n\(found.joined(separator: "\n"))")
     }
 
-    /// `.system(size: 14)` ignores Dynamic Type and Small / Standard / Large. Allowed for SF Symbols (`Image(systemName:)` on the
-    /// line) and glyphs sized to a frame, marked `// type-scale: glyph …`.
+    /// `.system(size: 14)` ignores Dynamic Type and Small / Standard / Large. Allowed for SF Symbols (`Image(systemName:)` or `ThemedIcon(` on
+    /// the line) and glyphs sized to a frame, marked `// type-scale: glyph …`.
     @Test func noFixedTextSizes() throws {
-        let found = try Self.hits(Self.fixedSize) { $0.contains("Image(systemName") || $0.contains("// type-scale: glyph") }
+        let found = try Self.hits(Self.fixedSize) { $0.contains("Image(systemName") || $0.contains("ThemedIcon(") || $0.contains("// type-scale: glyph") }
         #expect(found.isEmpty, "fixed sizes:\n\(found.joined(separator: "\n"))")
     }
 

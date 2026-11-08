@@ -298,7 +298,7 @@ const BUTTON_TONE = { neutral: "secondary", positive: "accent", caution: "second
 /** The pending review's summary and buttons (in the bar on a wide page, in a sheet on a narrow one). */
 function ReviewForm({ view, act, busy, done }: { view: UIView; done?: () => void } & Pick<CodeHandlers, "act" | "busy">) {
   const r = view.review!;
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(r.value ?? "");
   const press = (a: UIAction) => {
     act(a, { [r.name]: body });
     done?.();
@@ -598,6 +598,17 @@ function ThreadCard({ thread, act, busy, original, local }: { thread: Thread; or
           {thread.outdated && <Pill tone="orange">{t("extensions-codeviews.outdated")}</Pill>}
           {thread.resolved && <Pill tone="green">{t("extensions-codeviews.resolved")}</Pill>}
         </button>
+        {thread.remove && thread.id && (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={() => act(thread.remove as UIAction, { thread: thread.id! })}
+            className="mr-1.5 flex h-6 shrink-0 items-center gap-1 rounded-[6px] px-1.5 text-[11.5px] whitespace-nowrap text-ink-2 transition-colors enabled:hover:bg-hover enabled:hover:text-red disabled:text-ink-3"
+          >
+            <Icon name="trash" size={11} stroke={2.2} />
+            {t("extensions-review.delete_draft")}
+          </button>
+        )}
         {thread.resolve && thread.id && (
           <button
             type="button"
@@ -723,7 +734,15 @@ function GapBar({ hidden, first, last, header, loading, onShow }: { hidden: numb
 const FOLD_NOTE: Record<string, string> = { generated: "extensions-review.folded_generated", big: "extensions-review.folded_big", viewed: "extensions-review.folded_viewed" };
 
 /** One file's diff. */
-export function DiffView({ item, act, busy, local, fetch, canFetch }: { item: UIItem } & CodeHandlers) {
+export function DiffView({ item, act, busy, local, fetch, canFetch, note, room, askToLoad }: {
+  item: UIItem;
+  /** A session review's (#151): said in place of "no changes" for a diff with no lines (a file it does not show). */
+  note?: string;
+  /** The widest a comment box or thread may be: the page's by default, a side panel's own width there. */
+  room?: string;
+  /** A diff without its lines waits for Load diff instead of loading when it comes near (a big one). */
+  askToLoad?: boolean;
+} & CodeHandlers) {
   const sharedReview = useReview();
   const review = fetch ? { ...sharedReview, fetch } : sharedReview;
   const path = item.path ?? "";
@@ -924,7 +943,7 @@ export function DiffView({ item, act, busy, local, fetch, canFetch }: { item: UI
 
   // a diff given without its lines loads them when it comes near (not a generated one: pressed for)
   const [loadState, setLoadState] = useNativeState<"" | "loading" | "failed" | "asked">(local, `load/${JSON.stringify(item.load)}`, "");
-  const autoLoad = !raw.length && !!item.load && !item.binary && reason !== "generated";
+  const autoLoad = !raw.length && !!item.load && !item.binary && reason !== "generated" && !askToLoad;
   useEffect(() => {
     const el = root.current;
     if (!autoLoad || !el || loadState || local && busy || typeof IntersectionObserver === "undefined") return;
@@ -966,7 +985,7 @@ export function DiffView({ item, act, busy, local, fetch, canFetch }: { item: UI
         );
     }
     return out.length ? (
-      <div key={`u:${k}`} className="sticky left-0 w-full max-w-[calc(100vw-2rem)]">
+      <div key={`u:${k}`} className="sticky left-0 w-full max-w-[calc(100vw-2rem)]" style={room ? { maxWidth: room } : undefined}>
         {out}
       </div>
     ) : null;
@@ -1073,7 +1092,7 @@ export function DiffView({ item, act, busy, local, fetch, canFetch }: { item: UI
     if (item.binary) return <p className="px-4 py-4 text-center text-[12.5px] text-ink-3">{t("extensions-codeviews.binary")}</p>;
     if (!raw.length) {
       if (item.status === "renamed" && !item.load) return <p className="px-4 py-4 text-center text-[12.5px] text-ink-3">{t("extensions-review.renamed_only")}</p>;
-      if (!item.load) return <p className="px-4 py-4 text-center text-[12.5px] text-ink-3">{t("extensions-codeviews.no_changes")}</p>;
+      if (!item.load) return <p className="px-4 py-4 text-center text-[12.5px] text-ink-3">{note ?? t("extensions-codeviews.no_changes")}</p>;
       if (loadState === "loading")
         return (
           <div className="flex items-center justify-center gap-2 px-4 py-3 text-[12.5px] text-ink-3">

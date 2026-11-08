@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.Response
+import okhttp3.internal.http2.Http2Stream
+import okhttp3.mockwebserver.internal.duplex.DuplexResponseBody
+import okio.buffer
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.mockwebserver.Dispatcher
@@ -391,12 +394,16 @@ class HubEndpointSettingsTest {
             Fixture(listOf(Endpoint(tls, "lan")), fingerprint(certificate), EndpointOverrides(manual = listOf(closed))).use { fixture ->
                 val settings = fixture.settings
                 val passed = settings.test(tls)
-                assertEquals(EndpointTestResult(tls, true, CoreText.of(CoreText.Key.EndpointVerified), 42, "2026-11-02T00:00:00Z"), passed)
+                // Hosted runners now and then get "Connection failed" here (#1519): the message names what the client threw.
+                assertEquals(failureOf(settings, tls), EndpointTestResult(tls, true, CoreText.of(CoreText.Key.EndpointVerified), 42, "2026-11-02T00:00:00Z"), passed)
                 settings.test(tls)
-                assertEquals(listOf(0, 0), synchronized(connections) { connections.toList() })
+                assertEquals(failureOf(settings, tls), listOf(0, 0), synchronized(connections) { connections.toList() })
                 val refusedPort = settings.test(closed)
                 assertFalse(refusedPort.passed)
                 assertEquals("连接被拒绝", (refusedPort.result).zhAny())
+                // The cause behind a failed test is kept for diagnosis; one that passed has none.
+                assertTrue(generateSequence(settings.lastFailures[endpointKey(closed)]) { it.cause }.any { it is java.net.ConnectException })
+                assertNull(settings.lastFailures[tls])
                 // Disabled candidates can be tested too.
                 settings.setEnabled(closed, false)
                 assertEquals("连接被拒绝", (settings.test(closed).result).zhAny())
@@ -412,6 +419,40 @@ class HubEndpointSettingsTest {
             Fixture(listOf(Endpoint(tls, "lan")), fingerprint(HeldCertificate.Builder().build())).use { fixture ->
                 val mismatch = fixture.settings.test(tls)
                 assertEquals(EndpointTestResult(tls, false, CoreText.of(CoreText.Key.EndpointCertificateMismatch), 42, "2026-11-02T00:00:00Z"), mismatch)
+            }
+        }
+    }
+
+    /**
+     * Over HTTP/2 a hub may send its stream's end in a frame of its own after the body. The test's fresh connection must
+     * wait for it: closed as soon as the body's Content-Length bytes were read, the stream was reset (CANCEL) and the
+     * test said "Connection failed" (#1519; MockWebServer flushes the body and ends the stream separately, which hosted
+     * runners sometimes caught in between). Here the end comes 300 ms after the body, every time.
+     */
+    @Test fun aTestWaitsForTheEndOfAnHttp2ResponseAfterItsBody() = runBlocking<Unit> {
+        val certificate = HeldCertificate.Builder().commonName("example.com").build()
+        val body = """{"ok":true,"hub_id":"test-hub"}"""
+        MockWebServer().use { server ->
+            server.useHttps(HandshakeCertificates.Builder().heldCertificate(certificate).build().sslSocketFactory(), false)
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest) = MockResponse().setHeader("Content-Length", body.length)
+                    .setBody(object : DuplexResponseBody {
+                        override fun onRequest(request: RecordedRequest, http2Stream: Http2Stream) {
+                            http2Stream.getSink().buffer().use { sink ->
+                                sink.writeUtf8(body).flush()
+                                Thread.sleep(300)
+                            }
+                        }
+                    })
+            }
+            server.start(InetAddress.getLoopbackAddress(), 0)
+            val tls = endpointKey(server.url("/").newBuilder().host(InetAddress.getLoopbackAddress().hostAddress!!).build().toString())
+            Fixture(listOf(Endpoint(tls, "lan")), fingerprint(certificate)).use { fixture ->
+                val result = fixture.settings.test(tls)
+                assertEquals(failureOf(fixture.settings, tls), CoreText.of(CoreText.Key.EndpointVerified), result.result)
+                assertTrue(result.passed)
+                // Over HTTP/2: MockWebServer keeps its pseudo-headers (`:scheme`) among the request's headers.
+                assertEquals("https", server.takeRequest().getHeader(":scheme"))
             }
         }
     }
@@ -447,6 +488,10 @@ class HubEndpointSettingsTest {
             }
         }
     }
+
+    /** The client's own exception behind [url]'s last failed test, for an assertion's message. */
+    private fun failureOf(settings: HubEndpointSettings, url: String) =
+        "the client's failure for $url: " + (settings.lastFailures[url]?.stackTraceToString() ?: "none")
 
     private fun fingerprint(certificate: HeldCertificate) = Base64.getUrlEncoder().withoutPadding().encodeToString(
         MessageDigest.getInstance("SHA-256").digest(certificate.certificate.publicKey.encoded))

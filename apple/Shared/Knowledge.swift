@@ -18,10 +18,10 @@ nonisolated enum KBKind: String, CaseIterable, Identifiable, Sendable {
     }
     var symbol: String {
         switch self {
-        case .projects: "square.stack.3d.up"
+        case .projects: Theme.Icon.space
         case .chats: Theme.Icon.feishuChats
-        case .people: "person.2"
-        case .docs: "doc.text"
+        case .people: Theme.Icon.people
+        case .docs: Theme.Icon.document
         case .meetings: "video"
         case .events: "calendar"
         case .recordings: Theme.Icon.recording

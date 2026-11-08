@@ -82,7 +82,7 @@ export const startFromMarket = (market: string, extension: string, manager?: str
   api<Accepted>(`${extRoot()}/-/catalog/preview`, { method: "POST", json: { market, extension, plugin: extension, async: true }, headers: itemHeaders(manager) }).then((r) => track(r.operation, manager));
 /** The user agreed to the preview: the same operation goes on. */
 export const agreeTo = (pv: MarketPreview, upgradeOf?: string, manager?: string) =>
-  api<Accepted>(upgradeOf ? `${extRoot()}/${enc(upgradeOf)}/-/upgrade` : `${extRoot()}/-/install`, {
+  api<Accepted>(pv.rename_from || upgradeOf ? `${extRoot()}/${enc(pv.rename_from || upgradeOf!)}/-/upgrade` : `${extRoot()}/-/install`, {
     method: "POST",
     json: { ...previewConsent(pv), async: true },
     headers: itemHeaders(manager),

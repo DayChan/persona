@@ -178,12 +178,12 @@ struct ImageNotLoaded: View {
                 ViewThatFits(in: .horizontal) {
                     Label("Image didn't load. Tap to retry", systemImage: Theme.Icon.retry)
                     Label("Retry [Components b8784c]", systemImage: Theme.Icon.retry)
-                    Image(systemName: Theme.Icon.retry)
+                    ThemedIcon(Theme.Icon.retry)
                 }
             } else {
                 ViewThatFits(in: .horizontal) {
                     Label("Can't show this image", systemImage: Theme.Icon.error)
-                    Image(systemName: Theme.Icon.error)
+                    ThemedIcon(Theme.Icon.error)
                 }
             }
         }

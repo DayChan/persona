@@ -339,7 +339,7 @@ struct FileThumbnailIcon: View {
                     .scaledFrame(width: width, height: height)
                     .accessibilityHidden(true)
             } else {
-                Image(systemName: symbol)
+                ThemedIcon(symbol)
                     .font(Theme.Font.body)
                     .foregroundStyle(Color.secondary)
                     .scaledFrame(width: width)

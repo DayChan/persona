@@ -43,7 +43,81 @@ import Testing
     @Test func theMessageReadsBothWays() throws {
         let old = try JSONDecoder().decode(WatchConfigs.self, from: Data(#"{"configs":{},"names":{}}"#.utf8))
         #expect(old.missing == nil)
+        #expect(old.deviceIDs == nil)
+        #expect(old.features == nil)
         let all = WatchConfigs(configs: [:], names: ["": "hub"], missing: [""])
         #expect(try JSONDecoder().decode(WatchConfigs.self, from: JSONEncoder().encode(all)) == all)
+    }
+
+    @Test func watchMetadataComesOnlyFromTheExportedHubsAuthenticatedHello() throws {
+        let model = AppModel()
+        model.registry = Self.registry
+        model.buildLinks()
+        #expect(model.watchConfigs().features?[""] == nil)
+        let link = try #require(model.link(""))
+        link.received(HubHello(features: ["extension_widgets", "extension_shortcuts"]))
+        #expect(model.watchConfigs().features?[""] == ["extension_shortcuts", "extension_widgets"])
+        link.fallback = Self.cfg("other", "fixture-other-phone")
+        #expect(model.watchConfigs().features?[""] == ["extension_shortcuts", "extension_widgets"])
+        link.received(HubHello(features: ["extension_shortcuts"]))
+        #expect(model.watchConfigs().features?[""] == nil)
+        link.fallback = try #require(Self.registry.primary("")).config
+        link.received(HubHello(features: []))
+        #expect(model.watchConfigs().features?[""] == [])
+        #expect(model.watchConfigs().features?["g2"] == nil)
+    }
+
+    @Test func legacyWatchIdMigrationIssuesOnlyAnAnswerTokenAndFencesChanges() async throws {
+        let old = try #require(Self.registry.primary(""))
+        let full = FakeHub()
+        full.on("POST", "/api/v1/auth/tokens", json: #"{"id":"watch-new","token":"fixture-watch-new","role":"answer"}"#)
+        let token = try #require(try await DeviceCredentialTrade.issueWatchToken(for: old, api: full.client))
+        let request = try #require(full.sent("POST", "/api/v1/auth/tokens").first?.body)
+        #expect(try JSON.decoder.decode(JSONValue.self, from: request)["kind"] == .string("watch"))
+        #expect(!full.requests.contains { $0.method == "GET" || $0.method == "DELETE" })
+        let updated = try #require(DeviceCredentialTrade.watchRegistry(Self.registry, expected: old, token: token))
+        #expect(updated.primary("")?.watch?.token == token.token)
+        #expect(updated.primary("")?.watchDeviceID == token.id)
+        #expect(updated.primary("")?.config == old.config)
+        let migrated = try #require(updated.primary(""))
+        #expect(try await DeviceCredentialTrade.issueWatchToken(for: migrated, api: full.client) == nil)
+        #expect(full.sent("POST", "/api/v1/auth/tokens").count == 1)
+        #expect(DeviceCredentialTrade.watchRegistry(updated, expected: old, token: token) == nil)
+        var rotated = Self.registry
+        rotated.hubs[0].config.token = "fixture-new-phone-token"
+        #expect(DeviceCredentialTrade.watchRegistry(rotated, expected: old, token: token) == nil)
+        var changedPrimary = Self.registry
+        changedPrimary.hubs.insert(PairedHub(id: "new-primary", config: Self.cfg("new", "fixture-other")), at: 0)
+        #expect(DeviceCredentialTrade.watchRegistry(changedPrimary, expected: old, token: token) == nil)
+        #expect(DeviceCredentialTrade.watchRegistry(HubRegistry(), expected: old, token: token) == nil)
+        let wrongRole = APIClient.NewToken(id: "wrong", token: "fixture-full", role: "full")
+        #expect(DeviceCredentialTrade.watchRegistry(Self.registry, expected: old, token: wrongRole) == nil)
+        full.on("POST", "/api/v1/auth/tokens", json: #"{"id":"wrong","token":"fixture-full","role":"full"}"#)
+        do {
+            _ = try await DeviceCredentialTrade.issueWatchToken(for: old, api: full.client)
+            Issue.record("A non-answer token must not be exported to the watch")
+        } catch { #expect((error as? URLError)?.code == .cannotParseResponse) }
+    }
+
+    @Test func complicationExportContainsOnlyTheWatchsOwnGroupsAndIds() throws {
+        let (configs, _) = Self.registry.watchCredentials()
+        let all = WatchConfigs(configs: configs, names: ["": "Example", "g2": "Unavailable"],
+                               deviceIDs: ["": "watch-device", "g2": "must-not-export"],
+                               features: ["": ["extension_widgets"], "g2": ["extension_shortcuts"]])
+        let exported = ExtensionSurfaceSync.export(all.configs, names: all.names, devices: all.deviceIDs ?? [:],
+                                                  answerOnly: true, capabilities: all.features ?? [:])
+        #expect(Set(exported.keys) == [""])
+        #expect(exported[""]?.token == "watch-a")
+        #expect(exported[""]?.deviceID == "watch-device")
+        #expect(exported[""]?.answerOnly == true)
+        #expect(exported[""]?.capabilities == ["extension_widgets"])
+        let phoneTokens = Set(Self.registry.hubs.map(\.config.token))
+        #expect(exported.values.allSatisfy { !phoneTokens.contains($0.token) })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ExtensionSurfaceStore(root: root)
+        try store.replaceCredentials(exported)
+        try store.replaceCredentials(ExtensionSurfaceSync.export([:], names: all.names, devices: all.deviceIDs ?? [:]))
+        #expect(store.read().groups.isEmpty)
     }
 }

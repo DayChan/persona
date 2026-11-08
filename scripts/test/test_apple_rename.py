@@ -55,6 +55,7 @@ class AppleRenameTests(unittest.TestCase):
             'Persona': 'Persona', 'PersonaMac': 'Persona', 'PersonaWatch': 'Persona', 'PersonaVision': 'Persona',
             'PersonaWidgets': 'PersonaWidgets', 'PersonaNotify': 'PersonaNotify', 'PersonaMacNotify': 'PersonaNotify',
             'PersonaShare': 'PersonaShare', 'PersonaVisionShare': 'PersonaShare',
+            'PersonaWatchWidgets': 'PersonaWatchWidgets',
         }
         self.assertEqual(set(targets), {*expected, 'PersonaTests', 'PersonaMacTests', 'PersonaUITests', 'PersonaMacUITests'})
         for target, module in expected.items():

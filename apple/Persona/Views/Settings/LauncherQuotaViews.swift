@@ -31,7 +31,7 @@ struct LauncherQuotaSection: View {
                 Spacer()
                 if answer?.unsupported != true {
                     Button { Task { await load(refresh: true) } } label: {
-                        if loading { ProgressView().controlSize(.mini) } else { Image(systemName: Theme.Icon.retry) }
+                        if loading { ProgressView().controlSize(.mini) } else { ThemedIcon(Theme.Icon.retry) }
                     }
                     .disabled(loading)
                     .accessibilityLabel("Refresh Quota")

@@ -105,7 +105,7 @@ struct GitHubConnectorSections: View {
                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: icon).foregroundStyle(.secondary)
+                ThemedIcon(icon).foregroundStyle(.secondary)
                     .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                     Text(title).font(Theme.Font.body).foregroundStyle(Color.primary).lineLimit(1)
@@ -115,7 +115,7 @@ struct GitHubConnectorSections: View {
                 if choosing == key {
                     ProgressView()
                 } else if selected {
-                    Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent)
+                    ThemedIcon(Theme.Icon.done).foregroundStyle(Theme.accent)
                 }
             }
             .contentShape(.rect)
@@ -151,7 +151,7 @@ struct GitHubConnectorSections: View {
                      : String(localized: "gh on \(machine) is missing the \(names) scope: run gh auth refresh -s \(flags) on that computer, or use device code sign-in."))
                     .font(Theme.Font.body).textSelection(.enabled)
             } icon: {
-                Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
             }
             .accessibilityIdentifier("github.missingScopes")
             ForEach(missing.flatMap(\.affects), id: \.self) { a in

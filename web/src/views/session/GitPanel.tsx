@@ -22,6 +22,7 @@ import {
 import { ago, shortPath } from "../../lib/format";
 import { useStore } from "../../lib/store";
 import { openPanel, type GitSpot } from "../../lib/panel";
+import { REVIEW_FEATURE } from "../../lib/session-review";
 import { useFsLive } from "../../lib/use-fs-live";
 import { Button, copyText, cx, IconButton, Loading, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -68,6 +69,7 @@ export function GitPanel({ mid, sid, cwd, at, onClose }: { mid: string; sid: str
   useFsLive(mid, cwd, [], true, (c) => c.git && setLive((n) => n + 1));
   // The writes (#6121), on a hub that has them: each answers the status as it is after it.
   const writable = useStore((s) => s.features.includes("git_write"));
+  const reviews = useStore((s) => s.features.includes(REVIEW_FEATURE));
   const writer = useGitWrite(base, cwd, (s) => {
     if (head.current !== s.head?.hash) {
       setOlder([]);
@@ -174,7 +176,7 @@ export function GitPanel({ mid, sid, cwd, at, onClose }: { mid: string; sid: str
             <div className="px-3 pt-3 pb-6 sm:px-4" style={{ animation: "fade-in 160ms ease-out both" }}>
               <Summary s={status} writer={writable ? writer : undefined} onBranches={() => push({ kind: "branches" })} onStashes={() => push({ kind: "stashes" })} />
               {writable && <PRCard s={status} pr={pr} onOpen={() => push({ kind: "pr" })} onCreate={() => push({ kind: "prCreate" })} />}
-              <Changes s={status} writer={writable ? writer : undefined} onOpen={(f) => push({ kind: "diff", file: f, staged: isStaged(f) && !hasUnstaged(f) })} />
+              <Changes s={status} writer={writable ? writer : undefined} onOpen={(f) => push({ kind: "diff", file: f, staged: isStaged(f) && !hasUnstaged(f) })} onReview={reviews ? () => openPanel({ kind: "review", mid, sid, cwd, scope: "uncommitted" }) : undefined} />
               {writable && status.files.length > 0 && <CommitBox s={status} writer={writer} />}
               <Section title={t("session-gitpanel.commits")}>
                 {[...status.commits, ...older].map((c) => (
@@ -283,7 +285,7 @@ function Summary({ s, writer, onBranches, onStashes }: { s: GitStatus; writer?: 
   );
 }
 
-function Changes({ s, writer, onOpen }: { s: GitStatus; writer?: GitWriter; onOpen: (f: GitFile) => void }) {
+function Changes({ s, writer, onOpen, onReview }: { s: GitStatus; writer?: GitWriter; onOpen: (f: GitFile) => void; onReview?: () => void }) {
   const totals = diffTotals(s.files);
   return (
     <Section
@@ -291,6 +293,12 @@ function Changes({ s, writer, onOpen }: { s: GitStatus; writer?: GitWriter; onOp
       right={
         s.files.length > 0 && (
           <>
+            {onReview && (
+              <button type="button" onClick={onReview} data-git-review="" className="-my-1 flex h-6 items-center gap-1 rounded-[6px] px-1.5 text-[12px] font-medium whitespace-nowrap text-accent-ink transition-colors hover:bg-hover">
+                <Icon name="pullRequest" size={12} />
+                {t("session-gitpanel.review")}
+              </button>
+            )}
             <span className="font-mono text-[11.5px] tabular-nums">
               <span className="text-green">+{totals.added}</span> <span className="text-red">−{totals.deleted}</span>
             </span>

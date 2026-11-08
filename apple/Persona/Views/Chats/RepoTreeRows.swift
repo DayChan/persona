@@ -10,7 +10,7 @@ struct HostHeading: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: symbol)
+            ThemedIcon(symbol)
                 .font(Theme.Font.secondaryStrong)
                 .foregroundStyle(Color.primary)
                 .scaledFrame(width: Theme.Size.wellXS, height: Theme.Size.wellXS)
@@ -35,7 +35,7 @@ struct WorktreeRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: main ? Theme.Icon.home : Theme.Icon.gitBranch)
+            ThemedIcon(main ? Theme.Icon.home : Theme.Icon.gitBranch)
                 .font(compact ? CompactList.meta : Theme.Font.caption)
                 .foregroundStyle(.secondary)
                 .scaledFrame(width: compact ? CompactList.mark : Theme.Size.iconXS)
@@ -73,7 +73,7 @@ struct ChildSpacesRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: Theme.Icon.childSpaces)
+            ThemedIcon(Theme.Icon.childSpaces)
                 .font(compact ? CompactList.meta : Theme.Font.caption)
                 .foregroundStyle(.secondary)
                 .scaledFrame(width: compact ? CompactList.mark : Theme.Size.iconXS)

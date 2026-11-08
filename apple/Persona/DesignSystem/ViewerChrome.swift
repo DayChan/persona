@@ -7,7 +7,7 @@ struct ViewerIcon: View {
     var symbol: String
     var enabled = true
     var body: some View {
-        Image(systemName: symbol)
+        ThemedIcon(symbol)
             .font(Theme.Font.heading)
             .fontWeight(.medium)
             .foregroundStyle(enabled ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.tertiary))

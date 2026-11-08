@@ -677,3 +677,88 @@ func windowedOne(p string, w int64) (res windowResult) {
 	same("Meta", am, bm)
 	return res
 }
+
+// The same simulation on the repository's own transcripts (testdata), in every run: random pieces, lost pushes, a
+// late client from a stale cache, random fill pages, rewrites and a node restart, under fixed seeds. Every run must
+// end with exactly the cold read's items (#1073).
+func TestContinuityConvergesOnFixtures(t *testing.T) {
+	files, err := filepath.Glob("testdata/*.jsonl")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no transcripts in testdata: %v", err)
+	}
+	seeds := 24
+	if testing.Short() {
+		seeds = 4
+	}
+	// and one long enough that a client catching up from far behind meets the hub's cap (8 pages of 500): the rest
+	// comes only by following more_after
+	long := filepath.Join(t.TempDir(), "claude-long.jsonl")
+	if err := os.WriteFile(long, longTranscript(7000), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, long)
+	for i, p := range files {
+		n := seeds
+		if p == long {
+			n = max(2, seeds/3)
+		}
+		for s := 1; s <= n; s++ {
+			seed := int64(s)*7919 + int64(i)
+			if res := simulate(t, p, seed); len(res.Fails) > 0 {
+				t.Errorf("%s, seed %d: %s", filepath.Base(p), seed, strings.Join(res.Fails, "; "))
+			}
+		}
+	}
+}
+
+// longTranscript is a made-up Claude Code transcript of `turns` question-and-answer turns, each ending with its
+// turn duration (a line without items).
+func longTranscript(turns int) []byte {
+	var b bytes.Buffer
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	parent := "null"
+	line := func(n int, ts time.Time, body string) {
+		uuid := fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
+		fmt.Fprintf(&b, `{"parentUuid":%s,"isSidechain":false,%s,"uuid":"%s","timestamp":"%s","userType":"external","entrypoint":"cli","cwd":"/work/project","sessionId":"00000000-0000-4000-8000-0000000000bb","version":"2.1.312"}`+"\n",
+			parent, body, uuid, ts.Format("2006-01-02T15:04:05.000Z"))
+		parent = `"` + uuid + `"`
+	}
+	n := 0
+	for k := 0; k < turns; k++ {
+		ts := t0.Add(time.Duration(k) * time.Minute)
+		n++
+		line(n, ts, fmt.Sprintf(`"type":"user","message":{"role":"user","content":"question %d about the route"}`, k+1))
+		n++
+		line(n, ts.Add(10*time.Second), fmt.Sprintf(`"type":"assistant","message":{"id":"msg_%d","type":"message","role":"assistant","model":"claude-example","content":[{"type":"text","text":"answer %d: take the river path"}],"stop_reason":"end_turn"}`, n, k+1))
+		n++
+		line(n, ts.Add(11*time.Second), `"type":"system","subtype":"turn_duration","durationMs":11000`)
+	}
+	return b.Bytes()
+}
+
+// A client holding only the first turn catches up across a long transcript: the replay stops at the hub's cap (8 pages
+// of 500) and says more_after, which the client follows; it ends with exactly the cold read's items (#1073, the class
+// of the web's #1118).
+func TestCatchUpPastTheCapFollowsMoreAfter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(path, longTranscript(7000), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := openCorpusFile(path)
+	if _, err := f.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	want, _, _ := f.Page(0, 1<<30)
+	r := &simRun{t: t, f: f, rng: rand.New(rand.NewSource(1))}
+	c := newClient("late")
+	first, _, sp := r.after(0, 2)
+	c.apply(first, sp, true, false)
+	r.subscribe(c)
+	r.scrollToStart(c)
+	if got := ordered(c.items); !bytes.Equal(mustJSON(got), mustJSON(want)) {
+		t.Fatalf("the client holds %d items, the file %d (first difference at %s)", len(got), len(want), firstDiff(got, want))
+	}
+	if len(r.fails) > 0 {
+		t.Fatal(strings.Join(r.fails, "; "))
+	}
+}

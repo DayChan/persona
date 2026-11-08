@@ -56,5 +56,6 @@
   "viewed": "確認済み",
   "viewed_of": "確認済み {viewed} / {files}",
   "whitespace_only": "空白のみの変更",
-  "wrap": "長い行を折り返す"
+  "wrap": "長い行を折り返す",
+  "delete_draft": "削除"
 }

@@ -88,10 +88,15 @@ final class SyncDevice {
         model = AppModel()
     }
 
-    /// Talks to the scenario's hub. After the model is made: AppModel's init installs Demo Mode's hub in the same places.
+    /// Talks to the scenario's hub over a socket and a transport of its own (`AppModel.linkHooksForTests`), so several
+    /// devices play side by side. Demo Mode's hub, which AppModel's init installs for the whole process, answers
+    /// nothing: a request that still goes there is a failure of the case (`SyncRun.stray`).
     func connect() {
-        LiveConnection.makeLocal = { [weak self] in self?.newSocket() ?? SyncSocket() }
-        APIClient.local = { req in try await SyncRun.http(req) }
+        let name = name
+        model.linkHooksForTests = (transport: { req in try await SyncRun.http(req, from: name) },
+                                   socket: { [weak self] in self?.newSocket() ?? SyncSocket() })
+        LiveConnection.makeLocal = nil
+        APIClient.local = { req in try await SyncRun.stray(req) }
         model.connectOnly(.demo)
     }
 

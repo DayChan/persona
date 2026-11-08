@@ -210,7 +210,7 @@ struct ExtensionNavRow: View {
         let symbol = ExtensionSlots.icon(place.icon)
         if AppStyle.current.usesBeautifulUI {
             BUIListRow(place.title) {
-                BUIIconTile(symbol, tint: Theme.Hue.purple)
+                IconTile(symbol, tint: Theme.Hue.purple)
             } trailing: {
                 if let b = place.badge { ExtensionBadgeView(badge: b) }
             }
@@ -218,7 +218,7 @@ struct ExtensionNavRow: View {
             LabeledContent {
                 if let b = place.badge { ExtensionBadgeView(badge: b) }
             } label: {
-                Label { Text(place.title).lineLimit(1) } icon: { Image(systemName: symbol) }
+                Label { Text(place.title).lineLimit(1) } icon: { ThemedIcon(symbol) }
             }
         }
     }
@@ -269,7 +269,7 @@ struct ExtensionCard: View {
                     Text(model.view?.title ?? card.title).font(Theme.Font.labelStrong).lineLimit(1)
                     Spacer(minLength: Theme.Space.s)
                     if opens {
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                     }
                 }
                 if let v = model.view {

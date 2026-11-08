@@ -86,11 +86,14 @@ type pluginHost struct {
 	logf func(string, ...any)
 	now  func() time.Time
 
-	mu      sync.Mutex
-	running map[string]*pluginRun
-	uploads map[string]*pluginUpload
-	notify  func(event string, params any)
-	lcu     lcuCaller // the latest connection's, so LCU's confirmations reach the hub that is there now
+	lifecycle      sync.Mutex // serializes identity, package replacement, start and destructive sync
+	identities     map[string]proto.PluginNodeIdentity
+	identityLoaded bool
+	mu             sync.Mutex
+	running        map[string]*pluginRun
+	uploads        map[string]*pluginUpload
+	notify         func(event string, params any)
+	lcu            lcuCaller // the latest connection's, so LCU's confirmations reach the hub that is there now
 }
 
 type pluginRun struct {
@@ -113,6 +116,21 @@ type pluginUpload struct {
 func (n *Node) handlePlugins(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	ph := n.plugins()
 	switch method {
+	case "plugin.node.identity":
+		var p proto.PluginNodeIdentityRequest
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if err := ph.applyIdentities(p.Slots); err != nil {
+			return nil, err
+		}
+		ph.lifecycle.Lock()
+		reply := proto.PluginNodeIdentityReply{Supported: true, Revision: ph.identityRevision()}
+		for _, slot := range ph.identities {
+			reply.Slots = append(reply.Slots, slot)
+		}
+		ph.lifecycle.Unlock()
+		return reply, nil
 	case "plugin.node.have":
 		var p proto.PluginNodeProgram
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -160,7 +178,7 @@ func (n *Node) handlePlugins(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return ph.sync(p), nil
+		return ph.syncRequest(p)
 	case "plugin.node.renew":
 		var p proto.PluginNodeRenew
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -189,6 +207,168 @@ func (n *Node) handlePlugins(ctx context.Context, method string, params json.Raw
 	return nil, fmt.Errorf("unknown method %s", method)
 }
 
+func (ph *pluginHost) loadIdentities() error {
+	if ph.identityLoaded {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(ph.dir, ".identities.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	ids := map[string]proto.PluginNodeIdentity{}
+	if err == nil {
+		if err = json.Unmarshal(b, &ids); err != nil {
+			return err
+		}
+	}
+	ph.identities, ph.identityLoaded = ids, true
+	return nil
+}
+
+// applyIdentities runs only over the node's authenticated manager RPC channel.
+// Commit the slot binding before starting a successor; stale revisions cannot reopen a retired ID.
+func (ph *pluginHost) applyIdentities(slots []proto.PluginNodeIdentity) error {
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
+	if err := ph.loadIdentities(); err != nil {
+		return err
+	}
+	if len(slots) == 0 {
+		return nil
+	}
+	next := map[string]proto.PluginNodeIdentity{}
+	for k, v := range ph.identities {
+		next[k] = v
+	}
+	seen := map[string]bool{}
+	reset := map[string]bool{}
+	for _, s := range slots {
+		if s.Retired || !extension.ValidID(s.ID) || !extension.ValidID(s.StorageID) || s.Revision <= 0 || seen[s.StorageID] {
+			return errors.New("invalid extension identity slot")
+		}
+		seen[s.StorageID] = true
+		if old, ok := next[s.StorageID]; ok && (s.Revision < old.Revision || s.Revision == old.Revision && s.ID != old.ID) {
+			return errors.New("stale extension identity revision")
+		}
+		if _, err := os.Lstat(filepath.Join(ph.dir, s.StorageID)); err == nil && !ph.owns(s.StorageID) {
+			return errors.New("extension slot is not owned by this node")
+		}
+		for key, old := range next {
+			if key != s.StorageID && old.ID != s.ID {
+				continue
+			}
+			if s.Revision < old.Revision || s.InstalledAt < old.InstalledAt {
+				return errors.New("stale extension installation")
+			}
+			if key != s.StorageID && s.InstalledAt <= old.InstalledAt {
+				return errors.New("extension identity belongs to another slot")
+			}
+			if old.Retired && key == s.StorageID && s.InstalledAt <= old.InstalledAt {
+				return errors.New("retired extension installation")
+			}
+			if s.InstalledAt > old.InstalledAt && s.Revision > old.Revision {
+				reset[key] = true // Explicit uninstall/reinstall, never an identity upgrade.
+				if key != s.StorageID {
+					old.Retired = true
+					next[key] = old
+				}
+			}
+		}
+		next[s.StorageID] = s
+	}
+	public := map[string]string{}
+	for slot, s := range next {
+		if s.Retired {
+			continue
+		}
+		if other, ok := public[s.ID]; ok && other != slot {
+			return errors.New("extension identity belongs to another slot")
+		}
+		public[s.ID] = slot
+	}
+	ph.mu.Lock()
+	var resetRuns []string
+	for id, r := range ph.running {
+		if reset[r.spec.StorageKey()] {
+			resetRuns = append(resetRuns, id)
+		}
+	}
+	ph.mu.Unlock()
+	for _, id := range resetRuns {
+		ph.stop(id)
+	}
+	for slot := range reset {
+		if ph.owns(slot) {
+			if err := os.RemoveAll(filepath.Join(ph.dir, slot)); err != nil {
+				return err
+			}
+		}
+	}
+	if err := os.MkdirAll(ph.dir, 0o700); err != nil {
+		return err
+	}
+	b, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(ph.dir, ".identities-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err = f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(name, filepath.Join(ph.dir, ".identities.json")); err != nil {
+		return err
+	}
+	ph.identities = next
+	ph.mu.Lock()
+	var retire []string
+	for id, r := range ph.running {
+		if s, ok := next[r.spec.StorageKey()]; ok && (s.ID != id || r.spec.Revision != s.Revision) {
+			retire = append(retire, id)
+		}
+	}
+	ph.mu.Unlock()
+	for _, id := range retire {
+		ph.stop(id)
+	}
+	return nil
+}
+
+// checkIdentity is called with lifecycle held. Empty fields retain the same-ID wire protocol.
+func (ph *pluginHost) checkIdentity(id, slot string, revision int64) error {
+	if err := ph.loadIdentities(); err != nil {
+		return err
+	}
+	if !extension.ValidID(slot) {
+		return errors.New("invalid extension storage slot")
+	}
+	for key, s := range ph.identities {
+		if !s.Retired && s.ID == id && key != slot {
+			return errors.New("extension identity belongs to another slot")
+		}
+	}
+	if s, ok := ph.identities[slot]; ok {
+		if s.Retired || s.ID != id || s.Revision != revision {
+			return errors.New("stale extension identity revision")
+		}
+	} else if slot != id || revision != 0 {
+		return errors.New("extension identity has not been committed on this node")
+	}
+	return nil
+}
+
 func checkProgram(p proto.PluginNodeProgram) error {
 	if !extension.ValidID(p.ID) {
 		return fmt.Errorf("plugin id %q", p.ID)
@@ -210,6 +390,9 @@ func (ph *pluginHost) dataDir(id string) string { return filepath.Join(ph.dir, i
 // own makes id's directory, marked as this node's (pluginOwnMark): the only kind sync removes.
 func (ph *pluginHost) own(id string) error {
 	at := filepath.Join(ph.dir, id)
+	if st, err := os.Lstat(at); err == nil && (!st.IsDir() || !ph.owns(id)) {
+		return errors.New("extension slot is not owned by this node")
+	}
 	if err := os.MkdirAll(at, 0o700); err != nil {
 		return err
 	}
@@ -225,20 +408,34 @@ func (ph *pluginHost) owns(id string) bool {
 	if slices.Contains(hubPluginNames, id) {
 		return false
 	}
-	st, err := os.Stat(filepath.Join(ph.dir, id, pluginOwnMark))
+	base, err := os.Lstat(filepath.Join(ph.dir, id))
+	if err != nil || !base.IsDir() {
+		return false
+	}
+	st, err := os.Lstat(filepath.Join(ph.dir, id, pluginOwnMark))
 	return err == nil && st.Mode().IsRegular()
 }
 
 // has: the package of that version is here, and is the one with that digest.
 func (ph *pluginHost) has(p proto.PluginNodeProgram) bool {
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
+	if ph.checkIdentity(p.ID, p.StorageKey(), p.Revision) != nil {
+		return false
+	}
 	if checkProgram(p) != nil {
 		return false
 	}
-	b, err := os.ReadFile(filepath.Join(ph.versionDir(p.ID, p.Version), ".persona-digest"))
+	b, err := os.ReadFile(filepath.Join(ph.versionDir(p.StorageKey(), p.Version), ".persona-digest"))
 	return err == nil && strings.TrimSpace(string(b)) == p.Digest
 }
 
 func (ph *pluginHost) begin(p proto.PluginNodePutBegin) (string, error) {
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
+	if err := ph.checkIdentity(p.ID, p.StorageKey(), p.Revision); err != nil {
+		return "", err
+	}
 	if err := checkProgram(p.PluginNodeProgram); err != nil {
 		return "", err
 	}
@@ -295,6 +492,8 @@ func (ph *pluginHost) chunk(p proto.PluginNodePutChunk) error {
 }
 
 func (ph *pluginHost) commit(uploadID string) error {
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
 	ph.mu.Lock()
 	u := ph.uploads[uploadID]
 	delete(ph.uploads, uploadID)
@@ -304,16 +503,19 @@ func (ph *pluginHost) commit(uploadID string) error {
 	}
 	defer os.Remove(u.file.Name())
 	u.file.Close()
+	if err := ph.checkIdentity(u.prog.ID, u.prog.StorageKey(), u.prog.Revision); err != nil {
+		return err
+	}
 	if u.offset != u.size {
 		return fmt.Errorf("plugin %s: %d of %d bytes", u.prog.ID, u.offset, u.size)
 	}
 	if got := hex.EncodeToString(u.sum.Sum(nil)); got != u.prog.Digest {
 		return fmt.Errorf("plugin %s: the package's sha256 is %s, not %s", u.prog.ID, got, u.prog.Digest)
 	}
-	if err := ph.own(u.prog.ID); err != nil {
+	if err := ph.own(u.prog.StorageKey()); err != nil {
 		return err
 	}
-	dir := ph.versionDir(u.prog.ID, u.prog.Version)
+	dir := ph.versionDir(u.prog.StorageKey(), u.prog.Version)
 	tmp := dir + ".unpacking"
 	_ = os.RemoveAll(tmp)
 	if err := extension.UnpackNodePackage(u.file.Name(), tmp); err != nil {
@@ -354,7 +556,12 @@ func (ph *pluginHost) lease(s proto.PluginNodeStart) time.Time {
 // settings stop the one running first. A new version that does not come up within ReadyWithin is stopped, and the
 // version that ran before it is started again.
 func (ph *pluginHost) start(ctx context.Context, s proto.PluginNodeStart) (proto.PluginNodeState, error) {
-	state := proto.PluginNodeState{ID: s.ID, Version: s.Version}
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
+	state := proto.PluginNodeState{ID: s.ID, Version: s.Version, Revision: s.Revision}
+	if err := ph.checkIdentity(s.ID, s.StorageKey(), s.Revision); err != nil {
+		return state, err
+	}
 	if err := checkProgram(proto.PluginNodeProgram{ID: s.ID, Version: s.Version}); err != nil {
 		return state, err
 	}
@@ -364,7 +571,7 @@ func (ph *pluginHost) start(ctx context.Context, s proto.PluginNodeStart) (proto
 	if s.Keep != extension.KeepLease && s.Keep != extension.KeepAlways {
 		return state, fmt.Errorf("plugin %s: keep %q", s.ID, s.Keep)
 	}
-	dir := ph.versionDir(s.ID, s.Version)
+	dir := ph.versionDir(s.StorageKey(), s.Version)
 	if _, err := os.Stat(filepath.Join(dir, ".persona-digest")); err != nil {
 		state.State = pluginStateMissing
 		return state, nil
@@ -411,15 +618,15 @@ func (ph *pluginHost) start(ctx context.Context, s proto.PluginNodeStart) (proto
 
 // run starts s's program (nothing of the id is running).
 func (ph *pluginHost) run(s proto.PluginNodeStart, sum string) (*pluginRun, error) {
-	dir := ph.versionDir(s.ID, s.Version)
+	dir := ph.versionDir(s.StorageKey(), s.Version)
 	rel := filepath.FromSlash(s.Command)
 	if s.Command == "" || filepath.IsAbs(rel) || strings.HasPrefix(filepath.Clean(rel), "..") {
 		return nil, fmt.Errorf("plugin %s: command %q", s.ID, s.Command)
 	}
-	if err := ph.own(s.ID); err != nil {
+	if err := ph.own(s.StorageKey()); err != nil {
 		return nil, err
 	}
-	data := ph.dataDir(s.ID)
+	data := ph.dataDir(s.StorageKey())
 	if err := os.MkdirAll(data, 0o700); err != nil {
 		return nil, err
 	}
@@ -429,6 +636,7 @@ func (ph *pluginHost) run(s proto.PluginNodeStart, sum string) (*pluginRun, erro
 			return nil, fmt.Errorf("plugin %s: initialize: %w", s.ID, err)
 		}
 	}
+	params.Extension.ID, params.Extension.Version = s.ID, s.Version
 	params.Extension.Dir, params.Extension.DataDir = dir, data
 	id := s.ID
 	spec := host.Spec{ID: id, Name: s.Name, Command: filepath.Join(dir, rel), Args: s.Args, Dir: dir, CleanEnv: true,
@@ -445,7 +653,7 @@ func (ph *pluginHost) run(s proto.PluginNodeStart, sum string) (*pluginRun, erro
 		spec.Env = append(spec.Env, k+"="+v)
 	}
 	if s.HTTP {
-		spec.Socket = filepath.Join(ph.dir, id, "run.sock")
+		spec.Socket = filepath.Join(ph.dir, s.StorageKey(), "run.sock")
 		spec.Env = append(spec.Env, "PERSONA_PLUGIN_SOCKET="+spec.Socket, "PERSONA_EXTENSION_SOCKET="+spec.Socket)
 	}
 	spec.Init = func(context.Context) (extension.InitializeParams, error) { return params, nil }
@@ -453,18 +661,28 @@ func (ph *pluginHost) run(s proto.PluginNodeStart, sum string) (*pluginRun, erro
 	spec.Handle = func(_ context.Context, method string, _ json.RawMessage) (any, error) {
 		return nil, &rpc.Error{Code: extension.CodeUnknownMethod, Message: "unknown method " + method + " (a program on a computer has no hub methods)"}
 	}
+	r := &pluginRun{spec: s, sum: sum, leaseUntil: ph.lease(s)}
 	spec.OnEvent = func(event string, params json.RawMessage) {
-		ph.send("plugin.node.event", proto.PluginNodeEvent{ID: id, Event: event, Params: params})
+		ph.sendRun(r, "plugin.node.event", proto.PluginNodeEvent{ID: id, Revision: s.Revision, Event: event, Params: params})
 	}
 	spec.OnUp = func() {
-		ph.send("plugin.node.state", proto.PluginNodeState{ID: id, Version: s.Version, State: host.StateRunning})
+		ph.sendRun(r, "plugin.node.state", proto.PluginNodeState{ID: id, Version: s.Version, Revision: s.Revision, State: host.StateRunning})
 	}
-	r := &pluginRun{spec: s, sum: sum, leaseUntil: ph.lease(s)}
 	r.proc = host.Start(context.Background(), spec) // the process's, not this call's
 	ph.mu.Lock()
 	ph.running[id] = r
 	ph.mu.Unlock()
 	return r, nil
+}
+
+func (ph *pluginHost) sendRun(r *pluginRun, event string, params any) {
+	ph.mu.Lock()
+	active := ph.running[r.spec.ID] == r && !r.expired
+	notify := ph.notify
+	ph.mu.Unlock()
+	if active && notify != nil {
+		notify(event, params)
+	}
 }
 
 func (ph *pluginHost) send(event string, params any) {
@@ -489,17 +707,63 @@ func (ph *pluginHost) stop(id string) {
 // sync stops what should not run here and removes its packages: of a plugin still to run, the version to run and the
 // one before it (what an upgrade falls back to); of one not installed any more, its data too. It removes only what this
 // node made (owns): a directory without its mark is left alone, whatever its name (#1933).
+func (ph *pluginHost) identityRevision() int64 {
+	var revision int64
+	for _, slot := range ph.identities {
+		revision = max(revision, slot.Revision)
+	}
+	return revision
+}
+
+func (ph *pluginHost) validateSync(p proto.PluginNodeSync) error {
+	if err := ph.loadIdentities(); err != nil {
+		return err
+	}
+	if len(ph.identities) > 0 && (!p.Identity || p.Revision < ph.identityRevision()) {
+		return errors.New("stale or legacy extension identity sync")
+	}
+	for slot := range ph.identities {
+		if slices.Contains(p.Installed, slot) && !slices.ContainsFunc(p.InstalledSlots, func(s proto.PluginNodeIdentity) bool { return s.StorageID == slot }) {
+			return errors.New("committed extension slot missing from identity-aware sync")
+		}
+	}
+	for _, s := range p.InstalledSlots {
+		if err := ph.checkIdentity(s.ID, s.StorageID, s.Revision); err != nil {
+			return err
+		}
+	}
+	for _, prog := range p.Programs {
+		if err := checkProgram(prog); err != nil {
+			return err
+		}
+		if err := ph.checkIdentity(prog.ID, prog.StorageKey(), prog.Revision); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (ph *pluginHost) sync(p proto.PluginNodeSync) proto.PluginNodeStates {
+	states, _ := ph.syncRequest(p)
+	return states
+}
+
+func (ph *pluginHost) syncRequest(p proto.PluginNodeSync) (proto.PluginNodeStates, error) {
+	ph.lifecycle.Lock()
+	defer ph.lifecycle.Unlock()
+	if err := ph.validateSync(p); err != nil {
+		return ph.status(), err
+	}
 	want := map[string]string{}
 	for _, prog := range p.Programs {
 		if checkProgram(prog) == nil {
-			want[prog.ID] = prog.Version
+			want[prog.StorageKey()] = prog.Version
 		}
 	}
 	ph.mu.Lock()
 	var stale []string
 	for id, r := range ph.running {
-		if want[id] != r.spec.Version {
+		if want[r.spec.StorageKey()] != r.spec.Version {
 			stale = append(stale, id)
 		}
 	}
@@ -515,8 +779,12 @@ func (ph *pluginHost) sync(p proto.PluginNodeSync) proto.PluginNodeStates {
 		}
 		version, wanted := want[id]
 		if !wanted {
+			if slices.ContainsFunc(p.InstalledSlots, func(s proto.PluginNodeIdentity) bool { return s.StorageID == id }) {
+				// Disabled migrated installations retain rollback packages as well as data.
+				continue
+			}
 			if slices.Contains(p.Installed, id) {
-				ph.prune(id, "") // switched off here: its data stays for when it is back
+				ph.prune(id, "") // Legacy same-ID behavior retains data, not packages.
 			} else {
 				_ = os.RemoveAll(filepath.Join(ph.dir, id))
 			}
@@ -524,7 +792,7 @@ func (ph *pluginHost) sync(p proto.PluginNodeSync) proto.PluginNodeStates {
 		}
 		ph.prune(id, version)
 	}
-	return ph.status()
+	return ph.status(), nil
 }
 
 // prune removes id's packages but version and the newest one before it (all of them when version is "").
@@ -571,7 +839,7 @@ func (ph *pluginHost) status() proto.PluginNodeStates {
 	defer ph.mu.Unlock()
 	out := proto.PluginNodeStates{Programs: []proto.PluginNodeState{}}
 	for id, r := range ph.running {
-		st := proto.PluginNodeState{ID: id, Version: r.spec.Version}
+		st := proto.PluginNodeState{ID: id, Version: r.spec.Version, Revision: r.spec.Revision}
 		if r.expired {
 			st.State = pluginLeaseExpired
 		} else {
@@ -631,7 +899,7 @@ func (ph *pluginHost) expireLeases() {
 	for _, r := range due {
 		ph.logf("plugin %s: the hub did not renew its lease; stopped until it is back", r.spec.ID)
 		r.proc.Stop()
-		ph.send("plugin.node.state", proto.PluginNodeState{ID: r.spec.ID, Version: r.spec.Version, State: pluginLeaseExpired})
+		ph.send("plugin.node.state", proto.PluginNodeState{ID: r.spec.ID, Version: r.spec.Version, Revision: r.spec.Revision, State: pluginLeaseExpired})
 	}
 }
 

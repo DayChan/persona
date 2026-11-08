@@ -20,24 +20,24 @@ enum ToolPresentation {
         case "conversations_list", "conversation_read", "conversation_new", "conversation_send": return Theme.Icon.conversation
         case "computer_state", "computer_run": return Theme.Icon.machine
         case SecretRun.tool: return Theme.Icon.credentials
-        case "browser_run", "browser_look": return "globe"
-        case "Bash", "BashOutput", "KillShell", "KillBash": return "terminal"
-        case "Read": return "doc.text"
-        case "Edit", "MultiEdit", "NotebookEdit": return "pencil.line"
-        case "Write": return "doc.badge.plus"
-        case "Grep": return "text.magnifyingglass"
-        case "Glob", "LS": return "folder.badge.questionmark"
-        case "WebFetch": return "globe"
-        case "WebSearch": return "magnifyingglass"
-        case "Task", "Agent": return "person.2"
-        case "TodoWrite", "TaskCreate", "TaskUpdate": return "checklist"
-        case "AskUserQuestion", "ask_user": return "questionmark.bubble"
-        case "ExitPlanMode", "EnterPlanMode": return "list.bullet.clipboard"
-        case "ToolSearch": return "wrench.and.screwdriver"
-        case "Skill": return "sparkles"
+        case "browser_run", "browser_look": return Theme.Icon.web
+        case "Bash", "BashOutput", "KillShell", "KillBash": return Theme.Icon.terminal
+        case "Read": return Theme.Icon.document
+        case "Edit", "MultiEdit", "NotebookEdit": return Theme.Icon.editFile
+        case "Write": return Theme.Icon.newFile
+        case "Grep": return Theme.Icon.findText
+        case "Glob", "LS": return Theme.Icon.findFiles
+        case "WebFetch": return Theme.Icon.web
+        case "WebSearch": return Theme.Icon.search
+        case "Task", "Agent": return Theme.Icon.subagent
+        case "TodoWrite", "TaskCreate", "TaskUpdate": return Theme.Icon.todo
+        case "AskUserQuestion", "ask_user": return Theme.Icon.question
+        case "ExitPlanMode", "EnterPlanMode": return Theme.Icon.plan
+        case "ToolSearch": return Theme.Icon.unknownTool
+        case "Skill": return Theme.Icon.skills
         case "Monitor": return "waveform.path.ecg"
         case "Workflow": return Theme.Icon.workflow
-        default: return name.hasPrefix("mcp__") ? "puzzlepiece.extension" : Theme.Icon.unknownTool
+        default: return name.hasPrefix("mcp__") ? Theme.Icon.skills : Theme.Icon.unknownTool
         }
     }
 
@@ -168,11 +168,11 @@ struct ToolGroupView: View {
                     toggleInPlace(pin, pinKey, animation: Theme.Motion.standard, unfold: $unfold) { expanded = true }
                 } label: {
                     HStack(spacing: Theme.Space.sm) {
-                        Image(systemName: Theme.Icon.space).font(Theme.Font.label)
+                        ThemedIcon(Theme.Icon.space).font(Theme.Font.label)
                         Text("\(calls.count) steps").font(Theme.Font.labelMedium)
                         Text(summary(calls)).font(Theme.Font.label).foregroundStyle(.tertiary).lineLimit(1)
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.expand).font(Theme.Font.labelStrong)
+                        ThemedIcon(Theme.Icon.expand).font(Theme.Font.labelStrong)
                     }
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Theme.Space.m)
@@ -280,7 +280,7 @@ enum ToolRunSummary {
         let subject = ToolPresentation.subject(first)
         let ascii = subject.unicodeScalars.allSatisfy(\.isASCII)
         func named(_ label: String, many: String) -> ToolChipGroup.Chip {
-            ToolChipGroup.Chip(symbol: ToolPresentation.symbol(first.name), label: label, detail: one ? subject : many,
+            ToolChipGroup.Chip(symbol: Theme.Icon.styled(ToolPresentation.symbol(first.name)), label: label, detail: one ? subject : many,
                                monospacedDetail: one && ascii, isError: error)
         }
         switch kind {
@@ -292,7 +292,7 @@ enum ToolRunSummary {
             return ToolChipGroup.Chip(symbol: Theme.Icon.todo, label: String(localized: "To-dos"), detail: ToolPresentation.subject(calls[calls.count - 1]),
                                       monospacedDetail: true, isError: error)
         case .other(let verb):
-            return ToolChipGroup.Chip(symbol: ToolPresentation.symbol(first.name), label: verb,
+            return ToolChipGroup.Chip(symbol: Theme.Icon.styled(ToolPresentation.symbol(first.name)), label: verb,
                                       detail: one ? subject : String(localized: "\(calls.count) times"), monospacedDetail: one && ascii, isError: error)
         case .edit:
             var adds = 0, dels = 0
@@ -305,7 +305,7 @@ enum ToolRunSummary {
                 if !files.contains(f) { files.append(f) }
             }
             return ToolChipGroup.Chip(
-                symbol: ToolPresentation.symbol(first.name),
+                symbol: Theme.Icon.styled(ToolPresentation.symbol(first.name)),
                 label: files.count == 1 ? ToolPresentation.verb(first.name) : String(localized: "Edit [Message Menu 051836]"),
                 detail: files.count == 1 ? (files[0] as NSString).lastPathComponent : String(localized: "\(files.count) files"),
                 monospacedDetail: files.count == 1,
@@ -417,7 +417,7 @@ struct ToolCallRow: View {
                     if call.isRunning {
                         ProgressView().controlSize(.mini).tint(tint)
                     } else {
-                        Image(systemName: ToolPresentation.symbol(call.name))
+                        ThemedIcon(ToolPresentation.symbol(call.name))
                             .font(Theme.Font.labelStrong).dynamicTypeSize(...DynamicTypeSize.xLarge)
                             .foregroundStyle(tint)
                     }
@@ -430,8 +430,8 @@ struct ToolCallRow: View {
                     .truncationMode(ToolPresentation.truncation(call.name))
                 Spacer(minLength: 4)
                 taskBadge
-                if call.isError { Image(systemName: Theme.Icon.errorFilled).foregroundStyle(Theme.danger).font(Theme.Font.label) }
-                Image(systemName: Theme.Icon.disclosure)
+                if call.isError { ThemedIcon(Theme.Icon.errorFilled).foregroundStyle(Theme.danger).font(Theme.Font.label) }
+                ThemedIcon(Theme.Icon.disclosure)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
@@ -450,7 +450,7 @@ struct ToolCallRow: View {
             toggleInPlace(pin, pinKey, animation: Theme.Motion.state, unfold: $unfold, closing: isOpen) { setOpen(!isOpen) }
         } accessory: {
             taskBadge
-            if call.isError { Image(systemName: Theme.Icon.errorFilled).foregroundStyle(Theme.danger).font(Theme.Font.label) }
+            if call.isError { ThemedIcon(Theme.Icon.errorFilled).foregroundStyle(Theme.danger).font(Theme.Font.label) }
         }
         .padding(Self.chipInsets(grouped: grouped))
     }
@@ -474,7 +474,7 @@ struct ToolCallRow: View {
         let subject = ToolPresentation.subject(call)
         return BeautifulUI.ToolCall(
             id: call.id,
-            .symbol(ToolPresentation.symbol(call.name)),
+            .symbol(Theme.Icon.styled(ToolPresentation.symbol(call.name))),
             label: ToolPresentation.verb(call.name),
             chip: subject,
             // Paths, patterns and commands in the code face; a description someone wrote (often Chinese) in the text face.
@@ -560,14 +560,14 @@ struct ToolDetail: View {
         if let p, !p.isEmpty {
             let adds = diffs.reduce(0) { $0 + $1.adds }, dels = diffs.reduce(0) { $0 + $1.dels }
             let header = HStack(spacing: Theme.Space.sm) {
-                Image(systemName: FileViewer.symbol(for: p)).font(Theme.Font.label).foregroundStyle(.secondary)
+                ThemedIcon(FileViewer.symbol(for: p)).font(Theme.Font.label).foregroundStyle(.secondary)
                 Text((p as NSString).lastPathComponent).font(Theme.Font.captionStrong).foregroundStyle(.primary).lineLimit(1)
                 Text((p as NSString).deletingLastPathComponent).font(Theme.Font.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.head)
                 Spacer(minLength: 4)
                 if adds > 0 { Text("+\(adds)").foregroundStyle(Theme.Diff.add) }
                 if dels > 0 { Text("−\(dels)").foregroundStyle(Theme.Diff.del) }
-                if openFile != nil { Image(systemName: Theme.Icon.openDocument).font(Theme.Font.label).foregroundStyle(Theme.accent) }
+                if openFile != nil { ThemedIcon(Theme.Icon.openDocument).font(Theme.Font.label).foregroundStyle(Theme.accent) }
             }
             .font(Theme.Font.captionStrong.monospacedDigit())
             if let openFile {
@@ -585,9 +585,9 @@ struct ToolDetail: View {
             if let openFile {
                 Button { openFile(p) } label: {
                     HStack(spacing: Theme.Space.xs) {
-                        Image(systemName: FileViewer.symbol(for: p)).font(Theme.Font.label)
+                        ThemedIcon(FileViewer.symbol(for: p)).font(Theme.Font.label)
                         Text(p).lineLimit(2).truncationMode(.head)
-                        Image(systemName: Theme.Icon.openDocument).font(Theme.Font.label)
+                        ThemedIcon(Theme.Icon.openDocument).font(Theme.Font.label)
                     }
                     .font(Theme.Font.code)
                     .foregroundStyle(Theme.accent)
@@ -699,7 +699,7 @@ struct AskUserDetail: View {
 
     private func choice(_ label: String, picked: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: picked ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+            ThemedIcon(picked ? Theme.Icon.successFilled : Theme.Icon.unchecked)
                 .font(Theme.Font.label)
                 .foregroundStyle(picked ? Theme.accent : Color.secondary)
             Text(label).font(Theme.Font.caption).foregroundStyle(picked ? Color.primary : Color.secondary)
@@ -1009,7 +1009,7 @@ struct TodoList: View {
             ForEach(Array(todos.enumerated()), id: \.offset) { _, t in
                 let status = t["status"]?.string ?? "pending"
                 HStack(alignment: .top, spacing: Theme.Space.s) {
-                    Image(systemName: status == "completed" ? Theme.Icon.successFilled : status == "in_progress" ? "circle.dotted.circle" : Theme.Icon.unchecked)
+                    ThemedIcon(status == "completed" ? Theme.Icon.successFilled : status == "in_progress" ? "circle.dotted.circle" : Theme.Icon.unchecked)
                         .foregroundStyle(status == "completed" ? Theme.positive : status == "in_progress" ? Theme.busy : .secondary)
                     Text(status == "in_progress" ? (t["activeForm"]?.string ?? t["content"]?.string ?? "") : (t["content"]?.string ?? ""))
                         .font(Theme.Font.caption)
@@ -1157,7 +1157,7 @@ struct FoldedWorkRow: View {
     var body: some View {
         HStack(spacing: Theme.Space.s) {
             if let failed {
-                Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                 Text("\(steps) steps didn't load: \(failed)").lineLimit(2)
                 Spacer(minLength: 0)
                 Button("Retry [Components b8784c]") {
@@ -1200,7 +1200,7 @@ struct ComputerToolDetail: View {
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 if call.isRunning { ProgressView().controlSize(.mini) } else {
-                    Image(systemName: call.isError ? Theme.Icon.error : Theme.Icon.success)
+                    ThemedIcon(call.isError ? Theme.Icon.error : Theme.Icon.success)
                         .foregroundStyle(call.isError ? Theme.danger : Theme.positive)
                 }
             }

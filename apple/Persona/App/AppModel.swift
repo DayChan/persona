@@ -136,9 +136,16 @@ final class AppModel {
     /// Interactions ended locally (answered, cancelled or gone), by `uid`: neither the full list nor a card frame brings
     /// them back (#1688, #1521). By `uid`, not the hub's id: another group's card with the same id is another card.
     @ObservationIgnored var endedInteractionIDs: Set<String> = []
+    /// What the app's timed waits sleep on (`settleSend`'s wait for a transcript copy): the wall clock. The shared sync
+    /// replay's own (`SyncClock`), so that a case's minutes take none.
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     #if DEBUG
     /// Unit tests: the client every group's requests go to (`FakeHub.client`) instead of the paired hubs'.
     @ObservationIgnored var apiForTests: APIClient?
+    /// Unit tests: the socket and the requests of every link made from now on (`makeLink`) go to these, not to Demo
+    /// Mode's hub, which is one for the whole process: several models side by side, each a device of its own (the
+    /// shared sync scenarios with two devices, `SyncDevice`).
+    @ObservationIgnored var linkHooksForTests: (transport: APIClient.Transport, socket: () -> LocalSocket)?
     #endif
     /// Cards being answered, and whether the hub ended them meanwhile: a failed answer puts back only the ones it did not.
     @ObservationIgnored private var answering = AnsweringInteractions()
@@ -368,6 +375,7 @@ final class AppModel {
     /// Saves the registry, unless it could not be read: writing then would replace the real one (or delete it, empty).
     func saveRegistry(_ r: HubRegistry) {
         HubStore.save(r, known: !registryUnreadable)
+        syncExtensionSurfaces()
     }
 
     /// The keychain could not be read at launch: try again (the app came to the front, the phone was unlocked), and
@@ -418,6 +426,7 @@ final class AppModel {
         if link(hubGroup) == nil, let first = links.first { hubGroup = first.group }
         applyPersonaPalette()
         relabelMachines()
+        syncExtensionSurfaces()
     }
 
 
@@ -430,6 +439,12 @@ final class AppModel {
         link.live.onConnected = { [weak self] in self?.didConnect(group) }
         link.live.onChange = { [weak self] in self?.connection.update() }
         link.live.credential = { [weak self] config in DeviceCredentialTrade.current(config, traded: self?.tradedTokens ?? [:]) }
+        #if DEBUG
+        if let hooks = linkHooksForTests {
+            link.transportForTests = hooks.transport
+            link.live.makeLocalForTests = hooks.socket
+        }
+        #endif
         return link
     }
 
@@ -520,6 +535,7 @@ final class AppModel {
             r.hubs[i].deviceID = nil
             r.hubs[i].tradedPairing = nil
             r.hubs[i].watch = nil
+            r.hubs[i].watchDeviceID = nil
             if let ssh { r.hubs[i].ssh = ssh }
             group = r.hubs[i].group
             tunnels.adopt(SSHTunnels.pairingID, as: r.hubs[i].id)
@@ -888,7 +904,9 @@ final class AppModel {
                 assistantCurrent = main
                 try await api.send(main, text: text)
             } else {
-                let s = try await api.startConversation(prompt: text, main: true)
+                let s = try await AssistantStart.run(receipts: hubFeatures.contains(AssistantStart.feature)) { op in
+                    try await api.startConversation(prompt: text, main: true, opID: op)
+                }
                 began(s, text: text)
                 assistantCurrent = s.key
                 await refreshAssistant()
@@ -1512,6 +1530,7 @@ final class AppModel {
         let isHub = group == hub?.group
         switch ev {
         case .hello(let hello):
+            let previousSurfaceCapabilities = extensionSurfaceCapabilities
             link(group)?.received(hello)
             if let page = sessionLists.lists[group], page.loaded, !page.query.legacy, page.paged != hello.features.contains("sessions_list"), let link = link(group) {
                 page.cancel()
@@ -1535,6 +1554,10 @@ final class AppModel {
             #endif
             for (key, handler) in terminalHandlers where key.group == group { handler(.reconnected) }
             learned(hello, group: group)
+            if extensionSurfaceCapabilities != previousSurfaceCapabilities {
+                syncExtensionSurfaces()
+                pushWatchConfigs()
+            }
             // Marks the last socket may have swallowed, or an HTTP request that failed, go again over this one.
             for key in seenOutbox.unanswered(group: group, at: Date()) { deliverSeen(key) }
         case .terminal(let key, let event):
@@ -1617,6 +1640,9 @@ final class AppModel {
             if isHub { ExtensionSlots.shared.received(plugin: plugin, id: id, badge: badge) }
         case .extensionInvalidate(let ext, let id):
             ExtensionUIRegistry.shared.invalidate(extension: ext, ui: id, group: group)
+            #if os(iOS)
+            ExtensionWidgetReconciliation.invalidate(group: group, owner: ext, contribution: id)
+            #endif
         case .items(let key, let items, let backlog, let hasMore, let span, let moreAfter):
             if backlog { connection.caughtUp(Self.catchUpPart(key)) }
             let store = chat(key)

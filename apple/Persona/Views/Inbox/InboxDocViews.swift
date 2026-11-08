@@ -34,7 +34,7 @@ struct DocStatusMenu: View {
                 }
                 let value = status.value.isEmpty ? String(localized: "Not set") : status.value
                 Text(showName ? String(localized: "\(status.name): \(value)") : value)
-                Image(systemName: Theme.Icon.choices).font(Theme.Font.labelStrong).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.choices).font(Theme.Font.labelStrong).foregroundStyle(.secondary)
             }
             .font(Theme.Font.captionMedium)
             .lineLimit(1)
@@ -80,7 +80,7 @@ struct InboxDocRowsPreview: View {
     var body: some View {
         if let rows = item.doc?.rows, let first = rows.first {
             HStack(spacing: Theme.Space.sm) {
-                Image(systemName: Theme.Icon.followOn).font(Theme.Font.label).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.followOn).font(Theme.Font.label).foregroundStyle(.secondary)
                 Text(first.title).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                     .layoutPriority(-1)
                 ForEach((first.status ?? []).prefix(1)) { st in
@@ -103,7 +103,7 @@ struct InboxDocIcon: View {
         RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
             .fill(tint.opacity(0.15))
             .scaledFrame(width: Theme.Size.avatar, height: Theme.Size.avatar)
-            .overlay(Image(systemName: doc.symbol).font(Theme.Font.bodyStrong).foregroundStyle(tint))
+            .overlay(ThemedIcon(doc.symbol).font(Theme.Font.bodyStrong).foregroundStyle(tint))
     }
 
     private var tint: Color {

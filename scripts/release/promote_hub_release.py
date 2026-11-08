@@ -16,6 +16,7 @@ import urllib.request
 
 from hub_release_paths import release_directory, validate_release_paths
 from node_artifacts import activate_nodes, managed_nodes, node_manifest, prepare_nodes, prune_nodes
+from node_package_mirror import prepare_downloads, activate_downloads
 
 
 def digest(path):
@@ -116,6 +117,7 @@ def promote(payload):
                 raise ValueError('Copied Hub artifact checksum mismatch')
             os.replace(temporary, destination)
         prepared = prepare_nodes(root, staged, packages) if packages else None
+        downloads = prepare_downloads(root, namespace, staged, packages, prepared) if packages else None
         os.replace(staged / 'latest.json', latest)
         descriptor = os.open(releases, os.O_RDONLY)
         try:
@@ -160,11 +162,16 @@ def promote(payload):
                     raise RuntimeError('Serving process checksum mismatch')
                 if packages:
                     activate_nodes(root, prepared, packages, health)
+                    published_downloads = activate_downloads(root, namespace, downloads, packages, health)
                     prune_nodes(root)
                 elif not managed_nodes(root):
                     raise RuntimeError('Unmanaged node packages were created')
                 history = api(root, 'hub/update/history')
-                print(json.dumps({'phase':'confirmed', 'health': health, 'nodes':after,
+                download_receipt = ({'directory': str(published_downloads.relative_to(root)),
+                                     'manifest_sha256': digest(published_downloads / 'manifest.json'),
+                                     'version': packages['version'], 'commit': packages['commit'],
+                                     'build': packages['build']} if packages else None)
+                print(json.dumps({'node_packages': download_receipt, 'phase':'confirmed', 'health': health, 'nodes':after,
                                   'history':history, 'slot':slot.strip(), 'sha256':artifact['binary_sha256']}), flush=True)
                 shutil.rmtree(staged)
                 for abandoned in releases.glob('.upload-*'):

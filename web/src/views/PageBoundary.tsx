@@ -1,7 +1,7 @@
 // A page that fails to render does not take the app down (#1996): the pages that load on demand can fail to load, the
 // usual way being a hub redeployed under an open page (the old hashed chunk is gone). That one reloads the page once
 // (it comes back with the new chunks); anything else, or a second time, shows what went wrong with a way to retry.
-import { Component, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "../ui/atoms";
 import { t } from "../i18n";
 import { reportBoundary } from "../lib/error-reports";
@@ -35,11 +35,11 @@ export class PageBoundary extends Component<{ children: ReactNode; page: string 
     return { error };
   }
 
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: unknown, info: ErrorInfo) {
     if (!reloadsFor(error, lastReload(), Date.now())) {
       // shown to the user: a render crash (fatal), or a chunk that still would not load after the reload (warning). The
       // first chunk failure, which only reloads, is the expected cost of a redeploy and not reported.
-      reportBoundary(error, "page_boundary", isChunkError(error));
+      reportBoundary(error, "page_boundary", isChunkError(error), info.componentStack);
       return;
     }
     try {

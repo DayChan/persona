@@ -43,9 +43,19 @@ class SigningProfileTests(unittest.TestCase):
                 patch.object(signing, 'ensure_capability'), patch.object(signing, 'profile') as profile, \
                 patch.object(sys, 'argv', ['asc_signing.py', '--check']), contextlib.redirect_stdout(io.StringIO()):
             signing.main()
-        self.assertEqual(profile.call_count, 5)
+        self.assertEqual(profile.call_count, 6)
+        expected_groups = {
+            bid: config.app_group(cfg),
+            bid + '.liveactivity': config.app_group(cfg),
+            bid + '.watchkitapp': config.watch_app_group(cfg),
+            config.watch_widget_bundle_id(cfg): config.watch_app_group(cfg),
+            bid + '.notify': None,
+            bid + '.share': None,
+        }
+        self.assertEqual({call.args[0] for call in profile.call_args_list}, set(expected_groups))
         for call in profile.call_args_list:
             self.assertEqual(call.args[1], config.provisioning_profiles(cfg)[call.args[0]])
+            self.assertEqual(call.kwargs['group'], expected_groups[call.args[0]])
             self.assertIs(call.kwargs['check_only'], True)
         asc.create.assert_not_called()
         asc.request.assert_not_called()
@@ -77,7 +87,29 @@ class SigningProfileTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             signing.main()
         profile.assert_called_once_with('share-resource', 'Share Production', 'certificate',
-                                        check_only=True, group=False)
+                                        check_only=True, group=None)
+
+    def test_only_watch_widget_checks_its_separate_group(self):
+        bid = 'com.example.persona'
+        widget = bid + '.watchkitapp.complication'
+        group = 'group.com.example.wrist'
+        signing, _, asc = self.signing({'app': {'bundle_id': bid, 'watch_widget_bundle_id': widget,
+                                              'watch_app_group': group},
+                                       'app_store': {'provisioning_profiles': {widget: 'Wrist Production'}}})
+        with patch.object(signing, 'certificate', return_value='certificate'), \
+                patch.object(signing, 'bundle_id', return_value='widget-resource') as bundle, \
+                patch.object(signing, 'ensure_capability') as capability, \
+                patch.object(signing, 'profile') as profile, \
+                patch.object(sys, 'argv', ['asc_signing.py', '--check', '--only', widget]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            signing.main()
+        bundle.assert_called_once_with(widget, 'Persona Watch Widgets', True)
+        capability.assert_called_once_with('widget-resource', 'APP_GROUPS', True)
+        profile.assert_called_once_with('widget-resource', 'Wrist Production', 'certificate',
+                                       check_only=True, group=group)
+        asc.create.assert_not_called()
+        asc.request.assert_not_called()
+        asc.get_all.assert_not_called()
 
 
 if __name__ == '__main__':

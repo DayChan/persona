@@ -112,7 +112,7 @@ struct VoiceAskMark: View {
             // a chip that keeps its width pushed the row, the card and the page out past the screen.
             ViewThatFits(in: .horizontal) {
                 Chip(text: String(localized: "Asking by Voice"), symbol: Theme.Icon.voiceChannel, look: .tint(Theme.persona))
-                Image(systemName: Theme.Icon.voiceChannel)
+                ThemedIcon(Theme.Icon.voiceChannel)
                     .font(Theme.Font.labelStrong)
                     .foregroundStyle(Theme.persona)
                     .accessibilityLabel("Asking by Voice")

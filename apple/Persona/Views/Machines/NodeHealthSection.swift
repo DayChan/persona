@@ -100,7 +100,7 @@ struct NodeHealthSection: View {
         let fixable = NodeHealth.fixable(report)
         let info = NodeHealth.info(report)
         HStack(alignment: .center, spacing: Theme.Space.m) {
-            Image(systemName: summary.attention == 0 ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
+            ThemedIcon(summary.attention == 0 ? Theme.Icon.successFilled : Theme.Icon.errorFilled)
                 .font(Theme.Font.heading)
                 .foregroundStyle(summary.attention == 0 ? Theme.positive : Theme.caution)
                 .accessibilityHidden(true)
@@ -150,7 +150,7 @@ struct NodeHealthSection: View {
         ForEach(info, id: \.name) { c in
             Divider().padding(.leading, Theme.Space.l)
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
-                Image(systemName: Theme.Icon.info).font(Theme.Font.secondary).foregroundStyle(.secondary)
+                ThemedIcon(Theme.Icon.info).font(Theme.Font.secondary).foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                     Text(c.detail).font(Theme.Font.secondary)
@@ -170,7 +170,7 @@ struct NodeHealthSection: View {
                 Text(showsAll ? String(localized: "Hide All Checks") : String(localized: "Show All Checks (\(report.checks.count))"))
                     .font(Theme.Font.secondaryMedium).lineLimit(1)
                 Spacer(minLength: Theme.Space.s)
-                Image(systemName: showsAll ? Theme.Icon.collapse : Theme.Icon.expand)
+                ThemedIcon(showsAll ? Theme.Icon.collapse : Theme.Icon.expand)
                     .font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, Theme.Space.l)

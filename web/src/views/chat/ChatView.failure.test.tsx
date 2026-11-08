@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// A refused send in a Persona conversation is a card above the composer (docs/assistant/onboarding.md 4.6); the next send that
-// goes through takes it away, so it does not linger over a later setup step.
-import { act } from "react";
+// A message that did not go stays in the chat as a failed bubble with why, Retry and Delete, the box empty (#1122). A
+// refused send in a Persona conversation also gets a card above the composer (docs/assistant/onboarding.md 4.6); the next
+// send that goes through takes it away, so it does not linger over a later setup step.
+import { act, useEffect, useReducer } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Outgoing } from "./Composer";
@@ -15,18 +16,14 @@ vi.hoisted(() => {
 });
 
 const captured = vi.hoisted(() => ({
-  onSend: undefined as ((out: Outgoing, fromBox?: boolean) => Promise<boolean>) | undefined,
-  onEdit: undefined as (() => void) | undefined,
-  resend: vi.fn(),
+  onSend: undefined as ((out: Outgoing) => Promise<boolean>) | undefined,
   session: { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "idle" } as Session,
 }));
 
 vi.mock("./Composer", async (importOriginal) => ({
   ...await importOriginal<typeof import("./Composer")>(),
-  Composer: ({ onSend, onEdit, resendRef }: { onSend: (out: Outgoing, fromBox?: boolean) => Promise<boolean>; onEdit?: () => void; resendRef?: { current: (() => void) | null } }) => {
+  Composer: ({ onSend }: { onSend: (out: Outgoing) => Promise<boolean> }) => {
     captured.onSend = onSend;
-    captured.onEdit = onEdit;
-    if (resendRef) resendRef.current = captured.resend;
     return null;
   },
 }));
@@ -38,7 +35,12 @@ vi.mock("../../lib/store", async (importOriginal) => {
   return {
     ...store,
     getSession: () => captured.session,
-    useStore: <T,>(select: (s: ReturnType<typeof store.getState>) => T) => select({ ...store.getState(), sessions: { hub: [captured.session] } }),
+    // drawn again on every change, as the real one is (a failed message is kept in the store's outbox)
+    useStore: <T,>(select: (s: ReturnType<typeof store.getState>) => T) => {
+      const [, changed] = useReducer((n: number) => n + 1, 0);
+      useEffect(() => store.subscribe(changed), []);
+      return select({ ...store.getState(), sessions: { hub: [captured.session] } });
+    },
   };
 });
 vi.mock("../../lib/panel", async (importOriginal) => ({
@@ -73,6 +75,7 @@ vi.mock("../../lib/ultracode", async (importOriginal) => ({
 }));
 
 const { ChatView } = await import("./ChatView");
+const { getState, setOutbox } = await import("../../lib/store");
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "Content-Type": "application/json" } });
@@ -85,6 +88,7 @@ const flush = async () => {
 
 beforeEach(() => {
   localStorage.clear();
+  for (const key of Object.keys(getState().outbox)) setOutbox(key, []);
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input).endsWith("/messages") ? reply() : json({}))));
   host = document.createElement("div");
   document.body.append(host);
@@ -111,34 +115,74 @@ describe("a refused send's card", () => {
   });
 });
 
-describe("a message from the box that did not go, in an agent's chat (#4270)", () => {
-  const card = () => host.querySelector('[data-testid="readiness-failure"]');
-  const resendButton = () => Array.from(card()?.querySelectorAll("button") ?? []).find((b) => b.textContent === "重新发送");
-
-  it("stays above the box with a 重新发送 that sends the box again", async () => {
-    act(() => root.render(<ChatView mid="hub" sid="c1" />));
-    await flush();
-    reply = () => json({ error: "会话已结束" }, 400);
-    await act(async () => void (await captured.onSend!({ text: "你好", images: [] }, true)));
-    await flush();
-    expect(card()?.textContent).toContain("这条没发出去（会话已结束）");
-    await act(async () => void (await captured.onSend!({ text: "继续", images: [] }))); // another send, not from the box
-    await flush();
-    expect(card()).not.toBeNull(); // the box still holds the unsent words
-    act(() => resendButton()!.click());
-    expect(captured.resend).toHaveBeenCalledOnce();
+describe("a message that did not go, in an agent's chat (#1122)", () => {
+  const failed = () => host.querySelector('[data-user-bubble][data-send-state="failed"]');
+  const button = (label: string) => Array.from(host.querySelectorAll("[data-outbox] button")).find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+  let bodies: { client_msg_id: string; text: string }[];
+  beforeEach(() => {
+    bodies = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).endsWith("/messages")) return Promise.resolve(json({}));
+      bodies.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(reply());
+    }));
   });
 
-  it("goes away once you edit the box", async () => {
+  it("stays in the chat as a failed bubble with why, Retry and Delete, and the box stays empty", async () => {
     act(() => root.render(<ChatView mid="hub" sid="c1" />));
     await flush();
     reply = () => json({ error: "会话已结束" }, 400);
-    await act(async () => void (await captured.onSend!({ text: "你好", images: [] }, true)));
+    let kept: boolean | undefined;
+    await act(async () => void (kept = await captured.onSend!({ text: "你好", images: [] })));
     await flush();
-    expect(card()).not.toBeNull();
-    act(() => captured.onEdit!());
+    expect(kept).toBe(true); // the composer does not put the words back
+    expect(failed()?.textContent).toContain("你好");
+    expect(host.querySelector("[data-outbox] [role=alert]")?.textContent).toContain("没发出去：会话已结束");
+    expect(button("重试")).toBeDefined();
+    expect(button("删除")).toBeDefined();
+    expect(localStorage.getItem("draft:hub/c1")).toBeNull();
+    expect(host.querySelector('[data-testid="readiness-failure"]')).toBeNull(); // the bubble says why: no card over the box
+  });
+
+  it("Retry sends it again, under a new id (the hub keeps its answer to the first), and the bubble waits for the transcript", async () => {
+    act(() => root.render(<ChatView mid="hub" sid="c1" />));
     await flush();
-    expect(card()).toBeNull();
+    reply = () => json({ error: "会话已结束" }, 400);
+    await act(async () => void (await captured.onSend!({ text: "你好", images: [] })));
+    await flush();
+    reply = () => json({});
+    await act(async () => button("重试")!.click());
+    await flush();
+    expect(bodies.map((b) => b.text)).toEqual(["你好", "你好"]);
+    expect(bodies[1].client_msg_id).not.toBe(bodies[0].client_msg_id);
+    expect(failed()).toBeNull();
+    expect(host.querySelector("[data-outbox] [data-user-bubble]")?.getAttribute("data-send-state")).toBe("sent");
+  });
+
+  it("Delete takes it away", async () => {
+    act(() => root.render(<ChatView mid="hub" sid="c1" />));
+    await flush();
+    reply = () => json({ error: "会话已结束" }, 400);
+    await act(async () => void (await captured.onSend!({ text: "你好", images: [] })));
+    await flush();
+    act(() => button("删除")!.click());
+    await flush();
+    expect(host.querySelector("[data-outbox]")).toBeNull();
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("a send that never went (nothing shows it) gives the words back", async () => {
+    captured.session = { ...captured.session, status: "offline", source_kind: "codex_history" } as Session;
+    try {
+      act(() => root.render(<ChatView mid="hub" sid="c1" />));
+      await flush();
+      let went: boolean | undefined;
+      await act(async () => void (went = await captured.onSend!({ text: "你好", images: [] })));
+      expect(went).toBe(false);
+      expect(host.querySelector("[data-outbox]")).toBeNull();
+    } finally {
+      captured.session = { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "idle" } as Session;
+    }
   });
 });
 
@@ -160,7 +204,7 @@ describe("a message the node held back for an ultracode change (#3428)", () => {
     await flush();
     reply = () => json(HELD, 409);
     let went: boolean | undefined;
-    await act(async () => void (went = await captured.onSend!({ text: "再看看测试", images: [] }, true)));
+    await act(async () => void (went = await captured.onSend!({ text: "再看看测试", images: [] })));
     await flush();
     expect(went).toBe(true); // the box is free: its stop button too, while the turn runs
     expect(host.textContent).toContain("等 ultracode 的切换在这一轮结束后生效，再发这条");
@@ -174,16 +218,17 @@ describe("a message the node held back for an ultracode change (#3428)", () => {
     expect(host.textContent).not.toContain("等 ultracode 的切换");
   });
 
-  it("not through in time: the words go back into the box and the card says why", async () => {
+  it("not through in time: it stays as a failed bubble that says why, the box empty", async () => {
     act(() => root.render(<ChatView mid="hub" sid="c1" />));
     await flush();
     reply = () => json(HELD, 409);
-    await act(async () => void (await captured.onSend!({ text: "再看看测试", images: [] }, true)));
+    await act(async () => void (await captured.onSend!({ text: "再看看测试", images: [] })));
     await flush();
     await act(async () => ultra.release!(false));
     await flush();
     expect(bodies).toHaveLength(1);
-    expect(localStorage.getItem("draft:hub/c1")).toBe("再看看测试");
-    expect(host.querySelector('[data-testid="readiness-failure"]')?.textContent).toContain("ultracode 等这一轮结束后生效");
+    expect(localStorage.getItem("draft:hub/c1")).toBeNull();
+    expect(host.querySelector('[data-user-bubble][data-send-state="failed"]')?.textContent).toContain("再看看测试");
+    expect(host.querySelector("[data-outbox] [role=alert]")?.textContent).toContain("ultracode 等这一轮结束后生效");
   });
 });

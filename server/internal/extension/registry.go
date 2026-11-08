@@ -3,6 +3,7 @@ package extension
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -26,9 +27,16 @@ const SecretMost = 16 << 10
 
 // Record is a plugin's row (table plugins): what the user installed and chose.
 type Record struct {
-	ID     string `json:"id"`
-	Source string `json:"source"`
-	Origin string `json:"origin,omitempty"`
+	ID         string   `json:"id"`
+	StorageID  string   `json:"storage_id,omitempty"`
+	PreviousID string   `json:"previous_id,omitempty"`
+	Aliases    []string `json:"aliases,omitempty"`
+	// ExpectedID and ExpectedVersion are transaction-only compare-and-swap guards.
+	ExpectedID      string `json:"-"`
+	ExpectedVersion string `json:"-"`
+	NewInstallation bool   `json:"-"`
+	Source          string `json:"source"`
+	Origin          string `json:"origin,omitempty"`
 	// MarketKey is the verified official key captured from this installed package's
 	// catalog entry, never inferred from the market's current mutable identity.
 	MarketKey       string `json:"market_key,omitempty"`
@@ -200,7 +208,7 @@ func (r *Registry) installedDir(id, version string) string {
 }
 
 // DataDir is a plugin's own directory for its caches and data (deleted with it).
-func (r *Registry) DataDir(id string) string { return filepath.Join(r.dir, "data", id) }
+func (r *Registry) DataDir(id string) string { return filepath.Join(r.dir, "data", r.storageKey(id)) }
 
 // HasStore says whether installs are possible.
 func (r *Registry) HasStore() bool { return r.store != nil }
@@ -308,6 +316,7 @@ func (r *Registry) Load(ctx context.Context) error {
 
 // fromRow is an installed plugin as its row says.
 func (r *Registry) fromRow(row Record) *Extension {
+	row.ExpectedID, row.ExpectedVersion, row.NewInstallation = "", "", false
 	p := &Extension{Record: row}
 	m, err := Parse(row.Manifest)
 	if err != nil {
@@ -322,7 +331,7 @@ func (r *Registry) fromRow(row Record) *Extension {
 	p.Full, p.Manifest = m, m.Without(row.DisabledContributions)
 	p.Schema, _ = ParseSchema(m.Configuration)
 	if row.Remote == nil {
-		p.Dir = r.installedDir(row.ID, row.Version)
+		p.Dir = r.installedDir(row.StorageKey(), row.Version)
 		if !hasManifest(p.Dir) {
 			p.problemErr = i18n.Err("extension-status.package_missing", i18n.Args{"path": p.Dir})
 			p.Problem = p.problemErr.Error()
@@ -354,7 +363,7 @@ func (r *Registry) List() []*Extension {
 func (r *Registry) Get(id string) *Extension {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.extensions[id]
+	return r.extensions[r.canonicalID(id)]
 }
 
 // Snapshot is an extension's stable state for one process specification. Parsed manifests, schemas and legacy
@@ -362,7 +371,7 @@ func (r *Registry) Get(id string) *Extension {
 func (r *Registry) Snapshot(id string) *Extension {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return snapshotExtension(r.extensions[id])
+	return snapshotExtension(r.extensions[r.canonicalID(id)])
 }
 
 func snapshotExtension(p *Extension) *Extension {
@@ -372,6 +381,7 @@ func snapshotExtension(p *Extension) *Extension {
 	out := *p
 	out.Record.Manifest = slices.Clone(p.Record.Manifest)
 	out.Record.Config = slices.Clone(p.Record.Config)
+	out.Record.Aliases = slices.Clone(p.Record.Aliases)
 	out.Record.Granted.Network = slices.Clone(p.Record.Granted.Network)
 	out.Record.Granted.Hub = slices.Clone(p.Record.Granted.Hub)
 	out.Record.DisabledContributions = slices.Clone(p.Record.DisabledContributions)
@@ -494,7 +504,15 @@ func (r *Registry) write(ctx context.Context, row Record) error {
 		row.InstalledAt = r.now()
 	}
 	row.UpdatedAt = r.now()
-	return r.store.PutExtension(ctx, row)
+	if row.Source == SourceInstalled {
+		row.ExpectedID, row.ExpectedVersion = row.ID, row.Version
+	}
+	err := r.store.PutExtension(ctx, row)
+	var unknown *CommitUnknownError
+	if errors.As(err, &unknown) {
+		r.planProblem = err
+	}
+	return err
 }
 
 // Audit records what the hub changed about extension id outside the registry (its sandbox).

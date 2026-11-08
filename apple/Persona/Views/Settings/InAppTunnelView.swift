@@ -42,7 +42,7 @@ struct HubInAppTunnelPage: View {
                         Text("This build of the app has no tunnel core.").font(Theme.Font.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.caution)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.caution)
                     }
                     .accessibilityIdentifier("tunnel.missing")
                 }
@@ -83,7 +83,7 @@ struct HubInAppTunnelPage: View {
                     Label {
                         Text(problem).font(Theme.Font.secondary).fixedSize(horizontal: false, vertical: true)
                     } icon: {
-                        Image(systemName: Theme.Icon.error).foregroundStyle(Theme.danger)
+                        ThemedIcon(Theme.Icon.error).foregroundStyle(Theme.danger)
                     }
                     .accessibilityIdentifier("tunnel.problem")
                 }
@@ -209,7 +209,7 @@ struct InAppTunnelPanelSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { store.reload() } label: { Image(systemName: Theme.Icon.reload) }
+                        Button { store.reload() } label: { ThemedIcon(Theme.Icon.reload) }
                             .accessibilityLabel(String(localized: "Reload [Lark Chat Pins View 7bdd5c]"))
                     }
                     ToolbarItem(placement: .confirmationAction) { Button("Done [Extension System Presentation c0b3fb]") { dismiss() }.lineLimit(1) }

@@ -13,6 +13,7 @@ import persona.core.contracts.api.EndpointSource
 import persona.core.contracts.api.EndpointTestResult
 import java.io.IOException
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,11 @@ class HubEndpointSettings(
     /** Latest result and running count per key; the state shows them under each entry's current url. */
     private val results = MutableStateFlow<Map<String, EndpointTestResult>>(emptyMap())
     private val running = MutableStateFlow<Map<String, Int>>(emptyMap())
+    /**
+     * What the client threw behind each endpoint's last failed test. The result keeps only a label, and "Connection
+     * failed" covers every transport error the classification does not name (#1519): for diagnosis, never shown.
+     */
+    internal val lastFailures = ConcurrentHashMap<String, Throwable>()
     /** https addresses can be verified: by the pinned key, or (a pairing without one) by the system CAs. */
     private val pinned get() = connection.http.fingerprint != null || connection.http.systemTrusted
     private val policy get() = connection.http.localAddressPolicy
@@ -177,6 +183,7 @@ class HubEndpointSettings(
             } catch (error: Exception) {
                 HubFailure.from(error)
             }
+            if (failure == null) lastFailures.remove(key) else lastFailures[key] = failure.cause ?: failure
             val result = EndpointTestResult(endpoint.url, failure == null, endpointResultLabel(failure?.kind),
                 (monotonicMillis() - started).coerceAtLeast(0), Instant.ofEpochMilli(wallMillis()).toString())
             results.update { it + (key to result) }

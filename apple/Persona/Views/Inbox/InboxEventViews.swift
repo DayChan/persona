@@ -374,7 +374,7 @@ struct InboxChainSection: View {
                 // An entry that goes somewhere and has messages too: they open here with the chevron.
                 if target.navigates && e.expandable {
                     Button { toggle(e) } label: {
-                        Image(systemName: open ? Theme.Icon.collapse : Theme.Icon.expand)
+                        ThemedIcon(open ? Theme.Icon.collapse : Theme.Icon.expand)
                             .font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
                             .scaledFrame(width: Theme.Size.tapTarget, alignment: .trailing)
                             .contentShape(.rect)
@@ -391,7 +391,7 @@ struct InboxChainSection: View {
     private func line(_ e: InboxItem.ChainEntry, target: InboxChainTarget, open: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
             Text(LarkTime.short(e.at)).font(Theme.Font.caption).foregroundStyle(.secondary).monospacedDigit().lineLimit(1).fixedSize()
-            Image(systemName: InboxEventText.symbol(e))
+            ThemedIcon(InboxEventText.symbol(e))
                 .font(Theme.Font.label)
                 .foregroundStyle(tint(e))
                 .scaledFrame(width: Theme.Size.iconXS)
@@ -402,11 +402,11 @@ struct InboxChainSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             switch target {
             case .inline:
-                Image(systemName: open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
+                ThemedIcon(open ? Theme.Icon.collapse : Theme.Icon.expand).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
             case .nothing:
                 EmptyView()
             default:
-                Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
+                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
             }
         }
         .contentShape(.rect)
@@ -496,11 +496,11 @@ struct InboxRelatedSection: View {
                 InboxBlockTitle(title: String(localized: "Related"))
                 ForEach(related) { r in
                     let label = HStack(spacing: Theme.Space.s) {
-                        Image(systemName: Theme.Icon.link).font(Theme.Font.label).foregroundStyle(.secondary)
+                        ThemedIcon(Theme.Icon.link).font(Theme.Font.label).foregroundStyle(.secondary)
                             .scaledFrame(width: Theme.Size.iconXS)
                         Text(r.title).font(Theme.Font.secondary).foregroundStyle(.primary).lineLimit(1)
                         Spacer(minLength: 0)
-                        Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
+                        ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.tertiary)
                     }
                     .padding(.vertical, Theme.Space.xs)
                     .contentShape(.rect)

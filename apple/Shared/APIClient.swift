@@ -1198,12 +1198,12 @@ nonisolated struct APIClient: Sendable {
         enum CodingKeys: String, CodingKey { case prompt, images, launcher, effort, main, space; case permissionMode = "permission_mode" }
     }
     /// `main`: the new conversation becomes the main one. `space`: the space it opens in (nil: the assistant's own).
+    /// `opID`: the first message's op id (`AssistantStart`, hub feature `assistant_start_ops`): the hub starts it once.
     func startConversation(prompt: String, images: [ImagePayload] = [], launcher: String? = nil, permissionMode: String? = nil,
-                           effort: String? = nil, main: Bool = false, space: String? = nil) async throws -> Session {
-        var s = try await post("/api/v1/assistant/conversations", body: NewConversation(prompt: HubNaming.outbound(prompt, canonical: personaNaming), images: images.isEmpty ? nil : images,
-                                                                                      launcher: launcher, permissionMode: permissionMode, effort: effort,
-                                                                                      main: main ? true : nil, space: space),
-                               timeout: 110, as: SessionResponse.self).session
+                           effort: String? = nil, main: Bool = false, space: String? = nil, opID: UUID? = nil) async throws -> Session {
+        let body = NewConversation(prompt: HubNaming.outbound(prompt, canonical: personaNaming), images: images.isEmpty ? nil : images,
+                                   launcher: launcher, permissionMode: permissionMode, effort: effort, main: main ? true : nil, space: space)
+        var s = try JSON.decoder.decode(SessionResponse.self, from: try await post("/api/v1/assistant/conversations", body: body, timeout: 110, opID: opID)).session
         if s.assistantSpace == nil { s.assistantSpace = space }
         return stamp(s)
     }

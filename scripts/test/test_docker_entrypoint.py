@@ -348,6 +348,71 @@ class ComposeTests(unittest.TestCase):
             i += 1
         self.assertEqual(nested, [])
 
+    DISK_WRITE_DEFAULTS = {
+        "PERSONA_HUB_HEALTHCHECK_INTERVAL": "30s",
+        "PERSONA_HUB_HEALTHCHECK_TIMEOUT": "5s",
+        "PERSONA_HUB_HEALTHCHECK_RETRIES": "3",
+        "PERSONA_LOG_DRIVER": "json-file",
+        "PERSONA_LOG_MAX_SIZE": "10m",
+        "PERSONA_LOG_MAX_FILE": "3",
+        "PERSONA_POSTGRES_SYNCHRONOUS_COMMIT": "on",
+        "PERSONA_POSTGRES_WAL_COMPRESSION": "off",
+        "PERSONA_POSTGRES_CHECKPOINT_TIMEOUT": "5min",
+        "PERSONA_POSTGRES_WAL_WRITER_DELAY": "200ms",
+        "PERSONA_POSTGRES_HEALTHCHECK_INTERVAL": "5s",
+        "PERSONA_POSTGRES_HEALTHCHECK_TIMEOUT": "5s",
+        "PERSONA_POSTGRES_HEALTHCHECK_RETRIES": "30",
+    }
+
+    def test_compose_disk_write_settings_default_to_the_old_timings_and_postgres_defaults(self):
+        text = COMPOSE.read_text()
+        names = "|".join(self.DISK_WRITE_DEFAULTS)
+        self.assertEqual(dict(re.findall(r"\$\{(" + names + r"):-([^}]*)\}", text)), self.DISK_WRITE_DEFAULTS)
+        # The image's entry point runs its first-start setup only when the command starts with postgres.
+        self.assertIn("    command:\n      - postgres\n      - -c\n      - synchronous_commit=", text)
+        self.assertIn("\n    logging: &logging\n", text)
+        self.assertIn("\n    logging: *logging\n", text)
+        env_example = (DOCKER / ".env.example").read_text()
+        doc = (ROOT / "docs/operations/docker.md").read_text()
+        for name, default in self.DISK_WRITE_DEFAULTS.items():
+            self.assertIn("# " + name + "=" + default + "\n", env_example)
+            self.assertIn("`" + name + "`", doc)
+
+    def test_compose_config_resolves_the_disk_write_settings(self):
+        if not shutil.which("docker"):
+            self.skipTest("Docker Compose is unavailable; no containers are started by this check")
+        overrides = {"PERSONA_POSTGRES_SYNCHRONOUS_COMMIT": "off", "PERSONA_POSTGRES_HEALTHCHECK_INTERVAL": "60s",
+                     "PERSONA_POSTGRES_HEALTHCHECK_RETRIES": "5", "PERSONA_LOG_DRIVER": "local"}
+        for env_values in ({}, overrides):
+            with self.subTest(overrides=bool(env_values)), tempfile.TemporaryDirectory() as directory:
+                env = {"PATH": os.environ["PATH"], "HOME": directory, "PERSONA_IMAGE": "example.invalid/fixture:1",
+                       "COMPOSE_PROJECT_NAME": "persona-test-" + os.urandom(4).hex(), **env_values}
+                if os.environ.get("PERSONA_TEST_DOCKER_CONFIG"):
+                    env["DOCKER_CONFIG"] = os.environ["PERSONA_TEST_DOCKER_CONFIG"]
+                result = subprocess.run(["docker", "compose", "-f", str(COMPOSE), "config", "--format", "json"],
+                                        env=env, capture_output=True, text=True, timeout=15)
+                if "is not a docker command" in result.stderr:
+                    self.skipTest("Docker Compose is unavailable")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                values = {**self.DISK_WRITE_DEFAULTS, **env_values}
+                postgres = services["postgres"]
+                self.assertEqual(postgres["command"], [
+                    "postgres",
+                    "-c", "synchronous_commit=" + values["PERSONA_POSTGRES_SYNCHRONOUS_COMMIT"],
+                    "-c", "wal_compression=" + values["PERSONA_POSTGRES_WAL_COMPRESSION"],
+                    "-c", "checkpoint_timeout=" + values["PERSONA_POSTGRES_CHECKPOINT_TIMEOUT"],
+                    "-c", "wal_writer_delay=" + values["PERSONA_POSTGRES_WAL_WRITER_DELAY"],
+                ])
+                self.assertEqual(postgres["healthcheck"]["retries"], int(values["PERSONA_POSTGRES_HEALTHCHECK_RETRIES"]))
+                self.assertEqual(services["hub"]["healthcheck"]["retries"], 3)
+                self.assertNotIn("test", services["hub"]["healthcheck"])
+                for service in ("hub", "postgres"):
+                    self.assertEqual(services[service]["logging"], {
+                        "driver": values["PERSONA_LOG_DRIVER"],
+                        "options": {"max-size": "10m", "max-file": "3"},
+                    })
+
     def test_tls_port_is_published_and_exposed(self):
         self.assertIn('- "${PERSONA_TLS_PORT-${JARVIS_TLS_PORT:-18662}}:18662"', COMPOSE.read_text())
         self.assertIn('"tls_listen": ":%s"', ENTRYPOINT.read_text())

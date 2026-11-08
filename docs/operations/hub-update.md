@@ -118,6 +118,47 @@ explicit client updates. Existing computer versions must stay unchanged during
 publication. `GET /api/v1/machines` can report package capability, but a previous
 missing-package result may remain cached for ten minutes.
 
+The same publisher also retains a consumer download mirror under the selected
+`releases/<release_namespace>/node-packages/` (the private feed stays separate from
+`releases/hub`). Each immutable `<version>/` has `manifest.json`,
+`personad-linux-amd64.gz` and `personad-darwin-arm64.gz`. These are byte-for-byte
+copies of the verified compressed archives, with canonical consumer names; their
+sizes, compressed and native hashes, source, version, build and protocol metadata
+stay unchanged. `source-manifest.json` retains the original producer descriptors.
+Existing qualified Linux native packages are reused, not rebuilt. Versioned
+mirrors are retained independently of native-cache pruning and upload cleanup.
+
+Download preparation runs inside the original `.publish.lock`, before Hub
+promotion. The version directory and download `latest.json` become public only
+after the original Hub health, confirmation and serving-process hash checks.
+Linked directories/files, changed immutable contents and a different namespace
+fail closed. Publishing these files never deploys a node or enables node updates.
+
+A directory on disk is not a working remote package source. The configured
+HTTPS provider must mount **only** this mirror as a read-only static root and map
+`<base>/<version>/manifest.json`, its two canonical archives and
+`<base>/latest.json` to it. An installation may expose only these privacy-checked
+release artifacts anonymously over HTTPS. If its provider requires authentication,
+the consumer supports credentials in `node_packages.url` through HTTP Basic;
+it does not inject the Hub API token or arbitrary custom headers. Never put
+credentials in artifact files. Allow only `latest.json`, valid versioned
+`manifest.json` and the two canonical archives. Return 404 for the release root,
+directory listings, hidden staging directories, the producer's
+`source-manifest.json`, unlisted paths and missing versions/files. A
+reverse-proxy-only route does not serve these files. Select the formal
+`node_packages.url` through the installation's managed configuration; an existing
+`off` setting remains off until that owner changes it. This helper never rewrites
+Caddy, mounts, credentials or a running Hub configuration.
+
+Before reporting a remote source ready, fetch the versioned manifest and **both**
+archives through the configured HTTPS provider, compare the manifest's
+source/version/build to the confirmed running Hub and verify both compressed
+size/hash and decompressed native hashes. Check 404 for an absent version, and
+authentication failure without credentials when the provider is private. Local
+mirror tests and Hub confirmation do not establish remote reachability or
+consumer installation. The publisher's confirmed receipt reports the relative
+mirror directory and consumer manifest hash for this separate read-only check.
+
 A Hub-only edge switch may proceed while sessions on proven resident nodes or remote herdr/herdr-core hosts run:
 their processes belong to the terminal host and survive the transport reconnect.
 Local and unknown/direct assistant sessions still wait for idle. Fleet upgrades
@@ -327,7 +368,7 @@ Comparing only build numbers can go backwards: a directly deployed hub runs comm
 The programs (`update.ProgramNames`): `personad-wechat` (the WeChat bot), and `persona-hub` and `persona-manager`, the hub's and the manager's own programs ([../server/server.md](../server/server.md) ("Programs")).
 
 - When the manifest has `programs` for this hub's platform, they are downloaded and verified (same sha256, and `version -v` must be this version), then swapped in together with personad: placed next to personad,
-  existing ones kept as `.prev`, and ones that did not exist before recorded as newly installed. If any one fails to download or verify, the whole update is skipped.
+  existing ones kept as `.prev`, and ones that did not exist before recorded as newly installed. If any one fails to download or verify, the whole update is skipped. A program whose swap fails midway is left as it was, and going back leaves it too.
 - Rollback (the new version does not start, the watchdog, an error during the swap) swaps them back together with personad and deletes the newly installed ones (`update.RestoreAll`, `programs` in `pending.json`).
 - The first update that carries programs: the watchdog running is the old personad, which does not know `programs`, so a rollback only swaps personad back; the new programs left behind do not match the old hub version, and the hub will not start them
   (status says "not the same version"), until the next update.

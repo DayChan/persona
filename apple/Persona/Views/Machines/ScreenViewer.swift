@@ -185,7 +185,7 @@ struct ComputerActivityPill: View {
                         if a.running {
                             ProgressView().controlSize(.mini)
                         } else {
-                            Image(systemName: Theme.Icon.screen).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
+                            ThemedIcon(Theme.Icon.screen).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
                         }
                     }
                 }

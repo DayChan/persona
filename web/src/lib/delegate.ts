@@ -59,7 +59,7 @@ const PICKS_SEP = ", ";
 function labelsOf(q: Question, answer: string): string[] | null {
   const a = answer.trim();
   if (!a) return [];
-  const labels = q.options.map((o) => o.label);
+  const labels = (q.options ?? []).map((o) => o.label);
   if (labels.includes(a)) return [a];
   if (!q.multi_select) return null;
   const parts = a.split(PICKS_SEP).map((p) => p.trim()).filter(Boolean);

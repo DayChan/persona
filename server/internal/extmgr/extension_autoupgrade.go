@@ -67,6 +67,8 @@ type ExtensionUpgradeNote struct {
 
 // PluginUpgrade is a newer version of a market plugin (GET /api/v1/plugins/-/upgrades, PluginView.upgrade).
 type ExtensionUpgrade struct {
+	RenameFrom       string                     `json:"rename_from,omitempty"`
+	RenameTo         string                     `json:"rename_to,omitempty"`
 	ID               string                     `json:"id"`
 	Name             string                     `json:"name"`
 	Market           string                     `json:"market"`
@@ -309,8 +311,14 @@ func (u *extensionUpgrades) candidateIn(p *extension.Extension, l i18n.Lang) (up
 		return up, rec, nil, false
 	}
 	m := e.Parsed
-	id := p.Record.ID
-	up = ExtensionUpgrade{ID: id, Name: p.Manifest.Name, Market: mid, From: p.Record.Version, To: m.Version}
+	if m.ID != p.Record.ID && (e.Replaces != p.Record.ID || p.Record.Origin != "market:"+mid+"/"+p.Record.ID || u.h.extensions.reg.Get(m.ID) != nil) {
+		return up, rec, nil, false
+	}
+	id := p.Record.StorageKey()
+	up = ExtensionUpgrade{ID: p.Record.ID, Name: p.Manifest.Name, Market: mid, From: p.Record.Version, To: m.Version}
+	if m.ID != p.Record.ID {
+		up.RenameFrom, up.RenameTo = p.Record.ID, m.ID
+	}
 	bundleConsent := false
 	if len(m.Depends) > 0 || len(m.ExtensionPack) > 0 {
 		choices, unresolved := u.h.chooseBundle(context.Background(), m, mid)
@@ -331,6 +339,10 @@ func (u *extensionUpgrades) candidateIn(p *extension.Extension, l i18n.Lang) (up
 		up.State, up.Detail = upgradeIncompatible, i18n.Localize(engines, l)
 	case s.Skipped[id] == m.Version:
 		up.State, up.Detail = upgradeSkipped, i18n.T(l, "hub-extension_autoupgrade.skipped")
+	case up.RenameFrom != "" && ((s.Auto != nil && !*s.Auto) || slices.Contains(s.Off, id)):
+		up.State = upgradeOff
+	case up.RenameFrom != "":
+		up.State, up.Detail = upgradeNeedsConsent, i18n.T(l, "extension-identity.confirmation", i18n.Args{"from": up.RenameFrom, "to": up.RenameTo})
 	case extension.MorePermissions(p, m) || extension.Digest(m) != granted(p):
 		up.State, up.AddedPermissions = upgradeNeedsConsent, extension.AddedIn(l, p.Manifest, m)
 	case bundleConsent:
@@ -354,7 +366,7 @@ func (u *extensionUpgrades) candidateIn(p *extension.Extension, l i18n.Lang) (up
 func (u *extensionUpgrades) upgrade(ctx context.Context) {
 	h := u.h
 	for _, p := range h.extensions.reg.List() {
-		id := p.Record.ID
+		id := p.Record.StorageKey()
 		up, rec, e, ok := u.candidate(p)
 		if !ok {
 			u.mu.Lock()
@@ -379,12 +391,12 @@ func (u *extensionUpgrades) upgrade(ctx context.Context) {
 					s.Notified[id] = up.To
 					s.note(id, n)
 				})
-				u.tell(id, n, "consent", func(l i18n.Lang) i18n.Args {
+				u.tell(p.Record.ID, n, "consent", func(l i18n.Lang) i18n.Args {
 					return i18n.Args{"name": up.Name, "version": up.To, "detail": upgradeConsentText(l, up)}
 				})
 			}
 		case upgradeAvailable, upgradeWaitingIdle:
-			why := u.busy(id)
+			why := u.busy(p.Record.ID)
 			u.mu.Lock()
 			if u.waiting == nil {
 				u.waiting = map[string]string{}
@@ -404,6 +416,9 @@ func (u *extensionUpgrades) upgrade(ctx context.Context) {
 
 // morePermissionsText says what a newer version asks for more, in l.
 func upgradeConsentText(l i18n.Lang, up ExtensionUpgrade) string {
+	if up.RenameFrom != "" {
+		return i18n.T(l, "extension-identity.confirmation", i18n.Args{"from": up.RenameFrom, "to": up.RenameTo})
+	}
 	if up.Detail != "" {
 		return i18n.T(l, "hub-extension_autoupgrade.bundle_confirmation")
 	}
@@ -435,14 +450,18 @@ func morePermissionsText(l i18n.Lang, added []extension.PermissionLine) string {
 
 // install upgrades p to up.To from its market (watchUpgrade then says whether it came up: watched).
 func (u *extensionUpgrades) install(ctx context.Context, p *extension.Extension, rec extension.MarketRecord, e *extension.MarketEntry, up ExtensionUpgrade) {
+	if e.Parsed.ID != p.Record.ID || up.RenameFrom != "" {
+		return
+	} // Identity changes never install automatically.
 	h, reg, id := u.h, u.h.extensions.reg, p.Record.ID
+	key := p.Record.StorageKey()
 	op := h.startOp(opUpgrade, id, extensionUpgradeActor, h.contextLang(ctx), true) // the apps see it go (#3277)
 	mk, err := h.market(rec)
 	var pv *extension.Preview
 	if err == nil {
 		pv, err = reg.PreviewMarket(extension.WithProgress(ctx, h.progress(op)), mk, rec.ID, e, id)
 	}
-	if err == nil && (pv.MorePermissions || len(pv.AddedPermissions) > 0 || pv.Digest != granted(p)) {
+	if err == nil && (pv.RenameFrom != "" || pv.MorePermissions || len(pv.AddedPermissions) > 0 || pv.Digest != granted(p)) {
 		reg.Discard(pv.ID) // the index said the same as the package, so this does not happen
 		err = i18n.Err("hub-extension_autoupgrade.package_more_permissions")
 	}
@@ -451,7 +470,7 @@ func (u *extensionUpgrades) install(ctx context.Context, p *extension.Extension,
 		if u.inflight == nil {
 			u.inflight = map[string]string{}
 		}
-		u.inflight[id] = up.To
+		u.inflight[key] = up.To
 		u.mu.Unlock()
 		h.opPreviewed(op, pv, nil)
 		h.installing(op, pv, "")
@@ -459,7 +478,7 @@ func (u *extensionUpgrades) install(ctx context.Context, p *extension.Extension,
 		var np *extension.Extension
 		if np, err = reg.UpgradePlan(ctx, id, pv.ID, "", nil, extensionUpgradeActor); err != nil {
 			u.mu.Lock()
-			delete(u.inflight, id)
+			delete(u.inflight, key)
 			u.mu.Unlock()
 		} else {
 			go h.settle(context.WithoutCancel(ctx), op, np, true)
@@ -475,10 +494,10 @@ func (u *extensionUpgrades) install(ctx context.Context, p *extension.Extension,
 	if u.failed == nil {
 		u.failed = map[string]string{}
 	}
-	u.failed[id] = up.To
+	u.failed[key] = up.To
 	u.mu.Unlock()
 	n := ExtensionUpgradeNote{Kind: upgradeFailed, From: up.From, To: up.To, Detail: err.Error(), At: time.Now()}
-	_ = u.change(ctx, func(s *extensionUpgradeSettings) { s.note(id, n) })
+	_ = u.change(ctx, func(s *extensionUpgradeSettings) { s.note(key, n) })
 	h.broadcastExtension("upgrade", id, map[string]any{"note": n})
 }
 
@@ -488,9 +507,10 @@ func (u *extensionUpgrades) watched(ctx context.Context, id, from, to string, ro
 	if u == nil {
 		return
 	}
+	key := u.storageKey(id)
 	u.mu.Lock()
-	auto := u.inflight[id] == to
-	delete(u.inflight, id)
+	auto := u.inflight[key] == to
+	delete(u.inflight, key)
 	u.mu.Unlock()
 	name := id
 	if p := u.h.extensions.reg.Get(id); p != nil {
@@ -502,18 +522,18 @@ func (u *extensionUpgrades) watched(ctx context.Context, id, from, to string, ro
 			if s.Skipped == nil {
 				s.Skipped = map[string]string{}
 			}
-			s.Skipped[id] = to
-			s.note(id, n)
+			s.Skipped[key] = to
+			s.note(key, n)
 		})
 		u.tell(id, n, "rolled_back", func(i18n.Lang) i18n.Args { return i18n.Args{"name": name, "version": to, "from": from} })
 		return
 	}
 	if !auto {
-		_ = u.change(ctx, func(s *extensionUpgradeSettings) { delete(s.Last, id) })
+		_ = u.change(ctx, func(s *extensionUpgradeSettings) { delete(s.Last, key) })
 		return
 	}
 	n := ExtensionUpgradeNote{Kind: "upgraded", From: from, To: to, At: time.Now()}
-	_ = u.change(ctx, func(s *extensionUpgradeSettings) { s.note(id, n) })
+	_ = u.change(ctx, func(s *extensionUpgradeSettings) { s.note(key, n) })
 	u.tell(id, n, "upgraded", func(i18n.Lang) i18n.Args { return i18n.Args{"name": name, "version": to} })
 }
 
@@ -534,8 +554,16 @@ func (u *extensionUpgrades) tell(id string, n ExtensionUpgradeNote, what string,
 	}, "plugin_upgrade."+id)
 }
 
+func (u *extensionUpgrades) storageKey(id string) string {
+	if p := u.h.extensions.reg.Get(id); p != nil {
+		return p.Record.StorageKey()
+	}
+	return id
+}
+
 // auto says whether plugin id upgrades itself (both switches on).
 func (u *extensionUpgrades) auto(id string) (global, own bool) {
+	id = u.storageKey(id)
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.settings.Auto == nil || *u.settings.Auto, !slices.Contains(u.settings.Off, id)
@@ -553,7 +581,7 @@ func (u *extensionUpgrades) decorate(ctx context.Context, v *ExtensionView, p *e
 		v.Upgrade = &up
 	}
 	u.mu.Lock()
-	if n, ok := u.settings.Last[p.Record.ID]; ok {
+	if n, ok := u.settings.Last[p.Record.StorageKey()]; ok {
 		v.UpgradeNote = &n
 	}
 	u.mu.Unlock()
@@ -578,10 +606,13 @@ func (u *extensionUpgrades) view(ctx context.Context) upgradesView {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	v.Auto = u.settings.Auto == nil || *u.settings.Auto
-	v.Off = append([]string{}, u.settings.Off...)
+	v.Off = []string{}
+	for _, id := range u.settings.Off {
+		v.Off = append(v.Off, u.h.extensions.reg.CanonicalID(id))
+	}
 	v.Last = map[string]ExtensionUpgradeNote{}
 	for id, n := range u.settings.Last {
-		v.Last[id] = n
+		v.Last[u.h.extensions.reg.CanonicalID(id)] = n
 	}
 	return v
 }
@@ -644,10 +675,11 @@ func (h *Manager) upgradeRoutes(api *http.ServeMux) {
 			return
 		}
 		u := h.extensionUpgrades()
+		key := p.Record.StorageKey()
 		if err := u.change(r.Context(), func(s *extensionUpgradeSettings) {
-			s.Off = slices.DeleteFunc(s.Off, func(x string) bool { return x == id })
+			s.Off = slices.DeleteFunc(s.Off, func(x string) bool { return x == key })
 			if !*in.Auto {
-				s.Off = append(s.Off, id)
+				s.Off = append(s.Off, key)
 			}
 		}); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
