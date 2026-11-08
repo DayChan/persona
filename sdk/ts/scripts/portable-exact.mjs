@@ -6,9 +6,98 @@ import { test } from "node:test";
 // The caller emits the official host SDK and default Program separately. There is
 // no copied SDK source, custom parser, Bun global, or authorization bypass here.
 const { connect, ExactJSON } = await import(pathToFileURL(process.argv[2]));
-const { default: defaultProgram } = await import(pathToFileURL(process.argv[3]));
+const { default: defaultProgram, deliveryProgram } = await import(pathToFileURL(process.argv[3]));
 const cases = JSON.parse(readFileSync(new URL("../src/testdata/int64-cases.json", import.meta.url), "utf8"));
+const notificationCases = JSON.parse(readFileSync(new URL("../src/testdata/exact-notification-cases.json", import.meta.url), "utf8"));
+const settleEvent = async () => { await Promise.resolve(); await Promise.resolve(); };
 assert.equal(typeof globalThis.Bun, "undefined");
+
+for (const c of notificationCases) {
+  test(`separately bundled raw notification int64: ${c.name}`, { timeout: 1000 }, async () => {
+    const frames = [], seen = [];
+    const conn = connect(deliveryProgram((method, legacy, call) => {
+      const entry = { method, legacy, call };
+      seen.push(entry);
+      try { entry.values = call?.params?.int64Fields(["count", "frame"]); }
+      catch (error) { entry.error = error; throw error; }
+      return entry.values;
+    }), text => frames.push(JSON.parse(text)));
+    try {
+      conn.line('{"id":"init","method":"initialize","params":{"protocol":1}}');
+      await conn.drain();
+      conn.line(`{"id":"not-a-request","event":"error_reports.deliver","params":${c.raw}}`);
+      await settleEvent();
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].method, "deliver");
+      assert.equal(seen[0].call?.rawParams, c.raw);
+      assert.equal(Object.isFrozen(seen[0].call), true);
+      assert.equal(Object.isFrozen(seen[0].call?.params), true);
+      if (c.error) assert.equal(seen[0].error?.code, "invalid_params");
+      else assert.deepEqual({ ...seen[0].values }, { count: BigInt(c.count), frame: BigInt(c.frame) });
+      conn.line('{"id":"ping","method":"ping"}');
+      await conn.drain();
+      assert.deepEqual(frames.map(frame => frame.id), ["init", "ping"]);
+    } finally { await conn.shutdown(); }
+  });
+}
+
+test("source notifications retain initialization, routing, legacy arity and raw params selection", { timeout: 1000 }, async () => {
+  let release;
+  const ready = new Promise(resolve => { release = resolve; });
+  const frames = [], exact = [], legacy = [];
+  const program = deliveryProgram((method, params, call) => { exact.push({ method, params, call }); return {}; });
+  program.init = () => ready;
+  program.namespaces.legacy = function (method, params) { legacy.push({ method, params, arity: arguments.length }); };
+  const conn = connect(program, text => frames.push(JSON.parse(text)));
+  try {
+    conn.line('{"event":"error_reports.before"}');
+    conn.line('{"id":"init","method":"initialize","params":{"protocol":1}}');
+    await settleEvent();
+    conn.line('{"event":"error_reports.during"}');
+    conn.line('{"id":"req","method":"error_reports.request","event":"error_reports.not-an-event","params":{"count":9007199254740993}}');
+    await settleEvent();
+    assert.equal(exact.length, 0);
+    release();
+    await conn.drain();
+    for (const fields of [
+      '', ',"params":null', ',"params":{"count":1.0},"pa\\u0072ams":{"count":9007199254740993}',
+      ',"params":{"count":2},"PARAMS":null', ',"Params":{"frame":-9223372036854775808}',
+    ]) conn.line(`{"event":"error_reports.deliver"${fields}}`);
+    conn.line('{"event":"legacy.changed","params":{"count":9007199254740993}}');
+    for (const raw of ['{"event":"unknown.deliver"}', '{"event":"error_reports"}', '{"event":".deliver"}',
+      '{"event":123}', '{"event":"error_reports.invalid","params":{"count":01}}']) conn.line(raw);
+    await settleEvent();
+    assert.deepEqual(exact.map(entry => entry.method), ["request", ...Array(5).fill("deliver")]);
+    assert.deepEqual(exact.map(entry => entry.call?.rawParams), [
+      '{"count":9007199254740993}', undefined, "null", '{"count":9007199254740993}', "null", '{"frame":-9223372036854775808}',
+    ]);
+    assert.deepEqual(exact.slice(1).map(entry => entry.params), [{}, {}, { count: JSON.parse("9007199254740993") }, { count: 2 }, {}]);
+    assert.deepEqual(legacy, [{ method: "changed", params: { count: JSON.parse("9007199254740993") }, arity: 2 }]);
+    assert.deepEqual(frames.map(frame => frame.id), ["init", "req"]);
+  } finally { await conn.shutdown(); }
+  conn.line('{"event":"error_reports.after-shutdown"}');
+  await settleEvent();
+  assert.equal(exact.length, 6);
+});
+
+test("source exact notification limits leave ordinary legacy input unchanged", { timeout: 1000 }, async () => {
+  let exactCalls = 0, legacyCalls = 0;
+  const frames = [];
+  const program = deliveryProgram(() => { exactCalls++; });
+  program.namespaces.legacy = () => { legacyCalls++; };
+  const conn = connect(program, text => frames.push(JSON.parse(text)));
+  try {
+    conn.line('{"id":"init","method":"initialize","params":{"protocol":1}}');
+    await conn.drain();
+    const params = `{"other":"${"x".repeat(8 << 20)}"}`;
+    conn.line(`{"event":"error_reports.deliver","params":${params}}`);
+    conn.line(`{"event":"legacy.deliver","params":${params}}`);
+    await settleEvent();
+    assert.equal(exactCalls, 0);
+    assert.equal(legacyCalls, 1);
+    assert.equal(frames.length, 1);
+  } finally { await conn.shutdown(); }
+});
 
 async function dispatch(raw, program = defaultProgram) {
   const frames = [];

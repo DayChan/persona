@@ -41,7 +41,7 @@ for (const c of cases) {
   });
 }
 
-test("the opt-in leaves the two-argument Handler, legacy Number, initialization and events unchanged", async () => {
+test("the opt-in leaves the two-argument Handler, legacy Number and initialization unchanged", async () => {
   const arities: number[] = [];
   let exactCalls = 0;
   let eventCall: unknown = "not called";
@@ -60,7 +60,7 @@ test("the opt-in leaves the two-argument Handler, legacy Number, initialization 
   expect(arities).toEqual([2, 2, 2, 2, 2]);
   conn.line('{"event":"exact.changed","params":{"n":1.0}}');
   await Promise.resolve(); await Promise.resolve();
-  expect(eventCall).toBeUndefined();
+  expect(eventCall).toMatchObject({ rawParams: '{"n":1.0}' });
   await conn.shutdown();
 });
 

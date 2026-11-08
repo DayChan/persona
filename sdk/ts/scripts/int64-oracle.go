@@ -19,8 +19,8 @@ type testCase struct {
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		panic("expected the int64 cases path")
+	if len(os.Args) != 2 && len(os.Args) != 3 {
+		panic("expected the int64 cases path and optional notification cases path")
 	}
 	data, err := os.ReadFile(os.Args[1])
 	if err != nil {
@@ -49,6 +49,35 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	notificationCount := 0
+	if len(os.Args) == 3 {
+		data, err := os.ReadFile(os.Args[2])
+		if err != nil {
+			panic(err)
+		}
+		var notifications []struct {
+			Name  string `json:"name"`
+			Raw   string `json:"raw"`
+			Error bool   `json:"error"`
+			Count string `json:"count"`
+			Frame string `json:"frame"`
+		}
+		if err := json.Unmarshal(data, &notifications); err != nil {
+			panic(err)
+		}
+		for _, c := range notifications {
+			var params struct {
+				Count int64 `json:"count"`
+				Frame int64 `json:"frame"`
+			}
+			err := json.Unmarshal([]byte(c.Raw), &params)
+			if (err != nil) != c.Error || err == nil && (strconv.FormatInt(params.Count, 10) != c.Count || strconv.FormatInt(params.Frame, 10) != c.Frame) {
+				fmt.Fprintln(os.Stderr, "FAIL: notification int64 contract mismatch", c.Name)
+				os.Exit(1)
+			}
+		}
+		notificationCount = len(notifications)
+	}
 	frameCases := []struct{ Raw, Want string }{
 		{`{"params":{"n":1.0},"PARAMS":{"n":6}}`, `{"n":6}`},
 		{`{"params":{"n":6},"Params":null}`, `null`},
@@ -66,5 +95,5 @@ func main() {
 		encoded, _ := json.Marshal(map[string]any{"frame_case": index, "params": string(frame.Params)})
 		fmt.Println(string(encoded))
 	}
-	fmt.Fprintf(os.Stderr, "PASS: %d Go lexical int64 cases and %d params RawMessage cases\n", len(cases), len(frameCases))
+	fmt.Fprintf(os.Stderr, "PASS: %d Go lexical int64 cases, %d notification cases and %d params RawMessage cases\n", len(cases), notificationCount, len(frameCases))
 }

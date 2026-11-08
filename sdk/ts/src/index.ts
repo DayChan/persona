@@ -41,20 +41,21 @@ export const unsupported = (why: string) => new ExtError(why, "unsupported");
 /** Answers the calls of one namespace: method is without the namespace ("status" for connector.status). */
 export type Handler = (method: string, params: any) => unknown | Promise<unknown>;
 
-/** Original request params, before Number rounding. Missing params and JSON null stay distinct.
- * This view covers inbound namespace RPC requests only, not replies, events or serialization. */
+/** Original inbound namespace params, before Number rounding. Missing params and JSON null stay distinct.
+ * This view covers requests and notifications, not replies or outbound serialization. */
 export interface ExactCall {
   readonly rawParams: string | undefined;
   readonly params: ExactJSON | undefined;
 }
 
-/** Events still use legacy params and have no call metadata. */
+/** Namespace dispatch supplies exact call metadata for both requests and notifications. */
 export type ExactHandler = (method: string, params: any, call: ExactCall | undefined) => unknown | Promise<unknown>;
 const EXACT_PARAMS = Symbol.for("@persona/extension.exactParams");
 type OptInHandler = Handler & { [EXACT_PARAMS]?: true };
 
-/** Explicitly opt one namespace into original JSON request params. The second argument
- * remains legacy JSON.parse data. Lexical int64 errors become public invalid_params errors. */
+/** Explicitly opt one namespace into original inbound JSON params. The second argument
+ * remains legacy JSON.parse data. Request lexical int64 errors become public invalid_params errors;
+ * notification errors remain ignored, with no reply. */
 export function withExactParams(handler: ExactHandler): Handler {
   const wrapped = (method: string, params: any, call?: ExactCall) => handler(method, params, call);
   Object.defineProperty(wrapped, EXACT_PARAMS, { value: true });
@@ -246,6 +247,14 @@ export function connect(prog: Program, write: Write) {
   let accepting = true;
   let shuttingDown: Promise<unknown[]> | undefined;
 
+  function namespaceCall(h: Handler, method: string, params: any, rawFrame: string): unknown | Promise<unknown> {
+    if ((h as OptInHandler)[EXACT_PARAMS] === true) {
+      const exact = ExactJSON.parse(rawFrame).field("params");
+      return (h as ExactHandler)(method, params ?? {}, Object.freeze({ rawParams: exact?.raw, params: exact }));
+    }
+    return h(method, params ?? {});
+  }
+
   async function request(method: string, params: any, rawFrame: string): Promise<unknown> {
     if (method === "initialize") {
       if (params?.protocol !== PROTOCOL) {
@@ -282,13 +291,7 @@ export function connect(prog: Program, write: Write) {
     const ns = method.slice(0, dot);
     const rest = method.slice(dot + 1);
     const h = prog.namespaces?.[ns];
-    if (h) {
-      if ((h as OptInHandler)[EXACT_PARAMS] === true) {
-        const exact = ExactJSON.parse(rawFrame).field("params");
-        return (h as ExactHandler)(rest, params ?? {}, Object.freeze({ rawParams: exact?.raw, params: exact }));
-      }
-      return h(rest, params ?? {});
-    }
+    if (h) return namespaceCall(h, rest, params, rawFrame);
     if (ns === "ui" && prog.ui) return ui(rest, params ?? {});
     if (ns === "shortcut" && prog.shortcuts) {
       if (rest !== "run") throw unknownMethod(method);
@@ -384,7 +387,7 @@ export function connect(prog: Program, write: Write) {
     } else if (f.event) {
       const dot = f.event.indexOf(".");
       const h = initialized && dot > 0 ? prog.namespaces?.[f.event.slice(0, dot)] : undefined;
-      if (h) Promise.resolve().then(() => h(f.event!.slice(dot + 1), f.params ?? {})).catch(() => {});
+      if (h) Promise.resolve().then(() => namespaceCall(h, f.event!.slice(dot + 1), f.params, text)).catch(() => {});
     } else if (f.id && (f.error != null || Object.prototype.hasOwnProperty.call(f, "result"))) {
       hub.answer(f);
     }

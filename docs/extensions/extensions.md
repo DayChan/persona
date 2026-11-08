@@ -1001,9 +1001,11 @@ Open retries keep the original request ID and complete request payload. While it
 - Config, secrets, scoped tokens, grants, idle reclamation, timeout strikes and selective shutdown remain manager/`host.Proc` responsibilities. Full hub access, command-line tools, agent-runtime sockets, remote process sockets and source-runtime node programs are not supported by this stage. Existing executable node programs remain unchanged; no source program silently falls back to an unsandboxed node.
 - CLI source `test` verifies the package but refuses to label a bare engine launch as runtime acceptance. Actual-engine/namespace tests are separate from full resource acceptance; tests requiring unavailable enforcement explicitly report unavailable rather than passing via a developer bypass.
 
-### Opt-in exact JSON integer request params (#1201)
+### Opt-in exact JSON integer inbound params (#1201, #1640)
 
-The TypeScript SDK keeps `Handler(method, params)` and its default `JSON.parse` / `Number` behavior. A namespace that needs the original request tokens explicitly wraps its handler with `withExactParams`. Only inbound namespace RPC requests get the third `ExactCall` argument; events get `undefined`. This does not change tool schemas, replies, outbound calls/events, state, HTTP response parsing, authorization, egress or resource gates.
+The TypeScript SDK keeps `Handler(method, params)` and its default `JSON.parse` / `Number` behavior. A namespace that needs the original inbound tokens explicitly wraps its handler with `withExactParams`. Both namespace RPC requests and inbound namespace event notifications get the third `ExactCall` argument. This does not change tool schemas, replies, outbound calls/events, state, HTTP response parsing, authorization, egress or resource gates.
+
+Notifications still dispatch only after initialization has completed: events before or during initialization are dropped, not queued. Their return values and errors are ignored, with no reply even when a frame carries an `id`. Exact parsing/lexical errors follow that same notification behavior. Ordinary unwrapped handlers still receive exactly two arguments.
 
 ```ts
 import { withExactParams, type Program } from "@persona/extension";

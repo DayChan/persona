@@ -1,4 +1,9 @@
-import { withExactParams, type Program } from "../index.ts";
+import { withExactParams, type ExactHandler, type Program } from "../index.ts";
+
+// Tests import this factory from a separately bundled Program as well as from source.
+export function deliveryProgram(handler: ExactHandler): Program {
+  return { id: "example", version: "1.0.0", namespaces: { error_reports: withExactParams(handler) } };
+}
 
 // A real source Program: the host and program may bundle different SDK copies.
 export default {

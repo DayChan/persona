@@ -217,6 +217,22 @@ host's defaults. Unknown/wrong-type resource fields fail. This is a bounded sour
 profile check, **not full manifest/schema, permission, identity-version format or
 contribution admission**.
 
+## Exact inbound namespace params
+
+Wrap a namespace handler with `withExactParams` to receive an immutable third
+`ExactCall` argument for requests and inbound event notifications. Its `rawParams`
+and `params` view preserve original numeric tokens; the second argument remains
+ordinary `JSON.parse` data. Unwrapped handlers still receive exactly two arguments.
+Use `call.params?.int64Fields(["count", "frame"])` for fresh scalar-int64 structs:
+lexical decimals/exponents and overflow fail, duplicate fields are read in order,
+and null preserves the previous scalar value. This is not an exact reply or
+outbound serialization API.
+
+Notifications before or during initialization are still dropped, and notification
+returns/errors never produce replies. Exact views retain their 8 MiB text bound;
+transport limits, cancellation and resource admission are unchanged. See the
+module's [exact input contract](../../docs/extensions/extensions.md#opt-in-exact-json-integer-inbound-params-1201-1640).
+
 ## Distribution and acceptance
 
 These scripts, tests and package commands are included by the official

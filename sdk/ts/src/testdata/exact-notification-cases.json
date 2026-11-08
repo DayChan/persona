@@ -1,0 +1,23 @@
+[
+  {"name":"decimal count", "raw":"{\"count\":1.0}", "error":true},
+  {"name":"exponent frame", "raw":"{\"frame\":1e0}", "error":true},
+  {"name":"rounded fractional count", "raw":"{\"count\":1.0000000000000001}", "error":true},
+  {"name":"unsafe signed counts", "raw":"{\"count\":9007199254740993,\"frame\":-9007199254740993}", "count":"9007199254740993", "frame":"-9007199254740993"},
+  {"name":"signed int64 endpoints", "raw":"{\"count\":9223372036854775807,\"frame\":-9223372036854775808}", "count":"9223372036854775807", "frame":"-9223372036854775808"},
+  {"name":"positive overflow", "raw":"{\"count\":9223372036854775808}", "error":true},
+  {"name":"negative overflow", "raw":"{\"frame\":-9223372036854775809}", "error":true},
+  {"name":"missing fields", "raw":"{}", "count":"0", "frame":"0"},
+  {"name":"null object", "raw":"null", "count":"0", "frame":"0"},
+  {"name":"null fields", "raw":"{\"count\":null,\"frame\":null}", "count":"0", "frame":"0"},
+  {"name":"ordered duplicate replacement", "raw":"{\"count\":2,\"count\":3}", "count":"3", "frame":"0"},
+  {"name":"duplicate null preserves scalar", "raw":"{\"count\":2,\"COUNT\":null}", "count":"2", "frame":"0"},
+  {"name":"null then scalar", "raw":"{\"frame\":null,\"frame\":3}", "count":"0", "frame":"3"},
+  {"name":"early decimal survives duplicate", "raw":"{\"count\":1.0,\"count\":3}", "error":true},
+  {"name":"early exponent survives null", "raw":"{\"frame\":1e0,\"frame\":null}", "error":true},
+  {"name":"early type error survives duplicate", "raw":"{\"count\":\"2\",\"count\":3}", "error":true},
+  {"name":"early overflow survives duplicate", "raw":"{\"frame\":9223372036854775808,\"frame\":3}", "error":true},
+  {"name":"late type error", "raw":"{\"count\":3,\"count\":true}", "error":true},
+  {"name":"escaped field and folded null", "raw":"{\"co\\u0075nt\":6,\"COUNT\":null,\"Frame\":7}", "count":"6", "frame":"7"},
+  {"name":"unknown tokens ignored", "raw":"{\"other\":1e9999,\"count\":6}", "count":"6", "frame":"0"},
+  {"name":"array is not a struct", "raw":"[]", "error":true}
+]
