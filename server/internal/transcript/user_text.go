@@ -98,8 +98,8 @@ func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []p
 			return nil
 		}
 		if name == "/compact" && strings.TrimSpace(args) == "" {
-			// Persona compacts an idle assistant conversation itself (node/assistant.go): a notice, not a message the
-			// user sent, and not activity that would make the conversation unread.
+			// Persona compacts an idle assistant conversation itself (node/assistant_reap.go): a notice, not a message
+			// the user sent, and not activity that would make the conversation unread.
 			it := mk(0, "system", proto.KindNotice)
 			it.Text = CompactNotice
 			return []proto.Item{it}

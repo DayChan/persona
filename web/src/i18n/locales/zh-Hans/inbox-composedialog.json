@@ -12,6 +12,7 @@
   "to": "收件人",
   "to_placeholder": "逗号分隔",
   "cc": "抄送",
+  "bcc": "密送",
   "subject": "主题",
   "body": "正文"
 }

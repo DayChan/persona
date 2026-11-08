@@ -48,7 +48,7 @@ describe("replyDraft", () => {
 
   it("answers the sender with Re:, the thread ids and the start of the mail quoted", () => {
     const d = replyDraft("acc1", msg);
-    expect(d).toMatchObject({ accountID: "acc1", to: "lucy@example.com", cc: "", subject: "Re: 下周的分享", inReplyTo: "<m501@example.com>" });
+    expect(d).toMatchObject({ accountID: "acc1", to: "lucy@example.com", cc: "", bcc: "", subject: "Re: 下周的分享", inReplyTo: "<m501@example.com>" });
     expect(d.references).toEqual(["<m400@example.com>", "<m501@example.com>"]);
     expect(d.body.startsWith("\n\n2026-10-28 14:05，Lucy Wang <lucy@example.com> 写道：\n> line 1\n")).toBe(true);
     expect(d.body).toContain("> line 40");
@@ -62,11 +62,12 @@ describe("replyDraft", () => {
 
 describe("sending", () => {
   it("sends References as one string, the way the hub reads it", () => {
-    const d = { ...newDraft("acc1"), to: "a@example.com", cc: "b@example.com", subject: "s", body: "b", inReplyTo: "<x@y>", references: ["<w@y>", "<x@y>"] };
+    const d = { ...newDraft("acc1"), to: "a@example.com", cc: "b@example.com", bcc: "Private <private@example.com>； second@example.com\nthird@example.com", subject: "s", body: "b", inReplyTo: "<x@y>", references: ["<w@y>", "<x@y>"] };
     expect(sendBody(d)).toEqual({
       account_id: "acc1",
       to: [{ email: "a@example.com" }],
       cc: [{ email: "b@example.com" }],
+      bcc: [{ name: "Private", email: "private@example.com" }, { email: "second@example.com" }, { email: "third@example.com" }],
       subject: "s",
       text: "b",
       in_reply_to: "<x@y>",
@@ -75,9 +76,20 @@ describe("sending", () => {
     expect(sendBody({ ...newDraft("acc1"), to: "a@example.com" })).not.toHaveProperty("references");
   });
 
-  it("posts to /mail/send", async () => {
-    await sendMail({ ...newDraft("acc1"), to: "a@example.com", subject: "hi", body: "hello" });
-    expect(calls.list[0]).toMatchObject({ path: "/mail/send", init: { method: "POST" } });
+  it("starts new mail with all recipient fields empty", () => {
+    expect(newDraft("acc1")).toEqual({ accountID: "acc1", to: "", cc: "", bcc: "", subject: "", body: "" });
+  });
+
+  it.each(["cc", "bcc"] as const)("serializes %s-only mail with empty other recipient lists", (field) => {
+    expect(sendBody({ ...newDraft("acc1"), [field]: "Only <only@example.com>" })).toEqual({
+      account_id: "acc1", to: [], cc: [], bcc: [], subject: "", text: "",
+      [field]: [{ name: "Only", email: "only@example.com" }],
+    });
+  });
+
+  it("posts Bcc recipients to /mail/send", async () => {
+    await sendMail({ ...newDraft("acc1"), bcc: "private@example.com", subject: "hi", body: "hello" });
+    expect(calls.list[0]).toEqual({ path: "/mail/send", init: { method: "POST", json: { account_id: "acc1", to: [], cc: [], bcc: [{ email: "private@example.com" }], subject: "hi", text: "hello" }, headers: undefined } });
   });
 
   it("marks a mail read and swallows a failure", async () => {

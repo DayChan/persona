@@ -12,6 +12,7 @@
   "to": "To",
   "to_placeholder": "Separate with commas",
   "cc": "Cc",
+  "bcc": "Bcc",
   "subject": "Subject",
   "body": "Message"
 }

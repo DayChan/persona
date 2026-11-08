@@ -16,6 +16,10 @@ Retiring a generation must also wake mounted consumers to read the next generati
 
 A busy button protects only its click path after rerender. Mail shortcuts and form submission need the same synchronous ref guard inside the send function, acquired after validation and released on failure. Keep it held after success until the composer closes. Regress mixed events in one React batch with a deferred transport, then check failure/retry, successful close, recipient validation and IME controls.
 
+## Optional recipient fields participate in the whole draft lifecycle (#1290)
+
+Adding Bcc to the request alone leaves Bcc-only edits lost on dismissal and Bcc-only sends blocked by a To-only button gate. Use all three recipient fields for admission and validation, and include Bcc in draft initialization and dirty detection. Test an edit that changes only Bcc, then dismiss/unmount, reopen, fail, cancel and succeed; also run the existing owner and send-once suites with Bcc to retain their thread-header and manager-routing guarantees. Browser send stubs prove request construction and UI behavior, not provider delivery.
+
 ## A word turned into an icon at a row's end (2026-11-07, sidebar source marks)
 
 - Everything at a sidebar row's end steps aside while the row is hovered (`group-hover/row:invisible`, for the ⋯). An icon's own `title` therefore never shows to a mouse user: the pointer that would hover the icon has already hidden it. Put the icon's name into the row's own tooltip as well, and keep `role=img` + `aria-label` on the icon for screen readers.

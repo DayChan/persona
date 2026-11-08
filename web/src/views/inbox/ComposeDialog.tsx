@@ -1,4 +1,4 @@
-// "New email" (the app's ComposeView): from one of the hub's mail accounts, to / cc, subject and plain text; a reply comes
+// "New email" (the app's ComposeView): from one of the hub's mail accounts, to / cc / bcc, subject and plain text; a reply comes
 // with Re:, the thread ids and the start of the mail quoted (replyDraft). Sent by the hub (POST /mail/send).
 // "Cancel" drops the mail; closing it any other way (Esc, a click outside, the page under it going away) keeps it for the
 // next "New email" in this page.
@@ -39,7 +39,9 @@ function OwnedComposeDialog({ draftKey, initial, accounts, onClose, manager }: C
   const [error, setError] = useState("");
   const body = useRef<HTMLTextAreaElement>(null);
   const to = useRef<HTMLInputElement>(null);
-  const dirty = d.to !== initial.to || d.cc !== initial.cc || d.subject !== initial.subject || d.body !== initial.body || d.accountID !== initial.accountID;
+  const recipients = [d.to, d.cc, d.bcc];
+  const hasRecipients = recipients.some((field) => parseAddresses(field).length > 0);
+  const dirty = d.to !== initial.to || d.cc !== initial.cc || d.bcc !== initial.bcc || d.subject !== initial.subject || d.body !== initial.body || d.accountID !== initial.accountID;
   // Taken down without being closed (the item or the page left under it): kept as a close keeps it. "Cancel", a close
   // and a send mark it done (a send that fails puts it back); a send still out when it goes away keeps it on failure.
   const now = useRef({ d, dirty, done: false, mounted: true });
@@ -82,8 +84,8 @@ function OwnedComposeDialog({ draftKey, initial, accounts, onClose, manager }: C
   };
   const send = async () => {
     if (sendLock.current) return;
-    const bad = [...badAddresses(d.to), ...badAddresses(d.cc)];
-    if (!parseAddresses(d.to).length) return setError(t("inbox-composedialog.need_recipient"));
+    const bad = recipients.flatMap(badAddresses);
+    if (!hasRecipients) return setError(t("inbox-composedialog.need_recipient"));
     if (bad.length) return setError(t("inbox-composedialog.bad_addresses", { addresses: bad.join(t("inbox-composedialog.list_sep")) }));
     // All entry points share this lock before the busy button rerenders; only failure allows a retry.
     sendLock.current = true;
@@ -119,7 +121,7 @@ function OwnedComposeDialog({ draftKey, initial, accounts, onClose, manager }: C
       footer={
         <>
           <Button tone="quiet" onClick={cancel}>{t("common.cancel")}</Button>
-          <Button tone="accent" icon="send" busy={sending} disabled={!d.to.trim() || !d.accountID} onClick={() => void send()}>{t("inbox-composedialog.send")}</Button>
+          <Button tone="accent" icon="send" busy={sending} disabled={!hasRecipients || !d.accountID} onClick={() => void send()}>{t("inbox-composedialog.send")}</Button>
         </>
       }
     >
@@ -148,6 +150,9 @@ function OwnedComposeDialog({ draftKey, initial, accounts, onClose, manager }: C
         </Field>
         <Field label={t("inbox-composedialog.cc")}>
           <input value={d.cc} onChange={(e) => set({ cc: e.target.value })} aria-label={t("inbox-composedialog.cc")} type="text" inputMode="email" autoComplete="off" spellCheck={false} className={fieldClass} />
+        </Field>
+        <Field label={t("inbox-composedialog.bcc")}>
+          <input value={d.bcc} onChange={(e) => set({ bcc: e.target.value })} aria-label={t("inbox-composedialog.bcc")} type="text" inputMode="email" autoComplete="off" spellCheck={false} className={fieldClass} />
         </Field>
         <Field label={t("inbox-composedialog.subject")}>
           <input value={d.subject} onChange={(e) => set({ subject: e.target.value })} aria-label={t("inbox-composedialog.subject")} className={fieldClass} />

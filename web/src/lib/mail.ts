@@ -37,6 +37,7 @@ export interface ComposeDraft {
   accountID: string;
   to: string;
   cc: string;
+  bcc: string;
   subject: string;
   body: string;
   inReplyTo?: string;
@@ -44,7 +45,7 @@ export interface ComposeDraft {
 }
 
 export function newDraft(accountID: string): ComposeDraft {
-  return { accountID, to: "", cc: "", subject: "", body: "" };
+  return { accountID, to: "", cc: "", bcc: "", subject: "", body: "" };
 }
 
 /** Addresses typed into one field: separated by commas (either width), semicolons or new lines; `Name <a@b>` keeps the name. */
@@ -91,6 +92,7 @@ export function replyDraft(accountID: string, msg: MailMessage): ComposeDraft {
     accountID,
     to: msg.from?.email ?? "",
     cc: "",
+    bcc: "",
     subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
     body: `\n\n${t("lib-mail.quote_head", { head })}\n${quoted}`,
     inReplyTo: msg.message_id || undefined,
@@ -130,6 +132,7 @@ export function sendBody(d: ComposeDraft) {
     account_id: d.accountID,
     to: parseAddresses(d.to),
     cc: parseAddresses(d.cc),
+    bcc: parseAddresses(d.bcc),
     subject: d.subject,
     text: d.body,
     ...(d.inReplyTo ? { in_reply_to: d.inReplyTo } : {}),

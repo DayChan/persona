@@ -20,7 +20,7 @@ import { MailBody } from "./InboxBodies";
 const accounts = ["a", "b", "edited"].map((id) => ({ id, email: `${id}@example.com` }));
 const message = (owner: string): MailMessage => ({ uid: 1, from: { email: `${owner}@example.com` }, subject: `Topic ${owner}`, text: `Original ${owner}`, message_id: `<${owner}@example.com>`, references: [`<parent-${owner}@example.com>`], seen: true });
 const initial = (owner: string) => replyDraft(owner, message(owner));
-const edited: ComposeDraft = { ...initial("a"), accountID: "edited", to: "recipient@example.com", cc: "copy@example.com", subject: "Edited subject", body: "Private draft for A" };
+const edited: ComposeDraft = { ...initial("a"), accountID: "edited", to: "recipient@example.com", cc: "copy@example.com", bcc: "Private <private@example.com>", subject: "Edited subject", body: "Private draft for A" };
 const deferred = () => {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
@@ -62,7 +62,7 @@ afterEach(() => {
   resetManagerChoice();
 });
 
-const field = (name: "from" | "to" | "cc" | "subject" | "body") => document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[aria-label="${t(`inbox-composedialog.${name}`)}"]`)!;
+const field = (name: "from" | "to" | "cc" | "bcc" | "subject" | "body") => document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[aria-label="${t(`inbox-composedialog.${name}`)}"]`)!;
 const type = (name: Parameters<typeof field>[0], value: string) => act(() => {
   const element = field(name);
   const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
@@ -85,6 +85,7 @@ const edit = () => {
   type("from", edited.accountID);
   type("to", edited.to);
   type("cc", edited.cc);
+  type("bcc", edited.bcc);
   type("subject", edited.subject);
   type("body", edited.body);
 };
@@ -92,6 +93,7 @@ const expectDraft = (draft: ComposeDraft) => {
   expect(field("from").value).toBe(draft.accountID);
   expect(field("to").value).toBe(draft.to);
   expect(field("cc").value).toBe(draft.cc);
+  expect(field("bcc").value).toBe(draft.bcc);
   expect(field("subject").value).toBe(draft.subject);
   expect(field("body").value).toBe(draft.body);
 };
@@ -101,6 +103,37 @@ const expectSent = (draft: ComposeDraft, manager?: string) => expect(mockedApi).
 });
 
 describe("manual mail draft ownership", () => {
+  it.each(["dismiss", "unmount"] as const)("retains a Bcc-only edit on %s, scoped to its owner", (action) => {
+    open("a");
+    type("bcc", edited.bcc);
+    if (action === "dismiss") dismiss();
+    else unmount();
+    open("b");
+    expectDraft(initial("b"));
+    open("a");
+    expectDraft({ ...initial("a"), bcc: edited.bcc });
+  });
+
+  it.each(["cancel", "success", "failure"] as const)("handles a retained Bcc-only edit after %s", async (action) => {
+    open("a");
+    type("bcc", edited.bcc);
+    dismiss();
+    open("a");
+    if (action === "cancel") await click(t("common.cancel"));
+    else {
+      await click(t("inbox-composedialog.send"));
+      expectSent({ ...initial("a"), bcc: edited.bcc }, "a");
+      if (action === "success") await act(async () => delivery.resolve());
+      else {
+        await act(async () => delivery.reject(new Error("Synthetic failure")));
+        expect(field("bcc").value).toBe(edited.bcc);
+        unmount();
+      }
+    }
+    open("a");
+    expectDraft({ ...initial("a"), bcc: action === "failure" ? edited.bcc : "" });
+  });
+
   it("isolates same-id replies across owners while preserving all of the original owner's edits and headers", async () => {
     open("a");
     edit();

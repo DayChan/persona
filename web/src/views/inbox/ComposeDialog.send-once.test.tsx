@@ -24,7 +24,7 @@ import { ComposeDialog } from "./ComposeDialog";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const accounts = [{ id: "test-account", name: "Example account", email: "sender@example.com" }];
-const draft: ComposeDraft = { accountID: accounts[0].id, to: "recipient@example.com", cc: "copy@example.com", subject: "Synthetic message", body: "A synthetic mail body." };
+const draft: ComposeDraft = { accountID: accounts[0].id, to: "recipient@example.com", cc: "copy@example.com", bcc: "", subject: "Synthetic message", body: "A synthetic mail body." };
 const reply: ComposeDraft = { ...draft, subject: "Re: Synthetic message", inReplyTo: "<original@example.com>", references: ["<thread@example.com>", "<original@example.com>"] };
 const deferred = () => {
   let resolve!: () => void;
@@ -79,7 +79,13 @@ afterEach(() => {
   host.remove();
 });
 
-describe.each([["new mail", draft], ["manual reply", reply]] as const)("%s send admission", (_name, initial) => {
+describe.each([
+  ["new mail", draft], ["manual reply", reply],
+  ["Bcc-only new mail", { ...draft, to: "", cc: "", bcc: "Private <private@example.com>" }],
+  ["Cc-only new mail", { ...draft, to: "", bcc: "" }],
+  ["Bcc-only manual reply", { ...reply, to: "", cc: "", bcc: "Private <private@example.com>" }],
+  ["Cc-only manual reply", { ...reply, to: "", bcc: "" }],
+] as const)("%s send admission", (_name, initial) => {
   it.each(entries)("admits only one request when %s starts a mixed burst before rerender and while pending", async (first) => {
     const pending = deferred();
     transport.mockReturnValue(pending.promise);
@@ -145,18 +151,23 @@ it("does not send again after success while its parent finishes closing", async 
 });
 
 it.each([
-  ["empty recipients", "", "", "inbox-composedialog.need_recipient"],
-  ["invalid To", "invalid", "", "inbox-composedialog.bad_addresses"],
-  ["invalid Cc", draft.to, "invalid", "inbox-composedialog.bad_addresses"],
-] as const)("rejects %s without blocking a corrected attempt", async (_name, to, cc, errorKey) => {
+  ["empty recipients", "", "", "", "inbox-composedialog.need_recipient"],
+  ["separator-only recipients", ", ;", "；", "，", "inbox-composedialog.need_recipient"],
+  ["invalid To", "invalid", "", "", "inbox-composedialog.bad_addresses"],
+  ["invalid Cc", draft.to, "invalid", "", "inbox-composedialog.bad_addresses"],
+  ["invalid Bcc with valid To", draft.to, "", "invalid", "inbox-composedialog.bad_addresses"],
+  ["invalid Bcc-only", "", "", "invalid", "inbox-composedialog.bad_addresses"],
+] as const)("rejects %s without blocking a corrected attempt", async (_name, to, cc, bcc, errorKey) => {
   const pending = deferred();
   transport.mockReturnValue(pending.promise);
-  render({ ...draft, to, cc });
+  render({ ...draft, to, cc, bcc });
+  expect(sendButton().disabled).toBe(errorKey === "inbox-composedialog.need_recipient");
   act(() => trigger("form"));
   expect(transport).not.toHaveBeenCalled();
   expect(dialog()!.querySelector('[role="alert"]')!.textContent).toBe(t(errorKey, { addresses: "invalid" }));
   edit(input(t("inbox-composedialog.to")), draft.to);
   edit(input(t("inbox-composedialog.cc")), "");
+  edit(input(t("inbox-composedialog.bcc")), "");
   act(() => trigger("Ctrl+Enter"));
   expect(transport).toHaveBeenCalledTimes(1);
   await act(async () => pending.resolve());

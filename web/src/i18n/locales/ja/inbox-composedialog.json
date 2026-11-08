@@ -12,6 +12,7 @@
   "to": "宛先",
   "to_placeholder": "カンマ区切り",
   "cc": "Cc",
+  "bcc": "Bcc",
   "subject": "件名",
   "body": "本文"
 }

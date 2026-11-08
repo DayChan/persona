@@ -50,7 +50,7 @@ in its environment. The process keeps its pid, so the node still recognizes the 
 
 | Start | Started by | Code |
 | --- | --- | --- |
-| The assistant's Claude on the CLI with plain `claude` or a `~/.zshrc` launcher, guests included | the node | `assistantCLICommand`, `server/internal/node/assistant.go` |
+| The assistant's Claude on the CLI with plain `claude` or a `~/.zshrc` launcher, guests included | the node | `assistantCLICommand`, `server/internal/node/assistant_start.go` |
 | The assistant's Claude on the Agent SDK: the bridge and the claude it starts | the node | `sdkCommand`, `server/internal/node/assistant_sdk.go` |
 | A managed launcher, `personad launch <name>`: in herdr, for the assistant, and when the node checks a launcher | a pane's shell, or the node | `launchExec`, `server/internal/node/managed.go` |
 | A Codex started from the phone, `personad codex-start` | the pane's shell | `codexStartExec`, `server/internal/node/codex_start.go` |
