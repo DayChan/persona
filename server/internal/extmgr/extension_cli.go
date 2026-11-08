@@ -38,6 +38,10 @@ const extensionUsage = `usage: personad extension <command> (also: personad ext,
                                     shows what it may do and asks first unless --yes
   upgrade <id> <source> [--yes]     a newer version of an installed extension
   rollback <id>                     back to the version before the last upgrade
+  attach <id> remote:rpc=/p.sock,http=/q.sock
+                                    reach an installed package's program, running on its own at the same version, on
+                                    its sockets; the package, settings, secrets and data stay
+  detach <id>                       run the attached package's program here again
   enable <id> | disable <id> [--cascade]
                                     --cascade: the extensions that depend on it are switched off too
   sandbox <id> on|off|default       run it in a sandbox or not (default: on unless from a trusted market)
@@ -362,6 +366,21 @@ func ExtensionCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 			return err
 		}
 		fmt.Fprintf(stdout, "%s 回到了 %s\n", d.ID, d.Version)
+		return nil
+	case "attach", "detach":
+		n := map[string]int{"attach": 2, "detach": 1}[args[0]]
+		if err := need(n); err != nil {
+			return err
+		}
+		body := map[string]string{}
+		if args[0] == "attach" {
+			body["source"] = positional[1]
+		}
+		var d ExtensionDetail
+		if err := c.do(ctx, "POST", "/api/v1/extensions/"+url.PathEscape(positional[0])+"/-/"+args[0], body, &d); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s：%s\n", d.ID, d.Status)
 		return nil
 	case "enable", "disable":
 		if err := need(1); err != nil {

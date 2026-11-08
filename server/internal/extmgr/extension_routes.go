@@ -375,6 +375,30 @@ func (h *Manager) extensionRoutes(api *http.ServeMux) {
 		}
 		writeExtensionJSON(w, r, detailOut(r, ps().detail(r.Context(), p)))
 	})
+	// An installed package attached to its program running on its own, and back (extension.Registry.Attach): from this
+	// machine only, as installing from remote: is (it names sockets here).
+	api.HandleFunc("POST /api/v1/extensions/{id}/-/attach", owner(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Source string `json:"source"` // remote:rpc=<socket>,http=<socket>
+		}
+		if !readExtensionJSON(w, r, &in) {
+			return
+		}
+		p, err := ps().reg.Attach(r.Context(), r.PathValue("id"), in.Source, actorOr(r, "personad extension"))
+		if err != nil {
+			writeExtensionResponseError(w, r, http.StatusBadRequest, "attach_failed", err)
+			return
+		}
+		writeExtensionJSON(w, r, detailOut(r, ps().detail(r.Context(), p)))
+	}))
+	api.HandleFunc("POST /api/v1/extensions/{id}/-/detach", owner(func(w http.ResponseWriter, r *http.Request) {
+		p, err := ps().reg.Detach(r.Context(), r.PathValue("id"), actorOr(r, "personad extension"))
+		if err != nil {
+			writeExtensionResponseError(w, r, http.StatusBadRequest, "detach_failed", err)
+			return
+		}
+		writeExtensionJSON(w, r, detailOut(r, ps().detail(r.Context(), p)))
+	}))
 	api.HandleFunc("DELETE /api/v1/extensions/{id}/-/{$}", func(w http.ResponseWriter, r *http.Request) {
 		if !marketOr(w, r, fromMarket(r)) {
 			return

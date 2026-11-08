@@ -328,6 +328,9 @@ type SessionView struct {
 	// extension); both "" while it is not known.
 	Origin    string `json:"origin,omitempty"`
 	OriginRef string `json:"origin_ref,omitempty"`
+	// OpenedBy is the extension that opened it, by id ("" for none, or not known): only that extension's token may
+	// change its permission mode (hub/extension_modes.go).
+	OpenedBy string `json:"opened_by,omitempty"`
 	// Supervising: its current turn was started by a supervision message about the tasks it handed out (#3124): the assistant
 	// does not push its normal finish (SupervisedFinish); it pushes what the user needs to know (notify_user).
 	Supervising bool `json:"supervising,omitempty"`

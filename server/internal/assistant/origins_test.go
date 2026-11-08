@@ -348,3 +348,45 @@ func TestBackfillOriginsOnPostgres(t *testing.T) {
 		t.Fatalf("read back: %q", o)
 	}
 }
+
+// The hub's snapshot says which extension opened a conversation (an extension's request), and none for any other: the
+// user's, a channel's (its ref is the channel, not an extension), one backfilled with no ref.
+func TestOpenedByIsTheExtensionThatAsked(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeHub().withMachine()
+	f.settings = &Settings{MachineID: "server"}
+	s := newTestService(t, f)
+	openedBy := func(id string) string {
+		t.Helper()
+		for _, v := range f.lastSnapshot().Sessions {
+			if v.SessionID == id {
+				return v.OpenedBy
+			}
+		}
+		t.Fatalf("%s is not in the snapshot", id)
+		return ""
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/conversations", strings.NewReader(`{"prompt":"x"}`))
+	r.Header.Set(RoleHeader, "extension")
+	r.Header.Set(ExtensionHeader, "example-notes")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	var out struct {
+		Session proto.Session `json:"session"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if got := openedBy(out.Session.SessionID); got != "example-notes" {
+		t.Fatalf("an extension's request: %q", got)
+	}
+	for _, p := range []StartParams{{Text: "y"}, {Text: "/new z", Origin: OriginChannel, OriginRef: "example-chat"}, {Text: "w", Origin: OriginExtension}} {
+		c, err := s.Start(ctx, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := openedBy(c.SessionID); got != "" {
+			t.Fatalf("%+v: opened by %q", p, got)
+		}
+	}
+}

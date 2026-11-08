@@ -315,8 +315,10 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/extensions/-/install
 -                    POST /api/v1/extensions/-/operations/{op}/retry
 -                    POST /api/v1/extensions/-/preview
+-                    POST /api/v1/extensions/{id}/-/attach
 -                    POST /api/v1/extensions/{id}/-/auth/logout
 -                    POST /api/v1/extensions/{id}/-/auth/step
+-                    POST /api/v1/extensions/{id}/-/detach
 -                    POST /api/v1/extensions/{id}/-/dev/restart
 -                    POST /api/v1/extensions/{id}/-/rollback
 -                    POST /api/v1/extensions/{id}/-/shortcut/{sid}
@@ -402,10 +404,10 @@ agents.control       POST /api/v1/sessions
 agents.control       POST /api/v1/sessions/{mid}/{sid}/interrupt
 -                    POST /api/v1/sessions/{mid}/{sid}/keys
 agents.control       POST /api/v1/sessions/{mid}/{sid}/messages
--                    POST /api/v1/sessions/{mid}/{sid}/modes
+agents.permission_mode POST /api/v1/sessions/{mid}/{sid}/modes
 agents.control       POST /api/v1/sessions/{mid}/{sid}/queue
 agents.control       POST /api/v1/sessions/{mid}/{sid}/queue/send-now
--                    POST /api/v1/sessions/{mid}/{sid}/rename
+agents.control       POST /api/v1/sessions/{mid}/{sid}/rename
 -                    POST /api/v1/sessions/{mid}/{sid}/rewind
 -                    POST /api/v1/sessions/{mid}/{sid}/screen/before
 agents.control       POST /api/v1/sessions/{mid}/{sid}/seen

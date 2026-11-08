@@ -63,6 +63,9 @@ func (r *Registry) Rollback(ctx context.Context, id, actor string) (*Extension, 
 		return nil, fmt.Errorf("没有装过扩展 %s", id)
 	}
 	id = old.Record.ID
+	if old.Record.AttachedPackage() {
+		return nil, i18n.Err("extension-status.attached_detach_first", i18n.Args{"id": id})
+	}
 	prev := old.Record.PreviousVersion
 	if prev == "" || old.Record.Remote != nil {
 		return nil, errors.New("没有可以回到的上一个版本")

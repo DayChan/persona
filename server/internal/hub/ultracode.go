@@ -31,6 +31,12 @@ func (h *Hub) sessionModes(w http.ResponseWriter, r *http.Request, m *Machine) {
 		writeErr(w, http.StatusBadRequest, errors.New("request body must be a JSON object"))
 		return
 	}
+	if pr := principalOf(r.Context()); pr.Role == roleExtension { // extension_modes.go
+		if why := h.extensionModeRefused(pr, m.cfg.ID, r.PathValue("sid"), p); why != "" {
+			h.refuseExtensionMode(w, r, pr, m.cfg.ID, r.PathValue("sid"), why)
+			return
+		}
+	}
 	ultra := map[string]any{"session_id": r.PathValue("sid")}
 	for _, field := range []struct{ http, rpc string }{{"ultracode", "ultracode"}, {"ultracode_dismiss_lost", "dismiss_lost"}} {
 		if v, exists := p[field.http]; exists {

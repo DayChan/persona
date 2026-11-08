@@ -64,6 +64,15 @@ type Record struct {
 type Remote struct {
 	RPCSocket  string `json:"rpc_socket,omitempty"`
 	HTTPSocket string `json:"http_socket,omitempty"`
+	// Package: it is the installed package's program, attached (Attach); the package stays. Without it, the extension
+	// was installed from remote: and has no package.
+	Package bool `json:"package,omitempty"`
+}
+
+// AttachedPackage: an installed package whose program runs on its own and is reached on Remote's sockets (Attach). Its
+// package stays installed and still takes effect (skills, instructions, gates); Detach runs it from there again.
+func (r Record) AttachedPackage() bool {
+	return r.Source == SourceInstalled && r.Remote != nil && r.Remote.Package
 }
 
 // Store keeps the registry (the hub's Postgres: tables plugins, plugin_secrets, plugin_audit).
@@ -94,7 +103,7 @@ type Extension struct {
 	Manifest *Manifest
 	Full     *Manifest
 	Schema   *Schema
-	// Dir is the package's directory ("" for a remote or hub.json plugin).
+	// Dir is the package's directory ("" for one installed from remote: or a hub.json plugin).
 	Dir string
 	// Problem is why it cannot run on this hub (engines, a missing package); it is then not started.
 	Problem  string
@@ -119,7 +128,7 @@ func (p *Extension) ProblemText(l i18n.Lang) string {
 // Change is what the registry tells the hub after it changed a plugin.
 type Change struct {
 	ID   string
-	Kind string // installed | upgraded | rolled_back | removed | enabled | disabled | config | secret
+	Kind string // installed | upgraded | rolled_back | removed | enabled | disabled | config | secret | attached | detached
 	// Old is the plugin before the change (removed, upgraded, rolled back).
 	Old *Extension
 }
@@ -330,7 +339,7 @@ func (r *Registry) fromRow(row Record) *Extension {
 	}
 	p.Full, p.Manifest = m, m.Without(row.DisabledContributions)
 	p.Schema, _ = ParseSchema(m.Configuration)
-	if row.Remote == nil {
+	if row.Remote == nil || row.AttachedPackage() {
 		p.Dir = r.installedDir(row.StorageKey(), row.Version)
 		if !hasManifest(p.Dir) {
 			p.problemErr = i18n.Err("extension-status.package_missing", i18n.Args{"path": p.Dir})

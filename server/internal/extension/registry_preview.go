@@ -329,6 +329,8 @@ func (r *Registry) previewIdentity(ctx context.Context, src Source, upgrade, ren
 		return fail(fmt.Errorf("这个包是 %s，不是 %s", m.ID, upgrade))
 	case upgrade != "" && (cur == nil || cur.Record.Source != SourceInstalled):
 		return fail(i18n.Err("extension-status.upgrade_not_installed", i18n.Args{"id": upgrade}))
+	case upgrade != "" && cur.Record.AttachedPackage():
+		return fail(i18n.Err("extension-status.attached_detach_first", i18n.Args{"id": cur.Record.ID}))
 	case upgrade != "" && !NewerVersion(m.Version, cur.Record.Version):
 		return fail(fmt.Errorf("%s 不比已装的 %s 新", m.Version, cur.Record.Version))
 	}

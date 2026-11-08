@@ -39,6 +39,15 @@ const (
 	OriginExtension = "extension"
 )
 
+// openedBy is the extension that opened a conversation of origin and ref, "" for none: requestOrigin notes the
+// extension as the ref of these two origins (and a backfill notes no ref for them).
+func openedBy(origin, ref string) string {
+	if origin == OriginExtension || origin == OriginLarkAgent {
+		return ref
+	}
+	return ""
+}
+
 // purposeLarkAgent is the model purpose the Feishu plugin's /agent conversations run under.
 const purposeLarkAgent = "lark.agent"
 

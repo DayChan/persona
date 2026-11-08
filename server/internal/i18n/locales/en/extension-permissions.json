@@ -62,6 +62,7 @@
   "scope_inbox_write": "Handle inbox items (mark done, draft and send replies, mute)",
   "scope_agents_read": "View agents and chats on your computers",
   "scope_agents_control": "Control agents (create, message, interrupt, answer questions, approve)",
+  "scope_agents_permission_mode": "Change the permission mode of the chats it started itself",
   "scope_machines_read": "View your computers (connectivity and load)",
   "scope_notify": "Send notifications to your devices",
   "scope_assistant_ask": "Start Persona chats and read chat activity",

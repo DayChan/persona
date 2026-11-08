@@ -61,6 +61,8 @@ var RouteScopes = map[string]string{
 	"POST /api/v1/sessions/{mid}/{sid}/queue":            ScopeAgentsControl,
 	"POST /api/v1/sessions/{mid}/{sid}/queue/send-now":   ScopeAgentsControl, // #6088
 	"POST /api/v1/sessions/{mid}/{sid}/seen":             ScopeAgentsControl,
+	"POST /api/v1/sessions/{mid}/{sid}/rename":           ScopeAgentsControl,
+	"POST /api/v1/sessions/{mid}/{sid}/modes":            ScopeAgentsPermissionMode,
 	"POST /api/v1/interactions/{id}/choose":              ScopeAgentsControl,
 	"POST /api/v1/interactions/{id}/resolve":             ScopeAgentsControl,
 	"POST /api/v1/interactions/{id}/reanswer":            ScopeAgentsControl, // "Change answer": a message to the agent

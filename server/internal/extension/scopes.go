@@ -9,38 +9,40 @@ import (
 
 // Defined in the contract package extwire (docs/server/architecture.md "Contract packages"); the old names stay.
 const (
-	ScopeAgentsControl = extwire.ScopeAgentsControl
-	ScopeAgentsRead    = extwire.ScopeAgentsRead
-	ScopeAssistantAsk  = extwire.ScopeAssistantAsk
-	ScopeCallPrefix    = extwire.ScopeCallPrefix
-	ScopeInboxRead     = extwire.ScopeInboxRead
-	ScopeInboxWrite    = extwire.ScopeInboxWrite
-	ScopeKBRead        = extwire.ScopeKBRead
-	ScopeKBWrite       = extwire.ScopeKBWrite
-	ScopeMachinesRead  = extwire.ScopeMachinesRead
-	ScopeNotify        = extwire.ScopeNotify
-	ScopeTodosRead     = extwire.ScopeTodosRead
-	ScopeTodosWrite    = extwire.ScopeTodosWrite
-	ScopeModels        = extwire.ScopeModels
+	ScopeAgentsControl        = extwire.ScopeAgentsControl
+	ScopeAgentsPermissionMode = extwire.ScopeAgentsPermissionMode
+	ScopeAgentsRead           = extwire.ScopeAgentsRead
+	ScopeAssistantAsk         = extwire.ScopeAssistantAsk
+	ScopeCallPrefix           = extwire.ScopeCallPrefix
+	ScopeInboxRead            = extwire.ScopeInboxRead
+	ScopeInboxWrite           = extwire.ScopeInboxWrite
+	ScopeKBRead               = extwire.ScopeKBRead
+	ScopeKBWrite              = extwire.ScopeKBWrite
+	ScopeMachinesRead         = extwire.ScopeMachinesRead
+	ScopeNotify               = extwire.ScopeNotify
+	ScopeTodosRead            = extwire.ScopeTodosRead
+	ScopeTodosWrite           = extwire.ScopeTodosWrite
+	ScopeModels               = extwire.ScopeModels
 )
 
 // HubScopes are the scopes, in the order the install screen lists them.
 var HubScopes = []string{ScopeKBRead, ScopeKBWrite, ScopeInboxRead, ScopeInboxWrite, ScopeAgentsRead, ScopeAgentsControl,
-	ScopeMachinesRead, ScopeNotify, ScopeAssistantAsk, ScopeTodosRead, ScopeTodosWrite, ScopeModels}
+	ScopeAgentsPermissionMode, ScopeMachinesRead, ScopeNotify, ScopeAssistantAsk, ScopeTodosRead, ScopeTodosWrite, ScopeModels}
 
 var scopeTitles = map[string]string{
-	ScopeKBRead:        "scope_kb_read",
-	ScopeKBWrite:       "scope_kb_write",
-	ScopeInboxRead:     "scope_inbox_read",
-	ScopeInboxWrite:    "scope_inbox_write",
-	ScopeAgentsRead:    "scope_agents_read",
-	ScopeAgentsControl: "scope_agents_control",
-	ScopeMachinesRead:  "scope_machines_read",
-	ScopeNotify:        "scope_notify",
-	ScopeAssistantAsk:  "scope_assistant_ask",
-	ScopeTodosRead:     "scope_todos_read",
-	ScopeTodosWrite:    "scope_todos_write",
-	ScopeModels:        "scope_models",
+	ScopeKBRead:               "scope_kb_read",
+	ScopeKBWrite:              "scope_kb_write",
+	ScopeInboxRead:            "scope_inbox_read",
+	ScopeInboxWrite:           "scope_inbox_write",
+	ScopeAgentsRead:           "scope_agents_read",
+	ScopeAgentsControl:        "scope_agents_control",
+	ScopeAgentsPermissionMode: "scope_agents_permission_mode",
+	ScopeMachinesRead:         "scope_machines_read",
+	ScopeNotify:               "scope_notify",
+	ScopeAssistantAsk:         "scope_assistant_ask",
+	ScopeTodosRead:            "scope_todos_read",
+	ScopeTodosWrite:           "scope_todos_write",
+	ScopeModels:               "scope_models",
 }
 
 // ScopeTitle is how the install screen says scope s; ok false for what is not a scope.

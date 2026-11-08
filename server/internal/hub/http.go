@@ -707,6 +707,14 @@ func (h *Hub) startSession(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusForbidden, codeOtherManager, err)
 		return
 	}
+	// Resuming with a permission mode changes that session's mode: an extension's token, only of a conversation its
+	// extension opened (extension_modes.go).
+	if pr := principalOf(r.Context()); pr.Role == roleExtension && p.ResumeSessionID != "" && p.PermissionMode != "" {
+		if why := h.extensionModeRefused(pr, p.MachineID, p.ResumeSessionID, map[string]any{"permission_mode": p.PermissionMode}); why != "" {
+			h.refuseExtensionMode(w, r, pr, p.MachineID, p.ResumeSessionID, why)
+			return
+		}
+	}
 	m := h.localMachine(p.MachineID)
 	if m == nil {
 		writeErr(w, http.StatusNotFound, i18n.Err("devices-api.unknown_machine"))

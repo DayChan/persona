@@ -62,6 +62,7 @@
   "scope_inbox_write": "处理收件箱（标为已处理、起草和发送回复、静音）",
   "scope_agents_read": "看各台电脑上的 Agent 和对话",
   "scope_agents_control": "驱动 Agent（新建、发消息、打断、回答提问和批准）",
+  "scope_agents_permission_mode": "更改它自己开的对话的权限模式",
   "scope_machines_read": "看你的各台电脑（在不在线、负载）",
   "scope_notify": "给你的设备发通知",
   "scope_assistant_ask": "给 Persona 开对话、读对话动态",

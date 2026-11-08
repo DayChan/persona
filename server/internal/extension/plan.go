@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 // PreviewRef is the consent for one package in an install plan. It is internal to the registry; existing HTTP
@@ -440,6 +442,9 @@ func (r *Registry) validatePlan(id, previewID, digest string, refs []PreviewRef,
 		if pv.Upgrade {
 			if old == nil || old.Record.Source != SourceInstalled || old.Record.Version != pv.From {
 				return nil, errors.New("扩展在预览之后变了，重新预览一次")
+			}
+			if old.Record.AttachedPackage() {
+				return nil, i18n.Err("extension-status.attached_detach_first", i18n.Args{"id": old.Record.ID})
 			}
 			if pv.RenameFrom != "" && (requested == "" || pv.Digest == "" || requested != pv.Digest) {
 				return nil, errPlanDigest

@@ -17,6 +17,9 @@ const (
 	ScopeAssistantAsk  = "assistant.ask"
 	ScopeTodosRead     = "todos.read"
 	ScopeTodosWrite    = "todos.write"
+	// ScopeAgentsPermissionMode: changing the permission mode of a conversation the extension opened itself, and of no
+	// other (the hub checks who opened it: hub/extension_modes.go).
+	ScopeAgentsPermissionMode = "agents.permission_mode"
 	// ScopeModels: calling a model through the hub (model.complete) on the extension's own purpose in Settings ›
 	// Models; never a key (#6102).
 	ScopeModels = "models"

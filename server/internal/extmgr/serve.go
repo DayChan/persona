@@ -468,6 +468,13 @@ func (h *Manager) hubCall(ctx context.Context, method string, params json.RawMes
 	case extwire.HubSettingsTool:
 		text, err := h.toolPersonaSettings(ctx, a.MachineID, a.SessionID, a.Arguments)
 		return map[string]any{"text": text}, err
+	case extwire.HubAudit:
+		var au extwire.Audit
+		if err := json.Unmarshal(params, &au); err != nil || au.Extension == "" || au.Action != extwire.AuditPermissionModeRefused {
+			return nil, &rpc.Error{Code: bus.CodeInvalidParams, Message: "extensions: not an audit the hub records"}
+		}
+		h.audit(ctx, au.Extension, au.Action, "extension:"+au.Extension, au.Detail)
+		return map[string]any{}, nil
 	}
 	return nil, fmt.Errorf("extensions: no hub call %q", method)
 }
