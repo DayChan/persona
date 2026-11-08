@@ -105,8 +105,8 @@ describe("task detail completion check with the real REST client", () => {
   });
 
   it.each([
-    ["", "qualifies for automatic completion"], ["not_a_task", "manually created to-dos"],
-    ["done", "already complete"], ["reopened", "new agent work after reopening"],
+    ["", "qualifies for automatic completion"], ["not_a_task", "manually created to-do"],
+    ["done", "already marked complete"], ["reopened", "new agent work after reopening"],
     ["future_skip", "unrecognized exclusion"], ["constructor", "unrecognized exclusion"],
   ])("explains skip %s independently of the verdict", async (skip, expected) => {
     await render(todo({ reopened_at: skip === "reopened" ? "2026-11-02T08:00:00Z" : undefined }));
@@ -162,7 +162,7 @@ describe("task detail completion check with the real REST client", () => {
   it("keeps completed-task reopening a deliberate ordinary action", async () => {
     await render(todo({ done_at: "2026-11-02T08:00:00Z" }));
     await click(); await answer({ ...completed, skip: "done", would_close: false });
-    expect(result()?.textContent).toContain("already complete");
+    expect(result()?.textContent).toContain("already marked complete");
     expect(traffic.filter(x => x.init.method === "PATCH")).toHaveLength(0);
     const reopen = [...host.querySelectorAll("button")].find(x => x.textContent?.trim() === "Reopen")!;
     await act(async () => reopen.click()); await flush();
@@ -206,6 +206,19 @@ describe("task detail completion check with the real REST client", () => {
     expect(section().textContent).toContain("evidence may change");
     expect(getState().todos[0].title).toBe("Updated synthetic task");
     expect(getState().todos[0].done_at).toBeUndefined();
+  });
+
+  it.each(["done", "reopened"])("ties the %s exclusion to the check's inputs when task status changes while waiting", async skip => {
+    const at = "2026-11-02T08:00:00Z";
+    await render(todo(skip === "done" ? { done_at: at } : { reopened_at: at }));
+    await click();
+    await render(todo(skip === "done" ? { done_at: null, reopened_at: at } : { done_at: at }));
+    await answer({ ...completed, skip, would_close: false });
+    expect(result()?.textContent).toContain(skip === "done" ? "This check read a task already marked complete" : "This check found no new agent work");
+    expect(result()?.textContent).not.toContain("keeps it open");
+    const action = skip === "done" ? t("todos.complete") : t("todos.reopen");
+    expect([...host.querySelectorAll("button")].some(x => x.textContent?.trim() === action)).toBe(true);
+    expect(traffic.filter(x => x.init.method && x.init.method !== "GET")).toHaveLength(1);
   });
 
   it.each([
