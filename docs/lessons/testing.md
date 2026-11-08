@@ -124,6 +124,14 @@ Pitfalls, odd behavior, and the tradeoffs made at the time (originally in `CLAUD
   iOS lane it needed 54.5 s on a passing run and passed 60 s on a failing one, after `simctl bootstatus -b` had already returned.
   Give the step room in `scripts/ci/apple.sh` (300 s) rather than retrying it, and read a grant timeout as slowness, not a refused permission.
 
+- A simulator runtime downloaded during a hosted job may have no dyld shared cache (2026-11-09, #1738). The macOS image runs
+  `simctl runtime dyld_shared_cache update` only for the runtimes it ships, not for the iOS 26.0.1 runtime `xcodebuild -downloadPlatform`
+  fetches. 20 of the iOS lane's 36 boots on 2026-11-08 failed the same way: `simctl boot` returned within seconds, CoreSimulator listed
+  the device as Booted, and `simctl bootstatus -b` printed nothing for 900 s, while passing boots spent about a minute in `simctl boot`
+  before reporting status. The suspected cause is the missing cache, not yet confirmed: the lane now builds it for the runtime it boots
+  (`xcrun simctl runtime dyld_shared_cache update <runtime>`, Apple's workaround for Xcode 26.1 known issue 152328794) before the first
+  boot, rather than retrying the boot or extending its limit.
+
 - Validate display names separately from persisted identity during compatible renaming (2026-11-04, #1189). After `persona-link` / `Persona Link` shipped, compressed-install regressions still asserted old display names, causing full release exit 1. Update only display contracts, while verifying real `persona-link` files, legacy download names, old/new executable commands, and actual installer calls; never blindly rename compatibility identities. Script tests must discover `scripts/test`, `release`, `deploy`, `mock`, and `app` separately; rename-only subsets miss old assertions elsewhere. Preserve original failed freeze/exit code; after merge, rerun with a new build number.
 
 - Do not use computer-use to click simulators for screenshots (Mac lock screen hides windows; unlocked it steals the user's mouse). Use DEBUG launch arguments (`docs/apple/ios.md`) to open pages directly, then capture.

@@ -134,6 +134,11 @@ if [ "$LANE" = all ] || [ "$LANE" = ios ]; then
     -destination 'generic/platform=iOS' -derivedDataPath "$OUTPUT/ios-device" \
     -disableAutomaticPackageResolution "${UNSIGNED[@]}" build
 
+  # The hosted image builds dyld shared caches only for the runtimes it ships, not
+  # for one this job downloaded; boots that never reported status are suspected to
+  # wait on it (#1738). Build it first, Apple's workaround for a similar boot
+  # failure (Xcode 26.1 known issue 152328794).
+  ci_run 'Build the iOS 26.0 runtime dyld shared cache' 600 xcrun simctl runtime dyld_shared_cache update "$IOS_RUNTIME"
   # sim-boot is the sole creation/boot entry, with a fresh stock simulator (not
   # paired to a real hub), pinned to the validated compiler-compatible runtime.
   SIM_STARTED=1

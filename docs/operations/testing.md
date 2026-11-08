@@ -111,6 +111,10 @@ The unsigned Mac app/notification-extension build keeps shipping entitlements. B
 `scripts/ci/apple_entitlements.py` removes only profile-authorized push, time-sensitive notification and shared Keychain permissions from
 the disposable source snapshot. The sandbox, other permissions and project hardened-runtime settings remain unchanged; the checked-in
 project and release entitlements are not edited. A valid ad-hoc signature carrying restricted permissions can still be rejected before `main`.
+The iOS lane downloads its Xcode 26.0-compatible runtimes during the job, after the hosted image built dyld shared caches for the
+runtimes it ships. Before the boot it runs `xcrun simctl runtime dyld_shared_cache update` for the selected iOS runtime (600 s), Apple's
+workaround for a similar boot failure (Xcode 26.1 known issue 152328794). Failing boots had left `simctl boot` within seconds and then
+reported no boot status until the 900 s limit; a missing cache is the suspected cause (#1738).
 On Apple failure, collect the simulator UDID log, boot command/status log, installed runtime metadata, `xcrun simctl list --json`, available
 disk space, and any xcresult bundles before deleting the owned simulator. The workflow uploads the allowlisted diagnostics as
 `apple-<lane>-diagnostics-<run id>-<attempt>` artifacts for seven days. Source/configuration files, keys and result-bundle symlink targets

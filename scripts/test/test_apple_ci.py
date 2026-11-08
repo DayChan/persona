@@ -117,6 +117,18 @@ class AppleCIPreparationTests(unittest.TestCase):
         self.assertIn('"${TEST_SIGNING[@]}"', script.split("ci_run 'macOS offline unit tests'", 1)[1])
         self.assertNotIn('ENABLE_HARDENED_RUNTIME=NO', script)
 
+    def test_downloaded_runtime_gets_its_dyld_shared_cache_before_the_boot(self):
+        script = SCRIPT.read_text()
+        cache = script.index("ci_run 'Build the iOS 26.0 runtime dyld shared cache' 600 "
+                             'xcrun simctl runtime dyld_shared_cache update "$IOS_RUNTIME"')
+        self.assertLess(script.index('Download matching $platform 26.0 simulator runtime'), cache)
+        self.assertLess(script.index("Unsigned iOS and embedded watch/extensions build"), cache)
+        self.assertLess(cache, script.index('SIM_STARTED=1'))
+        self.assertLess(cache, script.index("ci_run 'Create and boot stock iOS 26.0 test simulator'"))
+        # Only the runtime the lane boots, and never a forced rebuild of a cache that is already usable.
+        self.assertEqual(script.count('dyld_shared_cache update'), 1)
+        self.assertNotIn('--', script[cache:script.index('\n', cache)])
+
     def test_runtime_remains_pinned_to_minimum_compiler(self):
         script = SCRIPT.read_text()
         self.assertIn('for platform in iOS watchOS; do', script)
