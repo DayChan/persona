@@ -44,6 +44,11 @@ func TestNodeSealsInherited(t *testing.T) {
 		cmd := exec.Command(os.Args[0], "-test.run=^$")
 		cmd.Env = osproctest.HomeEnv(t, nodeEntryEnv+"="+arg)
 		cmd.Stderr = os.Stderr
+		if arg == "--stdio" {
+			// A nil stdout becomes /dev/null, which owned stdio correctly rejects.
+			// Let exec provide a real, continuously drained protocol pipe instead.
+			cmd.Stdout = io.Discard
+		}
 		return osproctest.StartHolding(t, cmd)
 	}
 	t.Run("control", func(t *testing.T) {

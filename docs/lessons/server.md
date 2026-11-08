@@ -2,6 +2,7 @@
 
 ## Process RPC backpressure and cleanup (#1204)
 
+- An exec child's nil stdout becomes `/dev/null`, not a protocol pipe. A live inherited-descriptor sealing fixture for `node --stdio` must supply a drained real pipe; otherwise the exclusive stdio contract correctly rejects it and exits before a watcher can inspect the live inherited socket. Keep the control, FD identity and close-on-exec assertions intact rather than permitting regular-file stdio to make the test pass.
 - Keep descriptor inspection and platform syscalls in the transport-owner I/O helper (`internal/rpcio`), not the standard-library-only `internal/rpc` contract. The owner supplies an optional outstanding-data query to the pure progress-token combiner; unsupported descriptors remain unmeasurable, not stalled. Local race tests do not replace `TestContractsArePure`: the hosted server lane caught an `x/sys/unix` dependency introduced by an otherwise passing Linux consumption observer. Do not exempt the dependency or rewrite the architecture guard.
 
 - A cancellable writer semaphore bounds admission, not a `Write` already in progress. Logical peer closure alone does not interrupt arbitrary I/O. Attach an explicit, promptly returning owned-transport interrupt before initialization, and install independent run-local cleanup before any blocking protocol work. Retain the transport owner before wrapping a node's response writer; a wrapper can hide a standard connection's close contract. An initialized process can still trap its run loop in an inline ping write.
