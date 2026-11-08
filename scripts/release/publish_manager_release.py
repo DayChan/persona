@@ -13,7 +13,7 @@ from manager_artifacts import manager_manifest
 from publish_hub_release import connect_publisher
 
 MODULES = ('hub_release_paths', 'node_artifacts', 'manager_artifacts', 'promote_hub_release',
-           'promote_manager_release')
+           'manager_idle', 'promote_manager_release')
 
 
 def remote_program(payload):

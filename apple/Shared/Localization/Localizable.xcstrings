@@ -58876,6 +58876,29 @@
       },
       "extractionState": "manual"
     },
+    "More actions for agent %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More actions for agent %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント「%1$@」のその他の操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent「%1$@」的更多操作"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "More careful": {
       "localizations": {
         "en": {

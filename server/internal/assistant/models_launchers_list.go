@@ -1,0 +1,265 @@
+package assistant
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/nwverse/persona/server/internal/apierr"
+	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
+	"github.com/nwverse/persona/server/internal/proto"
+	"github.com/nwverse/persona/server/internal/textfmt"
+)
+
+// launcherListing is a node's launchers.list: the launchers, and the shell and rc file they came from ("" from an
+// older node).
+type launcherListing struct {
+	Launchers []proto.Launcher `json:"launchers"`
+	Shell     string           `json:"shell"`
+	RCFile    string           `json:"rc_file"`
+}
+
+// listLaunchers asks one machine for its list, giving it launcherSyncTimeout; an offline machine is not asked.
+func (s *Service) listLaunchers(ctx context.Context, d Device) (launcherListing, error) {
+	var res launcherListing
+	if !d.Online {
+		return res, apierr.ErrOffline
+	}
+	cctx, cancel := context.WithTimeout(ctx, launcherSyncTimeout)
+	defer cancel()
+	err := s.call(cctx, d.ID, DeviceLaunchersList, map[string]any{}, &res)
+	if err != nil && cctx.Err() != nil && ctx.Err() == nil {
+		err = context.DeadlineExceeded
+	}
+	return res, err
+}
+
+// launcherSyncState names why a machine's list did not come: offline, timeout, or error with the reason.
+func launcherSyncState(ctx context.Context, err error) (state, reason string) {
+	switch {
+	case errors.Is(err, apierr.ErrOffline):
+		return "offline", ""
+	case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
+		return "timeout", ""
+	}
+	return "error", textfmt.Clip(strings.TrimSpace(err.Error()), 300)
+}
+
+// configuredLauncher is machine's hub.json launcher name (machines[].launchers, in the hello): a wrapper the node may
+// not list, the agent the user said it runs. The node runs a launcher it does not list only when it is vouched for
+// like this (configured, node runnableLauncher).
+func (s *Service) configuredLauncher(ctx context.Context, machine, name string) (ConfiguredLauncher, bool) {
+	for _, l := range s.hello(ctx).Models.Launchers[machine] {
+		if l.Name == name {
+			return l, true
+		}
+	}
+	return ConfiguredLauncher{}, false
+}
+
+// launcherParams are a node launcher method's params for name on machine: configured (and its agent_type) when
+// hub.json names it there.
+func (s *Service) launcherParams(ctx context.Context, machine, name string, params map[string]any) map[string]any {
+	params["name"] = name
+	if l, ok := s.configuredLauncher(ctx, machine, name); ok {
+		params["configured"] = true
+		if l.AgentType != "" {
+			params["agent_type"] = l.AgentType
+		}
+	}
+	return params
+}
+
+// machineSource: a launcher a machine defines itself, a ~/.zshrc function or alias ("zshrc") or a wrapper script on
+// its PATH ("path", node/pathlaunchers.go); its page shows its text and what a probe found.
+func machineSource(source string) bool { return source == "zshrc" || source == "path" }
+
+// launcherViews is the whole list: managed first (newest last), then ~/.zshrc ones by name; hidden ones flagged.
+func (s *Service) launcherViews(ctx context.Context) []LauncherView {
+	return s.launcherViewsOf(ctx, s.zshrcLaunchers(ctx, false))
+}
+
+func (s *Service) launcherViewsOf(ctx context.Context, zshrc []zshrcLaunchers) []LauncherView {
+	return s.launcherViewsFrom(ctx, zshrc, s.storedLaunchers(ctx))
+}
+
+func (s *Service) launcherViewsFrom(ctx context.Context, zshrc []zshrcLaunchers, stored []storedLauncher) []LauncherView {
+	var out []LauncherView
+	managed := map[string]bool{}
+	for _, l := range stored {
+		managed[l.Name] = true
+		out = append(out, launcherView(l))
+	}
+	hidden := s.hiddenLaunchers(ctx)
+	byName := map[string]*LauncherView{}
+	var names []string
+	for _, m := range zshrc {
+		for _, l := range m.Launchers {
+			if managed[l.Name] || l.Name == "claude" || (l.Source != "" && !machineSource(l.Source) && l.Agent != "agy" && l.Agent != "omp") {
+				continue // a runtime's launcher without model configuration (DSH, node/runtimes.go) is not listed here
+			}
+			v := byName[l.Name]
+			if v == nil {
+				src := "zshrc"
+				if l.Source != "" {
+					src = l.Source
+				}
+				v = &LauncherView{Name: l.Name, Source: src, Agent: l.Agent, BaseURL: l.BaseURL, Model: l.Model, Hidden: slices.Contains(hidden, l.Name)}
+				byName[l.Name] = v
+				names = append(names, l.Name)
+			}
+			v.Machines = append(v.Machines, m.MachineID)
+			if rc := cmp.Or(m.Sync.RCFile, defaultRCFile); v.Source == "zshrc" && !slices.Contains(v.RCFiles, rc) {
+				v.RCFiles = append(v.RCFiles, rc)
+			}
+			if m.Sync.State != "" && m.Sync.State != "ok" {
+				v.Stale = append(v.Stale, m.MachineID) // the machine's last list: it is offline or did not answer now
+			}
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		out = append(out, *byName[n])
+	}
+	return out
+}
+
+// builtinClaude is the plain `claude` of every machine that has Claude Code (the default launcher, “Claude Code
+// default” in Model Configuration; assistant.launcher "claude"): one view, its machines and their versions. ok false
+// when no machine is known to have it, or a provider added in Persona took the name.
+func (s *Service) builtinClaude(ctx context.Context, zshrc []zshrcLaunchers) (LauncherView, bool) {
+	if slices.ContainsFunc(s.storedLaunchers(ctx), func(l storedLauncher) bool { return l.Name == "claude" }) {
+		return LauncherView{}, false
+	}
+	v := LauncherView{Name: "claude", Source: "builtin", Versions: map[string]string{}}
+	for _, m := range zshrc {
+		listed := slices.ContainsFunc(m.Launchers, func(l proto.Launcher) bool { return l.Name == "claude" })
+		if m.ClaudeVersion == "" && !listed {
+			continue
+		}
+		v.Machines = append(v.Machines, m.MachineID)
+		if m.ClaudeVersion != "" {
+			v.Versions[m.MachineID] = m.ClaudeVersion
+		}
+		if m.Sync.State != "" && m.Sync.State != "ok" {
+			v.Stale = append(v.Stale, m.MachineID)
+		}
+	}
+	return v, len(v.Machines) > 0
+}
+
+// launcherSyncList is every machine's sync state, in the machines' order (the ones asked).
+func launcherSyncList(zshrc []zshrcLaunchers) []LauncherSync {
+	out := []LauncherSync{}
+	for _, m := range zshrc {
+		if m.Sync.State != "" {
+			out = append(out, m.Sync)
+		}
+	}
+	return out
+}
+
+// machineLaunchers is what a machine can start (the pickers: new chat, the assistant's model): its own launchers
+// (the node's list) but the hidden ones, then the managed ones.
+func (s *Service) machineLaunchers(ctx context.Context, machine string) ([]proto.Launcher, error) {
+	var res struct {
+		Launchers []proto.LauncherEnvelope `json:"launchers"`
+	}
+	if err := s.call(ctx, machine, DeviceLaunchersList, map[string]any{}, &res); err != nil {
+		return nil, err
+	}
+	hidden := s.hiddenLaunchers(ctx)
+	managed := s.storedLaunchers(ctx)
+	out := make([]proto.Launcher, 0, len(res.Launchers)+len(managed))
+	for _, envelope := range res.Launchers {
+		l := proto.Launcher(envelope)
+		if slices.Contains(hidden, l.Name) || slices.ContainsFunc(managed, func(m storedLauncher) bool { return m.Name == l.Name }) {
+			continue
+		}
+		l.Source = compat.Source(l.Source)
+		if l.Source == "" { // a runtime's launcher (node/runtimes.go) keeps its own source, e.g. "dsh"
+			l.Source = "zshrc"
+		}
+		out = append(out, l)
+	}
+	for _, m := range managed {
+		if m.Kind == "api" {
+			continue
+		}
+		out = append(out, proto.Launcher{Name: m.Name, BaseURL: m.BaseURL, Model: m.Model, Source: "persona", Agent: m.Agent, Assistant: m.Agent == "agy"})
+	}
+	return out, nil
+}
+
+// launcherAvailable: whether the machine can still run this launcher name (plain claude always; a deleted managed
+// launcher or a renamed ~/.zshrc one does not). A failed list counts as available.
+func (s *Service) launcherAvailable(ctx context.Context, machine, name string) bool {
+	if name == "" || name == "claude" {
+		return true
+	}
+	if slices.ContainsFunc(s.storedLaunchers(ctx), func(l storedLauncher) bool { return l.Name == name }) {
+		return true
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	list, err := s.machineLaunchers(cctx, machine)
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(list, func(l proto.Launcher) bool { return l.Name == name })
+}
+
+// launcherHasModel: whether the launcher offers model (its id or what an alias resolves to), from its list as it was
+// a few minutes ago at most. Unknown (an agent with no list, a failed call) counts as yes.
+func (s *Service) launcherHasModel(ctx context.Context, machine, launcher, model string) bool {
+	key := machine + "\x00" + launcher
+	c := &s.models
+	c.cacheMu.Lock()
+	if c.cacheAt != nil && time.Since(c.cacheAt[key]) < 5*time.Minute {
+		set := c.have[key]
+		c.cacheMu.Unlock()
+		return set == nil || set[model]
+	}
+	c.cacheMu.Unlock()
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := s.askLauncherModels(cctx, machine, launcher, false)
+	if err != nil {
+		return true
+	}
+	set := map[string]bool{}
+	for _, x := range res.Models {
+		set[x.ID] = true
+		if x.Resolved != "" {
+			set[x.Resolved] = true
+		}
+	}
+	if len(set) == 0 {
+		return true
+	}
+	c.cacheMu.Lock()
+	if c.cacheAt == nil {
+		c.cacheAt, c.have = map[string]time.Time{}, map[string]map[string]bool{}
+	}
+	c.cacheAt[key], c.have[key] = time.Now(), set
+	c.cacheMu.Unlock()
+	return set[model]
+}
+
+// askLauncherModels is machine's node's /model list of launcher name (node/launcher_models.go), with the models of
+// the plugin gateway behind it.
+func (s *Service) askLauncherModels(ctx context.Context, machine, name string, refresh bool) (proto.LauncherModels, error) {
+	var res proto.LauncherModels
+	if err := s.call(ctx, machine, assistantwire.DeviceLaunchersModels, s.launcherParams(ctx, machine, name, map[string]any{"refresh": refresh}), &res); err != nil {
+		return res, err
+	}
+	if res.Models == nil {
+		res.Models = []proto.AgentModel{}
+	}
+	return s.presetModels(ctx, machine, name, res), nil
+}

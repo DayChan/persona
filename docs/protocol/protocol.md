@@ -448,7 +448,7 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
 // Launcher (from zsh: functions listed in _claude_launchers, plus aliases that call claude; docs/integrations/launchers.md). Each item from GET …/launchers also carries agent_type
 // (claude / codex / traex / a runtime's agent; treated as Claude when an old hub lacks it): when unset it is inferred from agent, then from the name (codex, traex). hub.json's
 // machines[].launchers can add wrapper functions or override the type, e.g. [{"name":"example_wrapper","agent_type":"codex"}]; same-name config keeps the model and gateway fields it doesn't override
-// (sessionLaunchers in the manager's assistant/models_launchers.go). Android filters launchers by type.
+// (sessionLaunchers in the manager's assistant/models_launchers_routes.go). Android filters launchers by type.
 {"name":"example_launcher","base_url":"https://example.com","model":"<model name>","agent_type":"claude"}
 // Codex launchers (codex on PATH, aliases that run codex) carry agent; starting one requires prompt and can't be async (docs/integrations/codex.md "Starting from the phone")
 {"name":"codex","model":"Default","agent":"codex","agent_type":"codex"}

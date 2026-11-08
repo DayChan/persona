@@ -137,6 +137,11 @@ public struct TaskRows: View {
     }
 }
 
+/// How far a `TaskRow`'s content sits in from its sides: a host lines up what it draws over the row's end with it.
+public enum TaskRowInset {
+    public static let horizontal: CGFloat = 10
+}
+
 /// One task row, for a host that lays out its own (lazy) list: the capsule, a slice of the list card, or bare.
 /// The leading badge, the views before the chevron and the opened detail are the host's; `TaskBadge`,
 /// `TaskStatusPill` and `TaskDetails` draw `TaskRows`' own.
@@ -247,7 +252,7 @@ public struct TaskRow<Leading: View, Trailing: View, Detail: View>: View {
                 .padding(.top, oneLine ? 0 : 1)
             tappable(highlight: false) { chevron }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, TaskRowInset.horizontal)
         .padding(.vertical, oneLine ? 0 : 10)
         .frame(minHeight: 44 * max(1, theme.typeScale * 0.9))
     }

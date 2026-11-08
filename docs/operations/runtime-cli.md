@@ -251,7 +251,7 @@ A failing round saves the scene on the spot: under `CLITEST_OUT` (default `<temp
 | CLI case | Corresponding XCUITest |
 |---|---|
 | `agents_list.py`: `quick_filters`, `compact_rows`, `folding_spaces`, `mark_space_read`, `working_through_unread` | The 5 of the same name in `AgentsListTests` |
-| `live_update.py`: `open_work_stays_open`, `row_menu_holds_still`, `swiped_row_stays_open`, `search_keeps_typed`, `list_menu_holds_still` | The corresponding 5 in `LiveUpdateTests` (mock uses the `churn` scenario; body counts and main-thread time are read from `perf`, and the printed `PERF` lines match XCUITest's) |
+| `live_update.py`: `open_work_stays_open`, `row_menu_holds_still`, `row_more_menu_stays_open`, `search_keeps_typed`, `list_menu_holds_still` | The corresponding 5 in `LiveUpdateTests` (mock uses the `churn` scenario; body counts and main-thread time are read from `perf`, and the printed `PERF` lines match XCUITest's) |
 
 How it differs from writing XCUITest:
 - A row's text is the label of a single button ("完成未看、platform 任务 4、3 分钟前、…", i.e. "Unread, platform task 4, 3 minutes ago, …"); find it by containing `、name、`.

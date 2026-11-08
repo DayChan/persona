@@ -82,6 +82,8 @@ type assistantProc struct {
 	partial       strings.Builder // text of the assistant message being generated
 	lastDelta     time.Time
 	tasks         []string // running background tasks and monitors (descriptions), from background_tasks_changed
+	tasksObserved bool     // an explicit background list was received; nil alone is not empty evidence
+	tasksRevision uint64   // changes to background evidence, including invalidation
 	context       int      // tokens in the conversation's context at its last request (claude), or after a compaction
 	compactIdleAt int
 	compacting    bool     // an idle compaction is running (compactIdle)
@@ -467,11 +469,9 @@ func (n *Node) readAssistant(p *assistantProc, r io.Reader) {
 		}
 		p.started()
 		var ev struct {
-			Type    string `json:"type"`
-			Subtype string `json:"subtype"`
-			Tasks   []struct {
-				Description string `json:"description"`
-			} `json:"tasks"`
+			Type     string                   `json:"type"`
+			Subtype  string                   `json:"subtype"`
+			Tasks    json.RawMessage          `json:"tasks"`
 			Tools    []string                 `json:"tools"`
 			Response assistantControlResponse `json:"response"`
 			Event    struct {
@@ -496,6 +496,7 @@ func (n *Node) readAssistant(p *assistantProc, r io.Reader) {
 			Result          string  `json:"result"`
 		}
 		if json.Unmarshal(line, &ev) != nil {
+			p.invalidateUpdateTasks()
 			continue
 		}
 		switch ev.Type {
@@ -519,14 +520,11 @@ func (n *Node) readAssistant(p *assistantProc, r io.Reader) {
 			if ev.Subtype != "background_tasks_changed" {
 				continue
 			}
-			tasks := make([]string, 0, len(ev.Tasks))
-			for _, t := range ev.Tasks {
-				tasks = append(tasks, t.Description)
+			tasks, err := p.recordBackgroundTasks(ev.Tasks)
+			if err != nil {
+				n.logf("assistant background inventory: %v", err)
+				continue
 			}
-			p.mu.Lock()
-			p.tasks = tasks
-			p.lastActive = time.Now()
-			p.mu.Unlock()
 			n.rememberTasks(p.id, tasks)
 		case "control_response":
 			p.controlResponse(ev.Response)

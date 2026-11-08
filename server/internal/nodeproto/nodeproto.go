@@ -12,6 +12,10 @@ package nodeproto
 // change the node protocol floor or become a required capability.
 const PersonaContracts = "persona_contracts_v1"
 
+// ManagerUpdateInventory is the optional read-only local update.inventory
+// contract. A legacy peer remains compatible, but cannot produce idle evidence.
+const ManagerUpdateInventory = "manager_update_inventory_v1"
+
 // Version is the node protocol this code speaks. Raise it only for a change an older peer cannot follow (a method
 // whose params or results changed meaning); additions go in as capabilities instead.
 //
@@ -78,4 +82,4 @@ const (
 )
 
 // Announced is what a node built from this code announces.
-var Announced = []string{PersonaContracts, Sessions, ModelConfiguration, NodeUpdate, Engines, MachineUID, HerdrServer, PluginNodeCall, Ultracode, HealthSpaces, Preview}
+var Announced = []string{PersonaContracts, ManagerUpdateInventory, Sessions, ModelConfiguration, NodeUpdate, Engines, MachineUID, HerdrServer, PluginNodeCall, Ultracode, HealthSpaces, Preview}

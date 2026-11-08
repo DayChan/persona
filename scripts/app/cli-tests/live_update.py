@@ -98,13 +98,15 @@ def row_menu_holds_still(t):
     t.gone("the menu closes", label="重命名…", timeout=5)
 
 
-def swiped_row_stays_open(t):
-    """A row swiped open ("Close" showing) stays open while its agent keeps working."""
+def row_more_menu_stays_open(t):
+    """A row's ⋯ menu (#1244: the rows do not swipe) stays open while its agent keeps working."""
     at_list(t, row_in_view=True)
-    t.c.swipe("left", **ROW)
-    t.see("the row's swipe actions", label="关闭", trait="button", timeout=5)
+    t.c.tap(id="agents.row.more", labelContains="给天气 App 加主屏幕小组件")
+    t.see("the row's menu", label="关闭 Agent…", trait="button", timeout=5)
     churn(t)
-    t.true(t.find(label="关闭", trait="button"), "the swipe actions are still open")
+    t.true(t.find(label="关闭 Agent…", trait="button"), "the menu is still open")
+    t.c._idb("tap", 201, 70)  # outside the menu
+    t.gone("the menu closes", label="关闭 Agent…", timeout=5)
 
 
 def search_keeps_typed(t):
@@ -147,7 +149,7 @@ def list_menu_holds_still(t):
     t.c._idb("tap", 362, 830)  # close it, as the XCUITest taps (0.9, 0.95)
 
 
-CASES = [open_work_stays_open, row_menu_holds_still, swiped_row_stays_open, search_keeps_typed, list_menu_holds_still]
+CASES = [open_work_stays_open, row_menu_holds_still, row_more_menu_stays_open, search_keeps_typed, list_menu_holds_still]
 
 if __name__ == "__main__":
     main(CASES, setup, lambda c: c.launch(HUB, PINNED + ["-perfCounts", "YES", "-openChatsFresh", "YES", "-openAgentsFresh", "YES"]))

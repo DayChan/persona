@@ -6641,7 +6641,7 @@ LAUNCHERS = [
     # its codex is from its last list (stale).
     {"name": "codex", "source": "zshrc", "model": "默认", "machines": ["server", "studio"], "rc_files": ["~/.bashrc", "~/.zshrc"], "stale": ["studio"]},
     {"name": "cc_bash", "source": "zshrc", "base_url": "https://relay.example.net", "model": "example-pro", "machines": ["server"], "rc_files": ["~/.bashrc"]},
-    # Plain claude on every machine that has it (GET /api/v1/launchers, server/internal/assistant/models_launchers.go builtinClaude).
+    # Plain claude on every machine that has it (GET /api/v1/launchers, server/internal/assistant/models_launchers_list.go builtinClaude).
     {"name": "claude", "source": "builtin", "machines": ["server", "macbook", "studio"], "stale": ["studio"],
      "versions": {"server": "2.1.200", "macbook": "2.1.206", "studio": "2.1.190"}},
 ]

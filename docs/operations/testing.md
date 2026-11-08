@@ -645,7 +645,7 @@ Long-scroll uses `XCTOSSignpostMetric`; simulator reports duration, not dropped 
 ### Live updates don't interrupt interaction (`LiveUpdateTests`)
 
 Constant hub updates must preserve ongoing actions: Agents ⋯ menu scrolled to machine stays open without jumping, long-press menu remains, mid-list rows stay,
-search text/keyboard remain, swiped Close stays; expanded work card and full-screen screenshot in working chat remain open.
+search text/keyboard remain, a row's ⋯ menu stays open (#1244: rows no longer swipe); expanded work card and full-screen screenshot in working chat remain open.
 Each case records body counts/main-thread time per push (`PERF` logs/attachments, before/after in `docs/archive/apple/live-updates.md`).
 
 - Mock: `PORT=18797 MOCK_AGENTS=1 MOCK_CHURN=1 python3 scripts/mock/mock_hub.py &`; `GET /mock/churn?n=12&ms=400` pushes n rounds (each machine's session list—working text changes,

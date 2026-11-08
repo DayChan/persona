@@ -10,17 +10,13 @@ import shlex
 import stat
 import subprocess
 import time
-from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
 
 from hub_release_paths import release_directory, validate_release_paths
 from manager_artifacts import manager_manifest
+from manager_idle import collect, SnapshotPending
 from node_artifacts import verify_binary
 from promote_hub_release import api, nodes
-
-
-class SnapshotPending(ValueError):
-    """Authenticated reconnection has not yet completed roster/session resync."""
 
 
 def snapshot_api(root, path):
@@ -94,44 +90,7 @@ def inspect_target(argv, target, target_source):
 
 
 def snapshot(root, target, require_idle=True):
-    mid = target['manager_id']
-    roster = snapshot_api(root, 'managers')['managers']
-    manager = next((m for m in roster if m.get('id') == mid), None)
-    if manager and manager.get('deploy') != 'service':
-        raise ValueError('Exact independent manager must be online as a service')
-    if not manager or not manager.get('online'):
-        raise SnapshotPending('Exact independent manager is reconnecting')
-    profile = snapshot_api(root, 'assistant?' + urlencode({'manager': mid}))
-    if (profile.get('manager', mid) != mid or
-            (profile.get('main') and profile['main'] != target['main']) or
-            (profile.get('machine_id') and profile['machine_id'] != target['machine_id'])):
-        raise ValueError('Scoped assistant identity conflicts with the original target')
-    if not profile.get('main') or not profile.get('machine_id'):
-        raise SnapshotPending('Scoped assistant identity has not resynced')
-    machines = snapshot_api(root, 'machines')['machines']
-    if any(m['id'] == target['machine_id'] and m.get('manager') != mid for m in machines):
-        raise ValueError('Original machine ownership conflicts with the manager')
-    owned = [m for m in machines if m.get('manager') == mid]
-    if not owned or any(not m.get('online') for m in owned):
-        raise SnapshotPending('Target machines must be known and online')
-    rows = []
-    for machine in owned:
-        response = snapshot_api(root, 'sessions?' + urlencode({'machine_id': machine['id']}))
-        for row in response['sessions']:
-            if row.get('manager', mid) != mid or row.get('machine_id') != machine['id']:
-                raise ValueError('Session ownership is ambiguous')
-            # Old managers expose session state, not full background idleness. An explicit
-            # maintenance window is separately required for their first bootstrap.
-            if require_idle and row.get('state') not in {'idle', 'unread', 'needs_you'}:
-                raise ValueError('Target session is busy or its state is unknown')
-            if require_idle and (row.get('compaction') or {}).get('state') == 'running':
-                raise ValueError('Target session is compacting')
-            rows.append(row)
-    if not any(r.get('session_id') == profile['main'] for r in rows):
-        raise SnapshotPending('Original main is not represented in the snapshot yet')
-    identity = {'manager': mid, 'main': profile['main'], 'machine_id': profile['machine_id'],
-                'machines': sorted((m['id'], m.get('machine_uid')) for m in owned)}
-    return manager, identity, hashlib.sha256(canonical_json(rows)).hexdigest()
+    return collect(root, target, snapshot_api, require_idle=require_idle)
 
 
 def make_plan(target, manifest, run_id, idle_sha, now):
@@ -203,11 +162,11 @@ def promote(payload):
             shutil.copyfileobj(src, dest)
         verify_binary(binary, 'darwin-arm64', manifest)
         target = dict(target, candidate_size=binary.stat().st_size)
-        now = dt.datetime.now(dt.timezone.utc)
-        validate_activation(target, now)
         _, identity, idle_sha = snapshot(root, target)
         if identity != before_identity:
             raise ValueError('Manager identity changed before staging')
+        now = dt.datetime.now(dt.timezone.utc)
+        validate_activation(target, now)
         plan = make_plan(target, manifest, run_id, idle_sha, now)
         script = payload['target_source'] + '\nprint(json.dumps(stage(' + repr(target) + ', ' + repr(plan) + ', __import__("sys").stdin.buffer)))\n'
         staged_target = remote(argv, ['python3', '-c', script], (staged / artifact['name']).read_bytes(), timeout=180)

@@ -2,7 +2,8 @@ import XCTest
 
 /// The shell's Assistant | Agents strip (docs/apple/ios.md「新外壳」, `ShellPager`): a drag to the left on Assistant slides to Agents, a
 /// drag to the right on Agents slides back, a drag to the right on Assistant is still the drawer; pushed pages keep the
-/// system's back swipe, the list scrolls up and down without paging, and a row's own swipe (Pin…) stays the row's.
+/// system's back swipe, the list scrolls up and down without paging, and Agents' rows have no swipe of their own: a drag
+/// along one pages, and the row's actions are in its ⋯ (#1244).
 /// Which page shows is read from the app's probe (`ShellPageProbe.swift`): the hidden page can stay in the accessibility
 /// tree.
 final class ShellPagerTests: XCTestCase {
@@ -21,11 +22,17 @@ final class ShellPagerTests: XCTestCase {
         sleep(1)
     }
 
+    /// Attached to the run; with TEST_RUNNER_PERSONA_SHOTS=<dir> also saved there (TEST_RUNNER_PERSONA_STYLE names it).
     @MainActor private func attachScreen(_ name: String) {
-        let shot = XCTAttachment(screenshot: app.screenshot())
+        let screen = app.screenshot()
+        let shot = XCTAttachment(screenshot: screen)
         shot.name = name
         shot.lifetime = .keepAlways
         add(shot)
+        if let dir = ProcessInfo.processInfo.environment["PERSONA_SHOTS"] {
+            let style = ProcessInfo.processInfo.environment["PERSONA_STYLE"].map { "-" + $0 } ?? ""
+            try? screen.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + style + ".png"))
+        }
     }
 
     /// A finger's drag between two points of the screen (fractions of its size).
@@ -93,23 +100,54 @@ final class ShellPagerTests: XCTestCase {
         expectAgents(false, "closing the drawer paged to Agents")
     }
 
-    @MainActor func testRowSwipeStaysTheRows() {
+    /// Agents' rows do not swipe (#1244: on the way to a chat the drag opened a row's buttons): a drag to the right along
+    /// one pages back to Assistant.
+    @MainActor func testADragAlongARowPagesBack() {
         launch()
         toAgents()
         let row = app.descendants(matching: .any).matching(identifier: "agents.row").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "no row")
         let f = row.frame, h = app.windows.firstMatch.frame
         drag(from: CGVector(dx: 0.4, dy: f.midY / h.height), to: CGVector(dx: 0.8, dy: f.midY / h.height))
+        expectAgents(false, "a drag to the right along a row")
         let pin = app.buttons.matching(NSPredicate(format: "label IN {'置顶', '取消置顶'}")).firstMatch
-        XCTAssertTrue(pin.waitForExistence(timeout: 3), "the row's 置顶 did not come out")
-        expectAgents(true, "a row's swipe paged away")
-        attachScreen("row swipe")
+        XCTAssertFalse(pin.exists && pin.isHittable, "a row's 置顶 came out")
+        attachScreen("row drag")
     }
 
-    /// With Messages on there is a page to the left of Agents' rows too (#2822): a drag to the left from mid-row is the
-    /// row's Close, from the band at the right edge it still pages on to Messages. Needs the mock hub: Demo Mode has no Feishu
-    /// chats, so no Messages page.
-    @MainActor func testRowSwipeLeftStaysTheRowsWithMessages() throws {
+    /// A row ends in its ⋯ (#1244): a tap opens the row's menu, with what its swipes held, and not its chat.
+    @MainActor func testARowsMoreOpensItsMenu() {
+        launch()
+        toAgents()
+        rowMenuOpens("")
+    }
+
+    /// The compact list's rows (`CompactSlotRow`) end in their ⋯ too.
+    @MainActor func testACompactRowsMoreOpensItsMenu() {
+        launch(["-dev.compact", "YES"])
+        toAgents()
+        rowMenuOpens(" compact")
+    }
+
+    @MainActor private func rowMenuOpens(_ look: String) {
+        let more = app.buttons.matching(identifier: "agents.row.more").firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "no ⋯ on a row")
+        attachScreen("agents rows" + look)
+        more.tap()
+        let pin = app.buttons.matching(NSPredicate(format: "label IN {'置顶', '取消置顶'}")).firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 3), "the row's menu did not open")
+        attachScreen("row menu" + look)
+        XCTAssertTrue(app.buttons["关闭 Agent…"].exists || app.buttons["重命名…"].exists, "not the row's menu: \(app.debugDescription)")
+        // Closed without choosing: still the list, no chat pushed.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.12)).tap()
+        XCTAssertTrue(pin.waitForNonExistence(timeout: 3), "the menu did not close")
+        XCTAssertTrue(more.isHittable, "the row's chat opened")
+        expectAgents(true, "the row's menu")
+    }
+
+    /// With Messages on there is a page to the left of Agents' rows too (#2822): a drag to the left along a row pages on to
+    /// it, and no Close comes out of the row (#1244). Needs the mock hub: Demo Mode has no Feishu chats, so no Messages page.
+    @MainActor func testADragLeftAlongARowPagesToMessages() throws {
         guard let hub = ProcessInfo.processInfo.environment["PERSONA_MOCK_HUB"] else { throw XCTSkip("needs mock Hub") }
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
         app = XCUIApplication()
@@ -119,38 +157,21 @@ final class ShellPagerTests: XCTestCase {
         XCTAssertTrue(app.buttons["assistant-sidebar-button"].firstMatch.waitForExistence(timeout: 20), "no shell")
         sleep(2)
         toAgents()
-        // Terminal lists the sessions with a terminal: those close. The mock's cards that need you fill the first screen.
+        // Terminal lists the sessions with a terminal: the rows that swiped to Close. The mock's cards that need you fill
+        // the first screen.
         let terminal = app.buttons["agents.filter.terminal"].firstMatch
         XCTAssertTrue(terminal.waitForExistence(timeout: 10), "no 终端 filter")
         terminal.tap()
         let rows = app.descendants(matching: .any).matching(identifier: "agents.row")
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10), "no row")
         let h = app.windows.firstMatch.frame
-        let close = app.buttons["关闭"].firstMatch
-        let shown = NSPredicate { _, _ in close.exists && close.isHittable }
-        var y: CGFloat?
-        // Not every row can be closed (a row without Close pages on to Messages): find one that can.
-        for i in 0..<min(rows.count, 6) {
-            let f = rows.element(boundBy: i).frame
-            guard f.height > 0, f.minY > h.height * 0.2, f.maxY < h.height * 0.9 else { continue }
-            drag(from: CGVector(dx: 0.7, dy: f.midY / h.height), to: CGVector(dx: 0.3, dy: f.midY / h.height))
-            if XCTWaiter().wait(for: [expectation(for: shown, evaluatedWith: nil)], timeout: 2) == .completed {
-                y = f.midY / h.height; break
-            }
-            if !app.agentsDrawn() { toAgentsFromMessages() }
-        }
-        guard let y else { return XCTFail("no row's 关闭 came out: \(app.shellTrace)") }
-        expectAgents(true, "a row's swipe to the left paged away")
-        attachScreen("row swipe left")
-        // Tap the row's open swipe shut, then from the right edge band the strip pages on.
-        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: y)).tap()
-        let hidden = NSPredicate { _, _ in !(close.exists && close.isHittable) }
-        wait(for: [expectation(for: hidden, evaluatedWith: nil)], timeout: 3)
-        expectAgents(true, "closing the row's swipe")
-        drag(from: CGVector(dx: 0.985, dy: y), to: CGVector(dx: 0.2, dy: y))
+        let shown = (0..<min(rows.count, 6)).map { rows.element(boundBy: $0).frame }
+            .first { $0.height > 0 && $0.minY > h.height * 0.2 && $0.maxY < h.height * 0.9 }
+        guard let f = shown else { return XCTFail("no row on the screen: \(app.shellTrace)") }
+        drag(from: CGVector(dx: 0.7, dy: f.midY / h.height), to: CGVector(dx: 0.3, dy: f.midY / h.height))
         wait(for: [expectation(for: NSPredicate { _, _ in !self.app.agentsDrawn() }, evaluatedWith: nil)], timeout: 4)
-        XCTAssertFalse(close.exists && close.isHittable, "the edge band opened the row instead of paging")
-        attachScreen("edge band pages to 消息")
+        XCTAssertFalse(app.buttons["关闭"].firstMatch.exists, "a row's 关闭 came out")
+        attachScreen("row drag left pages to 消息")
     }
 
     /// A herdr tab's group row (#2668) has no swipe of its own: a drag to the right along it pages back to Assistant rather
@@ -171,12 +192,6 @@ final class ShellPagerTests: XCTestCase {
         let h = app.windows.firstMatch.frame, y = tab.frame.midY / h.height
         drag(from: CGVector(dx: 0.4, dy: y), to: CGVector(dx: 0.9, dy: y))
         expectAgents(false, "a drag to the right along a tab's group row")
-    }
-
-    /// Back to Agents from Messages, the page to its right.
-    @MainActor private func toAgentsFromMessages() {
-        drag(from: CGVector(dx: 0.1, dy: 0.3), to: CGVector(dx: 0.85, dy: 0.3))
-        expectAgents(true, "a drag to the right on 消息")
     }
 
     @MainActor func testPushedPagesSwipeBack() {

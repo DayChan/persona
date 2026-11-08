@@ -394,9 +394,9 @@ struct DrawerPan: UIGestureRecognizerRepresentable {
     /// drawer); on Agents a drag to the right pages back to Assistant (the drawer opens from ☰ there).
     var pager: ShellPager? = nil
 
-    /// On Agents a drag to the right that starts on a row is the row's (Pin, Interrupt, Mark as Seen under it), unless it starts
-    /// this close to the screen's left edge, where the system's back swipe would start. To the left, from a row that
-    /// swipes left (Close), likewise unless it starts this close to the right edge.
+    /// A drag to the left that starts on a row that swipes left (a drawer conversation's Archive, `SwipeRowMark`) is the
+    /// row's, unless it starts this close to the screen's right edge, where the strip still pages (#2822). Agents' rows
+    /// do not swipe (#1244).
     static let edge: CGFloat = Theme.Space.xxl
 
     /// What a drag moves, decided when it starts.
@@ -439,10 +439,9 @@ struct DrawerPan: UIGestureRecognizerRepresentable {
             if let pager, Self.pages(pager: pager, dx: dx) {
                 if Self.sidewaysScroller(at: start, in: view, towardsRight: dx < 0) { return refused("sideways scroller") }
                 if Self.typing(at: start, in: view) { return refused("typing") }
-                if pager.page == 1, dx > 0, start.x > DrawerPan.edge, Self.onRow(at: start, in: view) { return refused("a row's swipe") }
-                // To the left the strip has a page on Agents too once Messages is on (#392): from a row that swipes left
-                // itself (an Agents row's Close, `SwipeRowMark`) the drag is the row's, except from the band at the
-                // right edge, which still pages (#2822). Rows without the mark have nothing to the left: they page.
+                // Agents' rows do not swipe (#1244: on the way to a chat the drag opened a row's buttons): along them a
+                // drag pages, to Assistant or on to Messages (#392). A row that does swipe left (a conversation's Archive
+                // in the drawer, `SwipeRowMark`) keeps that drag, except from the band at the right edge (#2822).
                 if dx < 0, start.x < view.bounds.width - DrawerPan.edge, Self.onSwipeRow(at: start, in: view) {
                     return refused("a row's swipe")
                 }
@@ -464,8 +463,8 @@ struct DrawerPan: UIGestureRecognizerRepresentable {
         /// would start in (so scrolling starts no later). Without this the conversation's pan won the race on a
         /// thumb's 40° swipe (its vertical part passed the list's threshold first) and the drawer was never asked:
         /// the swipe did nothing. A code block at its left edge likewise took a drag to the right to bounce.
-        /// In the shell the list's own swipe (a row's Pin / Close) waits too: from the edge band a drag to the right is
-        /// the strip's, elsewhere on a row it is refused at once and the row's swipe goes ahead.
+        /// In the shell a list's own swipe (a drawer conversation's Archive) waits too: refused at once on a row that
+        /// swipes, the row's swipe goes ahead.
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             guard let s = other.view as? UIScrollView else { return false }
             if other === s.panGestureRecognizer { return true }
@@ -518,50 +517,12 @@ struct DrawerPan: UIGestureRecognizerRepresentable {
             return false
         }
 
-        /// The finger is on a row that swipes to the left (`SwipeRowMark`): the sidebar's conversations (Archive), the
-        /// Agents rows that can be closed (Close).
+        /// The finger is on a row that swipes to the left (`SwipeRowMark`): the sidebar's conversations (Archive).
         static func onSwipeRow(at point: CGPoint, in view: UIView) -> Bool {
             var hit = view.hitTest(point, with: nil)
             while let v = hit, v !== view {
                 if v is UICollectionViewCell || v is UITableViewCell { return SwipeRowMark.marks(v) }
                 hit = v.superview
-            }
-            return false
-        }
-
-        /// The finger is on a list row with a swipe of its own (the Agents list's rows swipe to the right to Pin / Interrupt /
-        /// Mark as Seen). A row marked `NoRowSwipe` (the filter bar, the list's first row on a phone) has none: a drag along
-        /// it turns the strip back to Assistant, as it did when the bar sat above the list.
-        static func onRow(at point: CGPoint, in view: UIView) -> Bool {
-            var hit = view.hitTest(point, with: nil)
-            while let v = hit, v !== view {
-                if v is UICollectionViewCell || v is UITableViewCell { return !NoRowSwipe.marks(v) }
-                hit = v.superview
-            }
-            return false
-        }
-    }
-
-    /// Marks a list row that has no swipe of its own (`Coordinator.onRow`): a point-sized view in the row's background,
-    /// found among the cell's subviews.
-    struct NoRowSwipe: UIViewRepresentable {
-        final class Marker: UIView {}
-
-        func makeUIView(context: Context) -> Marker {
-            let v = Marker()
-            v.isUserInteractionEnabled = false
-            v.isAccessibilityElement = false
-            return v
-        }
-
-        func updateUIView(_ uiView: Marker, context: Context) {}
-
-        /// Whether `cell` holds a marker (a few levels down: the row's hosting views).
-        static func marks(_ cell: UIView) -> Bool {
-            var level = [cell]
-            for _ in 0..<8 where !level.isEmpty {
-                if level.contains(where: { $0 is Marker }) { return true }
-                level = level.flatMap(\.subviews)
             }
             return false
         }
@@ -673,19 +634,14 @@ struct DrawerPan: UIGestureRecognizerRepresentable {
 }
 #else
 /// visionOS: a pinch-and-drag scrolls, and the sidebar opens from its ☰ button; nothing takes a sideways drag.
-struct DrawerPan {
-    /// Marks nothing: there is no drawer drag to keep off a row.
-    struct NoRowSwipe: View {
-        var body: some View { EmptyView() }
-    }
-}
+struct DrawerPan {}
 #endif
 
 #endif
 
 #if os(iOS) || os(visionOS)
-/// Marks a list row whose swipe to the left the drawer and the strip leave alone (a sidebar conversation's Archive, an
-/// Agents row's Close): they look for it in the cell under the finger.
+/// Marks a list row whose swipe to the left the drawer and the strip leave alone (a sidebar conversation's Archive):
+/// they look for it in the cell under the finger.
 struct SwipeRowMark: UIViewRepresentable {
     final class Marker: UIView {}
 
