@@ -281,13 +281,30 @@ func New(version string) (*Node, error) {
 	return n, nil
 }
 
-// ServeStdio runs the node protocol on stdin/stdout until the hub disconnects.
+// ServeStdio consumes exclusive process stdin/stdout until the hub disconnects.
+// The launcher must not share either open description with concurrent I/O. Unix
+// setup duplicates both descriptors and enables shared O_NONBLOCK. Ownership
+// includes the originals: terminal closure closes every transferred endpoint,
+// so the hub sees actual EOF. Unsupported endpoints/platforms fail closed before
+// ownership transfer, initialization or other node activity.
 func (n *Node) ServeStdio(ctx context.Context) error {
-	return n.Serve(ctx, os.Stdin, os.Stdout)
+	return serveOwnedStdio(ctx, n.Serve)
+}
+
+// serveOwnedStdio is the stdio entry path, separated from Node's background
+// services so transport tests can exercise actual inherited descriptors safely.
+func serveOwnedStdio(ctx context.Context, serve func(context.Context, io.Reader, io.Writer) error) error {
+	transport, err := openOwnedStdio(os.Stdin, os.Stdout)
+	if err != nil {
+		return err
+	}
+	defer transport.interrupt()
+	return serve(ctx, transport, transport)
 }
 
 // Serve runs the node protocol for one hub connection on r / w until it ends. One Node serves one connection:
-// `personad node --attach` makes a new one per connection (attach.go).
+// `personad node --attach` makes a new one per connection (attach.go). Arbitrary
+// streams are borrowed: cancellation cannot hard-interrupt their active I/O.
 func (n *Node) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -297,13 +314,19 @@ func (n *Node) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	if err := n.writeClaudeConfig(); err != nil {
 		n.logger.Printf("write claude config: %v", err)
 	}
+	transport := w // retain ownership before the update-response wrapper hides it
 	if n.updater != nil {
 		w = &updateResponseWriter{Writer: w, responseWritten: n.updater.ResponseWritten}
 	}
-	n.peer = rpc.New("n", w)
 	// A tool call whose caller went away (the assistant's turn stopped, a hook killed) ends on the hub too: an
 	// approval it was waiting on is withdrawn, not left to run the call when allowed later (#2597).
-	n.peer.Cancels = map[string]bool{"mcp.call": true}
+	n.peer = newConnectionPeer(w, transport)
+	if n.peer.Interrupt != nil {
+		peer := n.peer // cancellation must never interrupt a replacement connection
+		stop := context.AfterFunc(ctx, func() { peer.Close(ctx.Err()) })
+		defer stop()
+		defer peer.Close(rpc.ErrClosed)
+	}
 	n.peer.OnRequest = n.handle
 	n.streams = streams.New(n.peer.Notify)
 	defer n.streams.CloseAll()

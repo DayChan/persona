@@ -163,11 +163,13 @@ type session struct {
 
 // Proc is one plugin as the hub runs it.
 type Proc struct {
-	spec   Spec
-	cancel context.CancelFunc
-	done   chan struct{}
-	kick   chan struct{}
-	client *http.Client // to its HTTP socket
+	spec           Spec
+	cancel         context.CancelFunc
+	done           chan struct{}
+	teardownFailed chan struct{}
+	teardownErr    error // under mu; a failed reap keeps done open and prevents replacement
+	kick           chan struct{}
+	client         *http.Client // to its HTTP socket
 
 	mu         sync.Mutex
 	generation uint64 // manager-owned binding to this process run
@@ -193,7 +195,7 @@ func Start(ctx context.Context, spec Spec) *Proc {
 		spec.Name = spec.ID
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	p := &Proc{spec: spec, cancel: cancel, done: make(chan struct{}), kick: make(chan struct{}, 1), state: StateStopped,
+	p := &Proc{spec: spec, cancel: cancel, done: make(chan struct{}), teardownFailed: make(chan struct{}), kick: make(chan struct{}, 1), state: StateStopped,
 		change: make(chan struct{})}
 	if spec.Startup {
 		p.state = StateStarting // it starts right away
@@ -212,15 +214,39 @@ func Start(ctx context.Context, spec Spec) *Proc {
 	return p
 }
 
-// Stop stops the plugin and waits for its program to end. Its idle HTTP connections close too: a plugin served from
-// elsewhere outlives the Proc, and its keep-alive connections would stay open for good.
+// Stop waits for actual reap/disposal, preserving callers' deferred resource
+// holds. Use StopContext for bounded failure reporting; a failed result is not
+// completion. The legacy void API cannot report failure and release safely.
 func (p *Proc) Stop() {
+	if err := p.StopContext(context.Background()); err != nil {
+		p.note("stopping: %v", err)
+		<-p.done
+	}
+}
+
+// StopContext bounds the caller's wait and reports teardown failure without
+// releasing owned resources or allowing a replacement before actual reap.
+func (p *Proc) StopContext(ctx context.Context) error {
 	p.cancel()
-	<-p.done
 	if p.client != nil {
 		p.client.CloseIdleConnections()
 	}
+	select {
+	case <-p.done:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.teardownErr
+	case <-p.teardownFailed:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.teardownErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
+
+// Done closes only after leader reap, proven owned-group absence and disposal.
+func (p *Proc) Done() <-chan struct{} { return p.done }
 
 // Generation identifies the active initialized process run, never a source claim.
 func (p *Proc) Generation() uint64 {
@@ -315,12 +341,13 @@ func (p *Proc) Wait(ctx context.Context) error {
 	for {
 		p.mu.Lock()
 		ready, state, why, ch := p.ready, p.state, p.err, p.change
+		teardown := p.teardownErr
 		p.mu.Unlock()
 		switch {
 		case ready:
 			return nil
 		case state == StateError:
-			return i18n.ErrEnglish("extension-status.host_failure", i18n.Args{"name": p.spec.Name, "err": why})
+			return &callFailure{message: i18n.ErrEnglish("extension-status.host_failure", i18n.Args{"name": p.spec.Name, "err": why}), cause: teardown}
 		}
 		select {
 		case <-ctx.Done():
@@ -411,12 +438,16 @@ func (p *Proc) call(ctx context.Context, method string, params, out any) error {
 	defer cancel()
 	err := s.peer.Call(cctx, method, params, out)
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		p.strike(method + " timed out")
-		return newCallTimeout(p.spec.Name, method, p.spec.callTimeout())
+		p.strike(s, method+" timed out")
+		timeout := newCallTimeout(p.spec.Name, method, p.spec.callTimeout())
+		timeout.cause = errors.Join(timeout.cause, err)
+		return timeout
 	}
 	if err == nil {
 		p.mu.Lock()
-		p.strikes = 0
+		if p.sess == s {
+			p.strikes = 0
+		}
 		p.mu.Unlock()
 	}
 	return err
@@ -434,8 +465,12 @@ func (p *Proc) Notify(event string, params any) error {
 }
 
 // strike counts a timeout or a missed ping; enough in a row restart the program.
-func (p *Proc) strike(why string) {
+func (p *Proc) strike(s *session, why string) {
 	p.mu.Lock()
+	if p.sess != s {
+		p.mu.Unlock()
+		return // a late call must not penalize or terminate a replacement run
+	}
 	p.strikes++
 	kill := p.kill
 	n := p.strikes
@@ -505,11 +540,33 @@ func (p *Proc) loop(ctx context.Context) {
 			return
 		}
 		start := time.Now()
-		err := p.runOnce(ctx)
+		started := false
+		err := p.runOnce(ctx, &started)
 		p.mu.Lock()
 		p.sess, p.ready, p.kill, p.strikes = nil, false, nil, 0
 		p.mu.Unlock()
+		var teardown *teardownFailure
+		if errors.As(err, &teardown) {
+			// Keep the run's capacity and disposal owned by its one Wait goroutine.
+			// StopContext reports now, but neither Done nor a new run may pass reap.
+			p.publishTeardownFailure(err)
+			<-teardown.child.exited
+			if started {
+				p.run(RunExit, err.Error())
+			}
+			if p.spec.HTTP && p.spec.Socket != "" {
+				p.removeSocket()
+			}
+			return
+		}
 		if ctx.Err() != nil {
+			if started {
+				if err == nil || errors.Is(err, context.Canceled) {
+					p.run(RunStop, "")
+				} else {
+					p.run(RunExit, err.Error())
+				}
+			}
 			p.set(StateStopped, "")
 			return
 		}
@@ -523,7 +580,9 @@ func (p *Proc) loop(ctx context.Context) {
 			wait = RestartFirst
 		}
 		p.set(StateError, err.Error())
-		p.run(RunExit, err.Error())
+		if started {
+			p.run(RunExit, err.Error())
+		}
 		p.note("%v (again in %s)", err, wait)
 		select {
 		case <-ctx.Done():
@@ -533,6 +592,28 @@ func (p *Proc) loop(ctx context.Context) {
 		}
 		wait = min(wait*2, RestartLast)
 	}
+}
+
+// publishTeardownFailure is shared by the independent watcher and run loop.
+// Reporting cannot depend on an Init/Accept callback returning. It does not
+// complete a run, dispose it, or decrement the observer's active-run count.
+func (p *Proc) publishTeardownFailure(err error) {
+	var teardown *teardownFailure
+	if !errors.As(err, &teardown) {
+		return
+	}
+	p.mu.Lock()
+	if p.teardownErr != nil {
+		p.mu.Unlock()
+		return
+	}
+	p.teardownErr = err
+	p.sess, p.ready = nil, false
+	p.setLocked(StateError, err.Error())
+	close(p.teardownFailed)
+	p.mu.Unlock()
+	p.cancel()
+	p.note("teardown failed while retaining owned run: %v", err)
 }
 
 // waitWanted waits until something needs it; false when ctx ended first.
@@ -557,14 +638,25 @@ type child struct {
 	cmd   *exec.Cmd
 	stdin io.Closer
 	conn  net.Conn
-	// exited is closed once the program has ended, with why in waitErr (never, for a plugin elsewhere). Closed, not
-	// sent on: the run and then end both wait for it, and a value taken by the first left end waiting forever (#2277).
-	exited  chan struct{}
-	waitErr error
+	// leaderDone is only a lifecycle trigger, not owned-run completion. exited
+	// requires leader reap, proven group absence, and disposal. One owner alone
+	// may signal the pinned group and call cmd.Wait.
+	leaderDone    chan struct{}
+	stopRequest   chan struct{}
+	stopOnce      sync.Once
+	ownershipMu   sync.Mutex
+	ownershipErr  error
+	reaped        chan struct{} // cmd.Wait completed; group/disposal may still be active
+	exited        chan struct{}
+	waitErr       error
+	transportOnce sync.Once
+	endOnce       sync.Once
+	endDone       chan struct{}
+	endErr        error // published by closing endDone
 }
 
 // runOnce runs the plugin once: nil when it was stopped because nothing needed it, the reason otherwise.
-func (p *Proc) runOnce(ctx context.Context) error {
+func (p *Proc) runOnce(ctx context.Context, started *bool) (runErr error) {
 	p.set(StateStarting, "")
 	if p.spec.Check != nil {
 		if err := p.spec.Check(ctx); err != nil {
@@ -575,36 +667,84 @@ func (p *Proc) runOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	p.run(RunStart, "")
 	runCtx, stopRun := context.WithCancel(ctx)
-	defer stopRun()
+	killed := make(chan struct{})
+	var killOnce sync.Once
+	p.mu.Lock()
+	p.kill = func() { killOnce.Do(func() { close(killed) }) }
+	p.mu.Unlock()
 	var s *session
+	var peer *rpc.Peer
 	if p.spec.RPC {
-		peer := rpc.New("h", writerOf(ch))
+		// Counted pieces plus the descriptor's unconsumed bytes let a waiting
+		// withdrawal or a canceled caller tell a slow child that keeps reading
+		// from one that stopped (rpc.Peer.Progress). The stdin pipe and the
+		// RPCSocket unix connection are both measurable on Linux; elsewhere
+		// Progress is nil and stalls never retire the transport.
+		w := &rpc.ProgressWriter{W: writerOf(ch)}
+		peer = rpc.New("h", w)
+		peer.Interrupt = ch.closeTransport
+		peer.Progress = rpc.ConsumedProgress(w.W, w.Accepted)
 		peer.Limits = p.spec.RPCBounds
 		peer.OnRequest = p.spec.Handle
 		peer.OnEvent = p.spec.OnEvent
-		go func() { _ = peer.Serve(context.Background(), out) }()
 		s = &session{peer: peer}
+	}
+	// One run-local watcher is installed before initialization. It does not
+	// depend on the run loop or any active RPC write (including inline ping).
+	watchDone := make(chan struct{})
+	var peerDone <-chan struct{}
+	if peer != nil {
+		peerDone = peer.Done()
+	}
+	go func() {
+		defer close(watchDone)
+		select {
+		case <-runCtx.Done():
+		case <-peerDone:
+		case <-ch.leaderDone:
+		case <-killed:
+		}
+		stopRun()
+		p.publishTeardownFailure(p.end(ch, peer))
+	}()
+	leaderExit := false
+	defer func() {
+		stopRun()
+		endErr := p.end(ch, peer)
+		if leaderExit {
+			select {
+			case <-ch.reaped:
+				if ch.waitErr != nil {
+					runErr = ch.waitErr
+				}
+			default:
+			}
+		}
+		runErr = errors.Join(runErr, endErr)
+		<-watchDone
+	}()
+	if peer != nil {
+		go func() { _ = peer.Serve(runCtx, out) }()
+	}
+	*started = true
+	p.run(RunStart, "")
+	if s != nil {
 		if err := p.initialize(runCtx, s); err != nil {
-			p.end(ch, peer)
 			return err
 		}
 	}
-	killed := make(chan struct{})
-	var once sync.Once
+	if err := runCtx.Err(); err != nil {
+		return err // a late callback must not republish a retired run as ready
+	}
 	p.mu.Lock()
+	if err := runCtx.Err(); err != nil || p.teardownErr != nil {
+		p.mu.Unlock()
+		return errors.Join(err, p.end(ch, peer))
+	}
 	p.generation++
 	p.sess = s
-	p.kill = func() { once.Do(func() { close(killed) }) }
 	p.mu.Unlock()
-	defer func() {
-		var peer *rpc.Peer
-		if s != nil {
-			peer = s.peer
-		}
-		p.end(ch, peer)
-	}()
 	if p.spec.RPC {
 		p.up()
 	}
@@ -619,20 +759,14 @@ func (p *Proc) runOnce(ctx context.Context) error {
 	defer health.Stop()
 	ping := time.NewTicker(PingEvery)
 	defer ping.Stop()
-	var peerDone <-chan struct{}
-	if s != nil {
-		peerDone = s.peer.Done()
-	}
 	misses, healthMisses := 0, 0
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ch.exited:
-			if ch.waitErr == nil {
-				return i18n.ErrEnglish("extension-status.exited")
-			}
-			return ch.waitErr
+		case <-ch.leaderDone:
+			leaderExit = true
+			return i18n.ErrEnglish("extension-status.exited")
 		case <-peerDone:
 			return i18n.ErrEnglish("extension-status.connection_closed", i18n.Args{"err": s.peer.Err()})
 		case <-killed:
@@ -688,6 +822,10 @@ func (p *Proc) runOnce(ctx context.Context) error {
 // up marks the plugin ready.
 func (p *Proc) up() {
 	p.mu.Lock()
+	if p.teardownErr != nil {
+		p.mu.Unlock()
+		return
+	}
 	p.ready = true
 	p.setLocked(StateRunning, "")
 	p.mu.Unlock()
@@ -763,7 +901,7 @@ func (p *Proc) initialize(ctx context.Context, s *session) error {
 // spawn starts the program (or connects to the plugin elsewhere): what to write to and read from.
 func (p *Proc) spawn(ctx context.Context) (*child, io.Reader, error) {
 	if p.spec.Command == "" {
-		ch := &child{exited: make(chan struct{})}
+		ch := &child{exited: make(chan struct{}), endDone: make(chan struct{})}
 		if !p.spec.RPC {
 			return ch, nil, nil
 		}
@@ -822,7 +960,7 @@ func (p *Proc) spawn(ctx context.Context) (*child, io.Reader, error) {
 	env = append(slices.Clone(env), wrapEnv...)
 	cmd.Env = identity.Environment(base, env...)
 	cmd.SysProcAttr = osproc.GroupAttr() // so stopping it takes its children too
-	ch := &child{cmd: cmd, exited: make(chan struct{})}
+	ch := &child{cmd: cmd, leaderDone: make(chan struct{}), stopRequest: make(chan struct{}), reaped: make(chan struct{}), exited: make(chan struct{}), endDone: make(chan struct{})}
 	// The log pipe is ours, not cmd.StderrPipe: Wait closes those once the program exits, dropping whatever is
 	// still in them, which is usually why it died. Ours is read to EOF, which comes when the program and its
 	// children have all closed their end.
@@ -854,17 +992,15 @@ func (p *Proc) spawn(ctx context.Context) (*child, io.Reader, error) {
 	logsW.Close() // the program holds its own copy now; with ours open the reader never sees EOF
 	if err != nil {
 		logs.Close()
+		ch.closeTransport()
+		if closer, ok := out.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		return nil, nil, i18n.Err("extension-status.program_start", i18n.Args{"name": p.spec.Name, "err": err.Error()})
 	}
 	started = true
 	go p.logLines(logs)
-	go func() {
-		ch.waitErr = cmd.Wait()
-		if dispose != nil {
-			dispose()
-		}
-		close(ch.exited)
-	}()
+	go ch.ownRun(dispose)
 	return ch, out, nil
 }
 
@@ -878,37 +1014,88 @@ func writerOf(ch *child) io.Writer {
 	return io.Discard
 }
 
-// end stops a run: closes stdin (a program exits when the hub goes away), then SIGTERM, then SIGKILL, to its whole
-// process group. A program that does not speak the protocol gets SIGTERM right away.
-func (p *Proc) end(ch *child, peer *rpc.Peer) {
+// closeTransport is independent of writer admission. spawn supplies only owned
+// pollable stdin files or network connections, not arbitrary plugin io.Closers.
+func (ch *child) closeTransport() {
+	ch.transportOnce.Do(func() {
+		if ch.conn != nil {
+			_ = ch.conn.Close()
+		}
+		if ch.stdin != nil {
+			_ = ch.stdin.Close()
+		}
+	})
+}
+
+var ErrTeardownTimeout = i18n.ErrEnglish("extension-status.teardown_timeout")
+
+var errGroupCompletionUnsupported = i18n.ErrEnglish("extension-status.group_completion_unsupported")
+
+type teardownFailure struct {
+	child *child
+	cause error
+}
+
+func (e *teardownFailure) Error() string { return e.Text(i18n.En) }
+func (e *teardownFailure) Text(l i18n.Lang) string {
+	if e.cause == nil {
+		return i18n.T(l, "extension-status.teardown_timeout")
+	}
+	return i18n.T(l, "extension-status.teardown_detail", i18n.Args{"err": i18n.ExtensionDiagnosticText(l, e.cause.Error())})
+}
+func (e *teardownFailure) Unwrap() []error { return []error{ErrTeardownTimeout, e.cause} }
+
+func (ch *child) ownershipError(err error) {
+	ch.ownershipMu.Lock()
+	ch.ownershipErr = err
+	ch.ownershipMu.Unlock()
+}
+
+func (ch *child) teardownFailure() error {
+	ch.ownershipMu.Lock()
+	defer ch.ownershipMu.Unlock()
+	return &teardownFailure{child: ch, cause: ch.ownershipErr}
+}
+
+// end has one run-local owner, with a finite final reap budget. cmd.Wait remains
+// owned exclusively by spawn; its disposal must not run early on a timeout.
+func (p *Proc) end(ch *child, peer *rpc.Peer) error {
+	// Close hooks may reenter Peer.Close; neither an end-once nor lifecycle lock
+	// is held here. The worker captures this child, never p's replacement session.
 	if peer != nil {
 		peer.Close(rpc.ErrClosed)
 	}
-	if ch.conn != nil {
-		_ = ch.conn.Close()
-	}
-	if ch.cmd == nil || ch.cmd.Process == nil {
-		return // a plugin elsewhere owns its socket
-	}
-	if p.spec.HTTP && p.spec.Socket != "" {
-		defer p.removeSocket() // once the program is gone: a killed one leaves its socket file behind
-	}
-	pid := ch.cmd.Process.Pid
-	if ch.stdin != nil {
-		_ = ch.stdin.Close()
-		select {
-		case <-ch.exited:
-			_ = osproc.StopGroup(pid, false) // its children, if it left any
-			return
-		case <-time.After(StopGrace):
+	ch.closeTransport()
+	ch.endOnce.Do(func() {
+		if ch.endDone == nil {
+			ch.endDone = make(chan struct{})
 		}
+		go func() {
+			defer close(ch.endDone)
+			ch.endErr = p.terminate(ch)
+		}()
+	})
+	<-ch.endDone
+	return ch.endErr
+}
+
+func (p *Proc) terminate(ch *child) error {
+	if ch.cmd == nil || ch.cmd.Process == nil {
+		return nil // the remote process is not ours
 	}
-	_ = osproc.StopGroup(pid, false)
+	// Only ownRun may signal. It retains the unreaped original leader while
+	// doing so; observing a channel followed by numeric PGID signaling races reap.
+	ch.stopOnce.Do(func() { close(ch.stopRequest) })
+	timer := time.NewTimer(3 * StopGrace)
+	defer timer.Stop()
 	select {
 	case <-ch.exited:
-	case <-time.After(StopGrace):
-		_ = osproc.StopGroup(pid, true)
-		<-ch.exited
+		if p.spec.HTTP && p.spec.Socket != "" {
+			p.removeSocket()
+		}
+		return nil
+	case <-timer.C:
+		return ch.teardownFailure()
 	}
 }
 

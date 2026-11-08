@@ -131,6 +131,15 @@ func (c *Client) session(ctx context.Context) (helloed bool, err error) {
 	p.OnRequest, p.OnEvent, p.Cancels = c.OnRequest, c.OnEvent, c.Cancels
 	served := make(chan error, 1)
 	go func() { served <- p.Serve(sctx, conn) }()
+	// Whatever closes the peer ends the session: a closed peer still reading the
+	// websocket would run the hub's calls without being able to answer them.
+	go func() {
+		select {
+		case <-p.Done():
+			_ = ws.CloseNow()
+		case <-sctx.Done():
+		}
+	}()
 
 	var params any = map[string]any{}
 	if c.HelloParams != nil {

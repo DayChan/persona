@@ -218,7 +218,10 @@ func Attach(ctx context.Context, newNode func() (*Node, error), extra <-chan net
 			n.keeper = keeper                        // conversations go on from one connection to the next (assistant_keep.go)
 			n.spool = sp                             // what standby took goes to this connection first (spool.go)
 			go func() { <-cctx.Done(); c.Close() }() // a replaced connection stops reading at once
-			if err := n.Serve(cctx, c, c); err != nil && !errors.Is(err, io.EOF) && cctx.Err() == nil {
+			// This owner already closes c on replacement. Its connection must
+			// unblock active I/O on Close; generic Serve never infers ownership.
+			transport := &ownedRPCTransport{Reader: c, Writer: c, interrupt: func() { _ = c.Close() }}
+			if err := n.Serve(cctx, transport, transport); err != nil && !errors.Is(err, io.EOF) && cctx.Err() == nil {
 				n.logger.Printf("connection ended: %v", err)
 			}
 		}()

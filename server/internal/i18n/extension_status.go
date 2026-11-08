@@ -22,6 +22,11 @@ func extensionStatusText(l Lang, text string, depth int) string {
 	if text == "" || depth >= 16 {
 		return text
 	}
+	// Joined diagnostics retain their raw external lines, while each recognized
+	// hub-owned reason is translated independently (not just its punctuation).
+	if strings.Contains(text, "\n") {
+		return extensionDiagnosticText(l, text, depth+1)
+	}
 	for _, form := range extensionStatusTemplates {
 		match := form.pattern.FindStringSubmatch(text)
 		if match == nil {
@@ -38,7 +43,11 @@ func extensionStatusText(l Lang, text string, depth int) string {
 				}
 				args[name] = n
 			case "err":
-				if knownExtensionStatus(value, depth+1) {
+				if form.key == "extension-status.teardown_detail" {
+					args[name] = extensionDiagnosticText(l, value, depth+1)
+				} else if knownExtensionStatus(value, depth+1) {
+					args[name] = extensionStatusText(l, value, depth+1)
+				} else if _, _, teardown := extensionTeardownText(l, value, depth+1); teardown {
 					args[name] = extensionStatusText(l, value, depth+1)
 				} else {
 					args[name] = value
@@ -55,15 +64,88 @@ func extensionStatusText(l Lang, text string, depth int) string {
 	return text
 }
 
+// ExtensionDiagnosticText translates recognized owned reasons within joined
+// diagnostics. Unknown external lines stay byte-for-byte intact: an arbitrary
+// diagnostic containing a colon must not become a localized host_failure.
+func ExtensionDiagnosticText(l Lang, text string) string { return extensionDiagnosticText(l, text, 0) }
+
+func extensionDiagnosticText(l Lang, text string, depth int) string {
+	if depth >= 16 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		_, _, teardown := extensionTeardownText(l, line, depth+1)
+		if knownExtensionStatus(line, depth+1) || teardown {
+			lines[i] = extensionStatusText(l, line, depth+1)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // ExtensionFailureText separates unrecognized SDK/program diagnostics from a localized hub-owned summary.
 func ExtensionFailureText(l Lang, text, fallback string) (string, string) {
 	if text == "" {
 		return "", ""
 	}
+	if summary, detail, ok := extensionTeardownText(l, text, 0); ok {
+		return summary, detail
+	}
 	if knownExtensionStatus(text, 0) {
 		return ExtensionStatusText(l, text), ""
 	}
 	return T(l, fallback), text
+}
+
+// extensionTeardownText projects the typed host failure's canonical catalog
+// envelope. Keep external/kernel diagnostics separately, without demoting the
+// owned shutdown reason into an untranslated error_detail. Authored fields never
+// use this projection, and the original status/error retains coded identity.
+func extensionTeardownText(l Lang, text string, depth int) (string, string, bool) {
+	if depth >= 16 {
+		return "", "", false
+	}
+	for _, form := range extensionStatusTemplates {
+		match := form.pattern.FindStringSubmatch(text)
+		if match == nil {
+			continue
+		}
+		switch form.key {
+		case "extension-status.teardown_timeout":
+			return T(l, form.key), "", true
+		case "extension-status.teardown_detail":
+			var owned, external []string
+			for _, line := range strings.Split(match[1], "\n") {
+				if knownExtensionStatus(line, depth+1) {
+					owned = append(owned, extensionStatusText(l, line, depth+1))
+				} else {
+					external = append(external, line)
+				}
+			}
+			summary := T(l, "extension-status.teardown_timeout")
+			if len(owned) > 0 {
+				summary = T(l, form.key, Args{"err": strings.Join(owned, "\n")})
+			}
+			return summary, strings.Join(external, "\n"), true
+		case "extension-status.host_failure":
+			args := Args{}
+			var detail string
+			found := false
+			for i, name := range form.names {
+				if name == "err" {
+					var summary string
+					summary, detail, found = extensionTeardownText(l, match[i+1], depth+1)
+					args[name] = summary
+				} else {
+					args[name] = match[i+1]
+				}
+			}
+			if found {
+				return T(l, form.key, args), detail, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func knownExtensionStatus(text string, depth int) bool {

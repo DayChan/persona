@@ -20,7 +20,7 @@ func (e *callFailure) Text(l i18n.Lang) string {
 }
 func (e *callFailure) Unwrap() []error { return []error{e.message, e.cause} }
 
-func newCallTimeout(name, method string, duration time.Duration) error {
+func newCallTimeout(name, method string, duration time.Duration) *callFailure {
 	msg := i18n.ErrEnglish("extension-status.call_timeout", i18n.Args{"name": name, "method": method, "duration": duration.String()})
 	return &callFailure{message: msg, cause: &rpc.Error{Code: extension.CodeTimeout, Message: msg.Error()}}
 }

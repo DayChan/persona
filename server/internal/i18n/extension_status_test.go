@@ -40,6 +40,25 @@ func TestExtensionStatusCopies(t *testing.T) {
 	}
 }
 
+func TestExtensionTeardownDiagnosticSeparation(t *testing.T) {
+	raw := "filesystem diagnostic: permission denied\nexternal diagnostic: quoted operation"
+	cause := strings.Join([]string{T(En, "extension-status.group_completion_unsupported"), raw}, "\n")
+	canonical := T(En, "extension-status.teardown_detail", Args{"err": cause})
+	for _, l := range []Lang{En, ZhHans, Ja} {
+		localizedCause := strings.Join([]string{T(l, "extension-status.group_completion_unsupported"), raw}, "\n")
+		if got := ExtensionDiagnosticText(l, cause); got != localizedCause {
+			t.Fatalf("raw joined diagnostic changed %s: %q", l, got)
+		}
+		if got := ExtensionStatusText(l, canonical); got != T(l, "extension-status.teardown_detail", Args{"err": localizedCause}) {
+			t.Fatalf("owned canonical teardown projection %s: %q", l, got)
+		}
+		summary, detail := ExtensionFailureText(l, canonical, "extension-status.failed")
+		if summary != T(l, "extension-status.teardown_detail", Args{"err": T(l, "extension-status.group_completion_unsupported")}) || detail != raw {
+			t.Fatalf("owned/raw projection %s: %q / %q", l, summary, detail)
+		}
+	}
+}
+
 func TestExtensionAuthEventProjection(t *testing.T) {
 	for _, l := range []Lang{En, ZhHans, Ja} {
 		for _, owned := range []bool{false, true} {
