@@ -10158,7 +10158,7 @@ def incoming_message(query):
         if sid in subscribed:
             try: send({"type": "items", "machine_id": mid, "session_id": sid, "items": [item], **span([item], before)})
             except OSError: pass
-    return {"session": decorated_session(session), "item": item}, 200
+    return {"session": stamp_row(decorated_session(session)), "item": item}, 200
 
 
 def quiet_capsule():

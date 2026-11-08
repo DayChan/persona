@@ -23745,6 +23745,21 @@
             "value": "Claude background"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeバックグラウンド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 后台"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Claude desktop app": {
       "localizations": {
         "en": {
@@ -23786,21 +23801,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "终端里的 Claude"
-          }
-        }
-      },
-      "extractionState": "manual"
-    },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claudeバックグラウンド"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude 后台"
           }
         }
       },
