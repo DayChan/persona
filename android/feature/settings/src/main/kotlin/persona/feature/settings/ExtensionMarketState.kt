@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Instant
 
 // Settings › Extensions › Extension market (docs/extensions/extensions.md "Extension market"): the words, the catalog, one extension of it (preview, then install,
 // upgrade or remove) and the markets. The pages are in ExtensionMarketScreen.kt.
@@ -234,8 +235,12 @@ internal data class CatalogExtensionState(
 /**
  * One extension of a market: its permissions, preview → install / upgrade, remove. With a hub that has
  * `extension_operations` each runs in steps the page shows as they go ([watch]); with an older one the calls wait.
+ * [now] is the clock a preview's expiry is read against.
  */
-internal class CatalogExtensionModel(private val api: ExtensionMarkets, private val market: String, private val id: String, private val res: Resources) {
+internal class CatalogExtensionModel(
+    private val api: ExtensionMarkets, private val market: String, private val id: String, private val res: Resources,
+    private val now: () -> Instant = Instant::now,
+) {
     private val mutable = MutableStateFlow(CatalogExtensionState())
     val state = mutable.asStateFlow()
     /** Says an operation ended well (set by [watch]). */
@@ -383,12 +388,22 @@ internal class CatalogExtensionModel(private val api: ExtensionMarkets, private 
     }
 
     /**
+     * The preview expired (#1316): it is put away (an operation waiting on it canceled) and the package previewed
+     * afresh, so the user agrees to what the hub checks now, never to the old preview's grants.
+     */
+    suspend fun previewAgain(): Boolean {
+        if (state.value.acting) return false
+        dismissPreview()
+        return preview()
+    }
+
+    /**
      * The user agreed: installs or upgrades with the preview's permissions. Returns what to tell them, or null (an
-     * operation says it when it ends).
+     * operation says it when it ends). An expired preview is not sent: the hub would refuse it ([previewAgain]).
      */
     suspend fun confirm(): String? {
         val preview = state.value.preview ?: return null
-        if (state.value.acting || !preview.canConfirm) return null
+        if (state.value.acting || !preview.canConfirm(now())) return null
         mutable.update { it.copy(acting = true, actionError = null) }
         if (state.value.consentFor != null) return try {
             val op = api.agree(preview, if (preview.upgrade) id else null)

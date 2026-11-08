@@ -227,6 +227,8 @@
     <string name="settings_ext_preview_note">The package has been downloaded and its sha256 checked. Extensions run on the hub machine; whether the sandbox applies is shown in the details after installing.</string>
     <string name="settings_ext_preview_expires">" This preview expires at %1$s (UTC)."</string>
     <string name="settings_ext_preview_cancel">Don\'t install</string>
+    <string name="settings_ext_preview_expired">This preview has expired, so it can\'t be confirmed. Preview again to check the package and what it may do now.</string>
+    <string name="settings_ext_preview_again">Preview Again</string>
     <string name="settings_ext_uninstall_title">Remove %1$s?</string>
     <string name="settings_ext_uninstall_text">This stops it and deletes its settings and secrets; the connectors it provides go too.</string>
     <string name="settings_ext_dependents_title">Switch off the extensions that depend on it?</string>

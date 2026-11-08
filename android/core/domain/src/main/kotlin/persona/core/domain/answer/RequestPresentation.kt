@@ -26,9 +26,10 @@ val Interaction.offersAlways: Boolean get() = agentDisplayName == null || !alway
 
 /**
  * A permission card that needs its fields filled in (a password) before it can be allowed. This app has no form for
- * them yet, so allow is not offered anywhere (as web's quick answers); deny still is (#4987).
+ * them yet, so allow is not offered anywhere (as web's quick answers); deny still is (#4987). A password card
+ * ([Interaction.isSecretRun], #1137) always needs one, filled in only on the iPhone.
  */
-val Interaction.needsFieldValues: Boolean get() = kind == "permission" && fields.orEmpty().any { !it.optional }
+val Interaction.needsFieldValues: Boolean get() = kind == "permission" && (isSecretRun || fields.orEmpty().any { !it.optional })
 
 /** The button for it: Claude's "Always allow this session", another agent's "Always allow" (what it allows is shown beside it). */
 val Interaction.alwaysActionLabel: CoreText

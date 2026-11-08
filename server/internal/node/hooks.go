@@ -165,6 +165,15 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 		resp = map[string]any{"ok": true}
 	case "ping": // personad node doctor, persona-link node switch: a round trip that changes nothing
 		resp = map[string]any{"ok": true, "program": n.Program, "version": n.Version}
+	case "update.inventory":
+		var target nodeclient.UpdateInventoryTarget
+		if err := json.Unmarshal(req.Input, &target); err != nil {
+			resp = map[string]any{"error": "invalid explicit update inventory target"}
+		} else if inventory, err := n.updateInventory(ctx, target); err != nil {
+			resp = map[string]any{"error": err.Error()}
+		} else {
+			resp = inventory
+		}
 	case "preflight": // personad node doctor's path-access check, read with this node's permissions (preflight.go)
 		resp = n.preflight(ctx)
 	case "ask": // personad ask (scriptcli.go)

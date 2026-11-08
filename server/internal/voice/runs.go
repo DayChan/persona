@@ -97,6 +97,7 @@ const (
 // set moves r to state, telling the app (protocol 2) and the next session's instructions (what is still open). An
 // observed run is the voice's to tell, not the app's.
 func (t *tracker) set(r *voiceRun, state string) {
+	t.c.runState(r, state)
 	if r.Observed {
 		r.State = state
 		return
@@ -257,6 +258,7 @@ func (t *tracker) adopt(r *voiceRun) {
 		}
 		r.appIDs = append(o.appIDs, r.appIDs...)
 		t.link.unwatch(linkKey{o.MachineID, o.SessionID}) // r holds its own watch
+		t.c.logf("run %s: folded into run %s", o.ID, r.ID)
 		t.set(o, runFolded)
 	}
 	t.runs = append(keep, r)
@@ -381,13 +383,13 @@ func (t *tracker) check(ctx context.Context, r *voiceRun) {
 	if err == nil && !rd.Found && r.Base > 0 {
 		// The transcript ends before the base (rewound, rewritten): find the message from the start.
 		if last, lerr := hub.lastSeq(ctx, r.MachineID, r.SessionID); lerr == nil && last < r.Base {
-			t.c.pl.logf("run %s: the conversation ends at %d, before its base %d: reading it from the start", r.ID, last, r.Base)
+			t.c.logf("run %s: the conversation ends at %d, before its base %d: reading it from the start", r.ID, last, r.Base)
 			r.Base = 0
 			rd, err = channel.ReadTurn(ctx, src, &r.Run)
 		}
 	}
 	if err != nil {
-		t.c.pl.logf("run %s: read the answer: %v", r.ID, err)
+		t.c.logf("run %s: read the answer: %s", r.ID, hubOutcome(err))
 		return
 	}
 	if sess != nil && sess.Rev != 0 {
@@ -409,7 +411,7 @@ func (t *tracker) check(ctx context.Context, r *voiceRun) {
 		}
 		if r.unsent {
 			// Handed back while it was being sent, and never showed: it may or may not have got there.
-			t.c.pl.logf("run %s: handed back while sending, its message never showed: unknown", r.ID)
+			t.c.logf("run %s: handed back while sending, its message never showed: unknown", r.ID)
 			t.drop(r)
 			t.notSent(r, sendFail{state: runUnknown, code: "unknown", prompt: "unknown"})
 			return
@@ -417,7 +419,7 @@ func (t *tracker) check(ctx context.Context, r *voiceRun) {
 		// The message never reached the conversation even past QueuedMost. Reading the whole tail would answer with
 		// the previous turn's last words, and dropping the run would leave the real answer unclaimed: give up and
 		// ask the user to say it again instead (#4513, as the assistant's channels do since #4455).
-		t.c.pl.logf("run %s: its message never showed in the conversation: asking to say it again", r.ID)
+		t.c.logf("run %s: its message never showed in the conversation: asking to say it again", r.ID)
 		t.finish(r, &channel.Result{Note: i18n.T(look.Lang, "voice-runs.not_delivered"), End: channel.EndGaveUp}, look)
 		return
 	}
@@ -507,13 +509,19 @@ func (t *tracker) handOver(task, delegation string, gen int, appID string, histo
 	r.Tasks = []string{r.task}
 	r.ID, r.Channel, r.Probe, r.Started = appID, "voice", channel.Probe(task), time.Now()
 	message := prompts.RenderVoiceDelegated(prompts.VoiceDelegated{Lang: string(l), Task: task, History: history})
+	c.runState(r, runSending)
 	go func() {
 		if err := t.send(c.ctx, r, message); err != nil {
 			if c.ctx.Err() != nil {
 				return
 			}
-			c.pl.logf("hand over: %v", err)
 			code, reason := sendFailure(err)
+			r.Code = code
+			if code == "unknown" {
+				c.runState(r, runUnknown)
+			} else {
+				c.runState(r, runFailed)
+			}
 			c.toolsDone(r.appIDs)
 			c.tell(r, plainWords(prompts.RenderVoiceRefused(prompts.VoiceRefused{Lang: string(l), Code: code, Task: r.Tasks[0], Reason: reason})), true, false)
 			return
@@ -533,10 +541,13 @@ func (t *tracker) send(ctx context.Context, r *voiceRun, message string) error {
 	hub := t.c.pl.hub
 	machine, main, err := hub.assistant(ctx)
 	if err != nil {
+		t.c.logf("run %s: where the main conversation is: %s", r.ID, hubOutcome(err))
 		return err
 	}
 	if main == "" {
+		began := time.Now()
 		sess, err := hub.startMain(ctx, message)
+		t.c.logf("run %s: started a main conversation on %s: %s in %v", r.ID, machine, hubOutcome(err), logDur(time.Since(began)))
 		if err != nil {
 			return maybeSent(err)
 		}
@@ -552,14 +563,17 @@ func (t *tracker) send(ctx context.Context, r *voiceRun, message string) error {
 	}
 	base, err := hub.lastSeq(ctx, machine, main)
 	if err != nil {
-		t.c.pl.logf("run %s: the conversation's last line: %v (its message is found from the start)", r.ID, err)
+		t.c.logf("run %s: the conversation's last line: %s (its message is found from the start)", r.ID, hubOutcome(err))
 	}
 	r.Base = base
 	t.link.watch(key, base)
 	id := voiceMessageID()
 	sctx, cancel := context.WithTimeout(ctx, sendTimeout(sess))
 	defer cancel()
-	if err := hub.send(sctx, machine, main, message, id); err != nil {
+	began := time.Now()
+	err = hub.send(sctx, machine, main, message, id)
+	t.c.logf("run %s: sent to %s/%s as %s: %s in %v", r.ID, machine, main, id, hubOutcome(err), logDur(time.Since(began)))
+	if err != nil {
 		t.link.unwatch(key)
 		return maybeSent(err)
 	}

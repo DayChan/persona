@@ -69,4 +69,16 @@ struct InteractionAskLineTests {
         #expect(interaction(kind: .permission, toolName: "Bash").askLine(includeToolName: true) == "Bash")
         #expect(interaction(kind: .permission).askLine(includeToolName: true) == nil)
     }
+
+    /// The password card (secret_run) never shows its raw tool name: the chat card's title already names it, and its
+    /// summary says where and what it runs. Without a summary it has no ask line (callers fall back to its title).
+    @Test func thePasswordCardShowsItsSummaryAlone() {
+        let summary = "Run on Mac Studio: install the backup job\n$ sudo -S -k -p '' launchctl bootstrap system backup.plist"
+        let card = interaction(kind: .permission, toolName: SecretRun.tool, summary: summary + "\n")
+        #expect(card.askLine(includeToolName: true) == summary)
+        #expect(card.askLine(includeToolName: false) == summary)
+        let bare = interaction(kind: .permission, toolName: SecretRun.tool)
+        #expect(bare.askLine(includeToolName: true) == nil)
+        #expect(bare.askLine(includeToolName: false) == nil)
+    }
 }

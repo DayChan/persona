@@ -2487,7 +2487,9 @@ def long_tool(name, inp, whole, ts_min):
     items = tool(name, inp, "", ts_min)
     data = whole.encode()
     end = data.rfind(b"\n", 0, 4096)
-    items[1]["text"] = data[:end].decode() + "\n…（已截断，点开看全文，共 %d 字节）" % len(data)
+    if end < 0:  # one long line (a tool's JSON): its first 4 KB, a character cut in half dropped
+        end = 4096
+    items[1]["text"] = data[:end].decode(errors="ignore") + "\n…（已截断，点开看全文，共 %d 字节）" % len(data)
     items[1]["full_size"] = len(data)
     FULL[items[1]["id"]] = {k: v for k, v in items[1].items() if k != "full_size"} | {"text": whole}
     return items
@@ -3559,6 +3561,55 @@ if os.environ.get("MOCK_ASSISTANT_CARDS"):
         {"id": "ix_assistant_send", "machine_id": "server", "session_id": ASK1, "session_title": "Persona",
          "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=14),
          "tool_name": "mail_send", "tool_input": {"to": "me@example.com"}, "summary": "给 me@example.com 发一封邮件"})
+
+# MOCK_SECRET_RUN=pending|ran|withheld|long: the password card (secret_run, #1137) in Persona's main conversation.
+# `pending`: the assistant asked to run two commands on the Mac Studio, its call waits and the card asks for the
+# password; `ran`: the card was answered, the call's result (the tool's JSON) says every command exited 0, and no card is
+# left; `withheld`: the same, but the first command's output held the password, so none of it came back; `long`: the
+# second command failed with a long output, so the page carries only the result's start (its whole text at
+# GET …/items/{id}/full) and the app reads the whole text to show the outcome.
+SECRET_RUN_INPUT = {
+    "machine": "studio", "machine_name": "Mac Studio", "delivery": "stdin",
+    "purpose": "把备份任务装成系统 launch daemon，每天凌晨 3 点自动备份文稿",
+    "commands": ["sudo -S -k -p '' cp -v ~/backup/com.example.backup.plist /Library/LaunchDaemons/",
+                 "sudo -S -k -p '' launchctl bootstrap system /Library/LaunchDaemons/com.example.backup.plist"]}
+if os.environ.get("MOCK_SECRET_RUN") in ("pending", "ran", "withheld", "long"):
+    ITEMS[ASK1] = ITEMS[ASK1] + [
+        it("user", "text", 2, text="在 Mac Studio 上把备份任务装成 launch daemon，每天凌晨 3 点跑"),
+        it("assistant", "text", 1.5, text="要装到系统目录，需要 Mac Studio 的管理员密码。要跑的命令都在卡片里，确认后在卡片里填密码，我这边看不到它。")]
+    if os.environ["MOCK_SECRET_RUN"] == "pending":
+        ITEMS[ASK1].append(it("assistant", "tool_use", 1, tool_use_id="toolu_secret_run", tool_name="mcp__persona__secret_run",
+                              tool_input=SECRET_RUN_INPUT))
+        INTERACTIONS.append(
+            {"id": "ix_secret_run", "machine_id": "server", "session_id": ASK1, "session_title": "Persona",
+             "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=9),
+             "tool_name": "secret_run", "tool_use_id": "toolu_secret_run", "tool_input": SECRET_RUN_INPUT,
+             "summary": "在 Mac Studio 上运行（%s）：\n" % SECRET_RUN_INPUT["purpose"]
+                        + "\n".join("$ " + c for c in SECRET_RUN_INPUT["commands"]),
+             "fields": [{"key": "password", "label": "密码", "placeholder": "只用这一次，不会保存", "secret": True}]})
+    elif os.environ["MOCK_SECRET_RUN"] in ("ran", "withheld"):
+        _withheld = os.environ["MOCK_SECRET_RUN"] == "withheld"
+        _copied = "" if _withheld else "/Users/me/backup/com.example.backup.plist -> /Library/LaunchDaemons/com.example.backup.plist\n"
+        ITEMS[ASK1] = ITEMS[ASK1] + tool("mcp__persona__secret_run", SECRET_RUN_INPUT, json.dumps({
+            "status": "ran", "machine": "Mac Studio",
+            "message": "Ran 2 commands on Mac Studio with the password the user typed; the password was used once and discarded.",
+            "results": [{"command": c, "exit_code": 0, "output": out, "timed_out": False, "truncated": False, "output_withheld": hold}
+                        for c, out, hold in zip(SECRET_RUN_INPUT["commands"], [_copied, ""], [_withheld, False])]},
+            ensure_ascii=False), 1) + [
+            it("assistant", "text", 0.5, text="装好了：备份任务已经注册成系统 launch daemon，每天凌晨 3 点运行。两条命令都成功了，密码只用了这一次。")]
+    else:
+        _copied = "/Users/me/backup/com.example.backup.plist -> /Library/LaunchDaemons/com.example.backup.plist\n"
+        _log = "".join("%02d:%02d launchd: com.example.backup: retrying the job's bootstrap (attempt %d)\n" % (3, n % 60, n)
+                       for n in range(1, 51)) + "Bootstrap failed: 5: Input/output error\n"
+        ITEMS[ASK1] = ITEMS[ASK1] + long_tool("mcp__persona__secret_run", SECRET_RUN_INPUT, json.dumps({
+            "status": "failed", "machine": "Mac Studio",
+            "message": "Command 2 of 2 on Mac Studio exited with 5; the password was used once and discarded.",
+            "results": [{"command": SECRET_RUN_INPUT["commands"][0], "exit_code": 0, "output": _copied, "timed_out": False,
+                         "truncated": False, "output_withheld": False},
+                        {"command": SECRET_RUN_INPUT["commands"][1], "exit_code": 5, "output": _log, "timed_out": False,
+                         "truncated": True, "output_withheld": False}]},
+            ensure_ascii=False), 1) + [
+            it("assistant", "text", 0.5, text="第二条命令失败了（退出码 5）：launchd 没能加载这个任务。我先看看 plist 的权限再告诉你。")]
 
 # MOCK_SCREEN_DIALOG=1: a terminal dialog (screen interaction) as a newer hub reads it; MOCK_PROMPT_CHANGED=1 makes
 # answering it fail as if the dialog changed on the computer (409 prompt_changed).
@@ -6641,7 +6692,7 @@ LAUNCHERS = [
     # its codex is from its last list (stale).
     {"name": "codex", "source": "zshrc", "model": "默认", "machines": ["server", "studio"], "rc_files": ["~/.bashrc", "~/.zshrc"], "stale": ["studio"]},
     {"name": "cc_bash", "source": "zshrc", "base_url": "https://relay.example.net", "model": "example-pro", "machines": ["server"], "rc_files": ["~/.bashrc"]},
-    # Plain claude on every machine that has it (GET /api/v1/launchers, server/internal/assistant/models_launchers.go builtinClaude).
+    # Plain claude on every machine that has it (GET /api/v1/launchers, server/internal/assistant/models_launchers_list.go builtinClaude).
     {"name": "claude", "source": "builtin", "machines": ["server", "macbook", "studio"], "stale": ["studio"],
      "versions": {"server": "2.1.200", "macbook": "2.1.206", "studio": "2.1.190"}},
 ]

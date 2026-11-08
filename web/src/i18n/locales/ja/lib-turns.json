@@ -47,6 +47,7 @@
   "persona_computer_run": "コンピューターを操作",
   "persona_browser_run": "ブラウザを使う",
   "persona_browser_look": "ブラウザを見る",
+  "persona_secret_run": "パスワードで実行",
   "persona_phone": "iPhone",
   "persona_mail": "メール"
 }

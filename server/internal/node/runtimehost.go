@@ -226,7 +226,8 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 		}
 		rh.logger.Printf("runtime %s %s #%d connected", hello.Runtime, hello.Version, h.serial)
 		// features: what this node does beyond the first protocol. prefer_running: when two runtimes list a session, the
-		// one running it answers for it (runtimes.go recomputeOwners), so a runtime may list sessions it only has on disk.
+		// one running it answers for it (runtimes_registry.go recomputeOwners), so a runtime may list sessions it only
+		// has on disk.
 		// resume_argv: a session listed offline with resume_argv is resumed in the terminal engine (pi.go).
 		// handover: a send refused with the handover code goes to the runtime that takes the session over (handOver).
 		// transcript: a session listed with a Claude transcript has its content read from it here (runtimetranscript.go).

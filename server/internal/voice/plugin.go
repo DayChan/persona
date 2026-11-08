@@ -31,6 +31,7 @@ type Plugin struct {
 	// toolless are the providers (by id) whose service refused the function tools of an auto provider's session start
 	// (Provider.Tools unset, #1420): their sessions go without them from then on, for as long as the plugin runs.
 	toolless sync.Map
+	calls    atomic.Int64 // the calls taken since it started: a call's id in the log (calllog.go)
 }
 
 func New(cfg Config, hubURL, hubToken string, logger *log.Logger) *Plugin {
@@ -101,7 +102,6 @@ func (pl *Plugin) Handler() http.Handler {
 		// Who is calling, as the hub found it (docs/extensions/extensions.md "The caller on forwarded requests"): the role decides the tools, the
 		// language the words the model is told.
 		role, lang := r.Header.Get(extwire.HeaderRole), i18n.Resolve(r.Header.Get(extwire.HeaderLang))
-		pl.logf("conversation opened (role %q)", role)
 		pl.converse(context.WithoutCancel(r.Context()), c, role, lang)
 	})
 	return mux

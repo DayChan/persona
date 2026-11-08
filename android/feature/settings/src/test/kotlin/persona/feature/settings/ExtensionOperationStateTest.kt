@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Instant
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import persona.core.contracts.api.*
@@ -64,8 +65,8 @@ class ExtensionOperationStateTest {
     private val res get() = ApplicationProvider.getApplicationContext<android.content.Context>().resources
 
     /** Runs the model's watch beside block, as the page does while it is open. */
-    private fun watching(api: FakeOperations, block: suspend (CatalogExtensionModel, MutableList<String>) -> Unit) = runBlocking {
-        val model = CatalogExtensionModel(api, "m1", "example-notes", res)
+    private fun watching(api: FakeOperations, now: () -> Instant = Instant::now, block: suspend (CatalogExtensionModel, MutableList<String>) -> Unit) = runBlocking {
+        val model = CatalogExtensionModel(api, "m1", "example-notes", res, now)
         val notices = mutableListOf<String>()
         model.load()
         val job = launch(Dispatchers.Unconfined) { model.watch { notices += it } }
@@ -132,6 +133,35 @@ class ExtensionOperationStateTest {
             // The hub's canceled push changes nothing more.
             api.pushes.emit(op("canceled", "consent", 4))
             assertNull(model.state.value.operation)
+        }
+    }
+
+    @Test fun anExpiredConsentIsCanceledAndPreviewedAfresh() {
+        var clock = Instant.parse("2026-11-06T08:05:00Z")
+        // op1's preview expires at 08:10; the one an operation started later gets is fresh.
+        val hub = object : FakeOperations() {
+            override suspend fun operation(id: String) = super.operation(id).copy(preview =
+                if (id == "op1") opPreview.copy(expiresAt = "2026-11-06T08:10:00Z") else opPreview.copy(previewId = "pv2"))
+        }
+        hub.started = op("needs_consent", "consent", 2, "download" to "done", "consent" to "pending")
+        watching(hub, now = { clock }) { model, _ ->
+            model.preview()
+            until { model.state.value.preview != null }
+            clock = Instant.parse("2026-11-06T08:10:01Z")
+            assertNull(model.confirm())
+            assertFalse(hub.calls.any { it.startsWith("agree") })
+            // The waiting operation is canceled and a new one started; its own preview is what the sheet shows.
+            hub.started = op("needs_consent", "consent", 3, "download" to "done", "consent" to "pending", id = "op2")
+            assertTrue(model.previewAgain())
+            until { model.state.value.preview?.previewId == "pv2" }
+            assertTrue("cancel op1" in hub.calls)
+            assertEquals(2, hub.calls.count { it == "start m1/example-notes" })
+            assertEquals("op2", model.state.value.consentFor)
+            // The hub's canceled push for the old one does not close the new sheet.
+            hub.pushes.emit(op("canceled", "consent", 4))
+            assertEquals("pv2", model.state.value.preview?.previewId)
+            assertNull(model.confirm())
+            assertTrue("agree pv2 null" in hub.calls)
         }
     }
 

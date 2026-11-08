@@ -16,6 +16,12 @@ import promote_manager_release as promoter
 snapshot_impl = promoter.snapshot
 
 
+def idle_row(session_id='main-fixture', machine_id='box'):
+    return dict(session_id=session_id, machine_id=machine_id, manager='m-fixture',
+                assistant=True, live=True, state='idle', status='idle', rev=1, starting=False,
+                background=[], subagents=[], compaction=None, pending_interactions=0)
+
+
 class TransportTests(unittest.TestCase):
     def test_cloudflare_fixed_proxy_preserves_strict_ssh_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -100,10 +106,9 @@ class ScopedHealthTests(unittest.TestCase):
         self.target = dict(manager_id='m-fixture', main='main-fixture', machine_id='box')
         self.answers = {
             'managers': {'managers': [dict(id='m-fixture', online=True, deploy='service', version='release')]},
-            'assistant?manager=m-fixture': dict(main='main-fixture', machine_id='box'),
+            'assistant?manager=m-fixture&archived=true': dict(manager='m-fixture', main='main-fixture', machine_id='box', conversations=[idle_row()], update_inventory=dict(schema=1, complete=True, revision='r1', observed_at=dt.datetime.now(dt.timezone.utc).isoformat())),
             'machines': {'machines': [dict(id='box', manager='m-fixture', online=True, machine_uid='uid-fixture')]},
-            'sessions?machine_id=box': {'sessions': [dict(session_id='main-fixture', machine_id='box',
-                                                        manager='m-fixture', state='idle')]},
+            'sessions?machine_id=box': dict(sessions=[idle_row()], update_inventory=dict(schema=1, complete=True, revision='r1', observed_at=dt.datetime.now(dt.timezone.utc).isoformat())),
         }
 
     def snapshot(self):
@@ -114,11 +119,11 @@ class ScopedHealthTests(unittest.TestCase):
         _, identity, snapshot_hash = self.snapshot()
         self.assertEqual(identity['main'], 'main-fixture')
         self.assertEqual(len(snapshot_hash), 64)
-        self.assertNotIn('default_permission_mode', self.answers['assistant?manager=m-fixture'])
+        self.assertNotIn('default_permission_mode', self.answers['assistant?manager=m-fixture&archived=true'])
 
     def test_wrong_scope_or_main_and_busy_or_unknown_refused(self):
         for change in [dict(manager='m-other'), dict(main='other-main')]:
-            with self.subTest(change=change), patch.dict(self.answers['assistant?manager=m-fixture'], change), self.assertRaises(ValueError):
+            with self.subTest(change=change), patch.dict(self.answers['assistant?manager=m-fixture&archived=true'], change), self.assertRaises(ValueError):
                 self.snapshot()
         row = self.answers['sessions?machine_id=box']['sessions'][0]
         for change in [dict(state='working'), dict(state='unknown'), dict(manager='m-other'),
@@ -127,13 +132,13 @@ class ScopedHealthTests(unittest.TestCase):
                 self.snapshot()
 
     def test_missing_main_or_offline_machine_refused(self):
-        self.answers['sessions?machine_id=box']['sessions'] = []
+        self.answers['assistant?manager=m-fixture&archived=true']['conversations'] = []
         with self.assertRaises(promoter.SnapshotPending): self.snapshot()
         self.answers['machines']['machines'][0]['online'] = False
         with self.assertRaises(promoter.SnapshotPending): self.snapshot()
 
     def test_reconnect_absence_is_transient_but_conflicting_identity_is_not(self):
-        profile = self.answers['assistant?manager=m-fixture']
+        profile = self.answers['assistant?manager=m-fixture&archived=true']
         for field in ('main', 'machine_id'):
             value = profile.pop(field)
             with self.subTest(field=field), self.assertRaises(promoter.SnapshotPending):
@@ -280,21 +285,23 @@ class PublisherTransactionTests(unittest.TestCase):
         def api(root, path):
             if path == 'managers':
                 snapshots[0] += 1
-                return {'managers': [dict(id='m-fixture', online=snapshots[0] != 4,
+                return {'managers': [dict(id='m-fixture', online=snapshots[0] != 7,
                                          deploy='service', version=self.manifest['version'])]}
-            if path == 'assistant?manager=m-fixture':
-                return dict(main='' if snapshots[0] == 5 else 'main', machine_id='box')
+            if path == 'assistant?manager=m-fixture&archived=true':
+                return dict(manager='m-fixture', main='' if snapshots[0] == 8 else 'main', machine_id='box',
+                            conversations=[] if snapshots[0] == 9 else [idle_row('main')],
+                            update_inventory=dict(schema=1, complete=True, revision='r1', observed_at=dt.datetime.now(dt.timezone.utc).isoformat()))
             if path == 'machines':
                 return {'machines': [dict(id='box', manager='m-fixture', online=True, machine_uid='uid')]}
             if path == 'sessions?machine_id=box':
-                rows = [] if snapshots[0] == 6 else [dict(session_id='main', machine_id='box', state='idle')]
-                return {'sessions': rows}
+                rows = [idle_row('main')]
+                return dict(sessions=rows, update_inventory=dict(schema=1, complete=True, revision='r1', observed_at=dt.datetime.now(dt.timezone.utc).isoformat()))
             raise AssertionError(path)
 
         self.statuses = iter([{'phase': 'applied', 'ready': {'pid': 42}}] * 4 + [{'phase': 'confirmed'}])
         with patch.object(promoter, 'snapshot', wraps=snapshot_impl), patch.object(promoter, 'api', side_effect=api):
             self.assertEqual(promoter.promote(self.payload)['phase'], 'confirmed')
-        self.assertEqual(snapshots[0], 7)
+        self.assertEqual(snapshots[0], 11)
         self.assertNotIn('rollback', self.commands)
 
     def test_ready_explicit_identity_conflict_rolls_back_without_retry(self):

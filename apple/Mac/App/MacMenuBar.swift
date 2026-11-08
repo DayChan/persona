@@ -222,8 +222,10 @@ extension MacMenuBar {
                 return QuickAnswer(title: recommended ? String(localized: "\(name) (Recommended)") : name, resolution: Resolution(answers: [q.question: o.label]))
             }
         case .permission:
-            return [QuickAnswer(title: String(localized: "Allow [Notification Actions ce7ef2]"), resolution: Resolution(allow: true)),
-                    QuickAnswer(title: String(localized: "Deny"), resolution: Resolution(allow: false))]
+            let deny = QuickAnswer(title: String(localized: "Deny"), resolution: Resolution(allow: false))
+            // Something to fill in first (a password card's password): no Allow without it, as on the phone's cards.
+            if ix.requiresInput { return [deny] }
+            return [QuickAnswer(title: String(localized: "Allow [Notification Actions ce7ef2]"), resolution: Resolution(allow: true)), deny]
         case .plan:
             return [QuickAnswer(title: String(localized: "Approve [Notification Actions 8cbe69]"), resolution: Resolution(approve: true, mode: "acceptEdits"))]
         case .screen:

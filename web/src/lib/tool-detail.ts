@@ -3,6 +3,7 @@
 // (with what the user picked), and the hub's cut texts (full_size) with the mark it adds where it cut them.
 import type { Op } from "./compare";
 import { parseDiff, toolFile } from "./files";
+import type { Interaction } from "./types";
 
 /** A Codex file change (the hub maps it to an Edit with `diff`): one block per hunk; a new or deleted file the hub
  *  sends as its whole content (no hunks) is all added, or all removed when `change` is `delete` (Android patchDiff). */
@@ -32,6 +33,18 @@ export interface ToolQuestion {
 }
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+/** The assistant's password card (`secret_run`, #1137): commands run on one of your computers with a password typed on
+ *  the iPhone. The web never takes the password: it shows what would run and can only decline. */
+export function isSecretRun(ix: Pick<Interaction, "kind" | "tool_name">): boolean {
+  return ix.kind === "permission" && ix.tool_name === "secret_run";
+}
+
+/** A password card's computer, purpose and commands, the commands exactly as sent. */
+export function secretRunInput(input: Record<string, unknown> | undefined): { machine: string; purpose: string; commands: string[] } {
+  const commands = Array.isArray(input?.commands) ? input.commands.filter((c): c is string => typeof c === "string" && c.trim() !== "") : [];
+  return { machine: s(input?.machine_name) || s(input?.machine), purpose: s(input?.purpose), commands };
+}
 
 /** The questions an AskUserQuestion / ask_user call asked (empty when its input has none). */
 export function toolQuestions(input: Record<string, unknown> | undefined): ToolQuestion[] {

@@ -139,6 +139,9 @@
     <string name="chat_request_deny">拒绝</string>
     <string name="chat_request_always_allows">总是同意会放行：%1$s</string>
     <string name="chat_request_fields_elsewhere">这个请求要先填写内容才能允许，请到网页或 iPhone 上处理；在这里仍可以拒绝。</string>
+    <string name="chat_request_secret_run_commands">依次运行的命令</string>
+    <string name="chat_request_secret_run_on_iphone">请在 iPhone 上填写</string>
+    <string name="chat_request_secret_run_decline">拒绝</string>
     <string name="chat_plan_approve_edits">批准编辑</string>
     <string name="chat_plan_reject">打回</string>
     <string name="chat_plan_approve_all">批准并自动执行</string>

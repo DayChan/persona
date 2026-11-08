@@ -20,8 +20,9 @@ const (
 	latestRunes   = 300
 )
 
-// answerStatus tells the model how the bound conversation stands, on delegation of upstream session gen.
-func (c *conversation) answerStatus(delegation string, gen int) {
+// answerStatus tells the model how the bound conversation stands, on delegation of upstream session gen (name: what
+// the log calls it).
+func (c *conversation) answerStatus(name, delegation string, gen int) {
 	ctx, cancel := context.WithTimeout(c.ctx, statusTimeout)
 	defer cancel()
 	hub, t, l := c.pl.hub, c.target, c.language()
@@ -60,12 +61,17 @@ func (c *conversation) answerStatus(delegation string, gen int) {
 	if ctx.Err() != nil && c.ctx.Err() != nil {
 		return
 	}
+	how := st.Do // unreachable, gone
+	if st.Do == "status" {
+		how = firstNonEmpty(st.State, "no state")
+	}
+	c.logf("%s: status answered: %s, %d cards waiting", name, how, len(st.Cards))
 	c.tell(&voiceRun{Delegation: delegation, Gen: gen}, plainWords(prompts.RenderVoiceStatus(st)), true, st.Latest != "" || st.Work != "")
 }
 
 // stopTarget interrupts the bound conversation's turn (working, or waiting on the user mid-turn) and tells the model
-// how that went.
-func (c *conversation) stopTarget(delegation string, gen int) {
+// how that went (name: what the log calls the delegation that asked).
+func (c *conversation) stopTarget(name, delegation string, gen int) {
 	ctx, cancel := context.WithTimeout(c.ctx, statusTimeout)
 	defer cancel()
 	hub, t := c.pl.hub, c.target
@@ -84,7 +90,7 @@ func (c *conversation) stopTarget(delegation string, gen int) {
 		c.runs.stopAsked.Store(time.Now().UnixNano()) // before the stop can be read back (tracker.finish)
 		c.stopping(true)
 		if err := hub.interrupt(ctx, t.MachineID, t.SessionID); err != nil {
-			c.pl.logf("stop %s/%s: %v", t.MachineID, t.SessionID, err)
+			c.logf("stop %s/%s: %s", t.MachineID, t.SessionID, hubOutcome(err))
 			c.runs.stopAsked.Store(0) // the stop did not go through: a later stop from elsewhere is told as usual
 			c.stopping(false)
 			st.Do, st.Reason = "stop_failed", hubReason(err)
@@ -95,6 +101,7 @@ func (c *conversation) stopTarget(delegation string, gen int) {
 	if c.ctx.Err() != nil {
 		return
 	}
+	c.logf("%s: stop: %s", name, st.Do)
 	c.tell(&voiceRun{Delegation: delegation, Gen: gen}, plainWords(prompts.RenderVoiceStatus(st)), true, false)
 }
 

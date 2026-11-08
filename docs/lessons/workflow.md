@@ -205,3 +205,12 @@ source keys with validated Go build-cache fallbacks; still force uncached test
 execution. Large cache uploads and repeated runner setup also count as latency.
 Measure real test events before replacing sleeps: `testing/synctest` sleeps use
 fake time and are not necessarily the slow tests.
+
+A sharded Linux workflow can still miss the budget through repeated queue
+boundaries. After the first optimization, a documentation-only PR executed for
+about 4m11s but finished in 20m35s: guards, script shards and the aggregate each
+waited for another runner. A low-load green run is not proof under shared load.
+Keep automatic fast checks and their final result in one runner allocation;
+leave full heavy lanes manual when their queue-inclusive latency is not bounded.
+Record the failed samples as counterexamples and re-run fresh post-merge PRs.
+Do not cancel other work or change repository rules to manufacture a fast run.

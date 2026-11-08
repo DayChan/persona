@@ -22,5 +22,6 @@
   "more_waiting_one": "ほかに{count}件が返信を待っています。最新のものは上の最後から2番目のメッセージです。",
   "more_waiting_other": "ほかに{count}件が返信を待っています。最新のものは上の最後から2番目のメッセージです。",
   "scheduled_task": "定期タスク「{task}」",
-  "asked_elsewhere": " · ほかの場所での質問：{asked}"
+  "asked_elsewhere": " · ほかの場所での質問：{asked}",
+  "fill_in_app": "このステップには Persona アプリで入力する項目があります。ここでは拒否のみできます。"
 }

@@ -514,7 +514,10 @@ extension Interaction {
         switch kind {
         case .question: questions?.first?.question ?? ""
         case .plan: (plan ?? "").split(separator: "\n").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "# ")) } ?? String(localized: "Plan [Interaction Text 2619dd]")
-        case .permission: [toolName, summary].compactMap { $0 }.joined(separator: String(localized: ": ", comment: "Separator between a label and its value"))
+        case .permission:
+            // The password card: its summary names the computer and every command; `secret_run` means nothing here.
+            (isSecretRun ? [summary] : [toolName, summary]).compactMap { $0 }
+                .joined(separator: String(localized: ": ", comment: "Separator between a label and its value"))
         case .screen: String(localized: "A dialog is open in the terminal")
         }
     }

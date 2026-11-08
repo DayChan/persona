@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Instant
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import androidx.test.core.app.ApplicationProvider
@@ -231,6 +232,77 @@ class ExtensionMarketStateTest {
         assertEquals("没有安装：预览过期了，重新预览一次", model.state.value.actionError)
         assertNull(model.state.value.preview)
         assertNotNull(model.state.value.extension)
+    }
+
+    @Test fun anExpiredPreviewIsPreviewedAgainNotSent() = runBlocking {
+        val api = FakeMarket()
+        var clock = Instant.parse("2026-11-08T10:00:00Z")
+        api.preview = api.preview.copy(expiresAt = "2026-11-08T10:10:00Z")
+        val model = CatalogExtensionModel(api, marketA.id, "example-calendar", res, now = { clock })
+        model.load()
+        model.preview()
+        // The sheet was left open past the expiry: the yes is not sent, the hub would refuse it.
+        clock = Instant.parse("2026-11-08T10:10:00Z")
+        assertNull(model.confirm())
+        assertFalse(api.calls.any { it.startsWith("install") })
+        assertEquals("pv1", model.state.value.preview?.previewId)
+        // Previewed again: a fresh preview from the hub, and the yes goes with it, never with the old one.
+        api.preview = api.preview.copy(previewId = "pv2", permissionsDigest = "d-2", expiresAt = "2026-11-08T10:20:00Z")
+        assertTrue(model.previewAgain())
+        assertEquals(2, api.calls.count { it == "preview ${marketA.id}/example-calendar" })
+        assertEquals("pv2", model.state.value.preview?.previewId)
+        model.confirm()
+        assertEquals(listOf("install pv2 d-2"), api.calls.filter { it.startsWith("install") })
+    }
+
+    @Test fun aBundleMemberThatExpiresFirstStopsTheYes() = runBlocking {
+        val api = FakeMarket()
+        api.preview = api.preview.copy(expiresAt = "2026-11-08T10:10:00Z", bundle = listOf(
+            ExtensionPreview("member", PreviewManifest("example-base", "Example 基础", "1.0.0"), permissionsDigest = "d-m", expiresAt = "2026-11-08T10:05:00Z")))
+        val model = CatalogExtensionModel(api, marketA.id, "example-calendar", res, now = { Instant.parse("2026-11-08T10:06:00Z") })
+        model.load()
+        model.preview()
+        assertNull(model.confirm())
+        assertFalse(api.calls.any { it.startsWith("install") })
+    }
+
+    @Test fun aFailedPreviewAgainSaysWhyAndCanBeTriedAgain() = runBlocking {
+        val api = FakeMarket()
+        api.preview = api.preview.copy(expiresAt = "2026-11-08T10:10:00Z")
+        var clock = Instant.parse("2026-11-08T10:00:00Z")
+        val model = CatalogExtensionModel(api, marketA.id, "example-calendar", res, now = { clock })
+        model.load()
+        model.preview()
+        clock = Instant.parse("2026-11-08T10:11:00Z")
+        api.fail = HubFailure(HubError.Server, "市场暂时连不上", status = 502)
+        assertFalse(model.previewAgain())
+        assertEquals("没有拿到安装包：市场暂时连不上", model.state.value.actionError)
+        assertNull(model.state.value.preview)
+        api.fail = null
+        api.preview = api.preview.copy(previewId = "pv2", permissionsDigest = "d-2", expiresAt = "2026-11-08T10:21:00Z")
+        assertTrue(model.preview())
+        assertNull(model.state.value.actionError)
+        model.confirm()
+        assertEquals(listOf("install pv2 d-2"), api.calls.filter { it.startsWith("install") })
+    }
+
+    @Test fun theHubRefusingAPreviewTheClockCallsCurrentEndsItAndTheNextIsFresh() = runBlocking {
+        val api = FakeMarket()
+        // This phone's clock is behind: the preview still looks current here, the hub has already let it go.
+        api.preview = api.preview.copy(expiresAt = "2026-11-08T10:10:00Z")
+        val model = CatalogExtensionModel(api, marketA.id, "example-calendar", res, now = { Instant.parse("2026-11-08T10:01:00Z") })
+        model.load()
+        model.preview()
+        api.fail = HubFailure(HubError.Server, "预览过期了，重新预览一次", status = 400)
+        assertNull(model.confirm())
+        assertEquals(listOf("install pv1 d-1"), api.calls.filter { it.startsWith("install") })
+        assertEquals("没有安装：预览过期了，重新预览一次", model.state.value.actionError)
+        assertNull(model.state.value.preview)
+        api.fail = null
+        api.preview = api.preview.copy(previewId = "pv2", permissionsDigest = "d-2")
+        model.preview()
+        model.confirm()
+        assertEquals(listOf("install pv1 d-1", "install pv2 d-2"), api.calls.filter { it.startsWith("install") })
     }
 
     @Test fun removesAndSeesAExtensionGone() = runBlocking {

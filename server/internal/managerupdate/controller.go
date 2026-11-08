@@ -51,17 +51,23 @@ func New(build update.Build) (*Controller, error) {
 // Main is deliberately an explicit subcommand and standard flag parser. No default apply exists.
 func Main(ctx context.Context, build update.Build, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: personad manager update check|start|status|run|confirm|rollback --plan PATH")
+		return errors.New("usage: personad manager update check|start|status|run|confirm|rollback|inventory --plan PATH")
 	}
 	action := args[0]
 	switch action {
-	case "check", "start", "status", "run", "confirm", "rollback":
+	case "check", "start", "status", "run", "confirm", "rollback", "inventory":
 	default:
 		return errors.New("unknown manager update action")
 	}
 	fs := flag.NewFlagSet("manager update "+action, flag.ContinueOnError)
 	fs.SetOutput(out)
 	path := fs.String("plan", "", "explicit release update plan")
+	var mainID, machineID, machineUID *string
+	if action == "inventory" {
+		mainID = fs.String("main", "", "original persisted main session ID")
+		machineID = fs.String("machine", "", "original machine ID")
+		machineUID = fs.String("machine-uid", "", "original machine UID")
+	}
 	if e := fs.Parse(args[1:]); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
 			return nil
@@ -78,6 +84,10 @@ func Main(ctx context.Context, build update.Build, args []string, out io.Writer)
 	c, e := New(build)
 	if e != nil {
 		return e
+	}
+	if action == "inventory" {
+		evidence, err := c.ReadIdleEvidence(ctx, p, *mainID, *machineID, *machineUID)
+		return errors.Join(err, json.NewEncoder(out).Encode(evidence))
 	}
 	var r Receipt
 	switch action {

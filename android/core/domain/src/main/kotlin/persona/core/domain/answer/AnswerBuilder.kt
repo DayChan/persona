@@ -63,6 +63,8 @@ object AnswerBuilder {
         fun blocked() = AnswerResult(false, draft = draft)
         fun resolved(resolution: Resolution) = AnswerResult(true, resolution, draft)
         if (context.state != "pending" || context.sending) return blocked()
+        // A password card (#1137) is filled in only on the iPhone: here, from any entry, only a decline with nothing typed.
+        if (interaction.isSecretRun && (action != AnswerAction.Deny || draft.message.isNotEmpty())) return blocked()
         if (action in setOf(AnswerAction.SubmitElicitation, AnswerAction.DeclineElicitation, AnswerAction.CancelElicitation)) {
             if (interaction.kind != "elicitation" || context.entry != AnswerEntry.Conversation || context.locked) return blocked()
             return when (action) {

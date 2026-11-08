@@ -127,6 +127,8 @@ type fakeHub struct {
 	// questions it got.
 	auth      map[string]proto.ClaudeAuthStatus
 	authAsked []string
+	// nodes answer node methods on any machine, by method, before the answers below (answerNode).
+	nodes map[string]nodeAnswer
 }
 
 type modelCall struct{ System, User string }
@@ -177,6 +179,13 @@ func (f *fakeHub) DeviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 	list, ok := f.sessions[p.Device]
 	if !ok {
 		return nil, fmt.Errorf("%w %q", ErrNoDevice, p.Device)
+	}
+	if answer := f.nodes[p.Method]; answer != nil {
+		out, err := answer(p.Device, p.Params)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(out)
 	}
 	var a map[string]any
 	_ = json.Unmarshal(p.Params, &a)
@@ -754,6 +763,19 @@ func onlyTodo(s *Service) Todo {
 
 // appAnswer is a test's answer to an app method's params. It runs under the fake's lock.
 type appAnswer func(params json.RawMessage) (any, error)
+
+// nodeAnswer is a test's answer to a node method's params on machine. It runs under the fake's lock.
+type nodeAnswer func(machine string, params json.RawMessage) (any, error)
+
+// answerNode has the machines' nodes answer method with answer.
+func (f *fakeHub) answerNode(method string, answer nodeAnswer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.nodes == nil {
+		f.nodes = map[string]nodeAnswer{}
+	}
+	f.nodes[method] = answer
+}
 
 // answerApp has the hub answer app's method with answer.
 func (f *fakeHub) answerApp(app, method string, answer appAnswer) {

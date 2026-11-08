@@ -175,6 +175,10 @@ type conversation struct {
 	silent      []string
 	// sus is the call's pausing of its upstream while its conversation works (suspend.go, protocol 2).
 	sus suspension
+	// log is what the call's log counts, and its id (calllog.go).
+	log callLog
+	// asked is the protocol the app's start asked for (the log: an extension's call gets 1 whatever it asks).
+	asked int
 	// tail are the model's lines after the user's last line in the app, oldest first (protocol 2): a user's caption
 	// that comes after the model began to answer it goes before them (placeUser, #5673).
 	tail []shownLine
@@ -195,6 +199,8 @@ func (pl *Plugin) converse(ctx context.Context, app *websocket.Conn, role string
 	c := &conversation{pl: pl, app: app, ctx: ctx, cancel: cancel, out: make(chan outFrame, 2048), role: role, lang: lang,
 		delegations: map[string]int{}, pending: map[string]*time.Timer{}, unacked: map[string]*sentWords{}, version: 1,
 		wake: make(chan struct{}, 1)}
+	c.log.id, c.log.opened = pl.calls.Add(1), time.Now()
+	c.logf("conversation opened (role %q)", role)
 	pl.active.Add(1)
 	defer pl.active.Add(-1)
 	writerDone, loopsDone := make(chan struct{}), make(chan struct{}, 2)
@@ -221,7 +227,8 @@ func (pl *Plugin) converse(ctx context.Context, app *websocket.Conn, role string
 		<-loopsDone
 	}()
 	if err := c.begin(); err != nil {
-		pl.logf("start failed: %v", err)
+		c.logf("start failed after %v: %s", logDur(time.Since(c.log.opened)), failure(err))
+		c.ending("start failed: " + firstNonEmpty(errCode(err), "no code"))
 		var ce *codedError
 		switch {
 		case errors.Is(err, errNoUpstream):
@@ -283,6 +290,12 @@ func (c *conversation) failCode(code, msg string, fatal bool) {
 	}
 	c.sendApp(f)
 	if fatal {
+		c.logf("fatal error %s: the call ends", firstNonEmpty(code, "(no code)"))
+		c.ending("fatal error " + firstNonEmpty(code, "(no code)"))
+	} else {
+		c.logf("told the app: error %s", firstNonEmpty(code, "(no code)"))
+	}
+	if fatal {
 		code := websocket.StatusInternalError
 		select {
 		case c.out <- outFrame{close: &code}:
@@ -323,12 +336,12 @@ func (c *conversation) begin() error {
 		c.voice = start.Voice
 	}
 	c.mu.Unlock()
-	c.pl.logf("conversation: %s, voice %q", c.modelID, c.voice)
+	c.logStart(&start, p)
 	if err := c.connect(false); err != nil {
 		return err
 	}
 	if gone {
-		c.pl.logf("model %q is gone: %s instead", start.Model, c.modelID)
+		c.logf("model %q is gone: %s instead", start.Model, c.modelID)
 		c.failCode(codeModelUnavailable, "选的模型 "+start.Model+" 已经不在了，这次用默认模型 "+c.modelID, false)
 	}
 	return nil
@@ -338,6 +351,7 @@ func (c *conversation) begin() error {
 // now, while the upstream connects), what it hands back of a call it picks up again. Another extension calling has
 // protocol 1 only (docs/assistant/voice.md "Permissions"): the main conversation, never a target of its choosing.
 func (c *conversation) negotiate(s *startFrame) error {
+	c.asked = s.Protocol
 	full := c.role == "" || c.role == roleFull
 	if s.Target != nil && !full {
 		return &codedError{code: codeTargetForbidden, msg: "别的扩展调来的语音只能交给 Persona 主对话，不能绑定对话"}
@@ -394,6 +408,11 @@ func (c *conversation) bind(ctx context.Context) func() (online bool, err error)
 			c.mu.Lock()
 			c.target, c.snap = p.target, p.snap
 			c.mu.Unlock()
+			online := "online"
+			if !p.online {
+				online = "offline"
+			}
+			c.logf("bound: %s %s/%s, its machine %s", p.target.Kind, p.target.MachineID, p.target.SessionID, online)
 			return p.online, nil
 		}
 	}
@@ -465,6 +484,7 @@ func (c *conversation) connect(woken bool) error {
 	}
 	c.mu.Unlock()
 
+	began := time.Now()
 	dctx, cancel := context.WithTimeout(c.ctx, startTimeout)
 	defer cancel()
 	_, auto := p.toolsMode()
@@ -493,14 +513,14 @@ func (c *conversation) connect(woken bool) error {
 	if err != nil && len(tools) > 0 && auto && refusedTools(err) {
 		// The service does not take function tools (#1420): the same session without them, once. Remembered only once
 		// that one starts: a session refused all the same was not refused for its tools.
-		c.pl.logf("provider %s: the service refused the function tools as the session started (%v); starting it again without them", p.ID, err)
+		c.logf("provider %s: the service refused the function tools as the session started (%s); starting it again without them", p.ID, failure(err))
 		if up, err = c.dial(dctx, p, w, model); err == nil {
 			rate, err = c.startSession(dctx, up, w, p, model, voice, in, nil)
 		}
 		if err == nil {
 			c.toolless.Store(true)
 			if c.pl.forgoTools(p.ID) {
-				c.pl.logf("provider %s: its sessions go without function tools from now on", p.ID)
+				c.logf("provider %s: its sessions go without function tools from now on", p.ID)
 			}
 		}
 	}
@@ -517,6 +537,15 @@ func (c *conversation) connect(woken bool) error {
 	c.up, c.ready, c.connectedAt = up, true, time.Now()
 	gen := c.gen
 	first := !c.started
+	why := "first"
+	switch {
+	case woken:
+		why = "woken"
+	case !first:
+		why = fmt.Sprintf("reconnect %d", c.reconnects)
+	}
+	c.logf("upstream: session %d started in %v (%s), %d Hz, tools %s", sessionNo(gen), logDur(c.connectedAt.Sub(began)), why, rate,
+		c.toolsLog(p, c.toolSet()))
 	// A session after a drop is told the bound conversation as it is now: an agent's words the last session had not
 	// taken in (its turn went on meanwhile) close the user-speech gate, as a result sent does. The same snapshot does
 	// not: a request the user made just before the drop still counts.
@@ -538,17 +567,12 @@ func (c *conversation) connect(woken bool) error {
 		}
 	} else {
 		if rate != c.outRate {
-			c.pl.logf("reconnected session speaks at %d Hz, the app plays %d", rate, c.outRate)
+			c.logf("reconnected session speaks at %d Hz, the app plays %d", rate, c.outRate)
 		}
 		if c.version >= 2 {
 			c.sendApp(map[string]any{"type": "link", "state": linkLive})
 		} else {
 			c.sendApp(map[string]any{"type": "tool", "id": "reconnect", "done": true})
-		}
-		if woken {
-			c.pl.logf("woken: a new session")
-		} else {
-			c.pl.logf("reconnected (%d)", c.reconnects)
 		}
 	}
 	resume := c.resume
@@ -853,23 +877,30 @@ func (c *conversation) handle(gen int, e event) {
 			return
 		}
 		c.delegations[e.id] = gen
+		c.count(func(l *callLog) { l.delegations++ })
 		at, reply := c.gate.agent, c.reply // the gate as it was when the model handed this over, and its reply doing so
 		if c.tools() {
+			c.logf("delegation %s: made in session %d, waiting %v for its function call", e.id, sessionNo(gen), toolCallWait)
 			id, text := e.id, e.text
 			c.pending[id] = time.AfterFunc(toolCallWait, func() {
 				c.mu.Lock()
 				defer c.mu.Unlock()
 				if _, ok := c.pending[id]; ok && !c.closed {
 					delete(c.pending, id)
+					c.logf("delegation %s: no function call came: handed over as it is", id)
 					c.startTask(id, text, at, reply)
 				}
 			})
 			return
 		}
+		c.logf("delegation %s: made in session %d", e.id, sessionNo(gen))
 		c.startTask(e.id, e.text, at, reply)
 	case evToolCall:
 		c.closeUser()
 		c.pace.delegated = time.Now()
+		c.count(func(l *callLog) { l.calls++ })
+		c.logf("function call %s (call %s, delegation %s, session %d)", compat.Tool(e.name), firstNonEmpty(e.callID, "-"),
+			firstNonEmpty(e.id, "-"), sessionNo(gen))
 		if t := c.pending[e.id]; t != nil {
 			t.Stop()
 			delete(c.pending, e.id)
@@ -883,7 +914,7 @@ func (c *conversation) handle(gen int, e event) {
 			}
 		}
 	case evError:
-		c.pl.logf("session error (%s, %s): %s", e.code, firstNonEmpty(e.param, "-"), e.text)
+		c.logf("upstream: session error (%s, %s): %s", e.code, firstNonEmpty(e.param, "-"), clipRunes(e.text, errorRunes))
 		c.serviceRefused(e)
 	}
 }
@@ -1063,7 +1094,7 @@ func (c *conversation) sendUp(gen int, frames ...any) bool {
 func (c *conversation) runTool(gen int, e event) {
 	e.name = compat.Tool(e.name)
 	if !slices.Contains(c.toolSet(), e.name) {
-		c.pl.logf("a call of %s, a tool this session did not declare: ignored", e.name)
+		c.logf("call %s: %s is a tool this session did not declare: ignored", firstNonEmpty(e.callID, "-"), e.name)
 		return
 	}
 	at, reply := c.gate.agent, c.reply
@@ -1085,7 +1116,7 @@ func (c *conversation) runTool(gen int, e event) {
 		if e.id != "" {
 			c.delegations[e.id] = gen // its result is the call's answer, whether or not the call came with its delegation
 		}
-		c.handOver(strings.TrimSpace(in.Task), e.id, gen, at, reply)
+		c.handOver(handoverName(e.id, e.callID), strings.TrimSpace(in.Task), e.id, gen, at, reply)
 		return
 	}
 	c.sendApp(map[string]any{"type": "tool", "id": e.callID, "label": label, "done": false})
@@ -1100,9 +1131,8 @@ func (c *conversation) runTool(gen int, e event) {
 			Text string `json:"text"`
 		}
 		_ = json.Unmarshal([]byte(e.args), &in)
-		c.whenSpoken(at, func(spoken bool) {
+		c.whenSpoken("call "+firstNonEmpty(e.callID, "-")+" (send_to_agent)", at, func(spoken bool) {
 			if !spoken {
-				c.pl.logf("send_to_agent not run: the user had not spoken")
 				answer(prompts.RenderVoiceRefused(prompts.VoiceRefused{Lang: string(c.language()), Code: "unprompted",
 					Task: clipRunes(in.Text, taskMost), Agent: true}))
 				return
@@ -1122,22 +1152,25 @@ func (c *conversation) toolOutput(e event) string {
 // delegation until the task's answer: the model has already told the user it handed it over, and anything on the
 // delegation has it speak again (docs/lessons/voice.md "Conclusions" 4).
 func (c *conversation) startTask(delegationID, text string, at time.Time, reply string) {
-	c.handOver(strings.TrimSpace(text), delegationID, c.delegations[delegationID], at, reply)
+	c.handOver(handoverName(delegationID, ""), strings.TrimSpace(text), delegationID, c.delegations[delegationID], at, reply)
 }
 
 // handOver gives task to the main conversation once the user-speech gate lets it (gate.go; at is its agent time when
 // the model handed this over, reply the model's reply that did), else tells the model it was not sent (mu held; it
-// goes on in the background). The answer goes back on delegation, of upstream session gen, while that is open.
-func (c *conversation) handOver(task, delegation string, gen int, at time.Time, reply string) {
+// goes on in the background). The answer goes back on delegation, of upstream session gen, while that is open. name
+// is what the log calls it.
+func (c *conversation) handOver(name, task, delegation string, gen int, at time.Time, reply string) {
 	if c.version >= 2 {
-		c.handOverBound(task, delegation, gen, at, reply)
+		c.handOverBound(name, task, delegation, gen, at, reply)
 		return
 	}
 	if card := c.askingCardLocked(); card != "" { // a question asked by voice: this is its answer (asks.go)
-		c.answerCard(card, task, delegation, gen, at)
+		c.logf("%s: the answer to card %s (%s)", name, card, taskSize(task))
+		c.answerCard(name, card, task, delegation, gen, at)
 		return
 	}
-	c.whenSaid(at, reply, func(spoken bool) {
+	c.logf("%s: a task for the main conversation (%s)", name, taskSize(task))
+	c.whenSaid(name, at, reply, func(spoken bool) {
 		// What was said, taken now: the caption of the user's request often comes after the model's call (gate.go).
 		c.mu.Lock()
 		if task == "" { // the model said nothing of what to do: what the user said
@@ -1151,9 +1184,9 @@ func (c *conversation) handOver(task, delegation string, gen int, at time.Time, 
 		}
 		switch {
 		case !spoken:
-			c.pl.logf("not handed over: the user had not spoken since the last answer, or not lately")
 			refuse("unprompted")
 		case task == "":
+			c.logf("%s: refused (empty)", name)
 			refuse("empty")
 		default:
 			c.mu.Lock()
@@ -1161,6 +1194,7 @@ func (c *conversation) handOver(task, delegation string, gen int, at time.Time, 
 			id := fmt.Sprintf("d%d", c.tasks)
 			c.sendApp(map[string]any{"type": "tool", "id": id, "label": "Persona 主对话处理中", "done": false})
 			c.mu.Unlock()
+			c.logf("run %s: for %s, in session %d", id, name, sessionNo(gen))
 			c.runs.handOver(task, delegation, gen, id, recent)
 		}
 	})
@@ -1170,35 +1204,47 @@ func (c *conversation) handOver(task, delegation string, gen int, at time.Time, 
 // agent time was at: at once when it is, else once it opens within gateWait (the caption of what the user just said
 // can come after the model acted on it). The user's own voice since at, by the time the model acted, opens it too: a
 // reply that only calls a tool has the user's caption come after the call's result on the measured service (gate.go).
-func (c *conversation) whenSpoken(at time.Time, f func(spoken bool)) { c.waitGate(at, false, "", f) }
+//
+// name is what the log calls what waits (its delegation, its call): the gate's decision on it is a line of the log.
+func (c *conversation) whenSpoken(name string, at time.Time, f func(spoken bool)) {
+	c.waitGate(name, at, false, "", f)
+}
 
 // whenSaid is whenSpoken for a handover that is sent with what was said: while the user's caption of what they said
 // last is still to come (captionDue), it waits for it too, the gate open or not, within the same gateWait. The
 // caption of the request the model acts on comes 0.1–0.4 s after its call on the measured service (#5506); without
 // it the message would go without the user's own words. Not once reply, the model's reply that handed this over, was
 // over without saying anything: the service holds that caption until the call's result (#5790), so it cannot come.
-func (c *conversation) whenSaid(at time.Time, reply string, f func(spoken bool)) {
-	c.waitGate(at, true, reply, f)
+func (c *conversation) whenSaid(name string, at time.Time, reply string, f func(spoken bool)) {
+	c.waitGate(name, at, true, reply, f)
 }
 
-func (c *conversation) waitGate(at time.Time, caption bool, reply string, f func(spoken bool)) {
+func (c *conversation) waitGate(name string, at time.Time, caption bool, reply string, f func(spoken bool)) {
 	heard := c.gate.heardSince(at, time.Now()) // mu held: the user's voice by the time the model acted
 	go func() {
-		deadline := time.Now().Add(gateWait)
+		began := time.Now()
+		deadline := began.Add(gateWait)
 		for {
 			c.mu.Lock()
-			worded := c.gate.openSince(at, time.Now())
+			now := time.Now()
+			worded := c.gate.openSince(at, now)
+			by := c.gate.openedBy(at, now)
 			due := caption && c.captionDue()
 			held := due && reply != "" && slices.Contains(c.silent, reply)
 			c.mu.Unlock()
 			open := heard || worded
+			if !worded {
+				by = "own voice; their caption had not come"
+			}
 			if held && open {
-				c.pl.logf("the reply that handed this over said nothing: its caption comes after the result, not waited for")
 				due = false
+				by += "; the reply that handed it over said nothing, so its caption comes after the result: not waited for"
 			}
 			if open && !due || !time.Now().Before(deadline) {
-				if open && !worded {
-					c.pl.logf("the user's caption had not come: their voice in the app's audio counts")
+				if open {
+					c.logf("%s: the user-speech gate let it through (%s) in %v", name, by, logDur(time.Since(began)))
+				} else {
+					c.logf("%s: the user-speech gate refused it (unprompted) after %v", name, logDur(time.Since(began)))
 				}
 				f(open)
 				return
@@ -1420,12 +1466,12 @@ func (c *conversation) serviceRefused(e event) {
 	switch {
 	case e.param == "content" && s.text != s.short:
 		again.text = s.short
-		c.pl.logf("the service refused %s as too long: sending it again shorter", id)
+		c.logf("upstream: the service refused %s as too long: sending it again shorter", id)
 	case s.delegation != "" && !s.onCall:
 		again.delegation = ""
-		c.pl.logf("the service refused %s on its delegation: saying it instead", id)
+		c.logf("upstream: the service refused %s on its delegation %s: saying it instead", id, s.delegation)
 	default:
-		c.pl.logf("the service refused %s for good: dropped", id)
+		c.logf("upstream: the service refused %s for good: dropped", id)
 		return
 	}
 	go c.deliver(&again)
@@ -1478,7 +1524,11 @@ func (c *conversation) lost(gen int, why error) {
 		c.mu.Unlock()
 		return
 	}
-	c.pl.logf("session lost: %v", why)
+	held := time.Duration(0)
+	if !c.connectedAt.IsZero() {
+		held = time.Since(c.connectedAt).Round(time.Second)
+	}
+	c.logf("upstream: session %d lost after %v: %v", sessionNo(gen), held, why)
 	if !c.connectedAt.IsZero() && time.Since(c.connectedAt) >= stableAfter {
 		c.reconnects = 0 // it held: a drop now is not one of a run of them (docs/assistant/voice.md "Reconnect and resume")
 	}
@@ -1488,6 +1538,7 @@ func (c *conversation) lost(gen int, why error) {
 		return
 	}
 	c.reconnects++
+	c.count(func(l *callLog) { l.reconnects++ })
 	c.gen++
 	c.ready = false
 	old := c.up
@@ -1527,7 +1578,7 @@ func (c *conversation) lost(gen int, why error) {
 			if c.ctx.Err() != nil {
 				return
 			}
-			c.pl.logf("reconnect: %v", err)
+			c.logf("reconnect (try %d of 3) failed: %s", attempt+1, failure(err))
 		}
 		c.failCode(codeUpstreamFailed, "语音连接断了，重连没成功："+err.Error(), true)
 	}()
@@ -1538,6 +1589,11 @@ func (c *conversation) readApp() {
 	for {
 		typ, b, err := c.app.Read(c.ctx)
 		if err != nil {
+			if c.ctx.Err() != nil {
+				c.ending("the call's socket to the app failed")
+			} else {
+				c.ending(appGone(err))
+			}
 			return
 		}
 		if typ == websocket.MessageBinary {
@@ -1578,6 +1634,7 @@ func (c *conversation) readApp() {
 			if text == "" {
 				continue
 			}
+			c.count(func(l *callLog) { l.typed++ })
 			c.mu.Lock()
 			c.closeUser()
 			c.userText(text, true, true, time.Now())
@@ -1643,7 +1700,7 @@ func (c *conversation) cutIn(now time.Time, voiced bool, n int) {
 	if talked < bargeMin || c.signals || c.dropAudio || !now.Before(c.pace.playEnd) {
 		return
 	}
-	c.pl.logf("the user cut in on the model (%v of voice): its speech is dropped", talked.Round(10*time.Millisecond))
+	c.logf("the user cut in on the model (%v of voice): its speech is dropped", talked.Round(10*time.Millisecond))
 	c.barge = barge{}
 	c.dropAudio, c.lastAudio, c.cutAt = true, now, now
 	c.pace.playEnd = now // the app drops what it had not played
@@ -1666,12 +1723,13 @@ func (c *conversation) shutdown() {
 	}
 	c.closed = true
 	up, w := c.up, c.w
+	lines := callLines{user: c.userSeq, model: c.asstSeq, pauses: c.sus.pauses}
 	for id, t := range c.pending {
 		t.Stop()
 		delete(c.pending, id)
 	}
 	c.mu.Unlock()
-	c.pl.logf("conversation closed")
+	c.logf("conversation closed %s", c.summary(lines))
 	if up != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = writeJSON(ctx, up, w.close())

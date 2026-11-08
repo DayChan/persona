@@ -187,10 +187,14 @@ func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) Fle
 			continue // one item per agent: its oldest card stands for it, as in the Agents list (#3571)
 		}
 		asked[key] = true
-		needs = append(needs, FleetItem{
+		item := FleetItem{
 			ID: key, Title: agentTitle(a.Session), Place: agentPlace(a.Machine, a.Session), Kind: ix.Kind,
 			Detail: clip(oneLine(interactionDetail(l, ix)), fleetDetailMax), Interaction: ix.ID, Since: unixSeconds(ix.CreatedAt),
-		})
+		}
+		if len(ix.Fields) > 0 {
+			item.Interaction = "" // what it asks for (a password) is filled in in the app: no Allow / Deny on the activity
+		}
+		needs = append(needs, item)
 	}
 	for _, a := range agents {
 		sess := a.Session

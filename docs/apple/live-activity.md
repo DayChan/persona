@@ -308,6 +308,7 @@ On the user's real hub, Dynamic Island content changed about 180 times per hour.
 ## Buttons (`apple/LiveActivity/FleetIntents.swift`)
 
 - The first request actionable with buttons (permission, plan) has them: permission Deny / Allow; plan View (opens chat) / Approve. Rejecting a plan requires feedback, so that's left to the App.
+  A card with fields (the password card, adding a mail account) is filled in in the App: the manager leaves its row's `interaction` empty (`server/internal/assistant/fleet_live.go`), so it is not actionable (`FleetState.firstActionable`): another agent's permission or plan behind it takes the buttons, and with none the row shows without them and a tap opens its conversation.
   The Lock Screen and expanded view only show this item + buttons + "+N" (a second item won't fit vertically).
 - Allow and Approve use `authenticationPolicy = .requiresAuthentication` (Face ID first on the Lock Screen), Deny uses `.alwaysAllowed`, as with notification buttons.
   Approving a plan from the Lock Screen uses `acceptEdits` (you haven't read the full plan, so commands still require individual permission).

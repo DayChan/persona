@@ -16,15 +16,22 @@ n=0 failed=""; for f in $(find scripts -name 'test_*.py' -not -path '*/node_modu
 ## Hosted CI
 
 `.github/workflows/ci.yml` runs on every PR and manual dispatch. There is no merge-queue trigger while the repository has no merge queue.
-It checks repository privacy and path safety, then uses `scripts/ci/paths.py` to call independent reusable platform workflows. Filters live
-in that tested selector, not duplicated native workflow filters: this makes dependencies and results visible to the final **CI required**
-job, which always reports and rejects failed, cancelled, missing or unexpectedly skipped selected required jobs. Require **CI required**
-only; repository rulesets are not changed. A workflow change must have a real green hosted run on the PR head before merging.
+Automatic PR CI allocates **one runner, named CI required**. That job performs repository/commit privacy and path safety, documentation
+paths and README checks, CI-regression tests, then the complete Web and runtime/SDK checks when selected by `scripts/ci/paths.py`.
+It does not queue separate guards, script shards and an aggregate runner. Any executed step failure still fails the real check.
+Require **CI required** only; no repository rulesets are changed. A workflow change needs green hosted verification on the PR head.
 
-By maintainer decision, **iOS/Watch and Mac are manual-only**: hosted macOS queue time alone can exceed the 15-minute PR budget. All their
-existing builds and tests remain in the reusable Apple workflow. On a manual CI run, selected iOS/Watch still contributes to **CI required**;
-Mac reports its real independent result without `continue-on-error`. On a PR, the selector explicitly leaves Apple unselected, so a skipped
-Apple job is not misreported as a test pass. Image build/smoke is also manual-only, with release `v*` tag publishing retained.
+By maintainer decision, **server, Android, iOS/Watch, Mac and the full scripts suite are manual-only**. Sharding improved execution time,
+but the post-merge documentation and Web verification PRs still took 20m35s and 21m13s because repeated Linux allocations queued for
+minutes. The merged server/Android manual run was green but took 23m14s including queues. These failed latency samples remain evidence,
+not passing acceptance claims (#1474). Keeping heavy lanes manual reduces shared runner pressure and preserves their complete tests.
+On a PR, their selector outputs are explicitly false: a skipped platform is not claimed as tested. Fast documentation and CI-regression
+checks still run on every PR. Full script-suite, catalog, translation/token and workflow-lint checks remain in the manual scripts lane.
+Image build/smoke and issue-link enforcement remain manual; release `v*` tag publishing is retained.
+
+Manual CI still uses independent reusable platform workflows and the tested **CI required** aggregator, rejecting failed, cancelled,
+missing or unexpectedly skipped selected jobs. Selected iOS/Watch contributes to that aggregate; Mac reports its real independent result
+without `continue-on-error`. All manual lane overrides remain available; manual duration is not a passing automatic PR budget claim.
 
 Manual `lanes` accepts `auto` (the default), `all`, or comma-separated `server,web,android,apple,runtimes,scripts`. Unknown names fail.
 `auto` compares with the PR base when present, otherwise `origin/main`; `base` can override that comparison. A dispatch of unchanged `main`
@@ -47,9 +54,9 @@ Server uses four independent runners: browser/node, hub/voice/assistant, all oth
 Every package from `go list ./...` belongs to exactly one test shard, including future packages. Browser tests remain isolated from other
 packages. Go module/build caches are keyed by exact Go version, shard, dependency sums and source inputs, with same-shard fallback keys;
 `-count=1` keeps test execution uncached. Test-event summaries report the slowest real tests, rather than inferring runtime from `Sleep`
-inside fake-clock tests. Scripts split complete sorted discovery across two independent runner jobs; each has its own synthetic HOME and
-mock ports. Source/documentation guards still read across modules, so scripts remain selected for every PR. Platform paths are narrower:
-unrelated Android/Mac screens no longer select server, but shared client contracts read by Go compatibility tests still do.
+inside fake-clock tests. The full manual scripts suite splits complete sorted discovery across two independent runner jobs; each has its
+own synthetic HOME and mock ports. Automatic PR checks run the fast CI-regression and documentation subset, not the full suite.
+Platform paths retain shared client contracts read by Go compatibility tests, and manual `auto` selects those dependencies.
 
 Android uses five independent runners: lint/build, core tests, two disjoint sorted feature-test shards, and platform/app tests. Module
 declarations are dynamically partitioned; unknown
@@ -60,7 +67,9 @@ Gradle profiles and test/lint reports are uploaded for diagnosis. Local entry po
 The target is **15 minutes from push start through CI required completion, including all queue time**, not 15 minutes per job. Record UTC
 push-start, workflow creation, job start/end and aggregate completion separately. Hosted queues are outside this repository's control;
 job timeouts are failure bounds, not evidence that tests completed within the target. Keep any lane that cannot meet measured acceptance
-manual-only rather than removing assertions or turning timeouts into passes. Before/after evidence is tracked in #1422.
+manual-only rather than removing assertions or turning timeouts into passes. Execution improvements are tracked in #1422; the repeated
+queue correction and fresh post-merge acceptance are tracked in #1474. A single allocation removes repeated queue boundaries, but the
+initial hosted queue is still outside repository control: report any over-budget sample and never promise an unmeasured queue SLA.
 
 | Platform / reusable workflow | Local entry | Checks | Hosted runner | Planning duration (warm / cold) |
 | --- | --- | --- | --- | --- |
@@ -107,8 +116,8 @@ The stock iOS unit-test simulator is granted Reminders access for the synthetic 
 runs the existing EventKit create/list/update/delete round-trip against its disposable store. This does not use a personal device or account.
 Platform-gated and explicitly opt-in tests still report their own skips; they are not evidence of device/live integration coverage.
 On Linux, `test_hub_restart_mac.py` skips its three Mac-only cases; `test_persona_cutover.py` has six optional database/container cases
-without dedicated cutover inputs. The complete Python suite remains discovered and runs; no failing suite is excluded. CI's
-Postgres does run ordinary database tests (unlike the old database-free workflow). Specialized offline cutover fixtures requiring extra
+without dedicated cutover inputs. The complete manual Python lane still discovers and runs every suite; no failing suite is excluded.
+Manual server CI's Postgres does run ordinary database tests (unlike the old database-free workflow). Specialized offline cutover fixtures requiring extra
 container/migration inputs are not supplied. Private-value scanning of commits and PR metadata remains in `scripts/hooks/merge-pr.sh` on
 the merge machine; CI runs the generic privacy rules without those values. No baseline is raised to make a gate green.
 
@@ -243,6 +252,8 @@ xcrun simctl launch --terminate-running-process $SIM <bundle id> \
 - Browser (docs/plans/plan-ego-browser.md): `MOCK_BROWSER=missing|setup|ready` enables `ego` and MacBook (not installed / installed without first setup / ready, analytics on; `MOCK_BROWSER_ANALYTICS=off` disables analytics); Mac Studio disabled/uninstalled. "Install ego lite" / "Open ego lite" advance every `MOCK_COMPUTER_STEP` seconds. With `MOCK_EXTENSIONS=1`, list includes "Browser (ego lite)" (`-tab settings -openExtension ego`).
 - Cards on no session (#4059): `MOCK_SCRIPT_ASK=1` adds a question card with an empty `session_id`, like `personad ask` run outside herdr;
   Agents' needs-you list and the inbox both list it, and tapping it opens the card in a sheet (`-tab mail -openInboxAsk ix_script_ask` opens it directly).
+- Password card (`secret_run`, #1137, `docs/assistant/assistant.md` "Password card"): `MOCK_SECRET_RUN=pending|ran|withheld|long` puts it in Persona's main conversation: `pending` waits for the password (two commands on the Mac Studio); `ran` is answered, every command exited 0; `withheld` the same with the first command's output withheld (it held the password); `long` the second command failed with a long output (the app reads the whole result).
+  UI suite `SecretRunUITests` (`TEST_RUNNER_PERSONA_SECRET_RUN_HUB=<mock URL>` with `MOCK_SECRET_RUN=pending`): the commands verbatim, Run only once a password is typed, the answer carrying exactly that password.
 - Questions the assistant sees first (web #544): `MOCK_DELEGATE=1` marks `ix_tests` and `ix_release_delegate` ("整理发布说明") `delegating`, gives `ix_review_delegate` ("检查 PR #42 的改动") `delegate` context recommending one of its choices, and adds one delegated answer to `GET /interactions/history` in the hub's row shape (`{interaction, status, resolution, resolved_at}`).
   `GET /mock/delegate?answer=<id>` answers a looking card as the assistant (`interaction_resolved` with `answered_by` / `reason` / `answers`, then into history), `?handover=<id>` hands it to you (sent again without `delegating`, with context).
   `POST /interactions/{id}/reanswer` answers like the hub (409 not answered by the assistant, 400 no answers) and broadcasts `interaction_reanswered`; `GET /mock/reanswered` shows what arrived. There is no reset: restart the mock between runs.
@@ -645,7 +656,7 @@ Long-scroll uses `XCTOSSignpostMetric`; simulator reports duration, not dropped 
 ### Live updates don't interrupt interaction (`LiveUpdateTests`)
 
 Constant hub updates must preserve ongoing actions: Agents ⋯ menu scrolled to machine stays open without jumping, long-press menu remains, mid-list rows stay,
-search text/keyboard remain, swiped Close stays; expanded work card and full-screen screenshot in working chat remain open.
+search text/keyboard remain, a row's ⋯ menu stays open (#1244: rows no longer swipe); expanded work card and full-screen screenshot in working chat remain open.
 Each case records body counts/main-thread time per push (`PERF` logs/attachments, before/after in `docs/archive/apple/live-updates.md`).
 
 - Mock: `PORT=18797 MOCK_AGENTS=1 MOCK_CHURN=1 python3 scripts/mock/mock_hub.py &`; `GET /mock/churn?n=12&ms=400` pushes n rounds (each machine's session list—working text changes,

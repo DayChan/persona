@@ -285,7 +285,7 @@ class HttpExtensionManagement internal constructor(
 
     /** The preview and the permissions the user saw and agreed to. */
     private fun agreed(preview: ExtensionPreview) = buildJsonObject {
-        require(preview.canConfirm) { "Unresolved extension dependencies" }
+        require(preview.dependenciesReady) { "Unresolved extension dependencies" }
         put("preview_id", preview.previewId)
         put("permissions_digest", preview.permissionsDigest)
         if (preview.bundle.isNotEmpty()) put("bundle", JsonArray(preview.bundle.map { p -> buildJsonObject {

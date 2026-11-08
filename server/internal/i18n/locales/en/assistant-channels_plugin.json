@@ -22,5 +22,6 @@
   "more_waiting_one": "{count} more waiting for your reply; the latest is the second-to-last message above.",
   "more_waiting_other": "{count} more waiting for your reply; the latest is the second-to-last message above.",
   "scheduled_task": "Scheduled task “{task}”",
-  "asked_elsewhere": " · asked elsewhere: {asked}"
+  "asked_elsewhere": " · asked elsewhere: {asked}",
+  "fill_in_app": "This step has something to fill in in the Persona app. Here it can only be declined."
 }

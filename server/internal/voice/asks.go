@@ -205,6 +205,7 @@ func (k *asker) look(ctx context.Context) {
 	}
 	if len(screen) > 0 {
 		c := k.t.c
+		c.logf("cards %s: to be done on the screen, said by their kind", strings.Join(ids, ","))
 		c.deliver(&sentWords{words: plainWords(prompts.RenderVoiceNeedsYou(prompts.VoiceNeedsYou{Lang: string(c.language()), To: k.to(),
 			Cards: screen, Here: k.v2})), cards: ids, prio: prioCard})
 	}
@@ -334,7 +335,6 @@ func (k *asker) resolved(cur *askState, out resolveOutcome, delegation string, g
 	state, by := askReleased, ""
 	switch out.said {
 	case saidVoice:
-		c.pl.logf("card %s: answered by voice", card)
 		state, by = askAnswered, byVoice
 		// Nothing follows its conversation but a run, or the observer on the bound one (observe.go): else its result
 		// is not told by itself.
@@ -342,12 +342,12 @@ func (k *asker) resolved(cur *askState, out resolveOutcome, delegation string, g
 		d.Unfollowed = !slices.ContainsFunc(k.t.runs, func(r *voiceRun) bool { return key == linkKey{r.MachineID, r.SessionID} }) &&
 			!k.t.obs.follows(key)
 	case saidLate:
-		c.pl.logf("card %s: answered elsewhere first (%s)", card, out.log)
+		c.logf("card %s: answered elsewhere first (%s)", card, out.log)
 		by = byElsewhere
 	case saidUnknown:
-		c.pl.logf("card %s: resolve: %s, and it is no longer waiting", card, out.log)
+		c.logf("card %s: resolve: %s, and it is no longer waiting", card, out.log)
 	default:
-		c.pl.logf("card %s: resolve: %s", card, out.log)
+		c.logf("card %s: resolve: %s", card, out.log)
 		d.Code, d.Reason = out.code, out.reason
 		if mine {
 			unanswer(cur.a) // asked on: the user says it again
@@ -387,7 +387,7 @@ func resolveCard(ctx context.Context, hub *hubClient, id string, res proto.Resol
 	isHub := errors.As(err, &he)
 	switch {
 	case isHub && (he.Status == http.StatusNotFound || he.Status == http.StatusGone):
-		return resolveOutcome{said: saidLate, log: err.Error()}
+		return resolveOutcome{said: saidLate, log: hubOutcome(err)}
 	case isHub && he.Status == http.StatusConflict && he.Code == "prompt_changed":
 		return resolveOutcome{said: saidLate, log: he.Code}
 	case isHub && he.Status == http.StatusConflict:
@@ -397,12 +397,12 @@ func resolveCard(ctx context.Context, hub *hubClient, id string, res proto.Resol
 		}
 		return failed
 	case isHub:
-		return resolveOutcome{said: saidFailed, reason: he.Message, log: err.Error()}
+		return resolveOutcome{said: saidFailed, reason: he.Message, log: hubOutcome(err)}
 	}
 	if waiting, ok := cardWaiting(ctx, hub, id); ok && !waiting {
-		return resolveOutcome{said: saidUnknown, log: err.Error()}
+		return resolveOutcome{said: saidUnknown, log: hubOutcome(err)}
 	}
-	return resolveOutcome{said: saidFailed, log: err.Error()}
+	return resolveOutcome{said: saidFailed, log: hubOutcome(err)}
 }
 
 // cardWaiting reads whether card id still waits (ok: the hub said).
@@ -478,7 +478,7 @@ func (t *tracker) bind() {
 		cancel()
 		if err != nil {
 			// Its backlog from the start would hold an old turn's end: its cards are read every lookEvery instead.
-			c.pl.logf("bind %s/%s: its last line: %v (its cards are looked at every %s)", key.machine, key.session, err, t.every)
+			c.logf("bind %s/%s: its last line: %s (its cards are looked at every %s)", key.machine, key.session, hubOutcome(err), t.every)
 		}
 		select {
 		case t.ops <- func() {
@@ -510,10 +510,9 @@ func (t *tracker) reconnected() {
 
 // answerCard takes what the model handed over while it asked card as the card's answer, once the user-speech gate lets
 // it (mu held; it goes on in the background): a resolve is a write, and a question's options are an agent's words.
-func (c *conversation) answerCard(card, task, delegation string, gen int, at time.Time) {
-	c.whenSpoken(at, func(spoken bool) {
+func (c *conversation) answerCard(name, card, task, delegation string, gen int, at time.Time) {
+	c.whenSpoken(name, at, func(spoken bool) {
 		if !spoken {
-			c.pl.logf("card %s not answered: the user had not spoken since the last answer, or not lately", card)
 			c.tell(&voiceRun{Delegation: delegation, Gen: gen}, plainWords(prompts.RenderVoiceRefused(prompts.VoiceRefused{
 				Lang: string(c.language()), Code: "unprompted", Task: clipRunes(task, taskMost), To: c.target.to()})), true, false)
 			return
@@ -565,6 +564,8 @@ func (c *conversation) told(card string) {
 		return
 	}
 	c.askTold = true
+	c.count(func(l *callLog) { l.cards++ })
+	c.logf("card %s: asked by voice", card)
 	if c.version >= 2 {
 		c.sendApp(askFrame(card, askAsking, ""))
 	}
@@ -581,6 +582,14 @@ func (c *conversation) endAsk(card, state, by string) bool {
 	told := c.askTold
 	c.askCur, c.askTold = "", false
 	c.queue = slices.DeleteFunc(c.queue, func(s *sentWords) bool { return s.card == card && s.delegation == "" })
+	switch {
+	case !told:
+		c.logf("card %s: %s before it was asked", card, state)
+	case by != "":
+		c.logf("card %s: %s (%s)", card, state, by)
+	default:
+		c.logf("card %s: %s", card, state)
+	}
 	if told && c.version >= 2 {
 		c.sendApp(askFrame(card, state, by))
 	}

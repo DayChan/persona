@@ -128,6 +128,20 @@ class NotificationPolicyTest {
         assertNull(NotificationPolicy.resolution(card, "allow", null))
     }
 
+    /** The assistant's password card (#1137): only Deny, and Deny takes no typed reason; nothing typed is ever sent. */
+    @Test fun passwordCardOnlyDeniesWithoutAReply() {
+        val card = persona.core.contracts.JsonCodec.decodeFromString<Interaction>(
+            """{"id":"request","kind":"permission","tool_name":"secret_run","tool_input":{"machine_name":"Mac mini"},
+                "fields":[{"key":"password","label":"Password","secret":true}]}""")
+        val actions = NotificationPolicy.actions(card)
+        assertEquals(listOf("deny"), actions.map { it.key })
+        assertEquals(listOf("deny"), NotificationPolicy.actions(card.copy(fields = null)).map { it.key })
+        assertNull(actions.single().replyLabel)
+        assertEquals(persona.core.contracts.Resolution(allow = false), NotificationPolicy.resolution(card, "deny", null))
+        assertNull(NotificationPolicy.resolution(card, "deny", "typed by mistake"))
+        assertNull(NotificationPolicy.resolution(card, "allow", null))
+    }
+
     private fun interaction(kind: String) = Interaction("request", kind = kind,
         questions = listOf(Question(question = "选择", options = List(4) { QuestionOption("选项 $it") })),
         dialog = ScreenDialog(options = listOf(DialogOption("input", "输入", kind = "type_something")) +

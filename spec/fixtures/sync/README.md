@@ -116,6 +116,10 @@ The clients draw the same states differently. A consumer maps what it draws onto
 cd server && go test ./internal/proto/ -run SyncScenarios
 ```
 
+The clients replay the cases against their own state code:
+
+- iOS / Mac: `apple/PersonaTests/Sync/` (`SyncScenarioTests`, #1112) plays each case through the real `AppModel`, its frames over the demo config's socket and its requests over the demo config's transport, and projects the chat page onto the view after every step. Cases it cannot play yet, and cases failing on a filed bug, are listed in its `known` table with the issue; `TEST_RUNNER_SYNC_TRACE=1` prints every step's view.
+
 ## Adding a case
 
 Start from the bug: which frames, in which order, and what the screen showed. Write the smallest story that reproduces it, with the expected view after the steps that matter, and run the self-check. Add the case to a client's consumer only after it passes there or after the bug is filed; a case that fails a client is either a bug (file it, then fix it) or a mistake in the case (fix the case and say why in the PR). Never write expectations by running a client.

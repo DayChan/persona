@@ -12,6 +12,10 @@ package nodeproto
 // change the node protocol floor or become a required capability.
 const PersonaContracts = "persona_contracts_v1"
 
+// ManagerUpdateInventory is the optional read-only local update.inventory
+// contract. A legacy peer remains compatible, but cannot produce idle evidence.
+const ManagerUpdateInventory = "manager_update_inventory_v1"
+
 // Version is the node protocol this code speaks. Raise it only for a change an older peer cannot follow (a method
 // whose params or results changed meaning); additions go in as capabilities instead.
 //
@@ -54,6 +58,9 @@ const (
 	// Preview: preview.servers / preview.start / preview.open, dev server previews in a headless browser on the
 	// computer (docs/web/preview.md).
 	Preview = "preview"
+	// SecretRun: secret.run, commands the user approved on the password card run with the password they typed on
+	// their stdin (docs/assistant/assistant.md "Password card"). A node on Windows announces it and refuses the run.
+	SecretRun = "secret_run"
 )
 
 // Error codes in the manager's answers to a resident node's replayed notifications (a notify with spool_id,
@@ -78,4 +85,4 @@ const (
 )
 
 // Announced is what a node built from this code announces.
-var Announced = []string{PersonaContracts, Sessions, ModelConfiguration, NodeUpdate, Engines, MachineUID, HerdrServer, PluginNodeCall, Ultracode, HealthSpaces, Preview}
+var Announced = []string{PersonaContracts, ManagerUpdateInventory, Sessions, ModelConfiguration, NodeUpdate, Engines, MachineUID, HerdrServer, PluginNodeCall, Ultracode, HealthSpaces, Preview, SecretRun}

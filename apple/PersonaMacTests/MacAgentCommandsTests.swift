@@ -25,6 +25,10 @@ struct MacAgentCommandsTests {
         // A question or a terminal dialog has no single "yes".
         let q = try ix(#"{"id":"3","machine_id":"m","session_id":"a","kind":"question","questions":[]}"#)
         #expect(MacAgentCommands.approve(q) == nil)
+        // A password card has nothing to allow without its password: only its card can.
+        let fill = try ix(#"{"id":"4","machine_id":"m","session_id":"a","kind":"permission","tool_name":"secret_run","fields":[{"key":"password","label":"Password","secret":true}]}"#)
+        #expect(MacAgentCommands.approve(fill) == nil)
+        #expect(MacAgentCommands.reject(fill)?.allow == false)
     }
 
     @Test func rejectOnlyDeniesATool() throws {

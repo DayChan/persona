@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -34,7 +35,16 @@ type layout struct {
 // the agents it gave last. A host that is not running (host.ErrNotRunning: herdr-core without its socket) answered: it
 // has no agents.
 func (n *Node) refreshHosts(ctx context.Context, only ...host.Host) error {
+	return n.refreshHostInventory(ctx, false, only...)
+}
+
+// refreshHostInventory retains the display's tolerant refresh by default. An
+// update evidence producer must request every host and reject cached fallbacks.
+func (n *Node) refreshHostInventory(ctx context.Context, strict bool, only ...host.Host) error {
 	if n.sessionScope != nil {
+		if strict {
+			return errors.New("scoped node cannot attest complete host inventory")
+		}
 		return nil
 	}
 	n.mu.Lock()
@@ -65,6 +75,31 @@ func (n *Node) refreshHosts(ctx context.Context, only ...host.Host) error {
 		}(i, h)
 	}
 	wg.Wait()
+	if strict {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for _, o := range outs {
+			if o.err != nil && !errors.Is(o.err, host.ErrNotRunning) {
+				return fmt.Errorf("incomplete host inventory %s: %w", o.kind, o.err)
+			}
+			if o.err == nil && !o.full {
+				return fmt.Errorf("incomplete host inventory %s: full snapshot unavailable", o.kind)
+			}
+		}
+		if len(targets) != len(all) {
+			return errors.New("partial host refresh cannot attest complete inventory")
+		}
+		for _, h := range all {
+			found := false
+			for _, target := range targets {
+				found = found || h == target
+			}
+			if !found {
+				return errors.New("host inventory target set differs from configured hosts")
+			}
+		}
+	}
 
 	n.mu.Lock()
 	if n.engEpoch != epoch {

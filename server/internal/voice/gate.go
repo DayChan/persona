@@ -60,6 +60,15 @@ func (g *speechGate) openSince(agent, now time.Time) bool {
 	return !words.IsZero() && words.After(agent) && now.Sub(words) <= gateWindow
 }
 
+// openedBy is what of the user's opened the gate since agent (openSince), for the log: a line they typed, else a
+// caption.
+func (g *speechGate) openedBy(agent, now time.Time) string {
+	if !g.typed.IsZero() && g.typed.After(agent) && now.Sub(g.typed) <= gateWindow {
+		return "typed line"
+	}
+	return "caption"
+}
+
 // heardSince: the user's own voice was heard since agent and by now (when the model acted: what it acts on was said
 // before that), within gateWindow of it.
 func (g *speechGate) heardSince(agent, now time.Time) bool {

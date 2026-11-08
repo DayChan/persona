@@ -10,6 +10,9 @@ import PersonaKit
 final class AgentSync {
     static let shared = AgentSync()
 
+    /// The app's model (the sync scenarios hand it theirs, PersonaTests/Sync).
+    var model: () -> AppModel = { AppModel.shared }
+
     /// Worth keeping current: every live agent, and any session used within this window.
     static let recentWindow: TimeInterval = 24 * 3600
     static let maxSessions = 40
@@ -71,7 +74,7 @@ final class AgentSync {
     }
 
     private func plan() {
-        let model = AppModel.shared
+        let model = self.model()
         // Each group's agents while its own socket is up (docs/protocol/multi-hub.md).
         let up = Set(model.groupIDs.filter { model.isLive($0) })
         guard !up.isEmpty else { return }
@@ -106,7 +109,7 @@ final class AgentSync {
     }
 
     private func canPrefetch(_ key: SessionKey) -> Bool {
-        let model = AppModel.shared
+        let model = self.model()
         return AgentSyncPacing.prefetchAllowed(hasRetainedStore: model.existingChat(key) != nil,
                                                isSubscribed: model.isSubscribed(key))
     }
@@ -131,7 +134,7 @@ final class AgentSync {
     /// its group's socket is down (in the background, offline): no push is due then, and the subscription asks for what
     /// it missed (`since_seq`) when the socket is back, whose next list looks again.
     private func checkStall(_ key: SessionKey) {
-        let model = AppModel.shared
+        let model = self.model()
         guard model.isSubscribed(key), model.isLive(key.group), let store = model.existingChat(key),
               !catchingUp.contains(key)
         else { return }
@@ -149,7 +152,7 @@ final class AgentSync {
             do {
                 // Not asked again for this write once one page held all of it: the write may have added no line. After
                 // more pages (`fill`, `reload`, which keep their failures to themselves) the next look asks once more.
-                if try await Self.pullInto(store, key, api) == .none { caughtUpFor[key] = updatedAt }
+                if try await Self.pullInto(store, key, api, model: model) == .none { caughtUpFor[key] = updatedAt }
             } catch is CancellationError {
                 // Its last visible owner left; the next subscription owns missed-sequence replay.
             } catch {
@@ -227,7 +230,7 @@ final class AgentSync {
     /// transcript changes (`AgentSyncPacing.retryAt`): a runtime that refuses a session's page was asked again on
     /// every push of any session, dozens of times a minute.
     private func pull(_ key: SessionKey) async -> PullOutcome {
-        let model = AppModel.shared
+        let model = self.model()
         guard canPrefetch(key) else { return .skipped }
         guard let api = model.api(key.group) else { return .failed(refused: false) }
 
@@ -244,8 +247,7 @@ final class AgentSync {
     /// A store in memory: what came after its `covered` goes into it (filling a hole, or starting over, when the batch
     /// says so). Returns what the first batch left to do.
     @discardableResult
-    private static func pullInto(_ store: ChatStore, _ key: SessionKey, _ api: APIClient) async throws -> ChatStore.Gap {
-        let model = AppModel.shared
+    private static func pullInto(_ store: ChatStore, _ key: SessionKey, _ api: APIClient, model: AppModel) async throws -> ChatStore.Gap {
         // Queued work and every follow-up page share the same visibility and store-identity fence.
         let shouldApply: @MainActor () -> Bool = { model.isSubscribed(key) && model.existingChat(key) === store }
         guard shouldApply() else { throw CancellationError() }

@@ -16,6 +16,7 @@ import (
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/proto"
 )
 
 var clientOpUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -65,7 +66,7 @@ func (h *Hub) withClientOp(kind string, next http.HandlerFunc) http.HandlerFunc 
 		}
 		target, _ := json.Marshal(map[string]string{"path": r.URL.Path, "query": r.URL.Query().Encode()})
 		valid := len(bytes.TrimSpace(raw)) == 0 || json.Valid(raw)
-		canonical, _ := json.Marshal([]any{kind, json.RawMessage(target), valid, params})
+		canonical, _ := json.Marshal([]any{kind, json.RawMessage(target), valid, opDigestParams(kind, raw, params)})
 		sum := sha256.Sum256(canonical)
 		op, claimed, err := h.store.BeginClientOp(r.Context(), db.ClientOp{
 			ID: id, DeviceID: principalOf(r.Context()).ID, Kind: kind, Target: target, Digest: hex.EncodeToString(sum[:]),
@@ -84,6 +85,24 @@ func (h *Hub) withClientOp(kind string, next http.HandlerFunc) http.HandlerFunc 
 		}
 		h.executeClientOp(w, r, kind, id, next)
 	}
+}
+
+// opDigestParams are the params a receipt's digest covers: params, but for a card's answer (resolve) its body as the
+// hub and the manager read it (proto.Resolution: field names in any case), each filled-in value replaced by its key,
+// and one fixed body for any that is not one. The digest is stored, and the sha256 of a short password in it could be
+// guessed offline.
+func opDigestParams(kind string, raw []byte, params any) any {
+	if kind != "resolve" {
+		return params
+	}
+	var r proto.Resolution
+	if json.Unmarshal(raw, &r) != nil {
+		return "not a resolution"
+	}
+	for k := range r.Values {
+		r.Values[k] = k
+	}
+	return r
 }
 
 func normalizedOpParams(raw []byte) any {

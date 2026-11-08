@@ -31,6 +31,8 @@ import persona.core.designsystem.*
 import persona.core.designsystem.icons.PhIcons
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
 
 // Settings › Extensions › Extension market (docs/extensions/extensions.md "Extension market"): the catalog, one extension of it, and the markets. The models are
 // in ExtensionMarketState.kt.
@@ -240,7 +242,8 @@ fun ExtensionCatalogPage(
     }
     state.preview?.let { preview ->
         PreviewSheet(extension, preview, busy = state.acting, onDismiss = { scope.launch { model.dismissPreview() } },
-            onConfirm = { scope.launch { model.confirm()?.let { feedback?.notice(it) } } })
+            onConfirm = { scope.launch { model.confirm()?.let { feedback?.notice(it) } } },
+            onPreviewAgain = { scope.launch { model.previewAgain() } })
     }
     if (removing && extension != null) UninstallDialog(extension.label, onDismiss = { removing = false }) { keep ->
         removing = false
@@ -339,15 +342,18 @@ private fun Tags(tags: List<String>) {
 
 /**
  * What the package may do, checked by the hub, before it is installed: an upgrade that asks for more says so first
- * and lists the new lines alone, with a caution, not an error. Nothing is installed without the yes.
+ * and lists the new lines alone, with a caution, not an error. Nothing is installed without the yes. Once the preview
+ * (or one in its bundle) expires by [now], also while the sheet is open, it says so and offers [onPreviewAgain]
+ * instead of the yes (#1316).
  */
 @Composable
 internal fun PreviewSheet(
     extension: CatalogExtension?, preview: ExtensionPreview, busy: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier, onPreviewAgain: () -> Unit = {}, now: () -> Instant = Instant::now,
 ) {
     val name = preview.manifest?.name?.takeIf { it.isNotBlank() } ?: extension?.label ?: preview.manifest?.id.orEmpty()
     val more = CatalogText.asksForMore(preview)
+    val expired = rememberExpired(preview, now)
     val palette = PersonaTheme.palette
     val type = PersonaTheme.type
     JSheet(onDismiss, title = stringResource(if (preview.upgrade) R.string.settings_ext_upgrade_name else R.string.settings_ext_install_name, name), dismissible = !busy, scrollable = true) {
@@ -364,11 +370,27 @@ internal fun PreviewSheet(
             preview.warnings.orEmpty().forEach { JInlineStatus(it, tone = InlineTone.Caution) }
             SettingsCaption(stringResource(R.string.settings_ext_preview_note) +
                 (preview.expiresAt?.let(CatalogText::time)?.let { stringResource(R.string.settings_ext_preview_expires, it) } ?: ""))
-            JButton(CatalogText.confirmLabel(LocalResources.current, preview), onConfirm, Modifier.fillMaxWidth(),
-                kind = JButtonKind.Primary, loading = busy, enabled = !busy && preview.canConfirm)
+            if (expired) {
+                JInlineStatus(stringResource(R.string.settings_ext_preview_expired), tone = InlineTone.Caution)
+                JButton(stringResource(R.string.settings_ext_preview_again), onPreviewAgain, Modifier.fillMaxWidth(),
+                    kind = JButtonKind.Primary, loading = busy, enabled = !busy)
+            } else JButton(CatalogText.confirmLabel(LocalResources.current, preview), onConfirm, Modifier.fillMaxWidth(),
+                kind = JButtonKind.Primary, loading = busy, enabled = !busy && preview.dependenciesReady)
             JButton(stringResource(R.string.settings_ext_preview_cancel), onDismiss, Modifier.fillMaxWidth(), kind = JButtonKind.Secondary, enabled = !busy)
         }
     }
+}
+
+/** Whether [preview] has expired by [now]; it turns true when the earliest expiry passes (rechecked at least every minute). */
+@Composable
+private fun rememberExpired(preview: ExtensionPreview, now: () -> Instant): Boolean {
+    var expired by remember(preview) { mutableStateOf(preview.expired(now())) }
+    LaunchedEffect(preview) {
+        val by = preview.expiresBy ?: return@LaunchedEffect
+        while (!preview.expired(now())) delay(Duration.between(now(), by).toMillis().coerceIn(1L, 60_000L))
+        expired = true
+    }
+    return expired
 }
 
 @Composable

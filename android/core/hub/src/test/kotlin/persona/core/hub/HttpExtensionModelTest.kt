@@ -57,7 +57,7 @@ class HttpExtensionModelTest {
             "bundle":[{"preview_id":"dep","permissions_digest":"d-dep","manifest":{"id":"dep","version":"1.0.0"}},
                 {"preview_id":"member","permissions_digest":"d-member","manifest":{"id":"member","version":"2.0.0"},
                     "depends":[{"id":"dep","state":"missing"}]}]}""")
-        assertTrue(preview.canConfirm)
+        assertTrue(preview.dependenciesReady)
         server.enqueue(MockResponse().setBody("""{"id":"pack"}"""))
         api.install(preview)
         val body = JsonCodec.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject

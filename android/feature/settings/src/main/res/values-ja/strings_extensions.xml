@@ -220,6 +220,8 @@
     <string name="settings_ext_preview_note">パッケージはダウンロード済みで、sha256を確認しました。拡張機能はハブのマシンで実行されます。サンドボックスが実際に有効かどうかはインストール後の詳細で確認してください。</string>
     <string name="settings_ext_preview_expires">このプレビューは%1$s（UTC）に期限切れになります。</string>
     <string name="settings_ext_preview_cancel">インストールしない</string>
+    <string name="settings_ext_preview_expired">このプレビューは期限切れのため確定できません。もう一度プレビューして、現在のパッケージと権限を確認してください。</string>
+    <string name="settings_ext_preview_again">再プレビュー</string>
     <string name="settings_ext_uninstall_title">%1$sをアンインストールしますか？</string>
     <string name="settings_ext_uninstall_text">停止して設定とシークレットを削除します。提供しているコネクタも一緒に削除されます。</string>
     <string name="settings_ext_dependents_title">依存する拡張機能も無効にしますか？</string>

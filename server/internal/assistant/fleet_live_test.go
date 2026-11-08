@@ -308,3 +308,29 @@ func TestBuildFleetWorkflowSince(t *testing.T) {
 		})
 	}
 }
+
+// A card with fields (the password card, a mail account's) is filled in in the app: its row on the Live Activity names
+// no interaction, so the activity draws no Allow / Deny for it (FleetActionRow); the row itself stays.
+func TestBuildFleetOffersNoAllowForACardWithFields(t *testing.T) {
+	agents := []fleetInput{{Machine: "box", Session: proto.Session{MachineID: "m", SessionID: "p", Title: "Persona", State: proto.StateNeedsYou}},
+		{Machine: "box", Session: proto.Session{MachineID: "m", SessionID: "q", Title: "agent q", State: proto.StateNeedsYou}}}
+	ixs := []proto.Interaction{
+		{ID: "ix_pw", MachineID: "m", SessionID: "p", Kind: proto.IxPermission, ToolName: proto.SecretRunTool, Summary: "Run on Mac mini",
+			Fields: []proto.Field{{Key: "password", Secret: true}}},
+		{ID: "ix_bash", MachineID: "m", SessionID: "q", Kind: proto.IxPermission, Summary: "Bash: go test ./..."},
+	}
+	st := buildFleet(agents, ixs)
+	if len(st.Items) != 2 || st.NeedsYou != 2 {
+		t.Fatalf("items %+v", st.Items)
+	}
+	if pw := st.Items[0]; pw.ID != "m/p" || pw.Kind != proto.IxPermission || pw.Interaction != "" {
+		t.Fatalf("the card with fields: %+v, want its row without an interaction", pw)
+	}
+	if b := st.Items[1]; b.Interaction != "ix_bash" {
+		t.Fatalf("an ordinary permission: %+v, want its interaction for Allow / Deny", b)
+	}
+	raw, _ := json.Marshal(st.Items[0])
+	if strings.Contains(string(raw), `"interaction"`) {
+		t.Fatalf("the row as the activity gets it: %s", raw)
+	}
+}

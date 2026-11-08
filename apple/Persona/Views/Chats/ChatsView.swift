@@ -836,7 +836,6 @@ private struct AgentsList: View {
                             machineFilterChip
                         }
                     }
-                    .background { DrawerPan.NoRowSwipe() } // no swipe of its own: a drag to the right pages to Assistant
                     #else
                     VStack(alignment: .leading, spacing: 0) {
                         filterBar(base)
@@ -853,7 +852,6 @@ private struct AgentsList: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, Theme.Space.page)
                         .padding(.bottom, Theme.Space.sm)
-                        .background { DrawerPan.NoRowSwipe() }
                         .id("agents.grouping.row")
                     #endif
                 }
@@ -1321,12 +1319,14 @@ private struct AgentsList: View {
         // herdr is where most agents run: only the others name their host
         let host = showHost ? s.hostKind.flatMap { $0 == "herdr" ? nil : $0 } : nil
         if compact {
-            CompactSlotRow(session: s, muted: model.isMuted(s), hideState: inStateSection, space: context ? (s.spaceName ?? s.folderName) : nil, host: host, time: time, pane: pane)
+            CompactSlotRow(session: s, muted: model.isMuted(s), hideState: inStateSection, space: context ? (s.spaceName ?? s.folderName) : nil, host: host, time: time, pane: pane,
+                           more: Self.rowMenus)
                 .equatable()
         } else {
             SlotRow(session: s, muted: model.isMuted(s), space: context ? (s.spaceName ?? s.folderName) : nil,
                     machine: context && grouping != .machine && machineFilter.isEmpty ? machine(s.machineRef)?.title : nil, host: host,
-                    hideState: inStateSection, surface: cardLast.map { .cardRow(last: $0) } ?? .capsule, time: time, pane: pane)
+                    hideState: inStateSection, surface: cardLast.map { .cardRow(last: $0) } ?? .capsule, time: time, pane: pane,
+                    more: Self.rowMenus)
                 .equatable()
         }
     }
@@ -1415,9 +1415,6 @@ private struct AgentsList: View {
             TabGroupRow(group: g, folded: folded).padding(.leading, nested(depth))
         }
         .buttonStyle(.plain)
-        #if os(iOS) || os(visionOS)
-        .background { DrawerPan.NoRowSwipe() } // no swipe of its own: a drag to the right pages to Assistant
-        #endif
         .modifier(FoldAnchor(id: g.foldID, reader: feed.reader))
         .listRowInsets(compact ? rowInsets(level: depth) : capsules ? Self.tabCapsuleInsets(level: depth) : nil)
         .listRowBackground(capsules ? Color.clear : nil)
@@ -2063,7 +2060,9 @@ private struct AgentsList: View {
     private func slotRowBody(_ s: Session, context: Bool, inStateSection: Bool, cardLast: Bool?, showHost: Bool, depth: Int,
                              pane: TabPanes.Role?, branch: Bool) -> some View {
         let level = depth + (branch ? 1 : 0)
-        let closes = s.state.isLive && s.canTerminal // the row's Close, and its mark for the strip (#2822)
+        #if os(macOS)
+        let closes = s.state.isLive && s.canTerminal // the row's Close
+        #endif
         return Group {
             if searching {
                 // A search result is a button, not a link: a link pushed at once, the push was refused (the search has
@@ -2072,8 +2071,9 @@ private struct AgentsList: View {
                     HStack(spacing: Theme.Space.s) {
                         slotRowContent(s, context: context, inStateSection: inStateSection, cardLast: cardLast, showHost: showHost, pane: pane)
                             .padding(.leading, nested(level))
-                        // Capsules draws its own chevron; List and Persona' own rows get the one a link would show.
-                        if !capsules { Image(systemName: Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary) }
+                        // Capsules draws its own chevron; List and Persona' own rows get the one a link would show. Where the
+                        // row ends in its ⋯ (`rowMenus`), that is its end.
+                        if !capsules && !Self.rowMenus { Image(systemName: Theme.Icon.disclosure).font(Theme.Font.captionStrong).foregroundStyle(.tertiary) }
                     }
                     .contentShape(.rect)
                 }
@@ -2101,21 +2101,20 @@ private struct AgentsList: View {
             .accessibilityIdentifier(compact ? "agents.compactRow" : "agents.row")
             // BeautifulUI's Capsules: each agent its own capsule on the page (no list card, line or system chevron); List and
             // Persona' own rows: the list's card.
-            .navigationLinkIndicatorVisibility(capsules ? .hidden : .automatic)
+            .navigationLinkIndicatorVisibility(capsules || Self.rowMenus ? .hidden : .automatic)
             .listRowBackground(capsules ? Color.clear : nil)
             .listRowSeparator(capsules ? .hidden : .automatic)
             .listRowInsets(capsules ? cardLast.map { EdgeInsets(top: 0, leading: Theme.Space.page, bottom: $0 ? Theme.Space.xs : 0, trailing: Theme.Space.page) }
                                ?? rowInsets(level: level)
                            : rowInsets(level: level)) // a card's rows touch (the card is one surface); capsules keep a little air between them
+            #if os(macOS)
+            // A trackpad's swipes. On iOS a row does not swipe: on the way from Agents to a chat a sideways drag opened a
+            // row's buttons instead (#1244). Its ⋯ (`AgentRowMoreButton`) holds them, and the drag pages the shell.
             .swipeActions(edge: .trailing) {
                 if closes {
                     Button { closingSession = s } label: { Label("Close", systemImage: Theme.Icon.close) }.tint(Theme.danger)
                 }
             }
-            #if os(iOS) || os(visionOS)
-            // A row that closes swipes to the left: the strip leaves that drag to it, though Messages is a page further (#2822).
-            .background { if closes { SwipeRowMark() } }
-            #endif
             .swipeActions(edge: .leading) {
                 Button { model.togglePin(s.key) } label: {
                     Label(model.isPinned(s.key) ? String(localized: "Unpin [Personal Agent List View c92179]") : String(localized: "Pin [Personal Agent List View 173f88]"), systemImage: model.isPinned(s.key) ? "pin.slash.fill" : Theme.Icon.pinned)
@@ -2130,12 +2129,18 @@ private struct AgentsList: View {
                         .tint(.gray)
                 }
             }
-            .contextMenu {
-                AgentRowMenu(key: s.key, pinned: model.isPinned(s.key), muted: model.isMuted(s), looping: s.loop != nil,
-                             live: s.state.isLive, terminal: s.canTerminal, attachable: s.canAttach, deletable: s.canDelete,
-                             paneActions: NodeMenu.offersPaneActions(s), actions: rowActions)
-                    .equatable()
-            }
+            #endif
+            .contextMenu { AgentRowMenu(s, model: model, actions: rowActions).equatable() }
+            .environment(\.agentRowActions, rowActions)
+    }
+
+    /// Each row ends in a ⋯ with its menu (`AgentRowMoreButton`), and rows do not swipe: iOS and visionOS (#1244).
+    static var rowMenus: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
+        #endif
     }
 }
 
@@ -2874,6 +2879,8 @@ nonisolated struct SlotRow: View, Equatable {
     /// Its place in a tab of several agents (#2320): named by its agent, the starter marked; the tab's row above says
     /// which tab, so the row does not.
     var pane: TabPanes.Role? = nil
+    /// Ends in its ⋯ (`AgentRowMoreButton`, iOS) rather than a chevron.
+    var more = false
 
     enum Surface: Equatable {
         /// Bare: a List's row that has its own background and chevron.
@@ -2910,30 +2917,35 @@ nonisolated struct SlotRow: View, Equatable {
                                  subtitle: session.listPreview(muted: muted), footnote: meta,
                                  status: .pending(step: 0)),
                         shape: taskShape(), isOpen: session.leadWorkflow != nil,
-                        accessory: surface == .none ? .none : .disclosure, titleLines: 2, subtitleLines: 1) {
+                        accessory: surface == .none || more ? .none : .disclosure, titleLines: 2, subtitleLines: 1) {
                     // The badge's column is 24 pt: only the badge goes there (#3004); the source tag is under the time (#3043).
                     if dot { AgentStateBadge(state: session.state).padding(.leading, indented ? Theme.Space.l : 0) }
                 } trailing: {
-                    VStack(alignment: .trailing, spacing: Theme.Space.xs) {
-                        AgentTimeText(time: time, fallback: session.updatedAt, font: Theme.Font.label)
-                        sourceLabel
-                        #if os(macOS)
-                        if pendingCount { CountBadge(count: session.pendingInteractions, look: .tone(StatusPalette.needsYou)) }
-                        #endif
-                        if session.state == .needsYou && !muted && !hideState && !pendingCount { BUIPill(session.state.label, tone: .custom(ink: StatusPalette.needsYou.text, fill: StatusPalette.needsYou.tint)) }
-                        if awaitingWord {
-                            let tone = StatusPalette.awaitingReply
-                            BUIPill(session.stateLabel(muted: muted), tone: .custom(ink: tone.text, fill: tone.tint))
+                    HStack(alignment: .top, spacing: Theme.Space.s) {
+                        VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                            AgentTimeText(time: time, fallback: session.updatedAt, font: Theme.Font.label)
+                            sourceLabel
+                            #if os(macOS)
+                            if pendingCount { CountBadge(count: session.pendingInteractions, look: .tone(StatusPalette.needsYou)) }
+                            #endif
+                            if session.state == .needsYou && !muted && !hideState && !pendingCount { BUIPill(session.state.label, tone: .custom(ink: StatusPalette.needsYou.text, fill: StatusPalette.needsYou.tint)) }
+                            if awaitingWord {
+                                let tone = StatusPalette.awaitingReply
+                                BUIPill(session.stateLabel(muted: muted), tone: .custom(ink: tone.text, fill: tone.tint))
+                            }
+                            if muted {
+                                Image(systemName: Theme.Icon.muted).font(Theme.Font.label).foregroundStyle(.secondary).accessibilityLabel("Notifications muted")
+                            }
                         }
-                        if muted {
-                            Image(systemName: Theme.Icon.muted).font(Theme.Font.label).foregroundStyle(.secondary).accessibilityLabel("Notifications muted")
-                        }
+                        if more { moreRoom }
                     }
                 } detail: {
                     if !session.runningWorkflows.isEmpty { WorkflowLine(runs: session.runningWorkflows) }
                 }
                 // The badge's column holds the state alone (#3004): the agent's mark leads the title (#6390).
                 .titleLeading(session.assistant ? nil : { AgentMark(session) })
+                // Over the room left for it at the row's end (inside the row's inset), centered on the row's height.
+                .overlay(alignment: .trailing) { if more { AgentRowMoreButton(session: session).padding(.trailing, TaskRowInset.horizontal) } }
             } else {
                 HStack(alignment: .top, spacing: Theme.Space.m) {
                     // The agent's mark before its state (#6390): what runs there, then how it is doing.
@@ -2987,12 +2999,18 @@ nonisolated struct SlotRow: View, Equatable {
                             sourceLabel
                         }
                     }
+                    if more { moreRoom }
                 }
                 .padding(.vertical, Theme.Space.xs)
+                .overlay(alignment: .trailing) { if more { AgentRowMoreButton(session: session) } }
             }
         }
         .opacity(muted ? 0.8 : 1) // quieter than live agents, never fainter than the idle spaces below
     }
+
+    /// Where the ⋯ goes: drawn over the row (centered on its height, as tall as it is), so the room is a column of its
+    /// width at the end (a finger's, `AgentRowMoreButton`), which the time and the pills stay clear of.
+    @MainActor private var moreRoom: some View { Color.clear.scaledFrame(width: Theme.Size.tapTarget, height: 1) }
 
     /// Where it was opened, under the time; not for the assistant's own conversation.
     @MainActor @ViewBuilder private var sourceLabel: some View {
@@ -3097,6 +3115,8 @@ nonisolated struct CompactSlotRow: View, Equatable {
     var time: AgentTime? = nil
     /// As SlotRow's `pane`.
     var pane: TabPanes.Role? = nil
+    /// As SlotRow's `more`.
+    var more = false
 
     @MainActor
     var body: some View {
@@ -3138,6 +3158,7 @@ nonisolated struct CompactSlotRow: View, Equatable {
             #if os(macOS)
             if pendingCount { CountBadge(count: session.pendingInteractions, look: .tone(StatusPalette.needsYou)) }
             #endif
+            if more { AgentRowMoreButton(session: session, compact: true) }
         }
         .opacity(muted ? 0.8 : 1)
     }
@@ -3158,6 +3179,45 @@ nonisolated struct CompactSlotRow: View, Equatable {
         let parts = [name, host, location].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+}
+
+/// The ⋯ that ends an Agents row on iOS (#1244): the row's long-press menu (`AgentRowMenu`), a tap away. It stands in
+/// for the row's swipes, which a sideways drag on the way from Agents to a chat kept opening.
+struct AgentRowMoreButton: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.agentRowActions) private var actions
+    var session: Session
+    /// In a compact list's line: as quiet as its time, no well.
+    var compact = false
+
+    var body: some View {
+        if let actions {
+            Menu {
+                AgentRowMenu(session, model: model, actions: actions).equatable()
+            } label: {
+                Image(systemName: Theme.Icon.more)
+                    .font(compact ? CompactList.metaStrong : Theme.Font.labelStrong)
+                    .foregroundStyle(.secondary)
+                    .scaledFrame(width: compact ? Theme.Size.wellXS : Theme.Size.well, height: compact ? Theme.Size.iconXS : Theme.Size.well)
+                    .background { if !compact { Circle().fill(Theme.Fill.well) } }
+                    // A finger's width around it: a near miss opened the chat behind it. As tall too, but in a compact
+                    // line, whose height it would raise.
+                    .scaledFrame(width: Theme.Size.tapTarget, height: compact ? Theme.Size.iconXS : Theme.Size.tapTarget)
+                    .contentShape(.rect)
+            }
+            // Compact List: quiet like the time beside it (a Menu's label takes the accent otherwise).
+            .tint(Color.secondary)
+            .labelOnlyMenu()
+            // Not the header's words: an untitled agent goes by its folder, which may be its repository's name too.
+            .accessibilityLabel("More actions for agent \(session.displayTitle)")
+            .accessibilityIdentifier("agents.row.more")
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// The Agents list's row actions (rename, close, link a todo…) for a row's ⋯ (`AgentRowMoreButton`); nil elsewhere.
+    @Entry var agentRowActions: AgentRowMenu.Actions? = nil
 }
 
 /// The idle agents of a busy space folded into one line: count plus their tab names.

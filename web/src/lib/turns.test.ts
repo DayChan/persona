@@ -386,6 +386,7 @@ it("personaToolVerb names Persona's own tools by what they do, and nothing else"
   expect(personaToolVerb("mcp__persona__send_to_agent")).toEqual({ verb: "给 Agent 发消息" });
   expect(personaToolVerb("mcp__persona__conversation_new")).toEqual({ verb: "新开对话" });
   expect(personaToolVerb("mcp__persona__computer_run")).toEqual({ verb: "操控电脑" });
+  expect(personaToolVerb("mcp__persona__secret_run")).toEqual({ verb: "用密码运行" });
   expect(personaToolVerb("mcp__persona__phone_contacts_search")).toEqual({ verb: "iPhone", what: "contacts search" });
   expect(personaToolVerb("mcp__persona__mail_send")).toEqual({ verb: "邮件", what: "send" });
   // no verb of its own: keeps "Called Persona · …"

@@ -48,6 +48,9 @@ struct MacMenuBarTests {
         let permission = try ix(#"{"id":"p","machine_id":"m","session_id":"a","kind":"permission","tool_name":"Bash"}"#)
         #expect(MacMenuBar.quickAnswers(permission)?.map(\.title) == ["允许", "拒绝"])
         #expect(MacMenuBar.quickAnswers(permission)?.first?.resolution.allow == true)
+        // Something to fill in first (a password card): Deny only, the password goes in from the card.
+        let fill = try ix(#"{"id":"f","machine_id":"m","session_id":"a","kind":"permission","tool_name":"secret_run","fields":[{"key":"password","label":"Password","secret":true}]}"#)
+        #expect(MacMenuBar.quickAnswers(fill)?.map(\.resolution.allow) == [false])
         let plan = try ix(#"{"id":"p","machine_id":"m","session_id":"a","kind":"plan","plan":"改登录"}"#)
         #expect(MacMenuBar.quickAnswers(plan)?.first?.resolution.mode == "acceptEdits")
         let one = try ix(#"{"id":"q","machine_id":"m","session_id":"a","kind":"question","questions":[{"question":"用哪个?","multi_select":false,"options":[{"label":"A"},{"label":"B"}]}]}"#)

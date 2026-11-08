@@ -12,12 +12,25 @@ nonisolated enum PlanText {
     }
 }
 
+/// The assistant's password card (`secret_run`, docs/assistant/assistant.md): commands the Agent proposes for one of the
+/// user's computers, run by that computer's node with a password typed into the card on the iPhone.
+nonisolated enum SecretRun {
+    /// The tool's name on the card (`tool_name`), and the base name of its call in the chat (`mcp__persona__secret_run`).
+    static let tool = "secret_run"
+}
+
+nonisolated extension Interaction {
+    /// The password card. Its raw tool name is never shown: its title names it, its summary says what it runs.
+    var isSecretRun: Bool { kind == .permission && toolName == SecretRun.tool }
+}
+
 nonisolated extension Interaction {
     /// One line on what a needs-you card asks, chosen by its kind — the same wording on the chat card, the inbox's
     /// Needs You row and the Mac menu bar: a plan's first heading, a terminal dialog's question, a question card's
     /// first question, and a permission card's tool with what it runs.
     /// - Parameter includeToolName: a permission card shows `toolName: summary`; pass false to show the summary
     ///   only and fall back to the tool name, as the inbox row does (its next line already names the card kind).
+    ///   The password card (`isSecretRun`) shows its summary alone either way.
     /// - Returns: nil when the card carries no such text; the caller falls back to its generic title.
     func askLine(includeToolName: Bool) -> String? {
         switch kind {
@@ -26,13 +39,13 @@ nonisolated extension Interaction {
         case .plan:
             return PlanText.title(plan ?? "")
         case .permission:
-            if includeToolName {
+            if includeToolName, !isSecretRun {
                 let line = [toolName, summary].compactMap { $0 }.joined(separator: permissionSeparator)
                 return line.isEmpty ? nil : line
             }
             // The inbox row: trim whitespace-only summaries so it never draws a blank asks line.
             if let s = summary?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty { return s }
-            if let t = toolName?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { return t }
+            if let t = toolName?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, !isSecretRun { return t }
             return nil
         case .screen:
             return screenDialog?.question

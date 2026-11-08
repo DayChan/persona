@@ -61,8 +61,10 @@ def select_lanes(paths, lanes="auto", all_platforms=False):
 def apply_event_policy(selected, event_name):
     selected = dict(selected)
     if event_name in ("pull_request", "merge_group"):
-        # The hosted macOS queue alone can exceed the PR wall-clock budget.
-        selected["apple"] = False
+        # Repeated hosted queues defeated the budget even for documentation PRs.
+        # Web/runtime checks share the PR's one runner; full heavy lanes are manual.
+        for lane in ("server", "android", "apple", "scripts", "image"):
+            selected[lane] = False
     return selected
 
 

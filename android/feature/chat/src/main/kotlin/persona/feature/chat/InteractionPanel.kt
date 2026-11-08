@@ -86,7 +86,7 @@ internal fun InteractionPanel(
     }
     DecisionDock(
         kind = when (request.kind) {
-            "permission" -> if (request.toolName == "Bash") DecisionKind.Command else DecisionKind.Tool
+            "permission" -> if (request.toolName == "Bash" || request.isSecretRun) DecisionKind.Command else DecisionKind.Tool
             "plan" -> DecisionKind.Plan
             "question" -> DecisionKind.Question
             "elicitation" -> DecisionKind.Form
@@ -185,7 +185,8 @@ internal fun InteractionForm(
     } ?: fallback?.options.orEmpty()
     val actions: @Composable () -> Unit = {
         when (interaction.kind) {
-            "permission" -> {
+            // A password card is filled in only on the iPhone (#1137): here it can only be declined.
+            "permission" -> if (interaction.isSecretRun) SecretRunActions(enabled(AnswerAction.Deny)) { act(AnswerAction.Deny) } else {
                 // "Always" is Claude's, or another agent's when its TUI says what it would allow (as on iOS).
                 DecisionButtons(
                     primary = JAction(stringResource(R.string.chat_request_allow), enabled = enabled(AnswerAction.Allow)) { act(AnswerAction.Allow) },
@@ -264,7 +265,7 @@ internal fun InteractionForm(
             style = PersonaTheme.type.callout, color = PersonaTheme.palette.ink2)
         Spacer(Modifier.height(Tokens.Space.s))
         when (interaction.kind) {
-            "permission" -> {
+            "permission" -> if (interaction.isSecretRun) SecretRunSummary(interaction) else {
                 // Another agent's card says why it asks, in its own words.
                 interaction.reason?.takeIf { interaction.agentDisplayName != null && it.isNotBlank() }?.let {
                     ChatLinkText(it, style = PersonaTheme.type.callout.copy(color = PersonaTheme.palette.ink2))
@@ -342,7 +343,8 @@ internal fun InteractionForm(
             }
             else -> Text(stringResource(R.string.chat_request_unsupported))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+        // A password card is the assistant's own: no terminal to go to, nothing to hand back (#1137).
+        if (!interaction.isSecretRun) Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
             if (onTerminal != null || showTerminalHelp) JTextButton(if (onTerminal != null) RequestExpiry.terminalLabel.text() else stringResource(R.string.chat_request_terminal_help),
                 { password = ""; if (onTerminal != null) onTerminal() else terminalHelp = true })
             if (ApprovalPolicy.actions(AnswerEntry.Conversation, interaction.kind, false).any { it.id == ApprovalAction.Dismiss }) {

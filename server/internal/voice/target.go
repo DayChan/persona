@@ -159,7 +159,7 @@ func (c *conversation) prepare(ctx context.Context, machine, session string, rec
 	sess, err := hub.session(bctx, machine, session)
 	if err != nil {
 		wg.Wait()
-		c.pl.logf("bind %s/%s: %v", machine, session, err)
+		c.logf("bind %s/%s: %s", machine, session, hubOutcome(err))
 		return prepared{err: &codedError{msg: "连不上 Persona，没能找到要绑定的对话"}} // no code: not known to be gone
 	}
 	if sess == nil {

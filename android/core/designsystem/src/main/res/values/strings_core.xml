@@ -319,6 +319,7 @@
     <string name="designsystem_core_headline_permission_detail">Wants to use %1$s: %2$s</string>
     <string name="designsystem_core_headline_agent_permission">%1$s wants to use %2$s</string>
     <string name="designsystem_core_headline_agent_permission_detail">%1$s wants to use %2$s: %3$s</string>
+    <string name="designsystem_core_headline_secret_run">Run on %1$s with your password</string>
     <string name="designsystem_core_headline_screen">A dialog in the terminal needs you</string>
     <string name="designsystem_core_headline_needs_you">Needs you</string>
     <string name="designsystem_core_ask_question">Asking you</string>

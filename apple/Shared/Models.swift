@@ -1677,7 +1677,9 @@ nonisolated struct Interaction: Codable, Identifiable, Hashable, Sendable {
     /// The terminal asks for a password: typed into a password field, not kept anywhere.
     var secret: Bool?
     var fields: [InteractionField]?
-    var requiresInput: Bool { !(fields ?? []).isEmpty }
+    /// Something to fill in before it can be allowed: every quick Allow (lists, menus, Siri, the watch) is off. The
+    /// password card counts even without its field, so no path allows it without a password.
+    var requiresInput: Bool { !(fields ?? []).isEmpty || isSecretRun }
     /// Who asks when it is not Claude Code: "codex" / "traex" (a card read off a Codex TUI, docs/integrations/codex.md「提问和审批」).
     var agent: String?
     /// Why the agent asks for this permission, in its words.

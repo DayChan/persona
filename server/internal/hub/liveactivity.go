@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -107,12 +108,13 @@ func showsAssistant(p NotifyPrefs) bool {
 	return p.LiveActivity && (left == SlotAssistant || right == SlotAssistant)
 }
 
-// needsYouIDs: the items waiting for the user, to tell a new one (push now) from anything else (merge).
+// needsYouIDs: the items waiting for the user, to tell a new one (push now) from anything else (merge). Since (the
+// card's creation) tells two cards of one agent apart when neither names its interaction (a card with fields).
 func needsYouIDs(s FleetState) map[string]bool {
 	out := map[string]bool{}
 	for _, it := range s.Items {
 		if it.Kind != "working" && it.Kind != "unread" {
-			out[it.ID+"#"+it.Interaction] = true
+			out[it.ID+"#"+it.Interaction+"#"+strconv.FormatFloat(it.Since, 'f', -1, 64)] = true
 		}
 	}
 	return out

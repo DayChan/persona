@@ -53,7 +53,7 @@ func nodeHas(info proto.NodeInfo, cap string) bool {
 		return info.Version == "" || info.ModelConfiguration // "": a test's or a dev node that said nothing
 	case nodeproto.NodeUpdate:
 		return info.NodeUpdate
-	case nodeproto.Ultracode, nodeproto.HealthSpaces: // came after the handshake: no node from before it has them
+	case nodeproto.Ultracode, nodeproto.HealthSpaces, nodeproto.SecretRun: // came after the handshake: no node from before it has them
 		return info.Version == ""
 	}
 	return true

@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import persona.core.contracts.JsonCodec
 import persona.core.contracts.api.*
+import java.time.Instant
 
 /** Robolectric for the words: the app's strings in Simplified Chinese (robolectric.properties). */
 @RunWith(AndroidJUnit4::class)
@@ -32,13 +33,32 @@ class ExtensionModelTest {
         val child = ExtensionPreview(manifest = PreviewManifest(id = "child"), depends = listOf(ExtensionDependency("base", state = "missing")))
         val main = ExtensionPreview(depends = listOf(ExtensionDependency("child", state = "missing")), bundle = listOf(
             ExtensionPreview(manifest = PreviewManifest(id = "base")), child))
-        assertTrue(main.canConfirm)
-        assertFalse(main.copy(bundle = listOf(child)).canConfirm)
-        assertFalse(main.copy(unresolved = listOf("base")).canConfirm)
-        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "disabled"))).canConfirm)
-        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "not_ready"))).canConfirm)
-        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "new-state"))).canConfirm)
-        assertTrue(ExtensionPreview().canConfirm)
+        assertTrue(main.dependenciesReady)
+        assertFalse(main.copy(bundle = listOf(child)).dependenciesReady)
+        assertFalse(main.copy(unresolved = listOf("base")).dependenciesReady)
+        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "disabled"))).dependenciesReady)
+        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "not_ready"))).dependenciesReady)
+        assertFalse(main.copy(depends = listOf(ExtensionDependency("child", state = "new-state"))).dependenciesReady)
+        assertTrue(ExtensionPreview().dependenciesReady)
+    }
+
+    @Test fun theEarliestExpiryOfTheWholeBundleDecidesAndAnOlderHubsPreviewNeverExpiresHere() {
+        val main = ExtensionPreview(previewId = "main", expiresAt = "2026-11-08T10:10:00Z", bundle = listOf(
+            // A member made a minute before the main one expires a minute earlier; the hub may send its zone's offset.
+            ExtensionPreview(previewId = "member", expiresAt = "2026-11-08T18:09:00+08:00"),
+            ExtensionPreview(previewId = "other")))
+        assertEquals(Instant.parse("2026-11-08T10:09:00Z"), main.expiresBy)
+        assertTrue(main.canConfirm(Instant.parse("2026-11-08T10:08:59Z")))
+        // Gone at the instant itself, as the hub counts it.
+        assertTrue(main.expired(Instant.parse("2026-11-08T10:09:00Z")))
+        assertFalse(main.canConfirm(Instant.parse("2026-11-08T10:09:30Z")))
+        // Expired but not ready either: still refused, for both reasons.
+        assertFalse(main.copy(unresolved = listOf("base")).canConfirm(Instant.parse("2026-11-08T10:00:00Z")))
+        // No expiry (an older hub) or one this app cannot read: confirmable as before; the hub still decides.
+        val old = ExtensionPreview(previewId = "old")
+        assertNull(old.expiresBy)
+        assertTrue(old.canConfirm(Instant.parse("2100-01-01T00:00:00Z")))
+        assertNull(old.copy(expiresAt = "soon").expiresBy)
     }
 
     @Test fun notReadyAndUnknownDependenciesNeverReadAsSatisfied() {

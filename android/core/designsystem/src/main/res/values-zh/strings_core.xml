@@ -293,6 +293,7 @@
     <string name="designsystem_core_headline_permission_detail">请求使用 %1$s：%2$s</string>
     <string name="designsystem_core_headline_agent_permission">%1$s 请求使用 %2$s</string>
     <string name="designsystem_core_headline_agent_permission_detail">%1$s 请求使用 %2$s：%3$s</string>
+    <string name="designsystem_core_headline_secret_run">用你的密码在 %1$s 上运行</string>
     <string name="designsystem_core_headline_screen">终端里有对话框等你处理</string>
     <string name="designsystem_core_headline_needs_you">需要你处理</string>
     <string name="designsystem_core_ask_question">在问你</string>

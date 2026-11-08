@@ -147,7 +147,8 @@ func (c *conversation) maybePause(now time.Time) {
 	c.closeAsst()
 	c.closeUser()
 	c.sendApp(map[string]any{"type": "link", "state": linkPaused})
-	c.pl.logf("paused the upstream (%d): the conversation works and nobody spoke for %v", s.pauses, now.Sub(c.quietSince()).Round(time.Second))
+	c.logf("paused the upstream (%d): session %d closed, the conversation works and nobody spoke for %v", s.pauses, sessionNo(c.gen-1),
+		now.Sub(c.quietSince()).Round(time.Second))
 	c.mu.Unlock()
 	go func() { // its reader sees the new gen and stops
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -214,7 +215,7 @@ func (c *conversation) rouse(why string) {
 	}
 	s.state, s.at = linkWaking, time.Now()
 	c.sendApp(map[string]any{"type": "link", "state": linkWaking})
-	c.pl.logf("waking the upstream: %s", why)
+	c.logf("waking the upstream: %s", why)
 	go c.wakeUp()
 }
 
@@ -241,7 +242,7 @@ func (c *conversation) wakeUp() {
 		c.sus.failed++
 		failed := c.sus.failed
 		c.mu.Unlock()
-		c.pl.logf("wake (%d of %d): %v", failed, wakeMost, err)
+		c.logf("wake (%d of %d) failed: %s", failed, wakeMost, failure(err))
 		if failed >= wakeMost {
 			c.failCode(codeUpstreamFailed, i18n.T(c.language(), "voice-suspend.wake_failed", i18n.Args{"reason": err.Error()}), true)
 			return
@@ -293,7 +294,7 @@ func (c *conversation) flushRing() {
 			out = append(out, w.text(text))
 		default:
 			c.sus.state, c.sus.flush, c.sus.failed, c.sus.spoke = "", false, 0, false
-			c.pl.logf("woke the upstream in %v", time.Since(c.sus.at).Round(10*time.Millisecond))
+			c.logf("woke the upstream in %v", time.Since(c.sus.at).Round(10*time.Millisecond))
 			c.mu.Unlock()
 			select { // what waits to be said goes now
 			case c.wake <- struct{}{}:

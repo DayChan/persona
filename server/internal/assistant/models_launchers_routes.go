@@ -1,0 +1,458 @@
+package assistant
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/nwverse/persona/server/internal/ai"
+	"github.com/nwverse/persona/server/internal/apierr"
+	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
+	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/prompts"
+	"github.com/nwverse/persona/server/internal/proto"
+	"github.com/nwverse/persona/server/internal/textfmt"
+)
+
+func (s *Service) launcherRoutes() {
+	s.handle("GET /api/v1/launchers", func(w http.ResponseWriter, r *http.Request) {
+		// Each machine gets launcherSyncTimeout: one that is slow or gone never holds the page (sync says which).
+		ctx, cancel := context.WithTimeout(r.Context(), launcherSyncTimeout+5*time.Second)
+		defer cancel()
+		// A launcher just added to an rc file shows up (the node caches a minute).
+		zshrc := s.zshrcLaunchers(ctx, true)
+		views := s.launcherViewsOf(ctx, zshrc)
+		if b, ok := s.builtinClaude(ctx, zshrc); ok {
+			views = append(views, b)
+		}
+		apierr.WriteJSON(w, map[string]any{"launchers": views, "sync": launcherSyncList(zshrc)})
+	})
+	s.handle("GET /api/v1/launchers/{name}", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		name := r.PathValue("name")
+		if b, ok := s.builtinClaude(ctx, s.zshrcLaunchers(ctx, false)); ok && name == b.Name {
+			apierr.WriteJSON(w, map[string]any{"launcher": b})
+			return
+		}
+		for _, v := range s.launcherViews(ctx) {
+			if v.Name != name {
+				continue
+			}
+			if machineSource(v.Source) {
+				// Every machine at once, the text and the probe apart: a launcher that fetches a token first is slow to
+				// probe (the node allows 15 s), and its text should still show.
+				v.Definitions, v.Details = map[string]string{}, map[string]proto.LauncherDetail{}
+				var mu sync.Mutex
+				var wg sync.WaitGroup
+				for _, id := range v.Machines {
+					wg.Add(2)
+					go func() {
+						defer wg.Done()
+						var res struct {
+							Definition string `json:"definition"`
+						}
+						if err := s.call(ctx, id, assistantwire.DeviceLaunchersShow, map[string]any{"name": name}, &res); err == nil {
+							mu.Lock()
+							v.Definitions[id] = res.Definition
+							mu.Unlock()
+						}
+					}()
+					go func() {
+						defer wg.Done()
+						var res struct {
+							Detail proto.LauncherDetail `json:"detail"`
+						}
+						if err := s.call(ctx, id, DeviceLaunchersProbe, s.launcherParams(ctx, id, name, map[string]any{}), &res); err == nil {
+							mu.Lock()
+							v.Details[id] = res.Detail
+							mu.Unlock()
+						}
+					}()
+				}
+				wg.Wait()
+			} else if v.Source == "agy" {
+				v.Details = map[string]proto.LauncherDetail{}
+				for _, id := range v.Machines {
+					l := s.requestCtxLang(ctx)
+					models := []proto.LauncherModel{{Role: i18n.T(l, "assistant-models_launchers.role_default"), Env: "agy acp", Model: v.Model}}
+					if res, err := s.askLauncherModels(ctx, id, name, false); err == nil && len(res.Models) > 0 {
+						models = nil
+						for _, am := range res.Models {
+							role := i18n.T(l, "assistant-models_launchers.role_optional")
+							if am.Default {
+								role = i18n.T(l, "assistant-models_launchers.role_default")
+							}
+							models = append(models, proto.LauncherModel{Role: role, Env: am.ID, Model: am.Name})
+						}
+					}
+					v.Details[id] = proto.LauncherDetail{
+						Agent:  "agy",
+						Auth:   "Antigravity OAuth (~/.gemini/antigravity-cli)",
+						Models: models,
+					}
+				}
+			}
+			apierr.WriteJSON(w, map[string]any{"launcher": v})
+			return
+		}
+		apierr.Write(w, http.StatusNotFound, errors.New("no such launcher"))
+	})
+	s.handle("POST /api/v1/launchers", func(w http.ResponseWriter, r *http.Request) {
+		var in launcherInput
+		if err := decodeBody(w, r, &in, 1<<20); err != nil {
+			writeBodyErr(w, err, err)
+			return
+		}
+		ctx := r.Context()
+		if err := s.presetFill(ctx, &in); err != nil {
+			apierr.Write(w, http.StatusBadRequest, err)
+			return
+		}
+		for _, id := range in.Assign {
+			if !slices.Contains(assignablePurposes, id) {
+				apierr.Write(w, http.StatusBadRequest, i18n.Err("assistant-models_launchers.err_assign", i18n.Args{"purpose": strconv.Quote(id)}))
+				return
+			}
+		}
+		stored, err := s.readStoredLaunchers(ctx)
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		views := s.launcherViewsFrom(ctx, s.zshrcLaunchers(ctx, false), stored)
+		taken := func(n string) bool {
+			return slices.ContainsFunc(views, func(v LauncherView) bool { return v.Name == n })
+		}
+		if in.Name == "" && in.Preset != "" {
+			var n int
+			in.Name, n = launcherNameFor(in.Preset, taken)
+			if in.DisplayName == nil || strings.TrimSpace(*in.DisplayName) == "" {
+				d := s.presetDisplayName(ctx, in.Preset, n)
+				in.DisplayName = &d
+			}
+		}
+		if err := in.check(); err != nil {
+			apierr.Write(w, http.StatusBadRequest, err)
+			return
+		}
+		if taken(in.Name) {
+			apierr.Write(w, http.StatusConflict, i18n.Err("assistant-models_launchers.err_name_taken", i18n.Args{"name": in.Name}))
+			return
+		}
+		l, err := s.saveLauncher(ctx, in, nil)
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		out := map[string]any{"launcher": launcherView(l)}
+		if in.Assign != nil {
+			assigned, kept := s.assignIfDefault(ctx, launcherProvider(l.Name), in.Assign)
+			out["assigned"], out["kept"] = assigned, kept
+		}
+		apierr.WriteJSON(w, out)
+	})
+	s.handle("PUT /api/v1/launchers/{name}", func(w http.ResponseWriter, r *http.Request) {
+		var in launcherInput
+		if err := decodeBody(w, r, &in, 1<<20); err != nil {
+			writeBodyErr(w, err, err)
+			return
+		}
+		in.Name = r.PathValue("name")
+		stored, err := s.readStoredLaunchers(r.Context())
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		var old *storedLauncher
+		for _, l := range stored {
+			if l.Name == in.Name {
+				l := l
+				old = &l
+				break
+			}
+		}
+		if old != nil && in.Agent == "" && in.Kind != "api" {
+			in.Agent = old.Agent
+		}
+		if err := in.check(); err != nil {
+			apierr.Write(w, http.StatusBadRequest, err)
+			return
+		}
+		if old == nil {
+			apierr.Write(w, http.StatusNotFound, i18n.Err("assistant-models_launchers.err_not_managed"))
+			return
+		}
+		saved, err := s.saveLauncher(r.Context(), in, old)
+		if err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		apierr.WriteJSON(w, map[string]any{"launcher": launcherView(saved)})
+	})
+	s.handle("DELETE /api/v1/launchers/{name}", func(w http.ResponseWriter, r *http.Request) {
+		ctx, name := r.Context(), r.PathValue("name")
+		s.models.mu.Lock()
+		list, err := s.readStoredLaunchers(ctx)
+		if err != nil {
+			s.models.mu.Unlock()
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		if i := slices.IndexFunc(list, func(l storedLauncher) bool { return l.Name == name }); i >= 0 {
+			// Check dependencies, delete and publish the confirmed snapshot under the configuration lock.
+			uses, err := s.providerModelUses(withManagedSnapshot(ctx, list), launcherProvider(name))
+			if err == nil && len(uses) == 0 {
+				err = s.storeManagedLaunchers(ctx, slices.Delete(list, i, i+1))
+			}
+			s.models.mu.Unlock()
+			if err != nil {
+				apierr.Write(w, 500, err)
+				return
+			}
+			if len(uses) > 0 {
+				apierr.Write(w, 409, i18n.Err("assistant-models_launchers.err_in_use", i18n.Args{"uses": strings.Join(uses, i18n.T(s.requestCtxLang(r.Context()), "assistant-models_launchers.list_sep"))}))
+				return
+			}
+			apierr.WriteJSON(w, map[string]any{"ok": true, "deleted": true})
+			return
+		}
+		s.models.mu.Unlock()
+		if name == "claude" { // plain claude is every machine's default launcher: there is nothing to hide
+			apierr.Write(w, http.StatusBadRequest, i18n.Err("assistant-models_launchers.err_builtin_hide"))
+			return
+		}
+		hidden := s.hiddenLaunchers(ctx) // an rc-file launcher: hidden in Persona, the file is not touched
+		if !slices.Contains(hidden, name) {
+			hidden = append(hidden, name)
+		}
+		if err := s.putSetting(ctx, launchersHiddenKey, hidden); err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		apierr.WriteJSON(w, map[string]any{"ok": true, "hidden": true})
+	})
+	// "Test": one real request through the launcher on a machine (default: the assistant's).
+	s.handle("POST /api/v1/launchers/{name}/check", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
+		defer cancel()
+		for _, l := range s.storedLaunchers(ctx) {
+			if l.Name == r.PathValue("name") && l.Kind == "api" {
+				started := time.Now()
+				config, err := s.apiConfig(ctx, ModelBinding{Provider: launcherProvider(l.Name), Model: l.Model})
+				answer := ""
+				if err == nil {
+					answer, err = ai.New(config).Complete(ctx, "", prompts.RenderLauncherCheck(), 128)
+				}
+				result := proto.LauncherCheck{Agent: "api", Model: config.Model, Answer: textfmt.Clip(textfmt.OneLine(answer), 200), OK: err == nil,
+					Millis: int(time.Since(started).Milliseconds())}
+				if err != nil {
+					result.Error = textfmt.Clip(textfmt.OneLine(err.Error()), 400)
+				}
+				apierr.WriteJSON(w, map[string]any{"check": result})
+				return
+			}
+		}
+		machine := r.URL.Query().Get("machine") // the id the app knows
+		if _, ok := s.device(ctx, machine); !ok {
+			machine = s.settings(ctx).MachineID
+		}
+		if _, ok := s.device(ctx, machine); !ok {
+			apierr.Write(w, http.StatusBadRequest, errors.New("no machine to test on"))
+			return
+		}
+		var res proto.LauncherCheck
+		if err := s.call(ctx, machine, assistantwire.DeviceLaunchersCheck, map[string]any{"name": r.PathValue("name")}, &res); err != nil {
+			apierr.Call(w, err)
+			return
+		}
+		apierr.WriteJSON(w, map[string]any{"machine": machine, "check": res})
+	})
+	s.handle("POST /api/v1/launchers/{name}/restore", func(w http.ResponseWriter, r *http.Request) {
+		ctx, name := r.Context(), r.PathValue("name")
+		hidden := slices.DeleteFunc(s.hiddenLaunchers(ctx), func(n string) bool { return n == name })
+		if err := s.putSetting(ctx, launchersHiddenKey, hidden); err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+		apierr.WriteJSON(w, map[string]any{"ok": true})
+	})
+}
+
+// sessionLaunchers is the machine's launchers with the configured ones (hub.json machines[].launchers) applied: a
+// configured launcher overrides the type, base URL and model of the one with its name, or adds a wrapper the node
+// does not list. A launcher without a type gets the agent it was found to start, else one by its name.
+func sessionLaunchers(discovered, configured []ConfiguredLauncher) []ConfiguredLauncher {
+	list := append([]ConfiguredLauncher{}, discovered...)
+	for _, override := range configured {
+		found := false
+		for i := range list {
+			if list[i].Name == override.Name {
+				if override.AgentType != "" {
+					list[i].AgentType = override.AgentType
+				}
+				if override.BaseURL != "" {
+					list[i].BaseURL = override.BaseURL
+				}
+				if override.Model != "" {
+					list[i].Model = override.Model
+				}
+				found = true
+				break
+			}
+		}
+		if !found && override.Name != "" {
+			list = append(list, override)
+		}
+	}
+	for i := range list {
+		if list[i].AgentType == "" {
+			switch {
+			case list[i].Agent != "":
+				list[i].AgentType = list[i].Agent
+			case list[i].Name == "codex" || list[i].Name == "traex":
+				list[i].AgentType = list[i].Name
+			default:
+				list[i].AgentType = "claude"
+			}
+		}
+	}
+	return list
+}
+
+var errUnknownMachine = errors.New("unknown machine")
+
+// machineLauncherRoutes are "New Agent"'s pickers on one machine: its launchers with the agent each starts
+// (sessionLaunchers), and a launcher's /model list (node/launcher_models.go; the node keeps a list 10 minutes,
+// ?refresh=1 asks the CLI again).
+func (s *Service) machineLauncherRoutes() {
+	s.handle("GET /api/v1/machines/{mid}/launchers", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		mid := r.PathValue("mid")
+		if _, ok := s.device(ctx, mid); !ok {
+			apierr.Write(w, http.StatusNotFound, errUnknownMachine)
+			return
+		}
+		ls, err := s.machineLaunchers(ctx, mid)
+		if err != nil {
+			apierr.Call(w, err)
+			return
+		}
+		discovered := make([]ConfiguredLauncher, 0, len(ls))
+		for _, l := range ls {
+			discovered = append(discovered, ConfiguredLauncher{Launcher: l})
+		}
+		apierr.WriteJSON(w, map[string]any{"launchers": s.withHealth(ctx, mid, sessionLaunchers(discovered, s.hello(ctx).Models.Launchers[mid])),
+			"default": s.pickerDefault(ctx, r)})
+	})
+	s.handle("GET /api/v1/machines/{mid}/launchers/{name}/models", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 70*time.Second)
+		defer cancel()
+		mid := r.PathValue("mid")
+		if _, ok := s.device(ctx, mid); !ok {
+			apierr.Write(w, http.StatusNotFound, errUnknownMachine)
+			return
+		}
+		res, err := s.askLauncherModels(ctx, mid, r.PathValue("name"), r.URL.Query().Get("refresh") == "1")
+		if err != nil {
+			writeLauncherModelsErr(w, err)
+			return
+		}
+		apierr.WriteJSON(w, res)
+	})
+	s.handle("GET /api/v1/launchers/presets", func(w http.ResponseWriter, r *http.Request) {
+		apierr.WriteJSON(w, map[string]any{"presets": s.launcherPresets(r.Context())})
+	})
+}
+
+// pickMachine is the machine to ask about a launcher the machines in has have: want when it has it, else the
+// assistant's, the hub's own, then the others; the first of them online. false when none is.
+func (s *Service) pickMachine(ctx context.Context, has []string, want string) (string, bool) {
+	devices := s.devices(ctx)
+	local := ""
+	for _, d := range devices {
+		if d.Kind == "local" {
+			local = d.ID
+			break
+		}
+	}
+	order := append([]string{want, s.settings(ctx).MachineID, local}, has...)
+	for _, id := range order {
+		if id == "" || !slices.Contains(has, id) {
+			continue
+		}
+		if slices.ContainsFunc(devices, func(d Device) bool { return d.ID == id && d.Online }) {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+// providerModels is GET /api/v1/model-config/providers/{id}/models: a launcher provider's /model list for Model configuration
+// (docs/assistant/model-config.md "Picking a model in Model configuration"). Model configuration is not one machine's, so the list comes from a machine that has the
+// launcher (pickMachine), and the answer says which. Other providers have no list to ask for: a plugin's comes with
+// it, an API connection has none.
+func (s *Service) providerModels(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 70*time.Second)
+	defer cancel()
+	name, ok := strings.CutPrefix(r.PathValue("id"), "launcher.")
+	if !ok || name == "" {
+		apierr.Write(w, http.StatusNotFound, i18n.Err("assistant-models_launchers.err_no_models"))
+		return
+	}
+	found, everywhere := name == "claude", name == "claude"
+	var has []string
+	for _, v := range s.launcherViews(ctx) {
+		if v.Name != name {
+			continue
+		}
+		if v.Kind == "api" {
+			apierr.Write(w, http.StatusNotFound, i18n.Err("assistant-models_launchers.err_api_no_models"))
+			return
+		}
+		found = true
+		everywhere = everywhere || compat.Source(v.Source) == "persona" || len(v.Machines) == 0 // personad launch runs on every machine
+		has = append(has, v.Machines...)
+	}
+	if !found {
+		apierr.Write(w, http.StatusNotFound, i18n.Err("assistant-models_launchers.err_no_provider"))
+		return
+	}
+	if everywhere {
+		has = has[:0]
+		for _, d := range s.devices(ctx) {
+			has = append(has, d.ID)
+		}
+	}
+	machine, ok := s.pickMachine(ctx, has, r.URL.Query().Get("machine"))
+	if !ok {
+		apierr.Write(w, http.StatusServiceUnavailable, i18n.Err("assistant-models_launchers.err_all_offline"))
+		return
+	}
+	res, err := s.askLauncherModels(ctx, machine, name, r.URL.Query().Get("refresh") == "1")
+	if err != nil {
+		writeLauncherModelsErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, struct {
+		proto.LauncherModels
+		Machine string `json:"machine"`
+	}{res, machine})
+}
+
+// writeLauncherModelsErr answers a failed /model list: a node too old to list them is 404 like an older hub (the apps
+// leave the picker out instead of offering a retry that cannot work).
+func writeLauncherModelsErr(w http.ResponseWriter, err error) {
+	if strings.HasPrefix(err.Error(), "unknown method") {
+		apierr.WriteCode(w, http.StatusNotFound, proto.CodeNodeOutdated, i18n.Err("assistant-models_launchers.err_node_outdated"))
+		return
+	}
+	apierr.Call(w, err)
+}

@@ -41,8 +41,9 @@ internal fun requestCopy(context: Context, ix: Interaction): Pair<String, String
         // Without questions the hub's push says the summary (push.go), so this does too.
         "question" -> ix.questions?.takeIf { it.isNotEmpty() }?.let { questionBody(context, it) } ?: ix.summary.orEmpty()
         "plan" -> ix.plan ?: headline
-        // The headline already carries the summary; the summary alone would drop which tool asks.
-        "permission" -> headline
+        // The headline already carries the summary; the summary alone would drop which tool asks. A password card's
+        // headline names only the computer (#1137): its summary (the purpose and every command) is the detail.
+        "permission" -> if (ix.isSecretRun) ix.summary?.takeIf(String::isNotBlank) ?: headline else headline
         "screen" -> ix.dialog?.let { "${it.question}\n${it.detail.orEmpty()}" } ?: ix.screen.orEmpty()
         "elicitation" -> elicitationMessage(ix)?.let { context.getString(R.string.notify_body_elicitation, it) } ?: headline
         else -> headline

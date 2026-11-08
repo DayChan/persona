@@ -166,6 +166,10 @@ struct AgentRowMenu: View, Equatable {
     nonisolated var deletable = false
     /// The node menu's pane items (split, Git, close the tab): a live herdr pane (`NodeMenu.offersPaneActions`).
     nonisolated var paneActions = false
+    /// Interrupt is offered: the agent works or waits for you, and can be stopped from here.
+    nonisolated var interruptible = false
+    /// Mark as Seen is offered: there is something new it said.
+    nonisolated var unread = false
     nonisolated let actions: Actions
 
     @MainActor final class Actions {
@@ -191,7 +195,7 @@ struct AgentRowMenu: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.key == b.key && a.pinned == b.pinned && a.muted == b.muted && a.looping == b.looping && a.live == b.live
             && a.terminal == b.terminal && a.attachable == b.attachable && a.deletable == b.deletable
-            && a.paneActions == b.paneActions && a.actions === b.actions
+            && a.paneActions == b.paneActions && a.interruptible == b.interruptible && a.unread == b.unread && a.actions === b.actions
     }
 
     var body: some View {
@@ -209,6 +213,12 @@ struct AgentRowMenu: View, Equatable {
         #endif
         Button { model.togglePin(key) } label: {
             Label(pinned ? String(localized: "Unpin [Personal Agent List View c92179]") : String(localized: "Pin [Personal Agent List View 173f88]"), systemImage: pinned ? Theme.Icon.unpin : Theme.Icon.pin)
+        }
+        if interruptible {
+            Button { Task { await model.interrupt(key) } } label: { Label("Interrupt [Composer Buttons f9d193]", systemImage: Theme.Icon.interrupt) }
+        }
+        if unread {
+            Button { model.markSeen(key) } label: { Label("Mark as Seen", systemImage: Theme.Icon.view) }
         }
         if terminal {
             Button { if let s = now() { actions.rename(s) } } label: { Label("Rename… [Assistant Sidebar ec4cd0]", systemImage: Theme.Icon.edit) }
@@ -276,6 +286,17 @@ struct AgentRowMenu: View, Equatable {
                 if let s = now(), s.canDelete { actions.delete(s) }
             } label: { Label("Delete Chat…", systemImage: Theme.Icon.delete).lineLimit(1) }
         }
+    }
+}
+
+extension AgentRowMenu {
+    /// The menu of a row's agent: its long-press menu and, on iOS, its ⋯ (`AgentRowMoreButton`) are the same one. With
+    /// the rows' swipes gone there (#1244), Interrupt and Mark as Seen are here too.
+    @MainActor init(_ s: Session, model: AppModel, actions: Actions) {
+        self.init(key: s.key, pinned: model.isPinned(s.key), muted: model.isMuted(s), looping: s.loop != nil, live: s.state.isLive,
+                  terminal: s.canTerminal, attachable: s.canAttach, deletable: s.canDelete, paneActions: NodeMenu.offersPaneActions(s),
+                  interruptible: (s.state == .working || s.state == .needsYou) && s.canInterrupt, unread: s.state == .unread,
+                  actions: actions)
     }
 }
 

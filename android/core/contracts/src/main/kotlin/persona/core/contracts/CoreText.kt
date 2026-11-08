@@ -262,6 +262,7 @@ data class CoreText(val key: Key, val args: List<Any> = emptyList()) {
         HeadlinePermissionDetail("Wants to use %1\$s: %2\$s"),
         HeadlineAgentPermission("%1\$s wants to use %2\$s"),
         HeadlineAgentPermissionDetail("%1\$s wants to use %2\$s: %3\$s"),
+        HeadlineSecretRun("Run on %1\$s with your password"),
         HeadlineScreen("A dialog in the terminal needs you"),
         HeadlineNeedsYou("Needs you"),
         AskQuestion("Asking you"),

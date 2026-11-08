@@ -6,10 +6,11 @@ import SwiftUI
 /// the chat's card; the menu says yes to a tool or a plan, no to a tool.
 enum MacAgentCommands {
     /// ⇧⌘⏎: allow the tool, or approve the plan with edits auto-accepted (commands still ask; the same as the
-    /// notification's Approve — Approve & Auto-Run stays a choice in the card).
+    /// notification's Approve — Approve & Auto-Run stays a choice in the card). A tool with something to fill in first
+    /// (a password card) is allowed only from its card.
     static func approve(_ ix: Interaction) -> Resolution? {
         switch ix.kind {
-        case .permission: Resolution(allow: true)
+        case .permission: ix.requiresInput ? nil : Resolution(allow: true)
         case .plan: Resolution(approve: true, mode: "acceptEdits")
         case .question, .screen: nil
         }

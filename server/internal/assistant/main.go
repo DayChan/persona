@@ -362,7 +362,7 @@ func run(ctx context.Context, build update.Build, o runOptions) error {
 		Own:         func(ctx context.Context, machine string) map[string]json.RawMessage { return ext.Own(ctx, machine) },
 		OnConnected: func(machine string) { ext.NodeConnected(machine) },
 		OnEvent:     func(machine, event string, params json.RawMessage) bool { return ext.NodeEvent(machine, event, params) },
-		// A node's new connection gets the launchers added in Persona, with their keys (models_launchers.go).
+		// A node's new connection gets the launchers added in Persona, with their keys (models_launchers_push.go).
 		// Not one waiting to be confirmed: it gets them when it is (trustChanged, machine_trust.go).
 		NodeCalls: func(ctx context.Context, machine string) []devicewire.NodeCall {
 			return svc.managedNodeCalls(ctx, machine)

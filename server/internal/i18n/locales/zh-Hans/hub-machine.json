@@ -6,5 +6,6 @@
   "node_protocol_old": "这台电脑上的 node 协议比管理者旧。请更新 node",
   "node_protocol_new": "这台电脑上的 node 需要更新的管理者。请更新 hub",
   "done": "完成了",
-  "node_no_engine_hosts": "这台电脑的 node 还不支持选择引擎新建会话，请更新 node"
+  "node_no_engine_hosts": "这台电脑的 node 还不支持选择引擎新建会话，请更新 node",
+  "node_no_secret_run": "这台电脑的 node 还不支持密码卡片执行命令，请更新 node"
 }

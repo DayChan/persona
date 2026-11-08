@@ -488,6 +488,68 @@ Every client has the same page (web: `docs/web/web.md`, Android: `docs/android/a
 - The socket asks for feature `managers` in its URL's `?features=` (`LiveConnection.queryItems`; the Apple apps' `client_hello` only carries the locale), and each `{"type":"managers"}` push moves `AppModel.managersRevision`, which makes the open page reread the roster. A hub without the roster (404 without a code) gets a line saying to update the hub.
 - DEBUG launch arguments for screenshots: `-tab settings -openManagers YES`, `-openManagerPage <id>`, and `-showManagerCode YES` (makes a manager on the fake hub and opens its code sheet). The fake hub (`scripts/mock/mock_hub.py`) serves the roster; `MOCK_MANAGER_COMMANDS=1` adds the commands.
 
+## Automatic update idle evidence
+
+A checked release candidate is not idle evidence. The original independent
+manager settings and the live Node own different parts of the proof. A newer
+full `personad` can read both without replacing or restarting that manager:
+
+```sh
+personad manager update inventory --plan /absolute/original-plan.json \
+  --main ORIGINAL_MAIN --machine ORIGINAL_MACHINE --machine-uid ORIGINAL_UID
+```
+
+This command uses the plan only to bind the original manager directory, UID and
+config hash. It opens that manager's existing Postgres with read-only startup
+parameters and executes one fixed SELECT of the persisted main, machine, row
+version and observation time. It does not use the database migration entry point,
+write settings, create receipts or activate an update. Connection diagnostics do
+not print the DSN. A missing main or mismatched explicit identity fails closed.
+
+The optional Node capability `manager_update_inventory_v1` announces the local
+0600 `node.sock` request kind `update.inventory`. The input is an explicit
+`{manager, main, machine_id, machine_uid, authority_revision}`. Its schema-1
+response binds that identity to the process instance, source revisions, complete
+activity rows and completion time. It is a local read-only interface; it does not
+add a Hub Link transaction-update adapter or raise the Node protocol floor.
+Legacy managers and Nodes remain compatible for ordinary use, but a legacy Node
+without this producer cannot furnish this proof.
+
+The producer reads full configured host snapshots, complete loaded Codex thread
+pages including ephemeral/child threads, fresh background terminal lists, and
+owned stdio app-servers. Starting keys, warm spares, resident processes and
+pending interactions cannot be omitted. Retained background/compaction and nested
+workflow child metadata remain blockers without explicit completion. It compares
+source membership, identity, configuration and the owner's process inventory
+again after reading. A cached display row, historical `offline` status, missing
+list or old mtime never proves completion. An unloaded persisted main is covered
+only after the complete live sources have answered. Snapshot data includes no
+prompts, task commands, transcript content or credentials.
+
+Terminal agents, live Claude streams without a synchronous background-inventory
+barrier, and third-party runtimes without an authoritative inventory contract
+remain unsupported for idle attestation. Their display saying idle does not
+remove the blocker. An unreachable source, unresolved retained activity, missing
+capability, changing ownership, partial page or clock conflict also fails closed.
+
+The native reader performs two complete runtime reads within 30 seconds, compares
+payload revisions, and rereads persisted identity after the final runtime read.
+Only a successful complete read returns `idle: true` and a SHA-256 digest. Its
+`completed_at` starts the evidence lifetime; it does not retimestamp a saved
+snapshot. Collect again immediately before the original transaction start after
+any transfer/check. The transaction's original lock, fresh plan, guardian,
+confirmation and rollback requirements remain in force. An explicit bootstrap
+window does not replace missing idle evidence.
+
+The native reader may be newer than the fixed formal manager candidate. The
+candidate retains its own source/hash checks and is not rebuilt merely to collect
+inventory. A Node-only executable lacking the manager CLI needs the same formal
+source's full `personad` reader, not a guessed executable or an installed manager
+replacement. Existing publisher HTTP collection (`manager_idle.py`) still refuses
+legacy display inventories without its complete scoped metadata; the local
+producer does not silently label those HTTP lists authoritative. Hub Link update
+transport is a separate capability and is not required for local collection.
+
 ## Clients (step 4)
 
 What the hub gives the apps for several managers; each app's pages are in its own docs (web: `docs/web/web.md`, Android: `docs/android/android.md`, iOS and the Mac: `docs/apple/ios.md`). **With one manager (one installed: those still installing don't count) the apps show none of it**, and the screens are as they were.

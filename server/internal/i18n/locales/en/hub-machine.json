@@ -6,5 +6,6 @@
   "node_protocol_old": "This computer’s node speaks an older protocol than its manager. Update the node",
   "node_protocol_new": "This computer’s node needs a newer manager. Update the hub",
   "done": "Done",
-  "node_no_engine_hosts": "This computer’s node can’t choose an engine for new sessions yet. Update the node"
+  "node_no_engine_hosts": "This computer’s node can’t choose an engine for new sessions yet. Update the node",
+  "node_no_secret_run": "This computer’s node can’t run commands from a password card yet. Update the node"
 }

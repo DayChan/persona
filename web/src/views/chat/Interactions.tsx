@@ -13,7 +13,7 @@ import { sessionCan, sessionTitle } from "../../lib/format";
 import { interactionAsk } from "../../lib/inbox";
 import { plainMarkdown } from "../../lib/plain-markdown";
 import { mcpServerLabel, toolDisplayName } from "../../lib/turns";
-import { optionDisplay } from "../../lib/tool-detail";
+import { isSecretRun, optionDisplay, secretRunInput } from "../../lib/tool-detail";
 import { RecommendedTag } from "../../ui/RecommendedTag";
 import { dropAnswered, getSession, useStore, type AnsweredCard as Answered } from "../../lib/store";
 import { Button, Collapse, cx, EASE, Menu, toast, useMenu } from "../../ui/atoms";
@@ -37,8 +37,11 @@ export async function resolve(ix: Interaction, body: Record<string, unknown>) {
   return r.ok;
 }
 
-/** `looking`: a question the assistant is still deciding on (#544), marked as at work rather than waiting on the user. */
-function Card({ title, kicker, onDismiss, children, footer, looking = false }: { title: string; kicker: string; onDismiss: () => void; children: React.ReactNode; footer: React.ReactNode; looking?: boolean }) {
+/**
+ * A card waiting on you. No `onDismiss`: it has no "Hand back" (a card no computer's terminal can take back).
+ * `looking`: a question the assistant is still deciding on (#544), marked as at work rather than waiting on the user.
+ */
+function Card({ title, kicker, onDismiss, children, footer, looking = false }: { title: string; kicker: string; onDismiss?: () => void; children: React.ReactNode; footer: React.ReactNode; looking?: boolean }) {
   return (
     <div className="overflow-hidden rounded-card bg-surface shadow-card" style={{ animation: `fade-up 350ms ${EASE} both` }}>
       <div className="px-3.5 pt-3 pb-2.5">
@@ -50,15 +53,17 @@ function Card({ title, kicker, onDismiss, children, footer, looking = false }: {
             </div>
             <div className="text-[13.5px] font-medium text-ink">{title}</div>
           </div>
-          <button
-            type="button"
-            aria-label={t("chat-interactions.hand_back")}
-            title={t("chat-interactions.hand_back")}
-            onClick={onDismiss}
-            className="touch-hit flex size-6 shrink-0 items-center justify-center rounded-[6px] text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-          >
-            <Icon name="x" size={14} stroke={2.2} />
-          </button>
+          {onDismiss && (
+            <button
+              type="button"
+              aria-label={t("chat-interactions.hand_back")}
+              title={t("chat-interactions.hand_back")}
+              onClick={onDismiss}
+              className="touch-hit flex size-6 shrink-0 items-center justify-center rounded-[6px] text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+            >
+              <Icon name="x" size={14} stroke={2.2} />
+            </button>
+          )}
         </div>
         <div className="mt-2">{children}</div>
       </div>
@@ -375,6 +380,45 @@ function PermissionBody({ ix }: { ix: Interaction }) {
       )}
       {showInput && <pre className={CODE_BOX}>{JSON.stringify(input, null, 2)}</pre>}
     </div>
+  );
+}
+
+/** The assistant's password card (#1137): what would run where, filled in only on the iPhone; here it is only declined. */
+function SecretRunCard({ ix }: { ix: Interaction }) {
+  const [busy, setBusy] = useState(false);
+  const { machine, purpose, commands } = secretRunInput(ix.tool_input);
+  const decline = async () => {
+    setBusy(true);
+    await resolve(ix, { allow: false });
+    setBusy(false);
+  };
+  return (
+    <Card
+      kicker={t("chat-interactions.secret_run_kicker")}
+      title={t("chat-interactions.secret_run_title", { machine })}
+      footer={
+        <>
+          <span data-secret-run-elsewhere className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-ink-3">
+            <Icon name="phone" size={13} stroke={2} className="shrink-0" />
+            <span className="min-w-0">{t("chat-interactions.secret_run_on_iphone")}</span>
+          </span>
+          <Button tone="secondary" busy={busy} onClick={decline}>
+            {t("chat-interactions.secret_run_decline")}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2">
+        {purpose && <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{purpose}</p>}
+        <div>
+          <div className="mb-1 text-[11px] font-medium text-ink-3">{t("chat-interactions.secret_run_commands")}</div>
+          {/* one block per command: a long one that wraps never reads as two */}
+          <div className="flex flex-col gap-1.5">
+            {commands.map((c, i) => <pre key={i} data-secret-run-command className={CODE_BOX}>{c}</pre>)}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -739,6 +783,7 @@ export function InteractionCard({ ix }: { ix: Interaction }) {
   const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
   const card = ix.kind === "question" ? <QuestionCard ix={ix} />
     : ix.kind === "plan" ? <PlanCard ix={ix} />
+    : isSecretRun(ix) ? <SecretRunCard ix={ix} />
     : ix.kind === "permission" ? <PermissionCard ix={ix} />
     : ix.kind === "elicitation" ? <ElicitationCard ix={ix} /> : <ScreenCard ix={ix} />;
   return canApprove ? card : <fieldset disabled>{card}</fieldset>;

@@ -44,6 +44,8 @@ enum PersonaToolNames {
         case "agent_send", "send_to_agent": String(localized: "Message Agent")
         case "agents_list", "list_agents": String(localized: "List Agents")
         case "agent_start", "task_plan": String(localized: "Assign Task")
+        // Commands on one of the user's computers with a password typed into a card (SecretRun).
+        case SecretRun.tool: String(localized: "Run With Password")
         case "interaction_answer": String(localized: "Answer for You")
         case "ask_persona", "ask_" + LegacyNames.product: String(localized: "Hand to Persona")
         // The knowledge base (docs/assistant/knowledge.md).

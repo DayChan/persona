@@ -90,7 +90,7 @@ internal fun BundlePreview(preview: ExtensionPreview) {
             }
         }
         preview.unresolved.forEach { JInlineStatus(stringResource(R.string.settings_ext_unresolved, it), tone = InlineTone.Failed) }
-        if (!preview.canConfirm) JInlineStatus(ExtensionModelText.blockedPreview(res, preview), tone = InlineTone.Caution)
+        if (!preview.dependenciesReady) JInlineStatus(ExtensionModelText.blockedPreview(res, preview), tone = InlineTone.Caution)
     }
 }
 

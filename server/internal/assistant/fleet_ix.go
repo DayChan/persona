@@ -599,6 +599,9 @@ func (s *Service) show(ix proto.Interaction) {
 // nodeInteraction is a node's interaction.create: allowed right away when "Always allow in this session" already covers it, else
 // shown and waited for.
 func (s *Service) nodeInteraction(ctx context.Context, ix proto.Interaction) (proto.Resolution, error) {
+	if reservedCard(ix) {
+		return proto.Resolution{}, errReservedCard
+	}
 	// Defense behind the node hook: question-text-keyed answers could not be kept apart on a duplicate card.
 	if ix.Kind == proto.IxQuestion && proto.HasDuplicateQuestionText(ix.Questions) {
 		return proto.Resolution{}, i18n.Err("hub-hub.duplicate_question")
@@ -879,6 +882,9 @@ func (s *Service) resolveRemembered(id string, r proto.Resolution, remember bool
 			}
 		}
 	}
+	if p != nil {
+		r.Values = declaredValues(p.ix, r.Values)
+	}
 	if p != nil && p.persisting != nil {
 		attempt := p.persisting
 		s.fleet.mu.Unlock()
@@ -936,6 +942,9 @@ func (s *Service) resolveRemembered(id string, r proto.Resolution, remember bool
 		return fmt.Errorf("interaction %s is %w", id, errNotPending)
 	}
 	status := endStatus(r)
+	// Everyone told of the answer (the channels, the task feeds) gets its secret fields masked, as the history keeps them;
+	// only the one waiting on the card (p.local, p.done) gets what was typed into them.
+	told := redacted(p.ix, r)
 	if p.local != nil {
 		err := p.local(r)
 		if err != nil {
@@ -944,32 +953,31 @@ func (s *Service) resolveRemembered(id string, r proto.Resolution, remember bool
 			back := s.fleet.interactions[id] == p
 			s.fleet.mu.Unlock()
 			if back { // a Codex card the node could not answer is open again (codexPending): it is not over
-				go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: r, Status: status})
+				go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: told, Status: status})
 				return err
 			}
 		} else {
-			s.channelsEnded(p.ix, &r)
+			s.channelsEnded(p.ix, &told)
 		}
 		// What was typed into a terminal may be a password: the history keeps that something was, not what.
-		kept := redacted(p.ix, r)
+		kept := told
 		if kept.Text != "" {
-			kept.Text = "<redacted>"
+			kept.Text = redactedValue
 		}
 		s.recordEnd(id, status, &kept)
 		s.finished(p)
-		go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: r, Status: status})
+		go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: told, Status: status})
 		return err
 	}
-	kept := redacted(p.ix, r)
 	if durableQuestion(p.ix) {
-		if err := s.persistQuestion(p, status, kept); err != nil {
+		if err := s.persistQuestion(p, status, told); err != nil {
 			return err
 		}
 	} else {
-		s.recordEnd(id, status, &kept)
+		s.recordEnd(id, status, &told)
 	}
-	s.channelsEnded(p.ix, &r)
-	go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: r, Status: status})
+	s.channelsEnded(p.ix, &told)
+	go s.InteractionResolved(context.Background(), InteractionResolved{Interaction: p.ix, Resolution: told, Status: status})
 	if remember {
 		s.keepAlways(p.ix, r) // kept before the hook hears: its next card may follow at once
 	}
@@ -991,6 +999,9 @@ func (s *Service) channelsEnded(ix proto.Interaction, r *proto.Resolution) {
 	s.InteractionEnded(context.Background(), InteractionEnded{Interaction: ix, Resolution: r})
 }
 
+// redactedValue stands for what was typed into a secret field (or a terminal) wherever the answer is kept or told.
+const redactedValue = "<redacted>"
+
 // redacted is the resolution as the history keeps it: secret fields say they were filled in, not what with.
 func redacted(ix proto.Interaction, r proto.Resolution) proto.Resolution {
 	if len(r.Values) == 0 {
@@ -1003,12 +1014,40 @@ func redacted(ix proto.Interaction, r proto.Resolution) proto.Resolution {
 	vals := make(map[string]string, len(r.Values))
 	for k, v := range r.Values {
 		if secret[k] {
-			v = "<redacted>"
+			v = redactedValue
 		}
 		vals[k] = v
 	}
 	r.Values = vals
 	return r
+}
+
+// declaredValues are the values of the fields ix declares; any other key is dropped as the answer comes in: nothing
+// reads one, and the history and everyone told of the answer would get it as typed.
+func declaredValues(ix proto.Interaction, values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return values
+	}
+	var out map[string]string
+	for _, f := range ix.Fields {
+		if v, ok := values[f.Key]; ok {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[f.Key] = v
+		}
+	}
+	return out
+}
+
+// hasSecretField: ix asks for something the history redacts (a password).
+func hasSecretField(ix proto.Interaction) bool {
+	for _, f := range ix.Fields {
+		if f.Secret {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) finishInteraction(id string) {
@@ -1100,9 +1139,20 @@ func (s *Service) expireLoop(ctx context.Context) {
 	}
 }
 
+// errReservedCard: a card from a node (a hook, a runtime, a daemon, a Codex list) or an extension may not pass for the
+// password card: only the assistant's secret_run tool makes one (secret_run.go), and the clients show it as that card,
+// with no Agent's name on it.
+var errReservedCard = errors.New("the tool name " + proto.SecretRunTool + " is reserved for the assistant's password card")
+
+// reservedCard: ix calls itself the password card.
+func reservedCard(ix proto.Interaction) bool { return ix.ToolName == proto.SecretRunTool }
+
 // askHub is fleet.ask: a card one of the hub's own features asks (a mail send, Cua's apps, persona_settings),
 // waited for like a hook's.
 func (s *Service) askHub(ctx context.Context, ix proto.Interaction) (proto.Resolution, error) {
+	if reservedCard(ix) {
+		return proto.Resolution{}, errReservedCard
+	}
 	if ix.ID == "" {
 		ix.ID = "ix_" + randomHex(6)
 	}
@@ -1210,6 +1260,10 @@ func (s *Service) syncCodexInteractions(machine string, params json.RawMessage) 
 	}
 	listed := map[string]proto.Interaction{}
 	for _, ix := range p.Interactions {
+		if reservedCard(ix) {
+			s.logf("[%s] codex card %s: %v", machine, ix.ID, errReservedCard)
+			continue
+		}
 		ix.MachineID = machine
 		ix = cleanTitle(ix)
 		listed[ix.ID] = ix
@@ -1559,9 +1613,8 @@ func (s *Service) askOnPhone(list []proto.Interaction) {
 			answer, _ := json.Marshal(r)
 			act := Action{ActionID: "act_" + randomHex(6), SessionID: ix.SessionID, Op: "answer", InteractionID: ix.ID,
 				InteractionVersion: 1, Answer: answer}
-			if _, err := s.Action(context.Background(), act); err != nil && !s.keepAnswer(act, err, ix.ExpiresAt) {
-				s.logf("assistant: answer %s: %v", ix.ID, err)
-			}
+			_, err = s.Action(context.Background(), act)
+			s.settleAnswer(ix, act, err)
 		}(ix)
 	}
 	for id, q := range f.asked {
@@ -1618,6 +1671,23 @@ func (s *Service) keepAnswer(act Action, err error, until time.Time) bool {
 	}
 	u.acts[act.InteractionID] = heldAct{act: act, until: until, next: now.Add(answerRetryAfter)}
 	return true
+}
+
+// settleAnswer ends act, the answer to the assistant's card ix, once its Action had it (err: it did not take it): one it
+// did not take is kept for another try (keepAnswer). An answer to a card with a secret field goes once: it is never
+// kept (what was typed into it would wait in memory for up to a day, for a call that is gone, a restart or a cancel,
+// and that asks with a new card), and its bytes are cleared now; the Action decoded its own copy.
+func (s *Service) settleAnswer(ix proto.Interaction, act Action, err error) {
+	if hasSecretField(ix) {
+		clear(act.Answer)
+		if err != nil {
+			s.logf("assistant: answer %s: %v (not kept: the card has a secret field)", ix.ID, err)
+		}
+		return
+	}
+	if err != nil && !s.keepAnswer(act, err, ix.ExpiresAt) {
+		s.logf("assistant: answer %s: %v", ix.ID, err)
+	}
 }
 
 // answerKept: an answer to interaction id is waiting for the Action.

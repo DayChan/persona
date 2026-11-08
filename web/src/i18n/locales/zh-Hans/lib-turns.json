@@ -47,6 +47,7 @@
   "persona_computer_run": "操控电脑",
   "persona_browser_run": "用浏览器",
   "persona_browser_look": "看浏览器",
+  "persona_secret_run": "用密码运行",
   "persona_phone": "iPhone",
   "persona_mail": "邮件"
 }

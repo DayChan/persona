@@ -11,6 +11,7 @@ import { defaultManager } from "./manager-choice";
 import { failedTagsOver, listenForNotificationClicks } from "./notification-answer";
 import { isMuted } from "./session-actions";
 import { href, navigate } from "./router";
+import { needsFieldValues } from "./quick-answers";
 import { t } from "../i18n";
 import type { AgentState, Interaction, Session } from "./types";
 
@@ -191,7 +192,7 @@ function notify(s: Session, kind: "needs" | "finished", card?: Interaction): { a
   const icon = document.querySelector<HTMLLinkElement>(ICONS)?.dataset.original ?? document.querySelector<HTMLLinkElement>(ICONS)?.href;
   // a permission card's gets Allow / Deny (#4464), when the session can be answered from here and nothing has to be
   // filled in first (fields: as the hub's push and the overview's quick answers); the rest need the conversation
-  const ix = waiting.ix?.kind === "permission" && !waiting.ix.fields?.length && sessionCan(s, "approve") ? waiting.ix.id : undefined;
+  const ix = waiting.ix?.kind === "permission" && !needsFieldValues(waiting.ix) && sessionCan(s, "approve") ? waiting.ix.id : undefined;
   // inside quiet hours a "Needs you" one comes without a sound (a finished one doesn't come at all: wants)
   postNotification({ title, body, tag, url: href(route), icon, ix, silent: inQuietHours(notifyPrefs()) }, () => navigate(route));
   return { about: waiting.ix?.id };

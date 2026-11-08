@@ -41,6 +41,8 @@ type remoteFixture struct {
 	threadModel, threadEffort string
 	// archive plays thread/archive and thread/unarchive on the home's files (archive_test.go), before any reject.
 	archive func(method, thread string)
+	// backgroundReply overrides the versioned inventory fixture's terminal response.
+	backgroundReply map[string]any
 }
 
 func (f *remoteFixture) serve(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +68,7 @@ func (f *remoteFixture) serve(w http.ResponseWriter, r *http.Request) {
 		ids := append([]string(nil), f.threads...)
 		drop, reject, code, ephemeral, hangup := f.drop, f.reject, f.rejectCode, f.ephemeral, f.hangup
 		models, model, effort, archive := f.models, f.threadModel, f.threadEffort, f.archive
+		background := f.backgroundReply
 		f.mu.Unlock()
 		if code == 0 {
 			code = -32600
@@ -125,6 +128,11 @@ func (f *remoteFixture) serve(w http.ResponseWriter, r *http.Request) {
 				d = map[string]any{"id": thread, "ephemeral": true, "path": nil, "threadSource": "thread_title", "cwd": f.home, "status": map[string]any{"type": "active", "activeFlags": []string{}}}
 			}
 			result = map[string]any{"thread": d}
+		case "thread/backgroundTerminals/list":
+			result = map[string]any{"data": []any{}}
+			if background != nil {
+				result = background
+			}
 		case "thread/resume":
 			result = map[string]any{"thread": d}
 		case "turn/start":

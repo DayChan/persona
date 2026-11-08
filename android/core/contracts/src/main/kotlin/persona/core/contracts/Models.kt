@@ -9,6 +9,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.KeepGeneratedSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 import java.time.OffsetDateTime
 
@@ -664,13 +667,31 @@ data class Interaction(
             else -> agentLabelHint?.takeIf(String::isNotBlank) ?: agent
         }
 
+    /**
+     * The assistant's password card (`secret_run`, #1137): commands run on one of the user's computers with a password
+     * typed on the iPhone. This app never takes the password; it shows what would run and offers only Deny.
+     */
+    val isSecretRun: Boolean get() = kind == "permission" && toolName == "secret_run"
+
+    /** A password card's computer, purpose and commands (the commands exactly as sent); null for any other card. */
+    val secretRun: SecretRunRequest?
+        get() {
+            if (!isSecretRun) return null
+            val input = toolInput as? JsonObject
+            fun text(key: String) = (input?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim().orEmpty()
+            val commands = (input?.get("commands") as? JsonArray).orEmpty()
+                .mapNotNull { command -> (command as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(String::isNotBlank) }
+            return SecretRunRequest(text("machine_name").ifEmpty { text("machine") }, text("purpose"), commands)
+        }
+
     /** One line for a notification or a list row. */
     val headline: CoreText
         get() = when (kind) {
             "question" -> questions?.firstOrNull()?.question?.let(CoreText::plain) ?: CoreText.of(Key.HeadlineQuestion, agentDisplayName ?: "Claude")
             "elicitation" -> CoreText.of(Key.HeadlineElicitation)
             "plan" -> CoreText.of(Key.FleetPlanWaiting)
-            "permission" -> {
+            // A password card names the computer it runs on; its commands are in the card.
+            "permission" -> secretRun?.let { CoreText.of(Key.HeadlineSecretRun, it.machine) } ?: run {
                 // An MCP tool reads "github · create issue", not its raw mcp__github__create_issue (#4806).
                 val tool: Any = toolDisplayName(toolName) ?: CoreText.of(Key.ToolGeneric)
                 val detail = summary?.takeIf { it.isNotBlank() }
@@ -686,6 +707,9 @@ data class Interaction(
             else -> CoreText.of(Key.HeadlineNeedsYou)
         }
 }
+
+/** What a password card ([Interaction.isSecretRun], #1137) would run: the computer's name, why, and the commands. */
+data class SecretRunRequest(val machine: String, val purpose: String, val commands: List<String>)
 
 @Serializable
 data class Resolution(

@@ -577,6 +577,18 @@ final class AppModel {
         toast = Toast(String(localized: "Demo mode is on. All data is made up."))
     }
 
+    #if DEBUG
+    /// The sync scenarios (PersonaTests/Sync): this model talks to one made-up hub through the demo config's socket and
+    /// requests, as Demo Mode does, whatever the simulator has paired.
+    func connectOnly(_ config: ServerConfig) {
+        for link in links { link.live.disconnect() }
+        let link = makeLink("", config)
+        links = [link]
+        hubGroup = ""
+        link.live.connect(config)
+    }
+    #endif
+
     /// Out of Demo Mode (Sign Out or pairing): what it showed goes with it.
     private func leaveDemo() {
         UserDefaults.standard.set(false, forKey: Self.demoKey)
@@ -1749,6 +1761,9 @@ final class AppModel {
     /// Whether the app may answer a card (#4059): one on no session (`personad ask` outside herdr) always; else as its
     /// session's source allows. Every place that answers or greys a card asks this.
     func canAnswer(_ ix: Interaction) -> Bool { ix.canAnswer(session: session(ix.sessionKey)) }
+
+    /// This device's answer to the card is on its way (the card is hidden meanwhile).
+    func isAnswering(_ uid: String) -> Bool { answering.contains(uid) }
 
     func resolve(_ ix: Interaction, _ r: Resolution) async {
         // To the hub of the interaction's own group (docs/protocol/multi-hub.md「操作发到哪」).

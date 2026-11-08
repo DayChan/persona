@@ -88,7 +88,7 @@ In shells that retain pages, `onDisappear` does not mean a card has scrolled off
 
 ## Use `EmptyView` for content-free platform stand-ins (#2001)
 
-visionOS lacks iOS drawer gestures; `DrawerPan.NoRowSwipe` only needs a content-free background. `Color.clear.frame(width: 0, height: 0)` adds unnecessary fixed dimensions; iOS token checks scan shared source and do not ignore visionOS branches. Return `EmptyView()` directly: no drawing, no layout space. Do not add zero-size tokens for the stand-in, raise the baseline or add exemptions.
+visionOS lacks iOS drawer gestures; `DrawerPan.NoRowSwipe` (a row mark, gone since #1244 took the swipes off Agents' rows) only needed a content-free background. `Color.clear.frame(width: 0, height: 0)` adds unnecessary fixed dimensions; iOS token checks scan shared source and do not ignore visionOS branches. Return `EmptyView()` directly: no drawing, no layout space. Do not add zero-size tokens for the stand-in, raise the baseline or add exemptions.
 
 ## Keyboard-dismiss button and model display in the composer (#2200)
 
@@ -517,8 +517,8 @@ Use an invalidation revision as the task key and handle the flag after completio
   four `ShellSwitchTests`). Hidden native header now leaves the tree (`ShellBarAtRest(page:)`: omitted while the bar rests on another page, returned transparent at slide start);
   lists still leak. Identify shown page using `probe.shell`, not control exists / isHittable.
 - Moving filters into `List`'s first row (56b 2ead, to collapse search) turns them into UICollectionViewCell. Gesture rules yielding to row drags
-  (`DrawerPan.onRow`, right-swipes pin / interrupt / mark seen) then swallow filter-bar swipes back to assistant. Explicitly mark rows lacking their own right-swipe
-  (`DrawerPan.NoRowSwipe`).
+  (`DrawerPan.onRow`, right-swipes pin / interrupt / mark seen) then swallow filter-bar swipes back to assistant; the fix was to mark rows lacking their own
+  right-swipe (`DrawerPan.NoRowSwipe`). Since #1244 Agents' rows have no swipe at all (a ⋯ holds their actions), and both are gone: a drag along any row pages.
 
 - Do not retain two sources and synchronize with `.onChange`. New shell initially duplicated current page in `AppModel.selectedTab` and bar position,
   sliding from `onChange(of: selectedTab)`. SwiftUI sometimes never reevaluated body (trace showed tab change with no body / onChange),
@@ -575,6 +575,8 @@ Use an invalidation revision as the task key and handle the flag after completio
 
 - **Minimum compiler remains Xcode 26.0 (Swift 6.2)** (2026-11-02): this and many development machines still use 26.0; `main` must compile there for iOS, Mac, watch and extensions. Release machine uses Xcode 27.1 / Swift 6.4.0, which proves nothing about 26.0.
   Three failures: #216 `isDynamicIslandLimitedInWidth` (iOS 27 SDK, fixed #217), `toolbarVerticalEdge` (iOS 27.1 SDK), #164 `ShowsSnippetView` / `view:` (fixed #430).
+- **Xcode 27.1 crashes on a nonisolated async Objective-C method that takes a bridged Foundation struct** (2026-11-08, #1378): under the project's `NonisolatedNonsendingByDefault` (`SWIFT_APPROACHABLE_CONCURRENCY`), Swift 6.4's SILGen crashes emitting the Objective-C thunk when a parameter is `URLRequest`, `URL`, `Date`, `UUID`, `IndexPath`… (an async `urlSession(_:task:willPerformHTTPRedirection:newRequest:)` or `willBeginDelayedRequest`). `String` / `Data` parameters, `@MainActor` and `@concurrent` methods compile, and 26.0 compiles all of it: CI stayed green while 27.1 could not build main, twice (`PushRelay`, then `LocalProxies`). Use the completion-handler form; `scripts/test/test_apple_compiler_traps.py` fails on the crashing ones.
+- **Members of an extension of a nonisolated type in a main-actor-default file** (#1378): Swift 6.2 makes them nonisolated, 6.4 the main actor's, so a call from nonisolated code (a test's `#expect`) compiles in CI and fails on 27.1. Mark them `nonisolated`.
 - Guard new-SDK symbols with `#if compiler(>=6.4)` (27.1 is 6.4.0;26.4–26.6 has Swift 6.3 but still iOS 26 SDK, so 6.3 guards fail there, #453), with old behavior under `#else`, not empty functionality. `#available` / `@available` checks only govern runtime and cannot resolve missing compile-time symbols.
 - `#if compiler(>=6.4)` identifies only the iOS 27 SDK. **It cannot guard symbols introduced in 26.x minor SDK releases such as 26.1–26.4**: doing so disables the feature in every Xcode 26 build (CarPlay voice UI `CPVoiceControlState.actionButtons` comes from the 26.4 SDK; this guard once left Xcode 26 builds without buttons in the car).
   Access Objective-C properties / methods at runtime instead: check `responds(to: NSSelectorFromString("setXxx:"))`, then use `setValue(_:forKey:)`; add a source-scanning regression test (`CarPlayVoiceButtonsTests`).

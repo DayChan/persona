@@ -294,6 +294,7 @@ private fun resourceOf(key: CoreText.Key): Int = when (key) {
     CoreText.Key.HeadlinePermissionDetail -> R.string.designsystem_core_headline_permission_detail
     CoreText.Key.HeadlineAgentPermission -> R.string.designsystem_core_headline_agent_permission
     CoreText.Key.HeadlineAgentPermissionDetail -> R.string.designsystem_core_headline_agent_permission_detail
+    CoreText.Key.HeadlineSecretRun -> R.string.designsystem_core_headline_secret_run
     CoreText.Key.HeadlineScreen -> R.string.designsystem_core_headline_screen
     CoreText.Key.HeadlineNeedsYou -> R.string.designsystem_core_headline_needs_you
     CoreText.Key.AskQuestion -> R.string.designsystem_core_ask_question

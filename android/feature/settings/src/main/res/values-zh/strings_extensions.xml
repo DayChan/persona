@@ -220,6 +220,8 @@
     <string name="settings_ext_preview_note">包已经下载好，也核对过 sha256。扩展在 hub 所在的机器上运行；沙箱到底开没开，装好以后在详情里看。</string>
     <string name="settings_ext_preview_expires">这次预览到 %1$s（UTC）失效。</string>
     <string name="settings_ext_preview_cancel">不装了</string>
+    <string name="settings_ext_preview_expired">这次预览已经过期，不能再确认。重新预览一次，按现在的包和权限再决定。</string>
+    <string name="settings_ext_preview_again">重新预览</string>
     <string name="settings_ext_uninstall_title">卸载 %1$s？</string>
     <string name="settings_ext_uninstall_text">会停掉它，删掉它的设置和密钥；它提供的连接器也一起去掉。</string>
     <string name="settings_ext_dependents_title">一起停用依赖它的扩展？</string>

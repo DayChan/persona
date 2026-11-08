@@ -425,6 +425,8 @@ const PERSONA_VERB_KEY: Record<string, string> = {
   computer_run: "persona_computer_run",
   browser_run: "persona_browser_run",
   browser_look: "persona_browser_look",
+  // commands run on a computer with a password typed on the iPhone (#1137)
+  secret_run: "persona_secret_run",
 };
 
 /** How one of Persona's own tools reads in a step: a verb ("Read agent chat"), or for the phone and mail families the

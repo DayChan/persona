@@ -442,6 +442,19 @@ func TestCoalescerNeedsYouBothWays(t *testing.T) {
 	}
 }
 
+// A card with fields names no interaction on its row (the assistant's fleet_live.go): another such card of the same
+// agent, after the first was answered, is still a new request and goes out at once.
+func TestCoalescerNewCardWithFieldsOfTheSameAgent(t *testing.T) {
+	var c coalescer
+	first := FleetState{Phase: "needsYou", NeedsYou: 1, Items: []FleetItem{{ID: "m/p", Kind: proto.IxPermission, Since: 1761700000}}}
+	c.sentState(first)
+	second := first
+	second.Items = []FleetItem{{ID: "m/p", Kind: proto.IxPermission, Since: 1761700042}}
+	if now, sched := c.offer(second); !now {
+		t.Fatalf("a new card goes out at once: now=%v schedule=%v", now, sched)
+	}
+}
+
 // Past fleetMaxItems the items are the same three agents whether three or four need the user: a fourth arriving, or
 // one past the three answered, changes only NeedsYou. The island's "N need you" must follow at once all the same
 // (#4604), not after fleetMinGap at priority 5.

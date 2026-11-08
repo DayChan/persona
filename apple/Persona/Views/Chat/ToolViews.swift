@@ -19,6 +19,7 @@ enum ToolPresentation {
         case "conversation_unarchive": return Theme.Icon.unarchive
         case "conversations_list", "conversation_read", "conversation_new", "conversation_send": return Theme.Icon.conversation
         case "computer_state", "computer_run": return Theme.Icon.machine
+        case SecretRun.tool: return Theme.Icon.credentials
         case "browser_run", "browser_look": return "globe"
         case "Bash", "BashOutput", "KillShell", "KillBash": return "terminal"
         case "Read": return "doc.text"
@@ -102,6 +103,7 @@ enum ToolPresentation {
         case "WebSearch": return s("query") ?? ""
         case "Task", "Agent": return s("description") ?? ""
         case "Monitor": return s("description") ?? firstLine(s("command") ?? "")
+        case SecretRun.tool: return SecretRunRequest(i)?.subject ?? ""
         // The node's name for its run: its `name`, the name in its script's meta, else its script file's (#3436).
         case "Workflow": return s("name") ?? workflowName(script: s("script")) ?? s("scriptPath").map(workflowScriptName) ?? ""
         case "Skill": return s("skill") ?? s("command") ?? ""
@@ -531,13 +533,16 @@ struct ToolDetail: View {
                 }
             case "ask_user":
                 AskUserDetail(call: call)
+            case SecretRun.tool:
+                SecretRunToolDetail(call: call)
             case "Task", "Agent":
                 Text(i["prompt"]?.string ?? "").font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(8)
             default:
                 if i != .object([:]) { CodeBlock(text: ToolTextMemo.input(call.use, scope: memoScope), maxLines: 14) }
             }
-            // An answered ask_user shows the picks under its questions (AskUserDetail), not the text the model got.
-            if let result = call.result, (base != "Edit" && base != "ask_user") || result.isError == true {
+            // An answered ask_user shows the picks under its questions (AskUserDetail), not the text the model got; a
+            // password run its commands' outcomes (SecretRunToolDetail).
+            if let result = call.result, (base != "Edit" && base != "ask_user" && base != SecretRun.tool) || result.isError == true {
                 ResultBlock(text: result.cutText, isError: result.isError ?? false, cut: result.fullSize.map { (result.id, $0) })
                 if base == "Bash" { PortChips(text: result.cutText) } // a dev server saying where it listens
             } else if call.isRunning {
@@ -613,7 +618,7 @@ nonisolated enum ToolTextMemo {
         switch ToolPresentation.baseName(item.toolName ?? "") {
         case "Bash": _ = codeLines("$ " + (input["command"]?.string ?? ""))
         case "ExitPlanMode": _ = MarkdownMemo.content(input["plan"]?.string ?? "")
-        case "Edit", "MultiEdit", "Write", "Read", "NotebookEdit", "AskUserQuestion", "ask_user", "Task", "Agent": break
+        case "Edit", "MultiEdit", "Write", "Read", "NotebookEdit", "AskUserQuestion", "ask_user", "Task", "Agent", SecretRun.tool: break
         default: _ = codeLines(self.input(item, scope: scope))
         }
     }
@@ -707,6 +712,8 @@ struct AskUserDetail: View {
 struct CodeBlock: View {
     var text: String
     var maxLines: Int = 20
+    /// Clipped, the last `maxLines` lines show instead of the first (an output that ends with why it failed).
+    var keepsEnd = false
     @State private var full = false
 
     var body: some View {
@@ -714,7 +721,7 @@ struct CodeBlock: View {
         let clipped = !full && lines.count > maxLines
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(clipped ? lines.prefix(maxLines).joined(separator: "\n") : text)
+                Text(clipped ? (keepsEnd ? lines.suffix(maxLines) : lines.prefix(maxLines)).joined(separator: "\n") : text)
                     .font(Theme.Font.code)
                     .textSelection(.enabled)
                     .padding(Theme.Space.m)

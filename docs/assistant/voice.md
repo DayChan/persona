@@ -348,6 +348,7 @@ ext  → run …"sent" → …"working" → {"type":"link","state":"paused"} →
 | `items.go` (new) | HTTP `ItemSource` for `channel.ReadTurn` |
 | `spoken.go` (new) | Make replies speakable: identify code blocks, tables, inline code, paths, `file:line`, hashes, URLs, Markdown markers; placeholders from `prompts/voice/spoken.md` (paths keep filename only); truncate as "beginning + end" |
 | `info.go` (new) | `GET /info` |
+| `calllog.go` (new, #1485) | The call's log: per-call id, start and end lines, counts, how failures and hub answers are written (see 4.14) |
 | `fake.go` (new) | `fake` dialect (manager.json only, for development): no upstream, App `text` directly delegates, `say` / commentary returns unchanged as fast-layer captions. Works against real hub and Agent without GPT-Live |
 | `config.go` (changed) / `hub.go` (changed) | Merge config, allow no upstream; send requests use ctx rather than a 30-second client timeout |
 
@@ -840,6 +841,47 @@ How #3505 does it (`suspend.go`; constants from lessons "Recommended constants",
   a service that refuses the tools before `session.started` (an `error` with `param: session.tools`, one saying "tools", `unsupported_extension` with no field, a close whose reason says "tools") gets exactly one more session without them, and the next conversation starts without them on its first try;
   a session refused without tools too fails after that one retry and nothing is remembered; `"tools": false` never declares them, `"tools": true` fails on a refusal with no retry;
   a refused key (handshake 401, or an `error` about the key) is never a fallback; `refusedTools` and `toolsMode` rule by rule. Tests of the plain-delegation path set `"tools": false` (`liveProvider`).
+- **#1485 covered** (`voice/calllog_test.go`): a bound call with one `delegate_task` logs its start, binding, upstream session and tools, the function call and its delegation, the gate's decision, the run's states and its send, and its last line with the counts, every line with the call's id; a handover nobody asked for logs the gate's refusal and the run refused (`unprompted`); calls at the same time have their own ids, and a start that fails says its code. None of the typed line, the caption, the model's reply, the task or the agent's answer is in the log.
+
+### 4.14 Diagnosing a call (#1485)
+
+What happened in a call can be read afterwards from the extension's log: one line per meaningful event, each beginning with the call's id (`call 7:`, counted from 1 since the extension last started), so the lines of calls at the same time can be told apart.
+
+**Where the lines go.** The hub runs the extension, and every line the extension writes appears as `plugin <id>: call 7: …` (`<id>` is `voice` unless the `hub.json` entry it took over named it otherwise):
+
+- the extension's own log, the last 2000 lines in memory: `/admin` › Extensions › the voice extension › Logs (search for `call 7:`);
+- the manager's log (docs/extensions/extensions.md "Logs"): the hub's journal while the manager runs inside the hub (`journalctl --user -u personad | grep 'plugin voice: call'`, or the journal of the user the hub runs as), the built-in manager's own service when it runs as one (`journalctl --user -u persona-manager-assistant`, `managers/assistant/manager.log` in the data directory on a Mac), `docker compose logs hub` for a Docker hub.
+
+Lines without a call id are the extension's own: its providers as it starts, its one link to the hub (`hub link: …`).
+
+**What is never in them**: what was said or typed, the model's replies, a task's text, a card's contents, the hub's words on a refusal (they may quote a draft or a dialog), keys or tokens. Only ids (machine, session, delegation, function call, run, card), states, codes, counts and times, so a log can be shared. A handover's size is its number of characters.
+
+**The lines**, in the order a call has them:
+
+| Line | Meaning |
+| --- | --- |
+| `conversation opened (role "full")` | The app's socket came in; the role the hub found (`""` from a hub that does not say: taken as full). |
+| `start: protocol 2, model rt/m1 (live dialect), voice "…", target m/a1[, language en, no echo cancellation, picked up again with N lines and N runs]` | The app's start as taken: the protocol (`protocol 1 (asked 2)`: another extension's call), the model and dialect, the conversation it asks to be bound to (protocol 1: the main conversation of the moment). |
+| `bound: agent m/a1, its machine online` | Protocol 2: the target was found (`main`, `assistant` or `agent`) and whether its machine is connected. A target that is gone or read-only ends the call: `start failed after …: target_gone`. |
+| `upstream: session 1 started in 412ms (first), 24000 Hz, tools search_knowledge,list_agents,delegate_task (bound)` | An upstream session is up: how long it took from dialing, why it was opened (`first`, `reconnect N`, `woken`), its audio rate and the function tools it declared, or `none` and why (the dialect takes none, the provider is set to declare none, its service refused them). |
+| `provider rt: the service refused the function tools as the session started (…); starting it again without them` | The service refused the tools (#1420): the same session again without them. |
+| `upstream: session error (code, param): …`, `upstream: the service refused persona-3 …` | The service's error on a live session (its own words, cut to 200 characters), and what was done with something it refused. |
+| `upstream: session 1 lost after 45s: …`, `reconnect (try 2 of 3) failed: …` | The upstream dropped; the reconnects. |
+| `paused the upstream (1): session 2 closed, …`, `waking the upstream: …`, `woke the upstream in 1.2s`, `wake (1 of 3) failed: …` | Suspension (4.9). |
+| `delegation dlg1: made in session 1[, waiting 2s for its function call]` | The model handed something over. With tools, its function call is waited for; `no function call came: handed over as it is` when none did. |
+| `function call delegate_task (call c1, delegation dlg1, session 1)` | The model called a function tool (`call c1: … is a tool this session did not declare: ignored` for one it was not given). |
+| `delegation dlg1: a task for agent m/a1 (34 characters)` | How a handover was routed: `a status (not gated)`, `a stop`, `the answer to card ix1`, `an answer in words`, `a task`; `no words: the user's last line` when the model gave no task. |
+| `delegation dlg1: the user-speech gate let it through (caption) in 300ms` | The gate's decision (4.4): through by a `caption`, a `typed line` or the user's `own voice` (their caption had not come), or `refused it (unprompted) after 2.5s`. The model is then told it was not sent. |
+| `run voice-…: for delegation dlg1, in session 1` | A run was made for a handover (protocol 1 runs are `d1`, `d2`…). |
+| `run voice-…: sending`, `sent`, `working`, `needs_you`, `held`, `blocked`, `done`, `failed (code)`, `refused (code)`, `unknown (unknown)` | A run's state changes (the run frame's states, 3.3), with its code: `unprompted`, `empty`, `on_screen`, `input_draft`, `dialog_open`, `unreachable`, `stopped`… `folded into run …` when a later run took it over. Observed turns say `(observed)`. |
+| `run voice-…: sent to m/a1: HTTP 409 input_draft in 120ms[, clearing the draft]` | A send to the hub: `ok`, the status and code it refused with (`delivered unknown` when it may have been typed), or `no answer (…)` (a broken connection, a timeout). Protocol 1 also logs `started a main conversation on m: ok in 2.1s` when there was none. |
+| `run voice-…: the app sends it again`, `run voice-…: handed back by the app (working)` | A resend the user asked for; a run the app handed back when it picked the call up again. |
+| `card ix1: asked by voice`, `card ix1: answered (voice)`, `card ix1: released (elsewhere)`, `cards ix2: to be done on the screen, said by their kind` | Cards (4.7). |
+| `delegation dlg2: status answered: working, 1 cards waiting`, `delegation dlg3: stop: stopped` | A status answered (or `unreachable`, `gone`), a stop and how it went (`idle`, `gone`, `stop_failed`). |
+| `told the app: error machine_offline`, `fatal error upstream_failed: the call ends` | An error frame the app was sent. |
+| `conversation closed after 3m12s (the app hung up (1000)): user lines 4 (typed 1), model lines 5, delegations 2, function calls 2, runs 2 (done 1, refused 1), observed turns 0, cards asked 0, reconnects 0, pauses 1` | The call's end: how long it lasted, why it ended (the app hung up with its close code, its connection dropped, writing to it failed, `start failed: <code>`, `fatal error <code>`), and its counts; runs by their last state. |
+
+**Reading one.** For "the model said it handed it over, and nothing came": find the call by its time (`conversation opened`), then look for a `delegation` or `function call` line. None: the model never handed anything over (it only said it did). A refusal by the gate: the user's words had not reached the service (no caption, no typed line, no own voice since the agent last spoke). A run that ends `refused` or `failed`, or a send that is not `ok`: the hub's code says why. A run `done` on a conversation other than the one expected: check `bound:` (protocol 2) or the `sent to` line (protocol 1: the main conversation of the moment).
 
 ## 5. Configurable GPT-Live upstream
 

@@ -71,33 +71,37 @@ func splitMark(task string) (kind, rest string) {
 // extension's hub token; a form in the terminal holds its keyboard, and the node refuses the send (dialog_open).
 var approvalCards = []string{proto.IxPlan, proto.IxPermission, proto.IxScreen}
 
-// handOverBound is protocol 2's handover (mu held; it goes on in the background).
-func (c *conversation) handOverBound(task, delegation string, gen int, at time.Time, reply string) {
+// handOverBound is protocol 2's handover (mu held; it goes on in the background). name is what the log calls it.
+func (c *conversation) handOverBound(name, task, delegation string, gen int, at time.Time, reply string) {
 	kind, rest := splitMark(task)
 	switch kind {
 	case "status":
-		go c.answerStatus(delegation, gen)
+		c.logf("%s: a status (not gated)", name)
+		go c.answerStatus(name, delegation, gen)
 		return
 	case "stop":
-		c.whenSpoken(at, func(spoken bool) {
+		c.logf("%s: a stop", name)
+		c.whenSpoken(name, at, func(spoken bool) {
 			if !spoken {
-				c.pl.logf("not stopped: the user had not spoken since the last answer, or not lately")
 				c.tell(&voiceRun{Delegation: delegation, Gen: gen}, plainWords(prompts.RenderVoiceRefused(prompts.VoiceRefused{
 					Lang: string(c.language()), Code: "unprompted", Task: clipRunes(task, taskMost), To: c.target.to()})), true, false)
 				return
 			}
-			c.stopTarget(delegation, gen)
+			c.stopTarget(name, delegation, gen)
 		})
 		return
 	}
 	if card := c.askingCardLocked(); card != "" { // a question asked by voice: anything else is its answer (asks.go)
-		c.answerCard(card, task, delegation, gen, at)
+		c.logf("%s: the answer to card %s (%s)", name, card, taskSize(task))
+		c.answerCard(name, card, task, delegation, gen, at)
 		return
 	}
+	what := "a task"
 	if kind == "answer" {
-		task = rest
+		task, what = rest, "an answer in words"
 	}
-	c.whenSaid(at, reply, func(spoken bool) {
+	c.logf("%s: %s for %s (%s)", name, what, c.target.logName(), taskSize(task))
+	c.whenSaid(name, at, reply, func(spoken bool) {
 		c.mu.Lock()
 		if task == "" { // the model said nothing of what to do: what the user said
 			task = c.lastUserLine()
@@ -105,9 +109,9 @@ func (c *conversation) handOverBound(task, delegation string, gen int, at time.T
 		recent := c.recent(recentLines)
 		c.mu.Unlock()
 		r := c.newBoundRun(task, delegation, gen)
+		c.logf("run %s: for %s, in session %d", r.ID, name, sessionNo(gen))
 		switch {
 		case !spoken:
-			c.pl.logf("not handed over: the user had not spoken since the last answer, or not lately")
 			c.runs.notSent(r, sendFail{state: runRefused, code: "unprompted", prompt: "unprompted"})
 		case task == "":
 			c.runs.notSent(r, sendFail{state: runRefused, code: "empty", prompt: "empty"})
@@ -223,7 +227,7 @@ func (t *tracker) sendBound(r *voiceRun, opts sendOpts, first bool) {
 		}()
 		ctx := c.ctx
 		if first && channel.IsApprovalWord(r.task) && c.cardsWaiting(ctx, approvalCards...) {
-			c.pl.logf("run %s: only an approval word while a card waits: not sent", r.ID)
+			c.logf("run %s: only an approval word while a card waits: not sent", r.ID)
 			t.notSent(r, sendFail{state: runRefused, code: "on_screen", prompt: "on_screen"})
 			return
 		}
@@ -235,7 +239,6 @@ func (t *tracker) sendBound(r *voiceRun, opts sendOpts, first bool) {
 			if ctx.Err() != nil {
 				return
 			}
-			c.pl.logf("run %s: send: %v", r.ID, err)
 			f := boundFailure(err)
 			if f.prompt == "dialog_open" {
 				f.plan = c.cardsWaiting(ctx, proto.IxPlan)
@@ -281,25 +284,45 @@ func (t *tracker) sendTo(ctx context.Context, r *voiceRun, opts sendOpts) error 
 	if r.Base == 0 {
 		base, err := hub.lastSeq(ctx, r.MachineID, r.SessionID)
 		if err != nil {
-			t.c.pl.logf("run %s: the conversation's last line: %v (its message is found from the start)", r.ID, err)
+			t.c.logf("run %s: the conversation's last line: %s (its message is found from the start)", r.ID, hubOutcome(err))
 		}
 		r.Base = base
 	}
 	t.link.watch(key, r.Base)
 	sctx, cancel := context.WithTimeout(ctx, sendTimeout(sess))
 	defer cancel()
-	err := hub.send(sctx, r.MachineID, r.SessionID, r.message, r.ID, opts)
+	err := t.sendLogged(sctx, r, opts)
 	var he *hubError
 	if errors.As(err, &he) && he.Code == "dialog_open" && he.Notice && !opts.DismissNotice {
-		t.c.pl.logf("run %s: a notice holds the terminal: closing it and sending again", r.ID)
+		t.c.logf("run %s: a notice holds the terminal: closing it and sending again", r.ID)
 		opts.DismissNotice = true
-		err = hub.send(sctx, r.MachineID, r.SessionID, r.message, r.ID, opts)
+		err = t.sendLogged(sctx, r, opts)
 	}
 	if err != nil {
 		t.link.unwatch(key)
 		return maybeSent(err)
 	}
 	return nil
+}
+
+// sendLogged sends r's message to its conversation, and logs how that went: the hub's status and code, how long it took.
+func (t *tracker) sendLogged(ctx context.Context, r *voiceRun, opts sendOpts) error {
+	began := time.Now()
+	err := t.c.pl.hub.send(ctx, r.MachineID, r.SessionID, r.message, r.ID, opts)
+	t.c.logf("run %s: sent to %s/%s: %s in %v%s", r.ID, r.MachineID, r.SessionID, hubOutcome(err), logDur(time.Since(began)), optsLog(opts))
+	return err
+}
+
+// optsLog is what a send asked besides its message, for the log.
+func optsLog(o sendOpts) string {
+	s := ""
+	if o.ClearDraft != "" {
+		s += ", clearing the draft"
+	}
+	if o.DismissNotice {
+		s += ", closing a notice"
+	}
+	return s
 }
 
 // resend sends again a run the hub refused, as the app asks (its "Resend" / "Clear and send"): the same id, a new run (restart).
@@ -311,9 +334,10 @@ func (t *tracker) resend(id, clearDraft string) {
 	case t.ops <- func() {
 		r := t.refused[id]
 		if r == nil {
-			t.c.pl.logf("resend %s: no such refused run", id)
+			t.c.logf("resend %s: no such refused run", id)
 			return
 		}
+		t.c.logf("run %s: the app sends it again", id)
 		delete(t.refused, id)
 		r.Delegation = "" // it had its one commentary (the refusal): what comes is said
 		if clearDraft != "" && r.Clearable != "" {
@@ -367,6 +391,7 @@ func (t *tracker) resume(runs []resumeRun) {
 		case runBlocked: // waiting on something outside: its turns stop on that wait, each waits for its triage
 			r.waitOn = runBlocked
 		}
+		c.logf("run %s: handed back by the app (%s)", r.ID, firstNonEmpty(x.State, "no state"))
 		select {
 		case t.ops <- func() {
 			t.link.watch(linkKey{r.MachineID, r.SessionID}, r.Base)

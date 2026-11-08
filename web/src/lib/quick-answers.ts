@@ -4,7 +4,14 @@
 // are the chat card's (views/chat/Interactions.tsx sends them through the same resolve).
 import { t } from "../i18n";
 import type { Resolution } from "./answered";
+import { isSecretRun } from "./tool-detail";
 import type { Interaction } from "./types";
+
+/** A permission card this page cannot allow: it has fields to fill in (#4987), or it is a password card, filled in only on
+ *  the iPhone (#1137). Its quick paths (a row's answers, a notification's buttons) open the chat instead. */
+export function needsFieldValues(ix: Interaction): boolean {
+  return ix.kind === "permission" && (!!ix.fields?.length || isSecretRun(ix));
+}
 
 /** What a permission card's "Allow" sends. */
 export const allowBody = (): Resolution => ({ allow: true });
@@ -24,7 +31,7 @@ export interface QuickChoice {
 export function quickAnswers(ix: Interaction): QuickChoice[] | null {
   switch (ix.kind) {
     case "permission": {
-      if (ix.fields?.length) return null;
+      if (needsFieldValues(ix)) return null;
       return [
         { key: "allow", label: t("chat-interactions.allow"), body: allowBody(), primary: true },
         { key: "deny", label: t("chat-interactions.deny"), body: denyBody() },

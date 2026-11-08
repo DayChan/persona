@@ -6,7 +6,7 @@ import { toast } from "../ui/atoms";
 import { stripBase } from "./base";
 import { answerCard } from "./card-answer";
 import { postNotification } from "./notify";
-import { allowBody, denyBody } from "./quick-answers";
+import { allowBody, denyBody, needsFieldValues } from "./quick-answers";
 import { href, navigate } from "./router";
 import { getState } from "./store";
 import type { Resolution } from "./answered";
@@ -49,7 +49,7 @@ export function planClick(m: unknown, interactions: readonly Interaction[], now:
   if (!isNote(m) || now > m.until) return undefined;
   if (m.action === "open") return m.url?.startsWith("/") && !m.url.startsWith("//") ? { open: m.url } : undefined;
   const ix = interactions.find((x) => x.id === m.ix);
-  if (ix?.kind !== "permission" || ix.fields?.length || answering.has(ix.id)) return undefined;
+  if (ix?.kind !== "permission" || needsFieldValues(ix) || answering.has(ix.id)) return undefined;
   const allow = m.action === "allow";
   return { ix, allow, body: allow ? allowBody() : denyBody() };
 }

@@ -31,11 +31,7 @@ struct PermissionInputForm: View {
                                 .onSubmit { submit(allow: true) }
                         }
                     }
-                    .font(Theme.Font.body)
-                    .textFieldStyle(.plain)
-                    .autocorrectionDisabled()
-                    .padding(Theme.Space.m)
-                    .background(Theme.Fill.well, in: .rect(cornerRadius: Theme.Radius.control))
+                    .interactionField()
                     .accessibilityIdentifier("interaction.field." + field.key)
                 }
             }
@@ -65,5 +61,16 @@ struct PermissionInputForm: View {
             await model.resolve(interaction, resolution)
             sending = false
         }
+    }
+}
+
+extension View {
+    /// A card's text field (`PermissionInputForm`, `SecretRunForm`): body text on the well, as typed.
+    func interactionField() -> some View {
+        font(Theme.Font.body)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .padding(Theme.Space.m)
+            .background(Theme.Fill.well, in: .rect(cornerRadius: Theme.Radius.control))
     }
 }

@@ -119,6 +119,8 @@ type Service struct {
 	delegateHook func(context.Context, DelegateParams) (DelegateResult, error)
 	// fleetEnded, when set, sees every card's end the channels are told (tests).
 	fleetEnded func(ix proto.Interaction, r *proto.Resolution)
+	// ixResolved, when set, sees every answered card the assistant is told of (tests).
+	ixResolved func(InteractionResolved)
 	models     modelsState   // models.go: the model configuration
 	health     healthBook    // launcher_health.go: each machine's launchers
 	trust      trustBook     // machine_trust.go: the computers waiting to be confirmed
@@ -461,6 +463,9 @@ func (s *Service) TurnEnded(ctx context.Context, r SessionRef) {
 // InteractionResolved: the user dealt with a card of a task's agent: the conversation keeps a record of it, and the
 // todo of the agent the calls made in it (its decisions).
 func (s *Service) InteractionResolved(ctx context.Context, r InteractionResolved) {
+	if f := s.ixResolved; f != nil {
+		f(r)
+	}
 	s.taskAnswered(ctx, r.Interaction, r.Resolution, r.Status)
 	s.cardDecisions(ctx, r.Interaction, r.Resolution, r.Status)
 	// A quiet task's waiting notice may still be in its delay window or queued behind a turn: drop it now unless the

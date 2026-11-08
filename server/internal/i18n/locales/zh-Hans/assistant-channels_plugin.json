@@ -22,5 +22,6 @@
   "more_waiting_one": "还有 {count} 个在等你回复，最近的那个是上面倒数第二条。",
   "more_waiting_other": "还有 {count} 个在等你回复，最近的那个是上面倒数第二条。",
   "scheduled_task": "定时任务「{task}」",
-  "asked_elsewhere": " · 在别处问：{asked}"
+  "asked_elsewhere": " · 在别处问：{asked}",
+  "fill_in_app": "这一步有内容要在 Persona App 里填写，这里只能拒绝。"
 }

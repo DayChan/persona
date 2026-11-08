@@ -84,5 +84,10 @@
   "always_scope_directory": "Always allow covers this directory in this conversation.",
   "always_scope_commands": "Always allow covers every command in this conversation.",
   "always_scope_tool": "Always allow covers every {tool} call in this conversation.",
-  "always_scope_saved": "The approved scope remains allowed in this conversation."
+  "always_scope_saved": "The approved scope remains allowed in this conversation.",
+  "secret_run_kicker": "Password needed",
+  "secret_run_title": "Run on {machine} with your password",
+  "secret_run_commands": "Commands, run in order",
+  "secret_run_on_iphone": "Fill this in on your iPhone",
+  "secret_run_decline": "Decline"
 }

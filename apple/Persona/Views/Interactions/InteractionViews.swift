@@ -27,6 +27,7 @@ extension Interaction {
     /// Codex.
     var title: String {
         if toolName == "ask_user" { return String(localized: "Persona Has a Question") }
+        if isSecretRun { return secretRunTitle }
         if let name = agentName {
             switch kind {
             case .question: return String(localized: "\(name) Has a Question")
@@ -663,7 +664,10 @@ struct PermissionForm: View {
     var interaction: Interaction
 
     var body: some View {
-        if interaction.requiresInput { PermissionInputForm(interaction: interaction) }
+        // One view per card: another card in this place starts with an empty password field (a field still being
+        // typed in keeps its UIKit text when only the binding is cleared).
+        if interaction.isSecretRun { SecretRunForm(interaction: interaction).id(interaction.id) }
+        else if interaction.requiresInput { PermissionInputForm(interaction: interaction) }
         else if AppStyle.current.usesBeautifulUI { BUIPermissionForm(interaction: interaction) } else { plain }
     }
 

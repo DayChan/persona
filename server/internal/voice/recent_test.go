@@ -112,7 +112,7 @@ func TestWhenSaidWaitsForTheCaptionOnItsWay(t *testing.T) {
 	c.pace.voice = now                      // the user said something since
 
 	spoken := make(chan bool, 2)
-	c.whenSpoken(time.Time{}, func(s bool) { spoken <- s })
+	c.whenSpoken("test", time.Time{}, func(s bool) { spoken <- s })
 	select {
 	case s := <-spoken:
 		if !s {
@@ -123,7 +123,7 @@ func TestWhenSaidWaitsForTheCaptionOnItsWay(t *testing.T) {
 	}
 
 	start := time.Now()
-	c.whenSaid(time.Time{}, "", func(s bool) { spoken <- s })
+	c.whenSaid("test", time.Time{}, "", func(s bool) { spoken <- s })
 	select {
 	case <-spoken:
 		t.Fatal("whenSaid went before the caption came")
@@ -146,7 +146,7 @@ func TestWhenSaidWaitsForTheCaptionOnItsWay(t *testing.T) {
 	c.pace.voice = time.Now()
 	c.mu.Unlock()
 	start = time.Now()
-	c.whenSaid(time.Time{}, "", func(s bool) { spoken <- s })
+	c.whenSaid("test", time.Time{}, "", func(s bool) { spoken <- s })
 	select {
 	case s := <-spoken:
 		if took := time.Since(start); !s || took < gateWait-50*time.Millisecond {
@@ -183,7 +183,7 @@ func TestWhenSaidGoesAtOnceAfterASilentReply(t *testing.T) {
 		}
 		c.pace.voice = now // the user said something since: its caption is due
 		spoken := make(chan bool, 1)
-		c.whenSaid(time.Time{}, id, func(s bool) { spoken <- s })
+		c.whenSaid("test", time.Time{}, id, func(s bool) { spoken <- s })
 		c.mu.Unlock()
 		start := time.Now()
 		select {

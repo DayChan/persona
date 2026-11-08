@@ -211,7 +211,8 @@ func (t *tracker) observe(ctx context.Context) {
 	}
 	t.link.watch(o.key, r.Base)
 	t.runs = append(t.runs, r)
-	t.c.pl.logf("run %s: the bound conversation works on a turn the call did not hand over: followed (base %d)", r.ID, r.Base)
+	t.c.count(func(l *callLog) { l.observed++ })
+	t.c.logf("run %s: the bound conversation works on a turn the call did not hand over: followed (base %d)", r.ID, r.Base)
 }
 
 // revive follows r, a run of the call's whose send ended unknown, as its message begins the turn the conversation
@@ -223,7 +224,7 @@ func (t *tracker) revive(r *voiceRun, msg *proto.Item) {
 	t.link.watch(linkKey{r.MachineID, r.SessionID}, r.Base)
 	t.runs = append(t.runs, r)
 	t.set(r, runWorking)
-	t.c.pl.logf("run %s: its send ended unknown, and its message begins the turn the conversation works on: followed", r.ID)
+	t.c.logf("run %s: its send ended unknown, and its message begins the turn the conversation works on: followed", r.ID)
 }
 
 // turnStart is the message the turn the conversation works on began with, in its last exchange (items): the first
@@ -304,7 +305,7 @@ func (t *tracker) channelNames(ctx context.Context) map[string]string {
 	}
 	list, err := t.c.pl.hub.channels(i18n.With(ctx, t.c.language()))
 	if err != nil {
-		t.c.pl.logf("the hub's channels: %v", err)
+		t.c.logf("the hub's channels: %s", hubOutcome(err))
 		return nil
 	}
 	t.obs.names = map[string]string{}
@@ -353,7 +354,7 @@ func (t *tracker) heartbeat(r *voiceRun, s *proto.Session, now time.Time) {
 	l := t.c.language()
 	text := prompts.RenderVoiceProgress(prompts.VoiceProgress{Lang: string(l), To: t.c.target.to(), Do: "working",
 		Activity: activityIn(l, s.Activity), Elapsed: channel.Duration(l, now.Sub(from))})
-	t.c.pl.logf("run %s: quiet for %v while it works: a heartbeat", r.ID, heartbeatAfter)
+	t.c.logf("run %s: quiet for %v while it works: a heartbeat", r.ID, heartbeatAfter)
 	t.c.deliver(&sentWords{words: plainWords(text), prio: prioHeartbeat, run: r.ID, expires: time.Now().Add(heartbeatStale)})
 }
 
@@ -386,7 +387,7 @@ func (t *tracker) triage(ctx context.Context) triageSwitches {
 		sw, err := t.c.pl.hub.triage(ctx)
 		t.tri.sw, t.tri.at = sw, now.Add(triageEvery)
 		if err != nil {
-			t.c.pl.logf("the hub's triage switches: %v (taken as off)", err)
+			t.c.logf("the hub's triage switches: %s (taken as off)", hubOutcome(err))
 			t.tri.sw, t.tri.at = triageSwitches{}, now.Add(triageRetry)
 		}
 	}
@@ -468,7 +469,7 @@ func (t *tracker) afterTold(r *voiceRun, s *proto.Session, now time.Time) {
 			return // nothing written since it was read: its state behind its transcript
 		}
 	case outside(triaged(s)):
-		t.c.pl.logf("run %s: the hub's triage says its turn waits on something outside: followed on", r.ID)
+		t.c.logf("run %s: the hub's triage says its turn waits on something outside: followed on", r.ID)
 		r.told = false
 		t.waitOutside(r, triaged(s))
 		return

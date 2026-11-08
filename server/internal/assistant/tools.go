@@ -29,7 +29,7 @@ import (
 // (docs/assistant/prompts.md).
 var toolNames = []string{"ask_user", "notify_user", "schedule_followup", "schedule_routine", "delete_routine", "list_followups",
 	"cancel_followup", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
-	"kb_search", "kb_list", "kb_get", "kb_update", "persona_settings",
+	"kb_search", "kb_list", "kb_get", "kb_update", "persona_settings", "secret_run",
 	"model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback",
 	"conversations_list", "conversation_read", "conversation_rename", "conversation_archive", "conversation_unarchive",
 	"conversation_new", "conversation_send", "task_plan", "task_review"}
@@ -110,6 +110,8 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolKB(ctx, name, args)
 	case "interaction_answer":
 		return s.toolInteractionAnswer(ctx, self, args)
+	case "secret_run":
+		return s.toolSecretRun(ctx, machine, self, args) // secret_run.go
 	case "inbox_draft":
 		return s.toolInboxDraft(ctx, self, args)
 	case "inbox_suggest":

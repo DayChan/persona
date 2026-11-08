@@ -41,7 +41,8 @@ internal object NotificationPolicy {
             fun action(key: String, label: String?, answer: AnswerAction, draft: AnswerDraft = AnswerDraft(), @StringRes labelRes: Int? = null) =
                 NotificationAction(
                     key, label, policy.authentication != Authentication.None,
-                    when (policy.input) { "message" -> R.string.notify_reply_deny_reason; "feedback" -> R.string.notify_reply_feedback; else -> null },
+                    // A password card takes nothing typed (#1137): no box beside it where a password could go by mistake.
+                    when (policy.input.takeUnless { ix.isSecretRun }) { "message" -> R.string.notify_reply_deny_reason; "feedback" -> R.string.notify_reply_feedback; else -> null },
                     answer, draft, policy.retry, labelRes,
                 )
             when (policy.id) {

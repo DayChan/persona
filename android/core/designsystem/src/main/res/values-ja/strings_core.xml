@@ -293,6 +293,7 @@
     <string name="designsystem_core_headline_permission_detail">%1$sの使用をリクエスト：%2$s</string>
     <string name="designsystem_core_headline_agent_permission">%1$sが%2$sの使用をリクエスト</string>
     <string name="designsystem_core_headline_agent_permission_detail">%1$sが%2$sの使用をリクエスト：%3$s</string>
+    <string name="designsystem_core_headline_secret_run">%1$sでパスワードを使って実行</string>
     <string name="designsystem_core_headline_screen">ターミナルのダイアログで要対応</string>
     <string name="designsystem_core_headline_needs_you">要対応</string>
     <string name="designsystem_core_ask_question">質問中</string>

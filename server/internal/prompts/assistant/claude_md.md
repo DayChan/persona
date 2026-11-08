@@ -29,6 +29,7 @@
 {{range $i, $m := .Machines}}{{if $i}}
 {{end}}{{if .Local}}  - {{.Name}}（`{{.ID}}`）：就是你所在的这台机器，直接执行命令{{else if .AgentsOnly}}  - {{.Name}}（`{{.ID}}`）：从你这里不能直接在它上面执行命令；要在那台上做事，用 `agent_start` 在它上面开一个 Agent，或用 `agent_send` 交给它上面已有的 Agent{{else}}  - {{.Name}}：`ssh {{or .SSHHost .ID}} '<命令>'`{{end}}{{end}}
   - 一次执行一条非交互命令，带超时（`timeout 20 …`）；Claude 会话记录在 `~/.claude/projects/<目录>/<id>.jsonl`。
+  - 要用户密码才能跑的命令（sudo 等）用 `secret_run`：用户在 iPhone 卡片上看到每条命令、填密码，你拿不到密码。**别在对话里要密码**，也别让用户把密码发给你。
 - **工作数据**：这台机器上装好的 skills 和 CLI（具体有哪些见文末「关于用户」，没写就先 `ls ~/.claude/skills` 看看）。
 - **网络**：可以联网搜索、抓网页。
 - **知识库** `{{$knowledge}}`（hub 自动维护，**先查这里**）：每个飞书会话 / 邮件往来的全量文字（`chats/<id>/messages/日期.md`）和压缩上下文

@@ -22,6 +22,7 @@ import persona.core.contracts.api.*
 import persona.core.designsystem.*
 import kotlinx.serialization.json.*
 import java.io.File
+import java.time.Instant
 
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -170,6 +171,49 @@ class ExtensionModelShotsTest {
             capture("not-ready-${s.key}-${if (d) "dark" else "light"}")
         }
         assertEquals(0, confirms)
+    }
+
+    /** One extension's preview the hub lets go at 10:10 UTC (#1316). */
+    private val notes = ExtensionPreview(previewId = "notes", permissionsDigest = "d-notes", manifest = PreviewManifest("notes", "笔记扩展", "1.0.0"),
+        permissions = listOf(ExtensionPermission("network", "连接声明的服务", "notes.example.com")), expiresAt = "2026-11-08T10:10:00Z")
+
+    @Test fun anExpiredPreviewOffersPreviewAgainInsteadOfTheYesInEveryStyle() {
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        var confirms = 0
+        var again = 0
+        rule.setContent {
+            PersonaTheme(style = style, darkTheme = dark, reduceMotion = true) {
+                PreviewSheet(null, notes, false, {}, { confirms++ }, Modifier.testTag("shot"), onPreviewAgain = { again++ },
+                    now = { Instant.parse("2026-11-08T10:12:00Z") })
+            }
+        }
+        for (s in AppStyle.entries) for (d in listOf(false, true)) {
+            style = s; dark = d
+            rule.onNodeWithText("这次预览已经过期", substring = true).assertExists()
+            rule.onNodeWithText("同意并安装").assertDoesNotExist()
+            capture("expired-${s.key}-${if (d) "dark" else "light"}")
+        }
+        rule.onNodeWithText("重新预览").performClick()
+        assertEquals(1, again)
+        assertEquals(0, confirms)
+    }
+
+    @Test fun aPreviewThatExpiresWhileTheSheetIsOpenStopsOfferingTheYes() {
+        var clock = Instant.parse("2026-11-08T10:09:30Z")
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            PersonaTheme(style = AppStyle.Glass, darkTheme = false, reduceMotion = true) {
+                PreviewSheet(null, notes, false, {}, {}, Modifier.testTag("shot"), now = { clock })
+            }
+        }
+        rule.mainClock.advanceTimeByFrame()
+        rule.onNodeWithText("同意并安装").assertIsEnabled()
+        rule.onNodeWithText("重新预览").assertDoesNotExist()
+        clock = Instant.parse("2026-11-08T10:10:00Z")
+        rule.mainClock.advanceTimeBy(30_000)
+        rule.onNodeWithText("重新预览").assertExists()
+        rule.onNodeWithText("同意并安装").assertDoesNotExist()
     }
 
     @Test fun themePickerOnlyChangesAfterSelection() {

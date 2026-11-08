@@ -19,6 +19,9 @@ nonisolated struct AnsweringInteractions {
         if inFlight.contains(uid) { endedByHub.insert(uid) }
     }
 
+    /// This card's answer is on its way.
+    func contains(_ uid: String) -> Bool { inFlight.contains(uid) }
+
     /// Whether a failed answer puts the card back: not when the hub ended it meanwhile.
     func putsBack(_ uid: String) -> Bool { !endedByHub.contains(uid) }
 

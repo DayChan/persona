@@ -76,6 +76,10 @@ class NotificationCopyTest {
         assertEquals("Codex 请求使用 github · create issue", requestCopy(context, codex).first)
         val question = Interaction("k", kind = "question", questions = listOf(Question(question = "Which branch?")))
         assertEquals("Which branch?" to "Which branch?", requestCopy(context, question))
+        // A password card (#1137): the line names the computer, the detail is the hub's summary with every command.
+        val secretRun = Interaction("s", kind = "permission", toolName = "secret_run", summary = "Mac mini\n\$ sudo -S -k -p '' true",
+            toolInput = kotlinx.serialization.json.buildJsonObject { put("machine_name", kotlinx.serialization.json.JsonPrimitive("Mac mini")) })
+        assertEquals("用你的密码在 Mac mini 上运行" to "Mac mini\n\$ sudo -S -k -p '' true", requestCopy(context, secretRun))
     }
 
     private fun options(vararg labels: String) = labels.map { QuestionOption(label = it) }
