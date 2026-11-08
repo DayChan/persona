@@ -1,6 +1,8 @@
 //go:build linux
 
-package rpc
+// Package rpcio supplies transport-owner I/O observations, separate from the
+// standard-library-only RPC framing contract.
+package rpcio
 
 import (
 	"io"
@@ -9,15 +11,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// unreadQuery measures outstanding data on a pipe or a unix stream socket:
+// OutstandingQuery measures outstanding data on a pipe or a unix stream socket:
 // FIONREAD on the write end of a pipe counts unread bytes; SIOCOUTQ on a unix
 // socket counts queue memory, released only when a complete send buffer is read.
-// It is not a byte count. WriteCounted bounds those buffers to 4 KiB, so their
-// release is observable even while a blocked Write has not returned. TCP is not
+// It is not a byte count. Owners must bound writes to 4 KiB for buffer release
+// to remain observable even while a blocked Write has not returned. TCP is not
 // supported: acknowledgement is not consumption by the receiving application.
 // Other descriptors and writers without a descriptor have no progress signal.
 // Control never switches a pollable file back to blocking mode, unlike Fd.
-func unreadQuery(w io.Writer) func() (int64, bool) {
+func OutstandingQuery(w io.Writer) func() (int64, bool) {
 	sc, ok := w.(syscall.Conn)
 	if !ok {
 		return nil

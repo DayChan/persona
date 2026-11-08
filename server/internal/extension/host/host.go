@@ -26,6 +26,7 @@ import (
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/rpc"
+	"github.com/nwverse/persona/server/internal/rpcio"
 
 	"github.com/nwverse/persona/server/internal/i18n"
 )
@@ -684,7 +685,7 @@ func (p *Proc) runOnce(ctx context.Context, started *bool) (runErr error) {
 		w := &rpc.ProgressWriter{W: writerOf(ch)}
 		peer = rpc.New("h", w)
 		peer.Interrupt = ch.closeTransport
-		peer.Progress = rpc.ConsumedProgress(w.W, w.Accepted)
+		peer.Progress = rpc.ConsumedProgress(w.Accepted, rpcio.OutstandingQuery(w.W))
 		peer.Limits = p.spec.RPCBounds
 		peer.OnRequest = p.spec.Handle
 		peer.OnEvent = p.spec.OnEvent

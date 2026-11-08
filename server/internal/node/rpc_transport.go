@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/nwverse/persona/server/internal/rpc"
+	"github.com/nwverse/persona/server/internal/rpcio"
 )
 
 // ownedRPCTransport carries an owner's explicit interruption capability, not a
@@ -39,7 +40,7 @@ func newConnectionPeer(w, transport io.Writer) *rpc.Peer {
 		peer.Interrupt = owned.interrupt
 		peer.Progress = owned.measure
 		if peer.Progress == nil {
-			peer.Progress = rpc.ConsumedProgress(owned.Writer, owned.accepted.Load)
+			peer.Progress = rpc.ConsumedProgress(owned.accepted.Load, rpcio.OutstandingQuery(owned.Writer))
 		}
 	}
 	return peer

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/rpcio"
 	"golang.org/x/sys/unix"
 )
 
@@ -71,7 +72,7 @@ func TestWithdrawalQueueSlowUnixSocket(t *testing.T) {
 			caller, remote := New("a", signal), New("b", remoteConn)
 			var interrupted atomic.Bool
 			caller.Interrupt = func() { interrupted.Store(true); _ = callerConn.Close() }
-			caller.Progress = ConsumedProgress(callerConn, counted.Accepted)
+			caller.Progress = ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(callerConn))
 			if caller.Progress == nil {
 				t.Fatal("FAIL unix socket consumption not measurable")
 			}
@@ -161,7 +162,7 @@ func TestWithdrawalQueueStalledUnixSocket(t *testing.T) {
 	counted := &ProgressWriter{W: callerConn}
 	caller := New("a", counted)
 	caller.Interrupt = func() { _ = callerConn.Close() }
-	caller.Progress = ConsumedProgress(callerConn, counted.Accepted)
+	caller.Progress = ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(callerConn))
 	if caller.Progress == nil {
 		t.Fatal("FAIL unix socket consumption not measurable")
 	}

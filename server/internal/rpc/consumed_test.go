@@ -6,9 +6,15 @@ import (
 	"time"
 )
 
+func TestConsumedProgressUnavailableTransportIsFailSafe(t *testing.T) {
+	if ConsumedProgress(func() int64 { return 0 }, nil) != nil {
+		t.Fatal("unmeasurable transport acquired a progress signal")
+	}
+}
+
 func TestConsumedProgressSeparatesQueueMemoryFromBytes(t *testing.T) {
 	accepted, queued := int64(4096), int64(4864)
-	progress := consumedProgress(func() int64 { return accepted }, func() (int64, bool) { return queued, true })
+	progress := ConsumedProgress(func() int64 { return accepted }, func() (int64, bool) { return queued, true })
 	first := progress()
 	if again := progress(); again != first {
 		t.Fatal("unchanged measurements advanced progress")
@@ -33,7 +39,7 @@ func TestConsumedProgressSeparatesQueueMemoryFromBytes(t *testing.T) {
 
 func TestConsumedProgressUnavailableMeasurementIsFailSafe(t *testing.T) {
 	available := true
-	progress := consumedProgress(func() int64 { return 0 }, func() (int64, bool) { return 0, available })
+	progress := ConsumedProgress(func() int64 { return 0 }, func() (int64, bool) { return 0, available })
 	base := progress()
 	peer := New("test", nil)
 	peer.Progress = progress
@@ -56,7 +62,7 @@ func TestConsumedProgressUnavailableMeasurementIsFailSafe(t *testing.T) {
 }
 
 func TestConsumedProgressConcurrentObservers(t *testing.T) {
-	progress := consumedProgress(func() int64 { return 0 }, func() (int64, bool) { return 0, true })
+	progress := ConsumedProgress(func() int64 { return 0 }, func() (int64, bool) { return 0, true })
 	first := progress()
 	var group sync.WaitGroup
 	for range 32 {

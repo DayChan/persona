@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/rpcio"
 )
 
 type freshnessSocket struct {
@@ -24,7 +26,7 @@ func newFreshnessSocket(t *testing.T) *freshnessSocket {
 	t.Helper()
 	writer, reader := socketPair(t)
 	counted := &ProgressWriter{W: writer}
-	live := ConsumedProgress(writer, counted.Accepted)
+	live := ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(writer))
 	if live == nil {
 		t.Fatal("FAIL unix consumption signal missing")
 	}

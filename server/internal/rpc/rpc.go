@@ -531,23 +531,17 @@ func WriteCounted(w io.Writer, b []byte, accepted *atomic.Int64) (int, error) {
 	return total, nil
 }
 
-// ConsumedProgress is Peer.Progress for an owned transport writing to w (the
-// actual descriptor, below any wrapper), with accepted counting WriteCounted's
-// returned bytes. It returns an opaque token, not a consumed-byte count: a unix
-// socket's SIOCOUTQ is queue memory, which cannot be subtracted from byte counts.
-// The token changes when accepted bytes increase or outstanding data decreases;
-// the latter observes reading while Write is blocked. Measurement is supported
-// for Linux pipes and unix stream sockets only. Elsewhere it is nil; descriptor
-// query failures suppress stall retirement until measurement recovers.
-func ConsumedProgress(w io.Writer, accepted func() int64) func() int64 {
-	unread := unreadQuery(w)
+// ConsumedProgress combines an owner's accepted-byte counter and outstanding-data
+// query into Peer.Progress. It returns an opaque token, not a consumed-byte count:
+// a unix socket's queue memory cannot be subtracted from accepted bytes. The
+// token changes when accepted bytes increase or outstanding data decreases; the
+// latter observes reading while Write is blocked. The transport owner supplies
+// the descriptor query, or nil where consumption cannot be measured. Query
+// failures suppress stall retirement until measurement recovers.
+func ConsumedProgress(accepted func() int64, unread func() (int64, bool)) func() int64 {
 	if unread == nil {
 		return nil
 	}
-	return consumedProgress(accepted, unread)
-}
-
-func consumedProgress(accepted func() int64, unread func() (int64, bool)) func() int64 {
 	var mu sync.Mutex
 	var initialized bool
 	var lastAccepted, lastUnread, token int64
@@ -568,7 +562,8 @@ func consumedProgress(accepted func() int64, unread func() (int64, bool)) func()
 }
 
 // ProgressWriter is an owned transport's writer with a progress count: pass it to
-// New and ConsumedProgress(w.W, w.Accepted) to Peer.Progress.
+// New and supply its Accepted counter plus the owner's outstanding-data query
+// to ConsumedProgress for Peer.Progress.
 type ProgressWriter struct {
 	W        io.Writer
 	accepted atomic.Int64

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/rpcio"
 )
 
 // withdrawalWait bounds every handshake in these tests; it is a failure timeout,
@@ -61,7 +63,7 @@ func newWithdrawalPair(t *testing.T, owned bool, remoteReader func(io.Reader) io
 			_ = callerW.Close()
 			_ = callerR.Close()
 		}
-		p.caller.Progress = ConsumedProgress(callerW, counted.Accepted)
+		p.caller.Progress = ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(callerW))
 		if p.caller.Progress == nil {
 			t.Fatal("FAIL pipe consumption not measurable on this platform")
 		}

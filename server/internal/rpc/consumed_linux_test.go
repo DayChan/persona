@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/rpcio"
 )
 
 func TestConsumedProgressUnixPartialRead(t *testing.T) {
@@ -19,7 +21,7 @@ func TestConsumedProgressUnixPartialRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	counted := &ProgressWriter{W: writer}
-	progress := ConsumedProgress(writer, counted.Accepted)
+	progress := ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(writer))
 	if progress == nil {
 		t.Fatal("unix socket measurement unavailable")
 	}
@@ -48,7 +50,7 @@ func TestConsumedProgressPipePartialRead(t *testing.T) {
 	defer reader.Close()
 	defer writer.Close()
 	counted := &ProgressWriter{W: writer}
-	progress := ConsumedProgress(writer, counted.Accepted)
+	progress := ConsumedProgress(counted.Accepted, rpcio.OutstandingQuery(writer))
 	if progress == nil {
 		t.Fatal("pipe measurement unavailable")
 	}
@@ -76,7 +78,7 @@ func TestConsumedProgressRejectsTCPAcknowledgements(t *testing.T) {
 	}
 	defer client.Close()
 	var accepted atomic.Int64
-	if ConsumedProgress(client, accepted.Load) != nil {
+	if ConsumedProgress(accepted.Load, rpcio.OutstandingQuery(client)) != nil {
 		t.Fatal("TCP acknowledgement was treated as application consumption")
 	}
 }
