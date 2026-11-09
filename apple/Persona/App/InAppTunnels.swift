@@ -189,6 +189,7 @@ final class InAppTunnels {
         let local = try await InAppTunnel.forward(route, port: 0)
         var req = URLRequest(url: local.appending(path: "api/v1/health"), timeoutInterval: 10)
         req.httpMethod = "GET"
+        RequestClientMetadata.current.apply(to: &req)
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], obj["ok"] as? Bool == true else {

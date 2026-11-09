@@ -92,6 +92,49 @@ import Testing
         #expect(watch.starting.isEmpty)
     }
 
+    @Test func aPrecancelledRefreshDoesNotAskOrPruneRows() async {
+        let hub = FakeHub()
+        let first = machine("first")
+        hub.on("GET", "/api/v1/machines/first/herdr", json: answer(running: false))
+        let watch = HerdrWatch()
+        await watch.refresh([first]) { _ in hub.client }
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            await watch.refresh([machine("next")]) { _ in hub.client }
+        }
+        await task.value
+        #expect(hub.sent("GET", "/api/v1/machines/next/herdr").isEmpty)
+        #expect(watch.stopped == [first.ref], "a cancelled refresh must not prune or publish")
+    }
+
+    @Test(arguments: [0, 404, 502])
+    func cancellationDuringFirstResponseStopsTheBatchAndDoesNotPublish(errorStatus: Int) async {
+        let hub = FakeHub()
+        let first = machine("first"), second = machine("second")
+        let path = "/api/v1/machines/first/herdr"
+        hub.on("GET", path, json: answer(running: false))
+        hub.on("GET", "/api/v1/machines/second/herdr", json: answer(running: false))
+        let watch = HerdrWatch()
+        await watch.refresh([first]) { _ in hub.client }
+        let data = Data(answer(running: true).utf8)
+        hub.on("GET", path) { _ in
+            // A transport can complete (or answer an error) even after its caller was cancelled.
+            withUnsafeCurrentTask { $0?.cancel() }
+            if errorStatus != 0 { throw APIError(status: errorStatus, message: "fixture: cancelled response") }
+            return data
+        }
+        let task = Task { await watch.refresh([first, second]) { _ in hub.client } }
+        await task.value
+        #expect(hub.sent("GET", path).count == 2)
+        #expect(hub.sent("GET", "/api/v1/machines/second/herdr").isEmpty, "no next GET after cancellation")
+        #expect(watch.stopped == [first.ref], "no late row publication")
+
+        hub.on("GET", path, json: answer(running: true))
+        await watch.refresh([first, second]) { _ in hub.client }
+        #expect(hub.sent("GET", path).count == 3, "a cancelled 404 must not mark a machine unsupported")
+        #expect(watch.stopped == [second.ref])
+    }
+
     @Test func knownFailuresInWords() {
         #expect(HerdrFailure.says("herdr server stopped right after starting: exit status 1") == "herdr 起来后马上退出了（退出码 1）")
         #expect(HerdrFailure.says("herdr server stopped right after starting: signal: killed") == "herdr 起来后马上被结束了（killed）")

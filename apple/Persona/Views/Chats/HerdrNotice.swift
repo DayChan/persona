@@ -99,16 +99,21 @@ nonisolated struct HerdrFailure: Equatable, Sendable {
     /// Asks each watched machine's hub. A request that fails keeps what the row showed (one lost poll must not flash
     /// it); a machine no longer watched (offline, another engine) loses its row and its start.
     func refresh(_ machines: [Machine], api: (String) -> APIClient?) async {
+        guard !Task.isCancelled else { return }
         let watched = machines.filter(Self.watched)
         let refs = Set(watched.map(\.ref))
         started.formIntersection(refs)
         var next = stopped.intersection(refs)
         for m in watched where !unsupported.contains(m.ref) {
+            guard !Task.isCancelled else { return }
             guard let client = api(m.group) else { continue }
+            guard !Task.isCancelled else { return }
             let state: HerdrState
             do {
                 state = try await client.herdr(machine: m.id)
+                guard !Task.isCancelled else { return }
             } catch let e as APIError where e.status == 404 {
+                guard !Task.isCancelled else { return }
                 unsupported.insert(m.ref)
                 next.remove(m.ref)
                 continue
@@ -121,6 +126,7 @@ nonisolated struct HerdrFailure: Equatable, Sendable {
             if state.running { started.remove(m.ref) } // the hub knows now: a later stop shows again
             if state.known && !state.running && !started.contains(m.ref) { next.insert(m.ref) } else { next.remove(m.ref) }
         }
+        guard !Task.isCancelled else { return }
         if next != stopped { withAnimation(Theme.Motion.state) { stopped = next } }
     }
 

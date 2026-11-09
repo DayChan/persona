@@ -133,8 +133,8 @@ struct CompactInteractionRow: View {
                     .font(CompactList.meta).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.xs)
-            TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                Text(Fmt.relative(interaction.createdAt, now: ctx.date)).font(CompactList.meta.monospacedDigit())
+            VisibleTimelineView(interval: 30) { now in
+                Text(Fmt.relative(interaction.createdAt, now: now)).font(CompactList.meta.monospacedDigit())
                     .foregroundStyle(.secondary).lineLimit(1)
             }
             .fixedSize()

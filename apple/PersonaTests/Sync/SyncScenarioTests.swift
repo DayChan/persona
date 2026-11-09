@@ -129,6 +129,8 @@ final class SyncRun {
         devices[name] = d
         d.answersSubscribe = { [hub] in hub.backlogFrame }
         d.connect()
+        #expect(d.model.machines.isEmpty)
+        #expect(d.model.allSessions.isEmpty, "scenario setup must not retain a paired app's snapshot")
         if name == first { AgentSync.shared.model = { [weak d] in d?.model ?? AppModel.shared } }
         let socket = try await nextSocket(d, after: 0)
         socket.send(hub.hello(resumed: false))

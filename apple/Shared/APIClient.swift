@@ -47,7 +47,7 @@ nonisolated struct LocalRequest: Sendable {
     var path: String
     var query: [String: String]
     var body: Data?
-    /// The headers that change what the hub does (`X-Persona-Op-Id`); the rest of a real request's are not kept.
+    /// Operation semantics and anonymous caller diagnostics, matching the real request's headers.
     var headers: [String: String] = [:]
 }
 
@@ -129,6 +129,8 @@ nonisolated struct APIClient: Sendable {
     var personaNaming = false
     /// The hub's hello has `sessions_lookup`: one session's complete row can be asked for by machine and id.
     var sessionLookup = false
+    /// Execution surface is diagnostic only; authorization still uses the paired hub credential.
+    var clientMetadata: RequestClientMetadata = .current
     /// Answers the demo config's requests (DemoHub registers it at launch); every endpoint goes through `request`.
     nonisolated(unsafe) static var local: (@Sendable (LocalRequest) async throws -> Data)?
 
@@ -188,7 +190,7 @@ nonisolated struct APIClient: Sendable {
     func request(_ method: String, _ path: String, query: [String: String] = [:], body: (any Encodable)? = nil,
                  timeout: TimeInterval = 30, opID: UUID? = nil) async throws -> Data {
         let query = larkScoped(path, query)
-        let headers = opID.map(HubNaming.operationHeaders) ?? [:]
+        let headers = clientMetadata.headers.merging(opID.map(HubNaming.operationHeaders) ?? [:]) { _, operation in operation }
         if let answer = transport ?? (config.isDemo ? Self.local : nil) {
             let data = try await answer(LocalRequest(method: method, path: path, query: query.filter { !$0.value.isEmpty },
                                                      body: try body.map { try JSON.encoder.encode(AnyEncodable($0)) }, headers: headers))
@@ -200,6 +202,7 @@ nonisolated struct APIClient: Sendable {
         req.httpMethod = method
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
         for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
@@ -250,6 +253,7 @@ nonisolated struct APIClient: Sendable {
         var req = URLRequest(url: url(path, query: query), timeoutInterval: 30)
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
         if let etag { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
@@ -264,12 +268,13 @@ nonisolated struct APIClient: Sendable {
         let query = larkScoped(path, query)
         if config.isDemo { throw APIError(status: 403, message: DemoText.notSent) }
         if let transport {
-            return try await transport(LocalRequest(method: "POST", path: path, query: query, body: Data(contentsOf: file)))
+            return try await transport(LocalRequest(method: "POST", path: path, query: query, body: Data(contentsOf: file), headers: clientMetadata.headers))
         }
         var req = URLRequest(url: url(path, query: query), timeoutInterval: timeout)
         req.httpMethod = "POST"
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
@@ -294,7 +299,7 @@ nonisolated struct APIClient: Sendable {
         if let dest { query["dest"] = dest }
         if let transport { // unit tests (FakeHub): the whole file in one request
             let body = try Data(contentsOf: file)
-            let out = try await transport(LocalRequest(method: "POST", path: "/api/v1/machines/\(machine)/files", query: query, body: body))
+            let out = try await transport(LocalRequest(method: "POST", path: "/api/v1/machines/\(machine)/files", query: query, body: body, headers: clientMetadata.headers))
             progress(Int64(body.count))
             return try JSON.decoder.decode(UploadedFile.self, from: out)
         }
@@ -302,6 +307,7 @@ nonisolated struct APIClient: Sendable {
         req.httpMethod = "POST"
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -322,6 +328,7 @@ nonisolated struct APIClient: Sendable {
         var req = URLRequest(url: url(path, query: query), timeoutInterval: 120)
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
         let (temp, response) = try await Self.uncachedSession.download(for: req, delegate: DownloadProgress(progress))
@@ -509,6 +516,12 @@ nonisolated struct APIClient: Sendable {
         let path = "/api/v1/machines/\(machine)/launchers/\(launcher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? launcher)/models"
         return try JSON.decoder.decode(LauncherModels.self, from: await request("GET", path, query: refresh ? ["refresh": "1"] : [:], timeout: 75))
     }
+    /// Forgets one model ID typed for this launcher on this computer (#1644, the list's Forget): the hub stops listing
+    /// it (`custom: true`). Forgetting one it doesn't remember is fine too.
+    func forgetCustomModel(machine: String, launcher: String, model: String) async throws {
+        let path = "/api/v1/machines/\(machine)/launchers/\(launcher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? launcher)/models/custom"
+        _ = try await request("DELETE", path, query: ["model": model])
+    }
     /// Model Settings' list for a launcher provider (`launcher.<name>`, #943), asked on a machine that has the launcher (its
     /// `machine`); nil: an older hub, or a provider without a list (a plugin brings its own, an API has none).
     /// `machine`: the purpose's own (a task, Lark /agent run there), so the list is that machine's launcher.
@@ -645,6 +658,7 @@ nonisolated struct APIClient: Sendable {
         var req = URLRequest(url: itemURL(machine: parts[0], session: parts[1], item: parts[2], "image"), timeoutInterval: 60)
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let (data, resp) = try await Self.uncachedSession.data(for: req) // ChatImageLoader keeps it on disk
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
@@ -659,6 +673,7 @@ nonisolated struct APIClient: Sendable {
         var req = URLRequest(url: itemURL(machine: k.machineID, session: k.sessionID, item: id, "full"), timeoutInterval: 60)
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        clientMetadata.apply(to: &req)
         let (data, resp) = try await Self.uncachedSession.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {

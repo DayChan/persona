@@ -605,6 +605,24 @@ type memStore struct {
 	puts int
 	// failSetting: what reading a setting fails with (nil: it reads).
 	failSetting error
+	// failPut: what writing settings fails with (nil: it writes); nothing is written then.
+	failPut error
+	// failKeys: what reading one key fails with, the other keys still reading (set through failKey).
+	failKeys map[string]error
+}
+
+// failKey makes reading key fail with err from now on; nil reads it again.
+func (m *memStore) failKey(key string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failKeys == nil {
+		m.failKeys = map[string]error{}
+	}
+	if err == nil {
+		delete(m.failKeys, key)
+	} else {
+		m.failKeys[key] = err
+	}
 }
 
 // noPlans is a store without the task_plans and assistant_feed tables.
@@ -641,6 +659,9 @@ func (m *memStore) Setting(_ context.Context, key string, out any) (bool, error)
 	if m.failSetting != nil {
 		return false, m.failSetting
 	}
+	if err := m.failKeys[key]; err != nil {
+		return false, err
+	}
 	b, ok := m.vals[key]
 	if !ok {
 		return false, nil
@@ -655,12 +676,42 @@ func (m *memStore) PutSetting(_ context.Context, key string, v any) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failPut != nil {
+		return m.failPut
+	}
 	if m.vals == nil {
 		m.vals = map[string][]byte{}
 	}
 	m.vals[key] = b
 	m.puts++
 	return nil
+}
+
+// CompareSetting applies a versioned setting only while its revision matches.
+func (m *memStore) CompareSetting(_ context.Context, key string, revision int64, value any) (bool, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var current struct {
+		Revision int64 `json:"revision"`
+	}
+	if b, ok := m.vals[key]; ok {
+		if err := json.Unmarshal(b, &current); err != nil {
+			return false, err
+		}
+	}
+	if current.Revision != revision {
+		return false, nil
+	}
+	if m.vals == nil {
+		m.vals = make(map[string][]byte)
+	}
+	m.vals[key] = raw
+	m.puts++
+	return true, nil
 }
 
 // PutSettings marshals every value before taking the lock and committing the complete batch.
@@ -677,6 +728,9 @@ func (m *memStore) PutSettings(ctx context.Context, values map[string]any) error
 	defer m.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if m.failPut != nil {
+		return m.failPut
 	}
 	if m.vals == nil {
 		m.vals = map[string][]byte{}

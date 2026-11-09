@@ -3173,8 +3173,8 @@ struct AgentTimeText: View {
         let at = time?.updatedAt ?? fallback
         // No time: nothing, not an empty line the source label under it would sit below (#3043).
         if let at, at.isMeaningful {
-            TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                Text(Fmt.relative(at, now: ctx.date)).font(font).foregroundStyle(.secondary).lineLimit(1)
+            VisibleTimelineView(interval: 30) { now in
+                Text(Fmt.relative(at, now: now)).font(font).foregroundStyle(.secondary).lineLimit(1)
             }
             .fixedSize()
         }

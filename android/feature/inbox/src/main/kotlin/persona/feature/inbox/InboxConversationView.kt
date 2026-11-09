@@ -20,11 +20,12 @@ internal fun conversationInboxView(
             pending[record.item.id]?.let { done -> record.copy(item = record.item.copy(doneAt = if (done) java.time.Instant.EPOCH.toString() else null)) } ?: record
         }
         if (records.isEmpty()) return@mapNotNull null
-        // Completion and source read receipts are independent. Keep unread conversations unread; reconcile the
-        // already-read sections immediately, including while a write is pending and when it rolls back.
-        val section = if (row.unread) row.section else when {
-            records.all { it.item.isDone } -> InboxConversationSection.Done
-            records.any { !it.item.isDone && it.item.triage == InboxTier.Action } -> InboxConversationSection.ReadPending
+        // Filing changes the inbox section, never the source message's read receipt.
+        val open = records.filterNot { it.item.isDone }
+        val section = when {
+            open.isEmpty() -> InboxConversationSection.Done
+            row.unread -> if (open.any { it.item.triage == InboxTier.Action }) InboxConversationSection.Action else InboxConversationSection.Fyi
+            open.any { it.item.triage == InboxTier.Action } -> InboxConversationSection.ReadPending
             else -> InboxConversationSection.Read
         }
         row.copy(records = records, section = section,

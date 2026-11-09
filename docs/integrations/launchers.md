@@ -265,8 +265,8 @@ Persona-managed providers add these fields following cindy's model (`proto.Manag
 
 **Connection tests and model discovery** request the gateway directly from the manager (`assistant/models_probe.go`) (following cindy's `buildProbeRequest` / `provider-model-fetch`), also available before saving a new provider:
 
-- With `name`, use stored Base URL, protocol, key, headers, default model, and proxy; request values override stored values (`headers: ""` means no headers for this request).
-- Connection testing sends a short `ping` to `POST <base>/v1/messages` for Messages or a streaming `POST <base>/v1/responses` for Responses, requiring the Responses completion event. Model discovery sends `GET <base>/v1/models`. A deployment path prefix is retained and `/v1` is not duplicated in either probes or direct API calls.
+- With `name`, use stored Base URL, protocol, key, headers, default model, and proxy; request values override stored values (`headers: ""` means no headers for this request). Chat Completions rejects a test or discovery request when its effective headers or stored proxy are nonempty.
+- Connection testing sends a short `ping` to `POST <base>/v1/messages` for Messages or a streaming `POST <base>/v1/responses` for Responses, requiring the Responses completion event, or a streaming `POST <base>/v1/chat/completions` for Chat Completions, requiring nonempty response text and a terminal choice or `[DONE]`. Chat Completions tests send `max_tokens: 256` and retry once with `max_completion_tokens` only when the gateway explicitly rejects the former and requests the latter. Model discovery sends `GET <base>/v1/models`. A deployment path prefix is retained and `/v1` is not duplicated in either probes or direct API calls.
   Both `x-api-key` and `Authorization: Bearer` are sent (strip leading `Bearer ` from the key), plus `anthropic-version: 2023-06-01` and custom headers.
 - Timeout: 30 seconds for the whole operation. Failures identify authentication, missing endpoints, rejected request formats, rate limiting, timeout and connectivity; key and header values are redacted. Both APIs return 200; inspect `ok` / `error` and `code` for the result.
 - Model lists accept `{data:[…]}`, `{models:[…]}`, or a bare array (objects or strings). IDs use `id` / `slug` / `key` / `model_name` / `model_id`; names use `display_name` / `name`; windows use `max_model_len` / `context_length` / `context_window` / `max_context_length` / `max_input_tokens`. Pagination follows cursors or same-endpoint links, up to 100 pages, deduplicating IDs in order. Invalid, repeated or excessive pagination returns an error with the partial list.
@@ -276,9 +276,9 @@ Persona-managed providers add these fields following cindy's model (`proto.Manag
 
 ## Direct-API providers
 
-Persona-managed connections add `kind` (`launcher` / `api`, omitted to retain legacy launcher behavior) and `api` (`messages` / `responses`) fields.
+Persona-managed connections add `kind` (`launcher` / `api`, omitted to retain legacy launcher behavior) and `api` (`messages` / `responses` / `chat`) fields.
 For `kind: api`, the manager sends requests directly; these entries do not appear in the new-Agent launcher list. Small models, sub-Agent models, custom model options, and extra CLI arguments do not apply.
-Entries with `api` empty or `messages` are also sent to node alongside launchers (#2455), allowing the main chat to start claude with their Base URL and key; `responses` entries are not sent.
+Entries with `api` empty or `messages` are also sent to node alongside launchers (#2455), allowing the main chat to start claude with their Base URL and key; `responses` and `chat` direct API entries are not sent. Chat Completions cannot be configured as a launcher and uses Bearer authentication for direct model calls. It does not support per-provider custom headers, proxy, no_proxy, environment, timeout, context limits, default effort, tier models, or subagent settings; saving a Chat Completions provider with any of these fields set is rejected. Model-list metadata remains available for display. Existing Chat Completions providers cannot be changed to another protocol; add a separate provider instead. Voice providers use a separate real-time protocol.
 Authentication keeps the existing encrypted-key storage, with no need to put API keys in purpose configuration. The original `/launchers` API and provider names remain compatible.
 
 ## Built-in presets
@@ -307,7 +307,7 @@ hub includes common vendors' Anthropic-compatible endpoints (`server/internal/as
 Model providers contributed by extensions (`docs/extensions/extensions.md`, “Model providers”) add “From Extension” under “Settings › Model Providers › Add.” When hub's `GET /api/v1/launchers/presets`
 has presets, the add page starts with a “Enter manually / From Extension” switch (without presets, it remains manual-only as before). From Extension: choose a preset (name, description, connection method, address),
 enter only the name and key, and choose the default model from the preset's `models` (no selection uses the preset default). `POST /api/v1/launchers` sends only `name`, `api_key`, and `preset`, adding `model` only if another model was selected.
-The manager fills address, connection method, API, and small model from the preset (extension-owned presets are requested from hub through `app.call plugins.presets`). The preset's `key_hint` appears below the key, and `models_error` below the model. Once added, it can be edited like a manual entry.
+The manager fills address, connection method, API, and small model from the preset (extension-owned presets are requested from hub through `app.call plugins.presets`). The preset's `key_hint` appears below the key, and `models_error` below the model. Once added, it can be edited like a manual entry. Extension provider declarations accept `messages` and `responses`; configure a `chat` direct API provider manually.
 
 When choosing a model for a new Agent (`GET /api/v1/machines/{mid}/launchers/{name}/models`), launchers using extension gateways list not only Claude Code's own `/model` entries,
 but all preset models (`presetModels` in `assistant/models_presets.go`). Persona-managed entries use their stored preset; entries without one (manually added before extension presets existed) and ~/.zshrc entries

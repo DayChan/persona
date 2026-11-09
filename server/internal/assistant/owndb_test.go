@@ -258,6 +258,42 @@ func TestOwnDatabaseNames(t *testing.T) {
 	}
 }
 
+// A manager.json database_container is used only when it has the persona-mgr-<id>-pg shape a manager makes
+// (pgdocker.ManagerContainer).
+func TestManagerContainerID(t *testing.T) {
+	for _, tc := range []struct {
+		name, id string
+		ok       bool
+	}{
+		{"persona-mgr-abc-pg", "abc", true},
+		{"persona-mgr-assistant-0a1b2c3d-pg", "assistant-0a1b2c3d", true},
+		{"somebody-else-pg", "", false},
+		{"persona-mgr--pg", "", false},
+		{"persona-mgr-abc", "", false},
+		{"persona-mgr-abc-data", "", false},
+		{"persona-mgr-pg", "", false},
+		{"-pg", "", false},
+		{"", "", false},
+	} {
+		if id, ok := managerContainerID(tc.name); id != tc.id || ok != tc.ok {
+			t.Errorf("managerContainerID(%q) = %q, %v; want %q, %v", tc.name, id, ok, tc.id, tc.ok)
+		}
+	}
+}
+
+// A database_container a manager does not make is refused before Docker is asked anything: no container is made or
+// started for it. PATH is empty, so a regression finds no docker rather than a real one.
+func TestManagerContainerRefusedBeforeDocker(t *testing.T) {
+	t.Setenv("PATH", "")
+	for _, name := range []string{"somebody-else-pg", "persona-mgr--pg", "persona-mgr-abc"} {
+		kept := managerconf.OwnDatabase{Container: name, Location: LocationContainer}
+		got, created, err := provisionContainer(context.Background(), t.TempDir(), kept)
+		if err == nil || !strings.Contains(err.Error(), "is not one a manager makes") || created || got != kept {
+			t.Errorf("%q: %+v %v %v; want it refused and kept as it was", name, got, created, err)
+		}
+	}
+}
+
 // providing is a provisioner that always gives the database at url, as a container (made: created).
 func providing(url string, created *bool) provisioner {
 	return func(context.Context, string, string, managerconf.OwnDatabase) (managerconf.OwnDatabase, bool, error) {

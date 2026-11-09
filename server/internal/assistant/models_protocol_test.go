@@ -14,7 +14,7 @@ import (
 )
 
 func TestProviderProtocolProbe(t *testing.T) {
-	for _, api := range []string{"messages", "responses"} {
+	for _, api := range []string{"messages", "responses", "chat"} {
 		t.Run(api, func(t *testing.T) {
 			var gotPath string
 			var payload map[string]any
@@ -25,6 +25,12 @@ func TestProviderProtocolProbe(t *testing.T) {
 				}
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Error(err)
+				}
+				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+					if r.Header.Get("Accept") != "text/event-stream" {
+						t.Errorf("accept: %s", r.Header.Get("Accept"))
+					}
+					_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"pong\"},\"finish_reason\":\"stop\"}]}\n\n"))
 				}
 				if strings.HasSuffix(r.URL.Path, "/responses") {
 					if r.Header.Get("Accept") != "text/event-stream" {
@@ -37,14 +43,30 @@ func TestProviderProtocolProbe(t *testing.T) {
 			s, mux := launcherTestService(t)
 			in := probeInput{BaseURL: gw.URL + "/team/v1", APIKey: fakeKey, Model: "m", API: api}
 			out := s.providerTest(i18n.With(context.Background(), i18n.En), in)
-			if out["ok"] != true || gotPath != "/team/v1/"+api || payload["model"] != "m" {
+			path := api
+			if api == "chat" {
+				path = "chat/completions"
+			}
+			if out["ok"] != true || gotPath != "/team/v1/"+path || payload["model"] != "m" {
 				t.Fatalf("out=%v path=%s body=%v", out, gotPath, payload)
+			}
+			if api == "chat" && (payload["stream"] != true || !strings.Contains(jsonText(payload["messages"]), "ping")) {
+				t.Fatalf("chat body: %v", payload)
 			}
 			if api == "responses" && (payload["stream"] != true || !strings.Contains(jsonText(payload["input"]), "ping")) {
 				t.Fatalf("body: %v", payload)
 			}
 			if api == "messages" && (payload["max_tokens"] != float64(1) || !strings.Contains(jsonText(payload["messages"]), "ping")) {
 				t.Fatalf("body: %v", payload)
+			}
+			if api == "chat" {
+				status, body := launcherCall(t, mux, "POST", "/api/v1/launchers", fmt.Sprintf(`{"name":"chat","kind":"api","api":"chat","base_url":%q,"model":"m","api_key":%q}`, gw.URL+"/team", fakeKey))
+				if status != http.StatusOK && status != http.StatusCreated {
+					t.Fatalf("save: %d %s", status, body)
+				}
+				if out := s.providerTest(i18n.With(context.Background(), i18n.En), probeInput{Name: "chat"}); out["ok"] != true || gotPath != "/team/v1/chat/completions" {
+					t.Fatalf("stored chat: %v %s", out, gotPath)
+				}
 			}
 			if api == "responses" {
 				_, body := launcherCall(t, mux, "POST", "/api/v1/launchers", fmt.Sprintf(`{"name":"resp","kind":"api","api":"responses","base_url":%q,"model":"m","api_key":%q}`, gw.URL+"/team", fakeKey))
@@ -209,5 +231,113 @@ func TestProviderDiscoveryRejectsUnsafeOrRepeatedPagination(t *testing.T) {
 				t.Fatalf("%v calls=%d", out, calls)
 			}
 		})
+	}
+}
+
+func TestChatProbeRejectsUnfinishedStreams(t *testing.T) {
+	for _, body := range []string{
+		`{"error":"not a stream"}`,
+		`data: {"error":{"message":"failed"}}` + "\n\n",
+		`data: {"choices":[{"delta":{"content":"partial"}}]}` + "\n\n",
+		`data: [DONE]` + "\n\n",
+		`data: {"choices":[{"finish_reason":"stop"}]}` + "\n\n",
+		`data: {"choices":[{"delta":{"content":"  "}}]}` + "\n\ndata: [DONE]\n\n",
+		`data: {"choices":[{"index":1,"delta":{"content":"other"},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n",
+		`data: {"choices":[{"finish_reason":"content_filter"}]}` + "\n\n",
+		`data: {"choices":[{"delta":{"refusal":"No"}}]}` + "\n\n",
+		`data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"stop"}]}` + "\n\ndata: {\"error\":{\"message\":\"failed\"}}\n\n",
+		`data: {invalid}` + "\n\n",
+	} {
+		if chatProbeCompleted(strings.NewReader(body)) {
+			t.Fatalf("accepted %q", body)
+		}
+	}
+}
+
+func TestChatProbeRejectsEmptyResponse(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer gw.Close()
+	s, _ := launcherTestService(t)
+	out := s.providerTest(i18n.With(context.Background(), i18n.En), probeInput{BaseURL: gw.URL, Model: "m", API: "chat"})
+	if out["ok"] != false || out["error"] == nil {
+		t.Fatalf("empty response reported success: %v", out)
+	}
+}
+
+func TestChatProbeCompleted(t *testing.T) {
+	for _, body := range []string{
+		`data: {"choices":[{"delta":{"content":"pong"}}]}` + "\n\ndata: [DONE]\n\n",
+		`data: {"choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":"length"}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":"stop"}]}` + "\n\ndata: {\"choices\":[],\"usage\":{}}\n\n",
+	} {
+		if !chatProbeCompleted(strings.NewReader(body)) {
+			t.Fatalf("rejected %q", body)
+		}
+	}
+}
+
+func TestChatProbeMultilineEvents(t *testing.T) {
+	for _, ending := range []string{"\n", "\r\n"} {
+		for _, tc := range []struct {
+			name, body string
+			ok         bool
+		}{
+			{"answer", "data: {\ndata: \"choices\": [{\"index\": 0,\ndata: \"delta\": {\"content\": \"pong\"},\ndata: \"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n", true},
+			{"refusal", "data: {\ndata: \"choices\": [{\"delta\": {\"refusal\": \"No\"}}]}\n\ndata: [DONE]\n\n", false},
+			{"empty", "data: {\ndata: \"choices\": [{\"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n", false},
+			{"error after answer", "data: {\ndata: \"choices\": [{\"delta\": {\"content\": \"pong\"}, \"finish_reason\": \"stop\"}]}\n\ndata: {\ndata: \"error\": {\"message\": \"failed\"}}\n\n", false},
+		} {
+			t.Run(fmt.Sprintf("%q/%s", ending, tc.name), func(t *testing.T) {
+				gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(strings.ReplaceAll(tc.body, "\n", ending)))
+				}))
+				defer gw.Close()
+				s, _ := launcherTestService(t)
+				out := s.providerTest(i18n.With(context.Background(), i18n.En), probeInput{BaseURL: gw.URL, Model: "m", API: "chat"})
+				if out["ok"] != tc.ok {
+					t.Fatalf("probe: %v", out)
+				}
+			})
+		}
+	}
+}
+
+func TestChatProbeResponseLimit(t *testing.T) {
+	// A response after the eight MiB budget must not count as a successful probe.
+	stream := strings.Repeat(": ignored\n", (8<<20)/len(": ignored\n")+1) +
+		`data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}]}` + "\n\n"
+	if chatProbeCompleted(strings.NewReader(stream)) {
+		t.Fatal("accepted a response beyond the probe budget")
+	}
+}
+
+func TestChatLauncherValidation(t *testing.T) {
+	for _, agent := range []string{"", "claude", "codex", "agy", "omp"} {
+		in := launcherInput{Name: "sample", Kind: "launcher", API: "chat", Agent: agent, BaseURL: "https://api.example.com", Model: "m"}
+		if err := in.check(); err == nil {
+			t.Fatalf("accepted chat launcher for %q", agent)
+		}
+	}
+	in := launcherInput{Name: "sample", Kind: "api", API: "chat", BaseURL: "https://api.example.com", Model: "m"}
+	if err := in.check(); err != nil {
+		t.Fatalf("chat direct provider: %v", err)
+	}
+}
+
+func TestChatProviderDiscovery(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/prefix/v1/models" || r.Header.Get("Authorization") != "Bearer "+fakeKey {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"local-model","max_model_len":32000}]}`))
+	}))
+	defer gw.Close()
+	s, _ := launcherTestService(t)
+	out := s.providerDiscover(i18n.With(context.Background(), i18n.En), probeInput{BaseURL: gw.URL + "/prefix/v1", API: "chat", APIKey: fakeKey})
+	models, ok := out["models"].([]proto.ProviderModel)
+	if !ok || out["error"] != nil || len(models) != 1 || models[0].ID != "local-model" || models[0].ContextWindow != 32000 {
+		t.Fatalf("%v", out)
 	}
 }

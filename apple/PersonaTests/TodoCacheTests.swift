@@ -6,11 +6,49 @@ import Testing
 @MainActor
 private final class TodoObservationFlag { var changed = false }
 
+/// Captures the FakeHub answer at request start, then deliberately ignores cancellation until released.
+@MainActor
+private final class TodoReadGate {
+    let hub = FakeHub()
+    private(set) var reads = 0
+    private var pending: [Int: (Result<Data, Error>, CheckedContinuation<Data, Error>)] = [:]
+    private var closed = false
+    var client: APIClient {
+        var api = hub.client
+        api.transport = { [self] request in try await receive(request) }
+        return api
+    }
+    private func receive(_ request: LocalRequest) async throws -> Data {
+        guard !closed else { throw CancellationError() }
+        guard request.method == "GET", request.path == "/api/v1/todos" else {
+            return try await hub.client.transport!(request)
+        }
+        let result: Result<Data, Error>
+        do { result = .success(try await hub.client.transport!(request)) }
+        catch { result = .failure(error) }
+        reads += 1
+        let index = reads
+        return try await withCheckedThrowingContinuation { pending[index] = (result, $0) }
+    }
+    func answer(_ index: Int) throws {
+        let removed = pending.removeValue(forKey: index)
+        let item = try #require(removed)
+        item.1.resume(with: item.0)
+    }
+    func close() {
+        closed = true
+        let remaining = pending.values
+        pending = [:]
+        for item in remaining { item.1.resume(throwing: CancellationError()) }
+    }
+}
+
 @MainActor
 struct TodoCacheTests {
     @Test func requestsDuringARefreshCoalesceIntoOneFollowup() async {
         let hub = FakeHub()
         let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget() }
         hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"first","title":"First"}]}"#)
         var client = hub.client
         client.transport = { request in
@@ -24,7 +62,8 @@ struct TodoCacheTests {
             }
             return result
         }
-        await store.reload(api: client).value
+        let reload = store.reload(api: client)
+        await reload.value
         #expect(hub.sent("GET", "/api/v1/todos").count == 2)
         #expect(store.todos.map(\.id) == ["second"])
         #expect(store.byID["first"] == nil)
@@ -370,5 +409,217 @@ struct TodoCacheTests {
         await newTask.value
         #expect(store.loading == false)
         #expect(store.todos.map(\.id) == ["new"])
+    }
+
+    @Test func sustainedTodoEventsShareReadsAndLandTheCompleteFinalSnapshot() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"initial","title":"Initial"}]}"#)
+        var firstFinished = false
+        let first = store.reload(api: gate.client)
+        let observer = Task { await first.value; firstFinished = true }
+        defer { observer.cancel() }
+        try await waitForRefreshTest { gate.reads == 1 }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"middle","title":"Middle"}]}"#)
+        for _ in 0..<50 { store.reload(api: gate.client) }
+        #expect(gate.reads == 1)
+        try gate.answer(1)
+        try await waitForRefreshTest { gate.reads == 2 }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"final","title":"Final"}]}"#)
+        var final = first
+        for _ in 0..<50 { final = store.reload(api: gate.client) }
+        #expect(gate.reads == 2)
+        try gate.answer(2)
+        try await waitForRefreshTest { firstFinished && gate.reads == 3 }
+        #expect(store.byID.keys.sorted() == ["middle"])
+        try gate.answer(3)
+        await final.value
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 3)
+        #expect(store.todos.map(\.id) == ["final"])
+        #expect(!store.loading && store.error == nil)
+    }
+
+    @Test func manualAndAutomaticTodoReadersShareTheInFlightGet() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"shared","title":"Shared"}]}"#)
+        let automatic = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 1 }
+        var manualEntered = false
+        let manual = Task {
+            manualEntered = true
+            await store.refresh(api: gate.client)
+        }
+        defer { manual.cancel() }
+        try await waitForRefreshTest { manualEntered }
+        #expect(gate.reads == 1 && store.loading)
+        try gate.answer(1)
+        await automatic.value
+        await manual.value
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 1)
+        #expect(store.byID["shared"]?.title == "Shared")
+    }
+
+    @Test(arguments: ["create", "update", "delete"])
+    func localWritesRejectTheLatePreWriteSnapshot(_ operation: String) async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [TodoItem(id: "t", title: "Before")], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"t","title":"Before"}]}"#)
+        let oldRead = Task { await store.refresh(api: gate.client) }
+        defer { oldRead.cancel() }
+        try await waitForRefreshTest { gate.reads == 1 }
+        switch operation {
+        case "create":
+            gate.hub.on("POST", "/api/v1/todos", json: #"{"todo":{"id":"new","title":"Created"}}"#)
+            _ = try await store.create(title: "Created", api: gate.client)
+        case "update":
+            gate.hub.on("PATCH", "/api/v1/todos/t", json: #"{"todo":{"id":"t","title":"Edited"}}"#)
+            _ = try await store.update(id: "t", title: "Edited", api: gate.client)
+        default:
+            gate.hub.on("DELETE", "/api/v1/todos/t", json: "{}")
+            try await store.delete(id: "t", api: gate.client)
+        }
+        let afterWrite = store.todos
+        try gate.answer(1)
+        await oldRead.value
+        #expect(store.todos == afterWrite)
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 1)
+        switch operation {
+        case "create": #expect(store.byID["new"]?.title == "Created")
+        case "update": #expect(store.byID["t"]?.title == "Edited")
+        default: #expect(store.todos.isEmpty)
+        }
+    }
+
+    @Test func aManualRefreshAfterALocalWriteDoesNotJoinTheStaleRead() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [TodoItem(id: "t", title: "Before")], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"t","title":"Before"}]}"#)
+        let old = Task { await store.refresh(api: gate.client) }
+        defer { old.cancel() }
+        try await waitForRefreshTest { gate.reads == 1 }
+        gate.hub.on("PATCH", "/api/v1/todos/t", json: #"{"todo":{"id":"t","title":"Edited"}}"#)
+        _ = try await store.update(id: "t", title: "Edited", api: gate.client)
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"t","title":"Confirmed"}]}"#)
+        var manualEntered = false
+        var manualFinished = false
+        let manual = Task {
+            manualEntered = true
+            await store.refresh(api: gate.client)
+            manualFinished = true
+        }
+        defer { manual.cancel() }
+        try await waitForRefreshTest { manualEntered }
+        #expect(gate.reads == 1 && !manualFinished)
+        try gate.answer(1)
+        await old.value
+        try await waitForRefreshTest { gate.reads == 2 }
+        #expect(store.byID["t"]?.title == "Edited" && !manualFinished)
+        try gate.answer(2)
+        await manual.value
+        #expect(store.byID["t"]?.title == "Confirmed")
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 2)
+    }
+
+    @Test(arguments: ["linkAgent", "unlinkAgent", "setSpace"])
+    func membershipConfirmationUsesANewGetAndIgnoresThePreWriteGet(_ operation: String) async throws {
+        let gate = TodoReadGate()
+        var pushes = 0
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: { pushes += 1 })
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"old","title":"Before"}]}"#)
+        let oldRead = Task { await store.refresh(api: gate.client) }
+        defer { oldRead.cancel() }
+        try await waitForRefreshTest { gate.reads == 1 }
+        let method = operation == "unlinkAgent" ? "DELETE" : "PUT"
+        let path = operation == "setSpace" ? TodosLogic.spacePath(todoID: "t", machineID: "m", space: "p") : "/api/v1/todos/t/agents/m/s"
+        gate.hub.on(method, path, json: "{}")
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"new","title":"After","spaces":[]}]}"#)
+        let write = Task {
+            switch operation {
+            case "linkAgent": try await store.linkAgent(todoID: "t", machineID: "m", sessionID: "s", api: gate.client)
+            case "unlinkAgent": try await store.unlinkAgent(todoID: "t", machineID: "m", sessionID: "s", api: gate.client)
+            default: _ = try await store.setSpace(todoID: "t", space: .init(machineID: "m", space: "p"), linked: true, api: gate.client)
+            }
+        }
+        defer { write.cancel() }
+        try await waitForRefreshTest { gate.hub.sent(method, path).count == 1 }
+        // Let the completed in-memory write enqueue its confirmation; no simulated time advances.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(gate.reads == 1)
+        try gate.answer(1)
+        try await waitForRefreshTest { gate.reads == 2 }
+        #expect(store.byID["old"] == nil && pushes == 0)
+        try gate.answer(2)
+        try await write.value
+        await oldRead.value
+        #expect(store.byID.keys.sorted() == ["new"])
+        #expect(pushes == 1 && !store.loading)
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 2)
+    }
+
+    @Test func aNewTodoEventRecoversAfterAReadError() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos") { _ in throw APIError(status: 500, message: "Temporary failure") }
+        let failed = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 1 }
+        try gate.answer(1)
+        await failed.value
+        #expect(store.error != nil && !store.loading)
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"recovered","title":"Recovered"}]}"#)
+        let next = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 2 }
+        try gate.answer(2)
+        await next.value
+        #expect(store.error == nil && store.byID["recovered"] != nil)
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 2)
+    }
+
+    @Test func aCancelledViewWaitDoesNotCancelAnotherTodoReader() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"shared","title":"Shared"}]}"#)
+        let automatic = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 1 }
+        var viewEntered = false
+        let view = Task {
+            viewEntered = true
+            await store.refresh(api: gate.client)
+        }
+        try await waitForRefreshTest { viewEntered }
+        view.cancel()
+        await view.value
+        #expect(store.loading && gate.reads == 1)
+        try gate.answer(1)
+        await automatic.value
+        #expect(store.byID["shared"] != nil && !store.loading)
+        #expect(gate.hub.sent("GET", "/api/v1/todos").count == 1)
+    }
+
+    @Test func forgetEndsTodoWaitsBeforeTheOldTransportReturns() async throws {
+        let gate = TodoReadGate()
+        let store = TodoStore(cachedTodos: [], cacheWriter: nil, hubListChanged: {})
+        defer { store.forget(); gate.close() }
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"old","title":"Old"}]}"#)
+        let old = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 1 }
+        store.forget()
+        await old.value // This ends while the cancellation-ignoring transport is still held.
+        gate.hub.on("GET", "/api/v1/todos", json: #"{"todos":[{"id":"new","title":"New"}]}"#)
+        let new = store.reload(api: gate.client)
+        try await waitForRefreshTest { gate.reads == 2 }
+        try gate.answer(1)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(store.loading && store.todos.isEmpty)
+        try gate.answer(2)
+        await new.value
+        #expect(store.byID.keys.sorted() == ["new"] && !store.loading)
     }
 }

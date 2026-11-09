@@ -118,6 +118,7 @@ func TestModelMessagesAPIProviderRunsAsLauncher(t *testing.T) {
 		{ManagedLauncher: proto.ManagedLauncher{Kind: "api", Name: "gw", BaseURL: "https://gw.example.com", Model: "m1"}},
 		{ManagedLauncher: proto.ManagedLauncher{Kind: "api", API: "messages", Name: "gw2", BaseURL: "https://gw2.example.com", Model: "m2"}},
 		{ManagedLauncher: proto.ManagedLauncher{Kind: "api", API: "responses", Name: "resp", BaseURL: "https://r.example.com", Model: "gpt"}},
+		{ManagedLauncher: proto.ManagedLauncher{Kind: "api", API: "chat", Name: "chat", BaseURL: "https://chat.example.com", Model: "m"}},
 	}
 	if err := s.putSetting(ctx, launchersManagedKey, stored); err != nil {
 		t.Fatal(err)
@@ -131,13 +132,23 @@ func TestModelMessagesAPIProviderRunsAsLauncher(t *testing.T) {
 	if err := s.applyModel(ctx, "assistant", map[string]any{"launcher": "resp"}); err == nil {
 		t.Fatal("a Responses provider ran as a launcher")
 	}
+	if err := s.applyModel(ctx, "assistant", map[string]any{"launcher": "chat"}); err == nil {
+		t.Fatal("a Chat Completions provider ran as a launcher")
+	}
+	nodes, err := s.nodeLaunchers(stored)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("node providers: %+v, %v", nodes, err)
+	}
+	if c, err := s.apiConfig(ctx, ModelBinding{Provider: "launcher.chat"}); err != nil || c.API != "chat" || c.Configured() {
+		t.Fatalf("chat config or keyless behavior: %+v, %v", c, err)
+	}
 	r := modelRequest(s, "GET", "assistant", "")
 	var detail struct {
 		Purpose ModelPurpose `json:"purpose"`
 	}
 	_ = json.Unmarshal(r.Body.Bytes(), &detail)
 	ids := detail.Purpose.ProviderIDs
-	if !slices.Contains(ids, "launcher.gw") || !slices.Contains(ids, "launcher.gw2") || slices.Contains(ids, "launcher.resp") {
+	if !slices.Contains(ids, "launcher.gw") || !slices.Contains(ids, "launcher.gw2") || slices.Contains(ids, "launcher.resp") || slices.Contains(ids, "launcher.chat") {
 		t.Fatalf("assistant providers: %v", ids)
 	}
 }

@@ -23,7 +23,7 @@ nonisolated struct WorktreeStatus: Sendable, Equatable {
     var unmerged = 0
 }
 
-extension WorktreeStatus: Decodable {
+nonisolated extension WorktreeStatus: Decodable {
     enum CodingKeys: String, CodingKey { case worktree, ours, path, branch, root, checkouts, dirty, unmerged, mainBranch = "main_branch" }
 
     init(from decoder: Decoder) throws {

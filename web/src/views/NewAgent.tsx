@@ -9,7 +9,7 @@ import { AttachmentTray } from "../ui/AttachmentTray";
 import { modelPurpose, modelSummary, type ModelBinding } from "../lib/model-config";
 import {
   defaultLabel, effortChoices, fitEffort, followedBinding, launcherAgent, launcherModels, machineLaunchers, modelName, oneOff, pickerLauncher, startPicks,
-  takesEffort, type LauncherDefault,
+  takesEffort, takesTypedModel, forgetCustomModel, typedModelOffered, withoutCustom, type LauncherDefault,
 } from "../lib/launcher-models";
 import { BYPASS_MODE, BYPASS_WARNING, EFFORTS, effortTitle, PERMISSION_MODES } from "../lib/session-actions";
 import { baseName, shortPath } from "../lib/format";
@@ -218,7 +218,8 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
       .then((list) => {
         if (controller.signal.aborted) return;
         setModels({ status: "ready", list });
-        setModel((id) => (list?.models.some((m) => m.id === id) ? id : ""));
+        // a typed ID the list doesn't have stays picked (#1644); an older hub's null has no picker
+        setModel((id) => (list ? id : ""));
       })
       .catch((e) => { if (!controller.signal.aborted) setModels({ status: "error", error: errorText(e) }); });
     return () => controller.abort();
@@ -226,6 +227,17 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const reloadModels = () => {
     refreshModels.current = true;
     setReload((n) => n + 1);
+  };
+  // Forget an ID typed before (#1644): off the list at once, back where it was when the hub says no.
+  const forgetModel = (id: string) => {
+    const list = models.list;
+    if (!list || !mid || !listLauncher) return;
+    const { list: without, restore } = withoutCustom(list, id);
+    setModels((m) => ({ ...m, list: without }));
+    forgetCustomModel(mid, listLauncher, id).catch((e) => {
+      setModels((m) => (m.list ? { ...m, list: restore(m.list) } : m));
+      toast(t("newagent.forget_failed", { id, error: errorText(e) }), "error");
+    });
   };
   useEffect(() => { if (picking) search.current?.focus(); }, [picking]);
 
@@ -235,6 +247,10 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const hostDefault = picked ? currentHosts(picked).default : "";
   useEffect(() => { setHost(""); }, [open, mid]);
   const agent = launcherAgent(listLauncher, launchers, models.list);
+  // a model ID can be typed (#1644): Claude Code or Codex whose launcher passes the pick on, also with an empty list or none read
+  const typing = typedModelOffered(agent, models.list) && models.list !== null;
+  // a launcher that passes its own --model keeps its locked row where an ID could otherwise be typed, empty list or not
+  const lockedTyping = takesTypedModel(agent) && Boolean(models.list?.locked);
   const pickedModel = models.list?.models.find((m) => m.id === model);
   const efforts = effortChoices(models.list, model, followed);
   const effortsKey = efforts.join(" ");
@@ -463,7 +479,7 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
             </Field>
           )}
 
-          {listLauncher && models.status !== "idle" && !(models.status === "ready" && !models.list?.models.length) && (
+          {listLauncher && models.status !== "idle" && !(models.status === "ready" && !models.list?.models.length && !typing && !lockedTyping) && (
             <Field label={t("newagent.model")}><ModelPicker
               models={models}
               model={model}
@@ -480,6 +496,9 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
                 setQuery("");
               }}
               onReload={reloadModels}
+              custom={typing}
+              typing={typing}
+              onForget={forgetModel}
               failedNote={t("newagent.models_failed")}
             /></Field>
           )}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/apierr"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -97,8 +98,11 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 	if in.API != "" {
 		t.api = in.API
 	}
-	if t.api != "" && t.api != "messages" && t.api != "responses" {
+	if t.api != "" && t.api != "messages" && t.api != "responses" && t.api != "chat" {
 		return t, i18n.Err("assistant-models_launchers.err_api")
+	}
+	if t.api == "chat" && (strings.TrimSpace(t.headers) != "" || strings.TrimSpace(t.proxy) != "") {
+		return t, errChatTransport
 	}
 	// Both credential headers go anyway (cindy's buildProbeRequest), so Auth only tidies a pasted "Bearer …".
 	t.key = strings.TrimSpace(strings.TrimPrefix(t.key, "Bearer "))
@@ -134,7 +138,7 @@ func (t probeTarget) do(ctx context.Context, method, endpoint string, body io.Re
 	}
 	if body != nil {
 		req.Header.Set("content-type", "application/json")
-		if t.api == "responses" {
+		if t.api == "responses" || t.api == "chat" {
 			req.Header.Set("accept", "text/event-stream")
 		}
 	}
@@ -317,18 +321,37 @@ func (s *Service) providerTest(ctx context.Context, in probeInput) map[string]an
 	if t.api == "responses" {
 		path = "responses"
 		payload = map[string]any{"model": t.model, "input": []any{map[string]any{"role": "user", "content": "ping"}}, "stream": true, "store": false}
+	} else if t.api == "chat" {
+		path = "chat/completions"
+		payload = map[string]any{"model": t.model, "messages": []any{map[string]any{"role": "user", "content": "ping"}}, "stream": true, "max_tokens": 256}
 	}
 	body, _ := json.Marshal(payload)
 	started := time.Now()
 	res, err := t.do(ctx, http.MethodPost, t.endpoint(path), bytes.NewReader(body))
+	if err == nil && t.api == "chat" && res.StatusCode == http.StatusBadRequest {
+		raw, readErr := io.ReadAll(io.LimitReader(res.Body, 4096))
+		res.Body.Close()
+		if readErr == nil && ai.ChatRequiresCompletionTokens(raw) {
+			delete(payload, "max_tokens")
+			payload["max_completion_tokens"] = 256
+			body, _ = json.Marshal(payload)
+			res, err = t.do(ctx, http.MethodPost, t.endpoint(path), bytes.NewReader(body))
+		} else {
+			res.Body = io.NopCloser(bytes.NewReader(raw))
+		}
+	}
 	if err != nil || res.StatusCode/100 != 2 {
 		msg, code := t.failure(ctx, res, err)
 		out["error"] = msg
 		if code != "" {
 			out["code"] = code
 		}
-	} else if t.api == "responses" {
-		out["ok"] = responsesProbeCompleted(res.Body)
+	} else if t.api == "responses" || t.api == "chat" {
+		if t.api == "chat" {
+			out["ok"] = chatProbeCompleted(res.Body)
+		} else {
+			out["ok"] = responsesProbeCompleted(res.Body)
+		}
 		if out["ok"] == false {
 			if ctx.Err() != nil {
 				out["error"], _ = t.failure(ctx, nil, ctx.Err())
@@ -370,6 +393,69 @@ func responsesProbeCompleted(body io.Reader) bool {
 		}
 	}
 	return false
+}
+
+// chatProbeCompleted follows the first choice to a terminal event, including errors after its finish reason.
+func chatProbeCompleted(body io.Reader) bool {
+	sc := bufio.NewScanner(io.LimitReader(body, 8<<20))
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	finished, hasText := false, false
+	var lines []string
+	// An SSE event can span several data lines. A terminal result returns stop=true.
+	consume := func() (stop, success bool) {
+		if len(lines) == 0 {
+			return false, false
+		}
+		data := strings.Join(lines, "\n")
+		lines = nil
+		if strings.TrimSpace(data) == "[DONE]" {
+			return true, hasText
+		}
+		var event struct {
+			Error   json.RawMessage `json:"error"`
+			Choices []struct {
+				Index        int    `json:"index"`
+				FinishReason string `json:"finish_reason"`
+				Delta        struct {
+					Content string `json:"content"`
+					Refusal string `json:"refusal"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &event) != nil || len(event.Error) > 0 && string(event.Error) != "null" {
+			return true, false
+		}
+		for _, choice := range event.Choices {
+			if choice.Index != 0 {
+				continue
+			}
+			if choice.FinishReason == "content_filter" || choice.Delta.Refusal != "" {
+				return true, false
+			}
+			hasText = hasText || strings.TrimSpace(choice.Delta.Content) != ""
+			finished = finished || choice.FinishReason != ""
+		}
+		return false, false
+	}
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" {
+			if stop, success := consume(); stop {
+				return success
+			}
+			continue
+		}
+		if data, ok := strings.CutPrefix(line, "data:"); ok {
+			lines = append(lines, strings.TrimPrefix(data, " "))
+		}
+	}
+	if sc.Err() != nil {
+		return false
+	}
+	if stop, success := consume(); stop {
+		return success
+	}
+	return hasText && finished
 }
 
 // providerDiscover: GET <base>/v1/models, its models filled in from the catalog.

@@ -272,6 +272,20 @@ After any push sequence combined with any actions ends, the screen returns to hu
 - Actions include scrolling, dragging, opening menus, switching pages, entering / leaving chats, foreground / background, disconnect / reconnect.
 - Missed updates have a fallback: refetch sessions after reconnect (`refresh` after `hello`). Things happening on the hub while offline must appear after reconnect too.
 
+### Snapshot refresh ownership (#1634)
+
+Todo and session invalidations use `apple/Persona/App/CoalescedRefresh.swift`: one active read and one latest dirty follow-up, without a fixed cooldown or a new freshness delay. Hints received during a read merge; the trailing read reconciles them. A fast read that finishes before the next hint may still produce one GET per hint. Single-flight is not a request-rate quota, and reducing full todo bodies further depends on a compatibility-preserving manager-side delta/conditional protocol.
+
+Manual reads share an eligible active or queued read. Post-write confirmation cannot join a GET started before the write; todo publication is fenced by hub generation and local mutation revision. A cancelled UI waiter does not cancel another owner's shared read. Reset ends old waits and rejects late old-generation data. Session refresh preserves its frozen paging window and delta checkpoint; a manual refresh absorbs the existing short hint-merging task without swallowing its last invalidation.
+
+Critical paths and the timeliness table above remain unchanged. Unmarked hints are not guessed critical or discarded. Request metadata uses a bounded execution-surface/version header, not a device/account/bundle identifier or authentication claim. Default URLSession gzip negotiation remains enabled; video byte-range requests retain their intentional identity encoding.
+
+### Display work and foreground polling (#1634)
+
+Display-only clocks and decorative frames run only while mounted, scroll-visible, on the selected tab and in an active iOS/visionOS scene. Return uses the current timestamp, not a frozen business clock. Status-ring interpolation belongs to Core Animation, while the built-in face keeps its original drawing and nominal cadence with a periodic schedule. Relative-time/elapsed labels do not keep hidden periodic timers alive. Recording, transfer and other explicitly background-capable operations use their own lifecycle.
+
+`tabActiveTask` also cancels foreground polling at scene inactivity. `onTabVisibility` deliberately retains its original tab semantics: changing every disappearance callback to scene-driven disappearance would clear voice-call continuation state. Mac window-focus behavior is not treated as phone backgrounding.
+
 ### No swallowed actions
 
 - During a deferred reorder, a tap must target the row the user saw: order stays unchanged while held, and the tap acts on the displayed row.

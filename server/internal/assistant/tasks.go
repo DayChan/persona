@@ -124,7 +124,14 @@ type tasksState struct {
 	awaitingAnswer map[SessionRef]bool
 	// limitLooks: when a task agent's usage-limit wait is looked at again (taskTurnEndedAfter), one look per agent
 	// however many turns the wait's wakes end.
-	limitLooks map[SessionRef]time.Time
+	limitLooks      map[SessionRef]time.Time
+	limitLookTokens map[SessionRef]string
+	// receiptMu serializes loading and writing the durable receipt rechecks.
+	receiptMu     sync.Mutex
+	receiptLoaded bool
+	receiptLooks  map[SessionRef]receiptLook
+	receiptBase   map[SessionRef]receiptLook
+	receiptCtx    context.Context
 	// retrying: the tasks whose agent is starting again after a failed start (one start at a time, #1396).
 	retrying map[string]bool
 	// outcomes: the completions whose outcome was recorded (todo_outcome.go, outcomeKey).

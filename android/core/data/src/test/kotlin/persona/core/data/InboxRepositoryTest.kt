@@ -828,6 +828,9 @@ class InboxRepositoryTest {
             // Refreshed for b's new mail: its new version is what the next bulk sends.
             val after = repository.snapshot.value.records.associate { it.item.id to (it.item.isDone to it.item.version) }
             assertEquals(mapOf("a" to (true to "va"), "b" to (false to "vb2"), "c" to (false to "vc")), after)
+            // A fresh server read must retain the accepted filing, not resurrect the optimistic row.
+            repository.refresh()
+            assertEquals(after, repository.snapshot.value.records.associate { it.item.id to (it.item.isDone to it.item.version) })
 
             assertEquals(listOf(InboxBulkAction.Done), transport.actions)
             // Clean up all is the same request with action dismiss; c is filed.

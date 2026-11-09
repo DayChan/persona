@@ -34,5 +34,6 @@
   "worktree_hint": "给它单独开一个分支和检出：Agent 在那里改代码，这个文件夹不受影响。",
   "worktree_branch": "分支",
   "worktree_path": "检出到 {path}",
-  "worktree_failed": "没能建 worktree：{error}"
+  "worktree_failed": "没能建 worktree：{error}",
+  "forget_failed": "没能忘记「{id}」：{error}"
 }

@@ -1,6 +1,144 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "A model ID can't contain line breaks or control characters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model ID can't contain line breaks or control characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDに改行や制御文字は使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有换行或控制字符"
+          }
+        }
+      }
+    },
+    "A model ID can't contain spaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model ID can't contain spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDにスペースは使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有空格"
+          }
+        }
+      }
+    },
+    "A model the list doesn't show, by its ID, such as one your gateway serves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model the list doesn't show, by its ID, such as one your gateway serves."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストにないモデルもIDで指定できます（ゲートウェイのモデルなど）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表里没有的模型可以直接输入 ID，比如网关提供的模型。"
+          }
+        }
+      }
+    },
+    "Couldn't forget “%@”: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't forget “%1$@”: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」を削除できませんでした：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能忘记「%1$@」：%2$@"
+          }
+        }
+      }
+    },
+    "Enter Model ID…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Model ID…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを入力…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入模型 ID…"
+          }
+        }
+      }
+    },
+    "Enter a model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを入力してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入模型 ID"
+          }
+        }
+      }
+    },
     "Folded [Chat Layout]": {
       "localizations": {
         "en": {
@@ -19,6 +157,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "折叠"
+          }
+        }
+      }
+    },
+    "Forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘记"
           }
         }
       }
@@ -67,6 +228,29 @@
         }
       }
     },
+    "Letters, digits and . _ - / : @ [ ], starting with a letter or digit; a gateway's latest alias can start with ~.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letters, digits and . _ - / : @ [ ], starting with a letter or digit; a gateway's latest alias can start with ~."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英数字と . _ - / : @ [ ] が使え、英字か数字で始めます。ゲートウェイの latest エイリアスは ~ で始められます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母、数字和 . _ - / : @ [ ]，以字母或数字开头；网关的 latest 别名可以用 ~ 开头。"
+          }
+        }
+      }
+    },
     "Lines Shown: %lld": {
       "localizations": {
         "en": {
@@ -111,6 +295,52 @@
         }
       }
     },
+    "Model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID"
+          }
+        }
+      }
+    },
+    "Model IDs you typed that ran on this computer. Swipe left on one to forget it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model IDs you typed that ran on this computer. Swipe left on one to forget it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータで入力して実行したモデルIDです。左にスワイプすると削除できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台电脑上输入并跑起来过的模型 ID。向左滑动可以忘掉。"
+          }
+        }
+      }
+    },
     "New Conversation Layout": {
       "localizations": {
         "en": {
@@ -129,6 +359,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "新对话布局"
+          }
+        }
+      }
+    },
+    "Not in the list; this start uses the ID as typed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in the list; this start uses the ID as typed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストにありません。今回の開始は入力どおりのIDを使います"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表里没有，这次新建按输入的 ID 用"
           }
         }
       }
@@ -173,6 +426,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "开"
+          }
+        }
+      }
+    },
+    "Other Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のモデル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他模型"
+          }
+        }
+      }
+    },
+    "Other Model…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Model…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のモデル…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他模型…"
           }
         }
       }
@@ -239,6 +538,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示 %lld 行"
+          }
+        }
+      }
+    },
+    "Start with a letter or digit (or ~ and then one)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start with a letter or digit (or ~ and then one)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英字か数字で始めてください（または ~ の後に英字か数字）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要以字母或数字开头（或 ~ 后接字母或数字）"
           }
         }
       }
@@ -376,6 +698,213 @@
           "stringUnit": {
             "state": "translated",
             "value": "读不到这台电脑的设置：%1$@"
+          }
+        }
+      }
+    },
+    "This chat uses it from the next message.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat uses it from the next message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話では次のメッセージから使います。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个对话从下一条消息开始使用它。"
+          }
+        }
+      }
+    },
+    "Too long: at most %lld bytes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too long: at most %lld bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長すぎます：%lld バイトまで"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "太长了：最多 %lld 字节"
+          }
+        }
+      }
+    },
+    "Type a model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type a model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを手入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入模型 ID"
+          }
+        }
+      }
+    },
+    "Typed Before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed Before"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前入力したもの"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入过的"
+          }
+        }
+      }
+    },
+    "Typed model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手入力のモデルID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入的模型 ID"
+          }
+        }
+      }
+    },
+    "Typed model ID: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed model ID: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手入力のモデルID：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入的模型 ID：%1$@"
+          }
+        }
+      }
+    },
+    "Use Default Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Default Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのモデルを使う"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改用默认模型"
+          }
+        }
+      }
+    },
+    "Use [Typed Model Sheet 5d2e7a]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        }
+      }
+    },
+    "Used for this start only. Once it runs, it's listed under Typed Before.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used for this start only. Once it runs, it's listed under Typed Before."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回の開始にだけ使います。実行されると「以前入力したもの」に表示されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只用于这次新建。跑起来后会列在「输入过的」里。"
           }
         }
       }
@@ -21006,6 +21535,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "这个 Agent 在 Persona 建的 worktree 里干活"
+          }
+        }
+      }
+    },
+    "Without the list, a model can still be used by its ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Without the list, a model can still be used by its ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストがなくてもモデルIDで指定できます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有列表也可以直接输入模型 ID"
           }
         }
       }
@@ -131171,6 +131723,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」已存在"
+          }
+        }
+      }
+    },
+    "“%@” can't be in a model ID. Use letters, digits and . _ - / : @ [ ]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” can't be in a model ID. Use letters, digits and . _ - / : @ [ ]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDに「%1$@」は使えません。英数字と . _ - / : @ [ ] を使ってください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有「%1$@」，只能用字母、数字和 . _ - / : @ [ ]"
           }
         }
       }

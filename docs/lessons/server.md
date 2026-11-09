@@ -1,5 +1,9 @@
 # Lessons: hub / node and networking
 
+## Model connection tests must match the runtime (#1732)
+
+A successful connection probe can still hide a request the model server will reject: exercise the same output-token field and its narrowly scoped fallback as the runtime. Parse SSE events rather than individual `data:` lines, including multiline events and CRLF, and test empty, truncated, refused, and errored replies separately.
+
 ## Battery investigations need attributed transport counts (#1633)
 
 A slow/error request log is not an access log, and successful Live Activity updates
@@ -224,6 +228,12 @@ Splitting a registry at its first colon reads `[::1]:5000` as `[`, selecting HTT
 ## Copied SDK commands need their development inputs (#6132)
 
 - Copying a package's scripts without their referenced configs, helper scripts and typecheck fixtures leaves a plausible-looking but unusable SDK. Keep the official TypeScript copy complete, including its dependency lockfile; exclude installed dependencies and build output. Test a fresh destination, not only the source checkout, and verify selective copying leaves the other SDK untouched. Schema-conformance fixtures must also be collected from their canonical source into the SDK package and archive; tests cannot depend on an outer repository schema directory or silently skip missing fixtures. Installing these declared development dependencies is a build-time operation, never source-runtime dependency resolution.
+
+## Exact initialization metadata belongs at the initializer (#1777)
+
+- Namespace raw params cannot recover configuration tokens already lost before `Program.init`. Use the explicit initializer opt-in on the original `initialize.params` frame; keep parsed defaults and ordinary two-argument calls unchanged. Direct authoring probes have no raw frame and must not invent one by serializing parsed values. Raw initialization may contain credentials: never log it.
+- Preserve the initializer receiver, single getter lookup and single-flight/retry behavior. Only an own data marker opts in; inherited/accessor markers do not. Use the function's actual invocation rather than its replaceable `call` property. Resolve the initializer symbol lazily so unrelated source imports gain no new top-level side effect.
+- Optional invocation skips only null/undefined, not falsy non-callables such as false, zero or an empty string. Preserve rejection and failed-init retry for own and inherited members when factoring invocation into a helper. Run the complete portable/source-authoring gate as well as Bun tests: a browser-bundled Node fixture can pin an existing failure contract that a focused new suite misses.
 
 ## SDK transport shutdown and error identity (2026-11-07, #6125)
 

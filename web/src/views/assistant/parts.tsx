@@ -39,9 +39,9 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 }
 
 /** A row of mutually exclusive choices ("Once" / "Every day" / "Interval"). `compact`: tighter segments for a crowded bar; `dot` on an option: something there wants a look. */
-export function Segmented<T extends string>({ value, options, onChange, label, compact }: { value: T; options: { v: T; label: string; dot?: boolean }[]; onChange: (v: T) => void; label: string; compact?: boolean }) {
+export function Segmented<T extends string>({ value, options, onChange, label, compact, wrap }: { value: T; options: { v: T; label: string; dot?: boolean }[]; onChange: (v: T) => void; label: string; compact?: boolean; wrap?: boolean }) {
   return (
-    <SegmentedTrack role="radiogroup" label={label} className="flex gap-0.5 rounded-control p-0.5" thumbClassName="rounded-[7px]">
+    <SegmentedTrack role="radiogroup" label={label} className={cx("flex gap-0.5 rounded-control p-0.5", wrap && "flex-wrap")} thumbClassName="rounded-[7px]">
       {options.map((o) => (
         <button
           key={o.v}

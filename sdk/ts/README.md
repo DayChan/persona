@@ -26,6 +26,21 @@ Program example are in `docs/extensions/extensions.md` ("Opt-in exact JSON integ
 request params"). The portable suite tests raw input against independently
 bundled official host and default Program modules under Node without Bun globals.
 
+## Exact initialization params (explicit opt-in)
+
+`withExactInit((init, hub, call) => ...)` preserves the ordinary parsed `Init`,
+`Hub` and initializer receiver. An initialization RPC additionally supplies
+frozen `call.rawParams` / `call.params`; inspect `call.params?.field("config")`
+with the existing exact reader to retain configuration tokens and duplicate
+order. Do not log raw initialization/configuration text: it can contain secrets.
+
+An unwrapped initializer still receives exactly two arguments. Namespace
+`withExactParams` does not opt initialization in. Direct/manual initializer
+calls and trusted authoring probes have no original RPC frame, so `call` is
+undefined there; never serialize parsed values and present them as original
+raw metadata. Protocol checks, initialization single-flight/retry, events,
+reply serialization, page deadlines and sandbox permissions remain unchanged.
+
 ## Finite page loading
 
 Use `useLoadEffect` from `@persona/extension/ui` for finite data loads. Keep

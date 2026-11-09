@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -44,22 +45,22 @@ type laterBook struct {
 	asks   []laterAsk
 }
 
-// loadLaterLocked reads the queue once and reports whether it is in memory; s.later.mu is held. A failed read leaves it
-// unloaded: writing after it would put an empty queue over the stored one.
-func (s *Service) loadLaterLocked(ctx context.Context) bool {
+// loadLaterLocked reads the queue once; nil means it is in memory. s.later.mu is held. A failed read leaves it unloaded:
+// writing after it would put an empty queue over the stored one.
+func (s *Service) loadLaterLocked(ctx context.Context) error {
 	b := &s.later
 	if b.loaded {
-		return true
+		return nil
 	}
 	var asks []laterAsk
 	if st := s.store(); st != nil {
 		if _, err := st.Setting(ctx, laterKey, &asks); err != nil {
 			s.logf("later: load: %v", err)
-			return false
+			return err
 		}
 	}
 	b.asks, b.loaded = asks, true
-	return true
+	return nil
 }
 
 // saveLaterLocked writes the queue; s.later.mu is held and the queue is loaded.
@@ -99,7 +100,7 @@ func (s *Service) laterQueue(ctx context.Context, todo, machine, session, text s
 	b := &s.later
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !s.loadLaterLocked(ctx) {
+	if s.loadLaterLocked(ctx) != nil {
 		return laterAsk{}, false, false
 	}
 	for _, x := range b.asks {
@@ -125,7 +126,7 @@ func (s *Service) laterQueue(ctx context.Context, todo, machine, session, text s
 func (s *Service) laterOpen(ctx context.Context, now time.Time) []laterAsk {
 	b := &s.later
 	b.mu.Lock()
-	if !s.loadLaterLocked(ctx) {
+	if s.loadLaterLocked(ctx) != nil {
 		b.mu.Unlock()
 		return nil
 	}
@@ -164,27 +165,28 @@ func (s *Service) laterTodoEnded(ctx context.Context, id string) bool {
 }
 
 // laterHandled takes question id out of the queue (the owner marked it handled); false when it is not there, which includes
-// one that was over (7 days, its to-do ended) and not yet dropped.
-func (s *Service) laterHandled(ctx context.Context, id string, now time.Time) bool {
+// one that was over (7 days, its to-do ended) and not yet dropped. An error is a queue that can't be read or written: the
+// question stays, and the press is a failure to try again, not "already handled".
+func (s *Service) laterHandled(ctx context.Context, id string, now time.Time) (bool, error) {
 	s.laterOpen(ctx, now) // what is over goes first
 	b := &s.later
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !s.loadLaterLocked(ctx) {
-		return false
+	if err := s.loadLaterLocked(ctx); err != nil {
+		return false, fmt.Errorf("later: load: %w", err)
 	}
 	i := slices.IndexFunc(b.asks, func(a laterAsk) bool { return a.ID == id })
 	if i < 0 {
-		return false
+		return false, nil
 	}
 	gone := b.asks[i]
 	b.asks = slices.Delete(slices.Clone(b.asks), i, i+1)
 	if err := s.saveLaterLocked(ctx); err != nil {
 		s.logf("later: save: %v", err)
-		b.asks = slices.Insert(b.asks, i, gone) // not written: it stays, and the press says it was not handled
-		return false
+		b.asks = slices.Insert(b.asks, i, gone) // not written: it stays
+		return false, fmt.Errorf("later: save: %w", err)
 	}
-	return true
+	return true, nil
 }
 
 // laterRows are the queue as the briefing lists it, in the shape of the board's rows (what was asked, who asked, how long

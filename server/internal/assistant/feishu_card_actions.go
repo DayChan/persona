@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ func (s *Service) botCardAction(ctx context.Context, a *feishubot.CardAction, ac
 		} else {
 			ok, err = s.acceptTry(ctx, a.Str("id"), a.Context.MessageID)
 		}
+		if errors.Is(err, errAcceptStore) { // the asks could not be read or saved: not accepted, the button works again
+			return toast("error", i18n.T(l, "http-status.unavailable"))
+		}
 		if err != nil { // a recommendation that did not reach the agent: not taken, the button works again
 			return toast("error", i18n.T(l, "assistant-reports.accept_not_sent", i18n.Args{"error": clip(oneLine(err.Error()), 120)}))
 		}
@@ -48,7 +52,11 @@ func (s *Service) botCardAction(ctx context.Context, a *feishubot.CardAction, ac
 		}
 		return toast("info", i18n.T(l, "assistant-feishu_cards.already_handled"))
 	case "later_done": // the Handled button of a question that can wait, on a briefing card (later.go)
-		if s.laterHandled(ctx, a.Str("id"), time.Now()) {
+		ok, err := s.laterHandled(ctx, a.Str("id"), time.Now())
+		if err != nil { // the queue can't be read or written: the question stays, the button works again
+			return toast("error", i18n.T(l, "http-status.unavailable"))
+		}
+		if ok {
 			return toast("success", i18n.T(l, "assistant-briefing.later_handled"))
 		}
 		return toast("info", i18n.T(l, "assistant-feishu_cards.already_handled"))

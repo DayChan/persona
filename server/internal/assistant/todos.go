@@ -370,6 +370,7 @@ func (s *Service) todosChanged(ctx context.Context) {
 func (s *Service) linksChanged(ctx context.Context) {
 	s.publish(context.WithoutCancel(ctx))
 	s.syncLinkedTodoTokens()
+	go s.pruneReceiptLooks(context.WithoutCancel(ctx))
 }
 
 // quietTask: a task opened now from conversation origin is quiet (#1731): it comes from the main conversation while
