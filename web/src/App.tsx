@@ -1,5 +1,5 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
-import { api, errorText, getToken, handleUnauthorized, setToken } from "./lib/api";
+import { api, ApiError, errorText, getToken, handleUnauthorized, setToken } from "./lib/api";
 import { pair, takeToken } from "./lib/auth";
 import { useCloseOnBack } from "./lib/back-close";
 import { SCRIM_FADE, useLingers } from "./lib/lingers";
@@ -95,7 +95,8 @@ export function App() {
       .catch((err) => {
         if (!live) return;
         const msg = errorText(err);
-        setLinkError(msg === "invalid token" ? t("app.link_token_invalid") : msg);
+        const invalid = (err instanceof ApiError && err.status === 401) || msg === "invalid token";
+        setLinkError(invalid ? t("app.link_token_invalid") : msg);
         setAuthed(Boolean(getToken())); // still signed in from before: stay in
       })
       .finally(() => live && setJoining(false));

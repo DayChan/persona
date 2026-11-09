@@ -494,6 +494,7 @@ func (h *Hub) revoked(id string) {
 			}
 		}()
 	}
-	h.push.signedOut(id) // nil-safe; forgets the devices this credential registered (push.go)
+	h.live.endCredential(id) // finish the end pushes while their devices are still registered
+	h.push.signedOut(id)     // nil-safe; forgets the devices this credential registered (push.go)
 	h.logf("device token %s revoked (%d connections closed)", id, len(gone)+links)
 }

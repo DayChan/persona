@@ -248,6 +248,9 @@ Go `hub.FleetState` and Swift `FleetState` (`apple/Shared/FleetState.swift`) mat
   Devices with the App open get no pushes. No alert or category (the interaction push already sounded).
 - `stale-date` = now + 15 minutes. Even unchanged content is repushed every 10 minutes to renew it; if the hub disconnects, the activity goes stale and the UI shows "Waiting for hub update…" (P3 buttons are hidden too).
 - End: nothing displayable for over 1 minute, or only finished-unseen for over 5 minutes, sends `end` (`dismissal-date` = now) and forgets the activity token.
+- Revoking a device credential sends a priority 10 `end` with empty content and immediate dismissal to every running activity registered under that credential, before forgetting its push registrations.
+  This also applies when the App is open or its Live Activity preference is off; other credentials' activities keep running. The hub waits for these push attempts to finish before forgetting their targets, because dispatch rechecks the registration.
+  Delivery remains best effort: the Apple-side fallback that ends activities when every link's credential is rejected is a separate follow-up.
 - Start: with an activity token, send `update`; without one (App never opened, or the previous activity ended) but with a push-to-start token, send `start` once at the beginning of a "round"
   (going from empty / only finished to something needing you or working counts as a new round). If the user swipes away the activity, it won't be reopened in that round. An activity older than 8 hours (the system limit) is considered gone and starts again next round.
   The `start` carries an alert ("2 need you · 3 working"), which is left out while the device is "Phone Muted" with a desktop online or inside its quiet hours (`quiet` in the device's prefs, #5806): the activity still starts, without lighting the screen.

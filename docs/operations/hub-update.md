@@ -441,6 +441,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
      now a missing platform is one that should have been in the release, and installing cannot recover it later. The release script uploads every `.gz` first, then switches the site serving `latest.json`
      (`scripts/release/publish.sh`), so "listed in the manifest but not uploaded yet" cannot happen;
    - Restart interrupted downloads, at most 3 attempts; rename the temporary file only after the download finishes.
+   - The downloads live only as long as the update: `<build>/` is removed when the update fails (download, check, swap or restart), once it is confirmed and its node binaries are in place, and when it goes back. A hub start also removes every other `<build>/` (one that went back through the watchdog or the entry process, which run the old build, or one an older build left), keeping only the one it is confirming.
 2. **Verify**:
    - Continue only if both sha256 values match the manifest; otherwise delete the download and report an error, leaving the current binary untouched;
    - After decompression, run `<new> version` once; it must report the manifest's version and the `release` channel.
@@ -483,6 +484,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
      - Under systemd (with `INVOCATION_ID`) or launchd: restore `.prev`, kill the main process, and let the service manager start the old binary;
      - Without a service manager: after restoring it, start the old hub in the background with the original arguments, as the program it ran as (`run` in `pending.json`, else `target`).
      - It signals the hub only while the hub is still its parent process (SIGTERM, then SIGKILL after 10 seconds if it is still there): once the hub has exited, its pid may belong to another process.
+     - Before restoring anything it claims the marker by renaming `pending.json` to `pending.json.watch`. A confirm that removed the marker first (while the last health check was still out, or timed out) ends the watchdog with nothing undone; a confirm that finds it already claimed records nothing and leaves the update to the watchdog. If the restore fails, the marker goes back. A marker it cannot rename (an update directory that is read-only or has the wrong owner, where a confirm cannot remove it either) does not stop it: it goes back without the claim. A watchdog that dies while it holds the claim (power loss, or a stop of the hub unit: under systemd it shares the hub's cgroup) leaves `pending.json.watch`; the hub's next start renames it back to `pending.json` and handles the update as usual.
    - After rollback, record this build number in the **bad-version** list: automatic updates no longer try it and wait for a newer version. The user can still install it manually; the App says, "This version failed to start last time and was rolled back."
 9. **Update nodes along with it (only with `auto_update_nodes: true`)**:
    - After the hub confirms success, run `deploy.go` for each online machine with a different version (push binary, restart the persistent node, wait for it to reconnect), one at a time;

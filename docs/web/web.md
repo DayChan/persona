@@ -150,6 +150,7 @@ The box for pasting the hub's master token, and the `personad hub pair --legacy`
 
 A pairing token the web app receives is first exchanged for its own device token (`POST /api/v1/auth/tokens`, `kind: web`, role full; older hubs store it as `other`). From then on only its own token is used,
 and the pairing token is not kept in the browser; **Settings › Devices** can revoke it on its own. You can also paste a `jd_` device token directly.
+Only a 404 from the exchange route permits the legacy fallback of keeping the original token for an older hub. A 401 rejects an invalid or already-used link; server and network failures leave sign-in unsuccessful and show an error so the user can retry. A failed exchange never replaces the browser's existing credentials.
 **One browser, one device**: the device name carries the sign-in date ("Web (Chrome · Mac · Nov 6)"). The id of this browser's previous device is kept in `localStorage` under
 `persona.tokenId` (it is not cleared when the hub returns 401 and the token is cleared). When exchanging a token it is sent as `replaces`, and the hub revokes that device (only `kind: web` ones), so the device list no longer piles up devices with the same name;
 **Disconnect this browser** already revokes and clears it. A browser whose site data was cleared cannot be recognized and gets a new device as before, told apart by date.

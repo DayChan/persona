@@ -654,6 +654,37 @@ func (la *liveActivities) claimStart(r db.LiveActivity, now time.Time) (time.Tim
 
 func (la *liveActivities) endAll() { la.end(nil) }
 
+// endCredential withdraws only this credential's activities before signedOut forgets their push routes.
+func (la *liveActivities) endCredential(credential string) {
+	if la == nil || la.h.push == nil || credential == "" {
+		return
+	}
+	var pending []<-chan struct{}
+	for _, d := range la.h.push.list() {
+		if d.Credential != credential {
+			continue
+		}
+		la.mu.Lock()
+		r := la.rows[d.DeviceID]
+		// Stop future fleet flushes while the end is in flight. Revocation already removes persisted rows.
+		delete(la.rows, d.DeviceID)
+		delete(la.sent, d.DeviceID)
+		delete(la.sentAt, d.DeviceID)
+		delete(la.started, d.DeviceID)
+		delete(la.resend, d.DeviceID)
+		la.mu.Unlock()
+		if r.PushToken != "" {
+			// No agent details in the final state, even if dismissal is delayed by the phone.
+			pending = append(pending, la.h.push.sendLiveActivity(d, r.PushToken,
+				liveActivityPayload("end", FleetState{}, time.Now()), "10", func() {}))
+		}
+	}
+	// Dispatch every device concurrently, but keep registrations until the transports finish checking them.
+	for _, done := range pending {
+		<-done
+	}
+}
+
 // end ends the running activities: all of them (keep nil, the fleet has been over for a while), or those of the
 // devices whose settings keep does not hold on to.
 func (la *liveActivities) end(keep func(NotifyPrefs) bool) {

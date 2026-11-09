@@ -89,6 +89,23 @@ var (
 	bootstrapWait  = time.Second
 )
 
+// bootstrapAgent runs launchctl bootstrap for the plist at path in domain. Right after a bootout, bootstrap can fail
+// for a moment (5: Input/output error, docs/lessons/server.md), so it is tried bootstrapTries times, bootstrapWait
+// apart. The last attempt's output and error come back.
+func bootstrapAgent(ctx context.Context, e *env, domain, path string) (string, error) {
+	var out string
+	var err error
+	for try := 0; try < bootstrapTries; try++ {
+		if try > 0 {
+			time.Sleep(bootstrapWait)
+		}
+		if out, err = e.run(ctx, "launchctl", "bootstrap", domain, path); err == nil {
+			return out, nil
+		}
+	}
+	return out, err
+}
+
 // isBuiltin: the command's arguments ask for the built-in manager (--builtin).
 func isBuiltin(args []string) bool {
 	for _, a := range args {
@@ -339,7 +356,7 @@ func (e *env) builtinService(ctx context.Context, home, bin string, bounce bool)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
-			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+			if err := writeServiceFile(path, want); err != nil {
 				return err
 			}
 		}
@@ -375,7 +392,7 @@ func (e *env) builtinService(ctx context.Context, home, bin string, bounce bool)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
-			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+			if err := writeServiceFile(path, want); err != nil {
 				return err
 			}
 		}
@@ -385,18 +402,7 @@ func (e *env) builtinService(ctx context.Context, home, bin string, bounce bool)
 		switch {
 		case changed || loadedErr != nil:
 			_, _ = e.run(ctx, "launchctl", "bootout", domain+"/"+label)
-			// Right after bootout, bootstrap can fail for a moment (5: Input/output error, docs/lessons/server.md).
-			var out string
-			var err error
-			for try := 0; try < bootstrapTries; try++ {
-				if try > 0 {
-					time.Sleep(bootstrapWait)
-				}
-				if out, err = e.run(ctx, "launchctl", "bootstrap", domain, path); err == nil {
-					break
-				}
-			}
-			if err != nil {
+			if out, err := bootstrapAgent(ctx, e, domain, path); err != nil {
 				return fmt.Errorf("launchctl bootstrap failed: %s", firstLine(out+" "+err.Error()))
 			}
 			what = "started"

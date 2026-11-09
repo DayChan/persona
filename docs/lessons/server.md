@@ -1,5 +1,23 @@
 # Lessons: hub / node and networking
 
+## Finish a revocation's activity push before forgetting its target (#1864)
+
+Push registration IDs differ from credential IDs: select the registrations bound
+to the revoked credential, not just a row whose device ID happens to match. A call
+to `sendLiveActivity` only queues a goroutine; direct and relay transports recheck
+the registration before dispatch. Calling `end` before `signedOut` is therefore
+insufficient unless the revocation waits for the end attempts to finish. Send empty
+content with immediate dismissal, even for a foreground app or disabled activity
+preference, without resetting the fleet state or activities of other credentials.
+Database revocation already removes the device and its activity rows, so capture
+the live tokens from memory and do not try to persist them back after retirement.
+Transport acceptance is not proof that the phone dismissed the activity; the
+Apple-side rejected-credential fallback remains separate work.
+
+Database fixtures must also survive `go test -count`: `setupTestDB` does not clear
+`admin_sessions`. Give test sessions unique IDs and delete their own rows with
+`t.Cleanup` before the store closes; a fixed ID, even `t.Name()`, repeats within one process.
+
 ## Retained extension lists need installed managers (#1918)
 
 A relay can retain an offline manager's GET answer while the merged list drops it before the relay is called. For merged retained GET routes, enumerate installed bus identities as well as live managers; keep ordinary lists such as inbox and todos online-only. Never discover owners by scanning cache keys: a removed manager can still have cached answers. Fail closed when the installed roster cannot be read, and test the real relay warm-up followed by disconnect, missing cache, revocation, and an offline default. In external mode even the identity named `assistant` is removable: only seed it when `builtinManager` says it is built in, and return unavailable for an empty roster rather than reviving a cached default.

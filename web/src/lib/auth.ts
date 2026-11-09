@@ -1,5 +1,5 @@
 import { storedCredentials } from "./compatibility";
-import { api, setToken } from "./api";
+import { api, ApiError, setToken } from "./api";
 import { formatDate, t } from "../i18n";
 
 function browserName() {
@@ -54,8 +54,10 @@ export async function pair(input: string): Promise<void> {
       const r = await api<{ token: string; id: string }>("/auth/tokens", { method: "POST", json, token: t });
       use = r.token;
       tokenId = r.id;
-    } catch {
-      // an old hub without device tokens: keep the pairing token
+    } catch (err) {
+      // Only an old hub without the endpoint can keep the original credential.
+      // A rejected or failed exchange must not persist a spent code or the hub's master key.
+      if (!(err instanceof ApiError) || err.status !== 404) throw err;
     }
   }
   if (tokenId === undefined) setToken(use);
