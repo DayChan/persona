@@ -170,7 +170,7 @@ Supported since herdr 0.7.1 (Linux) / 0.7.5 (macOS); ignored by older herdr and 
   when Claude handles onboarding). Write failures print one line to stderr and startup continues. Headless `-p` (assistant) does not ask in the first place.
 - Before settings arrive after a hub restart or node reconnection, `personad launch` reports “hub 还没发过来” (“hub hasn't sent them yet”). A provider out of this computer's scope is never named to it, so the same message appears.
 
-## Device scope and on-demand delivery (#SCOPE)
+## Device scope and on-demand delivery (#2333)
 
 A key bought for one computer (an isolated container the assistant runs on) should not reach every other computer, nor show in their pickers. Each Persona-managed provider says where it may run and when its secrets travel (`server/internal/assistant/models_launchers_scope.go`, node `server/internal/node/managed.go`):
 
