@@ -98,6 +98,32 @@ func BenchmarkIndexWholeList(b *testing.B) {
 	}
 }
 
+// Indexing a 150-row list of which one row changed keeps the other rows' indexed payloads (indexSessionsLocked):
+// 98,689 B measured, 2,652,067 B when every row was indexed again.
+func TestIndexWholeListAllocation(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
+	h, m := indexedMachineHub(150)
+	var lists [2][]proto.Session
+	var encoded [2][]sentSession
+	for i := range lists {
+		lists[i] = h.shown("demo", h.decorated(m))
+		lists[i][0].Rev = int64(i + 1)
+		encoded[i] = encodeSessions(lists[i])
+	}
+	i := 0
+	per := allocated(func() {
+		h.sessionsMu.Lock()
+		h.indexSessionsLocked("demo", lists[i], encoded[i])
+		h.sessionsMu.Unlock()
+		i ^= 1
+	})
+	if per > 101_700 {
+		t.Fatalf("indexing a 150-row list with one changed row allocates %d bytes", per)
+	}
+}
+
 // BenchmarkAgents8000Legacy is the whole list of 8,000 sessions, written to a writer that keeps none of it
 // (discardResponse), as a connection's does.
 func BenchmarkAgents8000Legacy(b *testing.B) {
