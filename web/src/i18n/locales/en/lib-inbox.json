@@ -31,6 +31,7 @@
   "ix_plan": "Plan awaits your approval",
   "ix_permission": "Needs your approval",
   "ix_screen": "Terminal needs you",
+  "ix_review": "Review findings",
   "handoff_summarize": "Summarize it, tell me what to do, and suggest a reply",
   "handoff_research": "Look into the background, then tell me",
   "handoff_handle": "Handle it for me, but ask before replying",

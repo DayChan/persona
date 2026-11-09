@@ -3,6 +3,7 @@
   "kind_plan": "Plan to approve",
   "kind_permission": "Needs permission",
   "kind_screen": "Terminal dialog",
+  "kind_review": "Review findings",
   "greeting_late": "Up late",
   "greeting_morning": "Good morning",
   "greeting_noon": "Good afternoon",

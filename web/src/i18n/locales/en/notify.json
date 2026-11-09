@@ -8,6 +8,7 @@
   "permission_title": "{name} needs your permission",
   "screen_title": "{name} is waiting for you in the terminal",
   "elicitation_title": "{name} has an MCP request for you",
+  "review_title": "{name}'s review findings are in",
   "allow_failed": "Couldn't allow",
   "deny_failed": "Couldn't deny",
   "finished_batch_title": "{count} tasks finished · {names}",

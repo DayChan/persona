@@ -3,6 +3,7 @@
   "kind_plan": "计划待批准",
   "kind_permission": "需要授权",
   "kind_screen": "终端对话框",
+  "kind_review": "审查结果",
   "greeting_late": "夜深了",
   "greeting_morning": "早上好",
   "greeting_noon": "中午好",

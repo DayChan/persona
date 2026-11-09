@@ -163,6 +163,7 @@ const ASK_TITLE = {
   permission: "notify.permission_title",
   screen: "notify.screen_title",
   elicitation: "notify.elicitation_title",
+  review: "notify.review_title",
 } as const;
 
 /** A system notification for the event (Settings › Notifications): only while no tab of the app is in front (that one's title, badge

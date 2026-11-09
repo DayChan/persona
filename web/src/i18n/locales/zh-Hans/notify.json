@@ -8,6 +8,7 @@
   "permission_title": "{name} 要你批准",
   "screen_title": "{name} 在终端里等你",
   "elicitation_title": "{name} 有 MCP 请求等你处理",
+  "review_title": "{name} 的独立审查结果出来了",
   "allow_failed": "没能允许",
   "deny_failed": "没能拒绝",
   "finished_batch_title": "{count} 个任务做完了 · {names}",

@@ -35,7 +35,7 @@ import { TodoStageBar } from "./TodoStageBar";
 import { t } from "../i18n";
 import { markAllSeenLabel, STATE_LABEL, stateCount, stateName } from "../lib/state-labels";
 
-const KIND: Record<Interaction["kind"], string> = { question: t("home.kind_question"), plan: t("home.kind_plan"), permission: t("home.kind_permission"), screen: t("home.kind_screen"), elicitation: t("home.kind_elicitation") };
+const KIND: Record<Interaction["kind"], string> = { question: t("home.kind_question"), plan: t("home.kind_plan"), permission: t("home.kind_permission"), screen: t("home.kind_screen"), elicitation: t("home.kind_elicitation"), review: t("home.kind_review") };
 
 function greeting() {
   const h = new Date().getHours();

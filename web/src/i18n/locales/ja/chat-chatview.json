@@ -43,6 +43,7 @@
   "terminal": "ターミナル",
   "files": "ファイル",
   "review_changes": "変更をレビュー",
+  "review_work": "この作業を独立レビュー",
   "interrupt": "中断",
   "session_info": "セッション情報",
   "rename": "名前を変更…",

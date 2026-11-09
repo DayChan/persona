@@ -874,6 +874,56 @@ function ElicitationCard({ ix }: { ix: Interaction }) {
   );
 }
 
+/**
+ * An independent review's findings (#1808): what a fresh read-only reviewer agent found in this session's work. The
+ * hub's "N findings" line is the kicker; the report itself is markdown in the same scrollable box a plan uses, so a
+ * long one never blows up the dock. Send forwards the findings to the source agent as a normal message; Dismiss closes
+ * the card without sending — both are explicit footer buttons, and × says the same as Dismiss.
+ */
+function ReviewFindingsCard({ ix }: { ix: Interaction }) {
+  const [busy, setBusy] = useState(false);
+  const go = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    await resolve(ix, body);
+    setBusy(false);
+  };
+  // Enter sends (the Send button). Dismiss is never a key away: it stays an explicit press of its button — or Enter
+  // while that button is focused, which is the button's own activation, not the card's main action
+  const keys = useCardKeys({
+    enter: () => {
+      if (busy) return false;
+      void go({ action: "send" });
+    },
+  });
+  return (
+    <Card
+      kicker={ix.summary?.trim() || t("chat-agent-review.title")}
+      title={t("chat-agent-review.title")}
+      cardKeys={keys}
+      onDismiss={() => go({ dismiss: true })}
+      busy={busy}
+      footer={
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <Button tone="quiet" disabled={busy} onClick={() => void go({ dismiss: true })}>
+              {t("chat-agent-review.dismiss")}
+            </Button>
+            <Button tone="primary" busy={busy} onClick={() => void go({ action: "send" })}>
+              {t("chat-agent-review.send")}
+              {keys.focused && <Kbd>Enter</Kbd>}
+            </Button>
+          </div>
+          <p className="text-[11.5px] leading-snug text-ink-3">{t("chat-agent-review.send_note")}</p>
+        </div>
+      }
+    >
+      <div className="overflow-y-auto rounded-[8px] bg-inset px-3 py-2.5 shadow-hairline" style={{ maxHeight: PLAN_MAX }}>
+        <Markdown text={ix.findings ?? ""} small />
+      </div>
+    </Card>
+  );
+}
+
 const inputType = (f: Field) =>
   f.secret ? "password" : f.type !== "string" ? "text" : ({ email: "email", uri: "url", date: "date" } as Record<string, string>)[String(f.schema.format)] ?? "text";
 
@@ -977,7 +1027,8 @@ export function AnsweredCard({ card }: { card: Answered }) {
 
 export function InteractionCard({ ix }: { ix: Interaction }) {
   const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
-  const card = ix.kind === "question" ? <QuestionCard ix={ix} />
+  const card = ix.kind === "review" ? <ReviewFindingsCard ix={ix} />
+    : ix.kind === "question" ? <QuestionCard ix={ix} />
     : ix.kind === "plan" ? <PlanCard ix={ix} />
     : isSecretRun(ix) ? <SecretRunCard key={ix.id} ix={ix} />
     : ix.kind === "permission" ? <PermissionCard ix={ix} />

@@ -12,6 +12,7 @@
   "allowed": "Allowed",
   "always_allowed": "Always allowed",
   "denied": "Denied",
+  "review_sent": "Sent to the agent",
   "handled": "Handled",
   "entered": "(Entered)",
   "separator": ", ",

@@ -12,6 +12,7 @@
   "allowed": "允许",
   "always_allowed": "总是允许",
   "denied": "拒绝",
+  "review_sent": "已发给 Agent",
   "handled": "已处理",
   "entered": "（已输入）",
   "separator": "，",

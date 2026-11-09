@@ -43,6 +43,7 @@
   "terminal": "Terminal",
   "files": "Files",
   "review_changes": "Review changes",
+  "review_work": "Review this work",
   "interrupt": "Interrupt",
   "session_info": "Session info",
   "rename": "Rename…",

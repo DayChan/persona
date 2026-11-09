@@ -31,6 +31,7 @@
   "ix_plan": "计划等你审批",
   "ix_permission": "需要你授权",
   "ix_screen": "终端等你处理",
+  "ix_review": "审查结果",
   "handoff_summarize": "总结一下，告诉我要做什么，给出建议的回复",
   "handoff_research": "查清楚背景再告诉我",
   "handoff_handle": "直接帮我处理，回复前先问我",

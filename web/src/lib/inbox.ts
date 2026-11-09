@@ -522,7 +522,7 @@ export function interactionTitle(ix: Interaction): string {
   if (name && ix.kind === "question") return t("lib-inbox.ix_named_asks", { name });
   if (name && ix.kind === "permission") return t("lib-inbox.ix_named_permission", { name });
   if (ix.kind === "elicitation") return ix.elicitation?.mode === "url" ? t("lib-inbox.ix_elicitation_url") : t("lib-inbox.ix_elicitation_form");
-  return { question: t("lib-inbox.ix_claude_asks"), plan: t("lib-inbox.ix_plan"), permission: t("lib-inbox.ix_permission"), screen: t("lib-inbox.ix_screen") }[ix.kind];
+  return { question: t("lib-inbox.ix_claude_asks"), plan: t("lib-inbox.ix_plan"), permission: t("lib-inbox.ix_permission"), screen: t("lib-inbox.ix_screen"), review: t("lib-inbox.ix_review") }[ix.kind];
 }
 
 /** What it asks, in a line. */
