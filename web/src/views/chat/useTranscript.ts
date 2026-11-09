@@ -6,7 +6,7 @@ import { getState, listenSession, send, type ItemsEvent } from "../../lib/store"
 import { afterPull, afterPush, FRESH_TALLY, newestItemAt, notLive as tallyNotLive, shouldPull, type StaleTally } from "../../lib/stale-page";
 import { mergeItems } from "../../lib/turns";
 import { chosenManager } from "../../lib/manager-choice";
-import { discardFeedCache, readFeedCache, writeFeedCache, type FeedCache } from "../../lib/feed-cache";
+import { discardFeedCache, discardMemoryPage, feedCacheScope, readFeedCache, readMemoryPage, writeFeedCache, writeMemoryPage, type FeedCache } from "../../lib/feed-cache";
 import type { Item, ItemsPage } from "../../lib/types";
 import { createTextThrottle, type TextThrottle } from "../../ui/stream/throttle";
 import { unlandedLive } from "../../lib/live-text";
@@ -47,8 +47,9 @@ export interface TranscriptCache {
   manager?: string;
 }
 
+/** Without `cache` (any chat but the main conversation) the page comes from this tab's memory. */
 function cachedPage(mid: string, sid: string, cache?: TranscriptCache): FeedCache | null {
-  if (!cache) return null;
+  if (!cache) return readMemoryPage(feedCacheScope(), mid, sid);
   const page = readFeedCache(cache.scope);
   return page?.machineID === mid && page.sessionID === sid && (page.manager ?? "") === (cache.manager ?? "") ? page : null;
 }
@@ -130,8 +131,16 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
     let latestMore = cached?.hasMore ?? false;
     let pendingItems: Item[] = []; // pushes after the HTTP request started win over its answer
     let pendingHistory = "";
+    const memoryScope = cacheScope ? null : feedCacheScope();
+    // The newest page may start after everything the cached one holds, with turns missing between them: showing both
+    // would hide that hole, so the page takes over and older history loads on scroll.
+    const skipsCached = (page: Item[]) => page.length > 0 && page[0].seq > (cached?.items.at(-1)?.seq ?? Infinity);
     const save = () => {
-      if (!cacheScope || (chosenManager() ?? "") !== cacheManager) return;
+      if (!cacheScope) {
+        writeMemoryPage(memoryScope, { machineID: mid, sessionID: sid, items: latest, hasMore: latestMore, history: history.current || undefined });
+        return;
+      }
+      if ((chosenManager() ?? "") !== cacheManager) return;
       // The store may have accepted a new main before React unmounts this chat. Its old request must not
       // recreate the discarded cache in that interval, even though the credential scope is unchanged.
       const assistant = getState().assistant;
@@ -149,6 +158,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       dead = true; // invalidate in-flight reads before React runs the next effect
       generation.current++;
       if (cacheScope) discardFeedCache(cacheScope);
+      else discardMemoryPage(memoryScope, mid, sid);
       snapshot.current = null;
       setNonce((x) => x + 1);
     };
@@ -231,6 +241,16 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       }
       if (e.history) history.current = e.history;
       if (!ready && e.history) pendingHistory = e.history;
+      if (e.has_more !== undefined) {
+        // The replay of a subscribe without since_seq (the first read failed) stands in for that read.
+        latestMore = e.has_more;
+        setHasMore(latestMore);
+        setError("");
+        if (skipsCached(e.items ?? [])) {
+          latest = [];
+          setItems([]);
+        }
+      }
       remember(e.items ?? []);
       showLive(e.items ?? []);
       lastArrival = Date.now();
@@ -273,7 +293,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
           return;
         }
         const batch = p.items ?? [];
-        const replace = !batch.length || Boolean(p.history && history.current && p.history !== history.current);
+        const replace = !batch.length || skipsCached(batch) || Boolean(p.history && history.current && p.history !== history.current);
         setItems((have) => mergeItems(mergeItems(replace ? [] : have, batch), pendingItems));
         latest = mergeItems(mergeItems(replace ? [] : latest, batch), pendingItems);
         latestMore = Boolean(p.has_more);
@@ -319,6 +339,7 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       if (gen !== generation.current) return;
       apply(p.items ?? []);
       setHasMore(Boolean(p.has_more));
+      setError("");
       earlierRetryAt.current = 0;
       earlierWait.current = 0;
     } catch (e) {

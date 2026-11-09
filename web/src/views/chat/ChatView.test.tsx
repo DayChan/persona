@@ -144,6 +144,15 @@ describe("cached main conversation refresh notice", () => {
   });
 });
 
+it("keeps a remembered Agent chat on screen when its refresh fails", () => {
+  captured.items = [{ id: "kept", seq: 1, role: "assistant", kind: "text", text: "Kept reply" }];
+  captured.error = "Unavailable";
+  const html = renderToStaticMarkup(<ChatView mid="hub" sid="c1" />);
+  expect(html).toContain("Kept reply");
+  expect(html).toContain(t("chat-chatview.refresh_failed"));
+  expect(html).not.toContain(t("chat-chatview.retry"));
+});
+
 describe("composer footer rows (#3533)", () => {
   it("lists launcher, model and folder in full, each labelled", () => {
     const s = { machine_id: "m", session_id: "s", launcher: "claude", model: "anthropic/claude-opus-5-5", cwd: "/Users/me/code/weather" } as Session;

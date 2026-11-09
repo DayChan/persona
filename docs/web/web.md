@@ -724,9 +724,13 @@ For browser checks, run the mock hub with `MOCK_ALWAYS_SCOPE=1`. It adds a Bash 
 
 ### Main conversation on browser reload (#5025)
 
-The main conversation shows this browser's last successful latest page immediately, using the existing chat renderer, while the hub refreshes it. `/assistant` applies as soon as it answers, independently of slower session or sidebar reads. Its main-conversation reference is authoritative: changing or removing the main conversation discards the old cached reference. Other conversations and Agent pages do not use this persistent cache.
+The main conversation shows this browser's last successful latest page immediately, using the existing chat renderer, while the hub refreshes it. `/assistant` applies as soon as it answers, independently of slower session or sidebar reads. Its main-conversation reference is authoritative: changing or removing the main conversation discards the old cached reference. Other conversations and Agent pages do not use this persistent cache; they have the memory cache below.
 
 `lib/feed-cache.ts` keeps one page in localStorage, partitioned by hub origin plus proxy prefix and a fingerprint of the device token id and credential (a token fingerprint alone on older hubs). Cache keys and values never contain the authentication token. Signing out or replacing credentials removes cached pages and invalidates in-flight writers. The page records its manager selection so a different manager cannot reuse it.
+
+### Switching between chats
+
+Every other conversation and Agent page keeps its newest page in the same module's memory cache, for the 20 most recently opened chats (least recently used out). It is never written to disk, so it does not survive a reload. Opening one of those chats shows the kept page at once and refreshes it from the hub in the background through `mergeItems`; pushes keep it current while the chat is open. A failed refresh leaves the page up, with the Reload pill instead of the error page. When the refreshed page starts after everything the kept one holds, turns may be missing between them, so it replaces the kept page and older history loads on scroll. Keys start with the same hub and credential scope as the main conversation's cache, and sign-out or a credential change empties it.
 
 Only the latest two user turns are eligible, matching the latest-page request. Older pages and expanded folds remain in memory. The cache is limited to 200 items and 256 KiB of UTF-8 JSON; a page exceeding either limit is not retained. Image bodies and inline base64 image URLs are removed, leaving lazy image metadata. Storage restrictions, corrupt entries and quota failures fall back to the usual loading behavior. This is local conversation storage, not an offline sync queue; no configuration is required.
 

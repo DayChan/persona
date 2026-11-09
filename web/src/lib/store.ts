@@ -4,7 +4,7 @@ import { compatibleEnvelope, setCompatibilityFeatures } from "./compatibility";
 
 import { chosenManager, defaultKnown, defaultManager, fromShownManager, noteConversation, noteItemManager, onDefaultManager, onManagerChoice, shownManager } from "./manager-choice";
 import { BASE } from "./base";
-import { discardFeedCache, feedCacheScope, readFeedCache } from "./feed-cache";
+import { clearMemoryPages, discardFeedCache, feedCacheScope, readFeedCache } from "./feed-cache";
 import { useRef, useSyncExternalStore } from "react";
 import { agentsChanged, refreshAgentPrefs, refreshAgentSessions, resetAgents, setAgentListMode } from "./agents";
 import { onRuntimeChanges, runtimeIdentity, runtimeRemoval, runtimeSessions, SESSIONS_LOOKUP_FEATURE } from "./runtime-list";
@@ -363,6 +363,8 @@ export interface ItemsEvent {
   from_seq?: number;
   backlog?: boolean;
   more_after?: boolean;
+  /** Only on a replay counted back from the end (a subscribe without since_seq): whether older items exist. */
+  has_more?: boolean;
 }
 
 type SessionListener = {
@@ -1297,6 +1299,7 @@ export function reset() {
   rowHints.clear();
   listedFull.clear();
   runtimeSessions.reset();
+  clearMemoryPages();
   clearTimeout(seenTimer);
   seenTimer = undefined;
   Object.values(state.launches).forEach((launch) => releaseAttachments(launch.attachments));

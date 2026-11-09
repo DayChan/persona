@@ -985,6 +985,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   // the header and the composer are memoized (a transcript push changes neither): what they get stays the same object
   // until it changes. The assistant's face reads only the last item's role and kind (lib/persona.ts personaState).
   const stopLoop = useCallback(() => void deliver({ text: STOP_LOOP_MESSAGE, images: [] }, uuid()), [deliver]);
+  // cached content stays up when a read fails: the pill says so, the error page is for an empty chat
+  const refreshFailed = tr.items.length > 0 ? tr.error || refreshError : undefined;
   const lastItem = assistant ? tr.items[tr.items.length - 1] : undefined;
   const lastRole = lastItem?.role;
   const lastKind = lastItem?.kind;
@@ -1023,7 +1025,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
       <div className={switchable ? "relative min-h-0 flex-1" : "contents"}>
       <ViewLayer bare={!switchable} on={view === "chat"} from="start">
       <div className="relative min-h-0 flex-1">
-        {(tr.notLive || (mainCache && tr.items.length > 0 && (tr.error || refreshError))) && <NotLivePill error={mainCache ? tr.error || refreshError : undefined} onReload={() => { tr.reload(); onRefresh?.(); }} lower={Boolean(picked && !search.open)} />}
+        {(tr.notLive || refreshFailed) && <NotLivePill error={refreshFailed} onReload={() => { tr.reload(); onRefresh?.(); }} lower={Boolean(picked && !search.open)} />}
         <div ref={scrollRef} onScroll={onScroll} data-chat-scroll className="relative h-full overflow-y-auto [overflow-anchor:none]">
           <ChatActionsContext.Provider value={actions}>
           <div data-chat-content className="mx-auto flex w-full max-w-[880px] flex-col gap-7 px-5 pt-6 pb-10 sm:px-8">

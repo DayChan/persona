@@ -216,3 +216,38 @@ describe("main conversation feed cache", () => {
     expect(() => cache.clearFeedCache()).not.toThrow();
   });
 });
+
+describe("memory pages of other chats", () => {
+  const scope = () => cache.feedCacheScope()!;
+  const write = (sid: string) => cache.writeMemoryPage(scope(), page({ sessionID: sid }));
+  const has = (sid: string) => cache.readMemoryPage(scope(), "machine-demo", sid) !== null;
+
+  it("keeps the most recently used chats and never touches storage", () => {
+    for (let n = 0; n < cache.MEMORY_PAGES; n++) write(`s${n}`);
+    expect(has("s0")).toBe(true); // reading it makes s1 the oldest
+    write("newest");
+    expect([has("s0"), has("s1"), has("newest")]).toEqual([true, false, true]);
+    expect(entries()).toEqual([]);
+  });
+
+  it("never answers for another hub, another login, or after sign-out", () => {
+    write("agent");
+    expect(cache.readMemoryPage(scope(), "another-machine", "agent")).toBeNull();
+    const old = scope();
+    stored.set("persona.token", "jd_another_browser_credential");
+    expect(cache.readMemoryPage(scope(), "machine-demo", "agent")).toBeNull();
+    expect(cache.readMemoryPage(old, "machine-demo", "agent")).toBeNull();
+    write("agent");
+    cache.clearFeedCache();
+    expect(has("agent")).toBe(false);
+  });
+
+  it("keeps only the newest turns, and no page at all for an empty chat", () => {
+    cache.writeMemoryPage(scope(), page({ sessionID: "long", items: [item(1, "user"), item(2, "user"), item(3, "user")] }));
+    const kept = cache.readMemoryPage(scope(), "machine-demo", "long")!;
+    expect(kept.items.map((row) => row.seq)).toEqual([2, 3]);
+    expect(kept.hasMore).toBe(true);
+    cache.writeMemoryPage(scope(), page({ sessionID: "long", items: [] }));
+    expect(has("long")).toBe(false);
+  });
+});

@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearFeedCache, feedCacheScope, readFeedCache, writeFeedCache, type FeedCache } from "../../lib/feed-cache";
+import { clearFeedCache, feedCacheScope, readFeedCache, readMemoryPage, writeFeedCache, type FeedCache } from "../../lib/feed-cache";
 import { getState, type listenSession, type ItemsEvent } from "../../lib/store";
 import { chooseManager, resetManagerChoice } from "../../lib/manager-choice";
 import type { Item, ItemsPage } from "../../lib/types";
@@ -205,5 +205,83 @@ describe("main conversation first-screen cache", () => {
     expect(readFeedCache(scope)).toBeNull();
     await fail();
     expect(shown.items).toEqual([]);
+  });
+});
+
+describe("other chats' memory cache", () => {
+  const page = { items: [item("question", 10, "Question", "user"), item("answer", 11, "Answer")], has_more: true, history: "v1", to_seq: 11 };
+  const reopen = () => {
+    act(() => root.unmount());
+    root = createRoot(document.createElement("div"));
+    renders = [];
+    render({ sid: "agent", main: false });
+  };
+  const readOnce = async () => {
+    render({ sid: "agent", main: false });
+    await answer(page);
+  };
+
+  it("shows a chat read before at once, then refreshes it in the background", async () => {
+    await readOnce();
+    reopen();
+    expect(renders[0]).toEqual({ ids: ["question", "answer"], loading: false });
+    expect(shown.hasMore).toBe(true);
+    expect(calls).toHaveLength(1);
+    await answer({ ...page, items: [item("answer", 11, "Fresh answer"), item("next", 12)], to_seq: 12 });
+    expect(ids()).toEqual(["question", "answer", "next"]);
+    expect(shown.items[1].text).toBe("Fresh answer");
+    expect(readMemoryPage(scope, "m", "agent")?.items.map((row) => row.id)).toEqual(["question", "answer", "next"]);
+    expect(readFeedCache(scope)).toBeNull();
+  });
+
+  it("keeps the page through a failed read", async () => {
+    await readOnce();
+    reopen();
+    await fail();
+    expect(ids()).toEqual(["question", "answer"]);
+    expect(shown.loading).toBe(false);
+    expect(shown.error).toContain("offline");
+  });
+
+  it("merges live pushes over the page and remembers them", async () => {
+    await readOnce();
+    push({ items: [item("live", 12)], history: "v1", to_seq: 12 });
+    reopen();
+    expect(ids()).toEqual(["question", "answer", "live"]);
+  });
+
+  it("does not show a page across a hole in the transcript", async () => {
+    await readOnce();
+    reopen();
+    await answer({ items: [item("q2", 40, "Later question", "user"), item("a2", 41)], has_more: true, history: "v1", to_seq: 41 });
+    expect(ids()).toEqual(["q2", "a2"]);
+    expect(shown.hasMore).toBe(true);
+  });
+
+  it("forgets a page whose transcript was rewritten", async () => {
+    await readOnce();
+    push({ items: [], history: "v2" });
+    expect(readMemoryPage(scope, "m", "agent")).toBeNull();
+  });
+});
+
+describe("recovering from a failed first read", () => {
+  it("takes has_more from the replay, so older history can still load", async () => {
+    render({ sid: "agent", main: false });
+    await fail();
+    expect(shown.hasMore).toBe(false);
+    push({ items: [item("question", 10, "Question", "user")], history: "v1", to_seq: 10, backlog: true, has_more: true });
+    expect(shown.hasMore).toBe(true);
+    expect(shown.error).toBe("");
+    act(() => { void shown.loadEarlier(); });
+    expect(calls[0].path).toContain("before_seq=10");
+  });
+
+  it("does not join a cached page to a replay that starts after it", async () => {
+    writeFeedCache(scope, saved());
+    render();
+    await fail();
+    push({ items: [item("later", 30)], history: "v1", to_seq: 30, backlog: true, has_more: true });
+    expect(ids()).toEqual(["later"]);
   });
 });
