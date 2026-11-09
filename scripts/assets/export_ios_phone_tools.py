@@ -9,7 +9,9 @@ PhoneToolCatalogTest compares against.
     python3 scripts/assets/export_ios_phone_tools.py           # rewrite the fixture
     python3 scripts/assets/export_ios_phone_tools.py --check   # exit 1 if the fixture is out of date
 
-Tools of iOS-only sources (reminders) and write-only health tools (phone_health_write_sample) are left out.
+Tools of iOS-only sources (reminders and the iPhone system integrations: alarms, messages, calls, shortcuts, media,
+home), write-only health tools (phone_health_write_sample) and the iPhone-only calendar, contacts and maps tools of
+#2276 / #2281 / #2286 (Android has none yet) are left out.
 """
 import argparse
 import json
@@ -20,8 +22,15 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOURCES = os.path.join(ROOT, "apple", "Persona", "PhoneTools")
 FIXTURE = os.path.join(ROOT, "android", "platform", "phonetools", "src", "test", "resources", "ios-phone-tools.json")
-IOS_ONLY = {"reminders"}
-IOS_ONLY_TOOLS = {"phone_health_write_sample"}
+IOS_ONLY = {"reminders", "alarms", "messages", "calls", "shortcuts", "media", "home"}
+IOS_ONLY_TOOLS = {
+    "phone_health_write_sample",
+    "phone_calendar_update_event", "phone_calendar_delete_event",
+    "phone_contacts_create", "phone_contacts_update",
+    "phone_maps_search_nearby", "phone_maps_navigate",
+    # Android has no place search yet (the fixture never had it; --check failed on main before #2281).
+    "phone_location_search",
+}
 
 
 def matching(text, start):

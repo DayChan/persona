@@ -1,6 +1,52 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "NSAlarmKitUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona sets alarms and timers only when you ask and approve it on your iPhone, for example to wake you at 6:40 or to start a 25-minute focus timer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼してiPhoneで承認したときだけ、Personaがアラームやタイマーを設定します。たとえば6時40分に起こしたり、25分の集中タイマーを始めたりします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你让 Persona 设闹钟或计时器、并在 iPhone 上同意后，它才会设置，比如 6:40 叫你起床，或开一个 25 分钟的专注计时器。"
+          }
+        }
+      }
+    },
+    "NSAppleMusicUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona plays Apple Music when you ask, for example a playlist for focused work, and can pause or skip what the Music app is playing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼したときにPersonaがApple Musicを再生します。たとえば集中作業向けのプレイリストを流したり、ミュージックAppで再生中の曲を一時停止やスキップしたりします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你让 Persona 放歌时，它会播放 Apple Music，比如适合专注工作的歌单，也能暂停或切换「音乐」App 正在放的歌。"
+          }
+        }
+      }
+    },
     "NSCalendarsFullAccessUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -158,6 +204,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Persona 只在你在 iPhone 上逐条批准后才写入健康数据，比如你告诉 Claude 的体重或昨晚的睡眠。"
+          }
+        }
+      }
+    },
+    "NSHomeKitUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona controls your Home accessories and scenes only when you ask and approve each change on your iPhone, for example to turn off the living room light."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼してiPhoneで変更ごとに承認したときだけ、Personaがホームのアクセサリやシーンを操作します。たとえばリビングの照明を消します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你让 Persona 控制家居、并在 iPhone 上逐项同意后，它才会操作配件和场景，比如关掉客厅的灯。"
           }
         }
       }

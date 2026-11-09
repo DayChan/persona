@@ -39,6 +39,7 @@ enum PhoneAuthorization {
         case .photos: PhotosAccess.status()
         case .notifications: NotificationsAccess.cachedStatus()
         case .device, .clipboard: .notNeeded
+        case .alarms, .messages, .calls, .shortcuts, .media, .home: SystemAccess.status(source)
         }
     }
 
@@ -52,6 +53,7 @@ enum PhoneAuthorization {
         case .photos: await PhotosAccess.request()
         case .notifications: await NotificationsAccess.request()
         case .device, .clipboard: .notNeeded
+        case .alarms, .messages, .calls, .shortcuts, .media, .home: await SystemAccess.request(source)
         }
     }
 }
@@ -72,6 +74,13 @@ enum PhoneToolRegistry {
             + DeviceTool.tools
             + ClipboardTool.tools
             + NotificationsTool.tools
+            + MapsTool.tools
+            + AlarmsTool.tools
+            + MessagesTool.tools
+            + CallTool.tools
+            + ShortcutsTool.tools
+            + MediaTool.tools
+            + HomeTool.tools
     }
 
     /// A Mac has HealthKit's API but no health data: no health tools there.

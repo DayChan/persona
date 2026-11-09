@@ -16,6 +16,9 @@ struct PersonaApp: App {
                 .environment(model)
                 .task(id: model.fleetLook) { LiveActivityController.shared.look(model.fleetLook) { model.fleetFaces } }
                 .onOpenURL { url in
+                    #if os(iOS)
+                    if ShortcutCallbacks.shared.handle(url) { return } // a shortcut Persona ran came back (#2283)
+                    #endif
                     if MetaGlasses.shared.handle(url) { return } // the Meta AI app's callback (docs/apple/meta-glasses.md)
                     #if os(iOS)
                     if let link = FleetLink.session(url) { // tapped the Live Activity

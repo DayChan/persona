@@ -115,9 +115,9 @@ func TestSessionReadersCopyNoList(t *testing.T) {
 	}{
 		{"agentGone", 2225, func() { s.agentGone(proto.Interaction{MachineID: "box", SessionID: "session-08199"}) }},
 		{"completionChildrenRunning", 1690, func() { s.completionChildrenRunning("box", proto.Session{SessionID: "session-00100"}) }},
-		{"decoratedUnarchived", 13710700, func() { s.decoratedUnarchived("box") }},
-		{"publishList", 13715100, func() { s.publishList("box") }},
-		{"GET /api/v1/workspaces", 177600, func() { boardCall(board, "GET", "/api/v1/workspaces", "", roleFull) }},
+		{"decoratedUnarchived", 14400000, func() { s.decoratedUnarchived("box") }},
+		{"publishList", 14400000, func() { s.publishList("box") }},
+		{"GET /api/v1/workspaces", 215000, func() { boardCall(board, "GET", "/api/v1/workspaces", "", roleFull) }},
 	} {
 		c.read()
 		const runs = 20

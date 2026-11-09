@@ -42,6 +42,8 @@
 	<string>$(PERSONA_PUSH_RELAY)</string>
 	<key>PersonaGettingStartedURL</key>
 	<string>$(PERSONA_GETTING_STARTED_URL)</string>
+	<key>PersonaHomeKit</key>
+	<string>$(PERSONA_HOMEKIT)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>NSAppTransportSecurity</key>
@@ -49,6 +51,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Persona sets alarms and timers only when you ask and approve it on your iPhone, for example to wake you at 6:40 or to start a 25-minute focus timer.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Persona plays Apple Music when you ask, for example a playlist for focused work, and can pause or skip what the Music app is playing.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
@@ -63,6 +69,8 @@
 	<string>Persona lets Claude read health summaries when you ask, for example how many steps you walked this week or how long you slept last night.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Persona saves health data only after you approve it on your iPhone, one entry at a time, for example a weight or last night's sleep you told Claude about.</string>
+	<key>NSHomeKitUsageDescription</key>
+	<string>Persona controls your Home accessories and scenes only when you ask and approve each change on your iPhone, for example to turn off the living room light.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Persona shares your current location with Claude only when you ask, for example to find what time it is where you are or which office you are in.</string>
 	<key>NSMicrophoneUsageDescription</key>

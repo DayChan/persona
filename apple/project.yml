@@ -177,6 +177,13 @@ targets:
         NSCameraUsageDescription: "Persona uses the camera to scan the pairing QR code printed by `personad hub pair`, for example when you first connect to your hub."
         NSFaceIDUsageDescription: "Persona asks for Face ID before it types a Mac's remembered password on that Mac's lock screen, when you tap One-Tap Unlock on the Mac's page."
         NSContactsUsageDescription: "Persona lets Claude look up your contacts when you ask, for example to find a colleague's phone number or email before drafting a message."
+        # The iPhone system integrations (docs/apple/phone-tools.md, #2278 / #2284 / #2285).
+        NSAlarmKitUsageDescription: "Persona sets alarms and timers only when you ask and approve it on your iPhone, for example to wake you at 6:40 or to start a 25-minute focus timer."
+        NSAppleMusicUsageDescription: "Persona plays Apple Music when you ask, for example a playlist for focused work, and can pause or skip what the Music app is playing."
+        NSHomeKitUsageDescription: "Persona controls your Home accessories and scenes only when you ask and approve each change on your iPhone, for example to turn off the living room light."
+        # Home's tools are offered only in a build signed with the HomeKit capability: YES there, with the
+        # com.apple.developer.homekit entitlement (docs/apple/phone-tools.md "Home"). Empty: no Home tools.
+        PersonaHomeKit: $(PERSONA_HOMEKIT)
         NSCalendarsFullAccessUsageDescription: "Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting."
         NSCalendarsWriteOnlyAccessUsageDescription: "Persona adds events to your calendar when you ask Claude to, for example to save a meeting it scheduled for you."
         NSRemindersFullAccessUsageDescription: "Persona lets Claude read and create reminders when you ask, for example to add “review the PR” to your Today list."

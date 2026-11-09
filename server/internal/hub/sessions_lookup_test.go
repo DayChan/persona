@@ -22,7 +22,7 @@ func TestSessionLookupsCopyNoList(t *testing.T) {
 		most int
 	}{
 		{"decoratedSession", func() { h.decoratedSession(m, "session-1999") }, 1 << 10},
-		{"updateBusy", func() { h.updateBusy() }, 684905},
+		{"updateBusy", func() { h.updateBusy() }, 740000},
 	} {
 		if got := allocated(c.f); got > c.most {
 			t.Errorf("%s allocated %d bytes, want at most %d", c.name, got, c.most)

@@ -19,8 +19,10 @@ Mail tools `mail_*` use the same `personad mcp`, but execute on the hub without 
 | `PhoneToolRegistry.call(name:args:confirm:)` | Executes one call, never throws: failure becomes `isError=true` + explanation |
 | `PhoneToolRegistry.authorizationStatus(_:)` / `requestAccess(_:)` | Displays status and requests permission in settings |
 
-Each data source (contacts / calendar / reminders / location / health / photos / device / clipboard / notifications) can be disabled individually in settings. Disabled sources
+Each data source (contacts / calendar / reminders / location / health / photos / device / clipboard / notifications, and on iPhone the system
+integrations alarms / messages / calls / shortcuts / media / home) can be disabled individually in settings. Disabled sources
 no longer appear in `enabledSpecs()`, so the model cannot see their tools, and calls are rejected too (preventing old sessions from continuing to call them).
+The iPhone integrations act outside Persona, so they start **off** (`PhoneDataSource.iPhoneOnly`): the user turns each one on; the older sources start on.
 
 The table above is for iOS (Mac uses the same code). **Android** uses `PhoneToolRegistry.kt` in `android/platform/phonetools/`, also with `all`, `enabledSpecs()`, and `call(…)`; all calls pass through this single gate:
 
@@ -35,16 +37,22 @@ See `docs/android/android.md` ("App shell and direct page navigation," the Setti
 
 | Tool | Permission required | Confirmation | Description |
 | --- | --- | --- | --- |
+| `phone_contacts_create {given_name?, family_name?, company?, job_title?, phones?, emails?}` | Contacts | **Yes** | New contact (#2286, `CNSaveRequest`); needs a name or a company; phones / emails are `{value, label?}` |
+| `phone_contacts_update {id, …, replace?}` | Contacts (full; limited sees only shared contacts) | **Yes** | Adds phones / emails next to the existing ones (duplicates skipped); a field with another value is overwritten, and phones / emails replaced, only with `replace: true`. Notes are not written (`CNContactNoteKey` needs a special entitlement) |
 | `phone_contacts_search {query, limit?}` | Contacts | No | Fuzzy search by name, company, job title, email, or phone number (numbers may contain spaces/dashes); returns name, company, job title, labeled phone numbers and emails, and birthday (`--MM-DD` if no year) |
 | `phone_calendar_events {start?, end?, query?, limit?}` | Calendar (full access) | No | Defaults to midnight today through 7 days later; returns id, title, start/end, all-day flag, calendar name, location, first 300 characters of notes, and attendees |
 | `phone_calendar_create_event {title, start, end, location?, notes?, all_day?, calendar?}` | Calendar | **Yes** | Creates an event, selects a calendar by name, falls back to the default calendar |
+| `phone_calendar_update_event {id, occurrence_start?, span?, title?, start?, end?, location?, notes?, all_day?}` | Calendar | **Yes** | Changes or reschedules an event (#2276); a new start alone keeps the length. A repeating event (`recurring: true` in `phone_calendar_events`) needs `occurrence_start`, and `span` `this` (default) or `future`; without it the tool refuses rather than guess. The card shows before → after |
+| `phone_calendar_delete_event {id, occurrence_start?, span?}` | Calendar | **Yes** | Deletes (cancels) an event or one occurrence, same rules |
 | `phone_reminders_list {list?, include_completed?, limit?}` | Reminders | No | Defaults to incomplete only; returns id, title, due date, completion, priority, list, and first 300 characters of notes |
 | `phone_reminders_create {title, due?, notes?, list?, priority?, location?}` | Reminders | **Yes** | Creates a reminder; priority 0/1–4/5/6–9. `location {title, latitude, longitude, radius_meters?, trigger: arrive\|leave}` makes it go off on arriving at or leaving a place (#6564, "Reminders by place" below) |
-| `phone_reminders_update {id, title?, due?, notes?, location?}` | Reminders | **Yes** | Changes only the fields given; `due: null` removes the due date, `location: null` stops it going off at a place |
+| `phone_reminders_update {id, title?, due?, notes?, priority?, list?, location?}` | Reminders | **Yes** | Changes only the fields given; `due: null` removes the due date, `notes` replaces the notes (`null` removes them), `list` moves it, `location: null` stops it going off at a place; the card lists every field that changes (#2277) |
 | `phone_reminders_complete {id}` | Reminders | **Yes** | Marks complete (using the id returned by `phone_reminders_list`) |
 | `phone_reminders_delete {id}` | Reminders | **Yes** | Deletes a reminder the user no longer needs |
 | `phone_location_current {}` | Location (while in use) | No | One-shot location, waits up to 15 seconds; returns latitude/longitude, accuracy, altitude, time, time zone, and reverse-geocoded address |
 | `phone_location_search {query, limit?}` | Location | No | Finds a place by name or address (MapKit): name, address, latitude, longitude, up to 10 |
+| `phone_maps_search_nearby {query, latitude?, longitude?, radius_meters?, limit?}` | Location | No | Places around the current fix (or the given point), nearest first: name, address, coordinates, distance, category, phone, website and the source (#2281). MapKit gives apps no opening hours; the result says so |
+| `phone_maps_navigate {latitude, longitude, name?, mode?}` | None (foreground) | No | Opens directions in Apple Maps (`driving` / `walking` / `transit`) and returns `opened: maps`: navigation runs in Maps, not in Persona |
 | `phone_health_summary {metrics?, days?}` | Health (read) | No | Defaults to steps over the last 7 days; metrics steps / distance / active_energy / heart_rate / resting_heart_rate / sleep / weight |
 | `phone_health_write_sample {metric, value?, start, end?}` | Health (write) | **Yes** | Writes one sample: steps (integer) / distance (meters) / active_energy (kilocalories) / weight (kilograms, one instant) / sleep (an asleep interval, no value); intervals at most 24 hours, not in the future; one sample at a time, no bulk import or deletion |
 | `phone_photos_recent {limit?, days?, screenshots_only?}` | Photos (read) | No | Recent photo/video metadata: local id, time, type, dimensions, screenshot/favorite flags, duration, latitude/longitude |
@@ -53,6 +61,21 @@ See `docs/android/android.md` ("App shell and direct page navigation," the Setti
 | `phone_clipboard_get {}` | None (system paste prompt) | No | Reads clipboard text |
 | `phone_clipboard_set {text}` | None | No | Replaces clipboard text |
 | `phone_notify {title, body, delay_seconds?}` | Notifications | No | Local notification, optionally delayed up to 24 hours |
+| `phone_alarms_list {}` | Alarms (AlarmKit) | No | Persona's own alarms and timers (#2278): id, label, state, time / repeat days, timer length. The Clock app's alarms are invisible to apps |
+| `phone_alarm_create {time, repeat?, label?}` | Alarms | **Yes** | `time` is `HH:mm` (next occurrence, or weekly on `repeat` days) or one ISO 8601 moment; rings through silent mode and Focus |
+| `phone_timer_start {seconds, label?}` | Alarms | **Yes** | Countdown timer, 1 s – 24 h |
+| `phone_alarm_cancel {id}` / `phone_alarm_pause {id}` / `phone_alarm_resume {id}` | Alarms | Cancel only | Only ids of Persona's own alarms |
+| `phone_messages_compose {recipients, body}` | None (foreground) | System sheet | Prefills `MFMessageComposeViewController` (#2279); the user sends or cancels there and the result is `sent` / `cancelled` / `failed`. Nothing is sent silently, nothing is read |
+| `phone_call_start {number, kind?, name?}` | None (foreground) | **Yes** | `tel:` / `facetime:` / `facetime-audio:` (#2280); one number only (letters or two numbers are refused), then iOS asks again. The result says the call was handed to iOS, not that it connected |
+| `phone_shortcuts_list {}` / `phone_shortcuts_forget {name}` | None | No | The Shortcuts the user allowed (#2283), kept on the phone |
+| `phone_shortcuts_register {name, purpose?}` | None | **Yes** | Allowing a shortcut is the confirmation; after that it runs without asking |
+| `phone_shortcuts_run {name, input?}` | None (foreground) | No | Only an allowed shortcut; `shortcuts://x-callback-url/run-shortcut` with `x-success` / `x-cancel` / `x-error` back to `persona://shortcut-callback/…` (`ShortcutCallbacks`, handled first in `onOpenURL`). Waits 90 s for the callback, then says no answer came |
+| `phone_media_play {query, kind?}` | Apple Music (MusicKit) | No | Searches the catalog and plays the best song / album / playlist in the Music app (`SystemMusicPlayer`, #2284); without a subscription that can play the catalog it says so |
+| `phone_media_control {action}` | Apple Music | No | play / pause / next / previous / status of the Music app's player; other apps cannot be controlled |
+| `phone_media_open {service, query}` | None (foreground) | No | Opens a Spotify or YouTube search (their universal links); the result says `playing: false` |
+| `phone_home_list {}` | Home (HomeKit) | No | Homes, rooms, accessories (reachable, security-sensitive, controls with last known values) and scenes (#2285) |
+| `phone_home_control {accessory_id, control, value}` | Home | **Yes** | power / brightness / target_temperature / lock / door, one change per call; locks, garage doors, security systems, doors and windows get a warning line on the card; an unreachable accessory fails without writing |
+| `phone_home_run_scene {scene_id}` | Home | **Yes** | Runs a scene; the card says when it touches a security accessory |
 | `phone_notifications_list {limit?}` | None | No | **Android only**: Persona's own currently displayed notifications (id, title, body, time), newest first, default 50, maximum 100; excludes confirmation-card notifications and cannot see other apps' notifications |
 
 ### Reminders by place (#6564)
@@ -75,16 +98,41 @@ The places reminders by place go off at belong to the user, not to the assistant
 
 Tools by platform:
 
-- **iOS**: everything above except `phone_notifications_list`.
-- **Mac** (`PersonaMac`): no health tools (Mac has no health data, `PhoneToolRegistry.healthTools`); otherwise the same as iOS.
-- **Android**: no three reminder tools or `phone_health_write_sample`; adds `phone_notifications_list`. `phone_location_current` is available only while the app is in the foreground.
+- **iOS**: everything above except `phone_notifications_list`. The Home tools only in a build with the HomeKit capability ("iPhone system integrations" below).
+- **Mac** (`PersonaMac`): no health tools (Mac has no health data, `PhoneToolRegistry.healthTools`) and none of the iPhone system integrations
+  (alarms, messages, calls, shortcuts, media, home, Maps' nearby search and navigation); otherwise the same as iOS. Vision Pro: the same as the Mac plus health.
+- **Android**: no reminder tools, `phone_health_write_sample`, `phone_location_search`, or any tool of #2276–#2286 yet; adds `phone_notifications_list`.
+  `phone_location_current` is available only while the app is in the foreground. `scripts/assets/export_ios_phone_tools.py` leaves these out of the Android fixture
+  (`IOS_ONLY`, `IOS_ONLY_TOOLS`).
+
+### iPhone system integrations (#2276–#2286)
+
+Code: `CalendarTool`, `RemindersTool`, `ContactsTool` (changes), `MapsTool`, `AlarmsTool`, `MessagesTool`, `CallTool`, `ShortcutsTool`, `MediaTool`,
+`HomeTool`, shared helpers in `SystemTools.swift` (`SystemAccess`, `Foreground`, `CardTime`). Tests: `PhoneSystemToolsTests`.
+
+- **Done means done**: a tool that only hands over to another app says so (`opened: maps`, `handed_to_ios`, `playing: false`, `result: cancelled`);
+  the assistant's prompt tells the model to say it the same way (`server/internal/prompts/assistant/claude_md.md`).
+- **No guessing**: a repeating event without `occurrence_start`, a call string with two numbers, a contact field that already has another value
+  (without `replace`), a shortcut the user did not allow and an id that is not one of Persona's alarms are refused with a sentence the model can act on.
+- **Foreground**: messages, calls, Maps, Shortcuts and Spotify / YouTube need Persona on screen (`Foreground.require`): iOS only opens another app, or
+  shows a sheet, for the app in front. In the background they fail and ask the user to open Persona.
+- **The hub waits for the user** on every tool with a card and on `phone_messages_compose` (`phoneConfirmedTools`, 30 minutes).
+- **Alarms** need `NSAlarmKitUsageDescription` and iOS 26 (the deployment target). Not yet: a Live Activity for `AlarmAttributes<PersonaAlarmData>` in the
+  widget extension, so a timer's countdown is not drawn on the Lock Screen / Dynamic Island; the alert itself rings.
+- **Apple Music** needs `NSAppleMusicUsageDescription` and the MusicKit app service on the App ID (developer account); without the service catalog
+  requests fail and the tool reports it.
+- **Home** needs the HomeKit capability on the App ID and the `com.apple.developer.homekit` entitlement, a signing change for the owner of the
+  developer account. Until a build sets both and `PERSONA_HOMEKIT=YES` (Info.plist `PersonaHomeKit`, `HomeAccess.isBuilt`), the Home source is not
+  shown and its tools are never offered. `HMHomeManager` (which asks for permission) is only made after the user turns Home on.
+- **Share Extension** (#2282): files and choosing the conversation are #1460; nothing changed here.
 
 Results are consistently pretty-printed JSON text (`ToolContent.text`), with all timestamps in ISO 8601 including the local time-zone offset; date fields use
 `yyyy-MM-dd`. `phone_photo_get` also includes a `ToolContent.image`.
 
 ## Confirmation flow
 
-Writes (create event, create reminder, complete reminder, write health data) carry a `confirmation` closure; before execution, the app shows a confirmation card (Android only confirms event creation, since it lacks the other three write tools), with a summary such as "Create event ‘…’ 14:00 → 15:00"
+Writes (create / change / delete event, create / change / complete / delete reminder, write health data, create / change contact, alarms and timers,
+calls, allowing a shortcut, Home changes and scenes) carry a `confirmation` closure; before execution, the app shows a confirmation card (Android only confirms event creation, since it lacks the other three write tools), with a summary such as "Create event ‘…’ 14:00 → 15:00"
 or "Write health: weight 72.5 kg". If the user denies, the tool returns `isError=true` with `The user declined on the phone.`. Confirmation covers only one call;
 if Claude calls again, it asks again.
 
@@ -137,6 +185,10 @@ be changed in iOS Settings.
 | Health | `NSHealthShareUsageDescription`, `NSHealthUpdateUsageDescription` (+ entitlement) | `requestAuthorization(toShare: five write types, read: …)` |
 | Photos | `NSPhotoLibraryUsageDescription` | `.readWrite`, possibly limited (only user-selected photos are readable) |
 | Notifications | None (runtime authorization) | `requestAuthorization([.alert, .sound, .badge])` |
+| Alarms | `NSAlarmKitUsageDescription` | `AlarmManager.shared.requestAuthorization()` |
+| Apple Music | `NSAppleMusicUsageDescription` (+ MusicKit service on the App ID) | `MusicAuthorization.request()` |
+| Home | `NSHomeKitUsageDescription` (+ HomeKit entitlement, see above) | the first `HMHomeManager` |
+| Messages, calls, Shortcuts | None | The user acts in iOS's own sheet or prompt |
 
 Health writes write only the one sample confirmed on the phone: the confirmation summary and written data come from the same argument parsing (`HealthSample`, values to at most two decimal places; what the card shows is what gets written). Invalid arguments make the card say "Invalid parameters; nothing will be written." Samples are marked as manually entered (`HKMetadataKeyWasUserEntered`). Unlike read access, the system reports write permission to the app: users who previously granted only read access (before writes existed) see another system health permission prompt after confirming their first write. Denial returns an error telling them to enable access in iOS Settings › Health › Data Access & Devices › Persona.
 
@@ -161,7 +213,7 @@ Health Connect is built into Android 14 and later; on 8–13 it must be installe
 
 ## iOS limitations
 
-- **No API to read SMS / iMessage / call history** (`MessageUI` can write, not read).
+- **No API to read SMS / iMessage / call history** (`MessageUI` can write, not read). `phone_messages_compose` only prefills the system sheet.
 - **No API to read Notes, WeChat, or other apps' data**. The only routes are "screenshot + `phone_photo_get` to inspect the image" or the user manually pasting into the clipboard.
 - **The app must be connected to the hub**: the hub can send `tool_call` only to a phone that has sent `register_phone`. In the foreground or just after entering the background, the WebSocket
   remains available to receive calls; when iOS suspends the iPhone app, the hub first sends a silent push to wake it in the background and waits up to 20 seconds for connection (`hub.go`, `wakePhone`). Only the most recently registered device is woken; if it was woken within 30 seconds, skip the push but still wait 20 seconds. Hub push configuration is required; Android is not woken.

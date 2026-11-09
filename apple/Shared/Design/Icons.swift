@@ -54,6 +54,8 @@ extension Theme {
         static let reported = "arrow.up.message"
         static let recurring = "repeat"
         static let schedule = "alarm"
+        /// An alarm or a timer Persona set on the iPhone (AlarmKit, #2278).
+        static let alarmClock = schedule
         /// The session triage: a stopped agent read to say whether it is done or what it waits for (Settings › Session Triage).
         static let triage = "text.badge.checkmark"
         // The inbox chain (docs/assistant/inbox.md): what happened to an event, one icon per kind.
@@ -321,6 +323,8 @@ extension Theme {
         /// Home: Back to Main Chat (the main conversation), and a repository's main checkout in the Agents list's By Repository (as Orca
         /// and the web mark it).
         static let home = "house"
+        /// Home accessories and scenes (HomeKit, #2285).
+        static let homeAccessories = home
         static let folderFilled = "folder.fill"
         /// Up one folder (the new chat's directory browser, Parent Folder).
         static let parentFolder = "arrow.turn.left.up"
@@ -500,6 +504,12 @@ extension Theme {
         static let groupChat = "rectangle.3.group.bubble"
         /// Messages (the Messages app's data on a Mac) as a connector, and its conversations.
         static let messagesApp = "message.fill"
+        /// A phone or FaceTime call Persona starts (#2280).
+        static let phoneCall = "phone"
+        /// The Shortcuts app's shortcuts Persona may run (#2283).
+        static let shortcutsApp = "square.2.layers.3d"
+        /// Music playing on the iPhone (#2284).
+        static let music = "music.note"
         /// An attachment (a mail's, a message's): a file; a video, a voice message.
         static let attachment = "paperclip"
         static let video = "video"

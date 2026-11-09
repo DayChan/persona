@@ -429,8 +429,8 @@ func (h *Hub) callPhone(ctx context.Context, name string, args json.RawMessage) 
 	case <-ctx.Done():
 		if confirmed {
 			return proto.TextResult("Timed out waiting for the user to approve this on the phone. The approval may still be "+
-				"open there, or the change may already be saved: check first (list the events / reminders) and do not just "+
-				"call it again.", true)
+				"open there, or the change may already be saved: check first (list the events / reminders / alarms / contacts) "+
+				"and do not just call it again.", true)
 		}
 		return proto.TextResult("Timed out waiting for the iPhone (is the Persona app still open?).", true)
 	}
@@ -445,14 +445,28 @@ var (
 	phoneConfirmWait = 30 * time.Minute
 )
 
-// phoneConfirmedTools are the phone's tools that ask the user before they run (docs/apple/phone-tools.md "Confirmation flow").
+// phoneConfirmedTools are the phone's tools that wait for the user before they finish (docs/apple/phone-tools.md
+// "Confirmation flow"): writes approved on a card, and the ones the user finishes in a system sheet (a message they
+// send themselves, #2279).
 var phoneConfirmedTools = map[string]bool{
 	"phone_calendar_create_event": true,
+	"phone_calendar_update_event": true, // #2276
+	"phone_calendar_delete_event": true,
 	"phone_reminders_create":      true,
 	"phone_reminders_complete":    true,
 	"phone_reminders_update":      true,
 	"phone_reminders_delete":      true,
 	"phone_health_write_sample":   true,
+	"phone_alarm_create":          true, // #2278
+	"phone_timer_start":           true,
+	"phone_alarm_cancel":          true,
+	"phone_messages_compose":      true, // #2279: the user sends or cancels in the compose sheet
+	"phone_call_start":            true, // #2280
+	"phone_shortcuts_register":    true, // #2283
+	"phone_home_control":          true, // #2285
+	"phone_home_run_scene":        true,
+	"phone_contacts_create":       true, // #2286
+	"phone_contacts_update":       true,
 }
 
 // wakePhone asks iOS to wake the app in the background (silent push) and waits briefly for it to connect.

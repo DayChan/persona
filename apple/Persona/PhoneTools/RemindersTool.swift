@@ -77,14 +77,17 @@ enum RemindersTool {
                     name: "phone_reminders_update",
                     description: """
                     Change a reminder: pass its id from phone_reminders_list and only the fields to change. \
-                    `due: null` removes the due date, `location: null` stops it going off at a place, and a \
-                    new `location` replaces the old one. The user must approve on the phone.
+                    `due: null` removes the due date, `notes` replaces the old notes (null removes them), \
+                    `location: null` stops it going off at a place, and a new `location` replaces the old one. \
+                    `list` moves it to another list. The user must approve on the phone.
                     """,
                     inputSchema: Schema.object([
                         "id": Schema.string("Reminder identifier from phone_reminders_list."),
                         "title": Schema.string("New title."),
                         "due": Schema.string("New due date, ISO 8601 with a timezone; null removes it."),
-                        "notes": Schema.string("New notes."),
+                        "notes": Schema.string("New notes; they replace the old ones, null removes them."),
+                        "priority": Schema.integer("0 none, 1–4 high, 5 medium, 6–9 low.", min: 0, max: 9),
+                        "list": Schema.string("Move the reminder to the list (calendar) with this name."),
                         "location": PlaceTrigger.schema,
                     ], required: ["id"])
                 ),
@@ -309,7 +312,18 @@ enum RemindersTool {
             throw ToolFailure(.invalidArgument, "no reminder with id \"\(id)\"; call phone_reminders_list to get a current id")
         }
         if let title = ToolArgs.string(args, "title") { item.title = title }
-        if let notes = ToolArgs.string(args, "notes") { item.notes = notes }
+        if args["notes"] == .null {
+            item.notes = nil
+        } else if let notes = ToolArgs.string(args, "notes") {
+            item.notes = notes
+        }
+        if let priority = ToolArgs.int(args, "priority") {
+            guard (0...9).contains(priority) else { throw ToolFailure(.invalidArgument, "priority must be 0–9") }
+            item.priority = priority
+        }
+        if let wanted = ToolArgs.string(args, "list") {
+            item.calendar = try reminderList(named: wanted, in: store)
+        }
         if args["due"] == .null {
             item.dueDateComponents = nil
         } else if let due = try ToolDate.parse(ToolArgs.string(args, "due")) {
@@ -360,6 +374,20 @@ enum RemindersTool {
         let title = target.title.isEmpty ? String(localized: "(Untitled)") : target.title
         var summary = String(localized: "Change reminder “\(title)”")
         if let new = ToolArgs.string(args, "title") { summary += String(localized: "\\nNew title: \(new)") }
+        // What else gets written shows too: replaced notes are gone after Allow (#1876, #2277).
+        var more: [String] = []
+        if args["notes"] == .null {
+            more.append(String(localized: "Notes removed"))
+        } else if let notes = ToolArgs.string(args, "notes") {
+            let shown = String(notes.prefix(200))
+            more.append(String(localized: "Notes replaced with: \(shown)"))
+        }
+        if let priority = ToolArgs.int(args, "priority") {
+            let level = priorityName(priority)
+            more.append(String(localized: "Priority: \(level)"))
+        }
+        if let list = ToolArgs.string(args, "list") { more.append(String(localized: "Move to list: \(list)")) }
+        if !more.isEmpty { summary += "\n" + more.joined(separator: "\n") }
         if args["due"] == .null {
             summary += String(localized: "\\nNo due date")
         } else if let due = ToolArgs.string(args, "due") {
@@ -381,6 +409,28 @@ enum RemindersTool {
             ?? String(localized: "Delete “\(title)”")
         if let due = target.due { summary += String(localized: "\\nDue: \(due)") }
         return summary
+    }
+
+    /// The reminder list named `wanted`: an exact name first, then one containing it, as `create` picks.
+    private static func reminderList(named wanted: String, in store: EKEventStore) throws -> EKCalendar {
+        let lists = store.calendars(for: .reminder)
+        let key = wanted.lowercased()
+        guard let match = lists.first(where: { $0.title.lowercased() == key })
+            ?? lists.first(where: { $0.title.lowercased().contains(key) }) else {
+            let names = lists.map(\.title).sorted().joined(separator: ", ")
+            throw ToolFailure(.invalidArgument, "no reminder list named \"\(wanted)\"; available lists: \(names)")
+        }
+        return match
+    }
+
+    /// EventKit's priority as the Reminders app names it.
+    static func priorityName(_ priority: Int) -> String {
+        switch priority {
+        case 1...4: String(localized: "High [Reminder Priority]")
+        case 5: String(localized: "Medium [Reminder Priority]")
+        case 6...9: String(localized: "Low [Reminder Priority]")
+        default: String(localized: "None [Reminder Priority]")
+        }
     }
 
     static func encode(_ reminder: EKReminder) -> JSONValue {

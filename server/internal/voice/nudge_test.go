@@ -42,7 +42,7 @@ func nudgesTo(up *fakeUpstream) int {
 // noNudge waits several times nudgeAfter and fails if the service was nudged.
 func noNudge(t *testing.T, up *fakeUpstream, what string) {
 	t.Helper()
-	time.Sleep(3 * nudgeAfter)
+	time.Sleep(3 * nudgeAfter) // sleep-ok: negative assertion that no nudge fires past the deadline
 	if n := nudgesTo(up); n != 0 {
 		t.Fatalf("%s: nudged %d times", what, n)
 	}
@@ -74,7 +74,7 @@ func TestNudgeAfterATypedLine(t *testing.T) {
 	if took := time.Since(began); took < nudgeAfter {
 		t.Fatalf("nudged %v after the line, before nudgeAfter", took)
 	}
-	time.Sleep(3 * nudgeAfter)
+	time.Sleep(3 * nudgeAfter) // sleep-ok: negative assertion that a second nudge does not fire
 	if n := nudgesTo(up); n != 1 {
 		t.Fatalf("nudged %d times for one answer owed", n)
 	}
@@ -129,7 +129,7 @@ func TestNoNudgeWhenTheModelAnswers(t *testing.T) {
 					}
 					k := int(n.Add(1))
 					go func() {
-						time.Sleep(nudgeAfter / 3) // a while, but in time
+						time.Sleep(nudgeAfter / 3) // sleep-ok: simulate upstream answering before nudgeAfter
 						tc.answer(u, c, k)
 					}()
 				}
@@ -173,10 +173,10 @@ func TestNudgeAfterTheUsersCaption(t *testing.T) {
 						return
 					}
 					go func() { // the user's voice came: the model answers it, or not, and the caption comes late
-						time.Sleep(300 * time.Millisecond)
+						time.Sleep(300 * time.Millisecond) // sleep-ok: simulate delayed upstream transcript delivery
 						if answered {
 							u.send(c, map[string]any{"type": "session.output_audio.delta", "delta": b64(make([]byte, 3200))})
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(100 * time.Millisecond) // sleep-ok: deliver audio before late user caption
 						}
 						u.send(c, map[string]any{"type": "session.input_transcript.delta", "delta": "现在几点了"})
 					}()

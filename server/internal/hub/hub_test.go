@@ -500,3 +500,25 @@ func TestCallPhoneWaitsForApproval(t *testing.T) {
 		t.Fatal("the late approval did not reach the agent")
 	}
 }
+
+// Every phone tool that waits for the user (an approval card, or a system sheet the user finishes) gets the long wait;
+// a plain read or a tool that only opens another app does not (#2276–#2286).
+func TestPhoneToolsThatWaitForTheUser(t *testing.T) {
+	for _, name := range []string{
+		"phone_calendar_update_event", "phone_calendar_delete_event", "phone_alarm_create", "phone_timer_start",
+		"phone_alarm_cancel", "phone_messages_compose", "phone_call_start", "phone_shortcuts_register",
+		"phone_home_control", "phone_home_run_scene", "phone_contacts_create", "phone_contacts_update",
+	} {
+		if !phoneConfirmedTools[name] {
+			t.Errorf("%s waits for the user on the phone but gets the short wait", name)
+		}
+	}
+	for _, name := range []string{
+		"phone_maps_search_nearby", "phone_maps_navigate", "phone_media_play", "phone_media_control", "phone_media_open",
+		"phone_shortcuts_run", "phone_shortcuts_list", "phone_alarms_list", "phone_home_list",
+	} {
+		if phoneConfirmedTools[name] {
+			t.Errorf("%s asks nobody, it should not wait 30 minutes", name)
+		}
+	}
+}
