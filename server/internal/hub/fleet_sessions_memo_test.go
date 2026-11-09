@@ -1,8 +1,10 @@
 package hub
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"reflect"
 	"strings"
@@ -226,5 +228,59 @@ func TestWholeListProjectedOncePerKind(t *testing.T) {
 		if got := <-c.out; string(got) != string(want) {
 			t.Fatalf("app %d:\n got %s\nwant %s", i, got, want)
 		}
+	}
+}
+
+// Delta apps that have the same list share one map and one sessionsDelta per push, and each still gets what
+// sessionsDelta gives for what it has itself: apps connect at different times, Codex history comes and goes (a live
+// session turned history stays with the apps that had it, so their maps differ), sessions change and go.
+func TestDeltaAppsShareOneComputation(t *testing.T) {
+	x := newMemoHub(t)
+	x.apps = nil
+	x.h.clients = map[*client]struct{}{}
+	rng := rand.New(rand.NewPCG(3, 5))
+	shadow := map[*client]map[string][]byte{} // what each app has, by sessionsDelta alone
+	list := func() []proto.Session {
+		var out []proto.Session
+		for i := range 8 {
+			if rng.IntN(6) == 0 {
+				continue
+			}
+			s := proto.Session{MachineID: "box", SessionID: fmt.Sprintf("s%d", i), Title: fmt.Sprint(rng.IntN(2))}
+			if rng.IntN(3) == 0 {
+				s.SourceKind = "codex_history"
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	shared := false
+	for step := range 200 {
+		if rng.IntN(5) == 0 && len(x.apps) < 6 {
+			c := x.connect(true)
+			x.h.snapshotSessions(c, x.m)
+			shadow[c] = maps.Clone(c.have["box"])
+			<-c.out
+			continue
+		}
+		x.h.takeFleetSessions(assistantwire.FleetSessions{MachineID: "box", Sessions: list()})
+		enc := x.h.sessionsSent["box"]
+		for i, c := range x.apps {
+			want, next := sessionsDelta("box", enc, shadow[c])
+			shadow[c] = next
+			var got []byte
+			if len(c.out) > 0 {
+				got = <-c.out
+			}
+			if string(got) != string(want) || !maps.EqualFunc(c.have["box"], next, bytes.Equal) {
+				t.Fatalf("step %d, app %d:\n got %s\nwant %s", step, i, got, want)
+			}
+			for _, o := range x.apps[:i] {
+				shared = shared || mapIdentity(o.have["box"]) == mapIdentity(c.have["box"]) && len(c.have["box"]) > 0
+			}
+		}
+	}
+	if !shared {
+		t.Fatal("no two apps ever shared a map")
 	}
 }

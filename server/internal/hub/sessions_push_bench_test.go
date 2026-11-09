@@ -92,6 +92,14 @@ func BenchmarkTakeFleetSessionsOneChanged(b *testing.B) {
 	if len(m.keptSessions()) != len(rows) {
 		b.Fatalf("%d sessions kept", len(m.keptSessions()))
 	}
+	for c := range h.clients { // the delta apps connect as apps do: the list whole, then deltas
+		if c.delta {
+			h.snapshotSessions(c, m)
+		}
+		for len(c.out) > 0 {
+			<-c.out
+		}
+	}
 	b.ReportAllocs()
 	n := 0
 	for b.Loop() {

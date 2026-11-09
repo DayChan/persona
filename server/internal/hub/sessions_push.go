@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/nwverse/persona/server/internal/compat"
+	"maps"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -328,6 +330,13 @@ func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 	defer h.mu.Unlock()
 	var full []byte
 	var projected [2][]byte // full as compat.ProjectJSON leaves it for apps without and with the canonical contracts
+	// Delta apps that have the same map (snapshotSessions hands an app the map another has when they are equal, and the
+	// apps with one map get the same next) get the same message and the same next: worked out once for them all.
+	type delta struct {
+		msg  []byte
+		next map[string][]byte
+	}
+	var deltas map[uintptr]delta
 	for c := range h.clients {
 		var b []byte
 		if c.listMode {
@@ -337,7 +346,17 @@ func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 			continue
 		}
 		if c.delta {
-			b, c.have[m.cfg.ID] = sessionsDelta(m.cfg.ID, enc, c.have[m.cfg.ID])
+			have := c.have[m.cfg.ID]
+			key := mapIdentity(have)
+			d, done := deltas[key]
+			if !done {
+				d.msg, d.next = sessionsDelta(m.cfg.ID, enc, have)
+				if deltas == nil {
+					deltas = map[uintptr]delta{}
+				}
+				deltas[key] = d
+			}
+			b, c.have[m.cfg.ID] = d.msg, d.next
 		} else if changed {
 			if full == nil {
 				full = sessionsMessage(m.cfg.ID, enc)
@@ -369,9 +388,21 @@ func (h *Hub) snapshotSessions(c *client, m *Machine) {
 	for _, s := range shown {
 		have[s.id] = s.raw
 	}
+	h.mu.Lock()
+	for o := range h.clients { // another app that has this list: the same map, so that pushes work it out once for both
+		if other := o.have[m.cfg.ID]; o != c && o.delta && len(other) == len(have) && maps.EqualFunc(other, have, bytes.Equal) {
+			have = other
+			break
+		}
+	}
+	h.mu.Unlock()
 	c.have[m.cfg.ID] = have
 	c.queue(sessionsMessage(m.cfg.ID, shown))
 }
+
+// mapIdentity is which map have is (a map value is a pointer): the apps' maps are never changed once handed out (a
+// change is a new map, sessionsDelta's next), so the same map is the same content.
+func mapIdentity(have map[string][]byte) uintptr { return reflect.ValueOf(have).Pointer() }
 
 // queue puts b on the client's way out; a client 512 messages behind is dropped (it would miss this one for good
 // now that nothing is sent twice) and resyncs when it reconnects.
