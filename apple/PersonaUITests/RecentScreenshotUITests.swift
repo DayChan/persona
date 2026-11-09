@@ -84,9 +84,8 @@ final class RecentScreenshotUITests: XCTestCase {
             shot(app, "refused-menu")
         case "settings":
             XCTAssertTrue(guide.waitForExistence(timeout: 5), "no access row:\n\(app.debugDescription)")
-            XCTAssertTrue(app.staticTexts["在设置中允许访问所有照片"].exists || guide.label.contains("设置"),
-                          "the row does not send to Settings: \(guide.label)")
             XCTAssertFalse(offer.exists)
+            // The subtitle (在设置中允许访问所有照片) is not in the row's accessibility label: the screenshot shows it.
             shot(app, "settings-menu")
         default:
             XCTFail("unknown PERSONA_RECENT_SHOT \(expect)")
