@@ -812,14 +812,14 @@ function Choice({ selected, onClick, title, mono, radio, blocked, children }: { 
 // The model for this start: a row showing the pick, opening into a searchable list (80–110 models through a gateway).
 function DirRow({ name, path, sub, git, selected, onPick, onOpen }: { name: string; path: string; sub?: string; git?: boolean; selected: boolean; onPick: () => void; onOpen?: () => void }) {
   return (
-    <div className={cx("group/dir flex h-8 items-center gap-2 rounded-[6px] px-2 transition-colors", selected ? "bg-accent-tint" : "hover:bg-hover")}>
+    <div className={cx("group/dir flex h-8 items-center gap-2 rounded-[6px] px-2 transition-colors pointer-coarse:min-h-11", selected ? "bg-accent-tint" : "hover:bg-hover")}>
       <button type="button" onClick={onPick} onDoubleClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={path}>
         <Icon name={git ? "git" : "folder"} size={13} className={selected ? "text-accent-ink" : "text-ink-3"} />
         <span className={cx("shrink-0 truncate text-[12.5px]", selected ? "font-medium text-accent-ink" : "text-ink")}>{name}</span>
         {sub && <span className="min-w-0 truncate font-mono text-[11px] text-ink-3">{sub}</span>}
       </button>
       {onOpen && (
-        <button type="button" aria-label={t("newagent.open_folder", { name })} onClick={onOpen} className="flex size-5 items-center justify-center rounded-[4px] text-ink-3 opacity-0 transition-opacity group-hover/dir:opacity-100 hover:bg-hover-2 hover:text-ink focus-visible:opacity-100">
+        <button type="button" aria-label={t("newagent.open_folder", { name })} onClick={onOpen} className="touch-hit flex size-5 items-center justify-center rounded-[4px] text-ink-3 opacity-0 transition-opacity group-hover/dir:opacity-100 hover:bg-hover-2 hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100">
           <Icon name="chevronRight" size={12} stroke={2.4} />
         </button>
       )}

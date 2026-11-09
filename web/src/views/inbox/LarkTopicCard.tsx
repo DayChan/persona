@@ -13,7 +13,7 @@ import { LarkTopicReplies, SHOWN, topicReplyCount, type TopicPreview } from "../
 import { t } from "../../i18n";
 import { Button, cx, Dialog, Loading } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
-import { Monogram } from "./InboxParts";
+import { MessageBar, Monogram } from "./InboxParts";
 
 /** The fold: a topic taller than this shows its top under a fade (the Lark gateway folds at 320 px). */
 const FOLD = 320;
@@ -138,11 +138,11 @@ export function LarkTopicCard({ topic, replies, children, onOpen, onReply, onCop
       <Fold>{children}</Fold>
       {!topic.recalled && count > 0 && <ReplyPreview topic={topic} count={count} replies={replies} open={open} />}
       {!topic.recalled && !topic.sending && (onReply || onCopy || onPin) && (
-        <div className="absolute top-2 right-2 z-10 hidden items-center gap-0.5 rounded-[6px] border border-line bg-surface/95 px-1 py-0.5 shadow-hairline backdrop-blur-sm group-hover/msg:flex">
+        <MessageBar className="top-2 right-2">
           {onReply && <HoverButton icon="quote" label={t("inbox-larktopiccard.reply")} onClick={() => onReply(topic)} />}
           {onPin && <HoverButton icon="pin" label="Pin" title={t("inbox-larktopiccard.add_pin")} onClick={() => onPin(topic)} />}
           {onCopy && <HoverButton icon="copy" title={t("inbox-larktopiccard.copy")} onClick={() => onCopy(topic)} />}
-        </div>
+        </MessageBar>
       )}
     </div>
   );

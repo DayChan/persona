@@ -408,7 +408,7 @@ function Bubble({ id, m, head, group, lit, onQuote, onReply }: {
           {clock(m.at)}
           {m.edited && <span>{t("inbox-connectorthread.edited")}</span>}
           {onReply && (
-            <button type="button" onClick={onReply} className="flex items-center gap-0.5 whitespace-nowrap rounded text-ink-3 opacity-0 hover:text-ink focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent group-hover/msg:opacity-100 group-focus-within/msg:opacity-100">
+            <button type="button" onClick={onReply} className="touch-hit flex items-center gap-0.5 whitespace-nowrap rounded text-ink-3 opacity-0 hover:text-ink focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 [@media(hover:none)]:opacity-100">
               <Icon name="quote" size={10} />
               {t("inbox-connectorthread.reply")}
             </button>

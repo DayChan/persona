@@ -176,6 +176,21 @@ describe("message context interaction paths", () => {
     expect(askPersona).toHaveBeenCalledTimes(2);
   });
 
+  it("gives a reply a copy button and a ⋯ on touch, which opens the same menu", () => {
+    media.noHover = true;
+    const render = (isUser: boolean) => act(() => root.render(
+      <ChatActionsContext.Provider value={chat}>
+        <MessageActions text="Original message" isUser={isUser} side={isUser}><p>Original message</p></MessageActions>
+      </ChatActionsContext.Provider>,
+    ));
+    render(true);
+    expect(host.querySelector('button[aria-label="拷贝回复"]')).toBeNull();
+    render(false);
+    expect(host.querySelector('button[aria-label="拷贝回复"]')).toBeTruthy();
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="更多"]')].at(-1)!.click());
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toContain("作为上下文");
+  });
+
   it("keeps the side bar compact and separates context actions from rewind in More", () => {
     act(() => root.render(
       <ChatActionsContext.Provider value={{ ...chat, rewind: { block: "", run: async () => {} } }}>

@@ -261,6 +261,8 @@ body {
 @media (prefers-reduced-motion: reduce) { [data-search-hit] { animation: none; outline-color: var(--accent); } }
 
 html, body, #root { height: 100%; }
+/* Pulling down at the top of a scroller must not reload the app. Vertical only: the drawer's sideways drags are unaffected. */
+html, body { overscroll-behavior-y: none; }
 /* Text size (ui/look.ts, src/lib/text-scale.ts): "Small" / "Large" as the Mac app's 12 / 14 pt against its 13; "Standard" sets nothing. */
 :root[data-text-size="small"] { --text-scale: calc(12 / 13); }
 :root[data-text-size="large"] { --text-scale: calc(14 / 13); }

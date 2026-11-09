@@ -36,7 +36,7 @@ import { Button, cx, Dialog, Loading, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { scrollBehavior } from "../../ui/stream/motion";
 import { ImageViewer } from "../chat/ImageViewer";
-import { Monogram } from "./InboxParts";
+import { MessageBar, Monogram } from "./InboxParts";
 import { LarkEditHistoryDialog } from "./LarkEditHistory";
 import { LarkComposer, type LarkComposerHandle, type LarkReplyTarget } from "./LarkComposer";
 import { CardButtons, FilePart, ProfileDialog, ReactionPicker, Reactions, ReadMarkView, VideoPart, VoicePart } from "./LarkExtras";
@@ -1035,6 +1035,7 @@ function Message({
       setOpening(false);
     }
   };
+  const hasBar = !isSystem(m) && !m.recalled && !m.sending && (onReply || onCopy || (!nested && (onAskPersona || onPin)));
   return (
     <div
       data-pos={m.position}
@@ -1042,6 +1043,7 @@ function Message({
       data-seen-pos={nested ? undefined : m.position}
       className={cx(
         "group/msg relative flex gap-2.5 rounded-[10px] px-2",
+        hasBar && "[@media(hover:none)]:pr-8", // the ⋯ stays over this corner: the text stops short of it
         compact ? "py-0.5" : "pt-2 pb-0.5",
         m.at_me && "bg-accent-tint/60",
         flash !== undefined && "isolate",
@@ -1123,8 +1125,8 @@ function Message({
 
       {/* Hover action bar */}
       {/* nested replies have no actions: no empty bar when the message they sit under is hovered */}
-      {!isSystem(m) && !m.recalled && !m.sending && (onReply || onCopy || (!nested && (onAskPersona || onPin))) && (
-        <div className="absolute right-2 top-1.5 z-10 hidden items-center gap-0.5 rounded-[6px] border border-line bg-surface/95 px-1 py-0.5 shadow-hairline backdrop-blur-sm group-hover/msg:flex">
+      {hasBar && (
+        <MessageBar className="right-2 top-1.5">
           {onReply && (
             <button
               type="button"
@@ -1181,7 +1183,7 @@ function Message({
               <Icon name="copy" size={11} />
             </button>
           )}
-        </div>
+        </MessageBar>
       )}
     </div>
   );

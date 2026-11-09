@@ -1,6 +1,6 @@
 // What you can do with a message (iOS MessageMenu.swift: "Copy" / "Select" / "Quote" / "Edit"): with a mouse, a small bar under it
-// on hover and the same items on right-click; on a touch screen, a long press opens them (and "Select" shows the text to
-// select, since the press no longer selects). "Quote" puts it as a quote in front of the draft, "Edit" (your own messages)
+// on hover and the same items on right-click; on a touch screen, a long press opens them, or a reply's ⋯ beside its copy button
+// (and "Select" shows the text to select, since the press no longer selects). "Quote" puts it as a quote in front of the draft, "Edit" (your own messages)
 // puts it back in the composer to change and send again. "Hand to Persona" sends an Agent message to the main chat;
 // "Use as context" attaches it to this chat's next message. Sharing as a card is the phone's. A reply's bar ends in a ⋯
 // whose menu has "Branch to new chat" (#2137: a new conversation with what was said up to this reply) when the session can.
@@ -16,7 +16,7 @@ import { askPersona } from "../../lib/outbox";
 import { Button, copyText, cx, Dialog, Menu, toast, type MenuItem } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
 import type { RewindRestore } from "../../lib/rewind";
-import { isNoHover } from "../../ui/media-query";
+import { isNoHover, NO_HOVER, useMedia } from "../../ui/media-query";
 import { useChatActions, type ChatActions } from "./chat-actions";
 
 
@@ -128,6 +128,7 @@ export function MessageActions({
   className?: string;
 }) {
   const [selecting, setSelecting] = useState(false);
+  const touch = useMedia(NO_HOVER);
   const actions = useActions(text, Boolean(isUser), ts, task, () => setSelecting(true));
   const chat = useChatActions();
   const extras = [...moreActions(itemId, chat?.fork), ...(isUser ? rewindActions(messageId, text, chat?.rewind) : [])];
@@ -242,6 +243,24 @@ export function MessageActions({
         )}
         {!side && !corner && ts && <span className="ml-1 text-[11px] text-ink-3">{clock(ts)}</span>}
       </div>
+      {touch && !isUser && !side && !corner && (
+        <div className="mt-1 flex h-6 items-center gap-5">
+          <button type="button" aria-label={t("chat-messageactions.copy_reply")} title={t("chat-messageactions.copy")} onClick={() => void copyText(text)} className="touch-hit flex size-6 items-center justify-center rounded-[6px] text-ink-3">
+            <Icon name="copy" size={14} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("chat-messageactions.more")}
+            title={t("chat-messageactions.more")}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(anchor)}
+            onClick={(e) => (anchor ? close() : setAnchor(e.currentTarget))}
+            className="touch-hit flex size-6 items-center justify-center rounded-[6px] text-ink-3"
+          >
+            <Icon name="more" size={14} />
+          </button>
+        </div>
+      )}
       {anchor && <Menu anchor={anchor} onClose={close} items={items} width={items.some((i) => i.hint) ? 200 : 168} />}
       {moreAnchor && <Menu anchor={moreAnchor} onClose={() => setMoreAnchor(null)} items={more} side="top" width={more.some((a) => a.hint) ? 200 : 168} />}
       <Dialog

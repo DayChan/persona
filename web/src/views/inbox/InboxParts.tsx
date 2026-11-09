@@ -143,6 +143,20 @@ export function Tag({ children, urgent }: { children: ReactNode; urgent?: boolea
   );
 }
 
+/** A message's action bar, over its top right corner: on hover with a mouse; with no hover, a ⋯ there that folds the
+ *  buttons out and back. */
+export function MessageBar({ className, children }: { className: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={cx("absolute z-10 hidden items-center gap-0.5 rounded-[6px] border border-line bg-surface/95 px-1 py-0.5 shadow-hairline backdrop-blur-sm group-hover/msg:flex [@media(hover:none)]:flex", !open && "[@media(hover:none)]:px-0", className)}>
+      <div className={cx("contents", !open && "[@media(hover:none)]:hidden")} onClick={() => setOpen(false)}>{children}</div>
+      <button type="button" aria-label={t("chat-messageactions.more")} title={t("chat-messageactions.more")} aria-expanded={open} onClick={() => setOpen(!open)} className="touch-hit hidden size-5 items-center justify-center rounded text-ink-3 [@media(hover:none)]:flex">
+        <Icon name="more" size={12} />
+      </button>
+    </div>
+  );
+}
+
 /** A filter or choice that turns on and off: the inbox's sources and kinds, the "Messages" page's Feishu accounts. */
 export function Chip({ on, onClick, children, title }: { on: boolean; onClick: () => void; children: ReactNode; title?: string }) {
   return (

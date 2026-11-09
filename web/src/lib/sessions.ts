@@ -161,6 +161,11 @@ export function stateCounts(all: Session[]) {
   return c;
 }
 
+/** `badge` without `open`, the agent on screen: it says it is waiting itself, so a count of only it would tell nothing. */
+export function othersWaiting(badge: number, open: Session | undefined): number {
+  return Math.max(0, badge - (open && !open.assistant && !open.quiet && stateOf(open) === "needs_you" ? 1 : 0));
+}
+
 export function useCounts() {
   const all = useAgentSessions();
   const interactions = useStore((s) => s.interactions.length);
