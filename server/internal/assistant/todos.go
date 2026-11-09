@@ -694,7 +694,7 @@ func (s *Service) todoRoutes() {
 
 	// POST /api/v1/todos: create todo {title, notes, due_at | due_date, remind_at, priority}
 	s.handle("POST /api/v1/todos", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}
@@ -731,7 +731,7 @@ func (s *Service) todoRoutes() {
 
 	// PATCH /api/v1/todos/{id}: update title, notes, done, due_at | due_date, remind_at, priority
 	s.handle("PATCH /api/v1/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}
@@ -808,7 +808,7 @@ func (s *Service) todoRoutes() {
 
 	// PUT /api/v1/todos/{id}/spaces/{mid}/{space...}: link whole space to todo
 	s.handle("PUT /api/v1/todos/{id}/spaces/{mid}/{space...}", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}
@@ -845,7 +845,7 @@ func (s *Service) todoRoutes() {
 
 	// DELETE /api/v1/todos/{id}/spaces/{mid}/{space...}: unlink space from todo
 	s.handle("DELETE /api/v1/todos/{id}/spaces/{mid}/{space...}", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}
@@ -867,7 +867,7 @@ func (s *Service) todoRoutes() {
 
 	// PUT /api/v1/todos/{id}/agents/{mid}/{sid}: link existing agent
 	s.handle("PUT /api/v1/todos/{id}/agents/{mid}/{sid}", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}
@@ -902,7 +902,7 @@ func (s *Service) todoRoutes() {
 
 	// DELETE /api/v1/todos/{id}/agents/{mid}/{sid}: unlink agent (soft unlink: dismissed_at + released_at #762)
 	s.handle("DELETE /api/v1/todos/{id}/agents/{mid}/{sid}", func(w http.ResponseWriter, r *http.Request) {
-		if !fullRole(r) {
+		if !todoWriter(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot modify todos"))
 			return
 		}

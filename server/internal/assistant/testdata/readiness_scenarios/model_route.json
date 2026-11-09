@@ -25,6 +25,11 @@
         "action": {
           "id": "connect_model"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "model_route",
         "detail": "The model name is wrong, or the model isn't available right now. Try another model.",
         "id": "model",
@@ -84,6 +89,11 @@
         "action": {
           "id": "connect_model"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "model_route",
         "detail": "モデル名が間違っているか、このモデルは今使えません。別のモデルを試してください。",
         "id": "model",
@@ -143,6 +153,11 @@
         "action": {
           "id": "connect_model"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "model_route",
         "detail": "模型名不对，或者这个模型现在用不了。换一个模型试试。",
         "id": "model",

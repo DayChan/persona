@@ -463,6 +463,7 @@ Implementation (#3710, `server/internal/assistant/readiness.go`; endpoint detail
 - `?probe=1` does not run unless computer is `ok`, and the response omits `probe`. A probe with no computer reply (offline, timeout) returns only `error`, is not recorded, and is not evidence.
 - `dismiss` accepts `{"dismissed": false}` to undo; an empty body means `true`.
 - Once `first_message` succeeds, it stays `ok` (stored in `assistant.readiness`, even after main chat changes).
+- Model problems `auth_failed` and `model_route` also offer `test_assistant` as an alternative to editing or connecting the provider, so a repaired model can be verified without replacing the current chat after its first answer (#1894).
 
 ### 5.2 Structured main-chat errors
 
