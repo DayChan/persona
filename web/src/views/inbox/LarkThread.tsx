@@ -112,6 +112,8 @@ const Tools = createContext<ChatTools | null>(null);
 /** The read receipts of my messages: the list's rows get theirs as a prop (a new receipt renders only its own row);
  * a message in an opened thread or dialog reads them here. */
 const Receipts = createContext<Map<string, ReadState>>(new Map());
+/** Today's local date: a message reads it so that a new day draws it again and its time (`clock`) gains its date. */
+const Today = createContext("");
 
 type LarkThreadProps = { chat: LarkChatRef; pinsOpen?: boolean; onPinsOpen?: (open: boolean) => void };
 
@@ -225,6 +227,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
   }, [base, ol, manager]);
   useReadReports(feed, ol, scroller, tracker, pageRef, placed, page);
   const { states: receipts, changed: receiptsChanged } = useReadReceipts(feed, ol, scroller, pageRef, page);
+  const [today, recheckDay] = useToday();
 
   useEffect(() => {
     const changed = () => {
@@ -232,6 +235,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
       if (!p) return;
       // something happened in the chat: the receipts of mine on screen may have moved too
       receiptsChanged();
+      recheckDay();
       if (p.has_newer) return;
       const gen = windowGen.current;
       api<LarkPage>(larkPath(`${base}?limit=${PAGE}`, ol, manager))
@@ -263,7 +267,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
       offLark();
       offHello();
     };
-  }, [feed, ol, manager, base, receiptsChanged]);
+  }, [feed, ol, manager, base, receiptsChanged, recheckDay]);
 
   // First paint: at the first new message (a little of what came before shows above it), else at the bottom.
   useLayoutEffect(() => {
@@ -537,6 +541,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
   return (
     <Tools.Provider value={tools}>
     <Receipts.Provider value={receipts}>
+    <Today.Provider value={today}>
     <div
       className="flex h-full min-h-0 flex-col"
       onDragOver={(e) => {
@@ -685,6 +690,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
         {adding && <p className="mt-2 line-clamp-3 rounded-[8px] bg-inset px-3 py-2 text-[12.5px] text-ink shadow-hairline">{adding.text || (adding.parts ?? []).map((p) => p.text ?? "").join("") || t("inbox-larkthread.message")}</p>}
       </Dialog>
     </div>
+    </Today.Provider>
     </Receipts.Provider>
     </Tools.Provider>
   );
@@ -955,6 +961,18 @@ function reusing(cur: LarkPage, next: LarkPage): LarkPage {
   return { ...next, messages: keepSameMessages(cur.messages, next.messages) };
 }
 
+/** Today's local date, looked at every minute and when `recheck` is called (a push came in). It changes once a day, and
+ * only then do the kept, memoized messages draw again, so a time `clock` showed as "10:01" gets its date after midnight. */
+function useToday(): [string, () => void] {
+  const [today, setToday] = useState(() => new Date().toDateString());
+  const recheck = useCallback(() => setToday(new Date().toDateString()), []);
+  useEffect(() => {
+    const timer = setInterval(recheck, 60_000);
+    return () => clearInterval(timer);
+  }, [recheck]);
+  return [today, recheck];
+}
+
 /** Settings › Translation for this chat: the translation of someone else's message in another language, asked for when it shows. */
 function TranslationLine({ m, target }: { m: LarkMessage; target: string }) {
   const text = m.text?.trim() ?? "";
@@ -988,7 +1006,8 @@ function MessageBody({ m, translateTo }: { m: LarkMessage; translateTo?: string 
 }
 
 /** One message: who and when, quoted reply, the content, hover action bar, and retry for failed sends. Memoized: the
- * list keeps the objects of messages that read the same (lib/lark-reuse.ts), so a push renders only the ones that changed. */
+ * list keeps the objects of messages that read the same (lib/lark-reuse.ts), so a push renders only the ones that changed;
+ * a new day (`Today`) renders them all again. */
 const Message = memo(function Message({
   m,
   compact: follows,
@@ -1040,6 +1059,8 @@ const Message = memo(function Message({
   const tools = useContext(Tools);
   // only a nested message reads the chat's receipts: the list's rows would all render again on each change
   const state = nested ? use(Receipts).get(m.id) : receipt;
+  // read for its change alone: a new day draws the message again, so its time below gains the date
+  use(Today);
   const [thread, setThread] = useState<LarkMessage[] | null>(null);
   const [opening, setOpening] = useState(false);
   const display = useLarkDisplay(ol);
