@@ -165,6 +165,7 @@ Revocation ended pairing codes with `expires_at = now()` (Postgres's clock) whil
 ## A settings read error is not an absent choice (#5827)
 
 - Return read errors separately from a missing setting before applying defaults or migrating a client's choice. A failed conditional write must neither overwrite the saved choice nor broadcast a replacement. Test a failed read followed by a successful retry, including zero writes and broadcasts during the failure.
+- A GET that returns an empty preference document on a failed read can erase saved data indirectly: clients accept the empty copy and send it back in their next full-document PUT (#1865). Check the read's success flag at the HTTP boundary, even when manager events already check it. Serve a successfully cached copy or return an error; test cold-read failure, recovery, all preference fields, and cache retention separately from a genuinely absent setting.
 
 ## Registration success requires persistence (#5827)
 

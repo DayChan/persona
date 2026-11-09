@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/sdk/go/wire"
+	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -204,6 +206,7 @@ func TestHealthSpaceOutbound(t *testing.T) {
 	if len(p) != 2 || p[0].Title != "健康" || strings.Contains(p[0].Body, "150") || p[1].Title != "CI 好了" || p[1].Body != "全绿" {
 		t.Fatalf("pushes: %+v", p)
 	}
+	t.Run("phone_notify", testHealthPhoneNotify)
 
 	answerOutbound(t, s, "sleep-000-0000", "agent_send", "睡眠数据", false)
 	out, isErr := spaceTool(t, s, "sleep-000-0000", "agent_send", `{"session_id":"code-0000-0000","text":"把我的睡眠数据画成图"}`)
@@ -251,6 +254,70 @@ func TestHealthSpaceOutbound(t *testing.T) {
 	}
 	if _, isErr := spaceTool(t, s, "sleep-000-0000", "delete_routine", `{"id":"`+healthID+`"}`); isErr {
 		t.Fatal("health could not delete its own routine")
+	}
+}
+
+func testHealthPhoneNotify(t *testing.T) {
+	for _, locale := range []string{"en", "zh-Hans", "ja"} {
+		t.Run(locale, func(t *testing.T) {
+			f := healthHub()
+			f.hello.Locale = locale
+			// An explicit space takes precedence over the directory.
+			f.sessions["server"][2].Cwd = "/home/me/.persona/assistant"
+			phoneResult := proto.TextResult(`{"scheduled":true}`, false)
+			f.answerApp(assistantwire.AppPhone, assistantwire.PhoneCall, func(json.RawMessage) (any, error) {
+				return phoneResult, nil
+			})
+			s := newTestService(t, f)
+			setSettings(t, s, func(v *Settings) { v.MachineID = "server" })
+			for _, tc := range []struct {
+				name, session, tool, args string
+				assistant, redact         bool
+			}{
+				{"health space", "sleep-000-0000", "phone_notify", `{"title":"Blood pressure","body":"150/95 today"}`, true, true},
+				{"health directory delayed", "steps-000-0000", "phone_notify", `{"title":"Blood pressure","body":"150/95 today","delay_seconds":60}`, true, true},
+				{"health without assistant flag", "sleep-000-0000", "phone_notify", `{"title":"Blood pressure","body":"150/95 today"}`, false, true},
+				{"null arguments", "sleep-000-0000", "phone_notify", `null`, true, false},
+				{"main space", "work-0000-0000", "phone_notify", `{"title":"Blood pressure","body":"150/95 today","delay_seconds":60}`, true, false},
+				{"no conversation", "", "phone_notify", `{"title":"Build finished","body":"All checks passed"}`, false, false},
+				{"explicit reminder", "sleep-000-0000", "phone_reminders_create", `{"title":"Take medication","notes":"After breakfast"}`, true, false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					before := len(f.appParams(assistantwire.AppPhone, assistantwire.PhoneCall))
+					res := s.mcpCall(context.Background(), "server", tc.session, tc.tool, json.RawMessage(tc.args), tc.assistant)
+					if res.IsError || len(res.Content) != 1 || res.Content[0].Text != phoneResult.Content[0].Text {
+						t.Fatalf("phone result: %+v", res)
+					}
+					calls := f.appParams(assistantwire.AppPhone, assistantwire.PhoneCall)
+					if len(calls) != before+1 {
+						t.Fatalf("phone calls: %d, want %d", len(calls), before+1)
+					}
+					call := calls[len(calls)-1]
+					if call["name"] != tc.tool {
+						t.Fatalf("phone tool: %v", call)
+					}
+					var want map[string]any
+					if err := json.Unmarshal([]byte(tc.args), &want); err != nil {
+						t.Fatal(err)
+					}
+					if tc.redact {
+						want["title"], want["body"] = healthNotice(i18n.Lang(locale))
+					}
+					gotJSON, _ := json.Marshal(call["args"])
+					wantJSON, _ := json.Marshal(want)
+					if string(gotJSON) != string(wantJSON) {
+						t.Fatalf("phone args: %s, want %s", gotJSON, wantJSON)
+					}
+				})
+			}
+			for _, args := range []string{`{"title":`, `[]`, `"Blood pressure"`} {
+				before := len(f.appParams(assistantwire.AppPhone, assistantwire.PhoneCall))
+				res := s.mcpCall(context.Background(), "server", "sleep-000-0000", "phone_notify", json.RawMessage(args), true)
+				if !res.IsError || len(f.appParams(assistantwire.AppPhone, assistantwire.PhoneCall)) != before {
+					t.Fatalf("invalid args %s reached the phone: %+v", args, res)
+				}
+			}
+		})
 	}
 }
 

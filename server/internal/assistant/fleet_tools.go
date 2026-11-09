@@ -112,6 +112,17 @@ func (s *Service) mcpCall(ctx context.Context, machine, session, name string, ar
 	case name == runtimeCLITool:
 		return proto.TextResult("unknown tool "+name, true)
 	case strings.HasPrefix(name, "phone_"):
+		if name == "phone_notify" && s.inHealth(ctx, session) {
+			var a map[string]any
+			if err := json.Unmarshal(args, &a); err != nil {
+				return proto.TextResult(err.Error(), true)
+			}
+			if a != nil {
+				// Local phone notifications follow the same privacy rule as notify_user.
+				a["title"], a["body"] = healthNotice(s.lang(ctx))
+				args, _ = json.Marshal(a)
+			}
+		}
 		var res proto.ToolResult
 		if err := s.appCall(ctx, assistantwire.AppPhone, assistantwire.PhoneCall, map[string]any{"name": name, "args": args}, &res); err != nil {
 			return proto.TextResult(err.Error(), true)
