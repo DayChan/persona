@@ -2,8 +2,13 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/connector"
 )
 
 func groupItem(id, feed, sender string, tier string) *InboxItem {
@@ -165,5 +170,52 @@ func TestPolicyTwin(t *testing.T) {
 	h.inbox.mu.Unlock()
 	if queued[0] != fyi {
 		t.Fatalf("queue: %s first", queued[0].ID)
+	}
+}
+
+// A policy whose items' rows fail to save says so and leaves those items as their rows hold them: the old tier, no
+// announcement, no row. The policy itself stays kept, and setting it again (the call or the route) applies it.
+func TestPolicyPersistFailureRollsBack(t *testing.T) {
+	h, st := newBulkFailHub(t)
+	ctx := context.Background()
+	mux := h.routes()
+	it := mailItem("a", "shop@example.com", "Shop")
+	it.Tier, it.Reason, it.Last, it.TriagedAt = TierAction, "the model's reason", "1", "1"
+	h.inbox.mu.Lock()
+	h.inbox.items["a"] = it
+	h.inbox.mu.Unlock()
+	before := stateOf(h, it)
+	policy := InboxPolicy{Source: "mail", Tag: connector.TagSender, Value: "shop@example.com", Name: "Shop", Tier: TierNoise}
+
+	st.failAll = true
+	if _, applied, err := h.setPolicy(ctx, policy); !errors.Is(err, errInboxNotPersisted) || applied != 0 {
+		t.Fatalf("set with the rows failing: applied=%d err=%v", applied, err)
+	}
+	if code, out := inboxCall(t, mux, "POST", "/api/v1/inbox/policies", `{"item_id":"a","tag":"sender","tier":"noise"}`); code != http.StatusInternalServerError {
+		t.Fatalf("the route answered %d %v with the rows failing", code, out)
+	}
+	if after := stateOf(h, it); after != before || changedTo(h, "a") || st.hasRow("a") {
+		t.Fatalf("the failed tier stuck: %s (announced %v, row %v)", after, changedTo(h, "a"), st.hasRow("a"))
+	}
+	if got := h.listedPolicies(); len(got) != 1 || got[0].Tier != TierNoise {
+		t.Fatalf("the policy was not kept: %+v", got)
+	}
+
+	st.failAll = false
+	if _, applied, err := h.setPolicy(ctx, policy); err != nil || applied != 1 {
+		t.Fatalf("retry: applied=%d err=%v", applied, err)
+	}
+	st.imu.Lock()
+	raw := st.rows["a"]
+	st.imu.Unlock()
+	var row InboxItem
+	if err := json.Unmarshal(raw, &row); err != nil || row.Tier != TierNoise || !changedTo(h, "a") {
+		t.Fatalf("the retry did not write the tier: row %q err %v announced %v", row.Tier, err, changedTo(h, "a"))
+	}
+	h.inbox.mu.Lock()
+	tier := it.Tier
+	h.inbox.mu.Unlock()
+	if tier != TierNoise || len(h.listedPolicies()) != 1 {
+		t.Fatalf("after the retry: tier %s, policies %+v", tier, h.listedPolicies())
 	}
 }

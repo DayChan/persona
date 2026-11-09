@@ -88,8 +88,8 @@ func (b *inboxBook) policyTwin(it *InboxItem) string {
 // which policy did (the model's summary and title stay); a tier that is not Needs you is not urgent. It says whether
 // it changed the item; under b.mu.
 func (b *inboxBook) applyPolicyTier(it *InboxItem) bool {
-	p := b.policyOf(it)
-	if p == nil || p.Tier == "" || it.Tier == p.Tier {
+	p := b.policyTierChange(it)
+	if p == nil {
 		return false
 	}
 	it.Tier, it.Reason = p.Tier, b.policyReason(p.Name)
@@ -99,23 +99,34 @@ func (b *inboxBook) applyPolicyTier(it *InboxItem) bool {
 	return true
 }
 
+// policyTierChange is the policy that would change its tier, nil when none would; under b.mu.
+func (b *inboxBook) policyTierChange(it *InboxItem) *InboxPolicy {
+	p := b.policyOf(it)
+	if p == nil || p.Tier == "" || it.Tier == p.Tier {
+		return nil
+	}
+	return p
+}
+
 // policyReason is an item's reason when policy name set its tier.
 func (b *inboxBook) policyReason(name string) string {
 	return i18n.T(b.userLang(), "assistant-inbox.by_policy", i18n.Args{"name": name})
 }
 
 // applyPolicies gives the open triaged items the policies cover their tier (a policy set or changed now); items an
-// event's conversation is handling keep theirs (it decides). Under b.mu.
-func (b *inboxBook) applyPolicies() []*InboxItem {
-	var changed []*InboxItem
+// event's conversation is handling keep theirs (it decides). Under b.mu. The writes are settled (inbox_rollback.go):
+// an item whose row fails gets its old tier back, and setting the policy again gives it the new one.
+func (b *inboxBook) applyPolicies() []*inboxWrite {
+	var changed []*inboxWrite
 	for _, it := range b.items {
-		if !it.open() || it.Tier == "" || it.handled() {
+		if !it.open() || it.Tier == "" || it.handled() || b.policyTierChange(it) == nil {
 			continue
 		}
-		if b.applyPolicyTier(it) {
-			b.noteTriaged(it)
-			changed = append(changed, it)
-		}
+		w := beginWrite(it) // only the items it changes are snapshot
+		b.applyPolicyTier(it)
+		b.noteTriaged(it)
+		b.settle(w)
+		changed = append(changed, w)
 	}
 	return changed
 }
@@ -161,6 +172,8 @@ func (s *Service) putPolicies(ctx context.Context, policies []InboxPolicy) error
 // setPolicy adds a policy or, when one for the same target is there (set by id or by target), changes its tier and
 // twin to p's; a policy that then sets neither is removed. It persists before memory changes (a failed save changes
 // nothing, a retry is idempotent), applies the tiers to the open items and returns the policy and how many it changed.
+// When some of those items' rows fail, they keep their old tier and it returns errInboxNotPersisted: the policy stays
+// kept, and setting it again (the same target, idempotent) applies it to them.
 func (s *Service) setPolicy(ctx context.Context, p InboxPolicy) (InboxPolicy, int, error) {
 	b := &s.inbox
 	b.policiesMu.Lock()
@@ -195,9 +208,12 @@ func (s *Service) setPolicy(ctx context.Context, p InboxPolicy) (InboxPolicy, in
 	b.policies = next
 	changed := b.applyPolicies()
 	b.mu.Unlock()
-	s.saveInbox(ctx, changed)
+	failed := s.saveWrites(ctx, changed, "its tier by a policy")
 	if p.Twin == TwinFirst {
-		s.handInbox(ctx) // what it covers may be the twin's now
+		s.handInbox(ctx) // what it covers may be the twin's now; the kept policy's twin part holds either way
+	}
+	if len(failed) > 0 {
+		return p, 0, errInboxNotPersisted
 	}
 	return p, len(changed), nil
 }
