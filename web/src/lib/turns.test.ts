@@ -8,6 +8,19 @@ const tool = (seq: number, id: string): Item => ({ id: `t${seq}#0`, seq, role: "
 const res = (seq: number, id: string): Item => ({ id: `r${seq}#0`, seq, role: "user", kind: "tool_result", tool_use_id: id, text: "ok" });
 
 describe("segments", () => {
+  it("keeps every real user message amid repeated compaction and supervision", () => {
+    const items: Item[] = [];
+    for (let question = 1; question <= 3; question++) {
+      items.push(u(question * 10, `Question ${question}`, { client_msg_id: `client-${question}` }), a(question * 10 + 1, "An answer"));
+      if (question < 3) items.push({ id: `compact-${question}`, seq: question * 10 + 2, role: "system", kind: "notice", text: "Context compacted", compact: { trigger: "auto" } });
+      for (let n = 0; n < 3; n++) items.push(u(question * 10 + 3 + n, "Automatic task supervision", {
+        injected: { kind: "system", state: "supervise", line: "Review a synthetic task" },
+      }));
+    }
+    const users = chatLines(items).flatMap((line) => line.kind === "segment" && line.seg.user ? [line.seg.user] : []);
+    expect(users.filter((user) => user.client_msg_id).map((user) => user.text)).toEqual(["Question 1", "Question 2", "Question 3"]);
+  });
+
   it("splits at user messages and takes the last words as the answer", () => {
     const s = segments([u(1, "hi"), a(2, "looking"), tool(3, "x"), res(4, "x"), a(5, "done"), u(6, "next"), a(7, "sure")]);
     expect(s).toHaveLength(2);

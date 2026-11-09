@@ -51,6 +51,9 @@ type GitStatus struct {
 	Files    []GitFile   `json:"files"`
 	Stashes  int         `json:"stashes"`
 	Commits  []GitCommit `json:"commits"`
+	// Gone: the upstream is configured but its ref is not there (the remote branch was deleted and pruned, as a merged
+	// pull request's branch is); ahead and behind are then 0 and mean nothing, and a push publishes the branch again.
+	Gone bool `json:"gone,omitempty"`
 }
 
 type GitPullResult struct {
@@ -288,9 +291,11 @@ func (n *Node) gitPull(ctx context.Context, cwd string) (*GitPullResult, error) 
 	return &GitPullResult{Status: after, Updated: updated}, nil
 }
 
-// parseStatusV2 reads `git status --porcelain=v2 --branch -z`.
+// parseStatusV2 reads `git status --porcelain=v2 --branch -z`. Git prints branch.ab only when the upstream's commit
+// is there: an upstream without it is gone (`git status -sb` says [gone]).
 func parseStatusV2(out string, st *GitStatus) []GitFile {
 	files := []GitFile{}
+	counted := false
 	recs := strings.Split(out, "\x00")
 	for i := 0; i < len(recs); i++ {
 		r := recs[i]
@@ -302,6 +307,7 @@ func parseStatusV2(out string, st *GitStatus) []GitFile {
 		case strings.HasPrefix(r, "# branch.upstream "):
 			st.Upstream = strings.TrimPrefix(r, "# branch.upstream ")
 		case strings.HasPrefix(r, "# branch.ab "):
+			counted = true
 			for _, f := range strings.Fields(strings.TrimPrefix(r, "# branch.ab ")) {
 				v, _ := strconv.Atoi(f[1:])
 				if f[0] == '+' {
@@ -334,6 +340,7 @@ func parseStatusV2(out string, st *GitStatus) []GitFile {
 			files = append(files, GitFile{Path: r[2:], Index: "?", Worktree: "?"})
 		}
 	}
+	st.Gone = st.Upstream != "" && !counted
 	return files
 }
 

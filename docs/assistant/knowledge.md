@@ -306,7 +306,7 @@ The manager hands the document to the engine (`Engine.Selection`); an engine wit
   `a+b` for a level's union, `item`). Days null are `kb.text_days`; attachment days null are the source's (`attachment_days_by_source`, else `attachment_days`),
   never more than the line's text days. Chat rules match `kind` and the flags; a chat of a kind no rule knows (mail, issues, pull requests) or of none is outside the
   selection and archived as before. `ReadChat` is the read plan (not read / whole / only around the owner's messages and mentions, and how far back);
-  `ReadPlan.Wider` says a changed plan reads more. `EvaluateDoc` does the same for documents by their signals.
+  `ReadPlan.Wider` says a changed plan reads more. `EvaluateDoc` does the same for documents by their signals (Documents below).
 - **Daily ingestion** (`Engine.Ingest`): every batch goes through the evaluator; only what it stores is written, with its rule's days (a line past them is not
   written). For `mine.context` each chat keeps the last N messages in `select/<chat id>.json` (whole while not stored, the id alone once stored; no identity hints)
   and how many of the next still follow one of the owner's, saved after the commit, so a restart or a replayed batch loses and doubles nothing. Context messages
@@ -324,6 +324,29 @@ The manager hands the document to the engine (`Engine.Selection`); an engine wit
   files and a fuzz target check it, as for merging. Attachments go with the last line that links them (the most attachment days of those lines); a file no line
   links keeps the source's attachment days. Only the days that may differ are read: with every `days` null nothing is read and exactly what the old pruning
   removed goes (`TestPruneSelectedDefaultsPruneAsBefore` over random chats of every kind, with and without a ledger).
+- **Documents** (`CollectItems` in `items.go`, `pruneDocs` in `items_retention.go`): documents are brought in as items as before; the selection only decides
+  which are kept, by the signals each carries (no new reading). `DocSelected` decides a document a source hands over: a per-item `read: false` keeps it out
+  (and its title is not looked up), one without signals is stored as before (its source cannot tell why it concerns the owner), and one with signals is
+  stored when `EvaluateDoc` stores it: a per-item setting first (`read, store`: kept, with its days or else the deciding rule's), then the first level of
+  `docs.order` with a matching signal, stored when one of its matching rules is on (an off rule does not fall through). A document not selected is not
+  written, and one already stored is left untouched. Retention (`DocDays`, in `Engine.Prune`) deletes a document whose time (`at`, else when it was first
+  seen) is past its days, but only days the user set apply: documents had no retention before the selection, so with the defaults (every `days` null) none
+  is deleted, and a deciding rule that is off or has null days, a per-item `read: false` and a document without a matching signal keep it. A per-item
+  setting that stores it with days applies with or without signals. A document that is pinned, locked, tagged to a project or linked from one is kept
+  whatever its days; one past its days that a source still lists is not written again. A document link in a chat (`noteDoc`) writes no stub for a
+  document with a per-item `read: false`, nor for one already past the per-item days the user set. Meetings and events are not decided by the selection.
+
+  What a chat connector can tell about documents and the owner, read-only (only these are offered as rules):
+
+  | Rule | Supported | How a connector tells |
+  | --- | --- | --- |
+  | `comment_mentions` (a comment mentions me) | yes | the documents notification feed's comment and reply cards that mention the owner |
+  | `mentions` (the document mentions me) | yes | the documents notification feed's mention cards |
+  | `authored` (I wrote it) | yes, as "I own it" | the drive's list of the owner's own documents; documents the owner edited but does not own cannot be told apart |
+  | `viewed` (I viewed it) | yes | the recently opened documents list |
+  | I shared it | no | no read-only list of documents shared *by* the owner (the drive's shared view lists those shared *with* them) |
+  | I commented on it | no | the owner's own comments raise no notification, and finding them means reading every document's comments |
+
 - **Safety**: the selection never deletes or rewrites what is stored because a rule was turned off. An off rule only stops new writes; its lines keep `text_days`.
   A per-item `read: false` stops future reads only. Shorter days apply only once the user sets them. A ledger that does not read holds up no write, and that
   chat's lines are kept the most days any rule has.

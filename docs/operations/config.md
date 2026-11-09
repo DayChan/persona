@@ -372,7 +372,8 @@ A manager's own sections of the configuration are in its `manager.json`, not in 
   `GET` / `PUT /api/v1/kb/selection` (the whole document, validated; a read-only device gets 403) and `GET /api/v1/kb/selection/candidates?source=<connector id>`
   (a source's chats, for a per-item picker), or per chat with `kb_history_plan`; an app settings page is a follow-up. No document saved means the defaults: mentions of you, your own messages with 50 on each side, and direct messages,
   every rule's `days` null (`kb.text_days`) and attachments as `attachment_days` / `attachment_days_by_source` say. Turning a rule off only stops writing new lines;
-  what is stored is pruned by days alone, and shorter days apply only once you set them.
+  what is stored is pruned by days alone, and shorter days apply only once you set them. Documents (`docs` rules, per-item `doc` settings) had no retention
+  before the selection, so a document is deleted only once you set days for its rule or for it; with the defaults none is.
   The knowledge base belongs to the manager, which reads the whole section here (`ai` included: it is the default of its `kb.*` model purposes);
   an assistant run elsewhere (`assistant.external`) reads the `manager.json` on its own machine, and its `extra_dirs` are paths there (`docs/assistant/knowledge.md` ("Who owns what")).
 - `agents.triage`: triage after a round stops ([agent-work.md](../assistant/agent-work.md) ("Switches")). Switches are under **Settings › Session Triage** in the App (stored in the manager's settings, all off by default),
@@ -396,6 +397,15 @@ A manager's own sections of the configuration are in its `manager.json`, not in 
 
   Model selection is elsewhere: **Settings › Model Configuration › Question Delegation** (purpose `agent.delegate`). If never selected, it uses the "Information Filtering" connection with Opus 5.5 (`claude-opus-5-5`);
   change provider or model there, or use `PATCH /api/v1/model-config/purposes/agent.delegate` (`{"revision": <current>, "model": "claude-sonnet-5-5"}`); "Restore Defaults" returns to Opus.
+- `agents.review` (#2173): the independent review of a supervised task's finished change ([unified-entry.md](../assistant/unified-entry.md) ("Independent review")). **Off by default**, on once `launcher` names a launcher on the working agent's computer (pick one on another model than your agents'; there is no default reviewer).
+  `model` and `effort` (optional) override the launcher's own; `permission` is the reviewer's permission mode (default `plan`); `timeout_minutes` bounds one review (default 30). The reviewer works in a disposable copy of the change, so its permission mode is a second guard, not the only one. Example:
+
+  ```json
+  "agents": {
+    "review": { "launcher": "<launcher name>", "model": "<model id>" }
+  }
+  ```
+
 - `hook_timeout_minutes` (default 30, 0 or negative also means 30): maximum time Claude Code hooks wait for phone answers (questions, approvals); timeout hands control back to the terminal (`docs/integrations/claude-integration.md`).
 - `usage` (optional): subscription usage sources from an account-pool gateway (such as a relay), merged into the sidebar's usage bar (`docs/server/usage-windows.md` ("Account-pool gateways"), #2595).
   `usage.sources[]` (at most 8): `id`, `name` (source name in the sidebar), `type` (`relay` / `generic`; old type names are still read as `relay` and rewritten to the new name the next time this source is edited in the admin UI), `url`, `key` (the gateway's admin Key, **a secret: only in `manager.json` (0600)**, unreadable from the admin UI and APIs, absent from logs), `enabled` (false disables this source).

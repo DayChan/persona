@@ -65,8 +65,11 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized: () => void = () => {};
-export function handleUnauthorized(fn: () => void) {
+/** What a 401 does from now on; returns what it did before, for a caller that sets it only for a while. */
+export function handleUnauthorized(fn: () => void): () => void {
+  const before = onUnauthorized;
   onUnauthorized = fn;
+  return before;
 }
 
 /**

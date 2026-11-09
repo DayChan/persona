@@ -71,3 +71,20 @@ it("shows apply failures inside the dialog and clears errors on cancel and close
   await act(async () => root.unmount()); host.remove();
  }
 });
+
+it("lists a profile's Agent presets and says when none is in use", async () => {
+ await initI18n();
+ vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ revision: 1, profiles: [{ id: "economy", name: "economy", changes: [],
+  tiers: { review: { launcher: "fast", model: "m-review", effort: "high", description: "Code review" }, quick: { launcher: "claude" } } }] }), { status: 200 })));
+ const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+ const flush = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); }); };
+ try {
+  await act(async () => { root.render(<ModelProfiles onChanged={() => {}} />); }); await flush();
+  expect(host.textContent).toContain(t("settings-modelprofiles.none_active"));
+  act(() => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("economy"))!.click()); await flush();
+  const rows = [...document.querySelectorAll('[data-testid="model-profile-tiers"] li')].map((li) => li.textContent);
+  expect(rows).toEqual(["quickclaude", "reviewfast · m-review · highCode review"]);
+ } finally {
+  await act(async () => root.unmount()); host.remove();
+ }
+});

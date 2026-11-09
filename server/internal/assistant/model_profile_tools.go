@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
+
+	"github.com/nwverse/persona/server/internal/prompts"
 )
 
 // Profile tools expose the same operations as settings, without copying credentials into model context.
@@ -60,13 +61,23 @@ func (s *Service) applyStartTier(ctx context.Context, params map[string]any) err
 	launcher, _ := params["launcher"].(string)
 	model, _ := params["model"].(string)
 	effort, _ := params["effort"].(string)
-	// An explicit different model does not inherit effort intended for the tier's model.
-	if model != "" && model != t.Model {
-		t.Effort = ""
-	}
-	withTier(t, &launcher, &model, &effort)
+	layTier(t, &launcher, &model, &effort)
 	params["launcher"], params["model"], params["effort"] = launcher, model, effort
 	return nil
+}
+
+// layTier lays tier t over a start's launcher, model and effort, and says whether it gave them anything: not when the
+// start names a launcher of its own (withTier). An explicit different model does not inherit effort intended for the
+// tier's model.
+func layTier(t ModelTier, launcher, model, effort *string) bool {
+	if *launcher != "" && *launcher != t.Launcher {
+		return false
+	}
+	if *model != "" && *model != t.Model {
+		t.Effort = ""
+	}
+	withTier(t, launcher, model, effort)
+	return true
 }
 
 func (s *Service) applyTaskTier(ctx context.Context, t *PlanTask) error {
@@ -80,30 +91,42 @@ func (s *Service) applyTaskTier(ctx context.Context, t *PlanTask) error {
 	return nil
 }
 
-// Read this outside the ordinary source cache so every turn observes a switch, including a rollback to no profile.
-func (s *Service) modelProfileContext(ctx context.Context) string {
-	s.models.mu.Lock()
-	defer s.models.mu.Unlock()
+// modelProfileContext is the snapshot's model profile line: read outside the ordinary source cache so every turn
+// observes a switch, including a rollback to no profile, and a tier edited in the profile in use.
+func (s *Service) modelProfileContext(ctx context.Context) *prompts.SnapshotProfile {
+	s.models.mu.Lock() // the profiles and the state of one switch, not one from either side of it
+	p, active, err := s.activeModelProfile(ctx)
+	s.models.mu.Unlock()
+	switch {
+	case err != nil:
+		return &prompts.SnapshotProfile{Unreadable: true}
+	case p == nil && active != "":
+		return &prompts.SnapshotProfile{ID: active, Gone: true}
+	case p == nil:
+		return nil
+	}
+	out := &prompts.SnapshotProfile{ID: p.ID, Name: p.Name}
+	for _, name := range slices.Sorted(maps.Keys(p.Tiers)) {
+		t := p.Tiers[name]
+		out.Tiers = append(out.Tiers, prompts.SnapshotTier{Name: name, Launcher: t.Launcher, Model: t.Model, Effort: t.Effort, Description: t.Description})
+	}
+	return out
+}
+
+// activeModelProfile is the profile in use and its id, read without making the templates: nil with "" when none is,
+// nil with its id when it is gone (a rollback to a profile deleted since).
+func (s *Service) activeModelProfile(ctx context.Context) (*ModelProfile, string, error) {
 	ps, _, err := s.readModelProfiles(ctx)
 	if err != nil {
-		return "unavailable (model_profiles_list to retry)"
+		return nil, "", err
 	}
 	st, err := s.readModelProfileState(ctx)
 	if err != nil {
-		return "unavailable (model_profiles_list to retry)"
-	}
-	if st.Active == "" {
-		return ""
+		return nil, "", err
 	}
 	i := slices.IndexFunc(ps.Profiles, func(p ModelProfile) bool { return p.ID == st.Active })
-	if i < 0 {
-		return st.Active
+	if st.Active == "" || i < 0 {
+		return nil, st.Active, nil
 	}
-	p := ps.Profiles[i]
-	parts := []string{p.Name + " (" + p.ID + ")"}
-	for _, name := range slices.Sorted(maps.Keys(p.Tiers)) {
-		t := p.Tiers[name]
-		parts = append(parts, name+"="+t.Launcher+"/"+t.Model)
-	}
-	return strings.Join(parts, "; ")
+	return &ps.Profiles[i], st.Active, nil
 }

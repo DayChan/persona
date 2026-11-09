@@ -73,7 +73,7 @@ class PhoneToolRegistryTest {
                 assertTrue(summary.startsWith("新建日程「测试日程」\n")); assertTrue(summary.contains(" → "))
                 confirmations++
                 if (revokeOnConfirm) enabled = false
-                allow
+                if (allow) PhoneConfirmation.Allowed else PhoneConfirmation.Denied
             }, { _, _ -> executions++; PhoneToolResult.text("created") })
         val args = buildJsonObject {
             put("title", "测试日程"); put("start", "2026-11-01T10:00:00+08:00"); put("end", "2026-11-01T11:00:00+08:00")
@@ -102,10 +102,42 @@ class PhoneToolRegistryTest {
         assertEquals(3, confirmations)
     }
 
+    /** Only Deny is a refusal (#1875): nobody answering, or no way to ask, must not read as "the user declined". */
+    @Test fun aConfirmationNobodyAnsweredIsNotADecline() = runTest {
+        var outcome = PhoneConfirmation.Unanswered
+        var executions = 0
+        val registry = PhoneToolRegistry({ setOf(PhoneSource.Calendar) }, { true }, { true }, { _, _ -> true },
+            { outcome }, { _, _ -> executions++; PhoneToolResult.text("created") })
+        val args = buildJsonObject {
+            put("title", "测试日程"); put("start", "2026-11-01T10:00:00+08:00"); put("end", "2026-11-01T11:00:00+08:00")
+        }
+        val unanswered = registry.call(PhoneToolCall("unanswered", "phone_calendar_create_event", args))
+        assertTrue(unanswered.isError)
+        assertFalse(text(unanswered).contains(PhoneToolText.DECLINED))
+        assertTrue(text(unanswered).contains("within 90 seconds"))
+        assertTrue(text(unanswered).contains("This is not a refusal"))
+        outcome = PhoneConfirmation.NotShown
+        val notShown = registry.call(PhoneToolCall("not-shown", "phone_calendar_create_event", args))
+        assertTrue(notShown.isError)
+        assertFalse(text(notShown).contains(PhoneToolText.DECLINED))
+        assertTrue(text(notShown).contains("could not be shown on the phone"))
+        assertTrue(text(notShown).contains("Android Settings › Apps › Persona › Notifications"))
+        outcome = PhoneConfirmation.Withdrawn
+        val withdrawn = registry.call(PhoneToolCall("withdrawn", "phone_calendar_create_event", args))
+        assertEquals(text(PhoneToolText.interrupted()), text(withdrawn))
+        outcome = PhoneConfirmation.Denied
+        assertEquals(PhoneToolText.DECLINED, text(registry.call(PhoneToolCall("denied", "phone_calendar_create_event", args))))
+        assertEquals(0, executions)
+        // the same call delivered again gets the same answer, without asking again
+        outcome = PhoneConfirmation.Allowed
+        assertEquals(text(unanswered), text(registry.call(PhoneToolCall("unanswered", "phone_calendar_create_event", args))))
+        assertEquals(0, executions)
+    }
+
     @Test fun refusalsNameTheCurrentPageAndTheAndroidSetting() = runTest {
         var permitted = false
         val registry = PhoneToolRegistry({ PhoneSource.entries.toSet() }, { true }, { true }, { _, _ -> permitted },
-            { true }, { _, _ -> throw PhoneToolFailure(PhoneToolFailure.Kind.Denied, "通知 / Notifications.") })
+            { PhoneConfirmation.Allowed }, { _, _ -> throw PhoneToolFailure(PhoneToolFailure.Kind.Denied, "通知 / Notifications.") })
         val contacts = text(registry.call(PhoneToolCall("contacts", "phone_contacts_search", buildJsonObject {})))
         // The page that used to be Settings › Phone data is now Settings › Connectors › This phone.
         assertFalse(contacts.contains("手机数据") || contacts.contains("Phone data"))

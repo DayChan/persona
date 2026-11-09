@@ -11,8 +11,8 @@ import (
 
 func assertTriageSettingsJSON(t *testing.T, status int, body map[string]any, want TriageSwitches) {
 	t.Helper()
-	if status != http.StatusOK || len(body) != 4 || body["enabled"] != want.Enabled ||
-		body["auto_continue"] != want.AutoContinue || body["wake"] != want.Wake || body["decide"] != want.Decide {
+	if status != http.StatusOK || len(body) != 5 || body["enabled"] != want.Enabled ||
+		body["auto_continue"] != want.AutoContinue || body["wake"] != want.Wake || body["decide"] != want.Decide || body["tool_loop"] != want.ToolLoop {
 		t.Fatalf("triage settings: %d %v, want 200 %+v", status, body, want)
 	}
 }

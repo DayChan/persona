@@ -45,6 +45,7 @@ function ModelConfigurationForManager({ manager, open, onOpen, onProviders }: { 
 
   return (
     <>
+      <h2 className="mb-3 px-1 text-[15px] font-semibold text-ink">{t("settings-nav.tab_model_config")}</h2>
       <ModelProfiles manager={manager} onChanged={() => void load()} />
       <div className="mb-4 flex items-center gap-2">
         <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-control bg-surface px-3 shadow-btn focus-within:shadow-[inset_0_0_0_1px_var(--accent)]">

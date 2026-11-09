@@ -321,6 +321,12 @@ func snakeKeys(t testing.TB, at string, raw json.RawMessage, depth int) {
 			if !snake.MatchString(k) {
 				t.Fatalf("%s: key %q is not snake_case", at, k)
 			}
+			// These two catalog payloads belong to the upstream tool. Keep
+			// checking their surrounding protocol fields, including these keys.
+			if at == "connector.catalog.list.sources.tools" && k == "input_schema" ||
+				at == "connector.catalog.list.sources.recipes" && k == "args" {
+				continue
+			}
 			snakeKeys(t, at+"."+k, v, depth+1)
 		}
 		return

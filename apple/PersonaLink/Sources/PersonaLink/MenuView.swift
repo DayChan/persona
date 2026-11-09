@@ -15,6 +15,10 @@ struct MenuView: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 4)
             Divider().padding(.vertical, 6)
+            if let attention = model.status?.attention {
+                NeedsYouSection(model: model, attention: attention)
+                Divider().padding(.vertical, 6)
+            }
             VStack(spacing: 2) {
                 if !model.passive { // passive mode: the hub dials, there is nothing to dial again from here
                     MenuRow(title: "立即重连", symbol: "arrow.clockwise", disabled: !canReconnect) { model.reconnect() }
@@ -43,6 +47,9 @@ struct MenuView: View {
                     Text(note).font(.caption).foregroundStyle(.secondary).padding(.leading, 32).padding(.trailing, 8)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if model.status?.attention != nil || !model.webAddress.isEmpty {
+                    MenuRow(title: linkText("Set Web Address…"), symbol: "globe") { model.requestWebAddress() }
+                }
                 LoginRow(model: model)
             }
             .padding(.horizontal, 6)
@@ -55,6 +62,9 @@ struct MenuView: View {
         .frame(width: 300)
         .task {
             if now == nil { await model.refreshNodeService() } // not in snapshots: they show what they were given
+        }
+        .task {
+            if now == nil && model.status?.attention != nil { await LinkNotifier.shared.refreshAuthorization() }
         }
     }
 
@@ -279,27 +289,45 @@ struct MenuRow: View {
     var shortcut: String? = nil
     var disabled = false
     let action: () -> Void
-    @State private var hover = false
 
     var body: some View {
-        Button(action: action) {
+        MenuItem(disabled: disabled, action: action) { hover in
             HStack(spacing: 8) {
                 Image(systemName: symbol).frame(width: 16)
                 Text(title).lineLimit(1)
                 Spacer(minLength: 8)
-                if let shortcut { Text(shortcut).foregroundStyle(hover ? Color.white.opacity(0.8) : Color.secondary) }
+                if let shortcut { Text(shortcut).foregroundStyle(Color.menuSecondary(hover)) }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .foregroundStyle(hover && !disabled ? Color.white : (disabled ? Color.secondary : Color.primary))
-            .background(hover && !disabled ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        }
+    }
+}
+
+/// A menu item's look and behavior around its content: highlighted under the pointer (`content` gets whether it is).
+struct MenuItem<Content: View>: View {
+    var disabled = false
+    let action: () -> Void
+    @ViewBuilder let content: (_ hover: Bool) -> Content
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            content(hover && !disabled)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .foregroundStyle(hover && !disabled ? Color.white : (disabled ? Color.secondary : Color.primary))
+                .background(hover && !disabled ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .onHover { hover = $0 }
     }
+}
+
+extension Color {
+    /// Secondary text in a menu item, highlighted or not.
+    static func menuSecondary(_ hover: Bool) -> Color { hover ? .white.opacity(0.8) : .secondary }
 }
 
 struct LoginRow: View {
@@ -314,5 +342,105 @@ struct LoginRow: View {
                 Text(note).font(.caption).foregroundStyle(.secondary).padding(.leading, 32)
             }
         }
+    }
+}
+
+/// The hub's "Needs you" summary: the first sessions waiting on you, each opening in the web app, then how many more.
+struct NeedsYouSection: View {
+    let model: LinkModel
+    let attention: LinkAttention
+
+    /// The rows the menu lists; the rest are counted in the last row.
+    static let shown = 5
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(linkText("Needs You")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if let count = LinkAttention.countText(attention.needsYou) {
+                    Text(count)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .background(Color.red, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 2)
+            if attention.items.isEmpty && attention.more == 0 {
+                Label(linkText("Nothing needs you right now"), systemImage: "checkmark.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(StatusLabelStyle())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+            }
+            ForEach(attention.items.prefix(Self.shown)) { item in
+                AttentionRow(item: item) { model.open(route: item.route) }
+            }
+            let hidden = attention.hidden(shown: Self.shown)
+            if hidden > 0 {
+                MenuRow(title: linkText("And \(hidden) More…"), symbol: "ellipsis.circle") { model.open(route: "/") }
+            }
+            if model.notificationsOff {
+                note(linkText("Notifications are off for Persona Link."), symbol: "bell.slash")
+                MenuRow(title: linkText("Turn On Notifications…"), symbol: "gearshape") { model.openNotificationSettings() }
+            }
+            if model.webBase() == nil {
+                note(linkText("The hub does not say where its web app is: set its web address to open these."), symbol: "globe")
+            }
+        }
+        .padding(.horizontal, 6)
+    }
+
+    private func note(_ text: String, symbol: String) -> some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: symbol).frame(width: 16)
+        }
+        .labelStyle(StatusLabelStyle())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+    }
+}
+
+/// One session in "Needs you": its title, the card in a few words, where it runs; a muted one dimmed, with a muted bell.
+/// The hub clips title and place to 80 characters and the detail to 60: an English title fits its three lines; a longer
+/// one ends in an ellipsis, the whole of it in the tooltip.
+struct AttentionRow: View {
+    let item: LinkAttention.Item
+    let action: () -> Void
+
+    var body: some View {
+        MenuItem(action: action) { hover in
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: item.symbol).frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(item.title.isEmpty ? linkText("Needs You") : item.title)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if item.muted {
+                            Image(systemName: "bell.slash").font(.caption)
+                                .accessibilityLabel(linkText("Muted"))
+                        }
+                    }
+                    Text(item.line).font(.callout).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Color.menuSecondary(hover))
+                    if !item.place.isEmpty {
+                        Text(item.place).font(.caption).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(Color.menuSecondary(hover))
+                    }
+                }
+            }
+            .opacity(item.muted && !hover ? 0.6 : 1)
+        }
+        .help([item.title, item.line, item.place].filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 }

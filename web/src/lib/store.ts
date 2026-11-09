@@ -2,7 +2,7 @@ import { compatibleEnvelope, setCompatibilityFeatures } from "./compatibility";
 // App-wide state: what the hub pushes over the WebSocket (machines, sessions, interactions), plus the assistant.
 // Views read it with useStore(selector); per-session item streams go to listeners (ChatView subscribes).
 
-import { chosenManager, defaultKnown, defaultManager, fromShownManager, noteConversation, onDefaultManager, onManagerChoice, shownManager } from "./manager-choice";
+import { chosenManager, defaultKnown, defaultManager, fromShownManager, noteConversation, noteItemManager, onDefaultManager, onManagerChoice, shownManager } from "./manager-choice";
 import { BASE } from "./base";
 import { discardFeedCache, feedCacheScope, readFeedCache } from "./feed-cache";
 import { useRef, useSyncExternalStore } from "react";
@@ -1067,6 +1067,9 @@ function applyTodos(todos: PromiseSettledResult<{ todos: Todo[] }>, fresh: () =>
   if (!fresh()) return; // a later answer is in place, or this one belongs to a login reset() ended
   if (todos.status === "fulfilled") {
     const list = todos.value.todos ?? [];
+    for (const t of list) {
+      if (t.manager) noteItemManager(`/todos/${encodeURIComponent(t.id)}`, t.manager);
+    }
     return set({ todos: list, todosSupported: true, todosLoaded: true, todosError: null, spacesSupported: computeSpacesSupported(list) });
   }
   const reason = todos.reason;
@@ -1084,12 +1087,14 @@ export function setSpacesSupported(supported: boolean) {
 
 /** Puts a todo the hub just answered in place of the one we have (a retried task shows starting at once). */
 export function putTodo(todo: Todo) {
+  if (todo.manager) noteItemManager(`/todos/${encodeURIComponent(todo.id)}`, todo.manager);
   set({ todos: state.todos.map((t) => (t.id === todo.id ? { ...t, ...todo } : t)) });
 }
 
 /** Takes a todo the hub just deleted out of the list at once; a /todos answer asked for before the delete is older
  *  and must not put it back. */
 export function dropTodo(id: string) {
+  noteItemManager(`/todos/${encodeURIComponent(id)}`, undefined);
   todosAsked.forget();
   set({ todos: state.todos.filter((t) => t.id !== id) });
 }

@@ -1,6 +1,10 @@
 package persona.feature.settings
 
 import android.provider.Settings
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -47,11 +51,21 @@ internal fun AppUpdateNotice(state: AppUpdateState.State, onDismiss: () -> Unit,
 internal fun AppUpdateInstallButton(controller: AppUpdateState) {
     val context = LocalContext.current
     val state by controller.state.collectAsState()
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (context.packageManager.canRequestPackageInstalls()) {
+            controller.startInstall { AppInstaller.install(context.applicationContext, controller.api, it) }
+        } else controller.permissionRequired()
+    }
     JButton(stringResource(if (state.installing) R.string.settings_update_downloading else R.string.settings_update_install),
         enabled = !state.installing && !state.checking,
         onClick = {
             if (!context.packageManager.canRequestPackageInstalls()) {
-                PhoneReadiness.open(context, listOf(SettingsTarget(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageUri = true)))
+                try {
+                    permission.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${context.packageName}")))
+                } catch (error: android.content.ActivityNotFoundException) {
+                    android.util.Log.w("AppUpdate", "Install permission settings unavailable", error)
+                }
                 controller.permissionRequired()
             } else controller.startInstall { AppInstaller.install(context.applicationContext, controller.api, it) }
         })

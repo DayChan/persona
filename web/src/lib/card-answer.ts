@@ -4,7 +4,7 @@ import { t } from "../i18n";
 import { ApiError, enc, errorText } from "./api";
 import { endedText, type Resolution, type ResolveResult } from "./answered";
 import { fields } from "./elicitation";
-import { sessionCan } from "./format";
+import { interactionCanAnswer } from "./format";
 import { apiOp } from "./ops";
 import { endInteraction, getSession, keepDelegated } from "./store";
 import { isSecretRun } from "./tool-detail";
@@ -39,7 +39,7 @@ function redacted(ix: Interaction, body: Resolution): Resolution {
 }
 
 export async function answerCard(ix: Interaction, body: Resolution): Promise<CardAnswer> {
-  if (!sessionCan(getSession(ix.machine_id, ix.session_id), "approve")) return { ok: false, error: t("chat-interactions.approve_not_allowed") };
+  if (!interactionCanAnswer(ix, getSession(ix.machine_id, ix.session_id))) return { ok: false, error: t("chat-interactions.approve_not_allowed") };
   if (isSecretRun(ix) && !isSecretRunAnswer(body)) return { ok: false, error: t("chat-interactions.secret_run_card_only") };
   try {
     // one op id for this answer: sent again through a gap (a hub restart), it is taken once

@@ -44,7 +44,9 @@ type Supervision struct {
 	State         string       `json:"state"` // "" going on, or one of review*
 	Round         int          `json:"round"` // reworks so far
 	Reviews       []TaskReview `json:"reviews"`
-	UpdatedAt     time.Time    `json:"updated_at"`
+	// AutoReview is the latest independent review of its change (supervise_autoreview.go, #2173); nil when none ran.
+	AutoReview *AutoReview `json:"auto_review,omitempty"`
+	UpdatedAt  time.Time   `json:"updated_at"`
 	// Progress: what its agent last reported to the supervisor (report_to_supervisor, agent_control.go). A live
 	// reading kept in memory only (the next report brings it back after a restart), and apart from UpdatedAt, which
 	// names the review a task waits for.
@@ -65,6 +67,7 @@ type TaskProgress struct {
 type TaskReview struct {
 	At      time.Time     `json:"at"`
 	Verdict string        `json:"verdict"`
+	By      string        `json:"by,omitempty"`    // "reviewer": the independent reviewer's rework (#2173); "" the supervisor's
 	Round   int           `json:"round,omitempty"` // the rework round it started (rework)
 	Checks  []ReviewCheck `json:"checks,omitempty"`
 	Note    string        `json:"note,omitempty"`
@@ -94,6 +97,10 @@ func (v *Supervision) clone() *Supervision {
 		p := *v.Progress
 		out.Progress = &p
 	}
+	if v.AutoReview != nil {
+		a := *v.AutoReview
+		out.AutoReview = &a
+	}
 	return &out
 }
 
@@ -113,6 +120,7 @@ type supervisionStore interface {
 	ListTodoSupervision(ctx context.Context) ([]db.TodoSupervisionRow, error)
 	PutTodoSupervision(ctx context.Context, r db.TodoSupervisionRow) error
 	ReviewDoneTodo(ctx context.Context, id, reason string, accepted bool, at time.Time) (*db.TodoRow, bool, error)
+	LinkTodoReviewer(ctx context.Context, todoID, machineID, sessionID, title, cwd, via string, at time.Time) error
 }
 
 var _ supervisionStore = (*db.DB)(nil)
@@ -126,13 +134,23 @@ func supervisionFromRow(r db.TodoSupervisionRow) *Supervision {
 	v := &Supervision{Supervisor: r.Supervisor, DoneWhen: r.DoneWhen, ExpectMinutes: r.ExpectMinutes, State: r.State, Round: r.Round,
 		UpdatedAt: r.UpdatedAt}
 	_ = json.Unmarshal(r.Reviews, &v.Reviews)
+	if len(r.AutoReview) > 0 {
+		var a AutoReview
+		if json.Unmarshal(r.AutoReview, &a) == nil {
+			v.AutoReview = &a
+		}
+	}
 	return v.clone()
 }
 
 func (v *Supervision) row(todoID string) db.TodoSupervisionRow {
 	raw, _ := json.Marshal(v.Reviews)
+	var auto json.RawMessage
+	if v.AutoReview != nil {
+		auto, _ = json.Marshal(v.AutoReview)
+	}
 	return db.TodoSupervisionRow{TodoID: todoID, Supervisor: v.Supervisor, DoneWhen: v.DoneWhen, ExpectMinutes: v.ExpectMinutes,
-		State: v.State, Round: v.Round, Reviews: raw, UpdatedAt: v.UpdatedAt}
+		State: v.State, Round: v.Round, Reviews: raw, AutoReview: auto, UpdatedAt: v.UpdatedAt}
 }
 
 // cleanDoneWhen is a task's criteria as kept: trimmed, no empty or repeated ones, at most 6 of at most 200 characters.

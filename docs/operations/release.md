@@ -5,7 +5,7 @@ TestFlight internal testing (testers in the configured `app_store.testers`), plu
 ## Accounts and identifiers
 
 The product is Persona (previously under another product name), but the existing Bundle IDs, App Group, keychain groups, signing profile names and App Store Connect app record stay the same; don't recreate the App because of the rename.
-Since 2026-11-03 the store name in App Store Connect is **Persona Side** (formerly "Persona Herd"; the home screen still shows `CFBundleDisplayName`, Persona), and the privacy policy URL is `app_store.external.privacy_url` (the website's privacy policy page). The store name lives in the App Info localizations (`name` in `appInfoLocalizations`) and can be changed directly via the API while the version hasn't been submitted for review; see "Changing the store name" below. "Persona App Store" and "Persona Watch App Store" below are existing signing profile names and stay as they are; the generated project / targets and archive / `.app` products use the Persona name, and old project / scheme aliases and module identity are in [compatibility migration](rename.md). Historical build records keep the names of their time. New default config and `personad` / `personad` compatibility are in [naming and compatibility](config.md#命名与兼容).
+Since 2026-11-03 the store name in App Store Connect is **Persona Side** (formerly "Persona Herd"; the home screen still shows `CFBundleDisplayName`, Persona), and the privacy policy URL is `app_store.external.privacy_url` (the website's privacy policy page). The store name lives in the App Info localizations (`name` in `appInfoLocalizations`) and can be changed directly via the API while the version hasn't been submitted for review; see "Changing the store name" below. "Persona App Store" and "Persona Watch App Store" below are existing signing profile names and stay as they are; the generated project / targets and archive / `.app` products use the Persona name, and old project / scheme aliases and module identity are in [compatibility migration](rename.md). Historical build records keep the names of their time. New default config and `personad` / `personad` compatibility are in [naming and configuration](config.md#naming-and-configuration).
 
 All in the build config (`docs/operations/config.md`): `app.bundle_id` / `app.team_id`, `app_store.key_id` / `issuer_id` / `key_path` (the API key file lives only
 outside the repo, e.g. `~/.appstoreconnect/`), `app_store.app_id` (the app record's numeric ID), `app_store.testers`, `app_store.feedback_email`.
@@ -81,12 +81,11 @@ Install the worker in `~/.local/lib/persona-autorelease/`, its private JSON conf
 `persona-autorelease.timer` from `scripts/operations/` in `~/.config/systemd/user/`.
 Enable linger for the user if the service must survive logout. The timer checks every ten minutes and coalesces intervening commits.
 
-CI admission belongs to the PR head: require the automatic `CI required` check and every relevant manually selected full lane before
-merging. For this scripts-only automation change, dispatch `ci.yml` with `lanes=scripts` and verify that its script shards actually ran.
-Full server, Android, scripts, iOS and Mac tests are manual; unselected lanes are not evidence that those platforms passed.
+CI admission belongs to the PR's local verification: run every affected platform check and `scripts/privacy_check.py` before
+merging. PRs start no hosted checks. A scheduler explicitly dispatches full CI on `main`, including iOS and Mac; Mac remains
+independent of the `CI required` aggregate. Failures are fixed separately rather than being treated as local PR verification.
 The unattended worker consumes the newest already-merged `origin/main`, then applies path selection and local build/release verification.
-It neither waits for a full CI check on the main commit (none is automatically created) nor dispatches full platform CI on every timer tick.
-This keeps the release gate aligned with the PR-merge policy rather than waiting indefinitely for an obsolete main-branch check.
+It does not wait for the scheduled main CI result before releasing; the two checks are separate operational gates.
 
 Each target has its own last-success revision, path patterns, command argument vector, and timeout. Worker events are appended to
 `worker.log` in the private state directory; `log_output: true` additionally retains command output in mode-0600 per-step files
@@ -376,21 +375,23 @@ curl -fsSL <publish.site_url>/install.sh | sh   # install to ~/.persona/bin/pers
   The push relay is in the same Worker (`/relay/*`) and is redeployed on each publish too.
 - Push relay deployed (2026-11-02): resident `personad relay` + Cloudflare Tunnel + website Worker forwarding; public health, origin protection, registration and authentication verified.
   Release config needs `app.push_relay`; only a new TestFlight with the notification extension registers. Notification decryption on real devices still needs separate acceptance; see `docs/operations/push-relay.md`.
-- Not yet available (others can install, but it's still awkward; see `docs/operations/config.md`): one-step `personad setup` (hub currently needs manual Postgres and `hub.json` setup),
+- Not yet available (others can install, but it's still awkward; see `docs/operations/config.md`):
   Developer ID notarization of the macOS binary (browser downloads get blocked by Gatekeeper; `curl` doesn't).
 
-## Publishing the hub image (`.github/workflows/hub-image.yml`, 2026-11-01)
+## Publishing a release (`.github/workflows/release.yml`)
 
-Docker hubs (`docs/operations/docker.md`) use the ghcr image, linux/amd64 + linux/arm64:
+A `v*` tag publishes the hub container image and creates a GitHub Release. Docker hubs (`docs/operations/docker.md`) use the ghcr image, linux/amd64 + linux/arm64:
 
 ```sh
-git tag v1.2.0 && git push origin v1.2.0   # -> ghcr.io/<owner>/<repo>:1.2.0 and :latest
+git tag v1.2.0 && git push origin v1.2.0
+# -> ghcr.io/<owner>/<repo>:1.2.0 and :latest
+# -> GitHub Release v1.2.0 with generated notes
 ```
 
-- Smoke-test first (amd64 + compose), then build and push both architectures only after it passes. Prerelease tags containing `-` (`v1.3.0-rc1`) only push the version tag, without touching `latest`.
-
-- To get an image of the current branch without a tag: manually run hub image in Actions (`edge`, `sha-<commit>`).
-- PRs only run smoke tests, with no push (`packages: write` is granted only to the push step).
+- Smoke-test first (amd64 + compose), then build and push both architectures only after it passes. Once image publication succeeds, the same job creates a GitHub Release named for the full tag with automatically generated notes. Prerelease tags containing `-` (`v1.3.0-rc1`) only push the version image, without touching `latest`, and mark the GitHub Release as a prerelease. Creating the Release does not push another tag.
+- To get an image of the current branch without a tag or GitHub Release: manually run release in Actions (`edge`, `sha-<commit>`).
+- Image smoke tests run through an explicit workflow dispatch; only the documented `v*` release-tag event starts image and GitHub Release publication automatically (`packages: write` and `contents: write` are granted only to the publish job). This exception supplies the version and `latest` images used by Docker installations; no branch push or PR starts it. A manual dispatch never creates a GitHub Release.
+- If Release creation fails after the images were pushed, rerun the failed job for the same tag. Rebuilding and pushing the same immutable image tags does not advance `latest` to another source revision; fix any reported tag or Release conflict rather than creating a replacement tag.
 - The image's personad uses the tag minus `v` as its version (`personad version`); when node differs, the App prompts to redeploy, using the image's own builds or the release's (`docs/operations/docker.md` ("Node builds")).
 - The image's personad is on the `docker` channel: no skills (like all binaries), no self-update; a new image prompts you to pull it (`docs/operations/hub-update.md`).
 - When the repository is private, the package is private too; NAS installs need `docker login ghcr.io` (`docs/operations/docker.md` ("Image")).

@@ -260,7 +260,8 @@ internal fun AgentsScreen(
             },
         ) {
             item("search") {
-                JSearchField(page.settings.query, model::query, stringResource(R.string.agents_search_placeholder), Modifier.padding(bottom = Tokens.Space.xs))
+                val settings by model.listSettings.collectAsStateWithLifecycle()
+                JSearchField(settings.query, model::query, stringResource(R.string.agents_search_placeholder), Modifier.padding(bottom = Tokens.Space.xs))
             }
             if (groups.size > 1) item("groups") {
                 GroupFilterRow(groups, page.groupCounts, group, model::group)

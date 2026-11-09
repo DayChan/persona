@@ -485,7 +485,7 @@ func (s *Service) kbRound(ctx context.Context, e *kb.Engine, r *kbRounds) {
 	if daily {
 		r.prune = time.Now()
 		if n := e.Prune(time.Now()); n > 0 {
-			s.logf("kb: pruned %d day(s)", n)
+			s.logf("kb: pruned %d day(s) and document(s)", n)
 		}
 	}
 	s.kbRun(ctx, func() { s.kbPostsUpkeep(e, daily) })

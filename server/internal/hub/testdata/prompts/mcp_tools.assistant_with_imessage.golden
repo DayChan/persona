@@ -483,7 +483,7 @@
   },
   {
     "name": "agent_read",
-    "description": "Read the recent conversation of one agent (from agents_list): the user's messages, what the agent said, tool calls in short form. `turns` = how many recent exchanges (default 2, max 10).",
+    "description": "Read the recent conversation of one agent (from agents_list): the user's messages, what the agent said, tool calls in short form. `turns` = how many recent exchanges (default 2, max 10). Use it to answer the user's follow-ups about work an agent or task already did (its conclusion, a PR link, why it stopped) instead of asking the agent with agent_send, which makes it take another turn (a closed agent is resumed first) while the user waits.",
     "input_schema": {
       "type": "object",
       "required": [
@@ -625,7 +625,7 @@
         },
         "tier": {
           "type": "string",
-          "description": "Execution tier from the active model profile (strong, standard, fast, bulk, longread or a custom tier). Resolved at actual start. Explicit launcher/model/effort override its defaults."
+          "description": "An Agent preset: one of the tiers the snapshot's 模型档位 line lists for the profile in use, each with what it is for; pick the one whose description fits the work. Resolved before the user is asked, and the card shows it. Explicit launcher/model/effort override its values."
         },
         "effort": {
           "type": "string",
@@ -1276,7 +1276,7 @@
   },
   {
     "name": "model_profile_get",
-    "description": "Inspect one model profile by id. See its purpose bindings, launcher model fields and named execution tiers. Edit it through the model-profiles HTTP API; saving does not apply purpose or launcher settings.",
+    "description": "Inspect one model profile by id. See its purpose bindings, launcher model fields and named execution tiers (the Agent presets). Add, change or remove a tier with persona_settings key model_profiles.tiers; other fields are edited through the model-profiles HTTP API. Saving does not apply purpose or launcher settings.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1531,7 +1531,7 @@
                   "plan",
                   "bypassPermissions"
                 ],
-                "description": "permission mode; empty: the default"
+                "description": "permission mode; empty: the default for writable tasks. readonly=true always uses plan, overriding this field"
               },
               "ultracode": {
                 "type": "boolean",
@@ -1539,7 +1539,7 @@
               },
               "readonly": {
                 "type": "boolean",
-                "description": "true when the task only reads (looks things up, reads code, writes nothing anywhere)"
+                "description": "true when the task only reads (looks things up, reads code, does not change project files). Forces permission=plan, including retries and card edits; a launcher that cannot honor plan mode is refused"
               },
               "user_requested": {
                 "type": "boolean",
@@ -1568,7 +1568,7 @@
               },
               "tier": {
                 "type": "string",
-                "description": "Execution tier from the active model profile (strong, standard, fast, bulk, longread or a custom tier). Resolved at actual start. Explicit launcher/model/effort override its defaults."
+                "description": "An Agent preset: one of the tiers the snapshot's 模型档位 line lists for the profile in use, each with what it is for; pick the one whose description fits the work. Resolved when the task actually starts, with the profile in use then. Explicit launcher/model/effort override its values."
               },
               "effort": {
                 "type": "string",

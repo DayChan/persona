@@ -153,5 +153,17 @@
   "sent_interrupting": "Stopped \"{title}\" and sent",
   "sent_count_one": "{count} instruction sent",
   "sent_count_other": "{count} instructions sent",
-  "copy": "Copy"
+  "copy": "Copy",
+  "auto_review_title": "Independent review",
+  "auto_review_running": "In progress",
+  "auto_review_clean": "Nothing blocking",
+  "auto_review_blocking_one": "{count} blocking issue left",
+  "auto_review_blocking_other": "{count} blocking issues left",
+  "auto_review_failed": "Didn't finish",
+  "auto_review_findings_one": "{count} finding",
+  "auto_review_findings_other": "{count} findings",
+  "auto_review_show": "Show report",
+  "auto_review_hide": "Hide report",
+  "preset": "Preset {tier}",
+  "plan_edit_model_placeholder_tier": "Leave empty for preset {tier}'s model"
 }

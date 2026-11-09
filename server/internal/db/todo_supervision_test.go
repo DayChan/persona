@@ -32,6 +32,27 @@ func TestTodoSupervision(t *testing.T) {
 		got.State != "rework" || got.Round != 1 || !json.Valid(got.Reviews) || !got.UpdatedAt.Equal(now) {
 		t.Fatalf("row = %+v (%s)", got, got.Reviews)
 	}
+	if got.AutoReview != nil {
+		t.Fatalf("no review ran, auto_review = %s", got.AutoReview)
+	}
+	r.AutoReview = json.RawMessage(`{"id":"rv_1","state":"running","session_id":"s9"}`)
+	if err := d.PutTodoSupervision(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if list, err = d.ListTodoSupervision(ctx); err != nil || len(list) != 1 {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+	var run struct{ ID, State, SessionID string }
+	if err := json.Unmarshal(list[0].AutoReview, &run); err != nil || run.ID != "rv_1" || run.State != "running" {
+		t.Fatalf("auto_review = %s (%v)", list[0].AutoReview, err)
+	}
+	r.AutoReview = nil // written without a run: NULL again
+	if err := d.PutTodoSupervision(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = d.ListTodoSupervision(ctx); len(list) != 1 || list[0].AutoReview != nil {
+		t.Fatalf("after a write without a run: %+v", list)
+	}
 	if err := d.PutTodoSupervision(ctx, TodoSupervisionRow{TodoID: "nope", Supervisor: "main", UpdatedAt: now}); !errors.Is(err, ErrTodoNotFound) {
 		t.Fatalf("missing todo: %v", err)
 	}

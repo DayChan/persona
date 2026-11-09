@@ -70,8 +70,20 @@ func TestBuiltinPresetsAreComplete(t *testing.T) {
 		if p.Extension != "" {
 			t.Errorf("%s: plugin is set when served, not in the file", p.ID)
 		}
-		if p.Name == "" || p.Kind != "launcher" || p.API != "messages" {
-			t.Errorf("%s: name, kind launcher, api messages: %+v", p.ID, p)
+		if p.Name == "" {
+			t.Errorf("%s: no name", p.ID)
+		}
+		switch p.Kind {
+		case "launcher": // Claude Code runs on it: an Anthropic-compatible endpoint, with a small model
+			if p.API != "messages" || p.SmallModel == "" {
+				t.Errorf("%s: a launcher is on Messages with a small model: %+v", p.ID, p)
+			}
+		case "api": // the manager calls it directly (a vendor without a Messages endpoint): Bearer, no small model
+			if p.API != "responses" || p.Auth != "bearer" || p.SmallModel != "" {
+				t.Errorf("%s: a direct API is on Responses, Bearer, without a small model: %+v", p.ID, p)
+			}
+		default:
+			t.Errorf("%s: kind %q", p.ID, p.Kind)
 		}
 		if err := checkGateway(p.BaseURL); err != nil || !strings.HasPrefix(p.BaseURL, "https://") || strings.HasSuffix(p.BaseURL, "/") {
 			t.Errorf("%s: base_url %q is an https root without a trailing slash (%v)", p.ID, p.BaseURL, err)
@@ -79,10 +91,13 @@ func TestBuiltinPresetsAreComplete(t *testing.T) {
 		if p.Auth != "api_key" && p.Auth != "bearer" {
 			t.Errorf("%s: auth %q", p.ID, p.Auth)
 		}
-		if p.Model == "" || p.SmallModel == "" || len(p.Models) == 0 {
-			t.Errorf("%s: model, small model and the model list", p.ID)
+		if p.Model == "" || len(p.Models) == 0 {
+			t.Errorf("%s: model and the model list", p.ID)
 		}
 		for _, m := range []string{p.Model, p.SmallModel} {
+			if m == "" {
+				continue
+			}
 			if !slices.ContainsFunc(p.Models, func(x extension.ProviderModel) bool { return x.ID == m }) {
 				t.Errorf("%s: %s is not in its model list", p.ID, m)
 			}
@@ -228,6 +243,47 @@ func TestAddFromABuiltinPresetWithOnlyTheKey(t *testing.T) {
 	}
 }
 
+// A built-in direct API (a vendor without a Messages endpoint, such as Grok) is added with only the key as a provider
+// the manager calls itself, without a small model, and its key test speaks the preset's protocol.
+func TestAddFromABuiltinDirectAPIPreset(t *testing.T) {
+	var path string
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\"}\n\n"))
+	}))
+	defer gw.Close()
+	tested := 0
+	for _, b := range builtinPresets() {
+		p := b.LauncherPreset
+		if p.Kind != "api" {
+			continue
+		}
+		tested++
+		s, _, _ := modelService(t)
+		code, out := postLauncher(t, s, "en", `{"preset":"`+p.ID+`","name":"","display_name":"","api_key":"key-test"}`)
+		if code != 200 {
+			t.Fatalf("%s: %d %s", p.ID, code, out)
+		}
+		var v LauncherView
+		if err := json.Unmarshal(out["launcher"], &v); err != nil {
+			t.Fatal(err)
+		}
+		if v.Name != presetSlug(p.ID) || !v.HasKey || v.Kind != "api" || v.API != p.API || v.BaseURL != p.BaseURL ||
+			v.Model != presetModel(p) || v.SmallModel != "" {
+			t.Fatalf("%s: filled in from the preset: %+v", p.ID, v)
+		}
+		path = ""
+		res := probeResult(t, s, "/api/v1/launchers/test", `{"preset":"`+p.ID+`","base_url":"`+gw.URL+`","api_key":"`+fakeKey+`"}`)
+		if res["ok"] != true || res["model"] != presetModel(p) || path != "/v1/"+p.API {
+			t.Fatalf("%s: the key test on its protocol: %v (%s)", p.ID, res, path)
+		}
+	}
+	if tested == 0 {
+		t.Fatal("no built-in direct API to test (Grok was one)")
+	}
+}
+
 // Two providers the hub names from one preset tell apart in Model configuration; one the user named keeps that name.
 func TestProvidersFromOnePresetKeepDistinctNames(t *testing.T) {
 	s, f, _ := modelService(t)
@@ -343,6 +399,25 @@ func TestAssignOnlyChangesCategoriesStillAtTheirDefault(t *testing.T) {
 	}
 	if b, _ := s.resolveModel(ctx, "agent.new"); b.Provider != "launcher.claude" || b.Model != "claude-opus-5-5" {
 		t.Fatalf("Agents' choice kept: %+v", b)
+	}
+
+	// A direct API on Responses cannot run the main chat or Agents: both stay where they were (an older client may
+	// still ask).
+	s, f, _ = modelService(t)
+	f.presets = []LauncherPreset{{ID: "team/responses", Extension: "team", Name: "Responses", Kind: "api", API: "responses",
+		BaseURL: "https://api.example.com", Model: "r-large"}}
+	code, out = postLauncher(t, s, "zh-Hans", `{"preset":"team/responses","api_key":"sk-test","assign":["assistant","agent.new"]}`)
+	if code != 200 {
+		t.Fatalf("%d %s", code, out)
+	}
+	assigned, kept = keptOf(t, out)
+	if len(assigned) != 0 || !slices.Equal(kept, []keptPurpose{{"assistant", keptIncompatible}, {"agent.new", keptIncompatible}}) {
+		t.Fatalf("a direct API is not assigned: %v %v", assigned, kept)
+	}
+	for _, id := range []string{"assistant", "agent.new"} {
+		if b, _ := s.resolveModel(ctx, id); b.Provider == "launcher.responses" {
+			t.Fatalf("%s moved to a direct API: %+v", id, b)
+		}
 	}
 
 	// The main chat's launcher chosen in Settings › Assistant (or hub.json) is a choice too.

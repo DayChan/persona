@@ -13,6 +13,8 @@ import persona.core.contracts.api.AppUpdate
 import persona.core.contracts.api.AppUpdates
 import java.io.IOException
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [35])
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AppUpdateStateTest {
     @Before fun setMainDispatcher() { Dispatchers.setMain(StandardTestDispatcher()) }
@@ -121,11 +123,11 @@ class AppUpdateStateTest {
         model.install { downloads++ }
         model.check(manual = true)
         assertEquals(1, downloads)
-        assertEquals(1, api.calls)
+        assertEquals(2, api.calls)
         blocked.complete(Unit)
         job.join()
         assertFalse(model.state.value.installing)
-        assertEquals(R.string.settings_update_failed, model.state.value.message)
+        assertEquals(R.string.settings_update_install_failed, model.state.value.message)
         model.install { downloads++ }
         assertEquals(2, downloads)
         assertEquals(R.string.settings_update_verified, model.state.value.message)
@@ -215,4 +217,35 @@ class AppUpdateStateTest {
         saved.state(api).check()
         assertEquals(2, api.calls)
     }
+    @Test fun installRefreshesCachedMetadataBeforeDownloading() = runTest {
+        val current = release.copy(versionCode = 102, sha256 = "b".repeat(64))
+        val api = Api(current)
+        val model = AppUpdateState(api, 100, initialLatest = release)
+        var downloaded: AppUpdate? = null
+        model.install { downloaded = it }
+        assertEquals(current, downloaded)
+        assertEquals(current, model.state.value.latest)
+        assertEquals(1, api.calls)
+    }
+
+    @Test fun refreshFailureNeverDownloadsCachedReleaseAndCanRetry() = runTest {
+        val api = Api(release).apply { failure = IOException("offline") }
+        val model = AppUpdateState(api, 100, initialLatest = release)
+        var downloads = 0
+        model.install { downloads++ }
+        assertEquals(0, downloads)
+        assertEquals(R.string.settings_update_metadata_failed, model.state.value.message)
+        api.failure = null
+        model.install { downloads++ }
+        assertEquals(1, downloads)
+    }
+
+    @Test fun eachFailureStageHasItsOwnActionableMessage() = runTest {
+        val model = AppUpdateState(Api(release), 100, initialLatest = release)
+        for (stage in UpdateStage.entries) {
+            model.install { throw AppUpdateFailure(stage, IOException("fixture")) }
+            assertEquals(stage.message, model.state.value.message)
+        }
+    }
+
 }

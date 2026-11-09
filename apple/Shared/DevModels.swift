@@ -60,9 +60,12 @@ nonisolated struct GitStatus: Codable, Hashable, Sendable {
     var files: [GitFile]
     var stashes: Int
     var commits: [GitCommit]
+    /// The upstream was deleted on the remote (a merged pull request's branch): ahead and behind are 0 and mean
+    /// nothing. Older nodes leave it out.
+    var gone: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case root, branch, head, upstream, ahead, behind, files, stashes, commits
+        case root, branch, head, upstream, ahead, behind, files, stashes, commits, gone
         case isRepo = "is_repo"
     }
 }

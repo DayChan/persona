@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/nwverse/persona/server/internal/i18n"
 )
@@ -30,11 +32,37 @@ func (h *Hub) androidAppLatest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var release map[string]json.RawMessage
+	if err := json.Unmarshal(b, &release); err != nil {
+		writeErr(w, http.StatusInternalServerError, i18n.Err("hub-androidapp.bad_manifest"))
+		return
+	}
+	var checksum string
+	if err := json.Unmarshal(release["sha256"], &checksum); err != nil || !validAPKDigest(checksum) {
+		writeErr(w, http.StatusInternalServerError, i18n.Err("hub-androidapp.bad_manifest"))
+		return
+	}
+	// Existing clients already honor download_url, including its query string.
+	release["download_url"] = json.RawMessage(strconv.Quote("/api/v1/app/android/apk?sha256=" + strings.ToLower(checksum)))
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, _ = w.Write(b)
+	if err := json.NewEncoder(w).Encode(release); err != nil {
+		h.logger.Printf("android update metadata response: %v", err)
+		return
+	}
 }
 
 func (h *Hub) androidAppAPK(w http.ResponseWriter, r *http.Request) {
+	dir := filepath.Join(h.cfg.dir, "apps", "android")
+	checksum := r.URL.Query().Get("sha256")
+	if checksum != "" {
+		if !validAPKDigest(checksum) {
+			writeErr(w, http.StatusBadRequest, i18n.Err("hub-androidapp.bad_manifest"))
+			return
+		}
+		h.serveAndroidAPK(w, r, dir, strings.ToLower(checksum))
+		return
+	}
 	b, dir, ok := h.androidAppManifest(w)
 	if !ok {
 		return
@@ -49,7 +77,16 @@ func (h *Hub) androidAppAPK(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, i18n.Err("hub-androidapp.bad_manifest"))
 		return
 	}
-	f, err := os.Open(filepath.Join(dir, release.SHA256+".apk"))
+	h.serveAndroidAPK(w, r, dir, release.SHA256)
+}
+
+func validAPKDigest(value string) bool {
+	digest, err := hex.DecodeString(value)
+	return err == nil && len(digest) == 32
+}
+
+func (h *Hub) serveAndroidAPK(w http.ResponseWriter, r *http.Request, dir, checksum string) {
+	f, err := os.Open(filepath.Join(dir, checksum+".apk"))
 	if err != nil {
 		androidAppError(w, err)
 		return
@@ -62,7 +99,7 @@ func (h *Hub) androidAppAPK(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 	w.Header().Set("Content-Disposition", `attachment; filename="persona.apk"`)
-	w.Header().Set("ETag", `"`+release.SHA256+`"`)
+	w.Header().Set("ETag", `"`+checksum+`"`)
 	http.ServeContent(w, r, "persona.apk", info.ModTime(), f)
 }
 

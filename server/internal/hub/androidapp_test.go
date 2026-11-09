@@ -66,8 +66,28 @@ func TestAndroidAppRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if w := request("latest", token, ""); w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), manifest) {
+	if w := request("latest", token, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "apk?sha256="+digest) {
 		t.Fatalf("latest: %d %s", w.Code, w.Body)
+	}
+
+	// A cached manifest must keep downloading its own APK after a newer publication.
+	newer := bytes.Replace(manifest, []byte(digest), []byte(strings.Repeat("a", 64)), 1)
+	if err := os.WriteFile(filepath.Join(dir, "latest.json"), newer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if w := request("apk?sha256="+digest, token, ""); w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), apk) {
+		t.Fatalf("pinned download after publication: %d %s", w.Code, w.Body)
+	}
+	for _, bad := range []string{"../latest.json", strings.Repeat("g", 64), "abc"} {
+		if w := request("apk?sha256="+url.QueryEscape(bad), token, ""); w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid digest: %d", w.Code)
+		}
+	}
+	if w := request("apk?sha256="+strings.Repeat("b", 64), token, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("missing pinned APK: %d", w.Code)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "latest.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	w := request("apk?token="+url.QueryEscape(token), "", "bytes=2-5")
 	if w.Code != http.StatusPartialContent || w.Body.String() != "2345" || w.Header().Get("Content-Range") != "bytes 2-5/10" {

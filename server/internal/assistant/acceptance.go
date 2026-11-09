@@ -372,8 +372,8 @@ func (s *Service) acceptReply(ctx context.Context, messageID, text string, media
 		}
 		if ok, err := s.acceptTry(ctx, id, ""); errors.Is(err, errAcceptStore) {
 			s.botNote(ctx, messageID, i18n.T(l, "http-status.unavailable"))
-		} else if err != nil {
-			s.botNote(ctx, messageID, i18n.T(l, "assistant-reports.accept_not_sent", i18n.Args{"error": clip(oneLine(err.Error()), 120)}))
+		} else if err != nil { // the recommendation did not reach the agent: nothing recorded, "OK" can be said again
+			s.botNote(ctx, messageID, i18n.T(l, "assistant-reports.accept_not_taken", i18n.Args{"error": clip(oneLine(i18n.Localize(err, l)), 120)}))
 		} else if ok {
 			s.botNote(ctx, messageID, acceptedNote(l, &ask))
 		}

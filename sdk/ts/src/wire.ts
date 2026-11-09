@@ -270,12 +270,25 @@ export interface Permissions {
    * user names, machine names or IP addresses). Needed by contributes.error_reports.
    */
   error_reports?: boolean;
+  storage?: StoragePermission;
   /**
    * It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
    * printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
    * contributes.auth_relay.
    */
   auth_relay?: boolean;
+}
+
+/**
+ * Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+ * prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+ * host quotas. Queue and blob methods additionally require their flags.
+ */
+export interface StoragePermission {
+  keys?: string[];
+  patterns?: string[];
+  queues?: boolean;
+  blobs?: boolean;
 }
 
 /**
@@ -3027,24 +3040,113 @@ export interface MessagingError {
 }
 
 /**
+ * catalog.list: subscribable sources. An empty catalog is an empty sources list.
+ */
+export interface ConnectorCatalog {
+  sources: ConnectorCatalogSource[];
+}
+
+/**
+ * A stable source id, independent of its display name. Tool names are short and unique within this source.
+ */
+export interface ConnectorCatalogSource {
+  id: string;
+  name: string;
+  icon?: NavIcon;
+  service?: string;
+  min_interval_seconds?: number;
+  /** A shared connector/account budget, across all its sources. */
+  max_calls_per_hour?: number;
+  tools: ConnectorCatalogTool[];
+  recipes?: ConnectorSubscriptionRecipe[];
+}
+
+export interface ConnectorCatalogTool {
+  name: string;
+  title?: string;
+  description: string;
+  /** A JSON object containing the tool input schema. */
+  input_schema: unknown;
+  read_only: boolean;
+  annotations?: ConnectorCatalogAnnotations;
+}
+
+/**
+ * When present, hints must agree with read_only: true and destructive: false.
+ */
+export interface ConnectorCatalogAnnotations {
+  read_only_hint?: boolean;
+  destructive_hint?: boolean;
+}
+
+/**
+ * catalog.call: a source and one of its read-only short tool names. args is an object, default {}.
+ */
+export interface ConnectorCatalogCallParams {
+  contribution: string;
+  source: string;
+  tool: string;
+  args?: unknown;
+}
+
+export type ConnectorSubscriptionMode = "items" | "snapshot" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_MODES = ["items", "snapshot"] as const;
+
+export type ConnectorSubscriptionGroup = "source" | "thread" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_GROUPS = ["source", "thread"] as const;
+
+export type ConnectorSubscriptionKind = "sub_mail" | "sub_message" | "sub_notice" | "sub_deadline" | "sub_event" | "sub_update" | "sub_digest" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_KINDS = ["sub_mail", "sub_message", "sub_notice", "sub_deadline", "sub_event", "sub_update", "sub_digest"] as const;
+
+/**
+ * Paths relative to one item. Only $, .field and [index] are supported; no expressions or recursive descent.
+ */
+export interface ConnectorSubscriptionFields {
+  id?: string;
+  thread?: string;
+  title?: string;
+  sender?: string;
+  time?: string;
+  body?: string;
+  link?: string;
+  due_date?: string;
+}
+
+/**
+ * A pull recipe, not a schedule. args is an object (default {}); strings may contain {{since}} or {{since_date}}.
+ * items_path defaults to $; fields are relative to one item. Text results require snapshot mode. Runtime
+ * argument/schema and mapped-value validation belongs to the subscription runner.
+ */
+export interface ConnectorSubscriptionRecipe {
+  mode: ConnectorSubscriptionMode;
+  tool: string;
+  args?: unknown;
+  items_path?: string;
+  fields?: ConnectorSubscriptionFields;
+  kind: ConnectorSubscriptionKind;
+  group_by: ConnectorSubscriptionGroup;
+}
+
+/**
  * error.code a program answers or gets besides the base ErrorCode: rate_limited (tools.call / actions.do, and the
  * hub's answer to too many sent.record; data {retry_after} in seconds, fractional allowed), why credentials.gh_token
  * has no token, and what recall answers: not_recallable (nothing was sent: the program cannot take that message back)
  * and recall_unknown (the request may have taken effect). not_signed_in, offline and rate_limited also say that
- * recall could not act now.
+ * recall could not act now. not_read_only refuses a catalog.call outside the current read-only catalog.
  */
-export type ConnectorErrorCode = "rate_limited" | "no_machine" | "offline" | "node_too_old" | "no_gh" | "not_signed_in" | "not_recallable" | "recall_unknown" | (string & {});
-export const CONNECTOR_ERROR_CODES = ["rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown"] as const;
+export type ConnectorErrorCode = "rate_limited" | "no_machine" | "offline" | "node_too_old" | "no_gh" | "not_signed_in" | "not_recallable" | "recall_unknown" | "not_read_only" | (string & {});
+export const CONNECTOR_ERROR_CODES = ["rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown", "not_read_only"] as const;
 
 /**
  * What a connector declares (ConnectorItem.capabilities): the hub calls only the methods of declared ones. fallback
  * has no method: every inbox thing promises extra.rule_tier. recall is the program's word that it can take back what
  * it sent: the hub then calls connector.recall (only after the user agreed), and the install preview says so. history
- * (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. An
- * extension's connector with one this hub does not know loses only that capability.
+ * (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. catalog
+ * lists subscribable read-only sources and calls their short tool names. An extension's connector with one this hub
+ * does not know loses only that capability.
  */
-export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | "history" | "history_anchors" | (string & {});
-export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors"] as const;
+export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | "history" | "history_anchors" | "catalog" | (string & {});
+export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors", "catalog"] as const;
 
 /**
  * ConnectorStatus.state. disabled is the hub's own (the user switched it off); a program never answers it.
@@ -4828,6 +4930,185 @@ export interface AssistantMessagesResult {
   next_seq?: number;
 }
 
+export interface StorageEmptyParams {
+}
+
+/**
+ * Opaque timestamped request identity from the host. Retry only the same ID and payload; expires after five minutes
+ * and is never automatically regenerated for an unknown effect.
+ */
+export interface StorageRequestResult {
+  request_id: string;
+}
+
+export interface StorageKeyParams {
+  key: string;
+}
+
+/**
+ * Canonical base64 business bytes, at most64KiB decoded; revision is an opaque CAS token.
+ */
+export interface StorageEntry {
+  revision: string;
+  data: string;
+}
+
+export interface StorageListParams {
+  prefix?: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface StorageMutationItem {
+  key: string;
+  revision?: string;
+  deleted?: boolean;
+  job_id?: string;
+}
+
+export interface StorageListResult {
+  items: StorageMutationItem[];
+  more: boolean;
+}
+
+/**
+ * One atomic operation. Empty revision means require absence; missing revision is unconditional. Queue enqueue/ack
+ * require separate queue permission; their job and progress changes commit atomically.
+ */
+export interface StorageOperation {
+  kind: string;
+  key: string;
+  data?: string;
+  revision?: string;
+  dedup?: string;
+  not_before?: number;
+  job_id?: string;
+  lease?: string;
+}
+
+export interface StorageTransactionParams {
+  request_id: string;
+  operations: StorageOperation[];
+}
+
+export interface StorageTransactionResult {
+  items: StorageMutationItem[];
+}
+
+export interface StorageQueueListParams {
+  key: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface StorageJob {
+  id: string;
+  dedup: string;
+  data: string;
+  state: string;
+  not_before: number;
+  attempts: number;
+  lease?: string;
+  lease_until?: number;
+}
+
+export interface StorageQueueListResult {
+  items: StorageJob[];
+  more: boolean;
+}
+
+export interface StorageEnqueueParams {
+  request_id: string;
+  key: string;
+  dedup: string;
+  data: string;
+  not_before?: number;
+}
+
+export interface StorageJobResult {
+  id: string;
+  state?: string;
+}
+
+export interface StorageClaimParams {
+  request_id: string;
+  key: string;
+  lease_seconds: number;
+}
+
+/**
+ * One claimed job; job is absent when no pending job is due.
+ */
+export interface StorageClaimResult {
+  job?: StorageJob;
+}
+
+export interface StorageSettleParams {
+  request_id: string;
+  key: string;
+  id: string;
+  lease?: string;
+}
+
+export interface StorageRetryParams {
+  request_id: string;
+  key: string;
+  id: string;
+  lease: string;
+  not_before: number;
+}
+
+export interface StorageDeleteResult {
+  deleted: boolean;
+}
+
+export interface StorageBlobCreateParams {
+  request_id: string;
+  key: string;
+}
+
+export interface StorageBlobCreateResult {
+  handle: string;
+}
+
+export interface StorageBlobWriteParams {
+  request_id: string;
+  key: string;
+  handle: string;
+  offset: number;
+  data: string;
+}
+
+export interface StorageBlobWriteResult {
+  bytes: number;
+}
+
+export interface StorageBlobMutateParams {
+  request_id: string;
+  key: string;
+  handle: string;
+}
+
+export interface StorageBlobFinishResult {
+  handle: string;
+  bytes: number;
+  complete: boolean;
+}
+
+export interface StorageBlobReadParams {
+  key: string;
+  handle: string;
+  offset: number;
+  limit: number;
+}
+
+export interface StorageBlobReadResult {
+  data: string;
+  offset: number;
+  bytes: number;
+  eof: boolean;
+}
+
 /**
  * Bounded JSON scalar, not executable content. Strings at most 4096 code points; finite numbers in the JSON-safe
  * range.
@@ -5173,6 +5454,8 @@ export interface Call {
 export const CALLS: Record<string, Call> = {
   "connector.status": { from: "hub", params: "ConnectorParams", result: "ConnectorStatus" },
   "connector.manifest": { from: "hub", params: "ConnectorParams", result: "ConnectorManifest" },
+  "connector.catalog.list": { from: "hub", params: "ConnectorParams", result: "ConnectorCatalog" },
+  "connector.catalog.call": { from: "hub", params: "ConnectorCatalogCallParams", result: "ConnectorCallResult" },
   "connector.tools.list": { from: "hub", params: "ConnectorParams", result: "ConnectorTools" },
   "connector.tools.call": { from: "hub", params: "ConnectorCallParams", result: "ConnectorCallResult" },
   "connector.actions.list": { from: "hub", params: "ConnectorParams", result: "ConnectorTools" },
@@ -5231,4 +5514,19 @@ export const CALLS: Record<string, Call> = {
   "model.complete": { from: "program", params: "ModelCompleteParams", result: "ModelCompleteResult" },
   "assistant.conversations": { from: "program", params: "AssistantConversationsParams", result: "AssistantConversationsResult" },
   "assistant.messages": { from: "program", params: "AssistantMessagesParams", result: "AssistantMessagesResult" },
+  "storage.request": { from: "program", params: "StorageEmptyParams", result: "StorageRequestResult" },
+  "storage.get": { from: "program", params: "StorageKeyParams", result: "StorageEntry" },
+  "storage.list": { from: "program", params: "StorageListParams", result: "StorageListResult" },
+  "storage.transaction": { from: "program", params: "StorageTransactionParams", result: "StorageTransactionResult" },
+  "storage.queue.list": { from: "program", params: "StorageQueueListParams", result: "StorageQueueListResult" },
+  "storage.queue.enqueue": { from: "program", params: "StorageEnqueueParams", result: "StorageJobResult" },
+  "storage.queue.claim": { from: "program", params: "StorageClaimParams", result: "StorageClaimResult" },
+  "storage.queue.ack": { from: "program", params: "StorageSettleParams", result: "StorageJobResult" },
+  "storage.queue.forget": { from: "program", params: "StorageSettleParams", result: "StorageDeleteResult" },
+  "storage.queue.retry": { from: "program", params: "StorageRetryParams", result: "StorageJobResult" },
+  "storage.blob.create": { from: "program", params: "StorageBlobCreateParams", result: "StorageBlobCreateResult" },
+  "storage.blob.write": { from: "program", params: "StorageBlobWriteParams", result: "StorageBlobWriteResult" },
+  "storage.blob.finish": { from: "program", params: "StorageBlobMutateParams", result: "StorageBlobFinishResult" },
+  "storage.blob.delete": { from: "program", params: "StorageBlobMutateParams", result: "StorageDeleteResult" },
+  "storage.blob.read": { from: "program", params: "StorageBlobReadParams", result: "StorageBlobReadResult" },
 };

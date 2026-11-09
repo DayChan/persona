@@ -10,7 +10,7 @@ import { BUSY_MOTION, spinStyle } from "../../lib/busy-motion";
 import type { Interaction } from "../../lib/types";
 import { defaults, elicitationDraft, elicitationResolution, elicitationSource, fields, numberInputMode, saveElicitationDraft, urlHost, urlTarget, validate, type ElicitationAction, type Field, type Values } from "../../lib/elicitation";
 import { answerLines } from "../../lib/answered";
-import { sessionCan, sessionTitle } from "../../lib/format";
+import { interactionCanAnswer, sessionTitle } from "../../lib/format";
 import { interactionAsk } from "../../lib/inbox";
 import { plainMarkdown } from "../../lib/plain-markdown";
 import { mcpServerLabel, toolDisplayName } from "../../lib/turns";
@@ -89,10 +89,13 @@ type CardKeys = ReturnType<typeof useCardKeys>;
  * `cardKeys`: the card's own keyboard (useCardKeys); without it the card is only reachable by pointer, as before.
  * `shrink-0`: the box above the input scrolls (ChatView's dock), and a card with `overflow-hidden` would otherwise let
  * flex squeeze it below its content — its footer (the very buttons that answer it) out of sight below the fold.
+ * `overflow-clip` rather than `overflow-hidden`: it clips to the rounded corners the same, but is not a scroll container,
+ * so the footer's `sticky` follows the dock's scrolling and the buttons stay at its bottom edge while the card is taller
+ * than the dock. `-bottom-1` cancels the dock's `p-1` (`bottom-0` would leave 4px of the body under the buttons).
  */
 function Card({ title, kicker, onDismiss, busy, children, footer, looking = false, cardKeys }: { title: string; kicker: string; onDismiss?: () => void; busy?: boolean; children: React.ReactNode; footer: React.ReactNode; looking?: boolean; cardKeys?: CardKeys }) {
   return (
-    <div {...(cardKeys?.root ?? {})} aria-label={title} className="shrink-0 overflow-hidden rounded-card bg-surface shadow-card outline-none focus-visible:ring-2 focus-visible:ring-accent" style={{ animation: `fade-up 350ms ${EASE} both` }}>
+    <div {...(cardKeys?.root ?? {})} aria-label={title} className="shrink-0 overflow-clip rounded-card bg-surface shadow-card outline-none focus-visible:ring-2 focus-visible:ring-accent" style={{ animation: `fade-up 350ms ${EASE} both` }}>
       <div className="px-3.5 pt-3 pb-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -119,7 +122,7 @@ function Card({ title, kicker, onDismiss, busy, children, footer, looking = fals
         <div className="mt-2">{children}</div>
       </div>
       {/* data-card-actions: what answers the card (with hand back above), for the sync scenarios (spec/fixtures/sync) */}
-      <div data-card-actions className="flex items-center justify-between gap-2 border-t border-line bg-inset px-3 py-2">{footer}</div>
+      <div data-card-actions className="sticky -bottom-1 flex items-center justify-between gap-2 border-t border-line bg-inset px-3 py-2">{footer}</div>
     </div>
   );
 }
@@ -151,6 +154,40 @@ function SendArrow({ ready, onClick, label, busy, kbd }: { ready: boolean; onCli
         <Icon name="up" size={14} stroke={2.5} />
       </button>
     </span>
+  );
+}
+
+function ToolLoopCard({ ix }: { ix: Interaction }) {
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  const keys = useCardKeys();
+  const q = ix.questions?.[0];
+  const options = q?.options;
+  if (!q || !options || options.length !== 2) return null;
+  const send = async (label: string) => {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    try {
+      await resolve(ix, { answers: { [q.question]: label } });
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  };
+  return (
+    <Card
+      kicker={t("chat-interactions.tool_loop_kicker")}
+      title={q.question}
+      cardKeys={keys}
+      footer={options.map((option, i) => (
+        <Button key={i} tone={i === 0 ? "quiet" : "primary"} className="min-w-0 shrink" title={option.label} disabled={busy} onClick={() => void send(option.label)}>
+          <span className="truncate">{option.label}</span>
+        </Button>
+      ))}
+    >
+      {null}
+    </Card>
   );
 }
 
@@ -795,7 +832,7 @@ function ElicitationCard({ ix }: { ix: Interaction }) {
   // a card that moves on the page (the one above it answered) is drawn anew: it picks up what was typed and opened
   const [values, setValues] = useState<Values>(() => elicitationDraft(ix.id)?.values ?? defaults(form?.requested_schema));
   const [opened, setOpened] = useState<string | undefined>(() => elicitationDraft(ix.id)?.opened);
-  const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
+  const canApprove = useStore(() => interactionCanAnswer(ix, getSession(ix.machine_id, ix.session_id)));
   useEffect(() => saveElicitationDraft(ix.id, form?.requested_schema, { values, opened }), [ix.id, form?.requested_schema, values, opened]);
   const [busy, setBusy] = useState<ElicitationAction | "dismiss" | null>(null);
   const go = async (body: Record<string, unknown>, key: ElicitationAction | "dismiss") => {
@@ -965,7 +1002,7 @@ export function AnsweredCard({ card }: { card: Answered }) {
   // allowed, not only that something was
   const about = lines.length === 1 && !lines[0].label && card.resolution.dismiss !== true ? receiptAbout(card.ix) : "";
   return (
-    <div role="status" data-answered={card.ix.id} className="overflow-hidden rounded-card bg-surface px-3.5 py-2.5 shadow-card" style={{ animation: `fade-up 300ms ${EASE} both` }}>
+    <div role="status" data-answered={card.ix.id} className="shrink-0 overflow-hidden rounded-card bg-surface px-3.5 py-2.5 shadow-card" style={{ animation: `fade-up 300ms ${EASE} both` }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-green">
@@ -997,8 +1034,9 @@ export function AnsweredCard({ card }: { card: Answered }) {
 }
 
 export function InteractionCard({ ix }: { ix: Interaction }) {
-  const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
-  const card = ix.kind === "question" ? <QuestionCard ix={ix} />
+  const canApprove = useStore(() => interactionCanAnswer(ix, getSession(ix.machine_id, ix.session_id)));
+  const card = ix.kind === "question" && ix.tool_name === "persona_tool_loop" ? <ToolLoopCard key={ix.id} ix={ix} />
+    : ix.kind === "question" ? <QuestionCard ix={ix} />
     : ix.kind === "plan" ? <PlanCard ix={ix} />
     : isSecretRun(ix) ? <SecretRunCard key={ix.id} ix={ix} />
     : ix.kind === "permission" ? <PermissionCard ix={ix} />

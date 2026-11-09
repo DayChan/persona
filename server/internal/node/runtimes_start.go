@@ -30,6 +30,11 @@ func (n *Node) runtimeStart(ctx context.Context, p runtimeStartParams) (*proto.S
 // and what the form chose with it (model, permission mode, effort), the session to continue. Fields are sent only when
 // set: a runtime that knows none of them still starts its own way.
 func (n *Node) runtimeStartOn(ctx context.Context, h *runtimeConn, p runtimeStartParams) (*proto.Session, error) {
+	if p.PermissionMode == "plan" {
+		// Runtime starts have no contract to enforce this mode before the first prompt.
+		// Even a listed Claude provider may disappear and fall back to a writable provider.
+		return nil, readonlyStartUnsupported()
+	}
 	ctx, cancel := context.WithTimeout(ctx, runtimeCallTimeout)
 	defer cancel()
 	params := map[string]any{"cwd": p.Cwd, "prompt": p.Prompt}

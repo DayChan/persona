@@ -507,7 +507,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
 ### Docker (step 4)
 
 - **Which image to check**: compose passes `.env`'s `PERSONA_IMAGE` into the container, and that is what the hub checks; if absent (old compose files), use the build-time
-  `main.image` (`hub-image.yml` passes `ghcr.io/<owner>/<repo>`, not hard-coded).
+  `main.image` (`release.yml` passes `ghcr.io/<owner>/<repo>`, not hard-coded).
 - **How to check**: registry `GET /v2/<repo>/tags/list`; first obtain a pull token as directed by its `WWW-Authenticate` response (public images allow anonymous access, both ghcr.io
   and Docker Hub do this), and follow `Link` for pagination. Only recognize `X.Y.Z`, and take the highest; it counts as a "new image" only if newer than the hub's own version. Its own version must also be `X.Y.Z`
   (or a prerelease such as `-rc1`): a manually built `edge` image uses `git describe`, is newer than the tag, and cannot be compared, so only the latest stable version is shown.
