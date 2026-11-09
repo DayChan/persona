@@ -97,7 +97,7 @@ final class RecentScreenshotUITests: XCTestCase {
         case "settings":
             XCTAssertTrue(guide.waitForExistence(timeout: 5), "no access row:\n\(app.debugDescription)")
             XCTAssertFalse(offer.exists)
-            // The subtitle (在设置中允许访问所有照片) is not in the row's accessibility label: the screenshot shows it.
+            // The subtitle (allow full access in Settings) is not in the row's accessibility label: the screenshot shows it.
             shot(app, "settings-menu")
         default:
             XCTFail("unknown PERSONA_RECENT_SHOT \(expect)")

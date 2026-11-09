@@ -4554,16 +4554,17 @@ struct Composer: View, Equatable {
         }
     }
 
-    private func add(_ img: UIImage) {
+    /// Attached, or false when it could not be (four already, or no JPEG).
+    @discardableResult private func add(_ img: UIImage) -> Bool {
         guard images.count < 4 else {
             model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error)
-            return
+            return false
         }
         let scaled = img.scaledDown(maxSide: 1600)
-        if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
-            images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
-            Haptics.tap()
-        }
+        guard let jpeg = scaled.jpegData(compressionQuality: 0.75) else { return false }
+        images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+        Haptics.tap()
+        return true
     }
 }
 

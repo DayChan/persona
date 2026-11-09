@@ -124,6 +124,8 @@ enum RecentScreenshotRule {
         if offer?.id != pick.id {
             offer = Offer(id: pick.id, taken: pick.taken)
             Task { await loadThumbnail(pick.id) }
+        } else if offer?.thumbnail == nil {
+            Task { await loadThumbnail(pick.id) } // the last try came back empty (still in iCloud, say)
         }
         let due = RecentScreenshotRule.expiry(pick).timeIntervalSince(now)
         expiry?.cancel()
@@ -134,36 +136,45 @@ enum RecentScreenshotRule {
         }
     }
 
-    /// The offer attached: its picture at the size the composer sends (`attach` scales and encodes it).
-    func take(_ attach: @escaping (UIImage) -> Void) async {
+    /// The offer attached: its picture at the size the composer sends (`attach` scales and encodes it, and says whether
+    /// it took it). Only one that was attached leaves the menu: unread, or refused at four images, it stays offered.
+    func take(_ attach: @escaping (UIImage) -> Bool) async {
         guard let o = offer else { return }
-        handled.insert(o.id)
-        refresh() // an older one of the window may take its place
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [o.id], options: nil).firstObject,
               let data = try? await PhotosTool.loadImageData(asset), let img = UIImage(data: data) else {
             AppModel.shared.toast = Toast(String(localized: "Couldn't read the screenshot"), style: .error)
             return
         }
-        attach(img)
+        guard attach(img) else { return }
+        handled.insert(o.id)
+        refresh() // an older one of the window may take its place
     }
 
     /// The access row: the system's prompt, or Settings once it was refused. Access given here is for this menu: Claude's
     /// own photo tools (Settings › Connectors › This iPhone) stay off unless they were turned on before.
     func runGuide() async {
         let row = guide
+        guard row != .none else { return }
         guideUsed = true
         UserDefaults.standard.set(true, forKey: Self.guideKey)
+        // Before asking or opening Settings: whatever is answered there, now or later, is not Claude's switch.
+        Self.keepClaudePhotosAsChosen()
         switch row {
         case .ask:
-            let chosen = PhoneDataSource.photos.hasChoice
-            let answer = await PhotosAccess.request()
-            if answer.isUsable && !chosen { PhoneDataSource.photos.isEnabled = false }
+            _ = await PhotosAccess.request()
             refresh()
+            AppModel.shared.registerPhone() // what the hub may call follows the answer
         case .settings:
             if let url = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(url) }
         case .none:
             break
         }
+    }
+
+    /// Claude's Photos switch defaults to on, and the photo permission is one for both: left at its default, it is turned
+    /// off, so access given for the composer does not also let Claude read the library. One the user set stays.
+    static func keepClaudePhotosAsChosen() {
+        if !PhoneDataSource.photos.hasChoice { PhoneDataSource.photos.isEnabled = false }
     }
 
     private func loadThumbnail(_ id: String) async {
@@ -200,7 +211,8 @@ private nonisolated final class LibraryWatch: NSObject, PHPhotoLibraryChangeObse
 /// The + menu's rows for it, first in the menu: the screenshot just taken, one tap attaches it; without access, the
 /// row that asks for it (once).
 struct RecentScreenshotMenuItems: View {
-    var attach: (UIImage) -> Void
+    /// Attaches the picture; false when it could not (four already).
+    var attach: (UIImage) -> Bool
     @State private var shots = RecentScreenshots.shared
 
     var body: some View {

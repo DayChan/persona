@@ -787,13 +787,16 @@ struct StarterComposer: View {
     /// The assistant's machine (the hub's unless set otherwise): files and videos go to its temp directory.
     private var machine: MachineRef { model.hubRef(model.assistantConfig?.machineID ?? model.hubMachineID) }
 
-    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4.
-    private func add(_ img: UIImage) {
-        guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
-        let scaled = img.scaledDown(maxSide: 1600)
-        if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
-            images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4; false when not.
+    @discardableResult private func add(_ img: UIImage) -> Bool {
+        guard images.count < 4 else {
+            model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error)
+            return false
         }
+        let scaled = img.scaledDown(maxSide: 1600)
+        guard let jpeg = scaled.jpegData(compressionQuality: 0.75) else { return false }
+        images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+        return true
     }
 
     /// A PhotosPicker inside a Menu never presents (the menu dismisses first): the buttons present it from here.
@@ -906,13 +909,16 @@ struct BeautifulStarterComposer: View {
         return [PromptModel(id: currentLauncher, name: currentLauncher, tag: "")]
     }
 
-    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4.
-    private func add(_ img: UIImage) {
-        guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
-        let scaled = img.scaledDown(maxSide: 1600)
-        if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
-            images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4; false when not.
+    @discardableResult private func add(_ img: UIImage) -> Bool {
+        guard images.count < 4 else {
+            model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error)
+            return false
         }
+        let scaled = img.scaledDown(maxSide: 1600)
+        guard let jpeg = scaled.jpegData(compressionQuality: 0.75) else { return false }
+        images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+        return true
     }
 
     var body: some View {

@@ -55,6 +55,23 @@ import Testing
         for status in [PhoneAuthStatus.notDetermined, .denied, .limited, .notNeeded] { #expect(!Rule.reads(status)) }
     }
 
+    /// Access asked for from the + menu is not access for Claude: its Photos switch, left at its default (on), is turned
+    /// off before the prompt or Settings; one the user set stays as set.
+    @Test func claudesPhotosSwitchStaysAsChosen() {
+        let key = "phoneSource.photos"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(saved, forKey: key) }
+
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(!PhoneDataSource.photos.hasChoice && PhoneDataSource.photos.isEnabled) // the default: on
+        RecentScreenshots.keepClaudePhotosAsChosen()
+        #expect(PhoneDataSource.photos.hasChoice && !PhoneDataSource.photos.isEnabled)
+
+        PhoneDataSource.photos.isEnabled = true // turned on by the user
+        RecentScreenshots.keepClaudePhotosAsChosen()
+        #expect(PhoneDataSource.photos.isEnabled)
+    }
+
     /// The BeautifulUI style's attach list: the screenshot first, then Photos as before; nothing new without one.
     @Test func thePromptBarListPutsItFirst() {
         let with = PromptItems.attachments(camera: true, recentScreenshot: now)
