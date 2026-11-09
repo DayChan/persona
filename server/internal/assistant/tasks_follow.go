@@ -475,11 +475,15 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if hadPrevious && (hadPreviousGeneration && previousGeneration == generation ||
 		!hadPreviousGeneration && !previous.Before(since)) {
 		completed, done := s.tasks.receiptCompleted[t.ID]
-		s.tasks.mu.Unlock()
-		if done && completed == generation && expected != nil && expected.ID != "" {
-			s.finishTaskReceipt(ctx, t.ID, expected.ID)
+		ref := SessionRef{MachineID: machine, SessionID: sid}
+		otherAgent := expected != nil && expected.ID != "" && done && completed == generation && s.tasks.receiptCompletedRef[t.ID] != ref
+		if !otherAgent {
+			s.tasks.mu.Unlock()
+			if done && completed == generation && expected != nil && expected.ID != "" {
+				s.finishTaskReceipt(ctx, t.ID, expected.ID)
+			}
+			return
 		}
-		return
 	}
 	reservation := time.Now()
 	s.tasks.receipted[t.ID] = reservation
@@ -541,7 +545,7 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		if !s.taskReceiptActive(ctx, receiptID) {
 			return
 		}
-		s.markReceiptCompleted(t.ID, generation)
+		s.markReceiptCompleted(t.ID, generation, SessionRef{MachineID: machine, SessionID: sid})
 		committed = true
 		s.finishTaskReceipt(ctx, t.ID, receiptID)
 		return
@@ -595,7 +599,7 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		if !s.taskReceiptActive(ctx, receiptID) {
 			return
 		}
-		s.markReceiptCompleted(t.ID, generation)
+		s.markReceiptCompleted(t.ID, generation, SessionRef{MachineID: machine, SessionID: sid})
 		committed = true
 		s.finishTaskReceipt(ctx, t.ID, receiptID)
 		return
@@ -643,18 +647,18 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if !s.taskReceiptActive(ctx, receiptID) {
 		return
 	}
-	s.markReceiptCompleted(t.ID, generation)
+	s.markReceiptCompleted(t.ID, generation, SessionRef{MachineID: machine, SessionID: sid})
 	committed = true
 	s.finishTaskReceipt(ctx, t.ID, receiptID)
 }
 
-// A durable look can outlive another manager's unseen turn, so its local
-// generation alone cannot authorize changes to current task state.
+// A retry or durable look can outlive another manager's unseen turn, so its
+// local generation alone cannot authorize changes to current task state.
 func receiptFollowupCurrent(expected *receiptLook, receiptID string) bool {
-	return receiptID == "" || expected != nil && expected.ID == ""
+	return expected == nil && receiptID == ""
 }
 
-func (s *Service) markReceiptCompleted(todoID, generation string) {
+func (s *Service) markReceiptCompleted(todoID, generation string, ref SessionRef) {
 	s.tasks.mu.Lock()
 	defer s.tasks.mu.Unlock()
 	if current, ok := s.tasks.receiptWorkIDs[todoID]; !ok || current != generation {
@@ -662,8 +666,10 @@ func (s *Service) markReceiptCompleted(todoID, generation string) {
 	}
 	if s.tasks.receiptCompleted == nil {
 		s.tasks.receiptCompleted = make(map[string]string)
+		s.tasks.receiptCompletedRef = make(map[string]SessionRef)
 	}
 	s.tasks.receiptCompleted[todoID] = generation
+	s.tasks.receiptCompletedRef[todoID] = ref
 }
 
 func (s *Service) taskReceiptActive(ctx context.Context, receiptID string) bool {
@@ -708,11 +714,16 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 		return s.appendBoundTaskReceipt(ctx, t, ref, oldLink, expected.RetryID, body)
 	}
 	var look receiptLook
+	pending := false
 	s.tasks.mu.Lock()
 	generation := s.tasks.workIDs[t.ID]
 	s.tasks.mu.Unlock()
 	for _, candidate := range s.tasks.receiptLooks {
 		if candidate.Todo != t.ID {
+			continue
+		}
+		pending = true
+		if candidate.Machine != ref.MachineID || candidate.Session != ref.SessionID {
 			continue
 		}
 		if expected != nil && expected.ID != "" {
@@ -729,6 +740,12 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 		return "", errors.New("receipt look was replaced")
 	}
 	if look.ID == "" {
+		if pending {
+			if !ok || current.ID != t.ID || !linkedOK || !wasLinked || !currentLink.Equal(oldLink) {
+				return "", errors.New("receipt task association changed")
+			}
+			return s.appendBoundTaskReceipt(ctx, t, ref, oldLink, "feed_"+randomHex(16), body)
+		}
 		_, err := s.appendFeed(ctx, t.Origin, feedReceipt, t.ID, body)
 		return "", err
 	}
@@ -1052,14 +1069,6 @@ func (s *Service) saveReceiptLooksLocked(ctx context.Context) error {
 				return fmt.Errorf("receipt look changed concurrently")
 			}
 			if wants {
-				if !had {
-					for _, other := range latest {
-						if other.Todo == next.Todo && other.Generation == next.Generation {
-							next.ID = other.ID
-							break
-						}
-					}
-				}
 				latest[k] = next
 			} else {
 				delete(latest, k)
@@ -1233,12 +1242,6 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 	look := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, Work: work, Generation: generation, ID: "feed_" + randomHex(16), At: at.UTC()}
 	if exists && pending.Todo == t.ID && pending.Linked.Equal(linked) {
 		look.ID = pending.ID
-	}
-	for _, other := range s.tasks.receiptLooks {
-		if found && other.Todo == t.ID && other.Generation == generation {
-			look.ID = other.ID
-			break
-		}
 	}
 	// Unit tests may set up an unassociated timer; it remains memory-only.
 	if found && linkedOK {
