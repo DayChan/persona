@@ -77,9 +77,6 @@ type windowsCollector struct {
 	listedAt time.Time
 }
 
-// listEvery: how often the NICs and drives that count are listed again (one plugged in shows within a minute).
-const listEvery = time.Minute
-
 // NewCollector starts sampling (nothing runs between samples on Windows).
 func NewCollector(ctx context.Context) Collector { return &windowsCollector{} }
 

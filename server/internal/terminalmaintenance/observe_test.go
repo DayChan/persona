@@ -55,6 +55,54 @@ func TestObserveTimeoutPreservesFailureWithoutAction(t *testing.T) {
 	}
 }
 
+func TestObserveDeadlineDuringRead(t *testing.T) {
+	r, proc := fixture(t, "claude")
+	p := prepare(t, r, proc)
+	unavailable := errors.New("process table unavailable; departure is unknown")
+	// The first census sees the process; the next one is still running when the
+	// wait deadline lands, so the real reader would see its ps child killed.
+	calls := 0
+	out, err := observeWait(context.Background(), p, time.Second, func(ctx context.Context, _ int) (Process, error) {
+		if calls++; calls == 1 {
+			return proc, nil
+		}
+		<-ctx.Done()
+		return Process{}, unavailable
+	})
+	if calls != 2 || !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, unavailable) ||
+		out.State != "timeout" || out.ProcessAbsent {
+		t.Fatalf("calls=%d observation=%+v err=%v", calls, out, err)
+	}
+	if out.MachineIdle || out.BackgroundComplete || out.GracefulExitConfirmed {
+		t.Fatal("timeout manufactured idle")
+	}
+
+	// While the wait is live, an unreadable table is still an unknown departure.
+	out, err = observeWait(context.Background(), p, time.Second, func(context.Context, int) (Process, error) {
+		return Process{}, unavailable
+	})
+	if !errors.Is(err, unavailable) || errors.Is(err, context.DeadlineExceeded) || out.State != "unknown" || out.ProcessAbsent {
+		t.Fatalf("observation=%+v err=%v", out, err)
+	}
+
+	// A census that completes as the deadline lands keeps its own conclusion.
+	late := func(current Process) func(context.Context, int) (Process, error) {
+		return func(ctx context.Context, _ int) (Process, error) {
+			<-ctx.Done()
+			return current, nil
+		}
+	}
+	out, err = observeWait(context.Background(), p, 50*time.Millisecond, late(Process{PID: r.PID, UID: proc.UID, Identity: "another-birth"}))
+	if err == nil || errors.Is(err, context.DeadlineExceeded) || out.State != "unknown" {
+		t.Fatalf("reused PID hidden by timeout: %+v %v", out, err)
+	}
+	write(t, r.Executable, "changed runtime bytes")
+	out, err = observeWait(context.Background(), p, 50*time.Millisecond, late(Process{PID: r.PID, UID: -1}))
+	if err == nil || errors.Is(err, context.DeadlineExceeded) || out.State != "recovery_material_changed" || !out.ProcessAbsent {
+		t.Fatalf("changed material hidden by timeout: %+v %v", out, err)
+	}
+}
+
 func TestProcessTableRejectsPartialDuplicateAndChangedIdentity(t *testing.T) {
 	line := "42 1000 Sun Nov 8 12:00:00 2026 /opt/runtime\n"
 	first, err := parseProcessTable(line, 42)
