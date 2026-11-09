@@ -121,14 +121,10 @@ export function hostOptions(m: Pick<Machine, "engines">): DetectedEngine[] {
   return ENGINE_HOSTS.map((id) => ({ id, name: known(id)?.name ?? id, available: false }));
 }
 
-/** Herdr App cannot start sessions from the phone; the others can (the capability table in docs/integrations/engines.md). */
-export function canStartIn(id: string): boolean {
-  return id !== "herdr-core";
-}
-
-/** The enabled hosts a new session may be opened in: offered as a choice only when there is more than one. */
+/** The enabled hosts a new session may be opened in (every host can start one, the capability table in
+ * docs/integrations/engines.md): offered as a choice only when there is more than one. */
 export function startHosts(m: Pick<Machine, "engine" | "engine_hosts" | "engine_default">): string[] {
-  return currentHosts(m).hosts.filter(canStartIn);
+  return currentHosts(m).hosts;
 }
 
 /** The line under the set picker. */

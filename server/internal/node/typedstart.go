@@ -18,9 +18,10 @@ import (
 // has taken the terminal: until then the tty is in canonical mode, whose line limit is 1024 bytes on macOS
 // (MAX_CANON), and herdr refuses a longer line up front (pane_send_failed). The whole command — the unset of the
 // assistant's environment, PERSONA_HOME, HERDR_AGENT, a managed launcher's flags, the first message — is often longer
-// (#2022). So in a herdr pane whose shell can source a file, the node writes the command to a file only the user can
-// read and types `. <file>`: the shell runs the same command as if typed (a launcher that is an alias or a function
-// still works), and the file removes itself first. Other hosts get the command typed as before.
+// (#2022). herdr-core pastes it into the same canonical tty. So in a herdr or herdr-core pane whose shell can source a
+// file, the node writes the command to a file only the user can read and types `. <file>`: the shell runs the same
+// command as if typed (a launcher that is an alias or a function still works), and the file removes itself first.
+// Other hosts get the command typed as before.
 
 // terminalNotReady is the refusal for a start whose pane would not take the typed command: nothing ran, the tab is
 // closed, a retry may work.
@@ -72,14 +73,14 @@ func writeStartScript(dir, cmd string) (string, error) {
 }
 
 // runAgentCommand types cmd, built with agentCommand for shells, into the new pane created: through a start file in
-// the node's directory, for a herdr pane whose shells source one (takesAssign), with anchor on the typed line
-// (startLine); else as it is. When the pane does not take it, the tab is
-// closed (closeNewTab) and pane_send_failed comes back as terminalNotReady. done removes the file if the shell has
-// not read it yet; call it once the start is over.
+// the node's directory, for a herdr or herdr-core pane whose shells source one (takesAssign), with anchor on the typed
+// line (startLine); else as it is. When the pane does not take it, the tab is closed (closeNewTab) and pane_send_failed
+// comes back as terminalNotReady. done removes the file if the shell has not read it yet; call it once the start is
+// over.
 func (n *Node) runAgentCommand(ctx context.Context, launch host.Launcher, created *host.Created, ws, anchor, cmd string, shells ...string) (done func(), err error) {
 	done = func() {}
 	line := cmd
-	if _, isHerdr := launch.(*herdrHost); isHerdr && n.dir != "" && takesAssign(shells...) {
+	if startsFromFile(launch) && n.dir != "" && takesAssign(shells...) {
 		path, err := writeStartScript(n.dir, cmd)
 		if err != nil {
 			n.closeNewTab(ctx, launch, created, ws)
@@ -94,6 +95,15 @@ func (n *Node) runAgentCommand(ctx context.Context, launch host.Launcher, create
 		return func() {}, startRunError(err)
 	}
 	return done, nil
+}
+
+// startsFromFile: the launcher's panes get a start file (herdr, herdr-core) rather than the command typed out.
+func startsFromFile(launch host.Launcher) bool {
+	switch launch.(type) {
+	case *herdrHost, *herdrCoreHost:
+		return true
+	}
+	return false
 }
 
 // startRunError is the error of a start whose command the pane did not take: terminalNotReady for herdr's

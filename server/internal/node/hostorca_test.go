@@ -805,9 +805,9 @@ func TestOrcaPromptSubmitFails(t *testing.T) {
 	}
 }
 
-// A session that is not running on an engine that cannot resume it (Herdr App), or that Orca does not resume (no
-// Claude transcript), is refused, nothing typed, with a reason: its claude not in front when its pane is still there
-// (suspended), else not running — not "unsupported". Orca resumes a Claude session whose pane is gone (#5548).
+// A session that is not running that Orca does not resume (no Claude transcript) is refused, nothing typed, with a
+// reason: its claude not in front when its pane is still there (suspended), else not running — not "unsupported".
+// Orca resumes a Claude session whose pane is gone (#5548); Herdr App resumes one as herdr does (#2532).
 func TestNotRunningOnAnEngineWithoutResume(t *testing.T) {
 	n, o, procs := orcaSession(t)
 	n.claudeStart, n.claudeReady = 200*time.Millisecond, 200*time.Millisecond
@@ -853,13 +853,24 @@ func TestNotRunningOnAnEngineWithoutResume(t *testing.T) {
 		t.Errorf("codex resumed in Orca: %v", c)
 	}
 
+	// Herdr App resumes it as herdr does (#2532): a new tab, its launcher with --resume through the start file.
 	hn, hc := hcSession(t)
+	hn.claudeStart, hn.claudeReady = 200*time.Millisecond, 200*time.Millisecond // the fake shell never runs claude
+	hc.doc = appDoc(hcCwd)
+	var typed string
+	hc.handle("terminal.send", func(p map[string]any) any {
+		typed, _ = startFileCommand(str(p["text"]))
+		return map[string]any{}
+	})
 	hc.setTerminals()
 	time.Sleep(time.Second) // past the failed-list cache
 	listSessions(t, hn)
 	_, err = request(t, hn, "session.send", map[string]any{"session_id": sidA, "text": "hello"})
-	if code, _ := refusalOf(t, err); code != "not_running" || !strings.Contains(err.Error(), "Herdr App") {
+	if isRefusal(err, "not_running") {
 		t.Fatalf("herdr-core: %v", err)
+	}
+	if r := hc.trace("terminal.run"); len(r) != 1 || !strings.Contains(typed, "--resume "+sidA) {
+		t.Fatalf("herdr-core: not resumed in a new tab: runs %v, typed %q (%v)", r, typed, err)
 	}
 }
 

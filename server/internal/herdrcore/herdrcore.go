@@ -161,7 +161,9 @@ const (
 	// killTimeout bounds terminal.kill: the core signals hangup, terminate, then kill, waiting 0.5 + 0.5 + 2 s for the
 	// program to go before it answers.
 	killTimeout = 10 * time.Second
-	maxLine     = 64 << 20
+	// runTimeout bounds terminal.run without waiting: it answers once the program is spawned.
+	runTimeout = 10 * time.Second
+	maxLine    = 64 << 20
 	// heartbeatGap: events.subscribe sends a heartbeat every 15 s; a stream silent for this long is dead.
 	heartbeatGap = 45 * time.Second
 )

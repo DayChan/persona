@@ -96,9 +96,9 @@ iOS / Android have both entry points (Android Machines is under Agents: **List s
 | Keys (Enter, Esc, arrows…), interrupt | Yes | Yes | Yes | Interrupt only |
 | Answer dialogs (permissions, options) | Yes | Yes (screen-based) | Yes (screen-based) | Yes (cards, also answerable in Paseo app) |
 | Close sessions from phone | Yes | Yes | Yes | Backend supports archiving in Paseo; app button currently only for terminal sessions |
-| Create / continue Not running sessions from phone | Yes | No | Yes (create; continue a Not running Claude session in a new terminal, #5548) | Yes (each Paseo provider is a launcher) |
+| Create / continue Not running sessions from phone | Yes | Yes (a new tab in the Herdr App space for the directory, #2532) | Yes (create; continue a Not running Claude session in a new terminal, #5548) | Yes (each Paseo provider is a launcher) |
 | Create a worktree from a workspace ([terminal.md](terminal.md), "23. New worktree…") | Yes (herdr 0.9 creates it; older versions fall back to git) | No | Yes (Orca creates it under the original workspace and owns the checkout directory) | No |
-| Rename spaces / tabs | Yes | No | No | No (backend supports session names; app button currently only for terminal sessions) |
+| Rename spaces / tabs | Yes | Yes (written into Herdr App's layout) | No | No (backend supports session names; app button currently only for terminal sessions) |
 | Live terminal, phone takeover | Yes | No | No | No (no terminal) |
 | Colored screen reads, draft detection | Yes | No (plain text, dialogs only) | No (plain text, dialogs only) | No (no terminal) |
 | Change permission mode / thinking effort | Yes | Supported, untested | Supported, untested | Yes (end-to-end tested) |
@@ -109,17 +109,25 @@ Orca's native Claude chats (structured, no terminal) connect through node's brid
 answer approvals / questions, change permission / thinking (no plan mode); no screen reads, keys, or live terminal. Chats appear only after their first message;
 Codex chats not listed in this version. See `docs/plans/plan-orca-support.md` ("Structured sessions").
 
-Unsupported actions explain failure instead of partially acting. Herdr App rejects sending without entering anything when Claude is not foregrounded (suspended / exited), and Orca does when its pane is still
+Unsupported actions explain failure instead of partially acting. Orca rejects sending without entering anything when its pane is still
 there with Claude not in front, saying "Claude is not in foreground (possibly suspended); nothing sent," or asking to reopen on the computer.
 
 Orca New Agent creates terminals inside already-open Orca workspaces or subdirectories, starting in the selected directory. Unopened Git-repository directories attempt automatic registration; any other directory gets a terminal in the first local Orca workspace that `cd`s there (refused only when Orca has no workspace open). It never takes over an existing terminal.
 Resume of a running session returns it. A Claude session whose agent exited is continued like on herdr (#5548): a new terminal in the Orca workspace holding its directory (the same rules as New Agent), `cd` there, the launcher that started it with `--resume`, then the message. Never a second writer: a session a live claude still has open (Claude's desktop app, another terminal, suspended) is refused (`open_elsewhere`), and so is one whose last pane is still open (its agent may be suspended there; close the pane to resume elsewhere). A session an Orca native chat owns is refused too. Codex, TRAEX and pi sessions are not resumed in Orca. Orca's own `terminal create --agent claude --resume` is not used: it exists only in some Orca builds' CLI, and it starts Orca's claude command, not the session's launcher.
 
+Herdr App New Agent (#2532) opens a terminal the way the app does (the machine's shell, kept, with the app's terminal identity) as a new tab of
+the Herdr App space shown under the directory's name, else of a new space for the directory, and adds it to the app's layout document, so the app
+shows it like a tab opened there; the launcher is then typed as on herdr. The document is edited, never replaced: only that tab (and space) is
+added, at the version read, redone after a conflict. When there is no layout document (Herdr App never ran on this core) or it is in a form
+Persona does not know, nothing is written and the terminal opens outside the app's spaces, grouped by its directory. A Not running session is
+continued as on herdr: a new tab, its launcher with `--resume`. Space and tab renames write the same document.
+
 Selecting `herdr-both` attaches both herdr and herdr-core hosts:
 
 - Agents merges sessions; spaces / tabs, state, screen reads, messages, keys, closing route to the pane's own host, as when selected alone.
-- **Phone create / continue Not running / space rename use classic herdr** (complete capabilities). Continuing an exited Herdr App session from phone
-  opens a new herdr pane with `--resume` (same Claude session ID, continuous history, different window). herdr-core live terminal / phone takeover remain unavailable.
+- **Phone create / continue Not running / space rename use classic herdr** (complete capabilities); New Agent can also be pointed at Herdr App
+  in its host picker. Continuing an exited Herdr App session from phone opens a new herdr pane with `--resume` (same Claude session ID, continuous
+  history, different window). herdr-core live terminal / phone takeover remain unavailable.
 - Neither slows the other: snapshots fetched concurrently with separate timeouts; herdr-core events refresh only herdr-core,
   herdr events only herdr; a failed side clears only its own online state.
 - Available only when both herdr and herdr-core are detected (can preselect offline, effective on reconnect; if only one exists,

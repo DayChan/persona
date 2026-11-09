@@ -147,7 +147,7 @@ host `server/internal/node/hostorca.go`, fake test runtime `server/internal/orca
 | Spaces / slots | Space is worktree (`worktreeId`), named from branch (strip `refs/heads/`), falling back to path basename, ordered by `worktree.ps` (Orca sidebar order). Slots are tabs in `visualLayouts`, in layout-tree reading order (`first`, then `second` for splits), named by tab title or index if empty | ✅ |
 | Read screen | `terminal.read {terminal, screen:true}`: plain text, current screen only; rejoin soft wraps using `tailRows[].wrapped`; error on `source: screen-unavailable`. Host declares `host.PlainScreen`; `recent` also returns only the current screen | ✅ Plain text, no history |
 | Send message | Do not use Orca's `agentPrompt`: it bracket-pastes only to Agents it has "seen working". Newly launched claude receives raw text + `\r`, submitting a multiline message at its first newline (tested 2026-11-01). Rejections with `accepted:false` (`no-agent` / `permission`) require `requireAgentStatus:"sendable"`, which Orca always rejects alongside "text + Enter", so it is unusable here too. Follow herdr's `agent.prompt`: first verify a foreground Agent (process table has foreground claude / codex in the pane, not inside a host nested in it; `terminal.agentStatus` is asked too: permission status returns `dialog_open`, an error means not foreground; its `isRunningAgent` is not required since #5463, because Orca reports false while Claude Code has background tasks and still takes input; failed process scan means not foreground; refusals return `not_delivered` with no input and log the check that refused), then send bracketed paste ourselves: `terminal.send {text: ESC[200~ + text + ESC[201~}` (no `enter`; replace ESC in text with `<ESC>`, like Orca, to prevent premature paste termination). Wait 150 ms plus 10 ms per line, capped at 1 second; verify foreground Agent again, then send `\r` separately. Any failure after paste returns `delivered:unknown` (text may remain in input). Always pass `client: {id:"persona", type:"desktop"}` (`client.id` required; absent yields `invalid_argument`). Pre-send checks only detect dialogs (no color to distinguish drafts from gray text) | ✅ |
-| Session not running | When a session is no longer an Agent pane (exited, suspended, backgrounded), herdr resumes it in a new pane before sending. Orca (and herdr-core) engines cannot create sessions, so reject with no input: if its last pane still exists, `agent_not_in_front` ("Claude is not in the foreground; it may be suspended"); if gone, `not_running` ("…Reopen the Orca session on your computer"). Previously this looked up a launcher and returned the confusing `unsupported: orca cannot do this` | ✅ |
+| Session not running | When a session is no longer an Agent pane (exited, suspended, backgrounded), herdr resumes it in a new pane before sending (herdr-core too, since #2532). Orca rejects with no input: if its last pane still exists, `agent_not_in_front` ("Claude is not in the foreground; it may be suspended"); if gone, `not_running` ("…Reopen the Orca session on your computer"). Previously this looked up a launcher and returned the confusing `unsupported: orca cannot do this` | ✅ |
 | Type without Enter | `terminal.send {text}` without `enter`: raw bytes, no paste, with the same foreground-Agent check (not permission: free-form dialog input needs it). Orca does not declare `TextTyper` | ✅ |
 | Special keys | Key names → xterm bytes: `enter` `\r`, `esc` `\x1b`, `shift+tab` `\x1b[Z`, `backspace` `\x7f`, `ctrl+<letter>` control characters, `ctrl+space` `\x00`, `alt+<character>` prefixed ESC. Modified arrows / Home / End / Insert / Delete / PageUp / PageDown / F1–F12 use xterm parameters (1 + shift 1 + alt 2 + ctrl 4, e.g. `alt+left` `\x1b[1;3D`, `ctrl+left` `\x1b[1;5D`). Send each key separately via `terminal.send`, 40 ms apart (cancel via caller ctx; concatenating `esc` with a following sequence can make an alt key). Reject unknown keys before sending any. Printable keys (letters, digits, space) first verify foreground Agent; Enter, esc, arrows, ctrl+c do not (stuck panes must remain interruptible/closable) | ✅ |
 | No input delivered | Foreground check fails; `terminal.send` returns `accepted:false` (permission → `dialog_open`, others → `not_delivered`); pre-write errors such as `terminal_handle_stale` (including incarnation mismatch), `terminal_not_writable`, `terminal_gone`, `terminal_exited`, `invalid_argument`, `runtime_busy`, `request_too_large` also return `not_delivered` (all `delivered:none`, safe to resend). Uncertain-write errors such as `runtime_error` remain errors | ✅ |
@@ -220,7 +220,8 @@ runtime protocol (`docs/integrations/runtimes.md`), like the Paseo bridge but in
 
 herdr-core (command `hc`) is the terminal runtime behind the Herdr desktop app. It has the same author as herdr, but is a rewrite and incompatible: different socket, `terminal.*` methods,
 and environment variables. It is therefore a separate host, kind `herdr-core`, storing panes as `herdr-core:<address>` (such as `herdr-core:t7`).
-Code: client `server/internal/herdrcore`, host `server/internal/node/hostherdrcore.go`. Checked against herdr-core 0.1.16 source and `hc schema`.
+Code: client `server/internal/herdrcore`, host `server/internal/node/hostherdrcore.go` (starting and renaming: `hostherdrcore_launch.go`).
+Checked against herdr-core 0.1.16 source and `hc schema`; starting and renaming (#2532) against 0.1.19's `hc schema` and the app's own terminals.
 
 ### One engine per machine
 
@@ -239,7 +240,7 @@ hub persists the choice and sends `engine.use` when node connects (API/storage i
 - **Runtime switching**: `engine.use` replaces the host table, discards old Agents, space names, and process caches (invalidating refreshes begun before the switch), ends every terminal stream
   (pushes `terminal.end`), stops old event streams and starts new ones, then pushes the session list. Each event stream has its own live marker; stopped old streams cannot clear new-stream state.
 - **Operations without a host**: operations not deriving a host from a pane, such as creating sessions or renaming spaces, use `defaultHost` / `defaultHostKind`: herdr-core when selected,
-  returning `unsupported` for unavailable capabilities, not "No herdr on this machine". Combined mode always defaults to classic herdr. herdr-selected machines are unchanged.
+  returning `unsupported` for unavailable capabilities (worktrees), not "No herdr on this machine". Combined mode always defaults to classic herdr. herdr-selected machines are unchanged.
 - **Nested herdr**: with herdr-core selected, a terminal whose foreground is classic herdr is not an Agent, even if inner claude OSC 7501 escapes through.
 - **Nested ptys** (#5463): processes in a pty a program in the pane made (tmux, zellij, screen, `script`, a node-pty) inherit its `ORCA_PANE_KEY` and are each "in front" of that pty while the pane itself may show a shell. They are not the pane's: the scan walks up from each candidate to the first ancestor on another terminal (the pty's owner) and drops the candidate when that owner carries the same pane key; in an Orca pane the owner is Orca's terminal host, which has none (seen on a Mac 2026-11-06: `claude → bash → bash → login → orca-terminal-host`, versus `claude → bash → bash → tmux server` with the key). No owner found: not taken. Not by `TMUX=`: Orca's own Claude agent teams set it in a real pane. Without this, an agent's `tmux new-session -d` workers running `claude -p` took the pane from the claude that started them, which was then listed as interrupted.
   Combined mode registers such terminals under herdr-core with no Agent; the inner claude belongs to a herdr pane and is not counted twice.
@@ -290,8 +291,9 @@ isolating the four issues in "Why not combine by default":
 | Push changes | One `events.subscribe` connection covers all terminals; any change (except size, keep, and other-machine changes) immediately requests a snapshot | ✅ |
 | Live terminal | Not implemented; see below. hub falls back to screen reads | ❌ |
 | Close | Like herdr, send ctrl+c twice, then `terminal.kill` (hangup → terminate → force kill, returning terminal state after at most about 3 seconds). Herdr App also closes panes with only `terminal.kill`; when the terminal ends as `killed`, the app removes the pane (or tab if last), without `terminal.rm`. We likewise only kill, retaining the ended record. Ended or absent (`not_found`) counts as closed; still `live` after kill is an error | ✅ |
-| Rename | Space and tab names belong to Herdr App's layout document; do not rename from the phone. `RenameSpace` / `RenameSlot` return `unsupported` ("Herdr App spaces and tabs cannot be renamed from the phone yet"). Session titles (`/rename`) work normally | ❌ |
-| Create, takeover | Not in phase 1 (no Launcher / Controller) | Later |
+| Rename | Space and tab names live in Herdr App's layout document: `RenameSpace` / `RenameSlot` set `name` there (see "Layout document"). A directory group (`dir:`) has no name to change (`unsupported`). Session titles (`/rename`) work normally | ✅ (#2532) |
+| Create | `Launcher` (#2532): `terminal.run` with no argv (the machine's shell, as the app opens one), `keep`, `no_parent`, the app's terminal identity (`TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty`) and labels (`herdr.space`, `herdr.tab`, `where`, `herdr.seen: 0`), then a tab added to the layout document; the launcher goes in through the start file, as on herdr (`terminal.send` pastes into the same canonical tty). `Run` refuses unless a shell is in front. `NameAgent` does nothing (a terminal's name is set only as it starts) | ✅ |
+| Takeover | No `Controller` (see "Live terminal" below) | ❌ |
 
 ### Findings
 
@@ -315,6 +317,23 @@ isolating the four issues in "Why not combine by default":
   with `terminal.kill`. Tested on an owned instance: after ctrl+c terminal stayed `live` with a foreground shell; after kill it was `finished`,
   with no revival after the keep grace period (`TestHerdrCoreLiveCloseKeep`).
 
+### Layout document
+
+Herdr App keeps its spaces and tabs in the core's `herdr-app` document (`doc.get` / `doc.set`, checked 2026-11-09 on 0.1.19):
+`{spaces: [{id, name, folder, tabs: [{id, name, root}]}]}`, where `root` is a tree of `row` / `column` nodes (`children`, a `size.weight`
+per child) whose `block` leaves hold `content: {terminal: "t7"}`. Ids are a kind prefix and 32 hex digits (`sp…`, `tb…`, `p…`, `s…`); a tab's
+root shares the tab's id. A space for a folder has `folder` set and an empty `name` (the app shows the folder's name); a named space may
+have no folder.
+
+- **Edited, never replaced**: decoded as generic JSON (numbers kept as written), only a space, a tab or a `name` is added or changed, so
+  whatever the app keeps that Persona does not know is written back as it was. `doc.set` writes at the version read; `conflict` (the app wrote
+  meanwhile) reads it again and redoes the change, at most 4 times.
+- **Only a known form is written**: no document (the app never ran on this core), `spaces` not a list, a space or tab without an id or `tabs`
+  / `root` of another type: nothing is written, and a start opens its terminal unplaced (its directory's `dir:` group, like `hc run`).
+- **Order**: the terminal starts first (its address goes in the block), then the document; a document the core refuses ends that terminal
+  rather than leave it running where the app does not show it. A space that disappeared meanwhile refuses the start (`not delivered`).
+- **The app removes closed tabs itself**: `Close` stays `terminal.kill`; Persona does not delete blocks.
+
 ### Cautions
 
 - herdr-core has no hooks; status comes only from the program's own OSC 7501 (Claude Code sends it). Programs that do not emit it have no status.
@@ -337,7 +356,7 @@ isolating the four issues in "Why not combine by default":
    After deployment, compare real panes with `scripts/diag/live_panes_check.py` to confirm session recognition is unchanged. Merge and deploy separately, run a day or two before proceeding.
 2. [x] **Orca phase 1** (merged 2026-11-01; temporary Orca terminals tested for listing, single/multiline sends, rejection while suspended, and closing): discovery, status, sends, keys, plain-text screen reads, screen-based dialog answers, close, as the third engine ("Orca source" above).
    Test with a fake Orca socket (`orcarttest`, validating Orca parameter rules); read-only checks against active Orca confirmed all session IDs matched `sessions/<pid>.json`.
-   Another host: [x] **herdr-core phase 1** (merged 2026-11-01, one engine per machine): "herdr-core host" above. Close supported (2026-11-01); rename omitted because Herdr App owns it. Later: paste without Enter (await upstream method), live terminal, create.
+   Another host: [x] **herdr-core phase 1** (merged 2026-11-01, one engine per machine): "herdr-core host" above. Close supported (2026-11-01); rename omitted because Herdr App owns it. Create and rename through the app's layout document since #2532. Later: paste without Enter (await upstream method), live terminal.
    [x] **herdr + herdr-core combined** (2026-11-03, `herdr-both`, "Combined engine" above): multiple hosts in the table, parallel refresh no longer waiting for the slowest.
 3. [ ] **App**: engine selection is done (pairing, **Settings › Machines**, options from hub `engines`, 2026-11-01); capability-based button hiding and generic wording are not.
 4. [ ] Later: Orca phase 2 (create, modes), phase 3 (live terminal).

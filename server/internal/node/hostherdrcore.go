@@ -20,8 +20,8 @@ import (
 
 // herdrCoreHost is herdr-core (hc), the runtime behind the Herdr desktop app (docs/plans/plan-orca-support.md "herdr-core
 // host"). A pane is a terminal, its id the terminal's address ("t7"), which a core never gives to another terminal.
-// Phase 1: listing, state, plain-text reads, prompts and keys, process → session, events, closing. No colors, no typing
-// without submitting, no live stream, no starting or renaming.
+// Listing, state, plain-text reads, prompts and keys, process → session, events, closing; starting and renaming through
+// the app's layout document (hostherdrcore_launch.go). No colors, no typing without submitting, no live stream.
 type herdrCoreHost struct {
 	c *herdrcore.Client
 
@@ -36,6 +36,7 @@ var (
 	_ host.PlainScreen = (*herdrCoreHost)(nil)
 	_ host.TextTyper   = (*herdrCoreHost)(nil)
 	_ host.Organizer   = (*herdrCoreHost)(nil)
+	_ host.Launcher    = (*herdrCoreHost)(nil)
 )
 
 // herdrCorePaneEnv is the variable herdr-core sets in every terminal: its address.
@@ -261,12 +262,6 @@ func inputErr(err error) error {
 	}
 	return err
 }
-
-// errHerdrCoreRename: the Herdr app owns its spaces' and tabs' names (its layout document); Persona does not write it.
-var errHerdrCoreRename = fmt.Errorf("%w: Herdr App 里的空间和标签页暂时不能从手机改名", host.ErrUnsupported)
-
-func (h *herdrCoreHost) RenameSpace(context.Context, string, string) error { return errHerdrCoreRename }
-func (h *herdrCoreHost) RenameSlot(context.Context, string, string) error  { return errHerdrCoreRename }
 
 // Close ends the terminal with terminal.kill, which is what closing a pane in the Herdr app does: the app then drops
 // the pane (its tab when it was the only one) on its own. A kill is final even for a keep terminal (the app's shells

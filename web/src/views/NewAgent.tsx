@@ -304,7 +304,7 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   };
   useEffect(() => { if (picking) search.current?.focus(); }, [picking]);
 
-  // Where it opens, when the machine enables more than one engine that can start sessions (#2576).
+  // Where it opens, when the machine enables more than one engine (#2576).
   const picked = online.find((m) => m.id === mid);
   const hosts = picked ? startHosts(picked) : [];
   const hostDefault = picked ? currentHosts(picked).default : "";

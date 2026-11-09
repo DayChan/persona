@@ -3,6 +3,7 @@ package node
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -27,6 +28,8 @@ type fakeHC struct {
 	log       []herdrCall
 	terms     []map[string]any
 	doc       any
+	docVer    float64 // the document's version: doc.set writes only at it
+	ran       int     // terminals terminal.run started (t101, t102…)
 	screen    map[string]string
 	on        map[string]func(p map[string]any) any
 	listDelay time.Duration
@@ -45,7 +48,7 @@ func newFakeHC(t *testing.T) *fakeHC {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	f := &fakeHC{sock: filepath.Join(dir, "c.sock"), screen: map[string]string{}, on: map[string]func(map[string]any) any{},
-		subbed: make(chan struct{}, 8)}
+		subbed: make(chan struct{}, 8), docVer: 1}
 	ln, err := net.Listen("unix", f.sock)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +115,30 @@ func (f *fakeHC) serveConn(c net.Conn) {
 	case "terminal.read":
 		result = map[string]any{"text": f.screen[str(req.Params["terminal"])], "complete": true, "how": "screen"}
 	case "doc.get":
-		result = map[string]any{"value": f.doc, "version": 1}
+		result = map[string]any{"value": f.doc, "version": f.docVer}
+	case "doc.set":
+		if h != nil {
+			break // the handler answers (and decides what is written)
+		}
+		if v, _ := req.Params["version"].(float64); v != f.docVer {
+			result = hcFail{"conflict"}
+		} else {
+			f.doc, f.docVer = req.Params["value"], f.docVer+1
+			result = map[string]any{"version": f.docVer}
+		}
+	case "terminal.run":
+		if h != nil {
+			break
+		}
+		// The machine's shell in a new terminal, in front.
+		f.ran++
+		cwd, _ := req.Params["cwd"].(string)
+		t := hcTerminal(fmt.Sprintf("t%d", 100+f.ran), "", "", 9000+f.ran, "zsh", cwd, "", "", "")
+		if l, ok := req.Params["labels"].(map[string]any); ok {
+			t["labels"] = l
+		}
+		f.terms = append(f.terms, t)
+		result = t
 	}
 	f.mu.Unlock()
 	if req.Method == "terminal.list" && delay > 0 {

@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -455,35 +454,5 @@ func TestHerdrCoreCloseUnknown(t *testing.T) {
 	}
 	if tr := hc.trace(); len(tr) != 0 {
 		t.Errorf("herdr-core called: %v", tr)
-	}
-}
-
-// The Herdr app owns its spaces' and tabs' names: renaming them is unsupported, with nothing sent to herdr-core.
-func TestHerdrCoreRenameUnsupported(t *testing.T) {
-	n, _, hc, home := hcNode(t)
-	writeTranscript(t, home, hcCwd, sidA, time.Now().Add(-time.Minute), `{"type":"custom-title","customTitle":"x"}`)
-	writeClaudePID(t, home, 4242, sidA)
-	hc.setTerminals(hcTerminal("t1", "claude-code", "idle", 4242, "claude", hcCwd, "S1", "T1", "proj / 1"))
-	if m := byID(listSessions(t, n)); m[sidA].SlotID != "T1" {
-		t.Fatalf("not listed: %v", m)
-	}
-	hc.reset()
-	for _, req := range []struct {
-		method string
-		params map[string]any
-	}{
-		{"space.rename", map[string]any{"workspace_id": "S1", "name": "backend"}},
-		{"session.rename", map[string]any{"session_id": sidA, "tab_name": "review"}},
-	} {
-		_, err := request(t, n, req.method, req.params)
-		if err == nil || !strings.Contains(err.Error(), "unsupported") || !strings.Contains(err.Error(), "不能从手机改名") {
-			t.Errorf("%s: %v", req.method, err)
-		}
-	}
-	if tr := hc.trace(); len(tr) != 0 {
-		t.Errorf("herdr-core called: %v", tr)
-	}
-	if err := (&herdrCoreHost{}).RenameSlot(context.Background(), "T1", "x"); !errors.Is(err, host.ErrUnsupported) {
-		t.Errorf("RenameSlot = %v", err)
 	}
 }

@@ -36,7 +36,8 @@ func (h *launchHost) Run(context.Context, host.PaneRef, string) error       { re
 func (h *launchHost) NameAgent(context.Context, host.PaneRef, string) error { return nil }
 func (h *launchHost) asked() int                                            { h.mu.Lock(); defer h.mu.Unlock(); return h.spaces }
 
-// startNode drives {herdr, herdr-core, orca} (default herdr); herdr and Orca can start sessions, herdr-core cannot.
+// startNode drives {herdr, herdr-core, orca} (default herdr); herdr and Orca can start sessions, the herdr-core here (a
+// stand-in without Launcher) cannot.
 func startNode(t *testing.T) (*Node, *launchHost, *launchHost) {
 	t.Helper()
 	n, _, _, _ := setNode(t)
@@ -57,7 +58,7 @@ func TestCheckStartHost(t *testing.T) {
 		{"", "", true},
 		{"herdr", "", true},
 		{"orca", "", true},
-		{"herdr-core", engineMissing, false}, // enabled, cannot start sessions
+		{"herdr-core", engineMissing, false}, // enabled, cannot start sessions (the stand-in)
 		{"paseo", engineMissing, false},      // not enabled
 		{"tmux", "", false},                  // not a host
 	} {
@@ -121,9 +122,9 @@ func TestSessionStartRefusesAHostNotEnabled(t *testing.T) {
 	}
 }
 
-// A start on a default host that cannot start sessions (Herdr App) gets the same refusal as one naming it, with the
-// engines that can, not "unsupported: herdr-core cannot do this".
-func TestStartOnHerdrCoreDefaultIsRefused(t *testing.T) {
+// A start on a default host that cannot start sessions gets the same refusal as one naming it, not "unsupported:
+// herdr-core cannot do this".
+func TestStartOnADefaultHostThatCannotStartIsRefused(t *testing.T) {
 	n, hh, oh := startNode(t)
 	c := proto.EngineChoice{Hosts: []string{"herdr", "herdr-core", "orca"}, Default: "herdr-core"}
 	n.eng.name, n.eng.set = proto.LegacyEngine(c), &c
@@ -131,8 +132,7 @@ func TestStartOnHerdrCoreDefaultIsRefused(t *testing.T) {
 	if code, _ := refusalOf(t, err); code != engineMissing {
 		t.Fatalf("code %q: %v", code, err)
 	}
-	if errors.Is(err, host.ErrUnsupported) || !strings.Contains(err.Error(), "Herdr App 不支持从手机新开会话") ||
-		!strings.Contains(err.Error(), "herdr + Herdr App") {
+	if errors.Is(err, host.ErrUnsupported) || !strings.Contains(err.Error(), "Herdr App 不支持从手机新开会话") {
 		t.Errorf("refusal: %v", err)
 	}
 	if hh.asked()+oh.asked() != 0 {

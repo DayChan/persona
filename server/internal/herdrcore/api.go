@@ -109,18 +109,57 @@ func (c *Client) Version(ctx context.Context) string {
 	return out.Version
 }
 
+// RunOpts is what terminal.run starts (the fields Persona sets).
+type RunOpts struct {
+	// Argv is the program and its arguments; none: the machine's own shell, as the Herdr app opens one.
+	Argv   []string          `json:"argv,omitempty"`
+	Cwd    string            `json:"cwd,omitempty"`
+	Env    map[string]string `json:"env,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+	// Keep replaces a program that is lost (killed by a signal, its holder gone) with a shell; an exit or a kill is final.
+	Keep bool `json:"keep,omitempty"`
+	// NoParent: the terminal belongs to no other terminal (it would end with its parent's program).
+	NoParent bool `json:"no_parent,omitempty"`
+}
+
+// Run is terminal.run without waiting: it starts the program in a new terminal and returns the terminal.
+func (c *Client) Run(ctx context.Context, o RunOpts) (*Terminal, error) {
+	var t Terminal
+	if err := c.Call(ctx, runTimeout, "terminal.run", o, &t); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 // Doc is doc.get: an app's JSON document on the core (null when never written).
 func (c *Client) Doc(ctx context.Context, name string, out any) error {
-	var res struct {
-		Value json.RawMessage `json:"value"`
-	}
-	if err := c.Call(ctx, listTimeout, "doc.get", map[string]any{"name": name}, &res); err != nil {
+	raw, _, err := c.DocRaw(ctx, name)
+	if err != nil || raw == nil {
 		return err
 	}
-	if len(res.Value) == 0 || string(res.Value) == "null" {
-		return nil
+	return json.Unmarshal(raw, out)
+}
+
+// DocRaw is doc.get as it comes: the document (nil when never written or deleted) and its version, which DocSet
+// takes.
+func (c *Client) DocRaw(ctx context.Context, name string) (json.RawMessage, uint64, error) {
+	var res struct {
+		Value   json.RawMessage `json:"value"`
+		Version uint64          `json:"version"`
 	}
-	return json.Unmarshal(res.Value, out)
+	if err := c.Call(ctx, listTimeout, "doc.get", map[string]any{"name": name}, &res); err != nil {
+		return nil, 0, err
+	}
+	if len(res.Value) == 0 || string(res.Value) == "null" {
+		return nil, res.Version, nil
+	}
+	return res.Value, res.Version, nil
+}
+
+// DocSet is doc.set: writes the document while it is still at version (Error kind "conflict" when someone wrote it
+// since: read it again and redo the change). The core emits a doc event, which the Herdr app follows.
+func (c *Client) DocSet(ctx context.Context, name string, value any, version uint64) error {
+	return c.Call(ctx, callTimeout, "doc.set", map[string]any{"name": name, "value": value, "version": version}, nil)
 }
 
 // Event is one change events.subscribe pushes: its type ("created", "status", "removed", "doc"…), its terminal

@@ -9,6 +9,9 @@ package node
 //     like Claude Code does, drives it through the host, and stops that core.
 //   - TestHerdrCoreLiveCloseKeep closes, as the phone does, an agent in a terminal the way the Herdr app runs one (a
 //     shell with keep set that runs the agent and then stays a shell), on its own core too.
+//   - TestHerdrCoreLiveStartsATab opens terminals the way a start does (#2532) on its own core, with a layout document
+//     shaped like the Herdr app's: a tab in a space, a new space, renames, a command typed into the shell, and a core
+//     without the document, where nothing is written.
 //   - TestHerdrCoreLiveReadOnly lists the default instance's sessions the way the node does, with read-only calls
 //     only (terminal.list, doc.get, terminal.get), printing session ids, panes and states — no screen text.
 
@@ -359,5 +362,118 @@ func TestHerdrCoreLiveReadOnly(t *testing.T) {
 	}
 	if len(lines) == 0 {
 		t.Log("no claude / codex terminals")
+	}
+}
+
+func TestHerdrCoreLiveStartsATab(t *testing.T) {
+	dir, c, h := isolatedHC(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	t.Logf("herdr-core %s", h.Version(ctx))
+	proj := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// No document yet (the app never ran here): the shell starts unplaced, nothing written.
+	c0, err := h.CreateSpace(ctx, proj, "proj")
+	if err != nil || c0.SpaceID != dirSpace+proj {
+		t.Fatalf("unplaced: %+v, %v", c0, err)
+	}
+	if raw, _, err := c.DocRaw(ctx, herdrAppDoc); err != nil || raw != nil {
+		t.Fatalf("document written: %s, %v", raw, err)
+	}
+
+	// The app's document: a space for proj with one tab (the unplaced terminal stands in for the app's own).
+	doc := appDoc(proj)
+	doc["spaces"].([]any)[0].(map[string]any)["tabs"].([]any)[0].(map[string]any)["root"].(map[string]any)["children"].([]any)[0].(map[string]any)["content"] =
+		map[string]any{"terminal": c0.Pane.ID}
+	if err := c.DocSet(ctx, herdrAppDoc, doc, 0); err != nil {
+		t.Fatal(err)
+	}
+	c1, err := h.CreateSlot(ctx, "S1", proj, "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	term, err := c.Get(ctx, c1.Pane.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if term.State != "live" || term.Labels[herdrSpaceLabel] != "S1" || term.Labels[herdrTabLabel] != c1.SlotID ||
+		term.Labels[herdrWhereLabel] != "proj / agent-1" || len(term.Argv) != 1 || !shellProgram(term.Argv[0]) || term.Cwd != proj {
+		t.Errorf("terminal %+v", term)
+	}
+	var got map[string]any
+	if err := c.Doc(ctx, herdrAppDoc, &got); err != nil {
+		t.Fatal(err)
+	}
+	tabs := layoutTabs(layoutSpaces(got)[0])
+	if len(tabs) != 2 || tabs[1]["id"] != c1.SlotID || got["sidebar"] == nil {
+		t.Fatalf("document %v", got)
+	}
+
+	// The command goes into the shell and runs there.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if a, err := h.Agent(ctx, c1.Pane); err == nil && a.ForegroundCwd != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no shell came up")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := h.Run(ctx, c1.Pane, "echo persona-$((40+2))"); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		screen, _ := h.Read(ctx, c1.Pane, host.ReadOpts{Source: "visible"})
+		if strings.Contains(screen, "persona-42") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("command did not run: %q", screen)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// A new space for another folder, and renames, in the same document.
+	other := filepath.Join(dir, "other")
+	_ = os.MkdirAll(other, 0o700)
+	c2, err := h.CreateSpace(ctx, other, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.RenameSlot(ctx, c2.SlotID, "review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.RenameSpace(ctx, "S1", "backend"); err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	if err := c.Doc(ctx, herdrAppDoc, &got); err != nil {
+		t.Fatal(err)
+	}
+	sp := layoutSpaces(got)
+	if len(sp) != 2 || sp[0]["name"] != "backend" || sp[1]["id"] != c2.SpaceID || sp[1]["folder"] != other ||
+		layoutTabs(sp[1])[0]["name"] != "review" {
+		t.Errorf("document %v", got)
+	}
+	l, err := h.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	for _, s := range l.Spaces {
+		labels[s.ID] = s.Label
+	}
+	if labels["S1"] != "backend" || labels[c2.SpaceID] != "other" {
+		t.Errorf("spaces %+v", l.Spaces)
+	}
+
+	for _, p := range []host.PaneRef{c0.Pane, c1.Pane, c2.Pane} {
+		if err := h.Close(ctx, p, "", ""); err != nil {
+			t.Errorf("close %s: %v", p.ID, err)
+		}
 	}
 }

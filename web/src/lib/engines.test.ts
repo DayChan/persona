@@ -11,7 +11,6 @@ import {
   engineSaveError,
   KNOWN_ENGINES,
   alsoOpenText,
-  canStartIn,
   currentHosts,
   ENGINE_HOSTS,
   hostOptions,
@@ -140,10 +139,9 @@ describe("engine host sets (#2576)", () => {
     expect(hostOptions(machine()).map((e) => e.id)).toEqual(ENGINE_HOSTS);
   });
 
-  it("offers a host to start in only among those that can start sessions", () => {
-    expect(startHosts(machine({ engine_hosts: ["herdr", "herdr-core", "orca"], engine_default: "herdr" }))).toEqual(["herdr", "orca"]);
-    expect(startHosts(machine({ engine: "herdr-both" }))).toEqual(["herdr"]);
-    expect(canStartIn("herdr-core")).toBe(false);
+  it("offers every enabled host to start in", () => {
+    expect(startHosts(machine({ engine_hosts: ["herdr", "herdr-core", "orca"], engine_default: "herdr" }))).toEqual(["herdr", "herdr-core", "orca"]);
+    expect(startHosts(machine({ engine: "herdr-both" }))).toEqual(["herdr", "herdr-core"]);
   });
 
   it("names the other hosts a session is open in", () => {
