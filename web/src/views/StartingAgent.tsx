@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { shortPath, uuid } from "../lib/format";
+import { shortPath } from "../lib/format";
 import { deliverLaunch, type AgentLaunch } from "../lib/new-agent";
 import { navigate } from "../lib/router";
 import { useStore, putLaunch } from "../lib/store";
@@ -13,13 +13,12 @@ export function StartingAgent({ launch, onToggleSidebar }: { launch: AgentLaunch
   const machine = useStore((s) => s.machines.find((m) => m.id === launch.machineId));
   const [text, setText] = useState(launch.text);
   const [launcher, setLauncher] = useState(launch.launcher);
-  const editable = launch.phase === "failed" && !launch.session && !launch.uncertain;
+  const editable = launch.phase === "failed" && !launch.session && !launch.uncertain && !launch.repeatOnly;
   useEffect(() => {
     if (launch.phase === "ready" && launch.session) navigate({ name: "session", mid: launch.machineId, sid: launch.session.session_id }, true);
   }, [launch]);
   const retry = () => {
     if (launch.uncertain && !confirm(launch.session ? t("startingagent.resend_confirm") : t("startingagent.restart_confirm"))) return;
-    if (launch.retryNeedsNewId) putLaunch({ ...launch, messageId: uuid(), retryNeedsNewId: false });
     // the model and effort were picked for the launcher it had: another launcher starts with its own
     const other = launcher.trim() !== launch.launcher;
     if (editable) putLaunch({ ...launch, text: text.trim(), launcher: launcher.trim(), outgoing: undefined, ...(other && { model: undefined, effort: undefined }) });

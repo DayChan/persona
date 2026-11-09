@@ -4,6 +4,7 @@
 // Thinking with three dots and a clock.
 import { useState } from "react";
 import type { Item, SessionLive } from "../../lib/types";
+import { useStore } from "../../lib/store";
 import { workDuration } from "../../lib/work-groups";
 import { Collapse, cx, useNow } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -67,7 +68,7 @@ export function ThinkingLine({ item }: { item: Item }) {
 function LiveThinking() {
   // the clock runs from when this card saw the thinking start
   const [since] = useState(Date.now);
-  const now = useNow(500);
+  const now = useNow(500, useStore((s) => s.conn === "online"));
   return (
     <div className={HEAD} data-thinking="live" aria-live="polite">
       <span className={STATUS_SLOT}>

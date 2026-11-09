@@ -18,6 +18,7 @@
   "loading_chat": "正在读取对话",
   "retry": "重试",
   "delivering": "正在送达",
+  "waiting_for_hub": "等待 hub 恢复连接",
   "view_only": "此会话仅可查看",
   "ask_placeholder": "问 {name}…",
   "resume_placeholder": "发消息会在电脑上恢复这个会话…",

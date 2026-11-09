@@ -89,6 +89,7 @@ export const Composer = memo(function Composer({
   commands = AGENT_COMMANDS,
   onSend,
   onStop,
+  stopping,
   autoFocus,
   footer,
   suggestion,
@@ -110,6 +111,8 @@ export const Composer = memo(function Composer({
    *  back into the box. */
   onSend: (m: Outgoing) => Promise<boolean>;
   onStop?: () => void;
+  /** A stop is on its way: the button shows it and takes no more presses. */
+  stopping?: boolean;
   autoFocus?: boolean;
   footer?: React.ReactNode;
   suggestion?: string;
@@ -793,13 +796,14 @@ export const Composer = memo(function Composer({
           {showStop ? (
             <button
               type="button"
-              aria-label={t("chat-composer.interrupt")}
-              title={t("chat-composer.interrupt_hint")}
+              aria-label={stopping ? t("chat-composer.stopping") : t("chat-composer.interrupt")}
+              title={stopping ? t("chat-composer.stopping") : t("chat-composer.interrupt_hint")}
               onClick={onStop}
-              className="touch-hit flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-danger-fill text-white transition-transform duration-150 active:scale-[0.94]"
+              disabled={stopping}
+              className="touch-hit flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-danger-fill text-white transition-transform duration-150 enabled:active:scale-[0.94] disabled:opacity-60"
               style={{ animation: `pop-in 200ms ${EASE} both` }}
             >
-              <Icon name="stop" size={12} />
+              {stopping ? <Spinner size={12} /> : <Icon name="stop" size={12} />}
             </button>
           ) : blocked ? (
             <button

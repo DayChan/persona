@@ -3,6 +3,7 @@
 // exchange's outer group is a timeline: the agent's words between inner groups that stay folded.
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useSessionLive } from "../../lib/live";
+import { useStore } from "../../lib/store";
 import { subagentFor } from "../../lib/tasks";
 import type { Item } from "../../lib/types";
 import { groupTitle, nestedLineDefault, togglesLiveOverride, workLineOpen, workLineOpens, isAgentStep, isPlanStep, isRowStep, isWorkflowStep, planTodos, previewSteps, workDuration, type AgentStatus, type ToolStep, type WorkGroupNode, type WorkLineStyle, type WorkNode } from "../../lib/work-groups";
@@ -279,7 +280,8 @@ export const StepView = memo(function StepView({ step, p, live, fade }: { step: 
 /** A live group's clock, every 500 ms; its own leaf, so the ticking redraws nothing else. While it shows, the running
  *  bar shows no time of its own (#3534). */
 function Elapsed({ since }: { since: number }) {
-  const now = useNow(500);
+  // stands still with the hub out of reach (the running bar says so): nothing can be known to go on
+  const now = useNow(500, useStore((s) => s.conn === "online"));
   const count = useContext(LiveClockContext);
   // before paint: the bar's time goes in the same frame this one comes in
   useLayoutEffect(() => {

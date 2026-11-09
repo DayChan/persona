@@ -28,6 +28,23 @@ afterEach(() => {
   box.remove();
 });
 
+describe("the running bar's clock", () => {
+  it("stands still while the hub is out of reach", () => {
+    vi.useFakeTimers();
+    const started = new Date(Date.now() - 5000).toISOString();
+    const bar = (offline: boolean) => <RunningStatusView live={null} working startedAt={started} offline={offline} />;
+    const shown = () => box.querySelector("[data-running-elapsed]")?.textContent;
+    act(() => root.render(bar(true)));
+    const stopped = shown();
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(shown()).toBe(stopped);
+    act(() => root.render(bar(false)));
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(shown()).not.toBe(stopped);
+    vi.useRealTimers();
+  });
+});
+
 describe("live clock (#3534)", () => {
   it("a live work line's clock counts itself in and out", () => {
     let n = 0;

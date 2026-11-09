@@ -3,7 +3,7 @@
 // countdown, sample age, what the sidebar shows); the bars and the popover are views/UsageBars.tsx.
 import { useEffect, useState } from "react";
 import { formatDate, formatRelative, t as tr } from "../i18n";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 export interface UsageWindow {
   label: string;
@@ -163,7 +163,8 @@ export function useUsageWindows(): UsageAccount[] {
       const current = () => !dead && mine === seq;
       api<{ accounts?: UsageAccount[] }>("/usage/windows")
         .then((r) => current() && setAccounts(r.accounts ?? []))
-        .catch(() => current() && setAccounts([])); // an older hub has no such route: nothing to show
+        // an older hub has no such route: nothing to show; any other failure keeps the bars it last had
+        .catch((e: unknown) => current() && e instanceof ApiError && e.status === 404 && setAccounts([]));
     };
     load();
     const t = setInterval(load, POLL_MS);

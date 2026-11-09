@@ -5,5 +5,6 @@
   "attachments_too_large_retry": "附件加起来太大，一条消息放不下。删几张图片再试。",
   "start_failed": "没启动起来：{error}",
   "first_message_failed": "第一条消息没送达：{error}",
-  "attachments_failed": "附件处理失败：{error}"
+  "attachments_failed": "附件处理失败：{error}",
+  "outcome_unknown": "hub 也不确定这个请求的结果"
 }

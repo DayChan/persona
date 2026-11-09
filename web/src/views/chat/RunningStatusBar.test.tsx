@@ -63,6 +63,15 @@ describe("RunningStatusView", () => {
     expect(html).toContain("↓ 22.8k tokens");
   });
 
+  it("says the hub is out of reach, in front of the last state it knew", () => {
+    const html = render({ live: { verb: "Frosting", elapsed_s: 975 }, working: true, offline: true });
+    expect(html).toContain("data-running-offline");
+    expect(html).toContain("连接已断开");
+    expect(html).toContain("Frosting…");
+    expect(html).toContain("16 分 15 秒");
+    expect(render({ live: { verb: "Frosting" }, working: true })).not.toContain("data-running-offline");
+  });
+
   it("is not there while nothing works", () => {
     expect(render({ live: null, working: false })).toBe("");
   });

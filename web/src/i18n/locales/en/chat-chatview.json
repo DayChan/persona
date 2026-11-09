@@ -18,6 +18,7 @@
   "loading_chat": "Loading chat",
   "retry": "Retry",
   "delivering": "Delivering",
+  "waiting_for_hub": "Waiting for the hub to come back",
   "view_only": "This session is view-only",
   "ask_placeholder": "Ask {name}…",
   "resume_placeholder": "Sending a message resumes this session on the computer…",

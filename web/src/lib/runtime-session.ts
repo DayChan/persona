@@ -30,6 +30,9 @@ export async function exactSession(mid: string, sid: string, signal?: AbortSigna
 
 export interface DetailState { loading: boolean; error: string; missing: boolean; legacy: boolean }
 
+/** The wait before a failed read's quiet retry: 2 s, doubling, then every minute. */
+const detailRetryMs = (failures: number) => Math.min(60_000, 2_000 * 2 ** Math.max(0, failures - 1));
+
 /** One request in flight, one trailing invalidation, and no writes from a prior chat/login generation. */
 export class SessionDetailLoader {
   private generation = 0;
@@ -38,6 +41,9 @@ export class SessionDetailLoader {
   private queued = false;
   private controller?: AbortController;
   private legacy = false;
+  private last = "";
+  private failures = 0;
+  private retryTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private mid: string,
     private sid: string,
@@ -55,7 +61,8 @@ export class SessionDetailLoader {
         if (this.stopped || generation !== this.generation) return;
         this.queued = false;
         this.controller = new AbortController();
-        this.emit({ loading: true, error: "", missing: false, legacy: this.legacy || !this.lookup() });
+        // an earlier failure's words stay until an answer replaces them
+        this.emit({ loading: true, error: this.last, missing: false, legacy: this.legacy || !this.lookup() });
         if (this.stopped || generation !== this.generation) return;
         try {
           if (this.lookup() && !this.legacy) {
@@ -63,6 +70,7 @@ export class SessionDetailLoader {
             if (this.stopped || generation !== this.generation) return;
             if (row) this.commit(row);
             if (this.stopped || generation !== this.generation) return;
+            this.answered();
             this.emit({ loading: false, error: row ? "" : t("runtime-session.missing"), missing: !row, legacy: false });
           } else {
             await this.readLegacy(generation);
@@ -72,9 +80,9 @@ export class SessionDetailLoader {
           if (error instanceof UnsupportedSessionLookup) {
             this.legacy = true;
             await this.readLegacy(generation).catch((failure) => {
-              if (!this.stopped && generation === this.generation) this.emit({ loading: false, error: errorText(failure), missing: false, legacy: true });
+              if (!this.stopped && generation === this.generation) this.failed(failure, true);
             });
-          } else this.emit({ loading: false, error: errorText(error), missing: false, legacy: this.legacy || !this.lookup() });
+          } else this.failed(error, this.legacy || !this.lookup());
         }
       } while (this.queued && !this.stopped && generation === this.generation);
     }).finally(() => { if (this.inFlight === task) this.inFlight = undefined; });
@@ -84,16 +92,32 @@ export class SessionDetailLoader {
   private async readLegacy(generation: number) {
     const cached = this.cache();
     if (cached && typeof cached.waiting !== "boolean") {
+      this.answered();
       this.emit({ loading: false, error: "", missing: false, legacy: true });
       return;
     }
     // Older/unlisted chats already use this configuration route and the transcript. Never refetch /sessions here.
     await api(`${sessionPath(this.mid, this.sid)}/info`, { signal: this.controller?.signal });
-    if (!this.stopped && generation === this.generation) this.emit({ loading: false, error: cached ? "" : t("runtime-session.metadata_unavailable"), missing: false, legacy: true });
+    if (this.stopped || generation !== this.generation) return;
+    this.answered();
+    this.emit({ loading: false, error: cached ? "" : t("runtime-session.metadata_unavailable"), missing: false, legacy: true });
+  }
+  private answered() {
+    this.last = "";
+    this.failures = 0;
+    clearTimeout(this.retryTimer);
+  }
+  private failed(error: unknown, legacy: boolean) {
+    this.last = errorText(error);
+    this.emit({ loading: false, error: this.last, missing: false, legacy });
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => void this.load(), detailRetryMs(++this.failures));
   }
   restart() {
     if (this.stopped) return;
     this.generation++;
+    clearTimeout(this.retryTimer);
+    this.failures = 0;
     this.controller?.abort();
     this.inFlight = undefined;
     this.queued = false;
@@ -103,6 +127,7 @@ export class SessionDetailLoader {
   stop() {
     this.stopped = true;
     this.generation++;
+    clearTimeout(this.retryTimer);
     this.queued = false;
     this.controller?.abort();
   }

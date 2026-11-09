@@ -18,6 +18,7 @@
   "loading_chat": "チャットを読み込み中",
   "retry": "再試行",
   "delivering": "送信中",
+  "waiting_for_hub": "ハブの復帰を待っています",
   "view_only": "このセッションは閲覧のみです",
   "ask_placeholder": "{name}に質問…",
   "resume_placeholder": "メッセージを送るとコンピューターでこのセッションが再開されます…",

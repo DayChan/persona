@@ -1,5 +1,6 @@
 {
   "running": "Running",
+  "disconnected": "Disconnected",
   "thinking": "Thinking",
   "agents_working_one": "{count} subagent working",
   "agents_working_other": "{count} subagents working",

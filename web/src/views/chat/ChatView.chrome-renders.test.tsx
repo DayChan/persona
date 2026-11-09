@@ -144,4 +144,15 @@ it("after the pushes, sending and stopping still go out", async () => {
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posted("/sessions/mac/s1/interrupt")).toHaveLength(1);
+  expect(new Headers((posted("/sessions/mac/s1/interrupt")[0][1] as RequestInit).headers).get("X-Persona-Op-Id")).toBeTruthy();
+
+  // still working: the button says it is stopping and takes no second press, until the turn is over
+  const pressed = () => host.querySelector<HTMLButtonElement>(`button[aria-label="${t("chat-composer.stopping")}"]`);
+  expect(pressed()?.disabled).toBe(true);
+  act(() => dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+  await settle();
+  expect(posted("/sessions/mac/s1/interrupt")).toHaveLength(1);
+  act(() => applyCompleteSessions([row({ status: "idle", state: "idle" })]));
+  await settle();
+  expect(pressed()).toBeNull();
 });

@@ -1,9 +1,10 @@
 import { t } from "../i18n";
 import { isEcho, type Seen } from "./echo";
-import { api, ApiError, errorText, sessionPath } from "./api";
+import { ApiError, errorText, isAbort, isTransient, sessionPath } from "./api";
 import { parseUserText } from "./turns";
 import { imagePayload, quotePath, releaseAttachments, sendFile, type LocalAttachment } from "./attachments";
 import { uuid } from "./format";
+import { apiOp } from "./ops";
 import { currentPlatform, modName, type Platform } from "./shortcuts";
 import { href, navigate } from "./router";
 import { getState, putLaunch, upsertSession } from "./store";
@@ -32,15 +33,21 @@ export interface AgentLaunch {
   outgoing?: { text: string; images: { mime: string; data: string }[] };
   uploaded: Record<string, string>;
   error?: string;
+  /** The start's op id (the hub does it once per id); `startPromptOpId` is for the Codex start with a first message. */
+  startOpId: string;
+  startPromptOpId: string;
+  /** The first message's client_msg_id, its op id too. */
+  messageId: string;
+  /** The hub answered that it doesn't know how this went: only the person can say whether to go on. */
   uncertain?: boolean;
-  retryNeedsNewId?: boolean;
-  messageId?: string;
+  /** The start failed in a gap and the hub may have it: Retry repeats it unchanged, under the same op id. */
+  repeatOnly?: boolean;
   clearable?: string;
   draft?: string;
 }
 
 export function launchAgent(input: Pick<AgentLaunch, "machineId" | "cwd" | "launcher" | "model" | "effort" | "permissionMode" | "host" | "ultracode" | "text" | "attachments" | "todoId">) {
-  const launch: AgentLaunch = { ...input, id: `local-${uuid()}`, phase: "creating", uploaded: {} };
+  const launch: AgentLaunch = { ...input, id: `local-${uuid()}`, phase: "creating", uploaded: {}, ...launchOpIds() };
   putLaunch(launch);
   navigate({ name: "session", mid: launch.machineId, sid: launch.id });
   // Let the local conversation paint before serialization, uploads and remote startup.
@@ -48,9 +55,19 @@ export function launchAgent(input: Pick<AgentLaunch, "machineId" | "cwd" | "laun
   return launch.id;
 }
 
-/** The client_msg_id the first message goes with (a retry the hub may have taken gets a new one, StartingAgent). */
-export function launchMessageId(launch: Pick<AgentLaunch, "id" | "messageId">): string {
-  return launch.messageId ?? launch.id;
+/** Fresh op ids: the hub keeps its answer to an id, so a try after a refusal needs new ones (a gap keeps the old ones). */
+function launchOpIds() {
+  return { startOpId: uuid(), startPromptOpId: uuid(), messageId: uuid() };
+}
+
+/** One step of a start under its op id. A repeat can come back 202: the first try still running (ask again; the hub
+ *  waits about 10 s each time), or lost to a hub restart (nobody knows how it went). */
+async function launchOp<T>(path: string, opId: string, signal: AbortSignal, json: unknown): Promise<T> {
+  for (;;) {
+    const r = await apiOp<T & { state?: string }>(path, { method: "POST", signal, json, opId });
+    if (r.state === "unknown") throw new ApiError(202, t("lib-new-agent.outcome_unknown"), { delivered: "unknown" });
+    if (r.state !== "pending") return r;
+  }
 }
 
 /** `user` (a user message, or an item the hub tied to a message) is the copy of a started conversation's first message. */
@@ -58,7 +75,7 @@ export function acknowledgeLaunch(mid: string, sid: string, user: Seen) {
   for (const launch of Object.values(getState().launches)) {
     if (launch.phase !== "ready" || launch.machineId !== mid || launch.session?.session_id !== sid || !launch.outgoing) continue;
     // the conversation's first message: nothing older in it can say the same, so no time to compare
-    if (isEcho({ id: launchMessageId(launch), text: parseUserText(launch.outgoing.text).text, images: launch.outgoing.images, at: 0 }, user)) putLaunch({ ...launch, outgoing: undefined });
+    if (isEcho({ id: launch.messageId, text: parseUserText(launch.outgoing.text).text, images: launch.outgoing.images, at: 0 }, user)) putLaunch({ ...launch, outgoing: undefined });
   }
 }
 
@@ -81,14 +98,14 @@ export async function deliverLaunch(id: string, clearDraft?: string) {
     if (!launch.session) {
       let session: Session;
       try {
-        const r = await api<{ session: Session }>("/sessions", { method: "POST", signal: controller.signal, json: { machine_id: launch.machineId, cwd: launch.cwd, launcher: launch.launcher || undefined, model: launch.model || undefined, effort: launch.effort || undefined, permission_mode: launch.permissionMode || undefined, host: launch.host || undefined, ultracode: launch.ultracode === true ? true : undefined, async: true, name_hint: launch.text || undefined, todo_id: launch.todoId || undefined } });
+        const r = await launchOp<{ session: Session }>("/sessions", launch.startOpId, controller.signal, { machine_id: launch.machineId, cwd: launch.cwd, launcher: launch.launcher || undefined, model: launch.model || undefined, effort: launch.effort || undefined, permission_mode: launch.permissionMode || undefined, host: launch.host || undefined, ultracode: launch.ultracode === true ? true : undefined, async: true, name_hint: launch.text || undefined, todo_id: launch.todoId || undefined });
         session = r.session;
       } catch (e) {
         if (!(e instanceof ApiError) || e.code !== "codex_needs_prompt") throw e;
         if (launch.attachments.length) throw new Error(t("lib-new-agent.launcher_no_attachments"));
         if (!launch.text) throw new Error(t("lib-new-agent.launcher_needs_text"));
         // A Codex start takes the picked model but no effort.
-        const r = await api<{ session: Session }>("/sessions", { method: "POST", signal: controller.signal, json: { machine_id: launch.machineId, cwd: launch.cwd, launcher: launch.launcher || undefined, model: launch.model || undefined, host: launch.host || undefined, prompt: launch.text, todo_id: launch.todoId || undefined } });
+        const r = await launchOp<{ session: Session }>("/sessions", launch.startPromptOpId, controller.signal, { machine_id: launch.machineId, cwd: launch.cwd, launcher: launch.launcher || undefined, model: launch.model || undefined, host: launch.host || undefined, prompt: launch.text, todo_id: launch.todoId || undefined });
         session = r.session;
         update({ outgoing: { text: "", images: [] } });
       }
@@ -119,11 +136,9 @@ export async function deliverLaunch(id: string, clearDraft?: string) {
     const out = launch.outgoing!;
     if (out.text || out.images.length) {
       update({ phase: "sending" });
-      const payload = { ...out, client_msg_id: launchMessageId(launch), clear_draft: clearDraft, todo_id: launch.todoId || undefined };
+      const payload = { ...out, client_msg_id: launch.messageId, clear_draft: clearDraft, todo_id: launch.todoId || undefined };
       if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 32 * 1024 * 1024) throw new Error(t("lib-new-agent.attachments_too_large_retry"));
-      await api(`${sessionPath(launch.machineId, launch.session!.session_id)}/messages`, {
-        method: "POST", signal: controller.signal, json: payload,
-      });
+      await launchOp(`${sessionPath(launch.machineId, launch.session!.session_id)}/messages`, launch.messageId, controller.signal, payload);
     }
     update({ phase: "ready" });
     releaseAttachments(launch.attachments);
@@ -134,11 +149,14 @@ export async function deliverLaunch(id: string, clearDraft?: string) {
     const phase: AgentLaunch["phase"] = getState().launches[id]?.phase ?? "failed";
     const sending = phase === "sending";
     const creating = phase === "creating";
-    const uncertain = (creating || sending) && (e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError") || (e instanceof ApiError && (e.body.delivered === "unknown" || (e.status >= 500 && e.body.delivered !== "none"))));
+    // no answer: the same op id on Retry finds out whether the hub had it, so nothing starts or sends twice
+    const gap = isTransient(e) || isAbort(e);
+    // the hub answered that it doesn't know, and its receipt would say so again: going on takes new ids and the person's word
+    const uncertain = (creating || sending) && !gap && e instanceof ApiError && (e.body.delivered === "unknown" || (e.status >= 500 && e.body.delivered !== "none"));
     // the hub won't start it with ultracode here (an old node, a CLI or engine that can't take it): asking again would
     // get the same answer, so "Retry" starts it without, and the card says so (#3428)
     const noUltracode = creating && launch.ultracode === true && ultracodeRefused(e);
-    update({ phase: "failed", uncertain, retryNeedsNewId: e instanceof ApiError && e.body.delivered === "unknown",
+    update({ phase: "failed", uncertain, repeatOnly: creating && gap, ...(gap ? {} : launchOpIds()),
       ...(noUltracode ? { ultracode: undefined } : {}),
       error: noUltracode ? t("ultracode.start_refused", { error: ultracodeErrorText(e) }) : t(creating ? "lib-new-agent.start_failed" : sending ? "lib-new-agent.first_message_failed" : "lib-new-agent.attachments_failed", { error: errorText(e) }),
       clearable: e instanceof ApiError && e.code === "input_draft" && typeof e.body.clearable === "string" ? e.body.clearable : undefined,

@@ -1,5 +1,6 @@
 {
   "running": "运行中",
+  "disconnected": "连接已断开",
   "thinking": "思考中",
   "agents_working_other": "{count} 个子 Agent 在工作",
   "agents_more_other": "还有 {count} 个",

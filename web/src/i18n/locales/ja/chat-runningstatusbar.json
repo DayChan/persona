@@ -1,5 +1,6 @@
 {
   "running": "実行中",
+  "disconnected": "切断されました",
   "thinking": "思考中",
   "agents_working_other": "サブエージェント {count} 件が作業中",
   "agents_more_other": "ほか {count} 件",

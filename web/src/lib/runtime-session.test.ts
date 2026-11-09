@@ -38,6 +38,41 @@ describe("exact full-session query", () => {
   });
 });
 
+describe("a failed background read", () => {
+  it("keeps its error while reading again, retries with backoff and clears on an answer", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api).mockRejectedValueOnce(new Error("first failure")).mockRejectedValueOnce(new Error("second failure"));
+      const model = loader();
+      await model.load();
+      expect(states.at(-1)).toMatchObject({ loading: false, error: "first failure" });
+      expect(api).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(api).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(api).toHaveBeenCalledTimes(2);
+      expect(states.filter((s) => s.loading).at(-1)?.error).toBe("first failure");
+      expect(states.at(-1)?.error).toBe("second failure");
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(api).toHaveBeenCalledTimes(3);
+      expect(states.at(-1)).toMatchObject({ loading: false, error: "" });
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(api).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+  it("stops retrying when the chat goes away", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api).mockRejectedValueOnce(new Error("failure"));
+      const model = loader();
+      await model.load();
+      model.stop();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(api).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe("active-chat snapshot lifecycle", () => {
   it("loads all full task/configuration fields on initial entry and invalidation", async () => {
     const model = loader();

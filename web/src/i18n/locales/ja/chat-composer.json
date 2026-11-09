@@ -37,6 +37,7 @@
   "commands": "コマンド",
   "interrupt": "中断",
   "interrupt_hint": "中断（Esc）",
+  "stopping": "中断しています…",
   "send": "送信",
   "send_hint": "送信（Enter）· 改行（Shift+Enter）",
   "blocked_hint": "まだ送信されていません：{label}。書いた内容はここに残ります。",

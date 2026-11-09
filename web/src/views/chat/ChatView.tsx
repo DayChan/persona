@@ -12,7 +12,7 @@ import { machineWithHub } from "../../lib/mesh";
 import { hasEffortOnly, hasModes, isMuted, toggleMute } from "../../lib/session-actions";
 import { attachLive, flipPin } from "../../lib/agent-actions";
 import { isPinned } from "../../lib/pins";
-import { acknowledgeLaunch, launchMessageId } from "../../lib/new-agent";
+import { acknowledgeLaunch } from "../../lib/new-agent";
 import { useRuntimeSession } from "../../lib/runtime-session";
 import { ArchivedNotice, SessionDetailNotice } from "../../ui/SessionDetailNotice";
 import { REVIEW_FEATURE } from "../../lib/session-review";
@@ -128,6 +128,8 @@ interface Pending {
 
 /** How many times a message held back for an ultracode change goes again before it is taken as not sent. */
 const ULTRACODE_SEND_TRIES = 4;
+/** How long after the hub took a stop the button stays blocked if the agent keeps working: it may have ignored it. */
+const STOP_SETTLE_MS = 15_000;
 
 /** "Branch to new chat" (#2137): the node copies the conversation up to this reply's turn into a new one, which opens here. */
 async function forkAt(mid: string, sid: string, itemId: string, assistant: boolean, space?: string) {
@@ -221,12 +223,13 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
     const launch = Object.values(getState().launches).find((l) => l.phase === "ready" && l.machineId === mid && l.session?.session_id === sid);
     const out = launch?.outgoing;
     if (!launch || !out || (!out.text && !out.images.length)) return [];
-    const id = launchMessageId(launch);
+    const id = launch.messageId;
     return [{ id, at: Date.now(), msg: { id: `pending:${id}`, ...parseUserText(out.text), images: out.images.map((image, i) => ({ id: `pending:${id}#${i}`, seq: 0, role: "user", kind: "image", image })) } }];
   });
   const [draftRefusal, setDraftRefusal] = useState<{ id: string; draft: string; clearable?: string } | null>(null);
   // what other pages sent here ("Ask Persona", "Hand to AI"…): shown like this page's own sending bubbles (lib/outbox.ts)
   const outbox = useStore((s) => s.outbox[outboxKey(mid, sid)] ?? []);
+  const online = useStore((s) => s.conn === "online");
   // a message Claude queued shows in the queue strip, not as a sending bubble too (ChatView.swift chatScroll)
   const queued = session?.queued ?? [];
   const shownPending = queued.length ? pending.filter((p) => !queued.some((q) => sameMessage(q, p.msg.text))) : pending;
@@ -642,15 +645,29 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
     return () => window.removeEventListener("persona:say", say);
   }, [assistant, mid, sid, deliver]);
 
+  const [stopping, setStopping] = useState(false);
+  const stopInFlight = useRef(false); // the press that comes before `stopping` has drawn
+  const stopDone = useCallback(() => {
+    stopInFlight.current = false;
+    setStopping(false);
+  }, []);
   const interrupt = useCallback(async () => {
-    if (!sessionCan(getSession(mid, sid), "interrupt")) return;
+    if (stopInFlight.current || !sessionCan(getSession(mid, sid), "interrupt")) return;
+    stopInFlight.current = true;
+    setStopping(true);
     try {
-      await api(`${sessionPath(mid, sid)}/interrupt`, { method: "POST" });
+      await apiOp(`${sessionPath(mid, sid)}/interrupt`, { method: "POST" });
       toast(t("chat-chatview.interrupted"));
+      window.setTimeout(stopDone, STOP_SETTLE_MS);
     } catch (e) {
       toast(t("chat-chatview.interrupt_failed", { error: errorText(e) }), "error");
+      stopDone();
     }
-  }, [mid, sid]);
+  }, [mid, sid, stopDone]);
+  // the turn ended, and not necessarily by this stop
+  useEffect(() => {
+    if (state !== "working") stopDone();
+  }, [state, stopDone]);
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -1016,7 +1033,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         />
       )}
       {banner}
-      {archivedHere ? <ArchivedNotice session={archivedHere} /> : !readOnly && detail.error && <SessionDetailNotice error={detail.error} retry={retryDetail} />}
+      {/* a known session keeps its chat: a failed background read is retried quietly (runtime-session.ts) */}
+      {archivedHere ? <ArchivedNotice session={archivedHere} /> : !readOnly && detail.error && (detail.missing || !session) && <SessionDetailNotice error={detail.error} retry={retryDetail} />}
       {session && !panel && panes.length > 1 && <PaneTabs sessions={panes} current={sid} onSelect={(s) => navigate(paneRoute(s), true)} />}
 
       {/* the page's middle: the chat and (once shown) the terminal stacked in one box; without a terminal to show it adds no box */}
@@ -1114,7 +1132,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                 .map((x) => x.el)}
             {!readOnly && (shownPending.length > 0 || outbox.some((e) => e.state === "sending") || (starting && outgoing > 0)) && (
               <div className="flex items-center gap-2.5">
-                <Loading label={starting ? t("chat-chatview.preparing") : shownPending.some((p) => p.waits) ? t("ultracode.send_waits") : t("chat-chatview.delivering")} />
+                <Loading label={starting ? t("chat-chatview.preparing") : shownPending.some((p) => p.waits) ? t("ultracode.send_waits") : online ? t("chat-chatview.delivering") : t("chat-chatview.waiting_for_hub")} />
               </div>
             )}
           </div>
@@ -1207,6 +1225,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           disabled={Boolean(offlineLine) || !sessionCan(session, "send")}
           // Persona's conversations too, the main one included (#1467): the node stops their turn like an agent's
           onStop={sessionCan(session, "interrupt") ? interrupt : undefined}
+          stopping={stopping}
           commands={commands}
           suggestion={session?.suggestion}
           mention={mention}

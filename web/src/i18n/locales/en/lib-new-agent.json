@@ -5,5 +5,6 @@
   "attachments_too_large_retry": "Attachments are over the message size limit. Remove some images and try again.",
   "start_failed": "Couldn't start: {error}",
   "first_message_failed": "First message wasn't delivered: {error}",
-  "attachments_failed": "Couldn't process attachments: {error}"
+  "attachments_failed": "Couldn't process attachments: {error}",
+  "outcome_unknown": "The hub doesn't know how this request ended"
 }

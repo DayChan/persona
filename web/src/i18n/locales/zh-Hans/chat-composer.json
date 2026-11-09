@@ -37,6 +37,7 @@
   "commands": "命令",
   "interrupt": "中断",
   "interrupt_hint": "中断（Esc）",
+  "stopping": "正在中断…",
   "send": "发送",
   "send_hint": "发送（Enter）· 换行（Shift+Enter）",
   "blocked_hint": "还没发出去：{label}。写的字会留在这里。",
