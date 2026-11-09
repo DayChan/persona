@@ -270,12 +270,10 @@ func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptL
 		return false, nil
 	}
 	row, err := s.store().FeedItem(ctx, look.ID)
-	recheck := false
 	if err != nil {
 		return false, err
 	}
 	if row == nil {
-		recheck = true
 		row, err = s.store().FeedItem(ctx, receiptRecheckID(look.ID))
 		if err != nil {
 			return false, err
@@ -301,58 +299,33 @@ func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptL
 	if !s.taskReceiptActive(ctx, look.ID) {
 		return true, nil
 	}
-	where := [2]string{look.Machine, look.Session}
-	s.tasks.completionMu.Lock()
-	s.tasks.mu.Lock()
-	current, observed := s.tasks.workIDs[t.ID]
-	work, worked := s.tasks.working[t.ID]
-	s.tasks.mu.Unlock()
-	sameWork := !recheck && observed && current == look.Generation
 	switch body.State {
 	case "interrupted":
 		s.taskNotice(ctx, t, body.Machine, "interrupted", "", body.Error)
-		if sameWork {
-			s.taskReport(t, reportInterrupted, body.Machine, where, body.Error, nil)
-		}
 	case "done":
 		s.taskNotice(ctx, t, body.Machine, "done", "", body.Summary)
-		if sameWork {
-			// Summary may be truncated; only the separately recorded PR is reliable.
-			if body.PR != "" {
-				s.setTaskStage(ctx, t.ID, "", body.PR)
-			}
-			s.taskReport(t, reportDone, body.Machine, where, body.Summary, nil)
-		} else {
-			s.logf("task %s: recovered receipt judgment skipped: current work generation is not confirmed", t.ID)
-		}
+		// A manager-local generation cannot exclude another manager seeing new work.
+		// The feed summary is truncated, so it cannot safely restore stage or acceptance.
+		s.logf("task %s: recovered receipt judgment skipped: current work generation is not confirmed", t.ID)
 	default:
-		s.tasks.completionMu.Unlock()
 		return true, errors.New("unknown stored task receipt state")
 	}
-	s.tasks.completionMu.Unlock()
-	if body.State == "done" && sameWork {
-		if !s.taskRuntimeSettled(ctx, t) {
-			return true, errors.New("receipt judgment awaits settled agents")
-		}
-		if !worked {
-			work = look.Work
-		}
-		s.autoFinishTask(t, work, worked)
-	}
 	if s.taskReceiptActive(ctx, look.ID) {
-		s.tasks.mu.Lock()
-		current, observed := s.tasks.workIDs[t.ID]
-		if !recheck && observed && current == look.Generation {
-			s.tasks.receipted[t.ID] = time.Now()
-			if s.tasks.receiptWorkIDs == nil {
-				s.tasks.receiptWorkIDs = make(map[string]string)
-			}
-			s.tasks.receiptWorkIDs[t.ID] = look.Generation
-		}
-		s.tasks.mu.Unlock()
 		s.finishTaskReceipt(ctx, t.ID, look.ID)
 	}
 	return true, nil
+}
+
+// cachedTaskForReceipt uses an existing link only; it never guesses one after a failed load.
+func (s *Service) cachedTaskForReceipt(machine, sid string) (Todo, bool) {
+	s.todos.mu.RLock()
+	defer s.todos.mu.RUnlock()
+	id := s.todos.activeBySession[[2]string{machine, sid}]
+	t := s.todos.todos[id]
+	if t == nil || t.Origin == "" || t.DoneAt != nil {
+		return Todo{}, false
+	}
+	return copyTodoLocked(t), true
 }
 
 // taskTurnEnded: one of the task's agents (sid on machine) ended a turn. Once none of them works or waits for the
@@ -371,7 +344,21 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	time.Sleep(s.settleDelay(ctx)) // a turn that ends to ask, or goes on at once, is not the end
 	if err := s.ensureTodosLoaded(ctx); err != nil {
 		s.logf("task turn ended: load todos: %v", err)
-		s.retryTaskTurnEnded(ctx, machine, sid, expected)
+		if expected == nil || expected.Todo == "" {
+			if cached, ok := s.cachedTaskForReceipt(machine, sid); ok {
+				s.tasks.mu.Lock()
+				work, worked := s.tasks.working[cached.ID]
+				s.tasks.mu.Unlock()
+				if !worked {
+					work = cached.CreatedAt
+				}
+				s.retryTaskReceipt(ctx, cached, machine, sid, work, nil)
+			} else {
+				s.logf("task turn ended: no known task association for %s/%s", machine, sid)
+			}
+		} else {
+			s.retryTaskTurnEnded(ctx, machine, sid, expected)
+		}
 		return
 	}
 	t, ok := s.taskOf(ctx, machine, sid)
@@ -379,21 +366,8 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		return
 	}
 	if expected != nil && expected.Todo == "" {
-		linked, active := receiptLink(t, SessionRef{MachineID: machine, SessionID: sid})
-		if !active {
-			return
-		}
-		s.tasks.mu.Lock()
-		work, worked := s.tasks.working[t.ID]
-		generation := s.tasks.workIDs[t.ID]
-		s.tasks.mu.Unlock()
-		if !worked {
-			work = t.CreatedAt
-		}
-		copy := *expected
-		copy.Todo, copy.Linked, copy.Work, copy.Generation = t.ID, linked, work, generation
-		copy.RetryID = "feed_" + randomHex(16)
-		expected = &copy
+		s.logf("task turn ended: retry has no known task association for %s/%s", machine, sid)
+		return
 	}
 	if !s.receiptTurnMatches(t, machine, sid, expected) {
 		return
@@ -406,7 +380,15 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	}
 	agents, reached := s.taskAgentsReached(ctx, t)
 	if !reached {
-		if expected == nil || expected.ID == "" {
+		if expected == nil {
+			s.tasks.mu.Lock()
+			work, worked := s.tasks.working[t.ID]
+			s.tasks.mu.Unlock()
+			if !worked {
+				work = t.CreatedAt
+			}
+			s.retryTaskReceipt(ctx, t, machine, sid, work, nil)
+		} else if expected.ID == "" {
 			s.retryTaskTurnEnded(ctx, machine, sid, expected)
 		}
 		return
@@ -492,7 +474,11 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	previousGeneration, hadPreviousGeneration := s.tasks.receiptWorkIDs[t.ID]
 	if hadPrevious && (hadPreviousGeneration && previousGeneration == generation ||
 		!hadPreviousGeneration && !previous.Before(since)) {
+		completed, done := s.tasks.receiptCompleted[t.ID]
 		s.tasks.mu.Unlock()
+		if done && completed == generation && expected != nil && expected.ID != "" {
+			s.finishTaskReceipt(ctx, t.ID, expected.ID)
+		}
 		return
 	}
 	reservation := time.Now()
@@ -549,10 +535,13 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 			return
 		}
 		s.taskNotice(cctx, t, name, "interrupted", "", body.Error)
-		s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		if receiptFollowupCurrent(expected, receiptID) {
+			s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		}
 		if !s.taskReceiptActive(ctx, receiptID) {
 			return
 		}
+		s.markReceiptCompleted(t.ID, generation)
 		committed = true
 		s.finishTaskReceipt(ctx, t.ID, receiptID)
 		return
@@ -600,10 +589,13 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 			return
 		}
 		s.taskNotice(cctx, t, name, "interrupted", "", body.Error)
-		s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		if receiptFollowupCurrent(expected, receiptID) {
+			s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		}
 		if !s.taskReceiptActive(ctx, receiptID) {
 			return
 		}
+		s.markReceiptCompleted(t.ID, generation)
 		committed = true
 		s.finishTaskReceipt(ctx, t.ID, receiptID)
 		return
@@ -637,17 +629,10 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		return
 	}
 	s.taskNotice(cctx, t, name, "done", "", clipMarkdown(text, 1500))
-	stage, pr := stageOf(text)
-	s.setTaskStage(cctx, t.ID, stage, pr)
-	s.taskReport(t, reportDone, name, [2]string{last.MachineID, last.SessionID}, text, nil)
-	sameWork := true
-	if expected != nil && expected.ID != "" {
-		s.tasks.mu.Lock()
-		current, observed := s.tasks.workIDs[t.ID]
-		s.tasks.mu.Unlock()
-		sameWork = observed && current == expected.Generation
-	}
-	if sameWork {
+	if receiptFollowupCurrent(expected, receiptID) {
+		stage, pr := stageOf(text)
+		s.setTaskStage(cctx, t.ID, stage, pr)
+		s.taskReport(t, reportDone, name, [2]string{last.MachineID, last.SessionID}, text, nil)
 		if stageIndex(stage) >= stageIndex("deploy") {
 			go s.askAcceptance(t, last.MachineID, last.SessionID, text) // the user tries it (acceptance.go)
 		}
@@ -658,8 +643,27 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if !s.taskReceiptActive(ctx, receiptID) {
 		return
 	}
+	s.markReceiptCompleted(t.ID, generation)
 	committed = true
 	s.finishTaskReceipt(ctx, t.ID, receiptID)
+}
+
+// A durable look can outlive another manager's unseen turn, so its local
+// generation alone cannot authorize changes to current task state.
+func receiptFollowupCurrent(expected *receiptLook, receiptID string) bool {
+	return receiptID == "" || expected != nil && expected.ID == ""
+}
+
+func (s *Service) markReceiptCompleted(todoID, generation string) {
+	s.tasks.mu.Lock()
+	defer s.tasks.mu.Unlock()
+	if current, ok := s.tasks.receiptWorkIDs[todoID]; !ok || current != generation {
+		return
+	}
+	if s.tasks.receiptCompleted == nil {
+		s.tasks.receiptCompleted = make(map[string]string)
+	}
+	s.tasks.receiptCompleted[todoID] = generation
 }
 
 func (s *Service) taskReceiptActive(ctx context.Context, receiptID string) bool {
@@ -705,7 +709,7 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	}
 	var look receiptLook
 	s.tasks.mu.Lock()
-	generation, observed := s.tasks.workIDs[t.ID]
+	generation := s.tasks.workIDs[t.ID]
 	s.tasks.mu.Unlock()
 	for _, candidate := range s.tasks.receiptLooks {
 		if candidate.Todo != t.ID {
@@ -751,12 +755,9 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	if err != nil {
 		return "", err
 	}
-	feedID := look.ID
-	if expected != nil && expected.ID != "" && (!observed || generation != expected.Generation) {
-		// This is a fresh check of the current turn, not evidence about the
-		// older wait. A new ID avoids assigning its text to that older receipt.
-		feedID = receiptRecheckID(look.ID)
-	}
+	// A local generation cannot exclude another manager seeing a newer turn.
+	// Keep the fresh observation separate from the older wait's receipt.
+	feedID := receiptRecheckID(look.ID)
 	item := FeedItem{ID: feedID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
 	row := db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body}
 	var inserted bool

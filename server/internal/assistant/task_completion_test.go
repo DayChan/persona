@@ -424,7 +424,7 @@ func TestReceiptLookRestoresFollowupAfterFeedWrite(t *testing.T) {
 	})
 }
 
-func TestReceiptLookRestoresJudgmentAfterFeedWrite(t *testing.T) {
+func TestReceiptLookDoesNotGuessJudgmentAfterFeedWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	st := &receiptOnceStore{}
@@ -450,8 +450,8 @@ func TestReceiptLookRestoresJudgmentAfterFeedWrite(t *testing.T) {
 	f.mu.Lock()
 	judged := f.judged
 	f.mu.Unlock()
-	if judged == 0 {
-		t.Fatal("recovered receipt skipped the completion judgment")
+	if judged != 0 {
+		t.Fatal("recovered receipt guessed the current work generation")
 	}
 	st.feedMu.Lock()
 	n := len(st.feed)
@@ -553,6 +553,84 @@ func TestReceiptLookCASPreservesOtherManager(t *testing.T) {
 	}
 }
 
+func TestTaskTurnEndedUnknownInitialBindingDoesNotBindLaterTask(t *testing.T) {
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := newServiceOn(t, f, st)
+	failing := &failingStore{}
+	failing.failLoad.Store(true)
+	var holderMu sync.RWMutex
+	var active Store = failing
+	s.store = func() Store { holderMu.RLock(); defer holderMu.RUnlock(); return active }
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s.tasks.receiptMu.Lock()
+		s.tasks.receiptCtx = ctx
+		s.tasks.receiptMu.Unlock()
+		s.taskTurnEnded(ctx, "box", "s1")
+		holderMu.Lock()
+		active = st
+		holderMu.Unlock()
+		if err := s.ensureTodosLoaded(ctx); err != nil {
+			t.Fatal(err)
+		}
+		s.todos.mu.Lock()
+		s.todos.todos["other"] = &Todo{ID: "other", Origin: "other-conv", Agents: []TodoAgent{{MachineID: "box", SessionID: "s1", LinkedAt: time.Now()}}}
+		s.todos.activeBySession[[2]string{"box", "s1"}] = "other"
+		s.todos.mu.Unlock()
+		f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "other work"})
+		<-time.After(2 * time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		n := len(st.feed)
+		st.faultMu.Unlock()
+		if n != 0 {
+			t.Fatalf("unbound old event wrote %d receipts for the later task", n)
+		}
+	})
+}
+
+func TestTaskTurnEndedLoadFailureDoesNotFollowRebind(t *testing.T) {
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "error"})
+	failing := &failingStore{}
+	failing.failLoad.Store(true)
+	var holderMu sync.RWMutex
+	var active Store = failing
+	s.store = func() Store { holderMu.RLock(); defer holderMu.RUnlock(); return active }
+	s.todos.mu.Lock()
+	s.todos.loaded = false
+	s.todos.mu.Unlock()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s.tasks.receiptMu.Lock()
+		s.tasks.receiptCtx = ctx
+		s.tasks.receiptMu.Unlock()
+		s.taskTurnEnded(ctx, "box", "s1")
+		holderMu.Lock()
+		active = st
+		holderMu.Unlock()
+		s.todos.mu.Lock()
+		s.todos.todos["other"] = &Todo{ID: "other", Origin: "other-conv", Agents: []TodoAgent{{MachineID: "box", SessionID: "s1", LinkedAt: time.Now()}}}
+		s.todos.activeBySession[[2]string{"box", "s1"}] = "other"
+		s.todos.loaded = true
+		s.todos.mu.Unlock()
+		f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "other work"})
+		<-time.After(time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		n := len(st.feed)
+		st.faultMu.Unlock()
+		if n != 0 {
+			t.Fatalf("old event wrote %d receipts for the new task", n)
+		}
+	})
+}
+
 func TestTaskTurnEndedRetriesTodoLoadFailure(t *testing.T) {
 	st := &receiptSettingFailureStore{}
 	f := newFakeHub()
@@ -588,6 +666,36 @@ func TestTaskTurnEndedRetriesTodoLoadFailure(t *testing.T) {
 			t.Fatalf("receipts after todo load recovery = %d", n)
 		}
 	})
+}
+
+func TestBoundReceiptCompletionClearsSameGenerationLook(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Now().Add(-time.Hour))
+	s.taskWorking(ctx, "box", "s1")
+	todo := todoNow(s, "task")
+	s.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("wait = %+v, %v", state, err)
+	}
+	look := state.Looks[0]
+	bound := look
+	bound.ID = ""
+	bound.RetryID = "bound-retry"
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "error"})
+	s.taskTurnEndedForLook(ctx, "box", "s1", &bound)
+	s.taskTurnEndedForLook(ctx, "box", "s1", &look)
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
+		t.Fatalf("completed look retained = %+v, %v", state, err)
+	}
+	st.faultMu.Lock()
+	n := len(st.feed)
+	st.faultMu.Unlock()
+	if n != 1 {
+		t.Fatalf("receipts = %d", n)
+	}
 }
 
 func TestBoundReceiptRetryUsesStableID(t *testing.T) {
@@ -1087,6 +1195,80 @@ func TestReceiptLookWithoutFeedDoesNotAttributeNewTurn(t *testing.T) {
 	}
 }
 
+func TestFirstDurableLookDoesNotMutateOtherManagerWork(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	f.judge = `{"verdict":"done","reason":"Verified"}`
+	linked := time.Now().Add(-time.Hour)
+	a := receiptTestService(t, f, st, linked)
+	b := receiptTestService(t, f, st, linked)
+	a.taskWorking(ctx, "box", "s1")
+	todo := todoNow(a, "task")
+	a.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("wait = %+v, %v", state, err)
+	}
+	look := state.Looks[0]
+	b.taskWorking(ctx, "box", "s1")
+	f.setItems(proto.Item{Role: "user", Kind: proto.KindText, Text: "task"}, proto.Item{Role: "assistant", Kind: proto.KindText, Text: "deployed new work"})
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, LastText: "deployed new work"})
+	a.taskTurnEndedForLook(ctx, "box", "s1", &look)
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	current := todoNow(a, "task")
+	if judged != 0 || current.DoneAt != nil || current.Stage == "deploy" {
+		t.Fatalf("old check mutated new work: judgments=%d todo=%+v", judged, current)
+	}
+	a.reports.mu.Lock()
+	report := a.reports.pending["task"]
+	a.reports.mu.Unlock()
+	if report != nil {
+		t.Fatalf("old check replaced the current report: %+v", report)
+	}
+	st.feedMu.Lock()
+	_, original := st.feed[look.ID]
+	_, recheck := st.feed[receiptRecheckID(look.ID)]
+	st.feedMu.Unlock()
+	if original || !recheck {
+		t.Fatalf("receipt IDs: original=%v recheck=%v", original, recheck)
+	}
+}
+
+func TestRecoveredReceiptDoesNotJudgeAfterOtherManagerWork(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	f.judge = `{"verdict":"done","reason":"Verified"}`
+	linked := time.Now().Add(-time.Hour)
+	a := receiptTestService(t, f, st, linked)
+	b := receiptTestService(t, f, st, linked)
+	a.taskWorking(ctx, "box", "s1")
+	todo := todoNow(a, "task")
+	a.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("wait = %+v, %v", state, err)
+	}
+	look := state.Looks[0]
+	if _, err := a.appendTaskReceipt(ctx, todo, SessionRef{MachineID: "box", SessionID: "s1"}, receiptBody{State: "done", Summary: "old result"}); err != nil {
+		t.Fatal(err)
+	}
+	// Only B sees the next turn; A's local work ID still matches the old receipt.
+	b.taskWorking(ctx, "box", "s1")
+	f.setItems(proto.Item{Role: "user", Kind: proto.KindText, Text: "task"}, proto.Item{Role: "assistant", Kind: proto.KindText, Text: "new result"})
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, LastText: "new result"})
+	a.taskTurnEndedForLook(ctx, "box", "s1", &look)
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	if judged != 0 || todoNow(a, "task").DoneAt != nil {
+		t.Fatalf("old receipt judged new work: judgments=%d todo=%+v", judged, todoNow(a, "task"))
+	}
+}
+
 func TestReceiptRecheckFeedNeverFinishesOldWork(t *testing.T) {
 	ctx := context.Background()
 	st := &receiptOnceStore{}
@@ -1136,7 +1318,7 @@ func TestReceiptRecheckFeedNeverFinishesOldWork(t *testing.T) {
 	}
 }
 
-func TestReceiptLookRecoveredDoneJudgmentRequiresKnownGeneration(t *testing.T) {
+func TestReceiptLookRecoveredDoneDoesNotAssumeSameGeneration(t *testing.T) {
 	for _, mode := range []string{"same", "new", "unknown"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
@@ -1171,13 +1353,13 @@ func TestReceiptLookRecoveredDoneJudgmentRequiresKnownGeneration(t *testing.T) {
 			f.mu.Lock()
 			judged := f.judged
 			f.mu.Unlock()
-			if (judged > 0) != (mode == "same") {
+			if judged != 0 {
 				t.Fatalf("judgment count = %d for %s", judged, mode)
 			}
 			s.reports.mu.Lock()
 			report := s.reports.pending["task"]
 			s.reports.mu.Unlock()
-			if mode == "same" && (report == nil || report.text != "old result") || mode != "same" && report != nil {
+			if report != nil {
 				t.Fatalf("recovered report for %s = %+v", mode, report)
 			}
 			if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
@@ -1251,8 +1433,17 @@ func TestRecoveredReceiptDoesNotInferStageFromTruncatedSummary(t *testing.T) {
 	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread})
 	s.taskTurnEndedForLook(ctx, "box", "s1", &state.Looks[0])
 	current := todoNow(s, "task")
-	if current.Stage != "review" || current.PRURL != "https://github.com/o/r/pull/1" {
-		t.Fatalf("summary changed task stage: %+v", current)
+	if current.Stage != "review" || current.PRURL != "" || current.DoneAt != nil {
+		t.Fatalf("summary changed task state: %+v", current)
+	}
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	s.accept.mu.Lock()
+	asks := len(s.accept.asks)
+	s.accept.mu.Unlock()
+	if judged != 0 || asks != 0 {
+		t.Fatalf("recovered deployment triggered judgment=%d acceptance=%d", judged, asks)
 	}
 }
 
