@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/nwverse/persona/server/internal/apierr"
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -612,8 +612,9 @@ func (s *Service) reviewAsks(ctx context.Context, machine, sid string) []string 
 // ---- the findings marker ----
 
 // reviewMarker reads the reviewer's machine-readable last line, <review-findings count="N"/>: the quotes around the
-// number are optional and the whitespace is flexible; a malformed one is not a marker.
-var reviewMarker = regexp.MustCompile(`<review-findings\s+count\s*=\s*"?([0-9]+)"?\s*/>`)
+// number are optional and the whitespace is flexible; a malformed one is not a marker. lazyre: personad starts with
+// none of its reviews' work compiled (lazyre's own guard).
+var reviewMarker = lazyre.New(`<review-findings\s+count\s*=\s*"?([0-9]+)"?\s*/>`)
 
 // parseReviewFindings strips every marker from the reviewer's reply and returns its finding count: the LAST marker
 // wins, nil when there is none (the card then says the review finished, without a count).
