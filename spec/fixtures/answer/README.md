@@ -64,9 +64,9 @@ PERSONA_VERIFY_IOS_FIXTURES=1 go test -count=1 -p 1 -run 'TestResolutionFixture'
 
 - `TestResolutionFixtures` 读取两个领域的全部 JSON，检查来源标记、唯一名称和格式，用真实 `proto.Interaction`、`proto.Resolution` 解码并核对重编码字段；额外禁止未知 Resolution 字段，检查问题原文键、明确的计划模式和终端选项。带 hub dialog 的合成屏幕还要由真实 `screen.ParseDialog` 解析出同一份结构及版本。
 - `TestResolutionFixturesIOS` 在 Go 的临时目录生成 Swift 源码和二进制，`swiftc` 编译后读取同一批 JSON。程序逐块引用 iOS 的声明，不修改原文件：`QuestionOption.display`、QuestionForm 的 `pick / answer / advance / submit` 及计算属性、`ScreenForm.answer`、`ScreenParser`、`NotificationActions.resolution`、`ApproveFirstIntent.resolution`、`AppModel.resolve`。按钮的 Resolution 构造表达式也直接取自源文件。SwiftUI 状态容器、动画、触感、网络和提示由小型替身提供，避免启动 App 或连接 hub。临时源码和二进制不入库，Go 测试结束后删除；编译与运行共用有截止时间的 context。
-- `TestResolutionFixtureSourceEvidence` 固定核对视图按钮禁用条件、终端文本门禁、手表按钮构造表达式以及通知／锁屏单测中的认证断言，防止临时驱动与源码门禁悄悄分叉。
+- `TestResolutionFixtureSourceEvidence` 固定核对视图按钮禁用条件、终端文本门禁、手表按钮构造表达式以及通知／锁屏／Siri 单测中的认证断言，防止临时驱动与源码门禁悄悄分叉。
 
-验证范围限于逻辑和源码对照，没有启动 SwiftUI、通知中心、Face ID、Siri 或 watchOS。通知和锁屏的解锁要求只对照 `NotificationActionsTests.sayingYesNeedsUnlockSayingNoDoesNot`、`FleetIntentsTests.sayingYesNeedsUnlock` 的现有断言与源码；不声称做过真机解锁验证。对话页与手表中无法脱离 UI 宿主执行的显示／禁用条件用源码证据核对。所有 `derived` 用例均有源码对照，设计新增用例只做协议和规格一致性校验。
+验证范围限于逻辑和源码对照，没有启动 SwiftUI、通知中心、Face ID、Siri 或 watchOS。通知和锁屏的解锁要求只对照 `NotificationActionsTests.sayingYesNeedsUnlockSayingNoDoesNot`、`FleetIntentsTests.sayingYesNeedsUnlock` 的现有断言与源码；不声称做过真机解锁验证。对话页与手表中无法脱离 UI 宿主执行的显示／禁用条件用源码证据核对。所有 `derived` 用例均有源码对照，设计新增用例只做协议和规格一致性校验。Siri's unlock requirement is checked the same way, against the `authenticationPolicy` declaration in `apple/Persona/Intents/ApproveFirstIntent.swift` and the assertion in `IntentsTests.approvingFromSiriNeedsUnlock`.
 
 macOS 需要能运行 `swiftc`；非 macOS 或未设置开关时，只跳过 Swift 对照，Go 解码与源码证据检查仍运行。若源码声明或按钮改了，测试应失败并要求重新核对，不能让生成器悄悄改写 iOS 逻辑。
 

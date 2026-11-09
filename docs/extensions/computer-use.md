@@ -27,6 +27,7 @@ Click sounds and the Agent cursor only apply to Cua Driver. LCU has no separate 
 - **Per machine**: once the extension is on, each Mac's machine page gains Control Computer, with **Let the Assistant Control This Computer**
   (`PUT /api/v1/machines/{mid}/computer`), stored in `machines` in extension config. Controllable Computers on the extension page is the same value: Macs only, one switch each (name, online status, Cua status), effective immediately (`format: machine`, [extensions.md](extensions.md)).
 - **Confirm before acting**: extension config `confirm` (Confirm on Phone Before Acting), off by default; see "Write operations".
+- **From the extension page**: **Set Up** beside a Mac opens that machine's existing Control Computer section. Install Cua Driver there, grant **Accessibility** and **Screen & System Audio Recording** (Screen Recording on older macOS), then **Check Again**. These are macOS permissions for Cua Driver, not a Persona hub switch.
 
 **With the extension off**:
 - The hub never asks any node about cua-driver (the node never probes on its own).

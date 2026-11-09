@@ -1200,6 +1200,10 @@ A successful `git ls-files` can return no files when the requested directory con
 
 A verified download or unpacked binary is still temporary until its final rename succeeds. Register removal of the staging path immediately after creating it, so copy, verification and promotion failures share cleanup. Remove only that temporary file; keep the existing destination and valid input archive intact.
 
+## CSV numeric inference must precede lossy conversion (#1568)
+
+Compare the original CSV decimal with the exact decimal written by the 15-significant-digit XLSX serializer before choosing a numeric cell. Require integers (often identifiers) to match exactly, but round decimals and exponents to 15 significant digits first: tools print a float's shortest round-trip form with 16-17 digits, and turning those into text breaks sums and charts over a computed column. Float-to-float comparisons can hide rounding and underflow; counting all digits also rejects safe trailing zeros. Normalize decimal digits and scale with bounded exponents instead of expanding powers of ten. Verify generated worksheet values and cell types, including signed identifiers, decimal/exponent boundaries, and ordinary numeric controls.
+
 ## Spreadsheet text coercion requires finite values (#6352)
 
 `strconv.ParseFloat` accepts `NaN` and infinity without an error. Reject them when coercing formula text so existing `#VALUE!` and `IFERROR` behavior works instead of caching non-finite numbers. Verify generated workbook values, with numeric text, range references and lazy branches as controls.
