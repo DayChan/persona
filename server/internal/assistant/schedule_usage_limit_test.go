@@ -75,6 +75,8 @@ func TestUsageLimitScheduledRunIsRetriedAfterTheReset(t *testing.T) {
 		return 50 * time.Millisecond
 	}
 	limitRun(t, n, h, nil)
+	waitFor(t, "the persisted retry", func() bool { task, _ := taskByID(h, "p"); return task.LimitRetry != nil })
+	h.runLimitRetries(context.Background(), time.Now().Add(time.Second))
 	waitFor(t, "the retry", func() bool { return n.sent() >= 2 && retried(h) })
 	want, _ := transcript.UsageLimitReset(limitText, time.Now())
 	mu.Lock()
@@ -130,6 +132,8 @@ func TestUsageLimitScheduledRunThatWentOnIsNotRetried(t *testing.T) {
 		return 50 * time.Millisecond
 	}
 	limitRun(t, n, h, func(c *proto.Session) { c.UpdatedAt = stopped })
+	waitFor(t, "the persisted retry", func() bool { task, _ := taskByID(h, "p"); return task.LimitRetry != nil })
+	h.runLimitRetries(context.Background(), time.Now().Add(time.Second))
 	time.Sleep(500 * time.Millisecond)
 	if n.sent() != 1 || retried(h) {
 		t.Fatalf("retried: %d sends", n.sent())

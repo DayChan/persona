@@ -68,6 +68,10 @@ type Task struct {
 	factsText string
 	// kbDir is the knowledge directory the run's hint names (a daily run with the knowledge base on); set on the copy, never stored.
 	kbDir string
+	// limitRetry targets the stopped conversation and must not fall back to another send on an ambiguous error.
+	limitRetry bool
+	// limitRetryRunID links the recorded send result to its durable claim.
+	limitRetryRunID string
 	// The conversation it came from (on MachineID), runs go into it; empty = the task's own conversation.
 	MachineID string `json:"machine_id,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
@@ -100,6 +104,8 @@ type Task struct {
 	// ArmedAt is when a daily task was last created, switched on or given another time or weekdays (rearm): a run
 	// due before that is no run it missed (#3816).
 	ArmedAt time.Time `json:"armed_at,omitempty"`
+	// LimitRetry is the pending retry of a run stopped by a usage limit.
+	LimitRetry *scheduleLimitRetry `json:"limit_retry,omitempty"`
 }
 
 // rearm notes that t starts counting from now when it was just created, switched on, or its daily time or weekdays
@@ -208,6 +214,8 @@ type ScheduleRun struct {
 	SessionID string    `json:"session_id,omitempty"`
 	// Retried: this run is the automatic retry after a failure (so a retry that fails again does not retry forever).
 	Retried bool `json:"retried,omitempty"`
+	// RetryOf links a limit retry's send result to the failed run that it retried.
+	RetryOf string `json:"retry_of,omitempty"`
 	// StreakTold: this run made its task's streak of runs that did not go through long enough to tell the user, who
 	// was told then (schedule_streak.go): the rest of that streak is not told again.
 	StreakTold bool `json:"streak_told,omitempty"`
@@ -236,15 +244,20 @@ const (
 )
 
 type schedule struct {
-	mu     sync.Mutex
-	loaded bool // false after a failed read: nothing is saved over what Postgres has, the next call reads again
-	tasks  []Task
-	runs   []ScheduleRun // newest last
-	wake   chan struct{} // the list changed: scheduleLoop recomputes when to wake up
+	mu       sync.Mutex
+	loaded   bool  // false after a failed read: nothing is saved over what Postgres has, the next call reads again
+	revision int64 // version of the persisted task list
+	tasks    []Task
+	runs     []ScheduleRun // newest last
+	wake     chan struct{} // the list changed: scheduleLoop recomputes when to wake up
 	// sending: tasks whose run is being sent right now (runTask), so two can't go into one conversation at once.
 	sending map[string]bool
 	// inflight: runs runDue started and that have not recorded their result yet.
 	inflight sync.WaitGroup
+	// limitInflight holds the scheduler owner until claimed retry sends have returned.
+	limitInflight sync.WaitGroup
+	limitJoining  func()          // test barrier before joining in-flight retry workers
+	limitArmCtx   context.Context // canceled when the scheduler stops
 	// waitTold: by task, the wait on the user its skip was pushed for (tellWaitingSkip, waitKey): a patrol every 30
 	// minutes behind one card is pushed once. Another wait (the old turn answered, then stopped at a new card) is
 	// news again; a skip that finds the conversation no longer waiting, a run going in, or the task deleted clears it.
@@ -252,6 +265,8 @@ type schedule struct {
 	waitTold map[string]string
 	// limitWait: tests' wait before retrying a run a usage limit stopped (nil: until the reset, limitRetryWait).
 	limitWait func(reset, now time.Time) time.Duration
+	// limitActive contains claims owned by this process, never claims restored from storage.
+	limitActive map[string]bool
 }
 
 // defaultRoutines are the tasks a new hub starts with, titled in l (the user edits them as their own afterwards).
@@ -283,6 +298,16 @@ var errScheduleUnavailable = i18n.Err("assistant-schedule.unavailable")
 
 var errScheduleSave = i18n.Err("assistant-schedule.save_failed")
 
+// scheduleVersionStore serializes task-list changes across managers, including older PutSetting writers.
+type scheduleVersionStore interface {
+	ReadSchedule(context.Context) (json.RawMessage, int64, bool, error)
+	CompareSchedule(context.Context, int64, json.RawMessage) (bool, error)
+}
+
+type scheduleOwnerStore interface {
+	TryScheduleOwner(context.Context) (<-chan struct{}, func(), bool, error)
+}
+
 // loadSchedule reads the task list and the run history once. A failed read leaves the schedule unloaded, so the next
 // call reads again and saveLocked writes nothing: saving the defaults then would overwrite the stored tasks.
 func (s *Service) loadSchedule(ctx context.Context) *schedule {
@@ -299,7 +324,17 @@ func (s *Service) loadSchedule(ctx context.Context) *schedule {
 		return sc
 	}
 	var tasks []Task
-	ok, err := st.Setting(ctx, tasksKey, &tasks)
+	var ok bool
+	var err error
+	if vs, supported := st.(scheduleVersionStore); supported {
+		var raw json.RawMessage
+		raw, sc.revision, ok, err = vs.ReadSchedule(ctx)
+		if err == nil && ok {
+			err = json.Unmarshal(raw, &tasks)
+		}
+	} else {
+		ok, err = st.Setting(ctx, tasksKey, &tasks)
+	}
 	if err != nil {
 		s.logf("load tasks: %v", err)
 		return sc
@@ -323,7 +358,21 @@ func (s *Service) loadSchedule(ctx context.Context) *schedule {
 			return sc
 		}
 		tasks = tasksFrom(routines, fs)
-		if err := st.PutSetting(ctx, tasksKey, tasks); err != nil {
+		if vs, supported := st.(scheduleVersionStore); supported {
+			raw, marshalErr := json.Marshal(tasks)
+			if marshalErr != nil {
+				return sc
+			}
+			applied, saveErr := vs.CompareSchedule(ctx, sc.revision, raw)
+			if saveErr != nil || !applied {
+				s.logf("initialize tasks: %v", saveErr)
+				return sc
+			}
+			raw, sc.revision, _, err = vs.ReadSchedule(ctx)
+			if err != nil || json.Unmarshal(raw, &tasks) != nil {
+				return sc
+			}
+		} else if err := st.PutSetting(ctx, tasksKey, tasks); err != nil {
 			s.logf("save tasks: %v", err)
 			return sc
 		}
@@ -406,10 +455,44 @@ func (s *Service) saveLocked(sc *schedule, tasks []Task) error {
 	if tasks == nil {
 		tasks = []Task{} // null would read as "never moved over"
 	}
+	for i := range tasks {
+		t := &tasks[i]
+		if w := t.LimitRetry; w != nil {
+			j := sc.indexLocked(t.ID)
+			replaced := false
+			if j >= 0 && sc.tasks[j].LimitRetry != nil {
+				old := sc.tasks[j]
+				replaced = t.Repeat != old.Repeat || (t.Repeat == repeatOnce && !t.At.Equal(old.At)) ||
+					t.Time != old.Time || !slices.Equal(t.Weekdays, old.Weekdays) || t.EveryMinutes != old.EveryMinutes ||
+					t.SessionID != old.SessionID || t.RunSessionID != old.RunSessionID || t.RunMachineID != old.RunMachineID
+			}
+			if replaced || !t.LastRun.Equal(w.LastRun) ||
+				(t.Repeat == repeatOnce && t.Enabled) || (t.Repeat != repeatOnce && !t.Enabled) {
+				t.LimitRetry = nil
+			}
+		}
+	}
 	if st := s.store(); st != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := st.PutSetting(ctx, tasksKey, tasks); err != nil {
+		if vs, supported := st.(scheduleVersionStore); supported {
+			raw, err := json.Marshal(tasks)
+			if err != nil {
+				return errScheduleSave
+			}
+			applied, err := vs.CompareSchedule(ctx, sc.revision, raw)
+			if err != nil || !applied {
+				sc.loaded = false
+				s.logf("save tasks: concurrent change or storage error: %v", err)
+				return errScheduleSave
+			}
+			var found bool
+			raw, sc.revision, found, err = vs.ReadSchedule(ctx)
+			if err != nil || !found || json.Unmarshal(raw, &tasks) != nil {
+				sc.loaded = false
+				return errScheduleSave
+			}
+		} else if err := st.PutSetting(ctx, tasksKey, tasks); err != nil {
 			s.logf("save tasks: %v", err)
 			return errScheduleSave
 		}
@@ -1084,18 +1167,19 @@ func weekdayText(ds []int) string {
 // Run runs what the assistant does on its own until ctx ends: the scheduled tasks, closing finished tasks' agents, the
 // knowledge base.
 func (s *Service) Run(ctx context.Context) {
-	go s.taskCloseLoop(ctx)    // the agents of finished tasks (tasks_close.go)
-	go s.superviseLoop(ctx)    // the tasks the main conversation follows up (supervise_signals.go)
-	go s.workLoop(ctx)         // due wakes and retries, cards past their day, missed turns (agents_work_tick.go)
-	go s.replyLoop(ctx)        // questions the user looked at and left unanswered (agents_reply.go)
-	go s.nudgeLoop(ctx)        // the Lark bot's cards left unanswered (feishu_nudge.go)
-	go s.sourceReportLoop(ctx) // the reports back to where a todo was asked (todo_source.go)
-	go s.remindLoop(ctx)       // the todos' reminders (todo_plan.go)
-	go s.channelLoop(ctx)      // the channels' runs that lost their watcher (channels.go)
-	go s.kbLoop(ctx)           // the knowledge base (kb.go)
-	go s.viewActionLoop(ctx)   // durable card reply outbox
-	go s.acceptLoop(ctx)       // "Please verify" cards that did not go out, and reminders each morning (acceptance.go)
-	go s.healthLoop(ctx)       // each machine's launchers (launcher_health.go)
+	go s.restoreTaskReceiptLooks(ctx) // pending task receipt checks (tasks_follow.go)
+	go s.taskCloseLoop(ctx)           // the agents of finished tasks (tasks_close.go)
+	go s.superviseLoop(ctx)           // the tasks the main conversation follows up (supervise_signals.go)
+	go s.workLoop(ctx)                // due wakes and retries, cards past their day, missed turns (agents_work_tick.go)
+	go s.replyLoop(ctx)               // questions the user looked at and left unanswered (agents_reply.go)
+	go s.nudgeLoop(ctx)               // the Lark bot's cards left unanswered (feishu_nudge.go)
+	go s.sourceReportLoop(ctx)        // the reports back to where a todo was asked (todo_source.go)
+	go s.remindLoop(ctx)              // the todos' reminders (todo_plan.go)
+	go s.channelLoop(ctx)             // the channels' runs that lost their watcher (channels.go)
+	go s.kbLoop(ctx)                  // the knowledge base (kb.go)
+	go s.viewActionLoop(ctx)          // durable card reply outbox
+	go s.acceptLoop(ctx)              // "Please verify" cards that did not go out, and reminders each morning (acceptance.go)
+	go s.healthLoop(ctx)              // each machine's launchers (launcher_health.go)
 	s.scheduleLoop(ctx)
 }
 
@@ -1103,7 +1187,26 @@ func (s *Service) Run(ctx context.Context) {
 // picked up) and wakes early when the list changes; the old 20-second poll ran follow-ups up to 20 seconds late
 // (measured: 21 s on 2026-10-30).
 func (s *Service) scheduleLoop(ctx context.Context) {
+	s.sched.mu.Lock()
+	s.sched.limitArmCtx = ctx
+	s.sched.mu.Unlock()
 	wake := s.sched.wakeup()
+	var nextLimitScan time.Time
+	var ownerDone <-chan struct{}
+	var releaseOwner func()
+	var cancelOwner context.CancelFunc
+	defer func() {
+		if s.sched.limitJoining != nil {
+			s.sched.limitJoining()
+		}
+		s.sched.limitInflight.Wait()
+		if cancelOwner != nil {
+			cancelOwner()
+		}
+		if releaseOwner != nil {
+			releaseOwner()
+		}
+	}()
 	for {
 		now := time.Now()
 		wait := scheduleIdle
@@ -1112,12 +1215,60 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 		// when the list changes), not every 50 ms.
 		if !s.hello(ctx).Assistant.Standby {
 			s.runDue(ctx, now)
+			if !now.Before(nextLimitScan) {
+				if ownerDone != nil {
+					select {
+					case <-ownerDone:
+						s.sched.limitInflight.Wait()
+						cancelOwner()
+						releaseOwner()
+						ownerDone, releaseOwner, cancelOwner = nil, nil, nil
+					default:
+					}
+				}
+				owned := s.store() == nil // storeless mode is used by tests
+				_, versioned := s.store().(scheduleVersionStore)
+				_, runsVersioned := s.store().(scheduleRunsStore)
+				if st, ok := s.store().(scheduleOwnerStore); ok && versioned && runsVersioned {
+					if ownerDone == nil {
+						var acquired bool
+						var err error
+						var ownerCtx context.Context
+						ownerCtx, cancelOwner = context.WithCancel(context.Background())
+						stopAcquire := context.AfterFunc(ctx, cancelOwner)
+						ownerDone, releaseOwner, acquired, err = st.TryScheduleOwner(ownerCtx)
+						stopAcquire()
+						if err != nil || !acquired {
+							cancelOwner()
+							ownerDone, releaseOwner, cancelOwner = nil, nil, nil
+						} else {
+							// Another owner may have finished while this manager's schedule was cached.
+							s.sched.mu.Lock()
+							s.sched.loaded = false
+							s.sched.mu.Unlock()
+						}
+					}
+					owned = ownerDone != nil
+				}
+				if s.store() != nil {
+					owned = owned && versioned && runsVersioned
+				}
+				if owned {
+					s.scanLimitRetries(ctx, now, ownerDone)
+				}
+				nextLimitScan = time.Now().Add(time.Second)
+			}
 			if next := s.nextDue(ctx, now); !next.IsZero() && next.Sub(now) < wait {
 				wait = max(next.Sub(now), 50*time.Millisecond)
 				if !next.After(now) {
 					wait = time.Second // runDue moves a due task on; one still past could not run (its list was not read): retry, not spin
 				}
 			}
+		} else if releaseOwner != nil {
+			s.sched.limitInflight.Wait()
+			cancelOwner()
+			releaseOwner()
+			ownerDone, releaseOwner, cancelOwner = nil, nil, nil
 		}
 		t := time.NewTimer(wait)
 		select {
@@ -1154,6 +1305,9 @@ func (s *Service) nextDue(ctx context.Context, now time.Time) time.Time {
 	for _, t := range sc.tasks {
 		if n := t.next(now, loc); !n.IsZero() && (next.IsZero() || n.Before(next)) {
 			next = n
+		}
+		if t.LimitRetry != nil && (next.IsZero() || t.LimitRetry.At.Before(next)) {
+			next = t.LimitRetry.At
 		}
 	}
 	return next
@@ -1237,7 +1391,7 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 	// A one-off that ran a day ago is only history now.
 	kept := tasks[:0:0]
 	for _, t := range tasks {
-		if t.done() && now.Sub(t.LastRun) > doneKeep {
+		if t.done() && t.LimitRetry == nil && now.Sub(t.LastRun) > doneKeep {
 			changed = true
 			continue
 		}
@@ -1292,9 +1446,14 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	// Work already happened. Keep its outcome and the run ID even when either write fails, so the watcher
 	// can still report the real result. Later writes retry the complete current lists under this lock.
 	_ = s.saveLocked(sc, sc.tasks)
-	if st := s.store(); st != nil { // under the lock: two runs finishing together must not save their lists out of order
+	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
+		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+			if !slices.ContainsFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
+				runs = append(runs, r)
+			}
+			return runs
+		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
 		cancel()
@@ -1329,9 +1488,16 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	streakTask, streakN, streak := streakToldLocked(sc, i, wasOK) // a turn that ends in an error is a failed run too (schedule_streak.go)
 	streakRun := sc.runs[i]
 	_ = s.saveLocked(sc, sc.tasks)
-	if st := s.store(); st != nil {
+	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
+		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+			if j := slices.IndexFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }); j >= 0 {
+				runs[j].Status, runs[j].Error, runs[j].StreakTold = status, errText, streakRun.StreakTold
+			} else {
+				runs = append(runs, streakRun) // a prior attempt to save this outcome may have failed
+			}
+			return runs
+		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
 		cancel()
@@ -1358,18 +1524,18 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 	defer cancel()
 	loc, kb := s.location(ctx), s.kbReady(ctx)
 	run := ScheduleRun{Kind: t.kind(), RefID: t.ID, Title: t.label(), Due: due.UTC(), At: time.Now().UTC(), Manual: manual, Status: runOK,
-		Retried: retried, of: now.UTC()}
+		Retried: retried, RetryOf: t.limitRetryRunID, of: now.UTC()}
 	if !s.sched.begin(t.ID) { // the same task is being sent right now ("Run now" as it came due)
 		return proto.Session{}, s.skipRun(run, errTaskBusy)
 	}
 	defer s.sched.end(t.ID)
-	if t.SessionID != "" && !t.pushesOnlyAsked() && s.quietConversation(ctx, t.SessionID) {
+	if !t.limitRetry && t.SessionID != "" && !t.pushesOnlyAsked() && s.quietConversation(ctx, t.SessionID) {
 		// Another task's quiet conversation (its finished turns go unpushed): this one wants its runs pushed, so it
 		// runs in its own instead (#2396).
 		s.logf("task %s: %s is a quiet task's conversation; running in its own", t.ID, short(t.SessionID))
 		t.SessionID = ""
 	}
-	if !manual && t.Repeat != repeatOnce { // a one-off is never held back: skipped it would be lost (schedule_ready.go)
+	if !manual && !t.limitRetry && t.Repeat != repeatOnce { // a consumed retry, like a one-off, cannot be skipped without losing it
 		if err := s.gateRun(ctx, t); err != nil { // not set up yet: skipped, nothing pushed (schedule_ready.go)
 			s.logf("task %s: the main conversation is not ready; skipped", t.ID)
 			return proto.Session{}, s.skipRun(run, err)
@@ -1397,7 +1563,13 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 				s.startScheduledRun(run, t, &m)
 				return proto.Session{MachineID: t.MachineID, SessionID: t.SessionID}, nil
 			}
+			if t.limitRetry {
+				// The node may have accepted the message even when its reply was lost.
+				return proto.Session{}, err
+			}
 			s.logf("task %s into %s: %v; starting a new conversation", t.ID, t.SessionID, err)
+		} else if t.limitRetry {
+			return proto.Session{}, errors.New("retry conversation's machine is unavailable")
 		}
 	}
 	here := s.settings(ctx).MachineID
@@ -1626,55 +1798,58 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	full := text
 	text = clip(oneLine(text), 300)
 	s.logf("task %s run %s failed: %s", t.ID, run.ID, text)
+	limited := false
+	if !run.Retried {
+		reset, turn, resumes, isLimited := s.runLimit(ctx, m.ID, run.SessionID, full)
+		limited = isLimited
+		if limited && !resumes {
+			now := time.Now()
+			wait := s.limitRetryWait(reset, now)
+			s.logf("task %s run %s: the usage limit resets at %s: retried in %s", t.ID, run.ID, reset.UTC().Format(time.RFC3339), wait.Round(time.Second))
+			// Persist before any failure notification. Retry through a database outage until the manager stops.
+			s.sched.mu.Lock()
+			armCtx := s.sched.limitArmCtx
+			s.sched.mu.Unlock()
+			if armCtx == nil { // a watcher started without the scheduler (tests)
+				armCtx = ctx
+			}
+			if !s.armLimitRetry(armCtx, run, turn, now.Add(wait)) {
+				return
+			}
+		} else if limited {
+			s.logf("task %s run %s: its conversation goes on by itself once the usage limit resets at %s: not retried", t.ID, run.ID, reset.UTC().Format(time.RFC3339))
+		}
+	}
 	streak := s.updateRun(run, runFailed, text)
-	name := t.labelIn(s.lang(ctx))
+	reportCtx, reportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer reportCancel()
+	name := t.labelIn(s.lang(reportCtx))
 	if t.Space == SpaceHealth { // the lock screen does not name a health task (health.go)
 		name, _ = healthNotice(s.lang(ctx))
 	}
 	if !streak { // the streak notice already said it failed, with this reason
-		s.push(ctx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID, Title: i18n.T(s.lang(ctx), "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: text})
+		s.push(reportCtx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID, Title: i18n.T(s.lang(reportCtx), "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: text})
 	}
 	if run.Retried {
 		return
 	}
-	var limitTurn time.Time // the turn a usage limit stopped, when one did: the retry goes only while it is still the last
-	if reset, turn, resumes, limited := s.runLimit(ctx, m.ID, run.SessionID, full); limited {
-		// A subscription's usage limit (docs/assistant/agent-work.md "Usage limits"): a retry before it resets is
-		// refused at once. The conversation that goes on by itself then needs none; otherwise the retry waits for the
-		// reset, however long that is — the watcher's time is for the turn, not for this.
-		if resumes {
-			s.logf("task %s run %s: its conversation goes on by itself once the usage limit resets at %s: not retried", t.ID, run.ID,
-				reset.UTC().Format(time.RFC3339))
-			return
-		}
-		wait := s.limitRetryWait(reset, time.Now())
-		s.logf("task %s run %s: the usage limit resets at %s: retried in %s", t.ID, run.ID, reset.UTC().Format(time.RFC3339), wait.Round(time.Second))
-		time.Sleep(wait)
-		limitTurn = turn
-	} else {
-		delay := runRetryDelay
-		if s.runRetry > 0 {
-			delay = s.runRetry
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(delay):
-		}
+	if limited {
+		return
+	}
+	delay := runRetryDelay
+	if s.runRetry > 0 {
+		delay = s.runRetry
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(delay):
 	}
 	// The failure push sends the user to the task's page; by now they may have switched it off, deleted it or changed
 	// its prompt. The retry goes by what the schedule holds now, not by the copy the run started with: that copy ran
 	// again regardless, with the old prompt, and silently (a retry that fails is not pushed).
 	rctx, rcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	cur, ok := s.retryStillDue(rctx, t.ID, run)
-	if ok && !limitTurn.IsZero() {
-		// The wait for the reset is long: the conversation may have gone on meanwhile (the user said "go on" after the
-		// reset), and the work it did (a mail, a message) is not to be done twice.
-		if c, found := s.session(rctx, m.ID, run.SessionID); found && (c.Status == proto.StatusWorking || !sameTurn(c, limitTurn)) {
-			s.logf("task %s run %s: its conversation went on after the usage limit: not retried", t.ID, run.ID)
-			ok = false
-		}
-	}
 	rcancel()
 	if !ok {
 		return
