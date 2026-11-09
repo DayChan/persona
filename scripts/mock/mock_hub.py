@@ -1520,6 +1520,11 @@ def save_task(old, new):
     # "Notify after a run" (#2396): left out of an edit it stays; "asked" runs in the task's own conversation; "" is the default.
     if t.get("push") == "asked": t.pop("session_id", None)
     if not t.get("push"): t.pop("push", None)
+    # End time: left out it stays, null clears it, and a one-off never has one (the hub's until).
+    if t.get("repeat") == "once" or ("until" in new and not new.get("until")):
+        t.pop("until", None)
+    elif "until" in new:
+        t["until"] = new["until"]
     if t.get("repeat") == "daily":
         t["next_run"] = next_at(t.get("time", "09:00"), t.get("weekdays") or [])
     elif t.get("repeat") == "interval":

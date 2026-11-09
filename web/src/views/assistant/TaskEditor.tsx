@@ -216,6 +216,7 @@ export function TaskEditor({
               {draft.repeat === "once" && <OnceWhen draft={draft} now={now} onChange={(at) => set({ at })} />}
               {draft.repeat === "daily" && <DailyWhen draft={draft} onChange={set} />}
               {draft.repeat === "interval" && <IntervalWhen minutes={draft.every_minutes ?? 0} onChange={(m) => set({ every_minutes: m })} />}
+              {(draft.repeat === "daily" || draft.repeat === "interval") && <UntilWhen draft={draft} now={now} onChange={(until) => set({ until })} />}
             </div>
             <p className="mt-1.5 px-1 text-[11.5px] leading-relaxed text-ink-3">
               {draft.enabled && next && saved && !changed
@@ -228,6 +229,9 @@ export function TaskEditor({
                       ? t("assistant-taskeditor.interval_hint", { every: everyLabel(draft.every_minutes ?? 0) })
                       : t("assistant-taskeditor.interval_hint_blank")}
             </p>
+            {(draft.repeat === "daily" || draft.repeat === "interval") && (
+              <p className="mt-1.5 px-1 text-[11.5px] leading-relaxed text-ink-3">{t("assistant-taskeditor.until_hint")}</p>
+            )}
           </section>
 
           <section>
@@ -445,19 +449,38 @@ export function RunMark({ status }: { status: string }) {
   );
 }
 
-function OnceWhen({ draft, now, onChange }: { draft: Task; now: Date; onChange: (at: string | undefined) => void }) {
-  const value = toLocalInput(parseTime(draft.at));
+function LocalDateTime({ label, value, now, onChange }: { label: string; value?: string; now: Date; onChange: (iso: string | undefined) => void }) {
   return (
-    <Field label={t("assistant-taskeditor.time")}>
+    <Field label={label}>
       <input
         type="datetime-local"
         className={cx(inputClass, "tabular-nums")}
-        value={value}
+        value={toLocalInput(parseTime(value))}
         min={toLocalInput(now)}
         onChange={(e) => onChange(fromLocalInput(e.target.value)?.toISOString())}
       />
     </Field>
   );
+}
+
+function UntilWhen({ draft, now, onChange }: { draft: Task; now: Date; onChange: (until: string | undefined) => void }) {
+  const value = toLocalInput(parseTime(draft.until));
+  return (
+    <div className="flex items-end gap-2">
+      <div className="min-w-0 flex-1">
+        <LocalDateTime label={t("assistant-taskeditor.until_label")} value={draft.until} now={now} onChange={onChange} />
+      </div>
+      {value && (
+        <Button tone="quiet" className="whitespace-nowrap" onClick={() => onChange(undefined)}>
+          {t("assistant-taskeditor.until_clear")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function OnceWhen({ draft, now, onChange }: { draft: Task; now: Date; onChange: (at: string | undefined) => void }) {
+  return <LocalDateTime label={t("assistant-taskeditor.time")} value={draft.at} now={now} onChange={onChange} />;
 }
 
 function DailyWhen({ draft, onChange }: { draft: Task; onChange: (p: Partial<Task>) => void }) {

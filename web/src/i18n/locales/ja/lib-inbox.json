@@ -31,6 +31,7 @@
   "ix_plan": "プランの承認待ち",
   "ix_permission": "承認待ち",
   "ix_screen": "ターミナルが対応待ち",
+  "ix_review": "レビュー結果",
   "handoff_summarize": "要約して、やるべきことと返信案を教えてください",
   "handoff_research": "背景を調べてから教えてください",
   "handoff_handle": "代わりに対応してください。返信前に確認してください",

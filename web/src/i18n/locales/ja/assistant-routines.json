@@ -34,5 +34,6 @@
   "menu_delete_confirm": "削除を確認",
   "chat_at": "{when} {time} のチャット",
   "chat_n": "チャット {n}",
-  "chats_label": "「{title}」のチャット"
+  "chats_label": "「{title}」のチャット",
+  "until": "終了 {when}"
 }

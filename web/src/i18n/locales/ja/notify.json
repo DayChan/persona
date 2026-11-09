@@ -8,6 +8,7 @@
   "permission_title": "{name} が許可を求めています",
   "screen_title": "{name} がターミナルで待っています",
   "elicitation_title": "{name} に MCP リクエストがあります",
+  "review_title": "{name} の独立レビュー結果が届きました",
   "allow_failed": "許可できませんでした",
   "deny_failed": "拒否できませんでした",
   "finished_batch_title": "{count} 件のタスクが完了しました · {names}",

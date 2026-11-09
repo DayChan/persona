@@ -570,7 +570,7 @@ export interface Interaction {
   session_id: string;
   session_title?: string;
   cwd?: string;
-  kind: "question" | "plan" | "permission" | "screen" | "elicitation";
+  kind: "question" | "plan" | "permission" | "screen" | "elicitation" | "review";
   created_at?: string;
   tool_name?: string;
   questions?: Question[];
@@ -602,6 +602,11 @@ export interface Interaction {
   delegating?: boolean;
   /** What the assistant filled in when it left the question to the user. */
   delegate?: Delegate;
+  /** An independent review's findings (kind "review", #1808): the report as markdown, how many findings it counts, and
+   *  the reviewer's own session. The summary is the hub's "N findings" line, shown as the card's kicker. */
+  findings?: string;
+  findings_count?: number;
+  review_session?: string;
 }
 
 /** The assistant's context on a question it left to the user (Interaction.delegate). */

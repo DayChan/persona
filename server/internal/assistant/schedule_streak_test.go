@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -65,6 +66,24 @@ func TestARepeatingTaskThatKeepsNotGoingThroughIsToldOnce(t *testing.T) {
 
 // Only the runs that were meant to happen count: "Run now" is answered in the app (and a failure of it there), and a
 // one-off is not a repeating task (its failure is pushed and retried by the run itself).
+func TestAnEndTimeDoesNotCountTowardTheStreak(t *testing.T) {
+	n := newFakeHub().withMachine()
+	h := newStorelessService(t, n)
+	setTasks(h, Task{ID: "p", Title: "夜间巡检", Prompt: "巡检", Repeat: repeatDaily, Time: "02:00", Enabled: false})
+	reason := i18n.T(i18n.Default, "assistant-schedule.until")
+	for range streakLimit - 1 {
+		h.recordRun(ScheduleRun{Kind: "routine", RefID: "p", Title: "夜间巡检", Status: runSkipped, Error: "missed"})
+	}
+	h.recordRun(ScheduleRun{Kind: "routine", RefID: "p", Title: "夜间巡检", Status: runSkipped, Error: reason, Ended: true})
+	if p := n.pushed(); len(p) != 0 {
+		t.Fatalf("reaching the end time is not a missed run: %+v", p)
+	}
+	h.recordRun(ScheduleRun{Kind: "routine", RefID: "p", Title: "夜间巡检", Status: runSkipped, Error: "missed again"})
+	if p := n.pushed(); len(p) != 0 {
+		t.Fatalf("the end time should have ended the streak, one skip after it is not three: %+v", p)
+	}
+}
+
 func TestOnlyRepeatingTasksAndTheirScheduledRunsCountTowardsTheStreak(t *testing.T) {
 	n := newFakeHub().withMachine()
 	h := newStorelessService(t, n)

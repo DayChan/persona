@@ -42,6 +42,9 @@ export function answerLines(ix: Interaction, r: Resolution): AnswerLine[] {
       if (r.allow === true) return [{ label: "", answer: r.always === true ? t("lib-answered.always_allowed") : t("lib-answered.allowed") }];
       if (r.allow === false) return [{ label: "", answer: t("lib-answered.denied") }];
       return [{ label: "", answer: t("lib-answered.handled") }];
+    case "review":
+      // the findings card (#1808): sent on to the agent, or put away (dismiss is answered above)
+      return [{ label: "", answer: r.action === "send" ? t("lib-answered.review_sent") : t("lib-answered.handled") }];
     case "elicitation":
       return elicitationLines(ix, r);
     default: {

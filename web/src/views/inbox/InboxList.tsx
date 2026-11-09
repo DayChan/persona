@@ -503,7 +503,7 @@ function MutesDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-const IX_GLYPH: Record<Interaction["kind"], GlyphName | "list" | "terminal"> = { question: "question", plan: "list", permission: "hand", screen: "terminal", elicitation: "sheet" };
+const IX_GLYPH: Record<Interaction["kind"], GlyphName | "list" | "terminal" | "eye"> = { question: "question", plan: "list", permission: "hand", screen: "terminal", elicitation: "sheet", review: "eye" };
 
 /**
  * An agent waiting on you: which agent, what it asks, then what it waits for (amber) and where. Memoized, and it reads
@@ -519,7 +519,7 @@ const AgentRow = memo(function AgentRow({ ix }: { ix: Interaction }) {
   return (
     <a href={href(to)} onClick={(e) => onLinkClick(e, to)} className="flex gap-3 rounded-[14px] bg-surface p-3 shadow-card transition-colors duration-150 hover:bg-inset">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-field text-attention">
-        {glyph === "list" || glyph === "terminal" ? <Icon name={glyph} size={18} stroke={2} /> : <Glyph name={glyph} size={18} stroke={2} />}
+        {glyph === "list" || glyph === "terminal" || glyph === "eye" ? <Icon name={glyph} size={18} stroke={2} /> : <Glyph name={glyph} size={18} stroke={2} />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">

@@ -52,6 +52,7 @@
   "error_interval": "The interval must be between 5 minutes and 7 days",
   "error_at": "Pick a time to run",
   "error_past": "That time has passed. Pick a later one",
+  "error_until": "That end time has passed. Pick a later one, or clear it.",
   "error_repeat": "Unknown repeat rule",
   "follow_up_same_chat": "Follow-up · Same chat",
   "follow_up_new_chat": "Follow-up · New chat",

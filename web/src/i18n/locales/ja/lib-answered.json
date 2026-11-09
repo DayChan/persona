@@ -12,6 +12,7 @@
   "allowed": "許可",
   "always_allowed": "常に許可",
   "denied": "拒否",
+  "review_sent": "エージェントに送信しました",
   "handled": "対応済み",
   "entered": "（入力済み）",
   "separator": "、",

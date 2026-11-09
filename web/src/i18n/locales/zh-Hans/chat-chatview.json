@@ -43,6 +43,7 @@
   "terminal": "终端",
   "files": "文件",
   "review_changes": "评审改动",
+  "review_work": "独立审查这项工作",
   "interrupt": "中断",
   "session_info": "会话信息",
   "rename": "重命名…",

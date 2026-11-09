@@ -574,7 +574,7 @@ Two additions to existing `POST /api/v1/launchers`:
 Documentation implementation (#4046): "Get started" lives in `docs/operations/getting-started.md`. The README top is split into "I want to use it" and "I want to develop"; pairing in `../operations/persona-link-install.md` and `../operations/link.md` primarily uses web **Machines › Add computer**, with admin UI and command line under "Advanced."
 Differences from the plan: the website was not changed (first screen and FAQ await decision 15), and the app still has no entry point to this page. No screenshots were added; demo-mode screenshots will accompany the website version.
 Until iOS / Android add-computer, preset wizard, and readiness cards merge, the page honestly says "Use the web for now"; update it as those items merge.
-When Claude Code is installed after the hub, rerunning `hub setup` adds this machine (`kind: local`) while hub.json has `"machines": []`, and restarts the running hub so it picks it up (#4083); no hand edit of hub.json is needed.
+When Claude Code is installed after the hub, rerunning `hub setup` adds this machine (`kind: local`) while hub.json has `"machines": []` and no manager keeps a computer, and restarts the running hub so it picks it up (#4083); no hand edit of hub.json is needed. A manager that keeps its own list takes the computers out of hub.json and leaves `"machines": []` there ([managers.md](managers.md) "Each manager's computers"), so setup reads the hub's record of who keeps what (`hub.machines_kept`, in the hub's database, migrating nothing) after the database step and adds nothing while it names a computer kept by a manager still on the roster. When it can't read the record, it adds nothing either and says why.
 
 ### 6.2 Deferred
 

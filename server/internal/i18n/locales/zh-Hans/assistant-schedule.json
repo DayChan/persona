@@ -10,6 +10,8 @@
   "interval_range": "间隔要在 {min} 分钟到 7 天之间",
   "pick_time": "要选一个运行时间",
   "time_passed": "这个时间已经过了，选一个以后的时间",
+  "until": "到了截止时间，已自动停用",
+  "until_passed": "截止时间已经过了。请改晚一点，或清掉。",
   "bad_launcher": "启动器 {launcher} 的名字不对",
   "bad_permission_mode": "不认识的权限模式 {mode}",
   "bad_effort": "不认识的思考强度 {effort}",
