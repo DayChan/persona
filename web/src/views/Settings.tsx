@@ -755,7 +755,7 @@ export function LauncherDetailDialog({ name, onClose, onChanged, onEdit }: { nam
           {managedProvider(l.source) && (
             <KV title={t("settings.config")}>
               <KVRow k={t("settings.access")} v={l.kind === "api" ? t("settings.direct_api") : l.agent === "codex" ? "Codex" : l.agent === "agy" ? "Antigravity (agy)" : t("settings.launcher")} />
-              {l.kind === "api" && <KVRow k={t("settings.protocol")} v={l.api === "responses" ? "Responses" : "Messages"} />}
+              {l.kind === "api" && <KVRow k={t("settings.protocol")} v={l.api === "chat" ? t("settings-providerwizard.protocol_chat") : l.api === "responses" ? "Responses" : "Messages"} />}
               {l.base_url && <KVRow k="Base URL" v={l.base_url} mono />}
               <KVRow k={t("settings.model")} v={l.model} mono />
               {l.kind !== "api" && (!l.agent || l.agent === "claude") && l.small_model && <KVRow k={t("settings.small_model")} v={l.small_model} mono />}
@@ -763,7 +763,7 @@ export function LauncherDetailDialog({ name, onClose, onChanged, onEdit }: { nam
               {l.kind !== "api" && (!l.agent || l.agent === "claude") && l.custom_model && <KVRow k={t("settings.custom_model")} v={l.custom_model} mono />}
               {l.kind !== "api" && (!l.agent || l.agent === "claude") && l.custom_model_name && <KVRow k={t("settings.custom_model_name")} v={l.custom_model_name} />}
               <KVRow k="API Key" v={l.has_key ? t("settings.key_set_hidden") : t("settings.not_set")} />
-              {l.api !== "responses" && (!l.agent || l.agent === "claude") && <KVRow k={t("settings.auth")} v={l.auth === "bearer" ? "Bearer" : "x-api-key"} />}
+              {l.api !== "responses" && l.api !== "chat" && (!l.agent || l.agent === "claude") && <KVRow k={t("settings.auth")} v={l.auth === "bearer" ? "Bearer" : "x-api-key"} />}
               {l.kind !== "api" && l.args?.length ? <KVRow k={t("settings.extra_args")} v={l.args.join(" ")} mono /> : null}
               {l.models?.length ? <KVRow k={t("settings.model_list")} v={formatList(l.models.map((m) => m.id), { type: "conjunction", style: "narrow" })} mono sub={t("settings.model_count", { count: l.models.length })} /> : null}
               {([["opus_model", "Opus"], ["sonnet_model", "Sonnet"], ["haiku_model", "Haiku"], ["fable_model", "Fable"]] as const).map(([k, tier]) => l[k] && <KVRow key={k} k={t("settings.tier_model", { tier })} v={l[k]} mono />)}

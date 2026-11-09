@@ -39,13 +39,12 @@ struct NewChatView: View {
     @State private var prompt = ""
     @State private var tabName = ""
     @State private var launchers: [Launcher] = []
-    /// The models of the launcher that will run (`runLauncher`), for `modelsFor`; nil: none to pick (not loaded, an
-    /// older hub). `pickedModel` "": the default.
-    @State private var models: LauncherModels?
-    @State private var modelsFor = ""
-    @State private var modelsLoading = false
-    @State private var modelsError: String?
+    /// The models of the launcher that will run (`runLauncher`) and the IDs typed for it before (#1644). `pickedModel`
+    /// "": the default; an ID the list doesn't have (typed) stays picked when the list comes.
+    @State private var modelList = LauncherModelsModel()
     @State private var pickedModel = ""
+    /// "Enter Model ID…" while the list couldn't be read.
+    @State private var typingModel = false
     @State private var recent: [RecentDir] = []
     @State private var loading = false
     /// Machine whose saved defaults were applied; `.task` re-runs when a pushed picker pops, which must not clobber picks.
@@ -81,8 +80,22 @@ struct NewChatView: View {
     /// The launcher runs Codex: it starts with its first message (Codex makes the thread then) and the start waits for it.
     private var codex: Bool { launchers.first(where: { $0.name == runLauncher })?.isCodex == true }
 
+    /// The list for `runLauncher`; nil: none to pick (not loaded, an older hub).
+    private var models: LauncherModels? { modelList.list }
+    private var modelsLoading: Bool { modelList.loading }
+    private var modelsError: String? { modelList.error }
+
     private var modelChoice: LauncherModelChoice? {
         models.map { LauncherModelChoice(list: $0, picked: pickedModel, configured: unifiedModels && runLauncher == defaultLauncher ? configuredModel : "") }
+    }
+
+    /// The list couldn't be read, but the launcher runs Claude Code or Codex: a model ID can still be typed (#1644).
+    private var typesWithoutList: Bool { modelsError != nil && LauncherModels.takesTypedModel(agent: startAgent) }
+
+    /// The `model` the start sends: the pick (from the list or typed), or an ID typed while the list couldn't be read.
+    private var sentModel: String? {
+        if let c = modelChoice { return c.sent }
+        return typesWithoutList && ModelID.isValid(pickedModel) ? pickedModel : nil
     }
 
     /// The efforts the model that will run takes (all of them when that is not known).
@@ -237,7 +250,7 @@ struct NewChatView: View {
                     }
                     .accessibilityIdentifier("newChat.launcher")
                     modelRow
-                } header: { Text(models?.models.isEmpty == false ? String(localized: "Launcher & Model (This Time Only)") : String(localized: "Launcher (This Time Only)")) } footer: {
+                } header: { Text(models?.models.isEmpty == false || modelChoice?.canPick == true ? String(localized: "Launcher & Model (This Time Only)") : String(localized: "Launcher (This Time Only)")) } footer: {
                     let about = unifiedModels ? String(localized: "Uses Model Configuration › New Agent by default. A choice here applies to this session only and doesn't change the global default.")
                         : String(localized: "Claude Code / Codex launchers from this machine. It runs in a new tab in the terminal engine.")
                     Text(modelChoice?.canPick == true ? String(localized: "\(about) Models are the same as what /model shows in the terminal.") : about)
@@ -340,6 +353,11 @@ struct NewChatView: View {
             .task(id: ultracodeShown) { if ultracodeShown { await UsageWindowsStore.shared.loadIfOld(model) } }
             .task(id: "\(machineID)|\(runLauncher)|\(machine?.online == true)|\(defaultsFor)") { await loadModels() }
             .task(id: "\(machineID)|\(cwd)|\(machine?.online == true)") { await loadRepo() }
+            .sheet(isPresented: $typingModel) {
+                TypedModelSheet(initial: pickedModel, note: String(localized: "Used for this start only. Once it runs, it's listed under Typed Before.")) { id in
+                    pickedModel = id
+                }
+            }
             .onChange(of: effortOptions.map(\.id)) { _, ids in
                 if !effort.isEmpty, !ids.contains(effort) { effort = "" } // the picked model does not take it
             }
@@ -496,7 +514,8 @@ struct NewChatView: View {
         }
     }
 
-    /// New Agent's Model row: loading, the pick (into the list), why it cannot be picked, or what went wrong.
+    /// New Agent's Model row: loading, the pick (into the list), why it cannot be picked, or what went wrong (and then
+    /// "Enter Model ID…" where one can be typed anyway).
     @ViewBuilder private var modelRow: some View {
         if let modelsError {
             HStack(spacing: Theme.Space.m) {
@@ -511,20 +530,39 @@ struct NewChatView: View {
                     .accessibilityLabel("Retry [Components b8784c]")
             }
             .accessibilityIdentifier("newChat.model.error")
-        } else if let c = modelChoice, !c.list.models.isEmpty {
-            if c.canPick {
-                NavigationLink {
-                    LauncherModelPicker(choice: c, picked: $pickedModel, refresh: { await loadModels(refresh: true) },
-                                        defaultFooter: c.configured.isEmpty ? String(localized: "No model chosen: runs with the launcher's own settings.")
-                                            : String(localized: "No model chosen: runs with the launcher's own settings and Model Configuration."))
-                } label: {
-                    modelLabel(title: c.selected?.displayName ?? String(localized: "Default Model"), detail: c.detail, trailing: nil)
+            if typesWithoutList {
+                HStack(spacing: Theme.Space.m) {
+                    Button { typingModel = true } label: {
+                        modelLabel(title: pickedModel.isEmpty ? String(localized: "Enter Model ID…") : SessionModes.gptModelName(pickedModel) ?? pickedModel,
+                                   detail: pickedModel.isEmpty ? String(localized: "Without the list, a model can still be used by its ID") : String(localized: "Typed model ID"),
+                                   trailing: pickedModel.isEmpty ? Theme.Icon.keyboard : nil)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("newChat.model.enter")
+                    // A typed pick can be dropped again: the start goes with the launcher's default.
+                    if !pickedModel.isEmpty {
+                        Button { pickedModel = "" } label: { ThemedIcon(Theme.Icon.clear).foregroundStyle(.secondary) }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Use Default Model")
+                            .accessibilityIdentifier("newChat.model.clearTyped")
+                    }
                 }
-                .accessibilityIdentifier("newChat.model")
-            } else {
-                modelLabel(title: String(localized: "Default Model"), detail: c.list.locked, trailing: Theme.Icon.locked)
-                    .accessibilityIdentifier("newChat.model.locked")
             }
+        } else if let c = modelChoice, c.canPick {
+            NavigationLink {
+                LauncherModelPicker(choice: c, picked: $pickedModel, refresh: { await loadModels(refresh: true) }, offersTyping: true,
+                                    forget: { id in await modelList.forget(id, machine: ref, launcher: runLauncher) },
+                                    forgetError: modelList.forgetError,
+                                    defaultFooter: c.configured.isEmpty ? String(localized: "No model chosen: runs with the launcher's own settings.")
+                                        : String(localized: "No model chosen: runs with the launcher's own settings and Model Configuration."))
+            } label: {
+                modelLabel(title: c.selected?.displayName ?? c.typed.map { SessionModes.gptModelName($0) ?? $0 } ?? String(localized: "Default Model"),
+                           detail: c.detail, trailing: nil)
+            }
+            .accessibilityIdentifier("newChat.model")
+        } else if let c = modelChoice, c.showsLocked, let locked = c.list.locked {
+            modelLabel(title: String(localized: "Default Model"), detail: locked, trailing: Theme.Icon.locked)
+                .accessibilityIdentifier("newChat.model.locked")
         } else if modelsLoading {
             modelLabel(title: String(localized: "Model [Assistant View c98e11]"), detail: String(localized: "Loading models for \(runLauncher)…"), trailing: nil)
                 .accessibilityIdentifier("newChat.model.loading")
@@ -547,28 +585,16 @@ struct NewChatView: View {
     }
 
     /// The model list of the launcher that will run. Again only when that launcher (or machine) changed, or refresh:
-    /// `.task` runs again when a pushed list pops.
+    /// `.task` runs again when a pushed list pops. A typed pick stays when the list comes (it isn't in it, #1644); another
+    /// launcher or machine starts over from the default.
     private func loadModels(refresh: Bool = false) async {
-        let key = "\(machineID)|\(runLauncher)"
-        if !refresh, modelsFor == key, models != nil || modelsLoading { return }
-        if modelsFor != key { pickedModel = ""; models = nil }
-        modelsFor = key
-        modelsError = nil
+        let key = LauncherModelsModel.key(ref, runLauncher)
+        if !refresh, modelList.key == key, modelList.list != nil || modelList.loading { return }
+        if modelList.key != key { pickedModel = "" }
+        modelList.select(ref, launcher: runLauncher)
         // Only once this machine's launchers are in: before that `launcher` is still the last machine's.
-        guard defaultsFor == machineID, launchers.contains(where: { $0.name == runLauncher }), machine?.online == true,
-              let api = model.api(ref.group) else { return }
-        modelsLoading = true
-        defer { if modelsFor == key { modelsLoading = false } }
-        do {
-            let list = try await api.launcherModels(machine: ref.id, launcher: runLauncher, refresh: refresh)
-            guard modelsFor == key else { return }
-            models = list
-            if !pickedModel.isEmpty, !list.models.contains(where: { $0.id == pickedModel }) { pickedModel = "" }
-        } catch {
-            guard modelsFor == key, !Task.isCancelled else { return }
-            if let e = error as? APIError, e.status == 404 { return } // an older hub: no list, as before
-            modelsError = error.shown
-        }
+        guard defaultsFor == machineID, launchers.contains(where: { $0.name == runLauncher }), machine?.online == true else { return }
+        await modelList.load(ref, launcher: runLauncher, refresh: refresh)
     }
 
     /// What names the worktree's branch: the todo's name, else the first message, else the folder.
@@ -616,7 +642,7 @@ struct NewChatView: View {
                 // Codex picks its thread's id once it has the first message: it goes with the start, which answers
                 // with that thread (one session, already working on it).
                 let s = try await api.start(.init(machineID: ref.id, cwd: dir, launcher: launcher, prompt: contextBlock == nil ? prompt : outgoing,
-                                                  workspaceID: preset?.workspaceID, model: modelChoice?.sent, tabName: name.isEmpty ? nil : name,
+                                                  workspaceID: preset?.workspaceID, model: sentModel, tabName: name.isEmpty ? nil : name,
                                                   nameHint: nameHint ?? (p.isEmpty ? nil : p), todoID: todoID))
                 UserDefaults.standard.set(launcher, forKey: "launcher.\(machineID)")
                 UserDefaults.standard.set(cwd, forKey: "cwd.\(machineID)")
@@ -629,7 +655,7 @@ struct NewChatView: View {
             // message (on screen right away, typed in once claude is ready).
             let s = try await api.start(.init(machineID: ref.id, cwd: dir, launcher: launcher, prompt: nil,
                                               workspaceID: preset?.workspaceID, permissionMode: mode.isEmpty ? nil : mode,
-                                              effort: effort.isEmpty ? nil : effort, model: modelChoice?.sent, tabName: name.isEmpty ? nil : name,
+                                              effort: effort.isEmpty ? nil : effort, model: sentModel, tabName: name.isEmpty ? nil : name,
                                               async: true, nameHint: nameHint ?? (p.isEmpty ? nil : p), todoID: todoID,
                                               ultracode: sendsUltracode ? true : nil))
             if !unifiedModels {

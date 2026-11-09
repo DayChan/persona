@@ -34,5 +34,6 @@
   "worktree_hint": "専用のブランチとチェックアウトを作ります。エージェントはそこでコードを変え、このフォルダはそのままです。",
   "worktree_branch": "ブランチ",
   "worktree_path": "チェックアウト先：{path}",
-  "worktree_failed": "worktree を作れませんでした：{error}"
+  "worktree_failed": "worktree を作れませんでした：{error}",
+  "forget_failed": "「{id}」を削除できませんでした：{error}"
 }

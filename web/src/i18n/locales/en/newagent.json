@@ -34,5 +34,6 @@
   "worktree_hint": "A branch and a checkout of its own: the agent changes code there, and this folder stays as it is.",
   "worktree_branch": "Branch",
   "worktree_path": "Checks out to {path}",
-  "worktree_failed": "Couldn’t create the worktree: {error}"
+  "worktree_failed": "Couldn’t create the worktree: {error}",
+  "forget_failed": "Couldn't forget “{id}”: {error}"
 }

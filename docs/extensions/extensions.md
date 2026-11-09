@@ -1962,7 +1962,7 @@ Extensions may still draw an older app differently (`ui_version`), for example a
 
 Extension content **outside the app**: Home Screen widgets, Lock Screen and Apple Watch complications (the `ui` slot `widget`), actions in Shortcuts and Siri (extension point `shortcuts`),
 and buttons on extension notifications. Extensions still do not run code in the app: widgets draw a subset of declarative View, while button and shortcut actions go back to the extension.
-Server implementation: `server/internal/extmgr/extension_system.go` (widgets, shortcuts, device widgets) and `FitWidget` in `server/internal/extension/ui.go`;
+Server implementation: `server/internal/extmgr/extension_system.go` (widgets, shortcuts, device widgets) and `FitWidget` in `server/internal/extension/ui_widget.go`;
 schema in `schema/extension/` (`WidgetFamily`, `WidgetPlace`, `WidgetAnswer`, `DeviceWidget`, `ShortcutItem`, `ShortcutResult`, `NotifyAction`, `ExtensionNotification`),
 with types generated for all four clients. **#1147 adds Apple system surface wiring**, with build, visual, signing and device acceptance kept separate (see "Apple system surface boundaries" below); Android Home Screen widgets (Glance) can use the same endpoints later, not in this round.
 

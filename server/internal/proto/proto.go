@@ -30,6 +30,7 @@ var Features = []string{
 	"lock_test",                // scheduled device notification tests with durable receipts
 	"ultracode",                // session-only Claude Code workflow switch, queued changes and resume-loss notices
 	"model_configuration",      // unified per-purpose models and provider selection
+	"typed_models",             // a model ID the launcher's list lacks: starts, POST …/modes, the Persona chat's pick; custom rows, DELETE …/models/custom (#1644)
 	"client_msg_id",            // session.send dedupes retries
 	"client_ops",               // durable operation receipts and read-only status queries
 	"send_refusals",            // 409 dialog_open / input_draft, clear_draft

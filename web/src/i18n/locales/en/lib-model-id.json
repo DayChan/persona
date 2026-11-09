@@ -1,0 +1,9 @@
+{
+  "empty": "Enter a model ID",
+  "start": "Start with a letter or digit (or ~ and then one)",
+  "space": "A model ID can't contain spaces",
+  "control": "A model ID can't contain line breaks or control characters",
+  "character": "“{char}” can't be in a model ID. Use letters, digits and . _ - / : @ [ ]",
+  "too_long": "Too long: at most {max} bytes",
+  "rule": "Letters, digits and . _ - / : @ [ ], starting with a letter or digit; a gateway's latest alias can start with ~."
+}

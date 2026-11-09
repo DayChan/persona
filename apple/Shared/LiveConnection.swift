@@ -591,6 +591,7 @@ final class LiveConnection {
         var req = URLRequest(url: HubTransport.resolve(comps.url!, hub: config.url))
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue(LanguageStore.shared.launched, forHTTPHeaderField: "Accept-Language")
+        RequestClientMetadata.current.apply(to: &req)
         req.timeoutInterval = 15
         resumed = false // until this socket's hello says so
         let t = session.webSocketTask(with: req)

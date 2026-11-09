@@ -613,6 +613,13 @@ final class AppModel {
         let link = makeLink("", config)
         links = [link]
         hubGroup = ""
+        // Fixture frames replace the scenario inventory, not a paired app's restored snapshot.
+        // Keep chat caches and the outbox: relaunch scenarios intentionally exercise their persistence.
+        machines = []
+        sessionsByMachine = [:]
+        sessionLists.forget()
+        pendingSessions = [:]
+        interactions = [:]
         link.live.connect(config)
     }
     #endif
@@ -2900,7 +2907,7 @@ final class AppModel {
             let (machines, _, ixs) = try await (m, s, i)
             guard self.link(group) === link else { return } // removed meanwhile
             replaceMachines(group, machines)
-            if page.paged { page.invalidate() }
+            // refresh() already reconciles the loaded paging window and its counts.
             replaceInteractions(group, ixs, askedAt: asked)
             link.live.ensureConnected()
         } catch {

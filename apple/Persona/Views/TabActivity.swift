@@ -10,8 +10,8 @@ import SwiftUI
 // together), and a hidden tab that the system briefly puts back in the window no longer restarts its work.
 //
 // A visible chat's transcript subscription also uses this scope: switching pages must not render a hidden reply or
-// mark it read. The Agent still runs on the hub; returning resumes from the retained sequence. Dictation and clocks
-// deliberately continue whichever page is shown.
+// mark it read. The Agent still runs on the hub; returning resumes from the retained sequence. Dictation keeps its
+// own lifetime; display clocks use `VisibleWork` rather than changing the tab callbacks' voice-call semantics.
 
 extension EnvironmentValues {
     /// Whether this view's tab is the one picked (`TabActivityScope`). True outside any tab.
@@ -79,10 +79,13 @@ private struct TabActiveTask<ID: Hashable & Sendable>: ViewModifier {
     let id: ID
     let action: @MainActor () async -> Void
     @Environment(\.tabIsActive) private var active
+    @Environment(\.scenePhase) private var phase
+
+    private var eligible: Bool { active && VisibleScenePolicy.permits(phase) }
 
     func body(content: Content) -> some View {
-        content.task(id: TabActiveTaskID(active: active, value: id)) {
-            guard active else { return }
+        content.task(id: TabActiveTaskID(active: eligible, value: id)) {
+            guard eligible, !Task.isCancelled else { return }
             #if PERF_SIGNPOST
             PerfTrace.event("Tab active task", "key=\(id.hashValue)")
             defer { PerfTrace.event("Tab active task finish", "key=\(id.hashValue) cancelled=\(Task.isCancelled)") }
@@ -99,8 +102,8 @@ extension View {
         modifier(TabVisibilityScope(appear: appear, disappear: disappear))
     }
 
-    /// `.task` that runs only while its tab is in front: cancelled when the tab goes to the back, started again (from the
-    /// top) when it comes to the front.
+    /// `.task` for the page in front; on iOS and visionOS it also requires an active scene. Cancelled when ineligible,
+    /// started again (from the top) when eligible.
     func tabActiveTask(_ action: @escaping @MainActor () async -> Void) -> some View {
         modifier(TabActiveTask(id: true, action: action))
     }
@@ -108,6 +111,88 @@ extension View {
     /// `.task(id:)` that runs only while its tab is in front.
     func tabActiveTask<ID: Hashable & Sendable>(id: ID, _ action: @escaping @MainActor () async -> Void) -> some View {
         modifier(TabActiveTask(id: id, action: action))
+    }
+}
+
+nonisolated enum VisibleScenePolicy {
+    static func permits(_ phase: ScenePhase) -> Bool {
+        #if os(iOS) || os(visionOS)
+        phase == .active
+        #else
+        // A visible Mac window stays useful when another application takes focus.
+        true
+        #endif
+    }
+}
+
+/// Display-only work: mounted, on the selected tab, in an active phone scene and at least partly on screen.
+/// Outside a scroll container no visibility callback arrives, so mounted content is visible by default.
+/// This does not send scene-driven disappear callbacks to business lifecycles such as voice calls.
+struct VisibleWork<Content: View>: View {
+    @Environment(\.tabIsActive) private var tabActive
+    @Environment(\.scenePhase) private var phase
+    @State private var visibility = VisibleWorkState()
+    @ViewBuilder var content: (Bool) -> Content
+
+    var body: some View {
+        content(visibility.eligible(tabActive: tabActive, sceneActive: VisibleScenePolicy.permits(phase)))
+            .onAppear { visibility.mounted = true }
+            .onDisappear { visibility.unmount() }
+            .onScrollVisibilityChange(threshold: 0.01) { visibility.onScreen = $0 }
+    }
+}
+
+nonisolated struct VisibleWorkState {
+    var mounted = false
+    var onScreen = true
+
+    func eligible(tabActive: Bool, sceneActive: Bool) -> Bool {
+        mounted && onScreen && tabActive && sceneActive
+    }
+
+    mutating func unmount() {
+        mounted = false
+        onScreen = true
+    }
+}
+
+/// A paused display clock emits its current entry once, then finishes: no hidden periodic timer is retained.
+/// Resuming rebuilds the schedule from the current wall time, rather than replaying missed display ticks.
+nonisolated struct VisiblePeriodicSchedule: TimelineSchedule {
+    var interval: TimeInterval
+    var paused: Bool
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> Entries {
+        Entries(nextDate: startDate, interval: paused ? nil : interval)
+    }
+
+    nonisolated struct Entries: Sequence, IteratorProtocol {
+        var nextDate: Date?
+        var interval: TimeInterval?
+
+        mutating func next() -> Date? {
+            guard let date = nextDate else { return nil }
+            nextDate = nil
+            if let interval, interval.isFinite, interval > 0 {
+                let next = date.addingTimeInterval(interval)
+                if next.timeIntervalSinceReferenceDate.isFinite, next > date { nextDate = next }
+            }
+            return date
+        }
+    }
+}
+
+/// Relative and elapsed display text, with its timer owned by the text's actual visibility.
+struct VisibleTimelineView<Content: View>: View {
+    var interval: TimeInterval
+    @ViewBuilder var content: (Date) -> Content
+
+    var body: some View {
+        VisibleWork { eligible in
+            TimelineView(VisiblePeriodicSchedule(interval: interval, paused: !eligible)) { context in
+                content(context.date)
+            }
+        }
     }
 }
 

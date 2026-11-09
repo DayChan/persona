@@ -10,6 +10,7 @@ import {
   presetHost,
   presetSubtitle,
   presetTestBody,
+  presetTestable,
   presetTitle,
   signupHref,
   testableKey,
@@ -65,6 +66,7 @@ describe("launcher presets", () => {
   it("tests a key against the preset: the hub fills in the address and the default model", () => {
     expect(presetTestBody(glm, " sk-x ", "")).toEqual({ preset: "builtin/glm", api_key: "sk-x", auth: "bearer" });
     expect(presetTestBody(team, "sk-x", "example-mini")).toEqual({ preset: "example-gateway/team", api_key: "sk-x", auth: "api_key", model: "example-mini" });
+    expect(presetTestable({ ...api, api: "chat" })).toBe(true);
     expect(testableKey("sk-1")).toBe(false);
     expect(testableKey(" sk-12345 ")).toBe(true);
   });

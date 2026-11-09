@@ -495,6 +495,14 @@ nonisolated enum Theme {
         static let expand = Animation.smooth(duration: 0.4)
         /// One way of a blink (the built-in persona's eyes): a blink is shut and open again, well under a quarter second.
         static let blink = Animation.easeInOut(duration: 0.07)
+        /// Mochi's nominal drawing cadence; a periodic schedule does not request display-rate updates.
+        static let personaFrameInterval: TimeInterval = 1 / 15
+        static let needsYouBreathDuration: TimeInterval = 1
+        static let needsYouBreathScale: CGFloat = 1.2
+        static let needsYouRingOpacity = 0.6
+        /// A compositor request, not a guaranteed upper bound on rendering frequency.
+        static let breathMinimumFPS: Float = 10
+        static let breathPreferredFPS: Float = 30
         /// What opens in the chat shows itself (a mask growing down from its header, and a fade); its height does not
         /// animate (`unfolding`). Closing folds it away first, quicker, then removes it.
         static let revealTime = 0.28

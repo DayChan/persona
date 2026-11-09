@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -264,6 +265,52 @@ func TestBriefLaterRoute(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("the hub does not relay the route (assistantwire.Routes)")
+	}
+}
+
+// A Handled press whose change can't be written, or whose queue can't be read (a restart on an unreadable store), is an
+// error: 503 for the web app and an error toast on the card, never "already handled". The question stays, and the next
+// press once the store is back takes it out.
+func TestBriefLaterRouteOnAStoreFailure(t *testing.T) {
+	e := newBriefEnv(t)
+	a := e.later("todo_a", "图标要不要换？", time.Hour)
+	ctx := context.Background()
+	post := func(s *Service, id string) int {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/later/"+id+"/handled", nil))
+		return rec.Code
+	}
+	press := func(s *Service, id string) *feishubot.CardResponse {
+		var c feishubot.CardAction
+		c.Action.Value = map[string]any{"a": "later_done", "id": id}
+		return s.botCardAction(ctx, &c, "")
+	}
+	unavailable := i18n.T(e.s.botLang(ctx), "http-status.unavailable")
+	failed := func(s *Service, what string) {
+		t.Helper()
+		if code := post(s, a.ID); code != http.StatusServiceUnavailable {
+			t.Errorf("%s: the route answered %d, want 503", what, code)
+		}
+		if r := press(s, a.ID); r == nil || r.Toast == nil || r.Toast.Type != "error" || r.Toast.Content != unavailable {
+			t.Errorf("%s: the card answered %+v", what, r)
+		}
+	}
+
+	e.st.failPut = errors.New("database unavailable")
+	failed(e.s, "not written")
+	e.st.failPut = nil
+
+	restarted := newBoardEnvOn(t, e.st) // its to-dos are in memory: the question's one is still open
+	restarted.s.todos.todos["todo_a"] = &Todo{ID: "todo_a", Title: "todo_a", Origin: "conv1"}
+	e.st.failSetting = errors.New("database unavailable")
+	failed(restarted.s, "not read")
+	e.st.failSetting = nil
+
+	if code := post(restarted.s, a.ID); code != http.StatusOK {
+		t.Fatalf("the press after the store is back: %d", code)
+	}
+	if open := restarted.s.laterOpen(ctx, e.clk.Now()); len(open) != 0 {
+		t.Fatalf("queue: %+v", open)
 	}
 }
 

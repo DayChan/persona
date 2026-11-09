@@ -33,8 +33,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
-/** Conversation identity includes the pairing; equal source ids on another hub are different conversations. */
-data class InboxConversationKey(val scope: String, val source: String, val account: String, val thread: String)
+/** Conversation identity includes pairing and assistant ownership, even when they share the same source thread. */
+data class InboxConversationKey(val scope: String, val source: String, val account: String, val thread: String, val manager: String? = null)
 
 /** One validated conversation, retaining the repository and draft owner that supplied it. */
 class InboxConversationBinding internal constructor(
@@ -72,7 +72,7 @@ data class InboxReadVersion(val itemId: String, val version: String?)
 
 fun inboxConversationKey(scope: String, record: InboxRecord): InboxConversationKey? =
     record.feedId?.takeIf { record.doc == null && record.moment == null && !record.isMail }?.let {
-        InboxConversationKey(scope, record.source.ifBlank { "lark" }, record.item.account, it)
+        InboxConversationKey(scope, record.source.ifBlank { "lark" }, record.item.account, it, record.manager)
     }
 
 private fun itemsVersion(records: List<InboxRecord>) = records.sortedBy { it.item.id }.joinToString("") {
@@ -90,13 +90,13 @@ fun buildInboxConversations(scope: String, snapshot: InboxSnapshot, read: Set<In
     val rows = snapshot.records.mapNotNull { record -> inboxConversationKey(scope, record)?.let { it to record } }
         .groupBy({ it.first }, { it.second }).map { (key, records) ->
             val ordered = records.sortedWith(compareByDescending<InboxRecord> { it.item.updatedAt }.thenBy { it.item.id })
-            val unread = ordered.filter { !it.read && InboxReadVersion(it.item.id, it.item.version) !in read }
+            val unread = ordered.filter { !it.item.isDone && !it.read && InboxReadVersion(it.item.id, it.item.version) !in read }
             val pending = ordered.filterNot { it.item.isDone }
             val section = when {
+                pending.isEmpty() -> InboxConversationSection.Done
                 unread.any { it.item.triage == InboxTier.Action } -> InboxConversationSection.Action
                 unread.isNotEmpty() -> InboxConversationSection.Fyi
                 pending.any { it.item.triage == InboxTier.Action } -> InboxConversationSection.ReadPending
-                pending.isEmpty() -> InboxConversationSection.Done
                 else -> InboxConversationSection.Read
             }
             val version = itemsVersion(ordered)
@@ -210,7 +210,7 @@ class InboxConversations(
                     val messages = window?.messages.orEmpty().filter { !it.mine && !it.system && it.position != null && it.delivery == LarkDelivery.Sent }
                     val known = messages.filterNot { confirmed(row.key, it) }
                     val exact = window?.verified == true && !window.hasNewer && !window.hasOlder && windowVersions.value[row.key] == row.version
-                    val section = if (window?.verified == true && known.isNotEmpty() && !row.unread) {
+                    val section = if (window?.verified == true && known.isNotEmpty() && !row.unread && row.records.any { !it.item.isDone }) {
                         if (row.records.any { it.item.triage == InboxTier.Action && !it.item.isDone }) InboxConversationSection.Action else InboxConversationSection.Fyi
                     } else row.section
                     val unread = section == InboxConversationSection.Action || section == InboxConversationSection.Fyi
@@ -354,11 +354,14 @@ class InboxConversations(
      * time: building a full window per conversation (every page parsed, cards through jsoup) made it slow. The rows
      * turn read through the conversations' reported unread counts, refreshed once at the end.
      */
-    suspend fun readAll(sections: Set<InboxConversationSection>): InboxReadResult {
-        val rows = state.value.rows.filter { it.section in sections }
+    suspend fun readAll(sections: Set<InboxConversationSection>, keys: Set<InboxConversationKey>? = null): InboxReadResult {
+        val rows = state.value.rows.filter { it.section in sections && (keys == null || it.key in keys) }
         val gate = Semaphore(BULK_READS)
         val outcomes = coroutineScope {
-            rows.map { row -> async { gate.withPermit { row.key to acknowledge(row) } } }.awaitAll()
+            rows.map { row -> async { gate.withPermit {
+                val current = state.value.rows.any { it.key == row.key && it.version == row.version && it.section in sections }
+                row.key to (current && acknowledge(row))
+            } } }.awaitAll()
         }
         refreshMetadata()
         return InboxReadResult(succeeded = outcomes.filter { it.second }.map { it.first },

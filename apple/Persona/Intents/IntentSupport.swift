@@ -140,7 +140,11 @@ nonisolated enum IntentSupport {
     /// Fresh clients every call, one per group (its first hub): the pairing can change while the app is running.
     static func clients() throws -> [APIClient] {
         let registry = HubStore.load()
-        let out = registry.groups.compactMap { g in registry.primary(g).map { APIClient(config: $0.config, group: g) } }
+        let out = registry.groups.compactMap { g in registry.primary(g).map {
+            var client = APIClient(config: $0.config, group: g)
+            client.clientMetadata = RequestClientMetadata(surface: .intent)
+            return client
+        } }
         guard !out.isEmpty else { throw IntentFailure.notPaired }
         return out
     }

@@ -9,6 +9,7 @@ Place necessary historical text under its module directory and list it below.
 
 | File | Contents |
 | --- | --- |
+| `android/2026-11-09-inbox-completion-section-read.md` | Completion projection, assistant-section read controls and synthetic UI/API checks (#1807) |
 | `android/2026-11-08-inbox-conversation-identity.md` | Grouped inbox chat-kind and sender identity loss, historical negative controls and native render checks (#1583) |
 | `android/2026-11-08-android-inbox-swipe.md` | Grouped inbox swipe regression, historical cause, synthetic pointer and reconciliation checks (#1491) |
 | `assistant/task-completion-6525.md` | Completion race reproductions, reconnect ordering, and historical evidence limits (#6525) |
@@ -53,6 +54,7 @@ Place necessary historical text under its module directory and list it below.
 | `redesign/research/persona-protocol.md` | Persona hub protocol research (for a new Android client) |
 | `redesign/research/public-direct-ipv6.md` | Direct public connectivity, IPv6, TLS, and persistent-connection keepalive: research notes |
 | `redesign/ux.md` | Interaction and UI specification (shared by both platforms) |
+| `apple/2026-11-09-ios-idle-energy.md` | Six synthetic before/after energy-workload windows, single-flight boundaries, lifecycle regressions and preserved Instruments/device acceptance gaps (#1634 / #1633) |
 
 The [historical redesign index](redesign/README.md) groups the retained interaction drafts and research.
 The retained [chat-header prototype](apple/prototypes/chat-topbar.html) is a text-only historical design, not a production screen.

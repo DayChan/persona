@@ -9,6 +9,7 @@ nonisolated enum LegacyNames {
     static let urlScheme = product
     static let conversationPath = "j"
     static let operationIDHeader = "X-\(capitalizedProduct)-Op-Id"
+    static let clientHeader = "X-\(capitalizedProduct)-Client"
     static let contextTag = "\(product)-context"
     static let fileTag = "\(product)-file"
     static let pushRelayInfoKey = "\(capitalizedProduct)PushRelay"

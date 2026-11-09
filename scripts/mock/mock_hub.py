@@ -6875,6 +6875,64 @@ LAUNCHER_MODELS = {
 }
 LAUNCHER_MODELS["sonnetcc"] = dict(LAUNCHER_MODELS["claude"], locked="启动器固定了模型参数，不能覆盖具体模型")
 
+# Typing a model ID (#1644, docs/assistant/model-config.md "Typing a model ID"): MOCK_CUSTOM_MODELS=1 lists the IDs typed
+# before after a Claude Code / Codex launcher's own models (`custom: true`, none for a locked one), takes Forget
+# (DELETE …/launchers/{name}/models/custom?model=) and remembers a start's or a running session's typed model the list
+# doesn't have, as the hub does once it ran. =forgetfail: Forget answers 500 (the app puts the row back); =empty: Claude
+# Code's list is empty ("Enter Model ID…"); =fail: no list can be read (502). Every mode lists "typed_models" in the
+# features. GET /mock/custom_models: what is remembered (`?reset=1` puts the first IDs back).
+CUSTOM_MODELS_MODE = os.environ.get("MOCK_CUSTOM_MODELS", "")
+CUSTOM_MODELS_START = {"claude": ["vendor/model-x", "~vendor/model-latest[1m]"], "codex": ["gpt-next-preview"]}
+CUSTOM_MODELS = copy.deepcopy(CUSTOM_MODELS_START) if CUSTOM_MODELS_MODE else {}
+
+
+def custom_models_list(launcher, listing):
+    """A launcher's /model list with the typed IDs after its own (MOCK_CUSTOM_MODELS); None: it can't be read."""
+    if CUSTOM_MODELS_MODE == "fail": return None
+    if CUSTOM_MODELS_MODE == "empty" and listing.get("agent") == "claude": return dict(listing, models=[])
+    if listing.get("agent") not in ("claude", "codex") or listing.get("locked"): return listing
+    known = {m["id"] for m in listing["models"]}
+    typed = [{"id": i, "name": i, "description": "之前用过的模型 ID", "custom": True} for i in CUSTOM_MODELS.get(launcher, []) if i not in known]
+    return dict(listing, models=listing["models"] + typed)
+
+
+def custom_models_used(launcher, model):
+    """A start or a model switch went through with `model`: kept first unless the launcher's own list has it (at most 8)."""
+    listing = LAUNCHER_MODELS.get(launcher or "claude")
+    if not CUSTOM_MODELS_MODE or not model or not listing or listing.get("locked") or model in {m["id"] for m in listing["models"]}: return
+    CUSTOM_MODELS[launcher or "claude"] = ([model] + [i for i in CUSTOM_MODELS.get(launcher or "claude", []) if i != model])[:8]
+
+
+def custom_models_route(h, method, p, q, body=b""):
+    """MOCK_CUSTOM_MODELS: Forget, GET /mock/custom_models, and remembering what a start / a switch ran. False otherwise."""
+    if not CUSTOM_MODELS_MODE: return False
+    if p == "/mock/custom_models":
+        if q.get("reset"):
+            CUSTOM_MODELS.clear(); CUSTOM_MODELS.update(copy.deepcopy(CUSTOM_MODELS_START))
+        h.send_json({"custom": CUSTOM_MODELS, "mode": CUSTOM_MODELS_MODE}); return True
+    if method == "POST" and p == "/api/v1/sessions":
+        b = json.loads(body or b"{}")
+        custom_models_used(b.get("launcher"), b.get("model")); return False
+    m = re.fullmatch(r"/api/v1/sessions/([^/]+)/([^/]+)/modes", p)
+    if method == "POST" and m:
+        s = next((x for x in all_sessions() if x["session_id"] == m.group(2)), None)
+        custom_models_used((s or {}).get("launcher") or "claude", json.loads(body or b"{}").get("model")); return False
+    m = re.fullmatch(r"/api/v1/machines/([^/]+)/launchers/([^/]+)/models/custom", p)
+    if not m or method != "DELETE": return False
+    if CUSTOM_MODELS_MODE == "forgetfail":
+        h.send_json({"error": "数据库暂时不可用"}, 500); return True
+    model, launcher = (q.get("model") or [""])[0], unquote(m.group(2))
+    CUSTOM_MODELS[launcher] = [i for i in CUSTOM_MODELS.get(launcher, []) if i != model]
+    h.send_json({"ok": True}); return True
+
+
+_features_without_custom_models = features
+
+
+def features():
+    # The hub keeps a typed pick (proto "typed_models"): the Persona chat's chip offers "Other Model…".
+    return _features_without_custom_models() + (["typed_models"] if CUSTOM_MODELS_MODE else [])
+
 
 # Settings › Model providers: ~/.zshrc launchers, two of them through made-up example gateways a quota plugin can read.
 LAUNCHERS = [
@@ -10558,9 +10616,14 @@ def churn(rounds, ms, steps=1, final=False, inbox=False, waiting=False, real=Fal
             working[0]["updated_at"] = ago(minutes=30)
         for m in MACHINES:
             m["last_seen"] = now
-        if waiting and INTERACTIONS:  # the hub's own list follows what is pushed below (/mock/truth reads it)
-            INTERACTIONS[:] = [x for x in INTERACTIONS if x["id"] != "ix_churn"]
-            if k % 2 == 0: INTERACTIONS.append(dict(INTERACTIONS[0], id="ix_churn", created_at=now))
+        churn_removed = []
+        churn_added = None
+        if waiting:  # Resolved identities never become a different question on the real hub.
+            churn_removed = [x["id"] for x in INTERACTIONS if x["id"].startswith("ix_churn")]
+            INTERACTIONS[:] = [x for x in INTERACTIONS if x["id"] not in churn_removed]
+            if k % 2 == 0 and INTERACTIONS:
+                churn_added = "ix_churn_" + uuid.uuid4().hex
+                INTERACTIONS.append(dict(INTERACTIONS[0], id=churn_added, created_at=now))
         by = {}
         for s in out_by_machine(all_sessions()): by.setdefault(s["machine_id"], []).append(s)
         for send, subscribed in list(LIVE):
@@ -10571,11 +10634,13 @@ def churn(rounds, ms, steps=1, final=False, inbox=False, waiting=False, real=Fal
                 if inbox:
                     send({"type": "inbox"})
                     for ix in pending: send({"type": "interaction", "interaction": ix})
-                if waiting and pending:  # another agent starts waiting, then is answered elsewhere
-                    if k % 2 == 0:
-                        send({"type": "interaction", "interaction": dict(pending[0], id="ix_churn", created_at=now)})
-                    else:
-                        send({"type": "interaction_resolved", "id": "ix_churn"})
+                if waiting:  # another agent starts waiting, then is answered elsewhere
+                    for retired in churn_removed:
+                        send({"type": "interaction_resolved", "id": retired})
+                    if churn_added:
+                        added = next((ix for ix in pending if ix["id"] == churn_added), None)
+                        if added:
+                            send({"type": "interaction", "interaction": added})
                 for sid in list(subscribed):
                     items = ITEMS.get(sid)
                     if not items: continue
@@ -12936,6 +13001,7 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/v1/assistant/conversations/" + ASK1 + "/always":
             return self.send_json({"grants": ALWAYS_GRANTS})
         if recordings_route(self, "GET", p): return
+        if custom_models_route(self, "GET", p, q): return
         if managers_route(self, "GET", p): return
         if _sent and _sent.route(self, "GET", p, q): return
         if providers_route(self, "GET", p, q, b""): return
@@ -13578,7 +13644,12 @@ class H(BaseHTTPRequestHandler):
             return self.send_json(dict(LAUNCHER_MODELS["claude"], machine="macbook"))
         if p.startswith("/api/v1/machines/") and "/launchers/" in p and p.endswith("/models"):  # "New Agent"'s model picker
             time.sleep(float(os.environ.get("MOCK_MODELS_SECONDS", "0.8")))
-            return self.send_json(LAUNCHER_MODELS.get(unquote(p.split("/")[6]), {"agent": "traex", "models": []}))
+            name = unquote(p.split("/")[6])
+            listing = LAUNCHER_MODELS.get(name, {"agent": "traex", "models": []})
+            if CUSTOM_MODELS_MODE:
+                listing = custom_models_list(name, listing)
+                if listing is None: return self.send_json({"error": "claude 没有登录：claude /login 之后再试"}, 502)
+            return self.send_json(listing)
         if doctor_route(self, p, "GET"): return
         if p.startswith("/api/v1/machines/") and p.endswith("/launchers"):
             return self.send_json({"launchers": [{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
@@ -13790,6 +13861,7 @@ class H(BaseHTTPRequestHandler):
         self.last_body = self.body()
         p = urlparse(self.path).path
         if preview_route and preview_route(self, self.command, p, parse_qs(urlparse(self.path).query)): return
+        if custom_models_route(self, self.command, p, parse_qs(urlparse(self.path).query), self.last_body): return
         if PERSONAL_AGENTS and p.startswith("/api/v1/agents/sessions/") and p.rsplit("/", 1)[-1] in ("hide", "unhide"):
             sid, op = unquote(p[len("/api/v1/agents/sessions/"):].rsplit("/", 1)[0]), p.rsplit("/", 1)[-1]
             if sid not in [r["id"] for r in personal_rows()]: return self.send_json({"error": "no such session"}, 404)
@@ -16965,6 +17037,9 @@ MOCK_HELP.append("MOCK_ULTRACODE=1  Claude Code 的 ultracode 开关（#3428）�
                  "发布说明那个带版本太旧的原因、博客那个关着、菜谱那个离线（node 还记着开）；Codex 的订单会话在「极高」档；Mac Studio 的 Claude Code 太旧，新建时不能开。"
                  "POST …/modes 的 ultracode 闲着立刻生效、工作中排队 MOCK_ULTRACODE_SECONDS 秒（默认 4）；有排队时发消息回 409 ultracode_pending；"
                  "GET /mock/ultracode 看请求和消息，?reset=1 复原")
+MOCK_HELP.append("MOCK_CUSTOM_MODELS=1|forgetfail|empty|fail  手动输入模型 ID（#1644）：features 带 typed_models；Claude Code / Codex 的模型列表后面带输入过的 ID（custom），"
+                 "DELETE …/models/custom?model= 忘掉；新建和 …/modes 用了列表里没有的 ID 就记下。forgetfail：忘掉回 500；empty：Claude Code 的列表是空的；"
+                 "fail：读不到列表（502）。GET /mock/custom_models 看记着的，?reset=1 复原")
 
 # Agent session archives (docs/protocol/protocol.md "Agent session archives"; web "Archived agents"): MOCK_AGENT_ARCHIVES=1
 # advertises archives and "Archive and close" (=archive: archives only, as behind an older manager), with two agents

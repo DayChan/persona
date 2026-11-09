@@ -175,29 +175,7 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
         }
     }
     var showMutes by remember { mutableStateOf(false) }
-    var readingFyi by remember { mutableStateOf(false) }
-    var fyiRetry by remember { mutableStateOf<List<InboxReadSnapshot>?>(null) }
-    var fyiNotice by remember { mutableStateOf<String?>(null) }
-    fun readFyi(group: InboxGroup, retry: List<InboxReadSnapshot>? = null) {
-        val controller = conversations ?: run { fyiNotice = res.getString(R.string.inbox_conversations_read_skipped); return }
-        if (readingFyi) return
-        val keys = group.rows.mapNotNull { conversationRows[it.id]?.key }.toSet()
-        val captured = retry ?: controller.captureFyi().filter { it.key in keys }
-        val notCaptured = if (retry == null) group.rows.size - captured.size else 0
-        readingFyi = true
-        scope.launch {
-            try {
-                val read = controller.readFyi(captured)
-                fyiRetry = read.failed.takeIf { it.isNotEmpty() }
-                fyiNotice = when {
-                    read.failed.isNotEmpty() -> res.getString(R.string.inbox_conversations_read_failed)
-                    notCaptured > 0 || read.skipped.isNotEmpty() -> res.getString(R.string.inbox_conversations_read_skipped)
-                    else -> res.getString(R.string.inbox_conversations_read_success)
-                }
-            } catch (e: CancellationException) { throw e }
-            finally { readingFyi = false }
-        }
-    }
+    val sectionReader = rememberInboxSectionReader(conversations, conversationRows)
     if (showMutes) InboxMutesSheet(repository, onDismiss = { showMutes = false })
     LaunchedEffect(repository) { refresh(collectNow = false) }
     // The title while the hub is out of reach opens why, since when and "Retry now" in place (iOS ConnectionTitle).
@@ -296,10 +274,9 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
                 item("error") { StatusText(message, isError = true) }
             }
             if (preferenceError) item("preference-error") { StatusText(stringResource(R.string.inbox_filters_not_saved), isError = true) }
-            fyiNotice?.let { notice -> item("fyi-read-result") {
-                JNotice(notice, actionLabel = fyiRetry?.let { stringResource(R.string.inbox_retry) }, onAction = fyiRetry?.let { retry -> {
-                    groups.firstOrNull { it.id == "fyi" }?.let { readFyi(it, retry) }
-                } })
+            sectionReader.notice?.let { notice -> item("section-read-result") {
+                JNotice(notice, actionLabel = sectionReader.retry?.let { stringResource(R.string.inbox_retry) },
+                    onAction = sectionReader.retry)
             } }
             if (groups.isEmpty() && !loadingFirst) item("empty") {
                 val filtered = query.isNotEmpty() || source.isNotEmpty() || kind.isNotEmpty() || section.isNotEmpty()
@@ -328,10 +305,10 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
                             filter(currentFilters.copy(section = if (section == group.id) "" else section,
                                 expanded = if (group.id in expanded) expanded - group.id else expanded + group.id))
                         }),
-                        action = if (group.id in setOf("fyi", "noise")) ({
-                            JTextButton(if (group.id == "fyi") stringResource(R.string.inbox_conversations_read_all) else stringResource(R.string.inbox_clear_all), {
-                                if (group.id == "fyi") readFyi(group) else markAll(allTargets(listOf(group)), InboxBulkAction.Done)
-                            }, enabled = !readingFyi)
+                        action = if (group.id in setOf("action", "fyi", "noise")) ({
+                            JTextButton(if (group.id != "noise") stringResource(R.string.inbox_conversations_read_all) else stringResource(R.string.inbox_clear_all), {
+                                if (group.id != "noise") sectionReader.read(group) else markAll(allTargets(listOf(group)), InboxBulkAction.Done)
+                            }, enabled = !sectionReader.busy)
                         }) else null,
                     )
                 }

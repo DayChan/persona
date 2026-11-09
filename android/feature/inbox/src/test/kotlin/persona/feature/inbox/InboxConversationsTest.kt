@@ -49,6 +49,28 @@ class InboxConversationsTest {
         assertFalse(opened.loading)
     }
 
+    @Test fun managerIdentityAndScopedReadsNeverAcquireAnotherAssistantsRows() = runTest {
+        val mine = item("a", "room", "action")
+        val other = item("b", "room", "action").copy(manager = "other-assistant")
+        val grouped = buildInboxConversations("paired", InboxSnapshot(records = listOf(mine, other)))
+        assertEquals(2, grouped.rows.size)
+        assertEquals(2, grouped.rows.map { it.key }.distinct().size)
+        val repository = ConversationRepository(listOf(mine, other, item("f", "fyi", "fyi")))
+        repository.window("room").value = window(message(1))
+        val controller = InboxConversations(repository, "paired", backgroundScope, ReplyComposers(repository, backgroundScope))
+        runCurrent()
+        val key = controller.state.value.rows.single { it.records.single().item.id == "a" }.key
+        val read = controller.readAll(setOf(InboxConversationSection.Action), setOf(key))
+        runCurrent()
+        assertEquals(listOf(key), read.succeeded)
+        assertEquals(1, repository.reads.size)
+        assertTrue(repository.done.isEmpty())
+        assertTrue(repository.snapshot.value.records.none { it.item.isDone })
+        val empty = controller.readAll(setOf(InboxConversationSection.Action), emptySet())
+        assertTrue(empty.succeeded.isEmpty())
+        assertEquals(1, repository.reads.size)
+    }
+
     @Test fun groupsBySourceAccountAndThreadKeepingEveryOriginalItem() {
         val first = item("a", "room", "action")
         val second = item("b", "room", "fyi")
@@ -68,7 +90,7 @@ class InboxConversationsTest {
         val read = setOf(InboxReadVersion("a", "v1"))
         assertEquals(InboxConversationSection.ReadPending, buildInboxConversations("paired", InboxSnapshot(records = listOf(action)), read).rows.single().section)
         val completed = action.copy(item = action.item.copy(doneAt = "2026-11-06T10:00:00Z"))
-        assertEquals(InboxConversationSection.Action, buildInboxConversations("paired", InboxSnapshot(records = listOf(completed))).rows.single().section)
+        assertEquals(InboxConversationSection.Done, buildInboxConversations("paired", InboxSnapshot(records = listOf(completed))).rows.single().section)
         assertEquals(InboxConversationSection.Done, buildInboxConversations("paired", InboxSnapshot(records = listOf(completed)), read).rows.single().section)
         val newer = action.copy(item = action.item.copy(version = "v2"))
         assertEquals(InboxConversationSection.Action, buildInboxConversations("paired", InboxSnapshot(records = listOf(newer)), read).rows.single().section)

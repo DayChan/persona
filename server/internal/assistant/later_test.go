@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -254,11 +255,13 @@ func TestLaterHandledLeavesTheQueue(t *testing.T) {
 	ctx := context.Background()
 	first, _, _ := e.s.laterQueue(ctx, "todo_a", "box", "ag1", "第一个", e.clk.Now())
 	e.s.laterQueue(ctx, "todo_a", "box", "ag1", "第二个", e.clk.Now().Add(time.Second))
-	if !e.s.laterHandled(ctx, first.ID, e.clk.Now()) {
-		t.Fatal("not handled")
+	if ok, err := e.s.laterHandled(ctx, first.ID, e.clk.Now()); !ok || err != nil {
+		t.Fatalf("not handled: %v", err)
 	}
-	if e.s.laterHandled(ctx, first.ID, e.clk.Now()) || e.s.laterHandled(ctx, "lt_unknown", e.clk.Now()) {
-		t.Fatal("a question that is not in the queue was handled")
+	for _, id := range []string{first.ID, "lt_unknown"} {
+		if ok, err := e.s.laterHandled(ctx, id, e.clk.Now()); ok || err != nil {
+			t.Fatalf("a question that is not in the queue (%s): %v %v", id, ok, err)
+		}
 	}
 	open := e.s.laterOpen(ctx, e.clk.Now().Add(time.Minute))
 	if len(open) != 1 || open[0].Text != "第二个" {
@@ -267,6 +270,34 @@ func TestLaterHandledLeavesTheQueue(t *testing.T) {
 	var stored []laterAsk
 	if _, err := e.st.Setting(ctx, laterKey, &stored); err != nil || len(stored) != 1 || stored[0].Text != "第二个" {
 		t.Fatalf("stored: %+v %v", stored, err)
+	}
+}
+
+// A Handled press whose change can't be written is an error, not "not there": the question stays, in memory and stored. A
+// queue that can't be read (a fresh service on an unreadable store) is an error too.
+func TestLaterHandledStoreFailureIsNotHandled(t *testing.T) {
+	e := newBriefEnv(t)
+	e.s.todos.todos["todo_a"] = &Todo{ID: "todo_a", Title: "迁移数据库", Origin: "conv1"}
+	ctx := context.Background()
+	a, _, _ := e.s.laterQueue(ctx, "todo_a", "box", "ag1", "要不要先停写？", e.clk.Now())
+
+	e.st.failPut = errors.New("database unavailable")
+	if ok, err := e.s.laterHandled(ctx, a.ID, e.clk.Now()); ok || err == nil {
+		t.Fatalf("not written: %v %v, want an error", ok, err)
+	}
+	e.st.failPut = nil
+	if open := e.s.laterOpen(ctx, e.clk.Now()); len(open) != 1 || open[0].ID != a.ID {
+		t.Fatalf("queue: %+v", open)
+	}
+	var stored []laterAsk
+	if _, err := e.st.Setting(ctx, laterKey, &stored); err != nil || len(stored) != 1 || stored[0].ID != a.ID {
+		t.Fatalf("stored: %+v %v", stored, err)
+	}
+
+	fresh := newBoardEnvOn(t, e.st)
+	e.st.failSetting = errors.New("database unavailable")
+	if ok, err := fresh.s.laterHandled(ctx, a.ID, e.clk.Now()); ok || err == nil {
+		t.Fatalf("not read: %v %v, want an error", ok, err)
 	}
 }
 
@@ -306,8 +337,8 @@ func TestLaterHandledIsRefusedForAQuestionThatIsOver(t *testing.T) {
 	done := now
 	e.s.todos.todos["todo_b"].DoneAt = &done
 	for _, a := range []laterAsk{old, ended} {
-		if e.s.laterHandled(ctx, a.ID, now) {
-			t.Errorf("%q was marked handled", a.Text)
+		if ok, err := e.s.laterHandled(ctx, a.ID, now); ok || err != nil {
+			t.Errorf("%q: %v %v", a.Text, ok, err)
 		}
 	}
 }

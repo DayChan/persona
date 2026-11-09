@@ -456,6 +456,13 @@ nonisolated struct LauncherModels: Codable, Hashable, Sendable {
     var locked: String?
     /// Model Settings' list (#943): the machine whose CLI answered.
     var machine: String? = nil
+
+    /// The agent takes a model ID typed by hand (#1644): Claude Code's `--model` / `/model` and Codex's `--model` take any
+    /// string; the hub remembers typed IDs for these two only. Other agents' lists are empty (no model row).
+    static func takesTypedModel(agent: String) -> Bool { agent == "claude" || agent == "codex" }
+
+    /// A typed ID can reach the agent: one of those two, and the launcher does not pass its own --model.
+    var takesTypedModel: Bool { locked == nil && Self.takesTypedModel(agent: agent) }
 }
 
 nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
@@ -470,14 +477,17 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
     /// The thinking efforts it takes, weakest first; nil or empty: none.
     var efforts: [String]?
     var defaultEffort: String?
+    /// An ID the user typed before that ran, remembered on the hub for this computer and launcher (#1644); listed after
+    /// the agent's own, most recent first, with no efforts (not known). It can be forgotten.
+    var custom = false
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, resolved, efforts
+        case id, name, description, resolved, efforts, custom
         case isDefault = "default", defaultEffort = "default_effort"
     }
 
     init(id: String, name: String, description: String? = nil, resolved: String? = nil, isDefault: Bool = false,
-         efforts: [String]? = nil, defaultEffort: String? = nil) {
+         efforts: [String]? = nil, defaultEffort: String? = nil, custom: Bool = false) {
         self.id = id
         self.name = name
         self.description = description
@@ -485,6 +495,7 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
         self.isDefault = isDefault
         self.efforts = efforts
         self.defaultEffort = defaultEffort
+        self.custom = custom
     }
 
     init(from decoder: Decoder) throws {
@@ -496,6 +507,7 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
         isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         efforts = try c.decodeIfPresent([String].self, forKey: .efforts)
         defaultEffort = try c.decodeIfPresent(String.self, forKey: .defaultEffort)
+        custom = try c.decodeIfPresent(Bool.self, forKey: .custom) ?? false
     }
 }
 
