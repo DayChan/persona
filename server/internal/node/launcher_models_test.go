@@ -203,6 +203,72 @@ func TestLauncherModelsRunsTheLauncher(t *testing.T) {
 	}
 }
 
+// A list past its TTL is answered at once, and the CLI is asked again in the background for the next ask (#1501): the
+// picker does not wait seconds for the login shell and the CLI every ten minutes.
+func TestLauncherModelsAnswersAnExpiredListAtOnce(t *testing.T) {
+	home := fakeCLIHome(t)
+	n, _ := testNode(t)
+	n.home = home
+	if res, err := n.launcherModels(context.Background(), "mine", "claude", true); err != nil || len(res.Models) != 1 || res.Models[0].Resolved != "model-of-mine" {
+		t.Fatalf("first ask: %+v %v", res, err)
+	}
+	// The launcher now answers slowly with another model, and the kept list has expired.
+	zshrc := "mine() { sleep 2; LAUNCHER_MODEL=model-of-mine-2 command claude \"$@\" }\n"
+	if err := os.WriteFile(filepath.Join(home, ".zshrc"), []byte(zshrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launcherModelsCache.Lock()
+	for k := range launcherModelsCache.at {
+		if strings.HasPrefix(k, home+"\x00") {
+			launcherModelsCache.at[k] = time.Now().Add(-launcherModelsTTL - time.Minute)
+		}
+	}
+	launcherModelsCache.Unlock()
+
+	started := time.Now()
+	res, err := n.launcherModels(context.Background(), "mine", "claude", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took > time.Second {
+		t.Fatalf("an expired list waited %v for the CLI", took)
+	}
+	if len(res.Models) != 1 || res.Models[0].Resolved != "model-of-mine" {
+		t.Fatalf("expired ask: %+v", res)
+	}
+	// The background ask replaces it; asks meanwhile join it and keep answering the kept list.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		res, err = n.launcherModels(context.Background(), "mine", "claude", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Models) == 1 && res.Models[0].Resolved == "model-of-mine-2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the background ask never replaced the list: %+v", res)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Too old to show: the ask waits for the CLI, as it does with no list.
+	launcherModelsCache.Lock()
+	for k := range launcherModelsCache.at {
+		if strings.HasPrefix(k, home+"\x00") {
+			launcherModelsCache.at[k] = time.Now().Add(-launcherModelsStale - time.Minute)
+		}
+	}
+	launcherModelsCache.Unlock()
+	zshrc = "mine() { LAUNCHER_MODEL=model-of-mine-3 command claude \"$@\" }\n"
+	if err := os.WriteFile(filepath.Join(home, ".zshrc"), []byte(zshrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := n.launcherModels(context.Background(), "mine", "claude", false); err != nil || len(res.Models) != 1 || res.Models[0].Resolved != "model-of-mine-3" {
+		t.Fatalf("a list past launcherModelsStale was answered: %+v %v", res, err)
+	}
+}
+
 // A launcher that passes its own --model would start with it whatever is picked: the list says so.
 func TestLauncherModelsLockedByFixedModel(t *testing.T) {
 	home := fakeCLIHome(t)

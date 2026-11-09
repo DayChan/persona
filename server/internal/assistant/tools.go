@@ -329,7 +329,7 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		if err := s.applyModel(sctx, "agent.new", params); err != nil {
 			return "", err
 		}
-		// A launcher that failed its health check here runs on a machine where it works (launcher_health.go).
+		// A launcher that failed its health check here runs on a machine where it works (launcher_health_check.go).
 		picked, _ := params["launcher"].(string)
 		launcher := s.startLauncher(ctx, picked)
 		alt, note, moved := s.healthDetour(ctx, am, launcher)

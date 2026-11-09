@@ -1,4 +1,5 @@
 {
+  "disabled": "AI 分身已关闭",
   "timeout": "超时，没有给出建议",
   "no_draft": "做完了但没有给出建议",
   "start_failed": "没能启动，未开始处理",
