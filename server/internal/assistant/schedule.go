@@ -256,6 +256,7 @@ type schedule struct {
 	inflight sync.WaitGroup
 	// limitInflight holds the scheduler owner until claimed retry sends have returned.
 	limitInflight sync.WaitGroup
+	limitJoining  func() // test barrier before joining in-flight retry workers
 	// waitTold: by task, the wait on the user its skip was pushed for (tellWaitingSkip, waitKey): a patrol every 30
 	// minutes behind one card is pushed once. Another wait (the old turn answered, then stopped at a new card) is
 	// news again; a skip that finds the conversation no longer waiting, a run going in, or the task deleted clears it.
@@ -1190,6 +1191,9 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 	var releaseOwner func()
 	var cancelOwner context.CancelFunc
 	defer func() {
+		if s.sched.limitJoining != nil {
+			s.sched.limitJoining()
+		}
 		s.sched.limitInflight.Wait()
 		if cancelOwner != nil {
 			cancelOwner()
@@ -1218,22 +1222,31 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 					}
 				}
 				owned := s.store() == nil // storeless mode is used by tests
-				if st, ok := s.store().(scheduleOwnerStore); ok {
+				_, versioned := s.store().(scheduleVersionStore)
+				_, runsVersioned := s.store().(scheduleRunsStore)
+				if st, ok := s.store().(scheduleOwnerStore); ok && versioned && runsVersioned {
 					if ownerDone == nil {
 						var acquired bool
 						var err error
 						var ownerCtx context.Context
 						ownerCtx, cancelOwner = context.WithCancel(context.Background())
+						stopAcquire := context.AfterFunc(ctx, cancelOwner)
 						ownerDone, releaseOwner, acquired, err = st.TryScheduleOwner(ownerCtx)
+						stopAcquire()
 						if err != nil || !acquired {
 							cancelOwner()
 							ownerDone, releaseOwner, cancelOwner = nil, nil, nil
+						} else {
+							// Another owner may have finished while this manager's schedule was cached.
+							s.sched.mu.Lock()
+							s.sched.loaded = false
+							s.sched.mu.Unlock()
 						}
 					}
 					owned = ownerDone != nil
 				}
-				if _, versioned := s.store().(scheduleVersionStore); !versioned && s.store() != nil {
-					owned = false
+				if s.store() != nil {
+					owned = owned && versioned && runsVersioned
 				}
 				if owned {
 					s.scanLimitRetries(ctx, now, ownerDone)
@@ -1428,9 +1441,14 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	// Work already happened. Keep its outcome and the run ID even when either write fails, so the watcher
 	// can still report the real result. Later writes retry the complete current lists under this lock.
 	_ = s.saveLocked(sc, sc.tasks)
-	if st := s.store(); st != nil { // under the lock: two runs finishing together must not save their lists out of order
+	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
+		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+			if !slices.ContainsFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
+				runs = append(runs, r)
+			}
+			return runs
+		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
 		cancel()
@@ -1465,9 +1483,14 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	streakTask, streakN, streak := streakToldLocked(sc, i, wasOK) // a turn that ends in an error is a failed run too (schedule_streak.go)
 	streakRun := sc.runs[i]
 	_ = s.saveLocked(sc, sc.tasks)
-	if st := s.store(); st != nil {
+	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := st.PutSetting(ctx, runsKey, sc.runs); err != nil {
+		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+			if j := slices.IndexFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }); j >= 0 {
+				runs[j].Status, runs[j].Error, runs[j].StreakTold = status, errText, streakRun.StreakTold
+			}
+			return runs
+		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
 		cancel()

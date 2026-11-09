@@ -23,10 +23,24 @@ func (h *limitNotifyHub) NotifyRequest(ctx context.Context, req NotifyRequest) e
 	return h.fakeHub.NotifyRequest(ctx, req)
 }
 
+type limitOwnedStore struct {
+	*limitTestStore
+	acquired chan struct{}
+	released chan struct{}
+}
+
+func (st *limitOwnedStore) TryScheduleOwner(ctx context.Context) (<-chan struct{}, func(), bool, error) {
+	done := make(chan struct{})
+	close(st.acquired)
+	return done, func() { close(done); close(st.released) }, true, nil
+}
+
 type limitTestStore struct {
 	*scheduleWriteStore
-	mu       sync.Mutex
-	revision int64
+	mu                sync.Mutex
+	revision          int64
+	runsRevision      int64
+	beforeRunsCompare func()
 }
 
 func (st *limitTestStore) ReadSchedule(ctx context.Context) (json.RawMessage, int64, bool, error) {
@@ -47,6 +61,33 @@ func (st *limitTestStore) CompareSchedule(ctx context.Context, revision int64, r
 		return false, err
 	}
 	st.revision++
+	return true, nil
+}
+
+func (st *limitTestStore) ReadScheduleRuns(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var raw json.RawMessage
+	ok, err := st.Setting(ctx, runsKey, &raw)
+	return raw, st.runsRevision, ok, err
+}
+
+func (st *limitTestStore) CompareScheduleRuns(ctx context.Context, revision int64, raw json.RawMessage) (bool, error) {
+	st.mu.Lock()
+	if hook := st.beforeRunsCompare; hook != nil {
+		st.beforeRunsCompare = nil
+		st.mu.Unlock()
+		hook()
+		st.mu.Lock()
+	}
+	defer st.mu.Unlock()
+	if revision != st.runsRevision {
+		return false, nil
+	}
+	if err := st.PutSetting(ctx, runsKey, raw); err != nil {
+		return false, err
+	}
+	st.runsRevision++
 	return true, nil
 }
 
@@ -309,6 +350,36 @@ func TestLimitRetryOutlivesWeekAndTruncatedHistory(t *testing.T) {
 	}
 }
 
+func TestLimitRetryUnknownHistoryMergesConcurrentRun(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("claim failed")
+	}
+	other := newServiceOn(t, f, st)
+	other.loadSchedule(t.Context())
+	restarted := newServiceOn(t, f, st)
+	restarted.loadSchedule(t.Context())
+	st.mu.Lock()
+	st.beforeRunsCompare = func() { other.recordRun(ScheduleRun{RefID: "other", At: now, Status: runOK}) }
+	st.mu.Unlock()
+	restarted.runLimitRetries(t.Context(), now.Add(3*time.Hour))
+	var stored []ScheduleRun
+	if _, err := st.Setting(t.Context(), runsKey, &stored); err != nil {
+		t.Fatal(err)
+	}
+	var foundOther, foundUnknown bool
+	for _, r := range stored {
+		foundOther = foundOther || r.RefID == "other"
+		foundUnknown = foundUnknown || r.ID == "retry_unknown_failed"
+	}
+	if !foundOther || !foundUnknown {
+		t.Fatalf("concurrent history was overwritten: %+v", stored)
+	}
+}
+
 func TestLimitRetryUnknownWaitsForHistoryStorage(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	task, _ := taskByID(s, "limit")
@@ -384,6 +455,33 @@ func TestLimitRetryConcurrentScansDispatchOnce(t *testing.T) {
 	if got := scheduleSendCount(f); got != 1 {
 		t.Fatalf("concurrent scans sent %d times", got)
 	}
+}
+
+func TestLimitRetryShutdownJoinsWorkerBeforeOwnerRelease(t *testing.T) {
+	s, _, base, _ := limitRetryFixture(t)
+	st := &limitOwnedStore{limitTestStore: base, acquired: make(chan struct{}), released: make(chan struct{})}
+	s.store = func() Store { return st }
+	joining := make(chan struct{})
+	s.sched.limitJoining = func() { close(joining) }
+	s.sched.limitInflight.Add(1)
+	var worker sync.Once
+	doneWorker := func() { worker.Do(s.sched.limitInflight.Done) }
+	defer doneWorker()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { s.scheduleLoop(ctx); close(done) }()
+	awaitBusSignal(t, st.acquired)
+	cancel()
+	awaitBusSignal(t, joining)
+	select {
+	case <-st.released:
+		t.Fatal("owner released while a retry worker was in flight")
+	default:
+	}
+	doneWorker()
+	awaitBusSignal(t, st.released)
+	awaitBusSignal(t, done)
 }
 
 func TestLimitRetryRequiresOwnerCapability(t *testing.T) {

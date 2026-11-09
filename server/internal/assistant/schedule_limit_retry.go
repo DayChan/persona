@@ -2,12 +2,76 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"slices"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
+
+type scheduleRunsStore interface {
+	ReadScheduleRuns(context.Context) (json.RawMessage, int64, bool, error)
+	CompareScheduleRuns(context.Context, int64, json.RawMessage) (bool, error)
+}
+
+// mutateScheduleRunsLocked merges the local unsaved records and applies one operation to the latest history.
+// The version check protects this list from concurrent writers in other managers. sc.mu must be held.
+func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mutate func([]ScheduleRun) []ScheduleRun) error {
+	st := s.store()
+	if st == nil {
+		sc.runs = mutate(sc.runs)
+		return nil
+	}
+	for range 8 {
+		var stored []ScheduleRun
+		var revision int64
+		vs, versioned := st.(scheduleRunsStore)
+		if versioned {
+			raw, rev, found, err := vs.ReadScheduleRuns(ctx)
+			if err != nil {
+				return err
+			}
+			revision = rev
+			if found && json.Unmarshal(raw, &stored) != nil {
+				return errors.New("invalid schedule run history")
+			}
+		} else if _, err := st.Setting(ctx, runsKey, &stored); err != nil {
+			return err
+		}
+		for _, r := range sc.runs {
+			if !slices.ContainsFunc(stored, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
+				stored = append(stored, r)
+			}
+		}
+		stored = mutate(stored)
+		if len(stored) > maxRuns {
+			stored = slices.Clone(stored[len(stored)-maxRuns:])
+		}
+		if stored == nil {
+			stored = []ScheduleRun{}
+		}
+		if versioned {
+			raw, err := json.Marshal(stored)
+			if err != nil {
+				return err
+			}
+			ok, err := vs.CompareScheduleRuns(ctx, revision, raw)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+		} else if err := st.PutSetting(ctx, runsKey, stored); err != nil {
+			return err
+		}
+		sc.runs = stored
+		return nil
+	}
+	return errors.New("schedule run history changed repeatedly")
+}
 
 // scheduleLimitRetry lives with the task, independently of the bounded run history.
 // LastRun identifies the task generation that created this wait.
@@ -188,13 +252,18 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		return true
 	}
 	// recordRun keeps outcomes in memory on storage failure; flush them before dropping the durable claim.
-	if st := s.store(); st != nil {
+	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = st.PutSetting(ctx, runsKey, sc.runs)
+		err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun { return runs })
 		cancel()
 		if err != nil {
 			return false
 		}
+	}
+	if !slices.ContainsFunc(sc.runs, func(r ScheduleRun) bool {
+		return r.RetryOf == w.Failed.ID || r.ID == "retry_unknown_"+w.Failed.ID
+	}) {
+		return false
 	}
 	tasks := slices.Clone(sc.tasks)
 	tasks[i].LimitRetry = nil
@@ -220,36 +289,19 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 		return
 	}
 	task := sc.tasks[i]
-	if slices.ContainsFunc(sc.runs, func(r ScheduleRun) bool { return r.RetryOf == w.Failed.ID }) {
-		// The send result was saved, but clearing the claim was interrupted.
-		if sc.limitActive == nil {
-			sc.limitActive = make(map[string]bool)
-		}
-		sc.limitActive[w.Failed.ID] = true
-		sc.mu.Unlock()
-		if !s.finishLimitClaim(id, w) {
-			sc.mu.Lock()
-			delete(sc.limitActive, w.Failed.ID)
-			sc.mu.Unlock()
-		}
-		return
-	}
 	runID := "retry_unknown_" + w.Failed.ID
-	runs := slices.Clone(sc.runs)
-	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == runID }) {
-		r := ScheduleRun{ID: runID, Kind: task.kind(), RefID: id, Title: task.label(), Due: w.At, At: now.UTC(), Status: runFailed,
-			Error: message, MachineID: w.Failed.MachineID, SessionID: w.Failed.SessionID, Retried: true}
-		runs = append(runs, r)
-		if len(runs) > maxRuns {
-			runs = slices.Clone(runs[len(runs)-maxRuns:])
+	known := false
+	err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+		known = slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == w.Failed.ID })
+		if !known && !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == runID }) {
+			runs = append(runs, ScheduleRun{ID: runID, Kind: task.kind(), RefID: id, Title: task.label(), Due: w.At, At: now.UTC(), Status: runFailed,
+				Error: message, MachineID: w.Failed.MachineID, SessionID: w.Failed.SessionID, Retried: true})
 		}
-		if st := s.store(); st != nil {
-			if err := st.PutSetting(ctx, runsKey, runs); err != nil {
-				sc.mu.Unlock()
-				return
-			}
-		}
-		sc.runs = runs
+		return runs
+	})
+	if err != nil {
+		sc.mu.Unlock()
+		return
 	}
 	// Mark this recovery active while the notification is sent, to serialize overlapping scans.
 	if sc.limitActive == nil {
@@ -257,6 +309,14 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	}
 	sc.limitActive[w.Failed.ID] = true
 	sc.mu.Unlock()
+	if known {
+		if !s.finishLimitClaim(id, w) {
+			sc.mu.Lock()
+			delete(sc.limitActive, w.Failed.ID)
+			sc.mu.Unlock()
+		}
+		return
+	}
 	name := task.labelIn(l)
 	if task.Space == SpaceHealth {
 		name, _ = healthNotice(l)
