@@ -123,6 +123,28 @@ struct AgentStateBadge: View {
     }
 }
 
+/// A row's name and the chips that go with it: side by side; at the accessibility text sizes the chips on a line under
+/// the name. A `Chip` never gives up width, and beside one a narrow phone left the name a character or none (#1796).
+struct NameWithChips<Name: View, Chips: View>: View {
+    @ViewBuilder var name: Name
+    @ViewBuilder var chips: Chips
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                name
+                HStack(spacing: Theme.Space.sm) { chips }
+            }
+        } else {
+            HStack(spacing: Theme.Space.sm) {
+                name
+                chips
+            }
+        }
+    }
+}
+
 /// The app's one small label (not a control): a fact beside other text. Three looks —
 /// `.neutral`: secondary words on a soft gray (a model, a version, a tab, DMs);
 /// `.tint`: a meaning's words on its soft fill (a state's tone, @Me, Recommended in the AI's color);

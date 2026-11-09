@@ -1125,6 +1125,47 @@ nonisolated struct APIClient: Sendable {
         return try JSON.decoder.decode(TaskBody.self, from: data).task
     }
     func deleteTask(_ id: String) async throws { try await delete("/api/v1/assistant/tasks/\(id)") }
+
+    /// A saved place (Settings › Assistant › Saved Places, #1598): what a reminder by place goes off at when the user says
+    /// "home" or "the office". The hub keeps them; the assistant reads them (`list_places`).
+    struct SavedPlace: Codable, Identifiable, Hashable, Sendable {
+        /// The reminder's circle: 150 m by default, 100–2000 m (the hub and `PlaceTrigger` clamp to the same).
+        static let defaultRadius = 150
+        static let radiusRange = 100...2000
+
+        var id: String = ""          // "" until the hub has it
+        var name: String = ""
+        var address: String = ""
+        var latitude: Double = 0
+        var longitude: Double = 0
+        var radiusMeters: Int = SavedPlace.defaultRadius
+        enum CodingKeys: String, CodingKey { case id, name, address, latitude, longitude, radiusMeters = "radius_meters" }
+
+        init(id: String = "", name: String = "", address: String = "", latitude: Double = 0, longitude: Double = 0,
+             radiusMeters: Int = SavedPlace.defaultRadius) {
+            self.id = id; self.name = name; self.address = address
+            self.latitude = latitude; self.longitude = longitude; self.radiusMeters = radiusMeters
+        }
+        init(from d: Decoder) throws {
+            let c = try d.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decode(String.self, forKey: .name)
+            address = try c.decodeIfPresent(String.self, forKey: .address) ?? ""
+            latitude = try c.decode(Double.self, forKey: .latitude)
+            longitude = try c.decode(Double.self, forKey: .longitude)
+            radiusMeters = try c.decodeIfPresent(Int.self, forKey: .radiusMeters) ?? SavedPlace.defaultRadius
+        }
+    }
+    struct PlacesBody: Decodable { var places: [SavedPlace] }
+    struct PlaceBody: Decodable { var place: SavedPlace }
+    func savedPlaces() async throws -> [SavedPlace] { try await get("/api/v1/assistant/places", as: PlacesBody.self).places }
+    /// Adds `p` (no id yet) or saves the user's changes to it; returns it as the hub has it.
+    func savePlace(_ p: SavedPlace) async throws -> SavedPlace {
+        let data = p.id.isEmpty ? try await request("POST", "/api/v1/assistant/places", body: p)
+                                : try await request("PUT", "/api/v1/assistant/places/\(p.id)", body: p)
+        return try JSON.decoder.decode(PlaceBody.self, from: data).place
+    }
+    func deletePlace(_ id: String) async throws { try await delete("/api/v1/assistant/places/\(id)") }
     struct TaskRun: Decodable {
         var sessionID: String
         var machineID: String

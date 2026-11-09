@@ -141,15 +141,19 @@ type workStore interface {
 
 // workBook is the manager's copy of session_work, plus what only matters while it runs.
 type workBook struct {
-	mu       sync.Mutex
-	entries  map[[2]string]*db.SessionWork
-	cards    map[string]proto.Interaction // the cards out, by id (the snapshot's interactions)
-	loaded   bool
-	triaging map[[2]string]bool
-	tried    map[[2]string]triedTurn // the turn a triage was last attempted on, and when
-	sent     map[[2]string]time.Time // when the manager itself last sent the session something
-	seen     map[[2]string]time.Time // the turn whose first look was recorded
-	approved map[[2]string]approval  // a risky next step the user said yes to, for the wait it ends
+	mu         sync.Mutex
+	entries    map[[2]string]*db.SessionWork
+	cards      map[string]proto.Interaction // the cards out, by id (the snapshot's interactions)
+	loaded     bool
+	triaging   map[[2]string]bool
+	ciPolling  map[[2]string]bool      // bounded concurrent check reads
+	generation map[[2]string]uint64    // user activity invalidates in-flight triage
+	tried      map[[2]string]triedTurn // the turn a triage was last attempted on, and when
+	sent       map[[2]string]time.Time // when the manager itself last sent the session something
+	seen       map[[2]string]time.Time // the turn whose first look was recorded
+	started    map[[2]string]time.Time // local time of the latest turn-start event
+	viewed     map[[2]string]bool      // a view since that event
+	approved   map[[2]string]approval  // a risky next step the user said yes to, for the wait it ends
 	// answering marks cards whose answer is being delivered to the agent: a repeated callback in the send window
 	// (a redelivered webhook, a second tap, phone and watch together) is the same answer, not a second one.
 	answering map[string]bool
@@ -173,9 +177,13 @@ func (b *workBook) init() {
 		b.entries = map[[2]string]*db.SessionWork{}
 		b.cards = map[string]proto.Interaction{}
 		b.triaging = map[[2]string]bool{}
+		b.ciPolling = map[[2]string]bool{}
+		b.generation = map[[2]string]uint64{}
 		b.tried = map[[2]string]triedTurn{}
 		b.sent = map[[2]string]time.Time{}
 		b.seen = map[[2]string]time.Time{}
+		b.started = map[[2]string]time.Time{}
+		b.viewed = map[[2]string]bool{}
 		b.approved = map[[2]string]approval{}
 		b.answering = map[string]bool{}
 		b.writes = map[[2]string]*sync.Mutex{}
@@ -446,6 +454,29 @@ func (s *Service) putWork(_ context.Context, e db.SessionWork) {
 	s.publishSoon()
 }
 
+// putTriageWork commits a scheduled external wait only if no session activity
+// arrived while triage was reading its transcript.
+func (s *Service) putTriageWork(e db.SessionWork, generation uint64) bool {
+	key := [2]string{e.MachineID, e.SessionID}
+	s.work.mu.Lock()
+	s.work.init()
+	current := s.work.entries[key]
+	if s.work.generation[key] != generation || current != nil && (current.TurnAt.After(e.TurnAt) || current.Work.Deferred && current.TurnAt.Equal(e.TurnAt)) {
+		s.work.mu.Unlock()
+		return false
+	}
+	if e.Work.CI != nil && s.work.viewed[key] {
+		e.WakeAt, e.Work.WakeAt, e.Work.CI = nil, nil, nil
+	}
+	e.UpdatedAt = time.Now().UTC()
+	saved := e
+	s.work.entries[key] = &saved
+	s.work.mu.Unlock()
+	s.saveWork(e)
+	s.publishSoon()
+	return true
+}
+
 // workPublishDelay is how long the changes of a pass (a tick, a triage, an answer) are gathered into one snapshot.
 var workPublishDelay = 200 * time.Millisecond
 
@@ -482,6 +513,7 @@ func (s *Service) workReport(ctx context.Context) *WorkReport {
 			continue // unsure: nothing shown
 		}
 		w := e.Work
+		w.CI, w.RetiredAt, w.RetiredTurnAt = nil, nil, nil // internal state stays in the manager's store
 		w.TurnAt = e.TurnAt
 		r.Sessions = append(r.Sessions, SessionWork{MachineID: e.MachineID, SessionID: e.SessionID, Work: w})
 	}

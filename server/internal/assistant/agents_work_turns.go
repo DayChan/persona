@@ -22,21 +22,49 @@ func (s *Service) retireTodoWork(keys ...[2]string) {
 	for _, k := range keys {
 		s.work.mu.Lock()
 		s.work.init()
+		if s.work.triaging[k] {
+			s.work.generation[k]++ // a late transcript result must not register another wake
+		}
 		e, ok := s.work.entries[k]
-		if !ok || (e.WakeAt == nil && e.InteractionID == "") {
-			s.work.mu.Unlock()
-			continue
+		if !ok {
+			e = &db.SessionWork{MachineID: k[0], SessionID: k[1]}
+			s.work.entries[k] = e
 		}
 		if e.InteractionID != "" {
 			delete(s.work.cards, e.InteractionID)
 		}
-		e.WakeAt, e.Work.WakeAt, e.InteractionID, e.Work.InteractionID = nil, nil, "", ""
+		e.WakeAt, e.Work.WakeAt, e.Work.CI, e.InteractionID, e.Work.InteractionID = nil, nil, nil, "", ""
+		e.Work.RetiredAt, e.Work.RetiredTurnAt = &now, nil
 		e.UpdatedAt = now
 		saved := *e
 		s.work.mu.Unlock()
 		s.saveWork(saved)
 		s.publishSoon()
+		s.bindRetiredTurn(k, now)
 	}
+}
+
+// bindRetiredTurn attaches the node's own stopped-turn timestamp to a durable
+// retirement. If it cannot be read, the marker stays until a new TurnStarted.
+func (s *Service) bindRetiredTurn(k [2]string, retiredAt time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	c, ok := s.session(ctx, k[0], k[1])
+	if !ok || c.Status != proto.StatusDone && c.Status != proto.StatusIdle || c.UpdatedAt.IsZero() {
+		return
+	}
+	s.work.mu.Lock()
+	current := s.work.entries[k]
+	if current == nil || current.Work.RetiredAt == nil || !current.Work.RetiredAt.Equal(retiredAt) {
+		s.work.mu.Unlock()
+		return
+	}
+	turn := c.UpdatedAt.UTC()
+	current.Work.RetiredTurnAt = &turn
+	current.UpdatedAt = time.Now().UTC()
+	saved := *current
+	s.work.mu.Unlock()
+	s.saveWork(saved)
 }
 
 // workStarted: a session began working (again). Whatever the manager was going to do for its last turn is off; a card
@@ -45,11 +73,17 @@ func (s *Service) workStarted(ctx context.Context, machine, sid string, now time
 	k := [2]string{machine, sid}
 	s.work.mu.Lock()
 	s.work.init()
+	s.work.started[k] = now
+	delete(s.work.viewed, k)
+	if s.work.triaging[k] {
+		s.work.generation[k]++
+	}
 	e, ok := s.work.entries[k]
-	if !ok || e.Work.Phase == proto.WorkWorking {
+	if !ok || e.Work.Phase == proto.WorkWorking && e.Work.RetiredAt == nil {
 		s.work.mu.Unlock()
 		return
 	}
+	e.Work.RetiredAt, e.Work.RetiredTurnAt = nil, nil // a later turn can work on a reopened task
 	by := "user"
 	if now.Sub(s.work.sent[k]) < 2*time.Minute {
 		by = "hub"
@@ -85,15 +119,40 @@ func (s *Service) workSeen(machine, sid string, at time.Time) {
 	k := [2]string{machine, sid}
 	s.work.mu.Lock()
 	s.work.init()
+	previousSeen := s.work.seen[k]
+	if at.After(previousSeen) {
+		s.work.seen[k] = at
+	}
+	started := s.work.started[k]
+	currentView := started.IsZero() || !at.Before(started)
+	if currentView {
+		s.work.viewed[k] = true
+		if s.work.triaging[k] {
+			s.work.generation[k]++
+		}
+	}
 	e, ok := s.work.entries[k]
-	if !ok || e.Work.Phase == "" || !s.work.seen[k].Before(e.TurnAt) {
+	if !ok || e.Work.Phase == "" {
 		s.work.mu.Unlock()
 		return
 	}
-	s.work.seen[k] = at
+	first := previousSeen.Before(e.TurnAt) && !at.Before(e.TurnAt)
 	phase, on, turn := e.Work.Phase, e.Work.On, e.TurnAt
+	var cancelled *db.SessionWork
+	if currentView && e.Work.CI != nil && e.WakeAt != nil {
+		e.Work.CI, e.Work.WakeAt, e.WakeAt = nil, nil, nil
+		e.UpdatedAt = time.Now().UTC()
+		saved := *e
+		cancelled = &saved
+	}
 	s.work.mu.Unlock()
-	s.workEvent(machine, sid, "seen", map[string]any{"after": at.Sub(turn).Seconds(), "phase": phase, "on": on})
+	if cancelled != nil {
+		s.saveWork(*cancelled)
+		s.publishSoon()
+	}
+	if first {
+		s.workEvent(machine, sid, "seen", map[string]any{"after": at.Sub(turn).Seconds(), "phase": phase, "on": on})
+	}
 }
 
 // workTurnEnded: a session on machine stopped. Once it stays stopped a moment, its turn is triaged; agents waiting
@@ -104,6 +163,11 @@ func (s *Service) workTurnEnded(ctx context.Context, machine, sid string) {
 	}
 	s.wakeWaitersOn(machine, sid)
 	time.Sleep(settleOf(s.triageCfg(ctx)))
+	s.workTurnSettled(ctx, machine, sid)
+}
+
+// workTurnSettled checks the turn after the settle window.
+func (s *Service) workTurnSettled(ctx context.Context, machine, sid string) {
 	v := s.newWorkView(ctx)
 	c, ok := v.session(machine, sid)
 	if !ok || c.Status == proto.StatusWorking {
@@ -121,12 +185,21 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 	s.work.mu.Lock()
 	s.work.init()
 	prev, had := s.work.entries[k]
+	if had && prev.Work.RetiredAt != nil && (prev.Work.RetiredTurnAt == nil || sameTurn(c, *prev.Work.RetiredTurnAt) || !c.UpdatedAt.After(*prev.Work.RetiredTurnAt)) {
+		s.work.mu.Unlock()
+		return // the todo ended before this turn settled, or its identity is unknown
+	}
+	if s.work.triaging[k] {
+		s.work.mu.Unlock()
+		return
+	}
 	s.work.tried[k] = triedTurn{c.UpdatedAt, time.Now()}
-	if had && sameTurn(c, prev.TurnAt) && (prev.Work.Phase != "" || prev.Work.By != "") || s.work.triaging[k] {
+	if had && sameTurn(c, prev.TurnAt) && (prev.Work.Phase != "" || prev.Work.By != "") {
 		s.work.mu.Unlock()
 		return
 	}
 	s.work.triaging[k] = true
+	generation := s.work.generation[k]
 	var last db.SessionWork
 	if had {
 		last = *prev
@@ -135,6 +208,7 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 	defer func() {
 		s.work.mu.Lock()
 		delete(s.work.triaging, k)
+		delete(s.work.generation, k)
 		s.work.mu.Unlock()
 	}()
 
@@ -164,7 +238,37 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 		return // it went on while the model read it: the next end decides
 	}
 	s.actOn(ctx, v, machine, c, &e)
-	s.putWork(ctx, e)
+	if e.WakeAt != nil && e.Work.On == proto.WaitExternal && e.Work.ResetsAt == nil {
+		if ciWaitIntent(&e.Work) {
+			ask, reply := s.lastTurnOf(ctx, machine, c.SessionID)
+			startCIWatch(c, &e, time.Now(), ask, reply)
+		}
+		if e.Work.CI != nil {
+			closed, proof, err := s.ciClosedTodo(ctx, machine, c.SessionID, "", last.Work, c.UpdatedAt)
+			if err != nil {
+				s.logf("triage %s/%s: cannot read todos: %v", machine, short(c.SessionID), err)
+				s.workEvent(machine, c.SessionID, "failed", map[string]any{"error": "todo state unavailable"})
+				return // do not mark this turn triaged; backfill retries after backoff
+			}
+			if closed {
+				e.WakeAt, e.Work.WakeAt, e.Work.CI = nil, nil, nil
+			} else {
+				e.Work.CI.TodoProof = proof
+			}
+		}
+		latest, ok := s.session(ctx, machine, c.SessionID)
+		if !ok || latest.Status == proto.StatusWorking || !sameTurn(latest, e.TurnAt) {
+			return // activity during the transcript read invalidated this turn
+		}
+		if latest.Status != proto.StatusDone || latest.PendingInteractions > 0 || len(latest.Queued) > 0 {
+			e.WakeAt, e.Work.WakeAt, e.Work.CI = nil, nil, nil
+		}
+		if !s.putTriageWork(e, generation) {
+			return
+		}
+	} else {
+		s.putWork(ctx, e)
+	}
 	s.logf("triage %s/%s: %s%s (%s %.1fs): %s", machine, short(c.SessionID), w.Phase, orEmpty("/", e.Work.On), by,
 		time.Since(start).Seconds(), e.Work.Line)
 	s.workEvent(machine, c.SessionID, "triaged", map[string]any{"phase": w.Phase, "on": e.Work.On, "by": by,

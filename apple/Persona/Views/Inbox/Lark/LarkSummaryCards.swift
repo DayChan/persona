@@ -231,7 +231,7 @@ struct LarkGenericSummaryCard: View {
         case "hongbao": "gift.fill"
         case "todo", "task": "checklist"
         case "share-user": Theme.Icon.person
-        case "location": "mappin.and.ellipse"
+        case "location": Theme.Icon.place
         case "mail": Theme.Icon.mailFilled
         default: Theme.Icon.fileText
         }

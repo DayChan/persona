@@ -455,6 +455,9 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
 {"name":"example_launcher","base_url":"https://example.com","model":"<model name>","agent_type":"claude"}
 // Codex launchers (codex on PATH, aliases that run codex) carry agent; starting one requires prompt and can't be async (docs/integrations/codex.md "Starting from the phone")
 {"name":"codex","model":"Default","agent":"codex","agent_type":"codex"}
+// GET /machines/{mid}/launchers adds health: that launcher's latest check or start on this computer (docs/server/launcher-health.md); absent when never checked,
+// when a failure is older than 6 hours, and from older hubs. Clients gray out state "blocked" with a reason per kind and never hide it (#1643).
+{"name":"example_gateway","model":"<model name>","agent_type":"claude","health":{"state":"blocked","kind":"not_in_terminal","error":"bash: example_gateway: command not found","checked_at":"2026-11-09T08:00:00Z"}}
 // A start request may carry agent_type, and wrapper functions launch per the declared type: Claude keeps the original arguments, Codex / compatible forks don't get Claude-only arguments, and get the real session ID
 // through the existing herdr / process detection; the first message is passed to the launcher as a single argument. Permission mode and reasoning effort apply only to Claude for now; Android's new-session form hides both when another type is chosen.
 
@@ -1062,6 +1065,10 @@ Clients report their errors and crashes only while `features` has `error_reports
 | POST | `/api/v1/assistant/tasks` | Create a `Task` (`session_id` ignored; the task's own chat is used) → `{"task"}`; invalid 400, with a user-facing message (in Chinese) |
 | PUT | `/api/v1/assistant/tasks/{id}` | Save the user-editable fields (`title,prompt,repeat,at,time,weekdays,every_minutes,enabled,launcher,permission_mode,effort,push,facts,until`, `""` = default; when the body has no `push` (or no `facts`) the existing value is kept, `null` or an unknown value returns 400; omitting `until` keeps it and `null` clears it) → `{"task"}`; `session_id` can only be cleared (switching to the task's own chat); `run_*` is written only by the hub; for `interval`, the next run is counted from now when the interval or rule changes, or when it's re-enabled |
 | DELETE | `/api/v1/assistant/tasks/{id}` | Delete |
+| GET | `/api/v1/assistant/places` | The user's saved places (`docs/apple/phone-tools.md` ("Saved places")), in the order added: `{"places":[Place]}`. `Place` = `{id,name,address,latitude,longitude,radius_meters,created_at,updated_at}`; 503 without a database |
+| POST | `/api/v1/assistant/places` | Add a place `{name,address?,latitude,longitude,radius_meters?}` → `{"place"}`: the name and address are trimmed, one line, at most 40 / 200 characters; the coordinates are required and on Earth; the radius defaults to 150 and is clamped to 100–2000; a name another place has (case aside) 409; at most 50 places; a device without full credentials 403 |
+| PUT | `/api/v1/assistant/places/{id}` | Change a place (the same body and rules) → `{"place"}`; not there 404 |
+| DELETE | `/api/v1/assistant/places/{id}` | Delete (one that is not there is fine) |
 | POST | `/api/v1/assistant/tasks/{id}/run` | Run now → `{"session_id","machine_id"}`; a one-off task ends after running, a repeating one keeps its schedule; previous run still going 409 (a skip is recorded) |
 | POST | `/api/v1/assistant/tasks/{id}/fresh` | New chat next time: clears `run_*`, so the next run opens a new chat and records it → `{"task"}` |
 | GET / PUT | `/api/v1/assistant/routines` | For old Apps (before 2026-10-31): `daily` tasks, same shape as `Task`; PUT replaces all `daily` ones wholesale, leaving other tasks and each task's launcher / permission mode untouched |

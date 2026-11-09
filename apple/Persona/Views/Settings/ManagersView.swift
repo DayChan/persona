@@ -96,8 +96,9 @@ private struct ManagerRow: View {
                 .scaledFrame(width: Theme.Size.icon)
                 .foregroundStyle(manager.online || manager.installing != nil ? Theme.accent : Theme.Hue.gray)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                HStack(spacing: Theme.Space.sm) {
+                NameWithChips {
                     Text(manager.name).lineLimit(1)
+                } chips: {
                     if manager.isDefault { Chip(text: String(localized: "Default [Prompt Composer 844b8c]"), look: .tint(Theme.accent)) }
                 }
                 HStack(spacing: Theme.Space.sm) {

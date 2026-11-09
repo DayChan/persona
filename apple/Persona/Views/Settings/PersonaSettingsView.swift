@@ -35,15 +35,15 @@ struct PersonaPicker: View {
         .task { await store.refresh(model.api) }
     }
 
-    /// The chosen one's dot in each state, moving as in the top bar.
+    /// The chosen one's dot in each state, moving as in the top bar: in a row; at the accessibility text sizes two a row,
+    /// where five in a row cut every name to "…" and three ran them together (#1796).
     private var states: some View {
-        HStack(spacing: Theme.Space.xxs) {
-            ForEach(PersonaState.allCases) { s in
-                VStack(spacing: Theme.Space.xs) {
-                    PersonaDot(size: Theme.Size.avatar, state: s)
-                    Text(s.title).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
-                }
-                .frame(maxWidth: .infinity)
+        Group {
+            if typeSize.isAccessibilitySize {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.Space.xxs, alignment: .top), count: 2),
+                          spacing: Theme.Space.s) { stateCells }
+            } else {
+                HStack(spacing: Theme.Space.xxs) { stateCells }
             }
         }
         .padding(.vertical, Theme.Space.s)
@@ -51,6 +51,16 @@ struct PersonaPicker: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.persona.name)'s five states in the top bar: idle, thinking, working, waiting for you, offline")
         .accessibilityIdentifier("persona-states")
+    }
+
+    @ViewBuilder private var stateCells: some View {
+        ForEach(PersonaState.allCases) { s in
+            VStack(spacing: Theme.Space.xs) {
+                PersonaDot(size: Theme.Size.avatar, state: s)
+                Text(s.title).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     private func card(_ p: Persona) -> some View {

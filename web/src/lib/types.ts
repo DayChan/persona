@@ -623,6 +623,20 @@ export interface Launcher {
   /** What it starts when not Claude Code ("codex"); agent_type: what the hub's machine config says it runs. */
   agent?: string;
   agent_type?: string;
+  /** How its last check or start went on the computer the list is for (GET /machines/{mid}/launchers,
+   *  docs/server/launcher-health.md); absent: never checked, a failure too old to count, or an older hub. */
+  health?: LauncherHealth;
+}
+
+/** A launcher's health record on one computer (#1643). */
+export interface LauncherHealth {
+  /** ok | failing | repairing | blocked */
+  state: string;
+  /** The failure's class: not_in_terminal, auth, model_route, cli_outdated, timeout, other. */
+  kind?: string;
+  /** The redacted raw text of the failure. */
+  error?: string;
+  checked_at?: string;
 }
 
 export interface AssistantInfo {

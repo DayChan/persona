@@ -2463,6 +2463,12 @@ final class AppModel {
         launcherDefaults = [:]
     }
 
+    /// The list a start picks from (New Agent, Run Agent Here): always read again, and the cache with it. Each launcher's
+    /// health on the computer (#1643) changes behind the cache: a start that fails can block one, one that works clears it.
+    func launchersForStart(_ machine: MachineRef) async throws -> [Launcher] {
+        try await launchers(machine, refresh: true)
+    }
+
     func launchers(_ machine: MachineRef, refresh: Bool = false) async throws -> [Launcher] {
         if !refresh, let cached = launcherCache[machine] { return cached }
         guard let api = api(machine.group) else { return [] }

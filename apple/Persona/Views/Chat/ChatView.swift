@@ -3705,10 +3705,20 @@ struct ChatSkeleton: View {
 struct StartingNote: View {
     var error: String?
     var agent: String
+    /// The node refused the start with a code (`Session.startErrorCode`, #1642): `error` is the hub's whole sentence in
+    /// the user's language, its remedy last, shown in full under Didn't Start rather than cut after three lines.
+    var coded = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            if let error {
+            if let error, coded {
+                ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
+                VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                    Text("Didn't Start").font(Theme.Font.secondaryStrong).lineLimit(1)
+                    Text(error).font(Theme.Font.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            } else if let error {
                 ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
                 Text("Didn't start: \(error) [Chat View 38dec8]").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(3)
             } else {
@@ -4133,7 +4143,7 @@ struct Composer: View, Equatable {
         let inCall = call.map { !$0.isOver } ?? false
         return VStack(spacing: Theme.Space.s) {
             if let s = model.session(key), s.starting == true || s.startError != nil {
-                StartingNote(error: s.startError, agent: s.agentLabel)
+                StartingNote(error: s.startError, agent: s.agentLabel, coded: s.startErrorCode?.isEmpty == false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if let s = model.session(key), let reason = s.attentionReason, !reason.isEmpty, s.state == .needsYou {
                 AttentionNote(reason: reason, link: s.externalLink)

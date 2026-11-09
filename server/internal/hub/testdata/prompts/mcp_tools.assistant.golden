@@ -379,6 +379,46 @@
     }
   },
   {
+    "name": "list_places",
+    "description": "The user's saved places (home, the office, …) with their coordinates and reminder radius, as the user set them in Settings › Assistant › Saved Places or as you saved them with save_place. Read them before a reminder by place; never take a place's coordinates from memory.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "save_place",
+    "description": "Save a place to the user's saved places, or change the saved place of the same name. Only for a place the user just confirmed in this conversation (their current location while they are there, or a phone_location_search result they picked); the user sees and edits it in Settings › Assistant › Saved Places.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "latitude",
+        "longitude"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "What the user calls it, e.g. 家 or 公司 (at most 40 characters)"
+        },
+        "address": {
+          "type": "string",
+          "description": "The address, as phone_location_search gave it"
+        },
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        },
+        "radius_meters": {
+          "type": "integer",
+          "description": "The reminder circle, 100–2000; leave it out for 150"
+        }
+      }
+    }
+  },
+  {
     "name": "machines_list",
     "description": "List the user's computers and their observed connection state, system information, resource availability, working agents, failing launchers and node version status. Use this before choosing where to start work. Resource samples older than 30 seconds are not current. Null values have an accompanying reason; do not infer missing facts or rank computers from incomplete data.",
     "input_schema": {

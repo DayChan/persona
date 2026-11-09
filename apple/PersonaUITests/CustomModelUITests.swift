@@ -12,7 +12,7 @@ import XCTest
 final class CustomModelUITests: XCTestCase {
     private var app: XCUIApplication!
     private var hub = ""
-    /// A resting Claude Code agent in a pane (检查 PR #42 的改动).
+    /// A resting Claude Code agent in a pane, reviewing the changes in PR #42.
     private let review = "macbook/a1f3c2d4-0000-4000-8000-000000000006"
 
     override func setUpWithError() throws {

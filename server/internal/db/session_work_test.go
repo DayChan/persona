@@ -44,3 +44,55 @@ func TestSessionWork(t *testing.T) {
 		t.Fatalf("pruned works = %+v", all)
 	}
 }
+
+// Older active CI outbox entries survive a manager restart; ordinary old turns
+// and cancelled watches are not restored by the recent-work query.
+func TestSessionWorkRestoresOldCI(t *testing.T) {
+	d, ctx := open(t), context.Background()
+	_, _ = d.pool.Exec(ctx, `TRUNCATE session_work, session_work_events`)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	wake := now.Add(time.Minute)
+	old := SessionWork{MachineID: "box", SessionID: "active", TurnAt: now.Add(-72 * time.Hour), WakeAt: &wake, UpdatedAt: now,
+		Work: proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitExternal, CI: &proto.WorkCI{Number: 12, Message: "CI finished"}}}
+	if err := d.PutSessionWork(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	cancelled := old
+	cancelled.SessionID = "cancelled"
+	cancelled.WakeAt = nil
+	if err := d.PutSessionWork(ctx, cancelled); err != nil {
+		t.Fatal(err)
+	}
+	ordinary := old
+	ordinary.SessionID = "ordinary"
+	ordinary.Work.CI = nil
+	if err := d.PutSessionWork(ctx, ordinary); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.SessionWorks(ctx, now.Add(-48*time.Hour))
+	if err != nil || len(got) != 1 || got[0].SessionID != "active" || got[0].Work.CI == nil || got[0].Work.CI.Message != "CI finished" {
+		t.Fatalf("restored %+v: %v", got, err)
+	}
+	ancient := old
+	ancient.SessionID, ancient.TurnAt = "ancient", now.Add(-40*24*time.Hour)
+	if err := d.PutSessionWork(ctx, ancient); err != nil {
+		t.Fatal(err)
+	}
+	cancelled.TurnAt = ancient.TurnAt
+	if err := d.PutSessionWork(ctx, cancelled); err != nil {
+		t.Fatal(err)
+	}
+	retired := cancelled
+	retired.SessionID, retired.UpdatedAt = "retired", now
+	retired.Work = proto.WorkState{RetiredAt: &now}
+	if err := d.PutSessionWork(ctx, retired); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PruneSessionWork(ctx, now.Add(-30*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = d.SessionWorks(ctx, now.Add(-48*time.Hour))
+	if err != nil || len(got) != 3 {
+		t.Fatalf("active CI watches and retirement not retained: %+v, %v", got, err)
+	}
+}

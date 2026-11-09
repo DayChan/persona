@@ -1017,7 +1017,13 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         <div ref={scrollRef} onScroll={onScroll} data-chat-scroll className="relative h-full overflow-y-auto [overflow-anchor:none]">
           <ChatActionsContext.Provider value={actions}>
           <div className="mx-auto flex w-full max-w-[880px] flex-col gap-7 px-5 pt-6 pb-10 sm:px-8">
-            {session?.start_error && <div role="alert" className="rounded-control bg-inset px-3 py-2 text-[13px] text-red">{t("chat-chatview.start_failed", { error: session.start_error })}</div>}
+            {session?.start_error && (session.start_error_code ? (
+              // a refusal with a code (#1642): the hub's whole sentence in the user's language, its remedy last, under a title
+              <div role="alert" data-testid="start-error-coded" className="rounded-control bg-inset px-3 py-2 text-[13px]">
+                <div className="font-medium text-red">{t("chat-chatview.start_failed_title")}</div>
+                <p className="mt-0.5 leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{session.start_error}</p>
+              </div>
+            ) : <div role="alert" className="rounded-control bg-inset px-3 py-2 text-[13px] text-red">{t("chat-chatview.start_failed", { error: session.start_error })}</div>)}
             {starting && !tr.loading && !outgoing && <Loading label={t("chat-chatview.starting_agent")} />}
             {tr.loadingEarlier && (
               <div className="flex justify-center py-2">

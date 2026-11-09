@@ -44,6 +44,9 @@ func validRepo(r string) bool {
 	return repoName.MatchString(r) && owner != "." && owner != ".." && name != "." && name != ".."
 }
 
+// ValidRepo reports whether r is a safe GitHub owner/name pair.
+func ValidRepo(r string) bool { return validRepo(r) }
+
 func (c *Connector) Call(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	var a struct {
 		Query    string `json:"query"`

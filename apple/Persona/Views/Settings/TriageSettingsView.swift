@@ -5,6 +5,7 @@ import SwiftUI
 /// against on or as steps in time (`TriageExampleView`, #1413).
 struct TriageSettingsView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var model: TriageSettingsModel?
 
     var body: some View {
@@ -93,7 +94,9 @@ struct TriageSettingsView: View {
         }) {
             Label {
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                    Text(title).lineLimit(1)
+                    // One line, as its description is under it; at the accessibility sizes as many as it takes, where
+                    // one line cut it to its first two characters (#1796).
+                    Text(title).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Text(hint).font(Theme.Font.caption).foregroundStyle(.secondary)
                 }
             } icon: {

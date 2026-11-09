@@ -4,14 +4,14 @@ import { storeValue } from "../lib/compatibility";
 // message on `/` starts it.
 import { useMemo, useState } from "react";
 import type { MentionSource } from "./chat/MentionMenu";
-import { api } from "../lib/api";
+import { startConversation } from "../lib/assistant-start";
 import { feedCacheScope, readFeedCache } from "../lib/feed-cache";
+import { uuid } from "../lib/format";
 import { codedFailure, helpTopic, passesBySelf, refreshReadiness, type CodedFailure } from "../lib/readiness";
 import { navigate } from "../lib/router";
 import { refreshAssistant, useStore } from "../lib/store";
 import { NEW_CONVERSATION, pickedLauncher, pickLauncher } from "../lib/assistant-chat";
 import { noteSent } from "../lib/outbox";
-import type { Session } from "../lib/types";
 import { Button, cx, EASE, IconButton, Loading } from "../ui/atoms";
 import { Icon } from "../ui/icons";
 import { ChatView } from "./chat/ChatView";
@@ -132,9 +132,11 @@ function Starter({ main, onToggleSidebar }: { main?: boolean; onToggleSidebar: (
     const chosen = chosenManager() ?? undefined;
     const headers = ownerHeaders(chosen);
     const from = shownManager();
+    // one op id for this message, its quiet retries included (#1382); sent again after a refusal, it gets a new one
+    const opId = uuid();
     for (let attempt = 0; ; attempt++) {
       try {
-        const r = await api<{ session: Session }>("/assistant/conversations", { method: "POST", json: body, headers });
+        const r = await startConversation(body, headers, opId);
         // its own requests (feed, stop…) go to the manager it started with, whatever the page shows later
         noteConversation(r.session.session_id, chosen);
         starting.add(r.session.session_id);
@@ -178,7 +180,8 @@ function Starter({ main, onToggleSidebar }: { main?: boolean; onToggleSidebar: (
     : SUGGESTIONS.map((x) => ({ key: x, title: x, onClick: () => fill(x) }));
   const setup = Boolean(gate.step);
   return (
-    <div className="flex h-full flex-col">
+    // data-new-conversation: the page the shared sync scenarios start a conversation from (spec/fixtures/sync, #1382)
+    <div className="flex h-full flex-col" data-new-conversation>
       <header className="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
         {/* a phone's assistant page: "Assistant | Agents" between the same side slots as ChatView's and the Agents page's */}
         {main ? (
