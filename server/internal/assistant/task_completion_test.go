@@ -14,6 +14,26 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+type deadlineBlockedSessionsHub struct {
+	*fakeHub
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (h *deadlineBlockedSessionsHub) DeviceCall(ctx context.Context, call DeviceCall) (json.RawMessage, error) {
+	if call.Method == DeviceSessionsList {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if call.Device == "other" {
+			h.once.Do(func() { close(h.entered) })
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+	}
+	return h.fakeHub.DeviceCall(ctx, call)
+}
+
 type blockedReceiptStore struct {
 	restartReceiptStore
 	entered chan struct{}
@@ -1771,6 +1791,37 @@ func TestOldReceiptLookRegistersCurrentLimitGeneration(t *testing.T) {
 	if !found {
 		t.Fatal("new limited generation was not registered")
 	}
+}
+
+func TestReceiptLookPrioritizesTriggerBeforeBlockedMachine(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	linked := time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	a := s.todos.todos["task"].Agents[0]
+	s.todos.todos["task"].Agents = []TodoAgent{{MachineID: "other", SessionID: "s2", LinkedAt: linked}, a}
+	s.todos.activeBySession[[2]string{"other", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	hub := &deadlineBlockedSessionsHub{fakeHub: f, entered: make(chan struct{})}
+	s.hub = hub
+	synctest.Test(t, func(t *testing.T) {
+		reset := time.Now().Add(time.Hour)
+		limited := limitTurn("s1", reset, true)
+		limited.MachineID = "box"
+		f.setSessions("box", limited)
+		s.taskTurnEnded(context.Background(), "box", "s1")
+		select {
+		case <-hub.entered:
+		default:
+			t.Fatal("other machine did not reach the deadline barrier")
+		}
+		var state receiptLookState
+		if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 ||
+			state.Looks[0].Session != "s1" || !state.Looks[0].At.Equal(reset.Add(limitResumeGrace)) {
+			t.Fatalf("trigger deadline lost behind blocked machine: %+v, %v", state, err)
+		}
+	})
 }
 
 func TestReceiptLookRegistersLimitWhileOtherMachineOffline(t *testing.T) {
