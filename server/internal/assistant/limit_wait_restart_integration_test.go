@@ -38,10 +38,11 @@ func (s *restartReceiptStore) setTodo(todo Todo) {
 
 // AppendTaskReceiptOnce validates the active association and commits the feed
 // atomically, then can block its acknowledgment to simulate an interrupted process.
-func (s *restartReceiptStore) AppendTaskReceiptOnce(_ context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+func (s *restartReceiptStore) AppendTaskReceiptOnce(_ context.Context, row db.FeedRow, machine, session string, linked time.Time, generation int64) (bool, bool, error) {
 	s.muFeed.Lock()
 	current, active := receiptLink(s.todo, SessionRef{MachineID: machine, SessionID: session})
-	if s.todo.ID != row.Ref || s.todo.Origin != row.Conversation || s.todo.DoneAt != nil || !active || !current.Equal(linked) {
+	if s.todo.ID != row.Ref || s.todo.Origin != row.Conversation || s.todo.DoneAt != nil ||
+		s.todo.ReopenGeneration != generation || !active || !current.Equal(linked) {
 		s.muFeed.Unlock()
 		return false, false, nil
 	}
@@ -92,11 +93,11 @@ func (s *stoppedReceiptStore) stoppedError() error {
 	}
 }
 
-func (s *stoppedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+func (s *stoppedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time, generation int64) (bool, bool, error) {
 	if err := s.stoppedError(); err != nil {
 		return false, false, err
 	}
-	return s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked)
+	return s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked, generation)
 }
 
 func (s *stoppedReceiptStore) Setting(ctx context.Context, key string, out any) (bool, error) {
@@ -128,8 +129,8 @@ type restartReceiptObserver struct {
 	readsFromRestart  chan struct{}
 }
 
-func (s *restartReceiptObserver) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
-	inserted, valid, err := s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked)
+func (s *restartReceiptObserver) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time, generation int64) (bool, bool, error) {
+	inserted, valid, err := s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked, generation)
 	if err == nil && valid {
 		s.writesFromRestart <- inserted
 	}
@@ -172,6 +173,28 @@ func (s *restartReceiptStore) receipts() int {
 	return n
 }
 
+// The fake transaction must enforce the same reopen-generation boundary as
+// Postgres, even if the task and session association otherwise still match.
+func TestRestartReceiptStoreRejectsStaleGeneration(t *testing.T) {
+	store := &restartReceiptStore{}
+	linked := time.Now().UTC().Truncate(time.Microsecond)
+	store.setTodo(Todo{ID: "task", Origin: "conversation", ReopenGeneration: 7,
+		Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}})
+	row := db.FeedRow{ID: "receipt", Ref: "task", Conversation: "conversation", Kind: feedReceipt}
+	inserted, valid, err := store.AppendTaskReceiptOnce(context.Background(), row, "box", "session", linked, 6)
+	if err != nil || valid || inserted || store.receipts() != 0 {
+		t.Fatalf("stale generation: inserted=%v valid=%v rows=%d err=%v", inserted, valid, store.receipts(), err)
+	}
+	inserted, valid, err = store.AppendTaskReceiptOnce(context.Background(), row, "box", "session", linked, 7)
+	if err != nil || !valid || !inserted || store.receipts() != 1 {
+		t.Fatalf("current generation: inserted=%v valid=%v rows=%d err=%v", inserted, valid, store.receipts(), err)
+	}
+	inserted, valid, err = store.AppendTaskReceiptOnce(context.Background(), row, "box", "session", linked, 7)
+	if err != nil || !valid || inserted || store.receipts() != 1 {
+		t.Fatalf("duplicate receipt: inserted=%v valid=%v rows=%d err=%v", inserted, valid, store.receipts(), err)
+	}
+}
+
 // A fresh manager must restore a pending read-only look, both before and after
 // its deadline. The old manager gets a separate fake node so a surviving timer
 // in this test process cannot masquerade as a look by the restarted manager.
@@ -188,7 +211,7 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 				oldNode.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "session", Status: proto.StatusWorking, State: proto.StateWorking}}
 				old := New(Options{Hub: oldNode, Store: func() Store { return store }})
 				linked := time.Now().Add(-time.Hour)
-				todo := Todo{ID: "task", Title: "Task", Origin: "conversation", CreatedAt: linked,
+				todo := Todo{ID: "task", Title: "Task", Origin: "conversation", CreatedAt: linked, ReopenGeneration: 7,
 					Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
 				store.setTodo(todo)
 				putTodo(old, todo)
@@ -253,7 +276,7 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 		defer releaseOnce.Do(func() { close(release) })
 		store := &restartReceiptStore{writes: make(chan bool, 4), blockOnce: release}
 		linked := time.Now().Add(-time.Hour)
-		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked,
+		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked, ReopenGeneration: 7,
 			Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
 		newNode := func() *fakeHub {
 			node := newFakeHub()
@@ -330,7 +353,7 @@ func TestReceiptFollowUpAfterGracefulStopIntegration(t *testing.T) {
 		defer releaseOnce.Do(func() { close(release) })
 		store := &restartReceiptStore{writes: make(chan bool, 4), blockOnce: release, blockSuccess: true}
 		linked := time.Now().Add(-time.Hour)
-		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked,
+		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked, ReopenGeneration: 7,
 			Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
 		newNode := func() *fakeHub {
 			node := newFakeHub()
