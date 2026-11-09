@@ -99,6 +99,22 @@ func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mu
 	return errors.New("schedule run history changed repeatedly")
 }
 
+// flushSchedulePending retries observed run outcomes after a storage outage.
+func (s *Service) flushSchedulePending(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	sc, err := s.lockedSchedule(ctx)
+	if err != nil {
+		return
+	}
+	if len(sc.pendingRuns) > 0 {
+		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun { return runs }); err != nil {
+			s.logf("save pending schedule runs: %v", err)
+		}
+	}
+	sc.mu.Unlock()
+}
+
 // scheduleLimitRetry lives with the task, independently of the bounded run history.
 // LastRun identifies the task generation that created this wait.
 type scheduleLimitRetry struct {
@@ -107,9 +123,22 @@ type scheduleLimitRetry struct {
 	LastRun time.Time   `json:"last_run"`
 	Failed  ScheduleRun `json:"failed"`
 	Claimed bool        `json:"claimed,omitempty"`
+	// ClaimToken changes after each proven-unsent release, fencing delayed workers from later claims.
+	ClaimToken string `json:"claim_token,omitempty"`
 	// A manual admission can advance LastRun before it sends; restore it on a proven pre-send failure.
 	ManualAt      time.Time `json:"manual_at,omitempty"`
 	ManualLastRun time.Time `json:"manual_last_run,omitempty"`
+}
+
+func limitClaimKey(w scheduleLimitRetry) string {
+	if w.ClaimToken != "" {
+		return w.ClaimToken
+	}
+	return "legacy:" + w.Failed.ID
+}
+
+func sameLimitClaim(current *scheduleLimitRetry, w scheduleLimitRetry) bool {
+	return current != nil && current.Claimed && current.Failed.ID == w.Failed.ID && current.ClaimToken == w.ClaimToken
 }
 
 // armLimitRetry saves the wait before letting the scheduler see it. If storage is temporarily unavailable,
@@ -126,8 +155,12 @@ func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at t
 				sc.mu.Unlock()
 				return true // the task no longer needs this wait
 			}
+			if existing := sc.tasks[i].LimitRetry; existing != nil && existing.Failed.ID == run.ID {
+				sc.mu.Unlock()
+				return true // another watcher already armed or claimed this run
+			}
 			tasks := slices.Clone(sc.tasks)
-			tasks[i].LimitRetry = &scheduleLimitRetry{At: at.UTC(), Turn: turn.UTC(), LastRun: tasks[i].LastRun, Failed: run}
+			tasks[i].LimitRetry = &scheduleLimitRetry{At: at.UTC(), Turn: turn.UTC(), LastRun: tasks[i].LastRun, Failed: run, ClaimToken: randomHex(16)}
 			err = s.saveLocked(sc, tasks)
 			sc.mu.Unlock()
 			if err == nil {
@@ -220,6 +253,7 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 			continue
 		}
 		cur.MachineID, cur.SessionID, cur.limitRetry = w.Failed.MachineID, w.Failed.SessionID, true
+		w.ClaimToken = cur.limitClaimToken
 		cur.limitRetryRunID = w.Failed.ID
 		cur.limitOwnerDone, cur.limitWorkerStop = ownerDone, workerStop
 		s.sched.inflight.Add(1)
@@ -251,14 +285,29 @@ func limitStartPreSend(ctx context.Context, err error) error {
 	return err
 }
 
+func (s *Service) titleLimitRetry(t Task, machine, session string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		select {
+		case <-t.limitOwnerDone:
+			cancel()
+		case <-t.limitWorkerStop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	s.noteTitleContext(ctx, machine, session, time.Now(), titleTask, t.label())
+}
+
 // dispatchLimitRetry is separated from the durable claim so tests can stop an owner at the boundary.
 func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Time, ownerDone, workerStop <-chan struct{}) {
 	select {
 	case <-ownerDone:
-		s.forgetLimitActive(w.Failed.ID)
+		s.forgetLimitActive(limitClaimKey(w))
 		return
 	case <-workerStop:
-		s.forgetLimitActive(w.Failed.ID)
+		s.forgetLimitActive(limitClaimKey(w))
 		return // leave the claim for the next owner to report
 	default:
 	}
@@ -269,7 +318,7 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 			return
 		}
 		s.sched.mu.Lock()
-		delete(s.sched.limitActive, w.Failed.ID)
+		delete(s.sched.limitActive, limitClaimKey(w))
 		s.sched.mu.Unlock()
 		select {
 		case <-ownerDone:
@@ -322,6 +371,9 @@ func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time)
 		default:
 		}
 		copy := *t.LimitRetry
+		if copy.ClaimToken == "" {
+			copy.ClaimToken = randomHex(16)
+		}
 		wait = &copy
 	}
 	tasks := slices.Clone(sc.tasks)
@@ -340,13 +392,13 @@ func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time)
 	}
 	if wait != nil {
 		i = sc.indexLocked(id)
-		if i < 0 || sc.tasks[i].LimitRetry == nil || !sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != wait.Failed.ID {
+		if i < 0 || !sameLimitClaim(sc.tasks[i].LimitRetry, *wait) {
 			return Task{}, nil, nil, nil, errScheduleUnavailable
 		}
 		if sc.limitActive == nil {
 			sc.limitActive = make(map[string]bool)
 		}
-		sc.limitActive[wait.Failed.ID] = true
+		sc.limitActive[limitClaimKey(*wait)] = true
 		sc.inflight.Add(1)
 		sc.limitInflight.Add(1)
 		t.manualLimitRetry, t.limitRetryRunID = true, wait.Failed.ID
@@ -357,7 +409,7 @@ func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time)
 
 func (s *Service) settleLimitRetry(id string, w scheduleLimitRetry, sendErr error, ownerDone, workerStop <-chan struct{}) bool {
 	if sendErr != nil && !errors.Is(sendErr, errTaskBusy) && !errors.Is(sendErr, errLimitRetryNotSent) {
-		s.forgetLimitActive(w.Failed.ID)
+		s.forgetLimitActive(limitClaimKey(w))
 		select {
 		case <-ownerDone:
 			return false
@@ -373,10 +425,10 @@ func (s *Service) settleLimitRetry(id string, w scheduleLimitRetry, sendErr erro
 	for {
 		select {
 		case <-ownerDone:
-			s.forgetLimitActive(w.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(w))
 			return false
 		case <-workerStop:
-			s.forgetLimitActive(w.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(w))
 			return false
 		default:
 		}
@@ -391,10 +443,10 @@ func (s *Service) settleLimitRetry(id string, w scheduleLimitRetry, sendErr erro
 		}
 		select {
 		case <-ownerDone:
-			s.forgetLimitActive(w.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(w))
 			return false
 		case <-workerStop:
-			s.forgetLimitActive(w.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(w))
 			return false
 		case <-time.After(time.Second):
 		}
@@ -410,8 +462,8 @@ func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool 
 		return false
 	}
 	i := sc.indexLocked(id)
-	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID {
-		delete(sc.limitActive, w.Failed.ID)
+	if i < 0 || !sameLimitClaim(sc.tasks[i].LimitRetry, w) {
+		delete(sc.limitActive, limitClaimKey(w))
 		sc.mu.Unlock()
 		return true
 	}
@@ -422,12 +474,13 @@ func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool 
 		tasks[i].LastRun = wait.ManualLastRun
 	}
 	wait.ManualAt, wait.ManualLastRun = time.Time{}, time.Time{}
+	wait.ClaimToken = randomHex(16) // a later claim is a different operation even for the same failed run
 	tasks[i].LimitRetry = &wait
 	if s.saveLocked(sc, tasks) != nil {
 		sc.mu.Unlock()
 		return false
 	}
-	delete(sc.limitActive, w.Failed.ID)
+	delete(sc.limitActive, limitClaimKey(w))
 	sc.mu.Unlock()
 	s.broadcastSchedule()
 	return true
@@ -445,7 +498,7 @@ func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLi
 		return Task{}, false // an admitted run may still send; do not consume the wait yet
 	}
 	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID ||
-		!sc.tasks[i].LimitRetry.At.Equal(w.At) {
+		sc.tasks[i].LimitRetry.ClaimToken != w.ClaimToken || !sc.tasks[i].LimitRetry.At.Equal(w.At) {
 		sc.mu.Unlock()
 		return Task{}, false
 	}
@@ -458,6 +511,10 @@ func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLi
 	} else {
 		claim := w
 		claim.Claimed = true
+		if claim.ClaimToken == "" {
+			claim.ClaimToken = randomHex(16)
+		}
+		w.ClaimToken = claim.ClaimToken
 		tasks[i].LimitRetry = &claim
 	}
 	if err := s.saveLocked(sc, tasks); err != nil {
@@ -465,14 +522,15 @@ func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLi
 		return Task{}, false
 	}
 	i = sc.indexLocked(id)
-	if !cancelled && (i < 0 || sc.tasks[i].LimitRetry == nil || !sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID) {
+	if !cancelled && (i < 0 || !sameLimitClaim(sc.tasks[i].LimitRetry, w)) {
 		cancelled = true // a newer task change replaced or cleared the claim
 	}
 	if !cancelled {
 		if sc.limitActive == nil {
 			sc.limitActive = make(map[string]bool)
 		}
-		sc.limitActive[w.Failed.ID] = true
+		sc.limitActive[limitClaimKey(w)] = true
+		cur.limitClaimToken = w.ClaimToken
 	}
 	sc.mu.Unlock()
 	s.broadcastSchedule()
@@ -495,8 +553,8 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		}
 	}()
 	i := sc.indexLocked(id)
-	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID {
-		delete(sc.limitActive, w.Failed.ID)
+	if i < 0 || !sameLimitClaim(sc.tasks[i].LimitRetry, w) {
+		delete(sc.limitActive, limitClaimKey(w))
 		return true
 	}
 	// recordRun keeps outcomes in memory on storage failure; flush this retry's result before dropping its claim.
@@ -539,7 +597,7 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		adopted = false
 		return false
 	}
-	delete(sc.limitActive, w.Failed.ID)
+	delete(sc.limitActive, limitClaimKey(w))
 	return true
 }
 
@@ -553,9 +611,21 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 		return
 	}
 	i := sc.indexLocked(id)
-	if i < 0 || sc.limitActive[w.Failed.ID] || sc.tasks[i].LimitRetry == nil || !sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID {
+	if i < 0 || sc.limitActive[limitClaimKey(w)] || !sameLimitClaim(sc.tasks[i].LimitRetry, w) {
 		sc.mu.Unlock()
 		return
+	}
+	// Fence stale owners before they write an outcome or notify: a newer claim must not be reported by this one.
+	if _, versioned := s.store().(scheduleVersionStore); versioned {
+		if err := s.saveScheduleLocked(ctx, sc, slices.Clone(sc.tasks)); err != nil {
+			sc.mu.Unlock()
+			return
+		}
+		i = sc.indexLocked(id)
+		if i < 0 || !sameLimitClaim(sc.tasks[i].LimitRetry, w) {
+			sc.mu.Unlock()
+			return
+		}
 	}
 	task := sc.tasks[i]
 	runID := "retry_unknown_" + w.Failed.ID
@@ -579,12 +649,12 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	if sc.limitActive == nil {
 		sc.limitActive = make(map[string]bool)
 	}
-	sc.limitActive[w.Failed.ID] = true
+	sc.limitActive[limitClaimKey(w)] = true
 	sc.mu.Unlock()
 	if known {
 		if !s.finishLimitClaim(id, w) {
 			sc.mu.Lock()
-			delete(sc.limitActive, w.Failed.ID)
+			delete(sc.limitActive, limitClaimKey(w))
 			sc.mu.Unlock()
 		}
 		return
@@ -598,13 +668,13 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	if err := s.hub.NotifyRequest(ctx, NotifyRequest{Notification: n}); err != nil {
 		s.logf("task %s retry notice: %v", id, err)
 		sc.mu.Lock()
-		delete(sc.limitActive, w.Failed.ID)
+		delete(sc.limitActive, limitClaimKey(w))
 		sc.mu.Unlock()
 		return
 	}
 	if !s.finishLimitClaim(id, w) {
 		sc.mu.Lock()
-		delete(sc.limitActive, w.Failed.ID)
+		delete(sc.limitActive, limitClaimKey(w))
 		sc.mu.Unlock()
 	}
 }

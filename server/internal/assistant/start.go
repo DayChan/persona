@@ -154,7 +154,15 @@ func (s *Service) startOn(ctx context.Context, machine string, p StartParams, ma
 		SessionID string `json:"session_id"`
 	}
 	err = s.call(ctx, machine, DeviceAssistantSend, params, &res)
-	s.startRefused(ctx, machine, used, err) // Claude Code or the launcher missing: the readiness's claude step
+	if ctx.Value(limitStartKey{}) != nil {
+		go func(startErr error) {
+			noticeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			s.startRefused(noticeCtx, machine, used, startErr)
+		}(err)
+	} else {
+		s.startRefused(ctx, machine, used, err) // Claude Code or the launcher missing: the readiness's claude step
+	}
 	if err != nil {
 		if d, ok := s.device(ctx, machine); ok {
 			err = apierr.OnMachine(err, d.Name) // claude_missing on a sample user's MacBook (docs/assistant/onboarding.md 4.6)
@@ -192,7 +200,12 @@ func (s *Service) startConversationOn(ctx context.Context, p StartParams, main b
 	// MCP discovery can arrive before assistant.send returns its session ID. Keep the
 	// manager's authorization until the resulting conversation's origin is recorded.
 	finishStart := s.beginAssistantStart(machine)
-	defer finishStart()
+	releaseHere := true
+	defer func() {
+		if releaseHere {
+			finishStart()
+		}
+	}()
 	sess, err := s.startOn(ctx, machine, p, main)
 	if errors.Is(err, ErrNoDevice) && p.MachineID == "" {
 		if errors.Is(err, errLimitRetryNotSent) {
@@ -210,7 +223,27 @@ func (s *Service) startConversationOn(ctx context.Context, p StartParams, main b
 		}
 	}
 	sess.Origin, sess.OriginRef = firstNonEmpty(p.Origin, OriginUser), p.OriginRef
-	s.originSet(ctx, sess.MachineID, sess.SessionID, sess.Origin, sess.OriginRef)
+	if ctx.Value(limitStartKey{}) != nil {
+		// Keep startup authorization while origin is recorded, but do not hold a sent retry on metadata I/O.
+		releaseHere = false
+		go func() {
+			metadataCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			defer finishStart()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				s.originSet(metadataCtx, sess.MachineID, sess.SessionID, sess.Origin, sess.OriginRef)
+			}()
+			select {
+			case <-done:
+			case <-metadataCtx.Done():
+				s.logf("assistant: retry origin registration timed out")
+			}
+		}()
+	} else {
+		s.originSet(ctx, sess.MachineID, sess.SessionID, sess.Origin, sess.OriginRef)
+	}
 	return sess, nil
 }
 
