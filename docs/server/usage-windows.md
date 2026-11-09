@@ -60,10 +60,12 @@ API (read-only, not usable with extension tokens, `testdata/route_scopes.txt`):
 ```json
 {"accounts": [{
   "id": "codex-1a2b3c4d", "provider": "codex", "name": "Codex Pro", "plan": "pro",
-  "sampled_at": "2026-11-05T09:08:06Z", "stale": false,
+  "sampled_at": "2026-11-05T09:08:06Z", "stale": false, "local": true, "machines": ["MacBook"],
   "windows": [{"label": "5h", "window_minutes": 300, "used_percent": 22.0, "resets_at": "2026-11-05T13:08:06Z"}]
 }], "checked_at": "2026-11-05T09:08:20Z"}
 ```
+
+`local` says the numbers were read on one of the computers, `machines` names those computers (their names in hub.json now, #1907), `sources` names the account-pool gateways that reported it (below).
 
 With no data, `accounts` is `[]`; old hubs lack this route (404), and the web treats that as no data.
 
@@ -143,7 +145,7 @@ The manager puts the gateway's accounts together with each computer's samples an
 A few additions:
 
 - Two accounts in the same gateway (different `id`) are **never merged**, even if their reset times happen to match; the same upstream account seen by two gateways (or a gateway and a computer) is merged.
-- A merged account takes the newest sample's numbers and lists its sources: `This computer` (read on a computer) and the gateway's name; the line under the popover title reads "This computer · Relay"; with only one source, just that one.
+- A merged account takes the newest sample's numbers and lists its sources: the computers that read it, by name (`machines`), and the gateway's name; the line under the popover title reads "MacBook · Relay"; with only one source, just that one. Never a word like "this computer": the clients run on phones and other computers, where it would point at the wrong device (#1907). Against an older hub that only sends `local`, every client says "Computer" (zh-Hans 电脑, ja コンピューター) instead.
 - When a gateway **cannot be reached, its last answer is kept and marked out of date** (`problem: "unreachable"`, the popover says "The gateway can't be reached; these are its last numbers"), so accounts do not disappear; dropped after 3 days.
 - Sorting is unchanged: by the fullest of the account's plan windows, highest first, out-of-date ones last. With no data at all (and no sources), the whole block is not drawn.
 
@@ -207,7 +209,7 @@ User decision: the hub is only a communication center, and computers belong to t
 
 - **Bottom of the sidebar**: one thin bar each for the two fullest accounts (name, percentage of the fullest window), warning color at ≥ 80%; out-of-date ones fade; the hover tooltip shows the source. **With no data the whole block is not drawn**, and the sidebar looks as before.
 - **Opened**: one row per window per account: window length (5h / 7d), percent used, a bar, the reset countdown, a pace hint; the sample time ("12 seconds ago") sits right of the account title.
-  The line under the account title gives the plan and sources ("This computer · Relay"); per-model windows show the model name next to the length; when the gateway cannot read, a one-line explanation (see "Account-pool gateways"). Esc or clicking elsewhere closes it.
+  The line under the account title gives the plan and sources ("MacBook · Relay"); per-model windows show the model name next to the length; when the gateway cannot read, a one-line explanation (see "Account-pool gateways"). Esc or clicking elsewhere closes it.
 - **Reset countdown**: under 1 hour reads `Resets in 45m`; within today, the time `Resets at 13:05`; longer, `Resets in 2d 3h`.
 - **Pace** (`pace` in `lib/usage-windows.ts`): the window length is read from the label (`5h`, `7d`, falling back to `window_minutes`); expected progress = elapsed time / window length.
   More than 5 percentage points above expected is "Ahead of pace", more than 5 below is "Behind pace", nothing in between; a tick on the bar marks the expected position.

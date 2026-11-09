@@ -51,16 +51,18 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
     /// Where the numbers came from (#2595): an agent's files on one of the computers, and/or gateways by name.
     var local: Bool
     var sources: [String]
+    /// The computers (by name) that read it (#1907); an older hub only says `local`.
+    var machines: [String]
     /// "unreachable" | "error": the gateway could not read the account just now and the numbers are its last.
     var problem: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, name, plan, windows, stale, local, sources, problem
+        case id, provider, name, plan, windows, stale, local, sources, machines, problem
         case sampledAt = "sampled_at"
     }
 
     init(id: String, provider: String, name: String, plan: String? = nil, windows: [UsageWindow], sampledAt: Date?,
-         stale: Bool = false, local: Bool = false, sources: [String] = [], problem: String? = nil) {
+         stale: Bool = false, local: Bool = false, sources: [String] = [], machines: [String] = [], problem: String? = nil) {
         self.id = id
         self.provider = provider
         self.name = name
@@ -70,6 +72,7 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
         self.stale = stale
         self.local = local
         self.sources = sources
+        self.machines = machines
         self.problem = problem
     }
 
@@ -84,6 +87,7 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
         stale = try c.decodeIfPresent(Bool.self, forKey: .stale) ?? false
         local = try c.decodeIfPresent(Bool.self, forKey: .local) ?? false
         sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
+        machines = try c.decodeIfPresent([String].self, forKey: .machines) ?? []
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
     }
 }
@@ -189,9 +193,12 @@ nonisolated enum UsageWindows {
         return (plan.isEmpty ? a.windows : plan).map(\.usedPercent).max() ?? 0
     }
 
-    /// Where an account was seen, for people: "This Device", then the gateways' names.
+    /// Where an account was seen, for people: the computers that read it by name (an older hub only says "a computer"),
+    /// then the gateways'. Never "this device": the numbers were read on a node, not on the device in hand (#1907).
     static func sourceNames(_ a: UsageAccount) -> [String] {
-        (a.local ? [String(localized: "usage.source.local", defaultValue: "Local", comment: "Usage numbers read from an agent's own files on a computer")] : []) + a.sources
+        let machines = !a.machines.isEmpty ? a.machines
+            : a.local ? [String(localized: "usage.source.local", defaultValue: "Computer", comment: "Usage numbers read from an agent's own files on one of the user's computers, when the hub doesn't say which")] : []
+        return machines + a.sources
     }
 
     /// The plan to write beside the name, unless the name already says it ("Codex Pro" and plan "pro").

@@ -13,7 +13,7 @@ struct UsageWindowsTests {
     @Test func decodesTheHubsAnswer() throws {
         let json = """
         {"accounts":[{"id":"claude-1","provider":"claude","name":"work-claude","plan":"Max","sampled_at":"2026-11-05T09:08:06Z",
-          "local":true,"sources":["Relay"],"problem":"unreachable","stale":true,
+          "local":true,"machines":["MacBook"],"sources":["Relay"],"problem":"unreachable","stale":true,
           "windows":[{"label":"5h","window_minutes":300,"used_percent":86,"resets_at":"2026-11-05T13:08:06.123456Z"},
                      {"label":"7d","window_minutes":10080,"used_percent":100,"model":"Fable"}]},
          {"id":"codex-1","provider":"codex","name":"Codex Pro","windows":[]}],"checked_at":"2026-11-05T09:08:20Z"}
@@ -21,11 +21,11 @@ struct UsageWindowsTests {
         struct R: Decodable { var accounts: [UsageAccount] }
         let r = try JSON.decoder.decode(R.self, from: Data(json.utf8))
         let a = r.accounts[0]
-        #expect(a.local && a.stale && a.sources == ["Relay"] && a.problem == "unreachable")
+        #expect(a.local && a.stale && a.sources == ["Relay"] && a.machines == ["MacBook"] && a.problem == "unreachable")
         #expect(a.sampledAt == JSON.parseDate("2026-11-05T09:08:06Z"))
         #expect(a.windows[0].resetsAt != nil && a.windows[0].windowMinutes == 300)
         #expect(a.windows[1].model == "Fable" && a.windows[1].resetsAt == nil)
-        #expect(r.accounts[1].sampledAt == nil && !r.accounts[1].local && r.accounts[1].sources.isEmpty)
+        #expect(r.accounts[1].sampledAt == nil && !r.accounts[1].local && r.accounts[1].sources.isEmpty && r.accounts[1].machines.isEmpty)
     }
 
     @Test func windowLengthFromTheLabel() {
@@ -98,7 +98,9 @@ struct UsageWindowsTests {
 
     @Test func sourcesPlanAndProblem() {
         var a = UsageAccount(id: "a", provider: "codex", name: "Codex Pro", plan: "pro", windows: [], sampledAt: now, local: true, sources: ["Relay"])
-        #expect(UsageWindows.sourceNames(a) == ["本机", "Relay"])
+        #expect(UsageWindows.sourceNames(a) == ["电脑", "Relay"]) // an older hub: no names, never "this device" (#1907)
+        a.machines = ["MacBook", "Studio"]
+        #expect(UsageWindows.sourceNames(a) == ["MacBook", "Studio", "Relay"])
         #expect(UsageWindows.planNote(a) == "") // the name says it
         a.name = "team-seat-2"
         #expect(UsageWindows.planNote(a) == "pro")

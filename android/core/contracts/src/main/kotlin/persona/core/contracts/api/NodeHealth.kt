@@ -50,6 +50,8 @@ data class UsageAccount(
     @SerialName("local") val local: Boolean = false,
     /** The account-pool gateways that report it, by name. */
     @SerialName("sources") val sources: List<String> = emptyList(),
+    /** The computers (by name) that read it (#1907); an older hub only says [local]. */
+    @SerialName("machines") val machines: List<String> = emptyList(),
     /** unreachable | error: the gateway could not read it just now; the numbers are its last. */
     @SerialName("problem") val problem: String? = null,
 )

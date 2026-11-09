@@ -24,6 +24,8 @@ export interface UsageAccount {
   /** Where the numbers came from (#2595): an agent's files on one of the computers, and/or account-pool gateways by name. */
   local?: boolean;
   sources?: string[];
+  /** The computers (by name) that read it (#1907); an older hub only says `local`. */
+  machines?: string[];
   /** "unreachable" | "error": the gateway could not read the account just now and the numbers are its last. */
   problem?: string;
 }
@@ -129,9 +131,11 @@ export function fullest(a: UsageAccount): number {
   return (plan.length ? plan : a.windows).reduce((m, w) => Math.max(m, w.used_percent), 0);
 }
 
-/** Where an account was seen, for people: "This computer", then the gateways' names. */
+/** Where an account was seen, for people: the computers that read it by name (an older hub only says "a computer"),
+ *  then the gateways'. Never "this computer": the numbers were read on a node, not on the device in hand (#1907). */
 export function sourceNames(a: UsageAccount): string[] {
-  return [...(a.local ? [tr("usage.source_local")] : []), ...(a.sources ?? [])];
+  const machines = a.machines?.length ? a.machines : a.local ? [tr("usage.source_local")] : [];
+  return [...machines, ...(a.sources ?? [])];
 }
 
 /** The plan to write beside the name, unless the name already says it ("Codex Pro" and plan "pro"). */

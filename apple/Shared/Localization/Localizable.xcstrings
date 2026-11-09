@@ -132428,25 +132428,25 @@
       }
     },
     "usage.source.local" : {
-      "comment" : "Usage numbers read from an agent's own files on a computer",
+      "comment" : "Usage numbers read from an agent's own files on one of the user's computers, when the hub doesn't say which",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本机"
+            "value" : "电脑"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Local"
+            "value" : "Computer"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ローカル"
+            "value" : "コンピューター"
           }
         }
       }

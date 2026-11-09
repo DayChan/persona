@@ -43,6 +43,9 @@ type UsageAccount struct {
 	// (docs/server/usage-windows.md "Account pool gateways"). An account both saw lists both.
 	Local   bool     `json:"local,omitempty"`
 	Sources []string `json:"sources,omitempty"`
+	// Machines are the names of the computers whose agents' files reported it (#1907), set with Local; clients name
+	// those instead of a word like "this computer", which reads as the device in hand.
+	Machines []string `json:"machines,omitempty"`
 	// Problem: "error" when the gateway could not read the account's numbers just now (it kept the stored ones),
 	// "unreachable" when the gateway itself could not be asked and this is its last answer. Never carries the text.
 	Problem string `json:"problem,omitempty"`

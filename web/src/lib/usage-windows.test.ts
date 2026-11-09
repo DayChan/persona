@@ -114,7 +114,8 @@ describe("accounts with several sources and per-model windows (#2595)", () => {
     expect(topAccounts([account({ id: "x", windows: [scoped, win("7d", 10080, 10, 24 * H)] }), account({ id: "y" })], 1)[0].id).toBe("y");
   });
   it("names where an account was seen", () => {
-    expect(sourceNames(account({ local: true, sources: ["Relay"] }))).toEqual(["本机", "Relay"]);
+    expect(sourceNames(account({ local: true, machines: ["MacBook", "Studio"], sources: ["Relay"] }))).toEqual(["MacBook", "Studio", "Relay"]);
+    expect(sourceNames(account({ local: true, sources: ["Relay"] }))).toEqual(["电脑", "Relay"]); // an older hub: no names, never "this computer" (#1907)
     expect(sourceNames(account({ sources: ["Relay", "Team pool"] }))).toEqual(["Relay", "Team pool"]);
     expect(sourceNames(account())).toEqual([]); // an older hub says nothing about it
   });

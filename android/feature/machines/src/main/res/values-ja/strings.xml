@@ -180,7 +180,7 @@
     <string name="machines_usage_days_hours">%1$d日%2$d時間</string>
     <string name="machines_usage_reset_in">%1$s後にリセット</string>
     <string name="machines_usage_reset_at">%1$sにリセット</string>
-    <string name="machines_usage_source_local">このコンピューター</string>
+    <string name="machines_usage_source_local">コンピューター</string>
     <string name="machines_usage_problem_unreachable">ゲートウェイに接続できません。前回の数値を表示しています</string>
     <string name="machines_usage_problem_error">ゲートウェイがこのアカウントを読めませんでした。保存済みの数値を表示しています</string>
     <plurals name="machines_health_summary_attention"><item quantity="other">%d 件の機能に対応が必要です</item></plurals>

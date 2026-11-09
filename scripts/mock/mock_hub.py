@@ -11365,9 +11365,9 @@ def mock_usage_windows():
         week = (2 * 24 + 3) * 3600
         scoped = {**win("7d", 10080, 100, week), "model": "Fable"}
         return {"accounts": [
-            {"id": "claude-1", "provider": "claude", "name": "work-claude", "plan": "Max", "sampled_at": iso(now - 12), "local": True, "sources": ["Relay"],
+            {"id": "claude-1", "provider": "claude", "name": "work-claude", "plan": "Max", "sampled_at": iso(now - 12), "local": True, "machines": ["MacBook"], "sources": ["Relay"],
              "windows": [win("5h", 300, 86, 55 * 60), win("7d", 10080, 41, week), scoped]},
-            {"id": "codex-1", "provider": "codex", "name": "Codex Pro", "plan": "pro", "sampled_at": iso(now - 190), "local": True,
+            {"id": "codex-1", "provider": "codex", "name": "Codex Pro", "plan": "pro", "sampled_at": iso(now - 190), "local": True, "machines": ["MacBook", "Studio"],
              "windows": [win("5h", 300, 22, 4 * 3600), win("7d", 10080, 63, (3 * 24 + 5) * 3600)]},
             {"id": "codex-3", "provider": "codex", "name": "team-seat-2", "plan": "ChatGPT Plus", "sampled_at": iso(now - 40 * 60), "sources": ["Relay"],
              "windows": [win("5h", 300, 8, 2 * 3600), win("7d", 10080, 31, 4 * 24 * 3600)]},
