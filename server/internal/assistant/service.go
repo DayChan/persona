@@ -116,6 +116,7 @@ type Service struct {
 	inbox      inboxBook         // inbox.go
 	board      boardBook         // workspace_board.go: the workspace board
 	viewEvents viewNotifications // views.go: only coalesced notifications; contents are stored first
+	viewMemo   viewMemo          // views.go: encoded cards for the feed snapshot, checked against the database
 
 	devs          Devices // the computers (devices.go); nil: no fleet
 	agentArchives agentArchiveBook

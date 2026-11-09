@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,22 +185,175 @@ func (s *Service) viewChanged(v wire.AssistantView) {
 	})
 }
 
-func (s *Service) conversationViews(ctx context.Context, conversation string) (map[string]wire.AssistantView, error) {
-	out := map[string]wire.AssistantView{}
-	st, err := s.viewsStore()
-	if err != nil {
-		return out, nil
+// viewKeyStore is optional: a store without it reads and decodes every card of the conversation on each feed GET.
+type viewKeyStore interface {
+	AssistantViewKeys(context.Context, string) ([]db.AssistantViewKey, error)
+	AssistantViewsByID(context.Context, string, []string) ([]db.AssistantViewKeyed, error)
+}
+
+// viewMemoBytes caps the encoded cards kept for feed snapshots; the least recently read conversations go first.
+const viewMemoBytes = 4 << 20
+
+// viewMemo keeps each live card's encoded JSON for the feed's views snapshot, so a page reads and decodes only the cards
+// that changed. It is only a cache: every request first reads the cards' (version, xmin) from the database and uses an
+// encoding only when both still match, so a card written by another process (the other blue-green slot) is read again.
+// It holds encoded bytes, never decoded views.
+type viewMemo struct {
+	mu    sync.Mutex
+	most  int // 0: viewMemoBytes
+	bytes int
+	lru   list.List // *viewMemoConversation, most recently read first
+	index map[string]*list.Element
+}
+
+type viewMemoConversation struct {
+	conversation string
+	bytes        int
+	cards        map[string]viewMemoCard
+}
+
+type viewMemoCard struct {
+	version int64
+	xmin    uint32
+	raw     json.RawMessage
+}
+
+func (c viewMemoCard) matches(k db.AssistantViewKey) bool {
+	return c.version == k.Version && c.xmin == k.Xmin
+}
+
+// reuse puts the encodings that still match keys into out and returns the ids to read again.
+func (m *viewMemo) reuse(conversation string, keys []db.AssistantViewKey, out map[string]json.RawMessage) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var cards map[string]viewMemoCard
+	if e := m.index[conversation]; e != nil {
+		cards = e.Value.(*viewMemoConversation).cards
 	}
-	rows, err := st.AssistantViews(ctx, conversation)
+	var missing []string
+	for _, k := range keys {
+		if c, ok := cards[k.ID]; ok && c.matches(k) {
+			out[k.ID] = c.raw
+			continue
+		}
+		missing = append(missing, k.ID)
+	}
+	return missing
+}
+
+// keep records the cards just read, forgets the ones keys no longer list, and evicts conversations over the cap.
+func (m *viewMemo) keep(conversation string, keys []db.AssistantViewKey, read map[string]viewMemoCard) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.index == nil {
+		m.index = map[string]*list.Element{}
+	}
+	e := m.index[conversation]
+	var old map[string]viewMemoCard
+	if e != nil {
+		m.lru.MoveToFront(e)
+		old = e.Value.(*viewMemoConversation).cards
+		if len(read) == 0 && len(old) == len(keys) && allMatch(old, keys) {
+			return
+		}
+	}
+	cards := make(map[string]viewMemoCard, len(keys))
+	size := 0
+	for _, k := range keys {
+		c, ok := read[k.ID]
+		if !ok {
+			// Not read this time: keep it only if it still is what the database listed.
+			if c, ok = old[k.ID]; !ok || !c.matches(k) {
+				continue
+			}
+		}
+		cards[k.ID] = c
+		size += len(k.ID) + len(c.raw)
+	}
+	most := m.most
+	if most == 0 {
+		most = viewMemoBytes
+	}
+	if e != nil {
+		m.drop(e)
+	}
+	if len(cards) == 0 || size > most {
+		return
+	}
+	m.index[conversation] = m.lru.PushFront(&viewMemoConversation{conversation: conversation, bytes: size, cards: cards})
+	m.bytes += size
+	for m.bytes > most {
+		m.drop(m.lru.Back())
+	}
+}
+
+func (m *viewMemo) drop(e *list.Element) {
+	c := m.lru.Remove(e).(*viewMemoConversation)
+	delete(m.index, c.conversation)
+	m.bytes -= c.bytes
+}
+
+func allMatch(cards map[string]viewMemoCard, keys []db.AssistantViewKey) bool {
+	for _, k := range keys {
+		if c, ok := cards[k.ID]; !ok || !c.matches(k) {
+			return false
+		}
+	}
+	return true
+}
+
+// encodedView is the card as the feed snapshot carries it.
+func encodedView(row db.AssistantViewRow) (json.RawMessage, error) {
+	v, err := storedView(row)
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		v, err := storedView(row)
+	return json.Marshal(v)
+}
+
+// conversationViews is the feed's views snapshot: every live card of the conversation by id, encoded as
+// wire.AssistantView. A card that does not decode fails the request and is never cached.
+func (s *Service) conversationViews(ctx context.Context, conversation string) (map[string]json.RawMessage, error) {
+	st, err := s.viewsStore()
+	if err != nil {
+		return map[string]json.RawMessage{}, nil
+	}
+	keyed, ok := st.(viewKeyStore)
+	if !ok {
+		rows, err := st.AssistantViews(ctx, conversation)
 		if err != nil {
 			return nil, err
 		}
-		out[v.ID] = v
+		out := make(map[string]json.RawMessage, len(rows))
+		for _, row := range rows {
+			if out[row.ID], err = encodedView(row); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
 	}
+	keys, err := keyed.AssistantViewKeys(ctx, conversation)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]json.RawMessage, len(keys))
+	missing := s.viewMemo.reuse(conversation, keys, out)
+	var read map[string]viewMemoCard
+	if len(missing) > 0 {
+		rows, err := keyed.AssistantViewsByID(ctx, conversation, missing)
+		if err != nil {
+			return nil, err
+		}
+		read = make(map[string]viewMemoCard, len(rows))
+		for _, row := range rows {
+			raw, err := encodedView(row.AssistantViewRow)
+			if err != nil {
+				return nil, err
+			}
+			out[row.ID] = raw
+			read[row.ID] = viewMemoCard{version: row.Version, xmin: row.Xmin, raw: raw}
+		}
+	}
+	s.viewMemo.keep(conversation, keys, read)
 	return out, nil
 }
