@@ -273,8 +273,8 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
 
 /// An extension's page (Settings › Extensions › …) for the connectors it contributes (#3228, as the web's
 /// `ExtensionConnectorInbox`): each one's Show in Inbox switch, the hub's own (PUT /api/v1/connectors/{id}/settings, the same
-/// switch as on the connector's page, not a copy), and the way to that page for the rest. Another manager's extension
-/// contributes that manager's copies: every request names it.
+/// switch as on the connector's page, not a copy), and the way to that page for the rest. Messages instead has its own
+/// Hand to Persona switch there. Another manager's extension contributes that manager's copies: every request names it.
 @Observable final class ExtensionConnectorsModel {
     struct Deps {
         var api: () -> APIClient?
@@ -299,10 +299,10 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
         self.deps = deps
     }
 
-    /// The contributed connectors the hub lists with an inbox switch, in `ids`' order. A hub from before the switch
-    /// (no `inbox`) and a connector it does not list draw nothing.
+    /// The contributed connectors the hub lists with an inbox switch, in `ids`' order. Messages has its own Hand to
+    /// Persona switch, so its page is linked without the generic inbox switch. A connector the hub does not list draws nothing.
     nonisolated static func shown(_ all: [HubConnector], ids: [String]) -> [HubConnector] {
-        ids.compactMap { id in all.first { $0.id == id && $0.inbox != nil } }
+        ids.compactMap { id in all.first { $0.id == id && ($0.inbox != nil || id == "imessage") } }
     }
 
     /// Unreadable (a hub without connectors answers 404), the sections stay away: the connector's page says what is

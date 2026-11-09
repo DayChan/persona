@@ -82,6 +82,12 @@ final class BrowserSectionTests: XCTestCase {
         XCTAssertTrue(macbook.label.contains("在线 · ego 就绪"), macbook.label)
         let studio = app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Mac Studio、")).firstMatch
         XCTAssertTrue(studio.label.contains("ego 没装"), studio.label)
+        let setup = app.buttons["extension-machine-setup-macbook"].firstMatch
+        XCTAssertTrue(setup.exists, "no way to open ego lite's installation and first-run setup")
+        setup.tap()
+        XCTAssertTrue(app.buttons["browser-recheck"].waitForExistence(timeout: 15), "the existing browser setup did not open:\n\(app.debugDescription)")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(macbook.waitForExistence(timeout: 10), "back to the extension settings")
         shot(app, "browser-plugin")
     }
 

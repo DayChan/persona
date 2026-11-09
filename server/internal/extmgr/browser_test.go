@@ -78,6 +78,21 @@ func egoMac(t *testing.T, h *Manager, id string) (*Machine, func() []browserCall
 	}
 }
 
+func TestBrowserResultErrorIsAToolFailure(t *testing.T) {
+	for _, raw := range []string{`{"error":"page.snapshot: unsupported scope","url":"https://example.com/"}`,
+		`{"error":" script failed ","title":"Example Domain"}`} {
+		out := browserResult(&proto.ComputerResult{Output: json.RawMessage(raw), Image: &proto.Image{Mime: "image/png", Data: "AAAA"}})
+		if !out.IsError || len(out.Content) != 2 || !strings.Contains(out.Content[0].Text, "error") {
+			t.Fatalf("%s: %+v", raw, out)
+		}
+	}
+	for _, raw := range []string{`{"snapshot":"root","title":"Example Domain"}`, `{"error":""}`, `not JSON`} {
+		if out := browserResult(&proto.ComputerResult{Output: json.RawMessage(raw)}); out.IsError {
+			t.Fatalf("%s: %+v", raw, out)
+		}
+	}
+}
+
 // Off until turned on, then Mac by Mac: the tools, the machine's state, the jobs and the calls.
 func TestEgoExtension(t *testing.T) {
 	h, _ := extensionTestHub(t)

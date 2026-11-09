@@ -141,6 +141,34 @@ struct ExtensionsModelTests {
         #expect(page.value(["proxy", "port"]) == .number(1.5), "the draft is kept")
     }
 
+    /// A failed immediate save leaves its field's refusal visible; saving that field again clears it and takes the
+    /// hub's new value. Other fields' errors are not discarded by an unrelated machine switch.
+    @Test func aSuccessfulMachineRetryClearsItsOldFieldError() async throws {
+        let hub = FakeHub()
+        let cua = #"{"id":"cua","name":"Cua","kind":"computer","status":"running","enabled":true,"# +
+            #""form":{"fields":[{"name":"machines","type":"array","max_items":1,"items":{"type":"string","format":"machine"}},"# +
+            #"{"name":"confirm","type":"boolean"}]},"config":{"machines":["macbook"],"confirm":false},"secrets":[],"permissions":[]}"#
+        hub.on("GET", "/api/v1/plugins/cua/-/", json: cua)
+        var attempts = 0
+        hub.on("PUT", "/api/v1/plugins/cua/-/config") { _ in
+            attempts += 1
+            if attempts == 1 {
+                throw APIError(status: 400, message: "machines: refused", fields: ["code": "invalid_config", "field": "machines", "message": "Choose one Mac"])
+            }
+            return Data(cua.replacingOccurrences(of: #""machines":["macbook"]"#, with: #""machines":["studio"]"#).utf8)
+        }
+        let page = ExtensionModel(id: "cua", deps: .init(api: { hub.client }))
+        await page.load()
+        page.set(.bool(true), at: ["confirm"]) // another unsaved edit survives both attempts
+        await page.saveNow(.array([.string("macbook"), .string("studio")]), at: ["machines"])
+        #expect(page.fieldError(["machines"]) == "Choose one Mac")
+        #expect(page.value(["machines"]) == .array([.string("macbook")]))
+        await page.saveNow(.array([.string("studio")]), at: ["machines"])
+        #expect(page.fieldError(["machines"]) == nil)
+        #expect(page.value(["machines"]) == .array([.string("studio")]))
+        #expect(page.value(["confirm"]) == .bool(true) && page.dirty)
+    }
+
     @Test func aSecretIsSentAndOnlyItsStateComesBack() async {
         let hub = FakeHub()
         hub.on("GET", "/api/v1/plugins/example-notes/-/", json: Self.detail)

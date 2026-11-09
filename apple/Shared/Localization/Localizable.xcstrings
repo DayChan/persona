@@ -2603,6 +2603,29 @@
       },
       "extractionState" : "manual"
     },
+    "Access, status and Hand to Persona [Extensions Views 1224]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access, status and Hand to Persona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス、状態、Persona への引き継ぎ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限、状态和交给 Persona"
+          }
+        }
+      }
+    },
     "\"%@\" is %@ long and still over 200 MB at 540p, so it can't be sent. Trim it in Photos first." : {
       "localizations" : {
         "zh-Hans" : {
@@ -95583,6 +95606,29 @@
         }
       },
       "extractionState" : "manual"
+    },
+    "Set Up [Extensions Views 1224]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定する"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "去配置"
+          }
+        }
+      }
     },
     "Set Up…" : {
       "localizations" : {
