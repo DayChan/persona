@@ -46,7 +46,7 @@ func listKeyFmt(list []proto.Session) string {
 				if a.LatestTool != nil {
 					name = a.LatestTool.Name
 				}
-				fmt.Fprintf(&b, "%s/%d,", name, a.Calls)
+				fmt.Fprintf(&b, "%s/%s/%d,", a.ID, name, a.Calls)
 			}
 		}
 		if s.Loop != nil {
@@ -283,6 +283,7 @@ func TestListKeyWorkflowProgress(t *testing.T) {
 			w.Agents[2].LatestTool, w.Agents[2].Calls = &proto.WorkflowTool{Name: "Read"}, 1
 		}, true},
 		"same tool again":    {func(w *proto.Workflow) { w.Agents[1].Calls++ }, true},
+		"retried agent":      {func(w *proto.Workflow) { w.Agents[2].ID = "a4" }, true}, // #2323: no count changes
 		"timestamp":          {func(w *proto.Workflow) { w.UpdatedAt = time.Now() }, false},
 		"tokens":             {func(w *proto.Workflow) { w.Agents[1].Tokens += 10; w.Tokens += 10 }, false},
 		"last text":          {func(w *proto.Workflow) { w.Agents[1].LastText = "halfway" }, false},
