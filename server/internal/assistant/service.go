@@ -449,7 +449,11 @@ func (s *Service) UserSpoke(ctx context.Context, r SessionRef) {
 
 // TurnStarted: one of a task's agents is working; what was going to be done about an agent's last turn is off.
 func (s *Service) TurnStarted(ctx context.Context, r SessionRef) {
-	s.taskWorking(ctx, r.MachineID, r.SessionID)
+	s.turnStartedObserved(ctx, r, false)
+}
+
+func (s *Service) turnStartedObserved(ctx context.Context, r SessionRef, initial bool) {
+	s.taskWorkingObserved(ctx, r.MachineID, r.SessionID, initial)
 	s.workStarted(ctx, r.MachineID, r.SessionID, time.Now())
 }
 
