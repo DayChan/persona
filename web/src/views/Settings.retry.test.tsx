@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   window.matchMedia ??= ((query: string) => ({ matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  window.isSecureContext = true;
 });
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: unknown) => void };
@@ -17,7 +18,7 @@ vi.mock("../lib/api", async (original) => ({
     if (path === "/managers") return Promise.reject(new ApiError(404, "not found", {}));
     // The hub page's download mirrors load on their own; answer them so only the updater is under test.
     if (path.startsWith("/extensions/-/market-settings")) return Promise.resolve({ registry_mirror: "", catalog_mirror: "" });
-    return Promise.resolve(path === "/looks" ? { looks: [], current: {} } : {});
+    return Promise.resolve(path === "/looks" ? { looks: [], current: {} } : path === "/model-profiles" ? { profiles: [] } : {});
   },
 }));
 
@@ -61,7 +62,7 @@ describe("settings read retries", () => {
     { tab: "devices", path: "/auth/tokens", keepsError: true, result: { tokens: [{ id: "browser", name: "Example browser", kind: "web", role: "full" }], current: "browser" }, content: "Example browser" },
     { tab: "models", path: "/launchers", keepsError: false, result: { launchers: [{ name: "example", display_name: "Example provider", source: "persona" }] }, content: "Example provider" },
     { tab: "hub", path: "/hub/update", keepsError: false, result: { version: "1.2.3", build: 123, channel: "release", can_update: true, state: "idle", busy: [], auto: false, auto_notice: false, confirmed: true }, content: "1.2.3" },
-    { tab: "assistant", path: "/assistant", keepsError: false, result: { machine_id: "example-computer", notes_effective: "Example notes" }, content: "example-computer" },
+    { tab: "persona", path: "/assistant", keepsError: false, result: { machine_id: "example-computer", notes_effective: "Example notes" }, content: "example-computer" },
   ])("retries $tab without changing categories and can recover after another failure", async ({ tab, path, keepsError, result, content }) => {
     await render(tab, path);
     expect(host.textContent).toContain(t("common.loading"));

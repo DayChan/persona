@@ -105,13 +105,28 @@ describe("navRailExcerpt", () => {
 });
 
 describe("navRailMark", () => {
-  it("forms symmetric, smoothly shortening and fading shoulders around the current input", () => {
-    let previous = navRailMark(12, 25, 12, null);
-    expect(previous.width).toBe(M.currentWidth);
-    expect(previous.height).toBe(M.currentHeight);
+  it("keeps every idle mark equally short, with only color emphasis for the current input", () => {
+    for (const count of [1, 2, 25, 240]) {
+      for (const current of [null, 0, Math.floor(count / 2), count - 1]) {
+        for (let index = 0; index < count; index++) {
+          expect(navRailMark(index, count, current, null)).toEqual({
+            state: index === current ? "current" : "idle",
+            width: M.tickWidth,
+            height: M.tickHeight,
+            opacity: index === current ? 1 : M.tailOpacity,
+          });
+        }
+      }
+    }
+  });
+
+  it("forms symmetric, smoothly shortening and fading shoulders around a preview", () => {
+    let previous = navRailMark(12, 25, null, 12);
+    expect(previous.width).toBe(M.hoverWidth);
+    expect(previous.height).toBe(M.hoverHeight);
     for (let distance = 1; distance <= 12; distance++) {
-      const left = navRailMark(12 - distance, 25, 12, null);
-      const right = navRailMark(12 + distance, 25, 12, null);
+      const left = navRailMark(12 - distance, 25, null, 12);
+      const right = navRailMark(12 + distance, 25, null, 12);
       expect(left).toEqual(right);
       expect(left.width).toBeLessThanOrEqual(previous.width);
       expect(left.opacity).toBeLessThanOrEqual(previous.opacity);
@@ -130,9 +145,9 @@ describe("navRailMark", () => {
     expect(navRailMark(12, 25, 12, 12).height).toBeGreaterThan(M.currentHeight);
   });
 
-  it("keeps the other mark short in a two-input conversation", () => {
-    expect(navRailMark(1, 2, 0, null).width).toBeLessThan(10);
-    expect(navRailMark(0, 1, 0, null).width).toBe(M.currentWidth);
+  it("keeps the other mark short in a two-input preview", () => {
+    expect(navRailMark(1, 2, null, 0).width).toBeLessThan(10);
+    expect(navRailMark(0, 1, 0, 0).width).toBe(M.currentHoverWidth);
   });
 });
 

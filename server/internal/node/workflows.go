@@ -17,8 +17,9 @@ import (
 // Workflows: Claude Code's Workflow tool runs a script that drives many agents in the background. The transcript says
 // when one was launched and when it ended (transcript.Meta.Workflows); its progress is on disk:
 //
-//	<session>/subagents/workflows/<run id>/journal.jsonl  {"type":"launched"}, {"type":"started","agentId","label","phase"},
-//	                                                      {"type":"result","agentId","result"} — one line per event
+//	<session>/subagents/workflows/<run id>/journal.jsonl  {"type":"launched"}, {"type":"started","key","agentId","label","phase"},
+//	                                                      {"type":"result","key","agentId","result"} — one line per event;
+//	                                                      key names the agent() call: a retry starts it again (wfJournal.line)
 //	<session>/subagents/workflows/<run id>/agent-<id>.jsonl / .meta.json  each agent's transcript ({description, workflowPhase})
 //	<session>/workflows/<run id>.json                     written when the run ends: {status, error, durationMs, agentCount, …}
 //	<session>/workflows/scripts/<name>-<run id>.js        the script: export const meta = {name, phases: [{title}, …]}
@@ -159,6 +160,7 @@ func readWorkflow(subagents, parent string, run proto.Workflow, script string) p
 
 type wfJournalLine struct {
 	Type    string `json:"type"`
+	Key     string `json:"key"`
 	AgentID string `json:"agentId"`
 	Label   string `json:"label"`
 	Phase   string `json:"phase"`
@@ -173,12 +175,15 @@ type wfJournal struct {
 	off    int64
 	head   []byte // detects a rewrite even if the new file is larger
 	agents []wfJournalAgent
-	index  map[string]int
+	index  map[string]int // by agent id
+	calls  map[string]int // by key: the call's latest attempt
 }
 
 type wfJournalAgent struct {
 	id, label, phase string
 	outcome          string // "" while it runs, then wfAgentDone or wfAgentFailed
+	// replaced: its call started again later (a retry): the later attempt stands for the call (#2323).
+	replaced bool
 }
 
 // A workflow agent's statuses (WorkflowAgent.Status).
@@ -233,6 +238,20 @@ func (j *wfJournal) line(b []byte) {
 	a.label, a.phase = cmpStr(l.Label, a.label), cmpStr(l.Phase, a.phase)
 	switch l.Type {
 	case "started":
+		// key names the agent() call (two identical calls in one script get two keys). A retry from Claude Code's
+		// workflow view starts the same call again under a new agent id, and the attempt it replaced never gets a
+		// result or failed line (its transcript just ends "[Request interrupted by user]"): left as it is, it would run
+		// for as long as the run does and keep its phase current (#2323). Journals without keys are read as before.
+		if l.Key == "" {
+			break
+		}
+		if j.calls == nil {
+			j.calls = map[string]int{}
+		}
+		if prev, ok := j.calls[l.Key]; ok && prev != i {
+			j.agents[prev].replaced = true
+		}
+		j.calls[l.Key] = i
 	case "failed":
 		a.outcome = wfAgentFailed
 	default:
@@ -288,14 +307,15 @@ func workflowProgress(j *wfJournal, runDir, stateFile, parent string, run proto.
 	j.update(filepath.Join(runDir, "journal.jsonl"))
 	type agent struct {
 		proto.WorkflowAgent
-		outcome string
-		lastAt  time.Time
+		outcome  string
+		lastAt   time.Time
+		replaced bool
 	}
 	agents := make([]*agent, 0, len(j.agents))
 	updated := j.mtime
 	for _, ja := range j.agents {
 		a := &agent{WorkflowAgent: proto.WorkflowAgent{ID: ja.id, SessionID: parent + subagentSep + ja.id, Label: ja.label,
-			Phase: ja.phase}, outcome: ja.outcome}
+			Phase: ja.phase}, outcome: ja.outcome, replaced: ja.replaced}
 		agents = append(agents, a)
 		if a.Label == "" || a.Phase == "" {
 			if m, ok := subagentMetaCached(filepath.Join(runDir, "agent-"+a.ID+".meta.json")); ok {
@@ -354,10 +374,15 @@ func workflowProgress(j *wfJournal, runDir, stateFile, parent string, run proto.
 	for _, title := range w.Phases {
 		phaseStats(title)
 	}
+	listed := make([]*agent, 0, len(agents))
 	for _, a := range agents {
-		w.AgentsStarted++
 		w.Tokens += a.Tokens
 		w.Calls += a.Calls
+		if a.replaced { // retried: its call is its later attempt's; only what this one spent still counts
+			continue
+		}
+		listed = append(listed, a)
+		w.AgentsStarted++
 		p := phaseStats(a.Phase)
 		p.Started++
 		a.Running = w.Running && a.outcome == ""
@@ -400,10 +425,10 @@ func workflowProgress(j *wfJournal, runDir, stateFile, parent string, run proto.
 		}
 	}
 	w.PhaseCount = len(w.Phases)
-	if len(agents) > proto.WorkflowAgentsMax {
-		agents = agents[len(agents)-proto.WorkflowAgentsMax:]
+	if len(listed) > proto.WorkflowAgentsMax {
+		listed = listed[len(listed)-proto.WorkflowAgentsMax:]
 	}
-	for _, a := range agents {
+	for _, a := range listed {
 		w.Agents = append(w.Agents, a.WorkflowAgent)
 	}
 	return w, state != nil

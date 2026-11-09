@@ -41,7 +41,7 @@ internal fun LazyListScope.gitBrowser(state: FilesState, controller: FilesContro
             if (state.gitLoading) item { JLinearProgress(null, Modifier.fillMaxWidth()) }
             item("branch") {
                 JSectionHeader(git.branch ?: stringResource(R.string.files_git_detached),
-                    action = if (git.upstream != null) ({ PullButton(git.behind, state, controller) }) else null)
+                    action = if (git.upstream != null && !git.gone) ({ PullButton(git.behind, state, controller) }) else null)
                 JGroupItem(GroupPosition.Single) {
                     JRow(git.upstream ?: stringResource(R.string.files_git_no_upstream), subtitle = git.root, leadingIcon = PhIcons.GitBranch, value = gitSync(LocalResources.current, git))
                 }

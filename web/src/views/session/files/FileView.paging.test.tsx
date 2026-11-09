@@ -4,8 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileContent } from "../../../lib/files";
 
-vi.mock("../../assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("../../chat/SubagentPanel", () => ({ SubagentPanel: () => null }));
 vi.hoisted(() => {
   window.matchMedia ??= ((query: string) => ({ matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
 });

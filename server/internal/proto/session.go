@@ -74,7 +74,13 @@ type Session struct {
 	// RepoRoot is the main checkout of the repository Cwd belongs to, when the host knows it (#2840: the Paseo bridge,
 	// whose worktrees live under Paseo's own folder): "By repo" groups by it; without it the clients infer the repository
 	// from Cwd's path.
-	RepoRoot    string `json:"repo_root,omitempty"`
+	RepoRoot string `json:"repo_root,omitempty"`
+	// Worktree is the top of the git working tree Cwd is in (RepoRoot itself for the main checkout, a linked worktree's
+	// own folder otherwise) and Branch the branch checked out there ("" when detached or unknown). The node reads both,
+	// and RepoRoot when no host names it, off the filesystem (node/gitplace.go): the apps list machine → project
+	// (RepoRoot) → worktree (Worktree, labelled Branch) → sessions, as Orca does (#1805).
+	Worktree    string `json:"worktree,omitempty"`
+	Branch      string `json:"branch,omitempty"`
 	Status      string `json:"status"`
 	PaneID      string `json:"pane_id,omitempty"`
 	TabID       string `json:"tab_id,omitempty"`

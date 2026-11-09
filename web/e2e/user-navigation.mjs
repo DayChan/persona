@@ -190,6 +190,23 @@ async function previewStyle(page, index) {
   return style;
 }
 
+async function idleMarks(page) {
+  assert.equal(await page.locator(PREVIEW).count(), 0, "Idle widths are checked without a preview");
+  await page.waitForFunction((rail) => [...document.querySelectorAll(`${rail} [data-nav-mark]`)].every((mark) =>
+    Math.abs(mark.getBoundingClientRect().width - parseFloat(mark.style.width)) < 0.1), RAIL);
+  const marks = await page.locator(`${RAIL} [data-nav-mark]`).evaluateAll((nodes) => nodes.map((mark) => ({
+    width: mark.getBoundingClientRect().width, height: mark.getBoundingClientRect().height,
+    current: mark.dataset.navMark === "current", color: getComputedStyle(mark).backgroundColor,
+    opacity: getComputedStyle(mark).opacity,
+  })));
+  assert.ok(marks.length > 1, "Compare multiple rendered marks");
+  assert.ok(marks.every((mark) => Math.abs(mark.width - 6) < 0.1), "Every idle mark uses the same short tick width, including the current input");
+  assert.ok(marks.every((mark) => Math.abs(mark.height - 1.5) < 0.1), "The current idle input uses color emphasis, not larger geometry");
+  const current = marks.find((mark) => mark.current), other = marks.find((mark) => !mark.current);
+  assert.ok(current && other && current.color !== other.color && current.opacity === "1", "Current-position color emphasis remains");
+  return { marks: marks.length, widths: [...new Set(marks.map((mark) => mark.width))], currentUsesColorOnly: true };
+}
+
 async function armExitProbe(page) {
   await page.evaluate(([rail, preview]) => {
     const nav = document.querySelector(rail);
@@ -253,6 +270,9 @@ async function quietAndWake(page, run) {
   }
   assert.ok(reached, "Tab reaches the hidden but focusable edge trigger");
   await page.waitForFunction((rail) => Number(getComputedStyle(document.querySelector(rail)).opacity) > 0.95, RAIL);
+  assert.ok(await page.locator(PREVIEW).count(), "Tab focus creates an interactive preview, not an idle current-position bell");
+  const focusedMark = await page.locator(`${RAIL} [data-nav-mark='hover'], ${RAIL} [data-nav-mark='current-hover']`).evaluate(el => parseFloat(el.style.width));
+  assert.ok(focusedMark >= 22, "Keyboard focus keeps the interactive expansion");
   await screenshot(page, run, "edge-focus");
   return { idleAfterSettledScrollMs: elapsedMs, opacity: 0, tabReachable: reached };
 }
@@ -366,8 +386,9 @@ async function standard(browser, theme, size) {
         return at;
       });
       await waitForCurrent(page, expected);
+      const idle = await idleMarks(page);
       await screenshot(page, run, "scroll");
-      return { box, currentInput: expected + 1 };
+      return { box, currentInput: expected + 1, idle };
     });
     await check(`${name}: hover previews a user input and a short answer`, async () => {
       await tick(page, 3).hover();
@@ -393,8 +414,9 @@ async function standard(browser, theme, size) {
       const elapsedMs = sample.hiddenAt - sample.leftAt;
       assert.ok(sample.leftAt !== null && sample.hiddenAt !== null && elapsedMs >= 0 && elapsedMs < 100, "No grace-period timer may delay the card's removal");
       assert.equal(await page.locator(RAIL).getAttribute("data-visible"), "true", "Immediate card removal does not prematurely hide the rail");
+      const idle = await idleMarks(page);
       await screenshot(page, run, "after-exit");
-      return { elapsedMs, previewPresentAfterExit: false, railRetained: true };
+      return { elapsedMs, previewPresentAfterExit: false, railRetained: true, idle };
     });
     await check(`${name}: clicking lands on the actual input`, async () => {
       await tick(page, 5).click();

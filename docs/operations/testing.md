@@ -40,7 +40,7 @@ The six required lanes have independent reusable workflows. **CI required** reje
 selected jobs. iOS/Watch contributes to that aggregate; **Mac (non-blocking)** reports its actual independent result without
 `continue-on-error` and is not part of the aggregate. An unselected lane is never claimed as tested.
 All workflows except the image publisher accept only `workflow_dispatch` and, for reusable platform workflows, `workflow_call`.
-The image publisher additionally retains `push` for **`v*` release tags**: Docker installations use its version and `latest` images.
+The image and Release publisher additionally retains `push` for **`v*` release tags**: Docker installations use its version and `latest` images, and the same tag gets a GitHub Release.
 No branch push or PR starts it. The issue-link Action also requires explicit dispatch from the default branch with a PR number.
 
 The `changes` job runs repository/commit privacy and path safety, including `scripts/ci/guards.sh`, migration freeze and sleep ratchet.
@@ -53,8 +53,7 @@ the baseline; it refuses to raise a count or to add a file that still sleeps. Se
 With `lanes=auto`, the base defaults to `origin/main`; an explicit `base` is resolved to a commit before guards and path selection.
 
 Dispatched code runs with `contents: read`, without persisted checkout credentials, private config or new secrets. The issue-link
-workflow uses metadata-only write permissions and runs only from the default branch. Image publishing has `packages: write` only in its
-publishing job. CI concurrency keys use the repository/branch and full/lanes selection; dispatches in the same group cancel stale
+workflow uses metadata-only write permissions and runs only from the default branch. Image and GitHub Release publishing have `packages: write` and `contents: write` only in the publish job. CI concurrency keys use the repository/branch and full/lanes selection; dispatches in the same group cancel stale
 pending/running work, while different selections stay independent. Reusable workflows retain their file-specific lane groups: deriving
 a caller and callee's group only from `github.workflow` would let a called workflow cancel its caller.
 
@@ -84,7 +83,7 @@ for diagnosis. Local entry points without shard options still run complete verif
 | Apple / `.github/workflows/apple-test.yml` | `scripts/ci/apple.sh ios` and `scripts/ci/apple.sh macos` | PersonaKit/iOS/Watch/HTML and Mac build/unit tests; synthetic configuration, no distribution signing; real results remain visible | macos-26 runners, Xcode 26.0.1 (Swift 6.2) | queue and execution measured separately |
 | Scripts/docs / `.github/workflows/scripts-tests.yml` | `scripts/ci/scripts.sh` | every Python script test, doc/code paths and index, layout/shell/Python compatibility, privacy-rule regression, catalog/translation/token checks, actionlint, issue-link logic, website worker | ubuntu-latest | 2–4 / 4–7 min |
 | Runtimes / `.github/workflows/runtimes-test.yml` | `scripts/ci/runtimes.sh` | TypeScript SDK typecheck/test/portability, Agent SDK build, every runtime integration's npm tests | ubuntu-latest | 2–4 / 4–7 min |
-| Container / `.github/workflows/hub-image.yml` | `scripts/ci/hub-image.sh` | amd64 build; isolated Compose Postgres, HTTP/TLS health, pairing, web, admin isolation, file ownership/0600; publication remains amd64+arm64 | ubuntu-latest | 8–15 / 15–30 min |
+| Container and Release / `.github/workflows/release.yml` | `scripts/ci/hub-image.sh` | amd64 build; isolated Compose Postgres, HTTP/TLS health, pairing, web, admin isolation, file ownership/0600; publication remains amd64+arm64, then a version-tag run creates the GitHub Release | ubuntu-latest | 8–15 / 15–30 min |
 
 These planning estimates predate sharding and are not measured success claims; use job timestamps and each script's PASS/FAIL/TIMEOUT
 durations for an actual run. Parallelism reduces wall-clock latency but can increase total runner minutes through repeated setup and
@@ -127,7 +126,7 @@ Manual server CI's Postgres does run ordinary database tests (unlike the old dat
 container/migration inputs are not supplied. Private-value scanning of commits and PR metadata remains in `scripts/hooks/merge-pr.sh` on
 the merge machine; CI runs the generic privacy rules without those values. No baseline is raised to make a gate green.
 
-`hub image` uses only public dependencies and GHCR's existing `GITHUB_TOKEN`; no private registry or machine service is required. Its
+`release` uses only public dependencies, the GitHub CLI preinstalled on hosted runners, and the existing `GITHUB_TOKEN`; no private registry or machine service is required. Its
 repository enablement is a separate setting: enable only after confirming the hosted build/smoke result. Do not dispatch publication just
 to test workflow dispatch. Runner migration removes workflow label variables; after green CI, delete unused repository variables and unregister
 repository runners if present. Do not uninstall machine services or delete their files; organization-provided runners require their owner.
@@ -153,7 +152,7 @@ Path mapping:
 
 | Changed path | Checks |
 | --- | --- |
-| `web/**` | `npm ci` (only if `node_modules` missing or `package.json` / `package-lock.json` changed) + `npm run typecheck` + `npm test` (vitest run) |
+| `web/**` | `npm ci` (only if `node_modules` missing or `package.json` / `package-lock.json` changed) + `npm run typecheck` (incremental, state kept in web's `node_modules/.cache/tsc/`: a second run only checks what changed, and a type error fails every run) + `npm test` (vitest run) |
 | `schema/extension/**`, `spec/fixtures/injected/**`, `spec/fixtures/sync/**`, `scripts/mock/inbox_events.json` | In addition to other checks in this table, the `web/**` checks: `web/src` and its vitest suite read these files. They are the inputs outside `web/` of the web lane in `scripts/ci/paths.py`; `scripts/test/test_check_fast.py` fails when the two lists drift apart |
 | `integrations/<pkg>/**` | Package `node --test test/*.test.{js,mjs}` (skip packages without tests) |
 | `site/**` | `node --test site/worker.test.mjs` |

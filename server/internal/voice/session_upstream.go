@@ -367,8 +367,9 @@ func (c *conversation) handle(gen int, e event) {
 		}
 		c.lastAudio = now
 		if c.dropAudio {
-			return
+			return // the rest of an answer cut off: the user never hears it, so it answers nothing (nudge.go)
 		}
+		c.modelActed(now) // before its caption of the user's line closes, if that is still open: this answers it
 		c.pace.played(now, len(e.audio), c.outRate)
 		c.closeUser()
 		select {
@@ -382,8 +383,11 @@ func (c *conversation) handle(gen int, e event) {
 			c.gate.user = time.Now()
 			c.userAt = c.gate.user
 		}
-		c.userText(e.text, e.replace, e.final, spoke)
+		c.userLineDone(c.userText(e.text, e.replace, e.final, spoke)) // a line the service ends itself (codex)
 	case evAssistant:
+		if strings.TrimSpace(e.text) != "" {
+			c.modelActed(time.Now())
+		}
 		c.asstText(e.text, e.replace, e.final, e.name)
 	case evReply:
 		c.signals, c.turnsEnd = true, true
@@ -417,6 +421,7 @@ func (c *conversation) handle(gen int, e event) {
 		c.pace.playEnd = time.Now() // the app drops what it had not played
 		c.closeAsst()
 	case evDelegation:
+		c.modelActed(time.Now())
 		c.closeUser()
 		c.pace.delegated = time.Now()
 		if e.id == "" {
@@ -442,6 +447,7 @@ func (c *conversation) handle(gen int, e event) {
 		c.logf("delegation %s: made in session %d", e.id, sessionNo(gen))
 		c.startTask(e.id, e.text, at, reply)
 	case evToolCall:
+		c.modelActed(time.Now())
 		c.closeUser()
 		c.pace.delegated = time.Now()
 		c.count(func(l *callLog) { l.calls++ })
@@ -516,6 +522,9 @@ func (c *conversation) lost(gen int, why error) {
 	c.sendApp(map[string]any{"type": "clear"})
 	c.closeAsst()
 	c.closeUser()
+	if c.owed.result {
+		c.owed = owedAnswer{} // what was handed to that session went with it; the user's line is in the next one's history
+	}
 	if c.version >= 2 {
 		c.sendApp(map[string]any{"type": "link", "state": linkReconnecting})
 	} else {

@@ -91,6 +91,7 @@
     <string name="files_git_change_options">Change options</string>
     <string name="files_git_part_cut">Change too large to bring back</string>
     <string name="files_git_part_cut_message">The commit\'s diff is over 512 KB, and this file comes after the cut.</string>
+    <string name="files_git_upstream_gone">Deleted on the remote</string>
     <string name="files_git_synced">Up to date</string>
     <string name="files_git_pull">Pull</string>
     <string name="files_git_pull_behind">Pull %1$d</string>

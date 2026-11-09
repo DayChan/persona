@@ -164,7 +164,7 @@ type ManagedLauncher struct {
 	CompactWindow int `json:"compact_window,omitempty"`
 	// MaxContext: CLAUDE_CODE_MAX_CONTEXT_TOKENS; 0 is the default model's context window when it is over 200K.
 	MaxContext int `json:"max_context,omitempty"`
-	// Effort: the default thinking level (CLAUDE_CODE_EFFORT_LEVEL) when the caller gives none.
+	// Effort: the default thinking level when the caller gives none (passed as --effort by personad launch, #2307).
 	Effort string `json:"effort,omitempty"`
 	// Source: where it came from: "" (made by hand), "zshrc:<alias>@<machine id>" (imported), "preset:<id>".
 	Source string `json:"source,omitempty"`

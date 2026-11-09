@@ -455,7 +455,8 @@ reads less needs no approval and applies from the next page.
   3. Once every window is read, each gap between two windows gets one omission line with the number of positions it leaves out, stamped with the older window's newest
      message (its time is all that is known of the gap); the gap below the oldest window gets one stamped a minute before it. None is written above the newest window: those
      messages may be in the live archive.
-  4. A year whose search found nothing is taken as not covered (an index may not reach back that far): in that year only, the chat is read backwards through
+  4. A year whose search found nothing is taken as not covered (an index may not reach back that far), and so is a year whose search did not finish (a later page
+     refused, or `more` with no new cursor), whatever its first pages found: in that year only, the chat is read backwards through
      `AnchorFilter`, starting below the oldest window already read in a newer year when there is one. Years before the conversation began are skipped: unless a window
      reached position 0, one page `around` position 0 says when it began. Without it, a long `text_days` would make every empty year stream the whole chat below its
      windows, the cost a personal read is there to avoid.

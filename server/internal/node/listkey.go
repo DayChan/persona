@@ -38,6 +38,8 @@ func listKeySized(list []proto.Session, size int) string {
 		w.quote(s.RootSessionID, '/')
 		w.str(strconv.FormatBool(s.IsSubagent), '/')
 		w.quote(s.RepoRoot, '/')
+		w.quote(s.Worktree, '/')
+		w.quote(s.Branch, '/')
 		w.quote(s.SpaceID, '/')
 		w.quote(s.SpaceKind, '\n')
 		writeUltracodeKey(&w, s)
@@ -101,7 +103,8 @@ func listKeySized(list []proto.Session, size int) string {
 		w.str(strconv.FormatBool(s.BackgroundWaiting), '\n')
 		// Workflow journals advance without changing the main transcript's rev, and so do its agents: each one's
 		// latest tool call (its name, and its calls to tell one Read from the next) goes out as often as the
-		// workflow cache reads them (workflowReadInterval). Tokens and the last text ride along.
+		// workflow cache reads them (workflowReadInterval). Tokens and the last text ride along. Each agent's id too:
+		// a retried agent replaces its earlier attempt without changing any count (#2323).
 		for _, run := range s.Workflows {
 			w.b.WriteString("workflow:")
 			w.str(run.TaskID, '/')
@@ -112,6 +115,7 @@ func listKeySized(list []proto.Session, size int) string {
 			w.int(int64(run.AgentsRunning), '/')
 			w.int(int64(run.AgentsFailed), '\n')
 			for _, a := range run.Agents {
+				w.str(a.ID, '/')
 				if a.LatestTool != nil {
 					w.b.WriteString(a.LatestTool.Name)
 				}

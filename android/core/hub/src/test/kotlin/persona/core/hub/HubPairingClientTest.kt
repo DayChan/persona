@@ -41,8 +41,8 @@ class HubPairingClientTest {
                         MockResponse().setBody("""{"machines":[]}""")
                     }
                     "/api/v1/app/android/latest" -> MockResponse().setBody(
-                        """{"version_code":2,"version_name":"test","sha256":"$checksum"}""")
-                    "/api/v1/app/android/apk" -> {
+                        """{"version_code":2,"version_name":"test","sha256":"$checksum","download_url":"/api/v1/app/android/apk?sha256=$checksum"}""")
+                    "/api/v1/app/android/apk?sha256=$checksum" -> {
                         assertEquals("Bearer device-token", (request.getHeader("Authorization")).zhAny())
                         MockResponse().setBody(String(apk))
                     }

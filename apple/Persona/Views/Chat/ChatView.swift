@@ -67,6 +67,7 @@ struct ChatView: View {
     @State private var menu = MessageMenu()
     /// Work lines the user tapped open (by line id; kept here so lazy rows coming back keep their state).
     @State private var openWork: Set<String> = []
+    @State private var openSupervision: Set<String> = []
     /// Runs of tool calls (`ChatLine.toolRun`) opened into a row per call.
     @State private var openRuns: Set<String> = []
     /// While you read history, the chat is drawn from the items it had when you left the newest end (inserting at the
@@ -319,10 +320,12 @@ struct ChatView: View {
     private var hasWorkflows: Bool { pane == .chat && !(session?.shownWorkflows().isEmpty ?? true) }
 
     /// 「后台 workflow」 above the subagents: a card per running workflow, its phases, progress and agents; an agent opens
-    /// here like a subagent (its `session_id` reads as one).
+    /// here like a subagent (its `session_id` reads as one). Beside the side bars the header never folds: the cards are
+    /// their heads until tapped.
     @ViewBuilder private var workflowBar: some View {
         if hasWorkflows, let session {
-            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil) { a in
+            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil,
+                            compact: sideBars) { a in
                 openWorkflowAgent(a)
             }
         }
@@ -800,7 +803,8 @@ struct ChatView: View {
                                        runs: openRuns, frozen: frozen, feed: feed.map(\.id),
                                        streaming: drawsLive && (frozen.map { !$0.text.isEmpty } ?? liveShown),
                                        quietAgents: quietSubagents, workflowCalls: workflowCalls,
-                                       day: style == .assistant ? Calendar.current.startOfDay(for: .now) : nil)
+                                       day: style == .assistant ? Calendar.current.startOfDay(for: .now) : nil,
+                                       supervision: openSupervision, active: shownRoundActive)
         if scratch.linesKey == key { return scratch.lines }
         var blocks = store.blocks
         if frozen != nil {
@@ -821,11 +825,15 @@ struct ChatView: View {
         return lines
     }
 
+    /// A later turn must not make a frozen historical question look like a live one.
+    private var shownRoundActive: Bool { frozen.map { $0.live != nil } ?? status.isActive }
+
     /// What builds the lines from the blocks, with what is open now.
     private var lineBuilder: ChatLines {
         ChatLines(openWork: openWork, openAll: Self.debugOpenAll, opensLive: Self.opensLiveWork(style), openRuns: openRuns,
                   openAllRuns: Self.debugOpenRuns, chipRuns: AppStyle.current.usesBeautifulUI,
-                  foldsIntoRun: foldsIntoRun, showsFolded: showsFolded)
+                  foldsIntoRun: foldsIntoRun, showsFolded: showsFolded, foldSupervision: style == .assistant,
+                  openSupervision: openSupervision, openAllSupervision: Self.debugOpenSupervision, active: shownRoundActive)
     }
     private func unfoldWork(_ lines: [ChatLine]) -> [ChatLine] { lineBuilder.unfold(lines) }
     private func isOpen(_ work: String) -> Bool { lineBuilder.isOpen(work, live: work == liveWorkID) }
@@ -1230,6 +1238,16 @@ struct ChatView: View {
 
     @ViewBuilder private func lineView(_ line: ChatLine) -> some View {
         switch line.content {
+        case .supervision(let id, _, let live):
+            SupervisionRecordLine(live: live, open: openSupervision.contains(id) != Self.debugOpenSupervision) {
+                Haptics.tap()
+                toggleInPlace(pin, id, animation: Theme.Motion.state) {
+                    if openSupervision.contains(id) { openSupervision.remove(id) } else { openSupervision.insert(id) }
+                }
+            }
+            .chatPinned(id)
+        case .supervisionInput(let item):
+            SupervisionInputLine(item: item)
         case .row(let r):
             if r.errorCandidate != nil, let card = turnErrorCard(line, raw: r.errorCandidate?.text) { card } else { rowView(r, isLatest: false, live: true, showsSource: line.showsSource) }
         case .feed(let item): FeedLine(item: item, group: shownKey.group)
@@ -2310,7 +2328,9 @@ struct ChatView: View {
             }
             // Streamed text, the typing line and unsent messages sit at the newest end too: while you read
             // history they wait with the rest, as they were drawn then (`Frozen`).
-            if drawsLive { ChatLiveText(store: store, held: frozen?.text) }
+            if drawsLive, !ChatLines.hidesLiveSupervision(lines, open: openSupervision, openAll: Self.debugOpenSupervision) {
+                ChatLiveText(store: store, held: frozen?.text)
+            }
             // Sent, and the agent not on it yet: the line the new-conversation page showed under the first message
             // (`FirstMessagePending`), where the turn's work line comes in. Without it the chat that took over showed
             // the message a line lower, then pushed it up when the turn began (#1911).
@@ -3542,6 +3562,14 @@ struct ChatView: View {
         scrub.pick(max(0, marks.count - n))
     }
     #endif
+
+    private static var debugOpenSupervision: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "showSupervisionOpen")
+        #else
+        false
+        #endif
+    }
 
     private static var debugOpenAll: Bool {
         #if DEBUG
@@ -5166,6 +5194,9 @@ struct ChatLine: Identifiable {
     var showsSource = true
 
     indirect enum Content {
+        /// One compact header for the entire quiet round; children are flattened only when it is opened.
+        case supervision(id: String, lines: [ChatLine], live: Bool)
+        case supervisionInput(Item)
         case row(ChatRow)
         case work(id: String, items: [WorkItem], live: Bool, start: Date?, end: Date?)
         case userImages(id: String, items: [Item])
@@ -5196,6 +5227,8 @@ struct ChatLine: Identifiable {
 
         var id: String {
             switch self {
+            case .supervision(let id, _, _): id
+            case .supervisionInput(let item): item.id
             case .row(let r): r.id
             case .work(let id, _, _, _, _): id
             case .workStep(let group, let item, _): group + "/" + item.id
@@ -5220,6 +5253,8 @@ struct ChatLine: Identifiable {
         self.content = content
     }
 
+    static func supervision(id: String, lines: [ChatLine], live: Bool) -> Self { Self(.supervision(id: id, lines: lines, live: live)) }
+    static func supervisionInput(_ item: Item) -> Self { Self(.supervisionInput(item)) }
     static func row(_ row: ChatRow) -> Self { Self(.row(row)) }
     static func work(id: String, items: [WorkItem], live: Bool, start: Date?, end: Date?) -> Self {
         Self(.work(id: id, items: items, live: live, start: start, end: end))
@@ -5249,6 +5284,8 @@ struct ChatLine: Identifiable {
     func holds(_ id: String?) -> Bool {
         guard let id else { return false }
         switch content {
+        case .supervision(_, let lines, _): return lines.contains { $0.holds(id) }
+        case .supervisionInput(let item): return item.id == id
         case .row(let r): return r.id == id
         case .recaps(_, let items): return items.contains { $0.id == id }
         default: return false
@@ -5899,6 +5936,8 @@ final class ChatScratch {
         /// Today, in an assistant conversation: on a new day yesterday's task cards are lines and give back the hand-offs
         /// they took in (`SentToAgents.takenIn`, #1668).
         var day: Date?
+        var supervision: Set<String> = []
+        var active = false
     }
     /// What was sent from this chat lately: its transcript copy arriving brings you to the newest, others do not.
     var sentHere: [(id: UUID, text: String)] = []

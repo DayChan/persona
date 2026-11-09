@@ -49,5 +49,8 @@
   "add_provider": "Add model provider",
   "try_anyway": "Try anyway",
   "close_help": "Close",
-  "forget_failed": "Couldn't forget “{id}”: {error}"
+  "forget_failed": "Couldn't forget “{id}”: {error}",
+  "preset": "Preset",
+  "preset_hint": "From {profile}: fills in launcher, model and effort, which you can still change.",
+  "preset_left_out": "Not applied here: {what}. The launcher's or model's own setting runs."
 }

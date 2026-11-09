@@ -248,6 +248,7 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 			s.ToolLoop = n.toolLoopOf(s.SessionID)
 		}
 		s.WorkspaceCwd = n.sessionWorkspaceCwd(s.Cwd)
+		fillGitPlace(&s)          // project, worktree and branch for the apps' tree (gitplace.go)
 		s.CanFork = n.forkable(s) // "Branch to New Chat" (fork.go)
 		keptSessions = append(keptSessions, s)
 	}

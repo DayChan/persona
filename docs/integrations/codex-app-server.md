@@ -195,7 +195,7 @@ Not established: full Persona UI races when two subscribers send opposing decisi
 - Checked Persona's existing client / directory / routing source. This research is not a complete implementation; no running-server integration had been added yet.
 - Upstream source was not built or run, no real multi-client write tests, no deployment, no TestFlight release.
 
-## First implementation (2026-11-02)
+## First implementation
 
 Entry points are `node/codex_registry.go`, `codex_discovery.go`, and `codex_remote.go`. Reuses RPC envelopes/pending from `assistant_codex.go`, connecting external WebSockets through pluggable message writers and dispatch without putting external instances into assistant-process stop/reap.
 
@@ -211,11 +211,4 @@ Explicit limitations remain: parent-managed child threads do not receive direct 
 Synthetic regressions cover identical IDs across homes, multiple owners, loaded pagination, Unix handshake, legacy ID preservation, restart mapping, read-only zero control, no resend after steer failure, unknown delivery, approval replay/external resolution with zero replies, multi-thread deltas, and payload wrapping. `PERSONA_CODEX_NODE_BINARY=<built-personad> go test ./internal/node -run CodexRemoteNodeProcess` also starts an actual node with independent HOME, driving a test WebSocket through its stdio RPC without touching user sessions.
 
 Upstream source remains read-only; its Rust tests were not run, and no sends/approvals were tried on user desktop threads. If Apple/Android platforms are unavailable, report builds and light/dark screenshots as not run; Go/web tests do not replace them.
-
-### Acceptance record for this round
-
-Validated: full server tests against real test Postgres, repeated Codex/send-related race regressions, protocol driving of an actual node process with independent HOME, and all 16 web tests plus build. The new unknown-event regression covers the old parser overlay and genuinely fails on the old implementation. Synthetic data only; no changes to the shared worktree.
-
-Apple attempted xcodebuild test with an independent source directory/simulator and exited 70: although simctl had iOS 26.0 and the SDK list showed 26.2, Xcode reported the iOS 26.2 platform uninstalled and the destination unavailable. Actual Swift tests executed: 0; no iOS/watchOS light/dark screenshots obtained. Android had no available SDK/Gradle, so no build or tests. No platform installation, signing changes, or TestFlight release.
-
-Real-corpus validation attempted to select Codex snapshots from the user's independent corpus directory, but no eligible files were found. Corpus window/continuity was therefore not run this round; a skip is not a pass. Long history relies on existing fixture/window regressions. UI and real dual-client approval-race limitations remain.
+What that round ran, and what it could not run, is in `docs/archive/integrations/codex-app-server-records.md`.

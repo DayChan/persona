@@ -97,7 +97,7 @@ Hand the user a plan of one or more tasks for agents on their computers, instead
           },
           "tier": {
             "type": "string",
-            "description": "Execution tier from the active model profile (strong, standard, fast, bulk, longread or a custom tier). Resolved at actual start. Explicit launcher/model/effort override its defaults."
+            "description": "An Agent preset: one of the tiers the snapshot's 模型档位 line lists for the profile in use, each with what it is for; pick the one whose description fits the work. Resolved when the task actually starts, with the profile in use then. Explicit launcher/model/effort override its values."
           },
           "effort": {
             "type": "string",

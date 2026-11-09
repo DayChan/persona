@@ -1,5 +1,6 @@
 {
   "new_worktree": " · 新 worktree：{branch}",
   "archive_close_card": "归档 {agent} · {machine}，并在电脑上关闭它（对话记录保留，再发消息会接着这个会话）",
-  "with_model": " · 模型：{model}"
+  "with_model": " · 模型：{model}",
+  "with_tier": " · 预设 {tier}：{runs}"
 }

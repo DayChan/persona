@@ -209,7 +209,11 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
           wake(); // Only the rail lingers; the hover card has already gone.
         }
       }}
-      onFocus={() => { focused.current = true; wake(); }}
+      onFocus={() => {
+        focused.current = true;
+        if (preview === null && !drag.current) pick(current ?? ticks[0].id, "keyboard");
+        else wake();
+      }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           focused.current = false;

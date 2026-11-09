@@ -38,14 +38,22 @@ fun repoOf(cwd: String, repoRoot: String? = null): RepoPlace {
     return RepoPlace(path, baseName(path), path, main = true)
 }
 
-/** A working tree of a repository on one computer and the sessions in it (in the order they came). */
-data class AgentWorktree(val id: String, val name: String, val path: String, val main: Boolean, val members: List<AgentSession>)
+/**
+ * A working tree of a repository on one computer and the sessions in it (in the order they came). [name] is its [branch]
+ * when the node says (#1805), else its folder's name (the main checkout: the repository's).
+ */
+data class AgentWorktree(
+    val id: String, val name: String, val path: String, val main: Boolean, val members: List<AgentSession>, val branch: String? = null,
+)
 
 /** One repository on one computer, its working trees the main checkout first, then by name. */
 data class AgentRepo(val id: String, val machineId: String, val name: String, val path: String, val worktrees: List<AgentWorktree>) {
     val members: List<AgentSession> get() = worktrees.flatMap { it.members }
-    /** Only its main checkout: its sessions sit right under the repository, without a working-tree heading. */
-    val flat: Boolean get() = worktrees.size == 1 && worktrees[0].main
+    /**
+     * Only its main checkout and no branch the node named: its sessions sit right under the repository, without a
+     * working-tree heading. A named branch keeps its heading (#1805: machine → project → branch → sessions).
+     */
+    val flat: Boolean get() = worktrees.size == 1 && worktrees[0].main && worktrees[0].branch == null
 }
 
 /**
@@ -84,7 +92,19 @@ internal val NaturalOrder = Comparator<String> { a, b ->
 
 private val byName = compareBy<Pair<String, String>, String>(NaturalOrder) { it.first }.thenBy { it.second }
 
-private val AgentSession.place: RepoPlace get() = repoOf(session.cwd, session.repoRoot)
+/**
+ * Where the node placed a session in git (#1805, web's `gitPlaceOf`, iOS's `RepoPlace.git`): its project (`repo_root`,
+ * else the working tree itself) and working tree; null from an older node, which leaves [repoOf]'s inference.
+ */
+fun gitPlaceOf(repoRoot: String?, worktree: String?): RepoPlace? {
+    val tree = worktree.orEmpty().trimEnd('/')
+    if (tree.isEmpty()) return null
+    val repo = repoRoot.orEmpty().trimEnd('/').ifEmpty { tree }
+    return RepoPlace(repo, baseName(repo), tree, main = tree == repo)
+}
+
+private val AgentSession.place: RepoPlace
+    get() = gitPlaceOf(session.repoRoot, session.worktree) ?: repoOf(session.cwd, session.repoRoot)
 
 /** The repositories of [rows] by name in natural order (then path), each computer's apart; ids are `repo/<machine>/<path>`, `tree/<machine>/<path>`. */
 fun agentRepos(rows: List<AgentSession>): List<AgentRepo> =
@@ -94,7 +114,9 @@ fun agentRepos(rows: List<AgentSession>): List<AgentRepo> =
         val name = place.name.ifEmpty { UnnamedRepo }
         val trees = members.groupBy { it.place.worktree }.map { (path, inTree) ->
             val main = inTree.first().place.main
-            AgentWorktree("tree/$machine/$path", if (path == repo) name else baseName(path), path, main, inTree)
+            // Orca's sidebar and git name a working tree by its branch.
+            val branch = inTree.firstNotNullOfOrNull { it.session.branch?.takeIf(String::isNotEmpty) }
+            AgentWorktree("tree/$machine/$path", branch ?: if (path == repo) name else baseName(path), path, main, inTree, branch)
         }.sortedWith(compareBy<AgentWorktree> { !it.main }.thenComparing({ it.name to it.path }, byName))
         AgentRepo("repo/$machine/$repo", machine, name, repo, trees)
     }.sortedWith(compareBy<AgentRepo, Pair<String, String>>(byName) { it.name to it.path }.thenBy { it.machineId })

@@ -163,8 +163,12 @@ export interface Session {
   also_open_in?: string[];
   /** Node-verified physical working directory; the original cwd stays available for existing session flows. */
   workspace_cwd?: string;
-  /** The main checkout of the repository cwd belongs to, when the host knows it (#2840: Paseo's worktrees); "By repo" groups by it. */
+  /** The main checkout of the repository cwd belongs to: the node reads it off git (#1805), Paseo names its own (#2840).
+   *  "By repo" groups by it. */
   repo_root?: string;
+  /** The top of the git working tree cwd is in (repo_root for the main checkout) and its branch, from the node (#1805). */
+  worktree?: string;
+  branch?: string;
   machine_id: string;
   session_id: string;
   /** The manager it belongs to (docs/protocol/protocol.md "Per-manager routing"); none: the default one. */

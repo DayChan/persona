@@ -60,6 +60,15 @@ Use synthetic conversations for screenshots, not the user's real main conversati
 - Parsing `<persona-context>` must not assume all attributes are present or in a fixed order (2026-11-03, #876). iOS once recognized it only when all three of `kind`, `title`, and `url` were present. Lark /agent contexts had no `url`, so the tag went unrecognized, leaving the whole prompt and large blank areas in the bubble.
   Truncating user messages for pagination must also avoid cutting through tags: a cut in the middle leaves an unclosed `<persona-context`, which every client displays as body text (`lightContexts` in `transcript/contexts.go` trims only the body of each block).
 
+- Whole-round supervision folding must cover the independent streaming-answer view as well as transcript rows (#2092).
+  Recaps can close a turn without ending its supervision round; only the next actual input does that. A queued genuine
+  input must not be absorbed into the quiet round. Preserve successful visibility evidence when overlapping raw pages
+  replace server folds, persist that client-side evidence and invalidate caches when adding the fields. Structure-only
+  chat diagnostics must also handle the new line kinds without logging the input or answer. Automatic live-work
+  expansion belongs inside an opened supervision trace; it must never open the quiet round itself. Keep the pending
+  stream hidden after the turn stops too: the store can retain it until its transcript item arrives. Determine its
+  newest transcript owner, not only whether the round is still running.
+
 ## Refusal fallback is session state, not a model setting (#2203)
 
 A `system/model_refusal_fallback` row with session scope can explain a model-route 404 several turns later. Preserve

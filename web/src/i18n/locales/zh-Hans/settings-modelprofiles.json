@@ -1,9 +1,13 @@
 {
   "title": "模型档位",
-  "footer": "下一次模型调用或 Agent 启动时生效。通过 hub API 编辑或新增档位，也可以让 Persona 切换。",
+  "footer": "下一次模型调用或 Agent 启动时生效。可以让 Persona 切换档位或编辑 Agent 预设，其余通过 hub API 编辑。",
   "active": "当前",
   "rollback": "回滚",
   "custom": "之前的自定义配置",
   "apply": "应用档位",
-  "changes": "将修改的模型字段：{count}"
+  "changes": "将修改的模型字段：{count}",
+  "none_active": "当前没有使用中的档位，应用一个之后 Agent 预设才生效。",
+  "tiers": "Agent 预设",
+  "no_tiers": "这个档位还没有 Agent 预设，可以让 Persona 添加。",
+  "details": "它会应用的模型设置"
 }
