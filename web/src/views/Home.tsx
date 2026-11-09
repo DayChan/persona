@@ -1,7 +1,7 @@
 // Overview: what needs you, what is running, what just finished — Beautiful UI's Task Rows — and the computers.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ago, sessionCan, sessionPreview, shortDuration, sourceSubtitle, sessionTitle, stateOf, tabLabel } from "../lib/format";
-import { cardState } from "../lib/card-focus";
+import { ago, interactionCanAnswer, sessionCan, sessionPreview, shortDuration, sourceSubtitle, sessionTitle, stateOf, tabLabel } from "../lib/format";
+import { cardState, requestRoute } from "../lib/card-focus";
 import { interactionAsk } from "../lib/inbox";
 import { answerLines, type Resolution } from "../lib/answered";
 import { quickAnswers, withHeld, type HeldRow, type QuickChoice } from "../lib/quick-answers";
@@ -119,7 +119,7 @@ export function Home({ onNewAgent, onToggleSidebar }: { onNewAgent: () => void; 
                 const s = sessions.find((x) => x.machine_id === ix.machine_id && x.session_id === ix.session_id);
                 const title = ix.session_title || (s ? sessionTitle(s) : ix.cwd || t("home.session"));
                 // what the row answers in one tap, as iOS's "Needs you" cards; the rest (plans, forms, typing) opens the chat
-                const quick = sessionCan(s ?? getSession(ix.machine_id, ix.session_id), "approve") ? quickAnswers(ix) : null;
+                const quick = interactionCanAnswer(ix, s ?? getSession(ix.machine_id, ix.session_id)) ? quickAnswers(ix) : null;
                 // allowed in one tap, a permission says the tool and what it runs or touches (iOS: "Bash: swift test"),
                 // not the agent's description of it
                 const tool = quick && ix.kind === "permission" ? toolDisplayName(ix.tool_name) : "";
@@ -139,7 +139,7 @@ export function Home({ onNewAgent, onToggleSidebar }: { onNewAgent: () => void; 
                         i={i}
                         state="needs_you"
                         done={done}
-                        to={{ name: "session", mid: ix.machine_id, sid: ix.session_id }}
+                        to={requestRoute(ix)}
                         title={title}
                         tags={rowTags(title, [name(ix.machine_id), s?.space_name, s && tabLabel(s)])}
                         detail={(tool && ask && ask !== tool ? t("home.permission_detail", { tool, what: ask }) : ask) || undefined}

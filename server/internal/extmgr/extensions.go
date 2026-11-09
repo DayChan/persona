@@ -1024,6 +1024,9 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 			hp.contributions = params.ContributionsToMe
 			hp.contributionsMu.Unlock()
 		}
+		if err := ps.storageStart(ctx, p); err != nil {
+			return extension.InitializeParams{}, storeError(ctx, err)
+		}
 		return params, nil
 	}
 	if builtin && id == wechat.ID && ps.h != nil {
@@ -1048,6 +1051,11 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 	s.Handle = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 		if current := ps.reg.SnapshotExact(id); current == nil || current.Record.Version != p.Record.Version || !current.Record.UpdatedAt.Equal(p.Record.UpdatedAt) {
 			return nil, &rpc.Error{Code: extension.CodePermissionDenied, Message: "retired extension runtime"}
+		}
+		if strings.HasPrefix(method, "storage.") {
+			// Keep this process's captured epoch/grants. Re-resolving after the
+			// preliminary fence could lend a retired run the replacement's scope.
+			return ps.storageCall(ctx, p, method, params)
 		}
 		switch method {
 		case "kb.list", "kb.get", "kb.day", "kb.search", "kb.update", "kb.owner", "kb.recent":

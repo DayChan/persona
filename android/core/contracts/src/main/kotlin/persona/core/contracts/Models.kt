@@ -66,6 +66,11 @@ data class Machine(
     @SerialName("deploying") val deploying: Boolean = false,
     /** Why the last "Redeploy" did not work. */
     @SerialName("deploy_error") val deployError: String? = null,
+    /** Whether the hub would take a "Redeploy" here (docs/operations/node-update.md); false with [deployReason]; null from older hubs. */
+    @SerialName("can_deploy") val canDeploy: Boolean? = null,
+    @SerialName("deploy_reason") val deployReason: String? = null,
+    /** A redeploy's stage: waiting_idle, transferring, restarting or confirming; null from older hubs. */
+    @SerialName("deploy_phase") val deployPhase: String? = null,
     /** ego lite on a Mac while the hub's browser plugin is on (docs/plans/plan-ego-browser.md); absent otherwise. */
     @SerialName("browser") val browser: MachineBrowser? = null,
     /** How Cua Driver is on this Mac (docs/extensions/computer-use.md), while the cua extension is on; null elsewhere. */

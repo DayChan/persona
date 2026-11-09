@@ -1,5 +1,37 @@
 # Lessons: hub / node and networking
 
+## Durable storage receipts do not extend authority (#1187)
+
+Check current declared keys and queue/blob flags before replay lookup, including
+queue operations inside an atomic transaction. A prior success receipt cannot
+bypass a withdrawn flag. A claim receipt describes its original lease: replay
+must reject it after expiry, retry, completion or worker replacement, rather than
+returning an old `leased` result as fresh work. Time-relative admission checks for
+a new retry belong after replay lookup so a committed retry can still recover a
+lost reply after its next-attempt deadline passes.
+
+Carry the process's captured installation epoch and grants into the transaction.
+Re-resolving a replacement after an initial memory fence can lend an old callback
+the new scope; the persisted row lock must compare the original capture. Cancel
+attempt-bound callbacks before child cleanup, not after waiting for a dead child.
+Postgres owns mutation/receipt atomicity and uninstall retention; managers own
+business validation, so the DB package must not import a manager implementation.
+A recreated pool is not a database-server restart, and a canceled precommit update
+is not an injected unknown commit. Name and report those tests accurately.
+
+Do not pre-truncate every database fixture's timestamps: that masks an actual
+install's nanosecond registry record failing authorization against Postgres's
+microsecond `timestamptz`. Compare at the persisted precision in start, restore
+replay and uninstall, and test that a one-microsecond epoch/revision difference
+still rejects the stale operation. Real installed-source acceptance catches this
+edge even when synthetic transport fixtures all pass.
+
+A successful owner restore must restart the extension under the manager's context,
+not the HTTP request's. The committed data can be correct while a lazy runtime is
+canceled as soon as the 200 response returns, making its next page time out. Drive
+restore through the real API and open a fresh page after the response; DB-only
+restore tests do not exercise this lifetime boundary.
+
 ## The first gh on PATH may not be the GitHub CLI (#2081)
 
 Some Linux hosts have an unrelated program named `gh` in `/usr/local/bin`, and `New` puts that directory ahead of

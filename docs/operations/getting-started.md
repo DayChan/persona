@@ -122,10 +122,11 @@ Pick a path based on what you have:
 - **Already using Claude Code and signed in**: nothing to fill in; just send something in the main chat.
 - **Have an API key**: in the web version open **Settings › Model Providers › Add Provider**, choose a vendor from the list and paste the key. It sends one very short message as a test, which costs a tiny amount.
   Once saved, the main chat and newly opened Agents use it automatically; if you previously chose a different model in **Model Settings**, your choice is kept and not replaced.
+  Grok is the exception: it can't run the main chat or Agents, only background work such as sorting and processing.
 - **Have nothing**: pick a vendor from the same list, click **Where do I get a key?** to sign up on their site and copy a key, then come back and paste it.
 
-The list currently has: Anthropic official, DeepSeek, Kimi (Moonshot AI), Zhipu GLM, Alibaba Cloud Model Studio (Qwen), MiniMax; Kimi and MiniMax also have international editions.
-The ones marked as directly available in mainland China can be opened with a Chinese phone number and payment method; Anthropic official and the two international editions need an overseas account and payment method. If none fit, choose **Custom compatible gateway** at the end of the list.
+The list currently has: Anthropic official, DeepSeek, Kimi (Moonshot AI), Zhipu GLM, Alibaba Cloud Model Studio (Qwen), MiniMax, and Grok (xAI); Kimi and MiniMax also have international editions.
+The ones marked as directly available in mainland China can be opened with a Chinese phone number and payment method; Anthropic official, Grok and the two international editions need an overseas account and payment method. If none fit, choose **Custom compatible gateway** at the end of the list.
 
 **Settings › Model Providers** on iPhone and Android can add providers too, but the new "pick a vendor, just paste the key" wizard is still in progress, so the web is easiest for now.
 ## What the cards above the main chat mean

@@ -10,7 +10,7 @@ import { BUSY_MOTION, spinStyle } from "../../lib/busy-motion";
 import type { Interaction } from "../../lib/types";
 import { defaults, elicitationDraft, elicitationResolution, elicitationSource, fields, numberInputMode, saveElicitationDraft, urlHost, urlTarget, validate, type ElicitationAction, type Field, type Values } from "../../lib/elicitation";
 import { answerLines } from "../../lib/answered";
-import { sessionCan, sessionTitle } from "../../lib/format";
+import { interactionCanAnswer, sessionTitle } from "../../lib/format";
 import { interactionAsk } from "../../lib/inbox";
 import { plainMarkdown } from "../../lib/plain-markdown";
 import { mcpServerLabel, toolDisplayName } from "../../lib/turns";
@@ -832,7 +832,7 @@ function ElicitationCard({ ix }: { ix: Interaction }) {
   // a card that moves on the page (the one above it answered) is drawn anew: it picks up what was typed and opened
   const [values, setValues] = useState<Values>(() => elicitationDraft(ix.id)?.values ?? defaults(form?.requested_schema));
   const [opened, setOpened] = useState<string | undefined>(() => elicitationDraft(ix.id)?.opened);
-  const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
+  const canApprove = useStore(() => interactionCanAnswer(ix, getSession(ix.machine_id, ix.session_id)));
   useEffect(() => saveElicitationDraft(ix.id, form?.requested_schema, { values, opened }), [ix.id, form?.requested_schema, values, opened]);
   const [busy, setBusy] = useState<ElicitationAction | "dismiss" | null>(null);
   const go = async (body: Record<string, unknown>, key: ElicitationAction | "dismiss") => {
@@ -1034,7 +1034,7 @@ export function AnsweredCard({ card }: { card: Answered }) {
 }
 
 export function InteractionCard({ ix }: { ix: Interaction }) {
-  const canApprove = useStore(() => sessionCan(getSession(ix.machine_id, ix.session_id), "approve"));
+  const canApprove = useStore(() => interactionCanAnswer(ix, getSession(ix.machine_id, ix.session_id)));
   const card = ix.kind === "question" && ix.tool_name === "persona_tool_loop" ? <ToolLoopCard key={ix.id} ix={ix} />
     : ix.kind === "question" ? <QuestionCard ix={ix} />
     : ix.kind === "plan" ? <PlanCard ix={ix} />

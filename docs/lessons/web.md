@@ -461,6 +461,11 @@ Six parallel lanes (chat rendering, message actions, Agents list / Machines, Ter
 - **`refresh()` snapshots restore just-resolved cards**: it concurrently fetches `/sessions` (seconds on busy hub) and `/interactions`, replacing state when all finish. An intervening `interaction_resolved` removes the card; the old snapshot restores it, still clickable, and another click gets 410 "no longer pending." Number every pending-card change (`changeInteraction` in `store.ts`); snapshots update only state predating the request. Android `HubInteractionCenter` uses the same approach.
 - **Collapse cards locally on successful submission**, not only on WS events (late or lost on disconnection); iOS / Android already do this. Hub idempotently returns 200 with the original answer (`already`) for answered cards; 410 only for expiry, withdrawal, or hand-back to computer. See `docs/protocol/protocol.md`.
 
+## Sessionless requests are cards, not missing sessions (#1882)
+
+- Only an explicitly empty `session_id` bypasses session approval capability checks. A nonempty id whose session is absent or restricted must still refuse. Use the same decision for card forms, quick answers and notification actions.
+- A script request has no conversation to open. Route it by interaction id from Overview, Inbox and notifications, and reuse the existing card renderer and answer receipt. Give each sessionless request its own notification identity so answering one cannot close another's notification; retain initial-snapshot suppression and device preferences.
+
 ## Chat rendering aligned with a reference client (2026-11-05, #1963)
 
 - **Claude Code in herdr has no token stream**: transcript writes only complete blocks; thinking blocks are mostly empty (5 tested sessions, 1698 of 2066 blocks with empty bodies). Screen text also appears in whole chunks (20 consecutive reads every 0.4 s verified). Only the bottom status line changes each second, so real-time information uses node status-line `live` pushes; replies can only "fade in word by word after a whole block arrives." Only assistant main chat has true deltas.

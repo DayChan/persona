@@ -342,12 +342,26 @@ data class ExtensionPermissions(
      * user names, machine names or IP addresses). Needed by contributes.error_reports.
      */
     @SerialName("error_reports") val errorReports: Boolean? = null,
+    val storage: ExtensionStoragePermission? = null,
     /**
      * It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
      * printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
      * contributes.auth_relay.
      */
     @SerialName("auth_relay") val authRelay: Boolean? = null,
+)
+
+/**
+ * Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+ * prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+ * host quotas. Queue and blob methods additionally require their flags.
+ */
+@Serializable
+data class ExtensionStoragePermission(
+    val keys: List<String>? = null,
+    val patterns: List<String>? = null,
+    val queues: Boolean? = null,
+    val blobs: Boolean? = null,
 )
 
 /**

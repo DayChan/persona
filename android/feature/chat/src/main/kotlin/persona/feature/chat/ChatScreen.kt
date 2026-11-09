@@ -724,9 +724,11 @@ private fun ChatPage(
                                                 uncertain = uncertain - interaction.id
                                                 interactionFeedback = result.notice(res, interaction, resolution)
                                                 if (result.offersNext(resolution)) answeredHere++
-                                            } else uncertain = uncertain + interaction.id
-                                            notice = if (result.submission == InteractionSubmission.Unknown) res.getString(result.submission.notice) else null
-                                            if (result.submission == InteractionSubmission.PromptChanged || result.submission == InteractionSubmission.Unknown) {
+                                            } else if (result.submission == InteractionSubmission.Unknown) uncertain = uncertain + interaction.id
+                                            // refused: nothing was done, so the card stays answerable, with the hub's reason (#1881)
+                                            else uncertain = uncertain - interaction.id
+                                            notice = if (result.withdraw) null else result.notice(res, interaction, resolution)
+                                            if (result.submission == InteractionSubmission.PromptChanged || !result.withdraw) {
                                                 try { interactions.refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
                                             }
                                         } finally { busyId = null }

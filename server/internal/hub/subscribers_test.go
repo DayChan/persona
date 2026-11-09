@@ -156,3 +156,49 @@ func TestSendLiveTextIsTheDeltaPush(t *testing.T) {
 		t.Errorf("sent %s, want %s", got, want)
 	}
 }
+
+// When a machine's live texts are forgotten (the node disconnected), each subscriber of those sessions
+// gets an empty delta push to clear the streaming text, and other sessions/machines are not cleared.
+func TestForgetLiveTextClearsSubscribers(t *testing.T) {
+	follower1 := &client{out: make(chan []byte, 4), subs: map[[2]string]bool{{"m1", "s1"}: true}}
+	followerOtherMachine := &client{out: make(chan []byte, 4), subs: map[[2]string]bool{{"m2", "s1"}: true}}
+	followerOtherSession := &client{out: make(chan []byte, 4), subs: map[[2]string]bool{{"m1", "s2"}: true}}
+	h := &Hub{
+		clients: map[*client]struct{}{follower1: {}, followerOtherMachine: {}, followerOtherSession: {}},
+		deltas: map[[2]string]string{
+			{"m1", "s1"}: "in progress",
+			{"m2", "s1"}: "machine 2 in progress",
+			// m1/s2 has no active live text
+		},
+	}
+
+	h.forgetLiveText("m1")
+
+	// m1/s1 should have sent an empty delta to follower1
+	if len(follower1.out) != 1 {
+		t.Fatalf("expected 1 clear message for follower1, got %d", len(follower1.out))
+	}
+	want := `{"machine_id":"m1","session_id":"s1","text":"","type":"delta"}`
+	if got := string(<-follower1.out); got != want {
+		t.Errorf("follower1 got %s, want %s", got, want)
+	}
+
+	// m2/s1 is another machine, should not be forgotten or pushed
+	if len(followerOtherMachine.out) != 0 {
+		t.Fatalf("followerOtherMachine got unexpected message: %s", string(<-followerOtherMachine.out))
+	}
+
+	// m1/s2 had no delta in progress, should not receive anything
+	if len(followerOtherSession.out) != 0 {
+		t.Fatalf("followerOtherSession got unexpected message: %s", string(<-followerOtherSession.out))
+	}
+
+	// m1/s1 should be removed from h.deltas, m2/s1 should remain
+	if _, ok := h.deltas[[2]string{"m1", "s1"}]; ok {
+		t.Error("m1/s1 delta was not removed from h.deltas")
+	}
+	if text := h.deltas[[2]string{"m2", "s1"}]; text != "machine 2 in progress" {
+		t.Errorf("m2/s1 delta changed: got %q, want %q", text, "machine 2 in progress")
+	}
+}
+

@@ -300,7 +300,19 @@
         "usage_gateways": {"type": "boolean", "description": "It reads the account list of the account-pool gateways in the hub's usage sources (usage.gateway_accounts): accounts, status and quota windows, never a key."},
         "agent_runtimes": {"type": "boolean", "description": "Its program is an agent runtime that connects to this machine's node; in a sandbox it gets a socket in its run directory (PERSONA_RUNTIME_SOCKET) that leads to the node's runtime.sock only. Needs runtime."},
         "error_reports": {"type": "boolean", "description": "It receives the error and crash reports of the hub and the user's devices, scrubbed (no message text, tokens, user names, machine names or IP addresses). Needed by contributes.error_reports."},
+        "storage": {"$ref": "#/$defs/StoragePermission"},
         "auth_relay": {"type": "boolean", "description": "It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names, printed by the Agent's own command) to complete them with the account it is signed in with. Needed by contributes.auth_relay."}
+      }
+    },
+    "StoragePermission": {
+      "description": "Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and host quotas. Queue and blob methods additionally require their flags.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keys": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "patterns": {"type": "array", "maxItems": 32, "items": {"type": "string", "minLength": 2, "maxLength": 128}},
+        "queues": {"type": "boolean"},
+        "blobs": {"type": "boolean"}
       }
     },
     "Contributes": {

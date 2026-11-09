@@ -15,7 +15,7 @@ vi.mock("./card-answer", () => ({ answerCard: (ix: Interaction, body: Record<str
 vi.mock("./store", () => ({ getState: () => ({ interactions }) }));
 vi.mock("./notify", () => ({ postNotification: (n: { title: string; body: string; url: string }) => posted.push(n) }));
 vi.mock("../ui/atoms", () => ({ toast: (...a: unknown[]) => toasts.push(a) }));
-vi.mock("./router", () => ({ navigate: (r: unknown) => navigate(r), href: (r: { mid: string; sid: string }) => `/s/${r.mid}/${r.sid}` }));
+vi.mock("./router", async (original) => ({ ...(await original<typeof import("./router")>()), navigate: (r: unknown) => navigate(r) }));
 
 const { failedTagsOver, NOTE_MESSAGE, onWorkerMessage, planClick } = await import("./notification-answer");
 const worker = await import("./sw-click");
@@ -39,7 +39,10 @@ beforeEach(() => {
   answerCard.mockClear();
   navigate.mockClear();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  failedTagsOver([]);
+  vi.restoreAllMocks();
+});
 
 describe("哪张卡、发什么", () => {
   it("和 worker 说的是同一种消息", () => expect(NOTE_MESSAGE).toBe(worker.NOTE_MESSAGE));
@@ -99,6 +102,17 @@ describe("页面收到 worker 的消息", () => {
     await settle();
     expect(posted).toEqual([expect.objectContaining({ title: "没能允许", body: "这个请求已经过期，回答没有送到", url: "/s/m/a" })]);
     expect(toasts).toEqual([]);
+  });
+
+  it("answers a sessionless notification and keeps a failed answer linked to its request", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const script = { ...perm, id: "script-request", session_id: "", tool_name: "personad_ask" };
+    interactions = [script];
+    expect(deliver(note("allow", script.id)).postMessage).toHaveBeenCalledWith(true);
+    expect(answerCard).toHaveBeenCalledWith(script, { allow: true });
+    answers[0]!({ ok: false, error: "Example connection failure" });
+    await settle();
+    expect(posted).toEqual([expect.objectContaining({ url: "/requests/script-request" })]);
   });
 
   it("没答上的通知：卡后来在别处答掉了就收回，卡还在就留着，卡本来就结束了不收回（#5070）", async () => {

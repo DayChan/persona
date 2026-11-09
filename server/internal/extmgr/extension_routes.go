@@ -131,6 +131,7 @@ func (h *Manager) extensionRoutes(api *http.ServeMux) {
 	h.upgradeRoutes(api)
 	h.auditRoutes(api)
 	h.extensionDevRoutes(api)
+	h.storageRoutes(api)
 	h.sandboxRoutes(api)
 	h.contributionRoutes(api)
 	h.declaredRoutes(api)

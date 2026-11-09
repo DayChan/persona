@@ -99,3 +99,11 @@ it("preserves non-secret text and does not record failed secret answers", async 
   expect((await answerCard({ ...ix, kind: "screen", secret: true }, { text: "synthetic" })).ok).toBe(false);
   expect(ended).toEqual([]);
 });
+
+it("answers an explicitly sessionless script card without a session lookup result", async () => {
+  session = undefined;
+  apiOp.mockResolvedValue({});
+  const script = { ...ix, id: "script-request", session_id: "", tool_name: "personad_ask", agent: "script" };
+  expect(await answerCard(script, allowBody())).toEqual({ ok: true, already: false });
+  expect(apiOp).toHaveBeenCalledWith("/interactions/script-request/resolve", { method: "POST", json: { allow: true } });
+});

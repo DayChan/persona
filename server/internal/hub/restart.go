@@ -82,6 +82,7 @@ func (h *Hub) forgetLiveText(machineID string) {
 	for k := range h.deltas {
 		if k[0] == machineID {
 			delete(h.deltas, k)
+			h.toSubscribersLocked(k[0], k[1], "", deltaPush{Type: "delta", MachineID: k[0], SessionID: k[1], Text: ""})
 		}
 	}
 }

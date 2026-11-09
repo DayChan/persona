@@ -218,6 +218,7 @@ class InboxDataOwner @Inject constructor(
         override val assistant = observe(AssistantSnapshot()) { it.assistant.assistant }
         override val pinned = observe(emptySet<persona.core.contracts.SessionKey>()) { it.assistant.pinned }
         override suspend fun refresh() = use { it.assistant.refresh() }
+        override suspend fun mainConversationOf(manager: String) = use { it.assistant.mainConversationOf(manager) }
         override suspend fun startConversation() = use { it.assistant.startConversation() }
         override suspend fun startConversation(launcher: String) = use { it.assistant.startConversation(launcher) }
     }

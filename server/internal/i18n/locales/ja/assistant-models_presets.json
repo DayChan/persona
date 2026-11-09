@@ -14,5 +14,7 @@
   "name_minimax": "MiniMax（中国版）",
   "desc_minimax": "minimax.cn、中国本土のアカウントが必要",
   "name_minimax_intl": "MiniMax",
-  "desc_minimax_intl": "MiniMax の国際版、従量課金"
+  "desc_minimax_intl": "MiniMax の国際版、従量課金",
+  "name_grok": "Grok",
+  "desc_grok": "xAI、従量課金。メインチャットと Agents では使えません"
 }
