@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { api, enc, errorText } from "../lib/api";
 import { sessionTitle, stateOf } from "../lib/format";
 import { openNewAgent } from "../lib/new-agent";
 import { openPanel } from "../lib/panel";
 import { useAgentSessions } from "../lib/sessions";
 import { onHubEvent, useStore } from "../lib/store";
-import { BoardModel, boundCard, cardSessions, columnCards, sameDirectory, selectedColumn, type BoardCard, type BoardColumn, type BoardMutation, type BoardState, type Workspace } from "../lib/workspace-board";
+import { BoardModel, boundCard, columnCards, selectedColumn, type BoardCard, type BoardColumn, type BoardMutation, type BoardState, type Workspace } from "../lib/workspace-board";
+import { machinesByID, sessionsByCard, workspacesByCard } from "../lib/workspace-board-index";
 import type { Machine, Session } from "../lib/types";
 import { Button, cx, Dialog, IconButton, Loading, Menu, StatePill, toast, type MenuItem } from "../ui/atoms";
 import { Icon } from "../ui/icons";
@@ -65,12 +66,24 @@ function Board({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const activeColumn = board ? selectedColumn(board, columnSelection) : "";
   const card = board?.cards.find((c) => c.id === selected);
   const names = useMemo(() => new Map(machines.map((m) => [m.id, m.name || m.id])), [machines]);
+  // Built once per change of what they index; every card then looks itself up instead of scanning all of them (#2294).
+  const machineOf = useMemo(() => machinesByID(machines), [machines]);
+  const sessionsOf = useMemo(() => sessionsByCard(sessions), [sessions]);
+  const workspaces = state.discovery.workspaces;
+  const workspaceOf = useMemo(() => workspacesByCard(workspaces), [workspaces]);
+  // Each column's cards once per filter change, for both the narrow-screen picker's counts and the columns.
+  const shown = useMemo(() => new Map(board?.columns.map((c) => [c.id, columnCards(board, c.id, { search, machine, archived })])), [board, search, machine, archived]);
   const machineIDs = [...new Set([...machines.map((m) => m.id), ...(board?.cards.map((c) => c.machine_id) ?? [])])];
   const mutate = async (m: BoardMutation) => { const ok = await model.mutate(m); if (!ok && model.snapshot().error) toast(model.snapshot().error, "error"); return ok; };
   const dropCard = (e: React.DragEvent, column: string, before?: string) => {
     e.preventDefault(); e.stopPropagation(); const id = dragging.current || e.dataTransfer.getData("application/x-persona-workspace"); dragging.current = null; setDrop("");
     if (!disabled && id && id !== before && board?.cards.some((c) => c.id === id)) void mutate({ action: "move_card", id, column_id: column, before_id: before });
   };
+  // Stable, so a memoized card renders again only when its own props change.
+  const openCard = useCallback((c: BoardCard) => setSelected(c.id), []);
+  const openCardMenu = useCallback((anchor: HTMLElement, c: BoardCard) => setMenu({ anchor, card: c }), []);
+  const startDrag = useCallback((e: React.DragEvent, c: BoardCard) => { dragging.current = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-persona-workspace", c.id); }, []);
+  const endDrag = useCallback(() => { dragging.current = null; setDrop(""); }, []);
   const cardMenu = (c: BoardCard): MenuItem[] => {
     const peers = columnCards(board!, c.column_id, { archived: c.archived }).filter((p) => p.pinned === c.pinned), i = peers.findIndex((p) => p.id === c.id);
     return [
@@ -102,17 +115,17 @@ function Board({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
       <select aria-label={t("workspaceboard.filter_machine")} className="max-w-full rounded-control bg-field px-3 py-2 text-sm text-ink" value={machine} onChange={(e) => setMachine(e.target.value)}><option value="">{t("workspaceboard.all_machines")}</option>{machineIDs.map((id) => <option key={id} value={id}>{names.get(id) || id}</option>)}</select>
       <Button tone={archived ? "primary" : "quiet"} onClick={() => setArchived(!archived)}>{archived ? t("workspaceboard.back_to_board") : t("workspaceboard.archived")}</Button><IconButton icon="retry" label={t("workspaceboard.refresh")} onClick={() => void model.refresh()} disabled={state.busy} />
     </div>
-    {board && <div className="border-b border-line bg-surface px-4 pb-3 @3xl:hidden"><select aria-label={t("workspaceboard.pick_column")} className={field} value={activeColumn} onChange={(e) => setColumnSelection(e.target.value)}>{board.columns.map((c) => <option key={c.id} value={c.id}>{c.title} · {columnCards(board, c.id, { search, machine, archived }).length}</option>)}</select></div>}
+    {board && <div className="border-b border-line bg-surface px-4 pb-3 @3xl:hidden"><select aria-label={t("workspaceboard.pick_column")} className={field} value={activeColumn} onChange={(e) => setColumnSelection(e.target.value)}>{board.columns.map((c) => <option key={c.id} value={c.id}>{c.title} · {shown.get(c.id)?.length ?? 0}</option>)}</select></div>}
     {state.readonly && <p className="border-b border-line bg-inset px-4 py-2 text-xs text-ink-2">{t("workspaceboard.readonly")}</p>}
     {state.error && <p role="alert" className="border-b border-line bg-red-tint px-4 py-2 text-sm text-red">{state.error}</p>}
     {(state.discoveryError || state.discovery.errors?.length) ? <div role="status" className="border-b border-line bg-orange-tint px-4 py-2 text-xs text-orange">{state.discoveryError && <p>{t("workspaceboard.discovery_failed", { error: state.discoveryError })}</p>}{state.discovery.errors?.map((e, index) => <p key={`${e.machine_id}:${index}`}>{t("workspaceboard.machine_error", { machine: names.get(e.machine_id) || e.machine_id, error: e.error })}</p>)}<p>{t("workspaceboard.discovery_kept")}</p></div> : null}
     {state.loading && !board ? <div className="p-6"><Loading label={t("workspaceboard.loading")} /></div> : board ? <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-4" aria-label={archived ? t("workspaceboard.archived_label") : t("workspaceboard.columns_label")}>
-      {board.columns.map((column) => { const cards = columnCards(board, column.id, { search, machine, archived });
+      {board.columns.map((column) => { const cards = shown.get(column.id) ?? [];
         return <section key={column.id} className={cx("w-full shrink-0 flex-col rounded-card bg-canvas @3xl:flex @3xl:w-72 @3xl:min-w-64 @3xl:flex-1", column.id === activeColumn ? "flex" : "hidden")} aria-label={column.title}>
           <div className="flex items-center gap-2 px-3 py-3"><span className="size-2 rounded-full bg-accent" /><h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={column.title}>{column.title}</h2><span className="text-xs text-ink-3">{cards.length}</span><IconButton icon="more" label={t("workspaceboard.column_menu", { column: column.title })} disabled={disabled} onClick={(e) => setMenu({ anchor: e.currentTarget, column })} /></div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
             {cards.map((c) => <div key={c.id} className={cx("rounded-card", drop === c.id && "ring-2 ring-accent")} onDragOver={(e) => { if (!disabled && dragging.current) { e.preventDefault(); e.stopPropagation(); setDrop(c.id); } }} onDrop={(e) => dropCard(e, column.id, c.id)}>
-              <WorkspaceCard card={c} machine={machines.find((m) => m.id === c.machine_id)} workspace={state.discovery.workspaces.find((w) => w.id === c.workspace_id || w.machine_id === c.machine_id && sameDirectory(w.cwd, c.cwd))} sessions={cardSessions(c, sessions)} disabled={disabled} onOpen={() => setSelected(c.id)} onMenu={(anchor) => setMenu({ anchor, card: c })} onDragStart={(e) => { dragging.current = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-persona-workspace", c.id); }} onDragEnd={() => { dragging.current = null; setDrop(""); }} />
+              <WorkspaceCard card={c} machine={machineOf(c.machine_id)} workspace={workspaceOf(c)} sessions={sessionsOf(c)} disabled={disabled} onOpen={openCard} onMenu={openCardMenu} onDragStart={startDrag} onDragEnd={endDrag} />
             </div>)}
             <div className={cx("flex min-h-16 items-center justify-center rounded-control border border-dashed px-3 py-4 text-center text-xs text-ink-3", drop === column.id ? "border-accent bg-accent-tint" : "border-line-strong")} onDragOver={(e) => { if (!disabled && dragging.current) { e.preventDefault(); setDrop(column.id); } }} onDrop={(e) => dropCard(e, column.id)}>{cards.length ? <TouchHint text={t("workspaceboard.drop_here")} /> : search || machine ? t("workspaceboard.no_match") : <TouchHint text={t("workspaceboard.empty")} />}</div>
           </div>{!archived && <div className="border-t border-line px-3 py-2"><Button tone="quiet" icon="plus" className="w-full" disabled={disabled} onClick={() => setAdding(column.id)}>{t("workspaceboard.bind_workspace")}</Button></div>}
@@ -129,23 +142,24 @@ function Board({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
       <div className="mt-4 flex justify-end gap-2"><Button onClick={() => setDeleting(null)}>{t("common.cancel")}</Button><Button tone="danger" disabled={disabled || Boolean(board?.cards.some((c) => c.column_id === deleting?.id) && !moveTo)} busy={state.busy} onClick={() => void mutate({ action: "delete_column", id: deleting?.id, move_to: moveTo || undefined }).then((ok) => { if (ok) setDeleting(null); })}>{t("workspaceboard.delete_column")}</Button></div>
     </Dialog>
     {adding && board && <BindWorkspace column={adding} board={board} workspaces={state.discovery.workspaces} machines={machines} busy={state.busy} disabled={state.readonly} onClose={() => setAdding(undefined)} onBind={mutate} />}
-    {card && <WorkspaceDetail card={card} column={board!.columns.find((c) => c.id === card.column_id)?.title ?? ""} machine={machines.find((m) => m.id === card.machine_id)} sessions={cardSessions(card, sessions)} readonly={state.readonly} onClose={() => setSelected(undefined)} />}
+    {card && <WorkspaceDetail card={card} column={board!.columns.find((c) => c.id === card.column_id)?.title ?? ""} machine={machineOf(card.machine_id)} sessions={sessionsOf(card)} readonly={state.readonly} onClose={() => setSelected(undefined)} />}
   </div>;
 }
 
-/** Durable workflow binding; availability and Agent activity remain secondary facts. */
-export function WorkspaceCard({ card, machine, workspace, sessions, disabled, onOpen, onMenu, onDragStart, onDragEnd }: {
-  card: BoardCard; machine?: Machine; workspace?: Workspace; sessions: Session[]; disabled?: boolean;
-  onOpen: () => void; onMenu: (anchor: HTMLElement) => void; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void;
+/** Durable workflow binding; availability and Agent activity remain secondary facts. Memoized: the handlers get the card,
+ *  so the board passes the same ones to every card and a search keystroke re-renders no card it keeps. */
+export const WorkspaceCard = memo(function WorkspaceCard({ card, machine, workspace, sessions, disabled, onOpen, onMenu, onDragStart, onDragEnd }: {
+  card: BoardCard; machine?: Machine; workspace?: Workspace; sessions: readonly Session[]; disabled?: boolean;
+  onOpen: (card: BoardCard) => void; onMenu: (anchor: HTMLElement, card: BoardCard) => void; onDragStart?: (e: React.DragEvent, card: BoardCard) => void; onDragEnd?: () => void;
 }) {
   const availability = machine?.online === false || workspace?.online === false ? t("workspaceboard.machine_offline") : workspace?.available === false ? t("workspaceboard.space_unavailable") : !workspace ? t("workspaceboard.space_not_found") : "";
-  return <article draggable={!disabled} onDragStart={onDragStart} onDragEnd={onDragEnd} className="rounded-card bg-surface p-3 shadow-card" data-card-id={card.id}>
-    <div className="flex items-start gap-2"><button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}><span className="flex items-center gap-1.5">{card.pinned && <Icon name="pin" size={12} className="shrink-0 text-accent" />}<span className="truncate text-sm font-semibold text-ink" title={card.title}>{card.title}</span></span><span className="mt-2 block truncate font-mono text-xs text-ink-3" title={card.cwd}>{card.cwd}</span></button><IconButton icon="more" label={t("workspaceboard.card_menu", { card: card.title })} disabled={disabled} onClick={(e) => onMenu(e.currentTarget)} /></div>
+  return <article draggable={!disabled} onDragStart={onDragStart && ((e) => onDragStart(e, card))} onDragEnd={onDragEnd} className="rounded-card bg-surface p-3 shadow-card" data-card-id={card.id}>
+    <div className="flex items-start gap-2"><button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(card)}><span className="flex items-center gap-1.5">{card.pinned && <Icon name="pin" size={12} className="shrink-0 text-accent" />}<span className="truncate text-sm font-semibold text-ink" title={card.title}>{card.title}</span></span><span className="mt-2 block truncate font-mono text-xs text-ink-3" title={card.cwd}>{card.cwd}</span></button><IconButton icon="more" label={t("workspaceboard.card_menu", { card: card.title })} disabled={disabled} onClick={(e) => onMenu(e.currentTarget, card)} /></div>
     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span className="flex min-w-0 items-center gap-1"><Icon name="machine" size={12} />{machine?.name || card.machine_id}</span>{card.branch && <span className="flex min-w-0 items-center gap-1"><Icon name="git" size={12} /><span className="max-w-32 truncate">{card.branch}</span></span>}</div>
     <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs text-ink-2">{sessions.length ? t("workspaceboard.agent_count", { count: sessions.length }) : t("workspaceboard.no_agents")}</span>{availability && <span className="rounded-full bg-field px-2 py-1 text-xs text-ink-3">{availability}</span>}{sessions.some((s) => stateOf(s) === "needs_you") && <StatePill state="needs_you" />}{!sessions.some((s) => stateOf(s) === "needs_you") && sessions.some((s) => stateOf(s) === "working") && <StatePill state="working" />}</div>
   </article>;
-}
-function WorkspaceDetail({ card, column, machine, sessions, readonly, onClose }: { card: BoardCard; column: string; machine?: Machine; sessions: Session[]; readonly: boolean; onClose: () => void }) {
+});
+function WorkspaceDetail({ card, column, machine, sessions, readonly, onClose }: { card: BoardCard; column: string; machine?: Machine; sessions: readonly Session[]; readonly: boolean; onClose: () => void }) {
   const open = (kind: "files" | "git") => { onClose(); openPanel({ kind, mid: card.machine_id, sid: sessions[0]?.session_id ?? "", cwd: card.cwd }); };
   return <Dialog open title={card.title} onClose={onClose}><div className="space-y-4"><p className="text-xs text-ink-3">{[column, card.archived && t("workspaceboard.archived"), machine?.name || card.machine_id, machine?.online === false && t("workspaceboard.offline")].filter(Boolean).join(" · ")}</p><p className="break-all rounded-control bg-inset p-3 font-mono text-xs text-ink-2">{card.cwd}</p>{card.branch && <p className="text-xs text-ink-2">{t("workspaceboard.branch", { branch: card.branch })}</p>}
     <div className="flex flex-wrap gap-2"><Button icon="folder" disabled={!machine?.online} onClick={() => open("files")}>{t("workspaceboard.files")}</Button><Button icon="git" disabled={!machine?.online} onClick={() => open("git")}>Git</Button><Button icon="plus" disabled={readonly || !machine?.online} onClick={() => { onClose(); openNewAgent({ machineId: card.machine_id, cwd: card.cwd }); }}>{t("workspaceboard.new_agent")}</Button></div>
