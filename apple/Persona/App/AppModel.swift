@@ -266,6 +266,8 @@ final class AppModel {
     @ObservationIgnored private(set) var chats: [SessionKey: ChatStore] = [:]
     /// The groups whose outbox is going out now (`flushOutbox`): one group sending does not hold back another.
     @ObservationIgnored var flushingOutbox = Set<String>()
+    /// Per waiting message: how many sends in a row came back waiting while its group's link was up (`settleSend`).
+    @ObservationIgnored var outboxStalls: [UUID: Int] = [:]
     /// Per group: the task asking a member-connected group's center whether it answers again (HubLinks.watchCenter).
     @ObservationIgnored var centerWatch: [String: Task<Void, Never>] = [:]
     @ObservationIgnored let outboxWriter = Debouncer(.milliseconds(300))

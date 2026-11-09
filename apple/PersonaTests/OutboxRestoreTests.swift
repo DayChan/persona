@@ -73,6 +73,13 @@ struct OutboxRestoreTests {
         #expect(back.first?.state == .waiting)
     }
 
+    /// Offline for a day is still worth sending; a week on, its chat may be long gone (#1923).
+    @Test func aWaitingMessageComesBackUntilItIsAWeekOld() async throws {
+        let recent = message(.waiting, age: 86400 * 2)
+        #expect(try await relaunched(with: [recent]).map(\.id) == [recent.id])
+        #expect(try await relaunched(with: [message(.waiting, age: OutboxWait.restoreLimit + 60)]).isEmpty)
+    }
+
     /// Longer ago than a sent message ever waits for its copy: it had its copy or gave up then.
     @Test func aSentMessageFromLongAgoDoesNotComeBack() async throws {
         #expect(try await relaunched(with: [message(.sent, age: AppModel.sentWait + 60)]).isEmpty)

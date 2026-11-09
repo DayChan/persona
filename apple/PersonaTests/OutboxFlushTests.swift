@@ -27,3 +27,28 @@ struct OutboxFlushTests {
         #expect(OutboxFlush.batches([home, work], ready: { _ in false }, busy: []).isEmpty)
     }
 }
+
+/// A message that keeps coming back waiting while its group's link is up gives up after a few tries (#1923): a chat
+/// deleted on another device left it waiting, sent again every 10 seconds, forever.
+struct OutboxWaitTests {
+    @Test func aWaitOnAnUpLinkCountsTowardTheLimit() {
+        #expect(OutboxWait.next(.waiting, stalls: 0, linkUp: true) == .init(outcome: .waiting, stalls: 1))
+    }
+
+    @Test func theLastAllowedWaitFailsTheMessage() {
+        let next = OutboxWait.next(.waiting, stalls: OutboxWait.connectedTries - 1, linkUp: true)
+        #expect(next.outcome == .failed)
+        #expect(next.gaveUp)
+        #expect(next.stalls == nil)
+    }
+
+    /// Offline is what waiting is for: no limit, and the run starts again once the link is back.
+    @Test func aWaitWhileTheLinkIsDownNeverFailsAndResetsTheRun() {
+        let next = OutboxWait.next(.waiting, stalls: OutboxWait.connectedTries - 1, linkUp: false)
+        #expect(next == .init(outcome: .waiting, stalls: nil))
+    }
+
+    @Test func aSendEndsTheRun() {
+        #expect(OutboxWait.next(.sent, stalls: 3, linkUp: true) == .init(outcome: .sent, stalls: nil))
+    }
+}

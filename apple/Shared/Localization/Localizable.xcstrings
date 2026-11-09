@@ -530,6 +530,29 @@
         }
       }
     },
+    "A message wasn't sent: its chat is no longer on the hub." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A message wasn't sent: its chat is no longer on the hub."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージを送信できませんでした。そのチャットはもうハブにありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有条消息没发出去：它的对话已不在 hub 上。"
+          }
+        }
+      }
+    },
     "A model ID can't contain line breaks or control characters": {
       "extractionState": "manual",
       "localizations": {

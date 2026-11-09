@@ -5,7 +5,7 @@ import Foundation
 // were written. Kept on disk too, so quitting the app (or iOS ending it in the background) does not lose them.
 // Sent bubbles live here too: they stay until the transcript's copy arrives (`settleSend`, `showSent`), on disk as well.
 
-enum SendOutcome: Equatable {
+nonisolated enum SendOutcome: Equatable, Sendable {
     case sent, failed, waiting
 
     var state: PendingMessage.State {
@@ -37,7 +37,15 @@ extension AppModel {
     /// Records how a send went; a sent bubble stays until its transcript copy arrives (a minute at most).
     func settleSend(_ key: SessionKey, _ id: UUID, _ outcome: SendOutcome) {
         let store = chat(key)
-        guard let i = store.pending.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = store.pending.firstIndex(where: { $0.id == id }) else { outboxStalls[id] = nil; return }
+        let linkUp = socket(key.group).map { $0.state == .connected && !$0.stalled } == true
+        let wait = OutboxWait.next(outcome, stalls: outboxStalls[id] ?? 0, linkUp: linkUp)
+        outboxStalls[id] = wait.stalls
+        let outcome = wait.outcome
+        if wait.gaveUp, session(key) == nil {
+            // Its chat was deleted, or its computer removed, on another device while this one was offline (#1923).
+            toast = Toast(String(localized: "A message wasn't sent: its chat is no longer on the hub."), style: .error)
+        }
         store.pending[i].state = outcome.state
         saveOutbox()
         switch outcome {
@@ -51,8 +59,9 @@ extension AppModel {
                 }
                 store.pending.removeAll { $0.id == id }
             }
-        case .waiting where socket(key.group).map({ $0.state == .connected && !$0.stalled }) == true:
-            // The socket looks fine but the request got no answer (a weak network): try again shortly.
+        case .waiting where linkUp:
+            // The socket looks fine but the request got no answer (a weak network), or the chat is not in the session
+            // list yet: try again shortly, up to `OutboxWait.connectedTries` times.
             Task {
                 try? await Task.sleep(for: .seconds(10))
                 flushOutbox()
@@ -76,6 +85,8 @@ extension AppModel {
                 defer { flushingOutbox.remove(group) }
                 for key in keys {
                     let store = chat(key)
+                    // A paged session list holds only the pages loaded: ask for this chat's row (no-op otherwise).
+                    if session(key) == nil { await refreshSessionDetail(key) }
                     if !isSubscribed(key) {
                         if store.loadedOnce { await fill(key) } else { await loadInitial(key) }
                     }
@@ -119,6 +130,8 @@ extension AppModel {
             case .sent:
                 if let at = msg.createdAt, at < Date().addingTimeInterval(-Self.sentWait) { continue }
             case .sending, .waiting:
+                // Not forever either: a chat deleted elsewhere kept its message waiting at every launch (#1923).
+                if let at = msg.createdAt, at < Date().addingTimeInterval(-OutboxWait.restoreLimit) { continue }
                 msg.state = .waiting
             }
             let store = chat(e.key)
@@ -143,5 +156,32 @@ nonisolated enum OutboxFlush {
         var out: [String: [SessionKey]] = [:]
         for key in keys where !busy.contains(key.group) && ready(key.group) { out[key.group, default: []].append(key) }
         return out.mapValues { $0.sorted { ($0.machineID, $0.sessionID) < ($1.machineID, $1.sessionID) } }
+    }
+}
+
+/// What a send's outcome does to a message's run of waiting answers on a link that is up (pure, for the tests). A
+/// request with no answer on a socket that looks fine, or a chat missing from the session list (deleted, or its
+/// computer removed, on another device), comes back waiting; without a limit it went again every 10 seconds for as
+/// long as the app ran, and at every launch (#1923).
+nonisolated enum OutboxWait {
+    /// Waiting answers in a row on a link that is up before the message fails: about a minute of retries.
+    static let connectedTries = 6
+    /// How old a waiting message may be and still come back at launch: a week offline is a long trip.
+    static let restoreLimit: TimeInterval = 7 * 86400
+
+    struct Next: Equatable {
+        /// The outcome to record.
+        var outcome: SendOutcome
+        /// The run so far; nil once the message is no longer waiting on a link that is up.
+        var stalls: Int?
+        /// It failed because the run reached the limit.
+        var gaveUp = false
+    }
+
+    static func next(_ outcome: SendOutcome, stalls: Int, linkUp: Bool) -> Next {
+        guard outcome == .waiting, linkUp else { return Next(outcome: outcome, stalls: nil) }
+        let run = stalls + 1
+        if run >= connectedTries { return Next(outcome: .failed, stalls: nil, gaveUp: true) }
+        return Next(outcome: .waiting, stalls: run)
     }
 }
