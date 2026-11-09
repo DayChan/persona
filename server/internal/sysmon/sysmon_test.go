@@ -3,6 +3,7 @@ package sysmon
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,6 +39,38 @@ func TestProcStatCPU(t *testing.T) {
 	}
 	if v := cpuPercent(all1, all0); v != nil {
 		t.Fatalf("counter went back but got %v", *v)
+	}
+}
+
+// Busy is total - idle - iowait and iowait may decrease (proc(5)), so busy can grow by more than total: that is a
+// counter going backwards (no reading), not a CPU above 100%.
+func TestCPUPercentCounterBackwards(t *testing.T) {
+	_, cores0, _ := parseProcStat([]byte("cpu  200 0 100 600 100 0 0 0\ncpu0 100 0 50 300 50 0 0 0\ncpu1 100 0 50 300 50 0 0 0\n"))
+	_, cores1, _ := parseProcStat([]byte("cpu  300 0 110 630 50 0 0 0\ncpu0 120 0 60 320 50 0 0 0\ncpu1 180 0 50 310 0 0 0 0\n"))
+	if len(cores0) != 2 || len(cores1) != 2 {
+		t.Fatalf("cores %d %d", len(cores0), len(cores1))
+	}
+	show := func(v *float64) string {
+		if v == nil {
+			return "nil"
+		}
+		return fmt.Sprint(*v)
+	}
+	for _, tc := range []struct {
+		name      string
+		prev, cur cpuTimes
+		want      *float64
+	}{
+		{"idle and iowait went back", jiffies(strings.Fields("10 0 10 50 30 0 0 0")), jiffies(strings.Fields("40 0 20 60 0 0 0 0")), nil},
+		{"one core's iowait went back", cores0[1], cores1[1], nil},
+		{"the other core", cores0[0], cores1[0], ptr(60)},
+		{"normal delta", cpuTimes{busy: 10, total: 100}, cpuTimes{busy: 35, total: 200}, ptr(25)},
+		{"fully busy", cpuTimes{busy: 10, total: 100}, cpuTimes{busy: 110, total: 200}, ptr(100)},
+		{"fully idle", cpuTimes{busy: 10, total: 100}, cpuTimes{busy: 10, total: 200}, ptr(0)},
+	} {
+		if got := cpuPercent(tc.prev, tc.cur); show(got) != show(tc.want) {
+			t.Errorf("%s: cpuPercent(%+v, %+v) = %s, want %s", tc.name, tc.prev, tc.cur, show(got), show(tc.want))
+		}
 	}
 }
 
@@ -162,6 +195,12 @@ func TestVMStat(t *testing.T) {
 	}
 	if n, ok := abbreviated("12456M"); !ok || n != 12456<<20 {
 		t.Fatalf("abbreviated = %d", n)
+	}
+	// A header cut off after "page size of " is not a header (it used to index an empty field list and panic).
+	for _, line := range []string{"Mach Virtual Memory Statistics: (page size of ", "page size of    "} {
+		if n, ok := parseVMStatHeader(line); ok || n != 0 {
+			t.Fatalf("parseVMStatHeader(%q) = %d, %v", line, n, ok)
+		}
 	}
 }
 

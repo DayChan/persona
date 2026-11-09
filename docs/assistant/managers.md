@@ -616,6 +616,8 @@ each appended row is checked, including a final persistence flush after departur
 
 Observation waits at most 30 seconds. Unreadable/partial process tables and changed
 PID observations return errors; timeout remains an error and never closes anything.
+A wait that runs out during a process-table read reports `state: "timeout"`, not an
+unreadable table.
 `process_absent: true` is only an absence observation, not a graceful-exit receipt:
 crash, detach, PID reuse and surviving background work are not resolved by it.
 `graceful_exit_confirmed`, `background_complete`, `machine_idle`, `binding_verified`
