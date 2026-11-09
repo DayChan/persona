@@ -183,7 +183,7 @@ Limits: the path can't exceed 108 bytes (a very deep `%USERPROFILE%` gives `bind
 - **In the foreground**: Windows has no terminal foreground process group and no "suspended". Instead, a process counts only if "no ancestor in its parent chain is an agent process in the same pane" (a claude started by claude isn't the one the terminal shows);
   pids get reused, so an ancestor must have started before the process itself. When a pane has several, claude comes first, then by start time (Windows pids don't increase, so they can't be sorted by pid).
 - **Screen-reading card**: Orca reports the session as blocked as soon as the AskUserQuestion PreToolUse hook fires, but starting a hook process on Windows takes a few seconds, so the dialog appears late.
-  The card the manager built at that moment couldn't read the dialog ("can't read this dialog yet"); after that the manager looks at the screen again every 500 ms (up to 30 seconds) and swaps in a card with options as soon as the dialog appears (`assistant.upgradeScreenCard` in `assistant/fleet_ix.go`, on all platforms).
+  The card the manager built at that moment couldn't read the dialog ("can't read this dialog yet"); after that the manager looks at the screen again every 500 ms (up to 30 seconds) and swaps in a card with options as soon as the dialog appears (`assistant.upgradeScreenCard` in `assistant/fleet_ix_screen.go`, on all platforms).
 
 ## Codex
 

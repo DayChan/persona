@@ -33,7 +33,8 @@ type sessionState struct {
 	Cwd              string    `json:"cwd"`
 	IsMain           bool      `json:"is_main,omitempty"`
 	StartedAt        time.Time `json:"started_at"`
-	// AppMode / AppEffort: the permission mode and effort the app set on an assistant conversation (modes.go). They
+	// AppMode / AppEffort: the permission mode and effort set on an assistant conversation (modes.go). AppMode
+	// also retains a terminal Codex start constraint for later resumes. They
 	// win over what its transcript recorded and outlive the node: an old "default" there no longer locks it in.
 	AppMode   string `json:"app_mode,omitempty"`
 	AppEffort string `json:"app_effort,omitempty"`

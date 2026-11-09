@@ -293,6 +293,67 @@ func TestGitOpsNeverForce(t *testing.T) {
 	}
 }
 
+// A branch whose upstream was deleted on the remote and pruned (a merged pull request's branch) is not "up to date":
+// the status says the upstream is gone, and Push publishes the branch again instead of finding nothing to push.
+func TestGitUpstreamGone(t *testing.T) {
+	f := newPullFixture(t)
+	ctx := context.Background()
+	runPullGit(t, f.local, "switch", "-q", "-c", "feature")
+	f.commit(t, f.local, "feature.txt", "first\n")
+	runPullGit(t, f.local, "push", "-q", "-u", "origin", "feature")
+	runPullGit(t, f.seed, "push", "-q", "origin", "--delete", "feature")
+	runPullGit(t, f.local, "fetch", "-q", "--prune")
+	f.commit(t, f.local, "feature.txt", "after the merge\n")
+
+	st, err := f.node.gitStatus(ctx, f.local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Upstream != "origin/feature" || !st.Gone || st.Ahead != 0 || st.Behind != 0 {
+		t.Fatalf("status = upstream %q gone %v ahead %d behind %d", st.Upstream, st.Gone, st.Ahead, st.Behind)
+	}
+	res, err := f.node.gitOp(ctx, f.local, "push")
+	if err != nil || res.Message != "已推送" {
+		t.Fatalf("push = %+v, %v", res, err)
+	}
+	if got := runPullGit(t, f.seed, "ls-remote", "origin", "refs/heads/feature"); !strings.HasPrefix(got, runPullGit(t, f.local, "rev-parse", "HEAD")) {
+		t.Fatalf("the remote branch is %q", got)
+	}
+	if st, _ = f.node.gitStatus(ctx, f.local); st.Gone || st.Ahead != 0 {
+		t.Fatalf("after the push: gone %v ahead %d", st.Gone, st.Ahead)
+	}
+
+	// the Git panel's push publishes it again the same way
+	runPullGit(t, f.seed, "push", "-q", "origin", "--delete", "feature")
+	runPullGit(t, f.local, "fetch", "-q", "--prune")
+	w, err := f.node.gitPush(ctx, f.local, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Status.Gone || w.Status.Upstream != "origin/feature" {
+		t.Fatalf("after the panel's push: %+v", w.Status)
+	}
+}
+
+func TestParseStatusV2Upstream(t *testing.T) {
+	for _, c := range []struct {
+		name, out     string
+		gone          bool
+		ahead, behind int
+	}{
+		{"tracked", "# branch.head main\x00# branch.upstream origin/main\x00# branch.ab +2 -1\x00", false, 2, 1},
+		{"level", "# branch.head main\x00# branch.upstream origin/main\x00# branch.ab +0 -0\x00", false, 0, 0},
+		{"gone", "# branch.head feature\x00# branch.upstream origin/feature\x00? new.txt\x00", true, 0, 0},
+		{"none", "# branch.head feature\x00", false, 0, 0},
+	} {
+		st := &GitStatus{}
+		parseStatusV2(c.out, st)
+		if st.Gone != c.gone || st.Ahead != c.ahead || st.Behind != c.behind {
+			t.Errorf("%s: gone %v ahead %d behind %d", c.name, st.Gone, st.Ahead, st.Behind)
+		}
+	}
+}
+
 func TestGitOpsRefuse(t *testing.T) {
 	f := newPullFixture(t)
 	ctx := context.Background()

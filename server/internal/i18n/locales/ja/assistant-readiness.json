@@ -16,6 +16,8 @@
   "not_logged_in_detail": "{machine} で一度ログインするか、API キーを使ってください。",
   "auth_failed_title": "モデルのキーが正しくありません",
   "auth_failed_detail": "モデルのキーが間違っているか期限切れです。使えるキーに替えてください。",
+  "model_fallback_unavailable_title": "拒否後に切り替えた代替モデルを利用できません",
+  "model_fallback_unavailable_detail": "上流サービスがリクエストを拒否したため、Claude Code がこのセッションをサービスで利用できない代替モデルに切り替えました。新しい会話を始めるか、Claude Code のターミナルで /model を使って元のモデルを選んでください。内容は自動で再送されません。同じリクエストは再び拒否される可能性があります。",
   "model_route_title": "このモデルは今使えません",
   "model_route_detail": "モデル名が間違っているか、このモデルは今使えません。別のモデルを試してください。",
   "rate_limited_title": "モデルの利用が速すぎます",

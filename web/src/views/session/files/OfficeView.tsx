@@ -9,7 +9,7 @@ import { SANS, withFallback } from "../../../lib/fonts";
 import { bytes } from "../../../lib/format";
 import { IWORK_PREVIEWS, readZipEntry, type ReadRange } from "../../../lib/zip-range";
 import { Button, Loading } from "../../../ui/atoms";
-import { fileBytes } from "./FileView";
+import { fileBytes } from "./file-data";
 import { Empty } from "./parts";
 import { t } from "../../../i18n";
 import { tRich } from "../../../i18n/rich";

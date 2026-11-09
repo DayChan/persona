@@ -643,6 +643,9 @@ home volume (docs/operations/link.md "Without systemd").
 - New network commands mustn't reuse the default 15-second read-only timeout: pull 60 seconds, full node operation 75, hub 90, client 100. Disable terminal credential prompts and bound pipe waits after cancellation. Test with local bare remotes and isolated Git config, not users' real repositories.
 - Git's "no upstream" used nonexistent SF Symbol `cloud.slash`; registration in the design system let `everyNameIsASymbol` catch it. The correct slashed-cloud symbol is `icloud.slash`. Don't exempt icon registration or validity checks.
 - Direct node RPC `handle` tests need even minimal fixtures to initialize `state: newState()`: dispatch reads session state before Git methods, so `home` alone panics first.
+- An upstream deleted on the remote and pruned (a merged pull request's branch) still prints `# branch.upstream` in `git status --porcelain=v2 --branch`,
+  but no `# branch.ab` line (2026-11-09, #1884). Ahead / behind left at their zero values then read as "up to date" and "nothing to push" while the new
+  commits exist only locally: report the missing `branch.ab` as `gone`, and never treat "upstream set, 0 / 0" as in sync without checking it.
 
 ### Stash positions change outside the node (#1480)
 

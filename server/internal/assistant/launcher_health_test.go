@@ -494,6 +494,7 @@ func TestLauncherHealthIgnoresRefusedStarts(t *testing.T) {
 		&rpc.Error{Code: "codex_needs_prompt", Message: "新建 Codex 会话要连第一条消息一起发"},
 		&rpc.Error{Code: proto.CodeNodeOutdated, Message: "node too old"},
 		&rpc.Error{Code: "ultracode_unsupported", Message: "Claude Code 版本太旧"},
+		&rpc.Error{Code: "readonly_unsupported", Message: "This launcher cannot enforce read-only mode"},
 	} {
 		s.recordStartFailure(ctx, "l4", "work", err)
 		if r, ok := s.launcherHealth(ctx, "l4", "work"); ok {

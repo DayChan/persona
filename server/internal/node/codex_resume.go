@@ -152,8 +152,15 @@ func (n *Node) paneOf(id string) string {
 // resumeCodexThread resumes Codex thread id with text as its next message ("" for none): with what Persona started
 // it with when it did, otherwise in its rollout's directory through launcher (when it runs Codex) or plain codex.
 // What it was resumed with is kept, so the next time it comes back the same way.
-func (n *Node) resumeCodexThread(ctx context.Context, id, launcher, text string, images []proto.Image) error {
+func (n *Node) resumeCodexThread(ctx context.Context, id, launcher, text string, images []proto.Image, mode string) error {
 	st, mine := n.state.get(id)
+	previousMode := st.AppMode
+	if mode != "" {
+		st.AppMode = "" // An explicit non-plan choice restores the launcher's own permission behavior.
+		if mode == "plan" {
+			st.AppMode = mode
+		}
+	}
 	complete := mine && st.Launcher != "" && st.Cwd != ""
 	busy := refusal(codexResumeRefused, "这个 Codex 会话正在电脑上运行（或还在启动），这次没有发送：等它出现在列表里再发。", nil)
 	if at, ok := codexResumes.Load(id); ok && time.Since(at.(time.Time)) < codexResumeHold {
@@ -176,7 +183,7 @@ func (n *Node) resumeCodexThread(ctx context.Context, id, launcher, text string,
 	} else {
 		codexResumes.Delete(id)
 	}
-	if !complete && (err == nil || maybeDelivered(err)) {
+	if (!complete || st.AppMode != previousMode) && (err == nil || maybeDelivered(err)) {
 		// Kept even when the start was not confirmed: the Codex may be up in its tab by now, and it is Persona's.
 		if a, ok := n.agent(id); ok {
 			st.Pane = a.PaneID
@@ -190,16 +197,19 @@ func (n *Node) resumeCodexThread(ctx context.Context, id, launcher, text string,
 
 // resumeCodexSession is session.start's resume of a Codex thread that is not running: resumed like a message would
 // resume it, without one unless the start brings its first.
-func (n *Node) resumeCodexSession(ctx context.Context, id, launcher, prompt string) (*proto.Session, error) {
+func (n *Node) resumeCodexSession(ctx context.Context, id, launcher, prompt, mode string) (*proto.Session, error) {
 	defer n.typing.lock(id)() // not while a message to it is resuming it too
 	if a, ok := n.agent(id); ok {
+		if mode == "plan" {
+			return nil, readonlyStartUnsupported() // A concurrent start cannot receive new CLI permission flags.
+		}
 		return n.sessionFor(id, a), nil
 	}
 	st, mine := n.state.get(id)
 	if !n.codexResumable(id) && (n.externalCodex(id) || !mine || st.Launcher == "" || st.Cwd == "") {
 		return nil, refusal(codexResumeRefused, "这个 Codex 会话正被别的程序打开，或不是在终端里开的：请在电脑上恢复（codex resume）。", nil)
 	}
-	if err := n.resumeCodexThread(ctx, id, launcher, prompt, nil); err != nil {
+	if err := n.resumeCodexThread(ctx, id, launcher, prompt, nil, mode); err != nil {
 		return nil, err
 	}
 	a, ok := n.agent(id)

@@ -347,6 +347,12 @@ func triageRules(c proto.Session, loc *time.Location, l i18n.Lang) (w *proto.Wor
 		return nil, "", true
 	}
 	if e := c.TurnError; e != "" {
+		if sessionTurnErrorCode(c) == proto.TurnErrorModelFallbackUnavailable {
+			return &proto.WorkState{Phase: proto.WorkBlocked, On: proto.WaitUser,
+				Line: i18n.T(l, "assistant-readiness.model_fallback_unavailable_title"),
+				Questions: []proto.Question{{Question: i18n.T(l, "assistant-readiness.model_fallback_unavailable_detail"), Header: workT(l, "header_model"),
+					Options: []proto.QuestionOption{{Label: answerLabel(l, answerSkip)}}}}}, "rule", false
+		}
 		if c.TurnErrorKind == proto.TurnErrorUsageLimit {
 			return limitWork(c, time.Now(), loc, l), "rule", false
 		}
@@ -424,6 +430,9 @@ func runningInBackground(c proto.Session) int {
 // turnErrorTransient: c's turn error is worth a "Continue". The agent's record says so when it gives a kind (Codex's error
 // kinds, #2185); otherwise the text does. A usage limit never is: a "Continue" before its reset is refused at once.
 func turnErrorTransient(c proto.Session) bool {
+	if sessionTurnErrorCode(c) == proto.TurnErrorModelFallbackUnavailable {
+		return false
+	}
 	switch c.TurnErrorKind {
 	case proto.TurnErrorTransient:
 		return true

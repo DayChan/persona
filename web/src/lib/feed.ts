@@ -23,6 +23,8 @@ export interface PlanTask {
   cwd: string;
   launcher?: string;
   model?: string;
+  /** An Agent preset (#2225): a tier of the model profile in use, resolved when the task starts. */
+  tier?: string;
   permission?: string;
   /** The agent starts with Claude Code's ultracode on (#12). On start, `true` / `false` overrides it; left out, the hub keeps the assistant's choice. */
   ultracode?: boolean;

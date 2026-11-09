@@ -12,7 +12,7 @@ import { DOC_LABEL, docKind, linkRoute, newContext, type ContextRef } from "../.
 import { useDocCommentsOn, useLarkOn } from "../../lib/store";
 import { Button, copyText, cx, Dialog, EASE, IconButton, Menu, useMenu } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { DocCommentsView, useDocComments } from "./DocComments";
 import { DocMarkdown, DocTree } from "./DocContent";
 import { docOutline, loadDoc, mediaURL, prepareMarkdown, readInfo, readSummary, type DocContent, type DocInfo, type OutlineItem } from "./feishu-doc";

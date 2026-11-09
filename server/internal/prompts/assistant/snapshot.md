@@ -1,6 +1,6 @@
 {{- $w := .Now.Weekday -}}
 - 现在：{{.Now.Format "2006-01-02"}} 周{{if eq $w 0}}日{{else if eq $w 1}}一{{else if eq $w 2}}二{{else if eq $w 3}}三{{else if eq $w 4}}四{{else if eq $w 5}}五{{else}}六{{end}} {{.Now.Format "15:04"}}（{{.Zone}}）
-- 模型档位：{{if .ModelProfile}}{{ctx .ModelProfile}}{{else}}未设置（model_profiles_list 查看，model_profile_switch 切换）{{end}}
+- 模型档位：{{with .ModelProfile}}{{if .Unreadable}}unavailable (model_profiles_list to retry){{else if .Gone}}{{.ID}}，已被删除（没有 Agent 预设；model_profile_switch 换一个）{{else}}{{ctx (or .Name .ID)}} ({{.ID}}){{with .Tiers}}；Agent 预设（agent_start / task_plan 的 tier）：{{range $i, $t := .}}{{if $i}}；{{end}}{{$t.Name}} = {{ctx $t.Launcher}} · {{if $t.Model}}{{ctx $t.Model}}{{else}}默认模型{{end}}{{with $t.Effort}} · {{.}}{{end}}{{with $t.Description}}（{{ctx .}}）{{end}}{{end}}{{else}}；没有 Agent 预设{{end}}{{end}}{{else}}未设置（model_profiles_list 查看，model_profile_switch 切换）{{end}}
 - 在线的电脑：{{range $i, $m := .Up}}{{if $i}}、{{end}}{{$m.Name}}（{{$m.ID}}）{{end}}{{with .Down}}；离线：{{range $i, $m := .}}{{if $i}}、{{end}}{{$m.Name}}（{{$m.ID}}）{{end}}{{end}}
 - Agents：需要你 {{len .Needs}} 个，完成未看 {{len .Unread}} 个，工作中 {{len .Working}} 个（详情用 agents_list）
 {{with .Needs}}  - 需要你：{{template "assistant/snapshot_agents" .}}

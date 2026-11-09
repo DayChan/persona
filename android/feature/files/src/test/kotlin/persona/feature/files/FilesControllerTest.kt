@@ -356,14 +356,16 @@ class FilesControllerTest {
         assertEquals(tracking, state.git)
         assertEquals(listOf("status", "pull $cwd", "status"), machine.asked)
 
-        // No upstream (or a detached HEAD): nothing to pull from.
-        machine.gitStatus = tracking.copy(upstream = null)
-        files.refreshGit()
-        runCurrent()
-        machine.asked.clear()
-        files.pull()
-        runCurrent()
-        assertTrue(machine.asked.isEmpty())
+        // No upstream (or a detached HEAD, or one deleted on the remote): nothing to pull from.
+        for (nothing in listOf(tracking.copy(upstream = null), tracking.copy(behind = 0, gone = true))) {
+            machine.gitStatus = nothing
+            files.refreshGit()
+            runCurrent()
+            machine.asked.clear()
+            files.pull()
+            runCurrent()
+            assertTrue(machine.asked.isEmpty())
+        }
     }
     @Test fun comingBackOnlineReadsAgainWhatFailed() = runTest {
         val machine = FakeMachine()

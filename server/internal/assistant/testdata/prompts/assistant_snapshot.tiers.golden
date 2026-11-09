@@ -1,0 +1,6 @@
+- 现在：2026-11-09 周一 10:00（UTC）
+- 模型档位：Performance (performance)；Agent 预设（agent_start / task_plan 的 tier）：review = gw · gw/model-x · high（Code review and design）；standard = claude · 默认模型
+- 在线的电脑：
+- Agents：需要你 0 个，完成未看 0 个，工作中 0 个（详情用 agents_list）
+- iPhone：App 不在前台，phone_* 工具会先尝试在后台唤醒 App，失败就请他打开 App
+- 已安排的跟进：没有

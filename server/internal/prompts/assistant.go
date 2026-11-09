@@ -189,10 +189,25 @@ type SnapshotWorkflow struct {
 	For                     string // how long it has run ("12 minutes"), "" under a minute
 }
 
+// SnapshotProfile is the model profile in use (docs/assistant/model-profiles.md) with its tiers, the Agent presets
+// agent_start and task_plan take; Unreadable when the profiles could not be read, Gone when the one in use was deleted
+// (a rollback to it).
+type SnapshotProfile struct {
+	ID, Name         string
+	Tiers            []SnapshotTier // by name
+	Unreadable, Gone bool
+}
+
+// SnapshotTier is one tier of the profile in use: what an Agent started on it runs on ("" model or effort: the
+// launcher's), and when to use it.
+type SnapshotTier struct {
+	Name, Launcher, Model, Effort, Description string
+}
+
 // Snapshot is the live context a starting assistant gets in its system prompt.
 type Snapshot struct {
-	ModelProfile  string    // always refreshed outside the cached sources
-	Now           time.Time // in the user's zone
+	ModelProfile  *SnapshotProfile // nil: none in use; always refreshed outside the cached sources
+	Now           time.Time        // in the user's zone
 	Zone          string
 	Machines      []SnapshotMachine
 	Needs, Unread []SnapshotAgent
