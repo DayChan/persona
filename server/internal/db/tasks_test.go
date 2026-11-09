@@ -11,7 +11,7 @@ import (
 
 func TestAppendFeedOnce(t *testing.T) {
 	d, ctx := open(t), context.Background()
-	row := FeedRow{ID: "receipt_once", Conversation: "c1", At: time.Now(), Kind: "receipt", Ref: "task", Body: json.RawMessage(`{"state":"done"}`)}
+	row := FeedRow{ID: "receipt_once", Conversation: "receipt-once-test", At: time.Now(), Kind: "receipt", Ref: "task", Body: json.RawMessage(`{"state":"done"}`)}
 	inserted, err := d.AppendFeedOnce(ctx, row)
 	if err != nil || !inserted {
 		t.Fatalf("first insert = %v, %v", inserted, err)
@@ -30,13 +30,13 @@ func TestAppendFeedOnce(t *testing.T) {
 func TestAppendTaskReceiptOnceMembershipOrdering(t *testing.T) {
 	d, ctx := open(t), context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	if err := d.CreateTodo(ctx, TodoRow{ID: "receipt-task", Title: "Task", Origin: "conv", CreatedAt: now, UpdatedAt: now}); err != nil {
+	if err := d.CreateTodo(ctx, TodoRow{ID: "receipt-task", Title: "Task", Origin: "receipt-membership-test", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.LinkTodoAgent(ctx, "receipt-task", "box", "s1", "", "", "", "", now); err != nil {
 		t.Fatal(err)
 	}
-	row := FeedRow{ID: "receipt-after-unlink", Conversation: "conv", At: now, Kind: "receipt", Ref: "receipt-task"}
+	row := FeedRow{ID: "receipt-after-unlink", Conversation: "receipt-membership-test", At: now, Kind: "receipt", Ref: "receipt-task"}
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
