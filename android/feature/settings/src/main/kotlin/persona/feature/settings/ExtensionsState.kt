@@ -146,7 +146,10 @@ internal object ExtensionText {
         "waiting_idle" -> res.getString(R.string.settings_ext_upgrade_waiting_idle)
         "available" -> res.getString(R.string.settings_ext_upgrade_available)
         "off" -> res.getString(R.string.settings_ext_upgrade_off)
-        "skipped" -> res.getString(R.string.settings_ext_upgrade_skipped, u.from)
+        "skipped" -> res.getString(
+            if (u.skippedBy == "user") R.string.settings_ext_upgrade_skipped_user else R.string.settings_ext_upgrade_skipped,
+            u.from,
+        )
         "failed" -> u.detail?.takeIf { it.isNotBlank() }?.let { res.getString(R.string.settings_ext_upgrade_failed_detail, it) } ?: res.getString(R.string.settings_ext_upgrade_failed)
         "incompatible" -> u.detail?.takeIf { it.isNotBlank() }?.let { res.getString(R.string.settings_ext_upgrade_incompatible_detail, it) } ?: res.getString(R.string.settings_ext_upgrade_incompatible)
         else -> ""

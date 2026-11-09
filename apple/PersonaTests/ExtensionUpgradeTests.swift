@@ -40,6 +40,14 @@ struct ExtensionUpgradeTests {
         #expect(ExtensionText.upgradeDetail(up("waiting_idle")) == "扩展空闲时自动升级")
         #expect(ExtensionText.upgradeDetail(up("off")) == "自动升级关着" && ExtensionText.upgradeAction(up("off")) == "去升级")
         #expect(ExtensionText.upgradeDetail(up("skipped")) == "上次升级后起不来，已回到 1.0.0，不再自动升级到这个版本")
+        // A version the user rolled back from by hand (#1826) says so, not "didn't start"; the hub sends skipped_by.
+        var byUser = up("skipped")
+        byUser.skippedBy = "user"
+        #expect(ExtensionText.upgradeDetail(byUser) == "你从这个版本回滚到了 1.0.0，不会再自动升级到它")
+        #expect(ExtensionText.upgradeAction(byUser) == "去升级")
+        let decoded = try? JSON.decoder.decode(ExtensionUpgrade.self, from: Data(
+            #"{"id":"p","market":"m1","from":"1.0.0","to":"1.1.0","state":"skipped","skipped_by":"user"}"#.utf8))
+        #expect(decoded?.skippedBy == "user")
         #expect(ExtensionText.upgradeDetail(up("failed", detail: "下载失败")) == "没装上：下载失败")
         #expect(ExtensionText.upgradeAction(up("waiting_idle")) == nil && ExtensionText.upgradeAction(up("incompatible")) == nil)
         #expect(ExtensionText.morePermissions([]) == "要的权限有变化")

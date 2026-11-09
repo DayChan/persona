@@ -4,11 +4,14 @@ import SwiftUI
 // conversation here; Hand to Persona (on by default) also gives the real ones to the knowledge base, the inbox and the
 // assistant, and can be turned off, and what the hub kept deleted. Nothing is marked read, nothing is sent.
 
-struct MessagesChatsRoute: Hashable {}
-struct MessagesThreadRoute: Hashable { var id: String; var name: String }
+/// `manager`: the Messages of another manager's connector (docs/assistant/managers.md "Grouping"), nil the default's.
+struct MessagesChatsRoute: Hashable { var manager: String? = nil }
+struct MessagesThreadRoute: Hashable { var id: String; var name: String; var manager: String? = nil }
 
-/// The connector's page: which Mac, whether it may read, and how to let it.
+/// The connector's page: which Mac, whether it may read, and how to let it. `manager`: another manager's copy, every
+/// request naming it; nil the default's.
 struct MessagesConnectorView: View {
+    var manager: String? = nil
     @Environment(AppModel.self) private var model
     @State private var status: MessagesStatus?
     @State private var loading = true
@@ -35,7 +38,7 @@ struct MessagesConnectorView: View {
                 }
                 .padding(.vertical, Theme.Space.xs)
                 if status?.status == "ok" {
-                    NavigationLink(value: MessagesChatsRoute()) {
+                    NavigationLink(value: MessagesChatsRoute(manager: manager)) {
                         Label("Session", systemImage: Theme.Icon.feishuChats)
                     }
                     .accessibilityIdentifier("messages-chats")
@@ -121,7 +124,7 @@ struct MessagesConnectorView: View {
         loading = true
         defer { loading = false }
         do {
-            status = try await model.api?.messagesStatus()
+            status = try await model.api?.manager(manager).messagesStatus()
             failure = nil
         } catch {
             failure = error.shown.map { String(localized: "Couldn't read the Messages status: \($0)") }
@@ -132,7 +135,7 @@ struct MessagesConnectorView: View {
         saving = true
         defer { saving = false }
         do {
-            if let s = try await model.api?.setMessagesAI(on) { status = s }
+            if let s = try await model.api?.manager(manager).setMessagesAI(on) { status = s }
             deleted = nil
             failure = nil
         } catch {
@@ -144,7 +147,7 @@ struct MessagesConnectorView: View {
         saving = true
         defer { saving = false }
         do {
-            if let d = try await model.api?.deleteMessagesData() {
+            if let d = try await model.api?.manager(manager).deleteMessagesData() {
                 deleted = String(localized: "Deleted. Conversations: \(d.chats), people: \(d.people), Inbox items: \(d.inbox)")
             }
             failure = nil
@@ -156,8 +159,10 @@ struct MessagesConnectorView: View {
 
 /// The Mac's conversations, newest first.
 struct MessagesChatListView: View {
-    @State private var page = MessagesChatsModel()
+    @State private var page: MessagesChatsModel
     @State private var query = ""
+
+    init(manager: String? = nil) { _page = State(initialValue: MessagesChatsModel(manager: manager)) }
 
     var body: some View {
         let chats = page.filtered(query)
@@ -170,7 +175,7 @@ struct MessagesChatListView: View {
                 Label(f.text, systemImage: Theme.Icon.error).font(Theme.Font.label).foregroundStyle(Theme.danger)
             }
             ForEach(chats) { chat in
-                NavigationLink(value: MessagesThreadRoute(id: chat.id, name: chat.name)) {
+                NavigationLink(value: MessagesThreadRoute(id: chat.id, name: chat.name, manager: page.manager)) {
                     MessagesChatRow(chat: chat)
                 }
                 .accessibilityIdentifier("messages-chat-\(chat.id)")
@@ -246,8 +251,8 @@ struct MessagesThreadView: View {
     @State private var page: MessagesThreadModel
     private let title: String
 
-    init(id: String, name: String) {
-        _page = State(initialValue: MessagesThreadModel(chatID: id))
+    init(id: String, name: String, manager: String? = nil) {
+        _page = State(initialValue: MessagesThreadModel(chatID: id, manager: manager))
         title = name
     }
 

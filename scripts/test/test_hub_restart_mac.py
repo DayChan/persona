@@ -31,9 +31,9 @@ class AgentFixtureIdentity(unittest.TestCase):
             alias = home / '.state-link'
             os.symlink(canonical, alias)
             self.assertNotEqual(alias, canonical)
-            self.assertEqual(alias.resolve(), canonical)
+            self.assertEqual(alias.resolve(), canonical.resolve())  # the temporary directory may be behind a link (/var on macOS)
             for job in agents(home).values():
-                self.assertEqual(Path(job['ProgramArguments'][0]).parent.parent.resolve(), canonical)
+                self.assertEqual(Path(job['ProgramArguments'][0]).parent.parent.resolve(), canonical.resolve())
 
 
 def switch_calls(home: Path) -> set:

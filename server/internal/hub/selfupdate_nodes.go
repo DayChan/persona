@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 
 	"github.com/nwverse/persona/server/internal/compat"
+	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/update"
 )
 
@@ -45,4 +47,36 @@ func (u *updater) stageNodes(ctx context.Context, m *update.Manifest, staged, bi
 		}
 	}
 	return nodes, nil
+}
+
+// nodeBuildName: a personad build for one platform as bin/nodes holds it (personad-<os>-<arch>, or the former name).
+var nodeBuildName = lazyre.New(`^(?:personad|` + regexp.QuoteMeta(compat.DaemonBinary) + `)-[a-z0-9]+-[a-z0-9]+$`)
+
+// setAsideOldNodes renames the personad builds in dir that would pass for the hub's own version and no longer are. The
+// manager takes a personad there with no version file beside it for a build of the hub's version
+// (internal/devices/packages.go), which stops being true once the hub updates itself without its nodes: Redeploy would
+// put the old build back on every computer (#1825). Set aside as <name>.prev, the manager fetches the hub's own build
+// from the release instead. A build with a version file says what it is and stays; the directory is never created. It
+// returns the names it moved.
+func setAsideOldNodes(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var moved []string
+	for _, e := range entries {
+		name := e.Name()
+		if !e.Type().IsRegular() || !nodeBuildName.MatchString(name) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path + ".version"); err == nil {
+			continue
+		}
+		if err := os.Rename(path, path+".prev"); err != nil {
+			continue
+		}
+		moved = append(moved, name)
+	}
+	return moved
 }

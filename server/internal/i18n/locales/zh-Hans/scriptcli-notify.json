@@ -1,0 +1,6 @@
+{
+  "no_device": "没有能接收通知的设备",
+  "filtered": "通知设置或在线的桌面客户端使所有可用设备都跳过了这条通知",
+  "hub_not_sent": "hub 没有发送：{reason}",
+  "not_sent": "没发出去：{reason}"
+}

@@ -189,7 +189,7 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	w.strs(`"dispatched":`, s.Dispatched)
 	w.strs(`"also_open_in":`, s.AlsoOpenIn)
 	w.str(`"host":`, s.Host, true)
-	w.boolean(`"started_by_jarvis":`, s.StartedByPersona, false) // sessionWire's legacy key
+	w.boolean(legacyStartedMember, s.StartedByPersona, false) // sessionWire's legacy key (compatibility.go)
 	return append(w.b, '}'), w.ok
 }
 

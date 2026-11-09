@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/nodeclient"
 	"golang.org/x/term"
 )
@@ -261,6 +262,7 @@ func (r Runner) Notify(ctx context.Context, args []string, stdout, stderr io.Wri
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	rep, err := nodeclient.NotifyNode(ctx, r.Dial, req, nodeclient.HookPane(r.Getenv))
+	lang := i18n.From(ctx).Or(i18n.Default)
 	why := ""
 	switch {
 	case errors.Is(err, nodeclient.ErrNoNode):
@@ -275,12 +277,19 @@ func (r Runner) Notify(ctx context.Context, args []string, stdout, stderr io.Wri
 		}
 		why = "manager 不在线，node 先存着，回来后再发"
 	case !rep.Sent:
-		why = "hub 没有发送：" + rep.Reason
+		switch rep.Reason {
+		case "no_device":
+			why = i18n.T(lang, "scriptcli-notify.no_device")
+		case "filtered":
+			why = i18n.T(lang, "scriptcli-notify.filtered")
+		default:
+			why = i18n.T(lang, "scriptcli-notify.hub_not_sent", i18n.Args{"reason": rep.Reason})
+		}
 	}
 	if why == "" {
 		return ExitOK
 	}
-	fmt.Fprintf(stderr, "personad notify: 没发出去：%s\n", why)
+	fmt.Fprintf(stderr, "personad notify: %s\n", i18n.T(lang, "scriptcli-notify.not_sent", i18n.Args{"reason": why}))
 	if *strict {
 		return ExitDenied
 	}

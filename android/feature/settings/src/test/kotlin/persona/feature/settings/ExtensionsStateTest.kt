@@ -279,6 +279,8 @@ class ExtensionsStateTest {
         assertNull(ExtensionText.upgradeAction(res, u.copy(state = "waiting_idle")))
         assertEquals("扩展空闲时自动升级", ExtensionText.upgradeDetail(res, u.copy(state = "waiting_idle")))
         assertEquals("上次升级后起不来，已回到 1.0.0，不再自动升级到这个版本", ExtensionText.upgradeDetail(res, u.copy(state = "skipped")))
+        // A version the user rolled back from by hand (#1826) says so, not "didn't start".
+        assertEquals("你从这个版本回滚到了 1.0.0，不会再自动升级到它", ExtensionText.upgradeDetail(res, u.copy(state = "skipped", skippedBy = "user")))
         assertEquals("已自动升级到 1.2.0（原来是 1.0.0）", ExtensionText.upgradeNote(res, ExtensionUpgradeNote("upgraded", "1.0.0", "1.2.0")))
         assertEquals("1.1.0 起不来，已回到 1.0.0", ExtensionText.upgradeNote(res, ExtensionUpgradeNote("rolled_back", "1.0.0", "1.1.0")))
         assertNull(ExtensionText.upgradeNote(res, ExtensionUpgradeNote("needs_permission", "1.0.0", "1.2.0")))

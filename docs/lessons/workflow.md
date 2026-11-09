@@ -187,7 +187,11 @@ after the link and failed two runs in three).
 
 A `workflow_dispatch` event has no pull-request number or comparison base. Resolve
 an explicit base first, otherwise use the PR/merge-group base when present and
-`origin/main` for a manual run. Keep full checkout history and resolve the base to
+`origin/main` for a manual run. A PR's base is the first parent of the merge
+commit `actions/checkout` checks out, not the event's `pull_request.base.sha`:
+that one stays where the PR was opened, so every commit that later lands on
+`main` would count as the PR's (#1962: a PR failed the commit privacy check on a
+`main` commit it did not contain). Keep full checkout history and resolve the base to
 a commit before the privacy range check. An explicit lane override must reject
 unknown names rather than silently skip tests. An `auto` dispatch on unchanged
 `main` tests only the paths selected for an empty diff; use `lanes=all` for a full

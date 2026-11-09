@@ -237,6 +237,7 @@ func (h *Manager) adminExtensionRoutes(mux *http.ServeMux) {
 			writeExtensionResponseError(w, r, http.StatusBadRequest, "rollback_failed", err)
 			return
 		}
+		h.extensionUpgrades().rolledBackByUser(r.Context(), np.Record.ID, p.Record.Version)
 		h.logf("admin: rolled plugin %s back to %s", np.Record.ID, np.Record.Version)
 		writeJSON(w, detailOut(r, ps.detail(r.Context(), np)))
 	}))

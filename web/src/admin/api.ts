@@ -281,5 +281,5 @@ export const saveUsageSettings = (s: { enabled?: boolean; poll_minutes?: number 
 export const addUsageSource = (s: UsageSourceInput) => adminApi<{ source: UsageSource }>("/usage-sources", "POST", s);
 export const editUsageSource = (id: string, s: UsageSourceInput) => adminApi<{ source: UsageSource }>(`/usage-sources/${enc(id)}`, "PUT", s);
 export const removeUsageSource = (id: string) => adminApi<{ ok: boolean }>(`/usage-sources/${enc(id)}`, "DELETE");
-// testUsageSource reads once, read-only, and saves nothing. With id the saved key is used, when the address is the saved one.
-export const testUsageSource = (s: { id?: string; type: UsageSourceType; url: string; key?: string }) => adminApi<UsageTestResult>("/usage-sources/test", "POST", s);
+// testUsageSource reads once, read-only, and saves nothing. With id the saved key is used at the saved address unless clear_key is set.
+export const testUsageSource = (s: { id?: string; type: UsageSourceType; url: string; key?: string; clear_key?: boolean }) => adminApi<UsageTestResult>("/usage-sources/test", "POST", s);

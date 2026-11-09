@@ -8,10 +8,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/lazyre"
 )
 
 // Parse reads an http://[user:pass@]host:port proxy (port 1-65535, 80 when left out); "" (or blanks) is no proxy
@@ -57,7 +58,7 @@ func HTTPClient(proxy *url.URL, timeout time.Duration) *http.Client {
 }
 
 // schemePrefix matches a URL's leading "scheme://".
-var schemePrefix = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+var schemePrefix = lazyre.New(`^[A-Za-z][A-Za-z0-9+.-]*://`)
 
 // redact is raw for an error message, with everything that may be user:pass (up to the last '@') cut out. Neither
 // url.Parse's error nor the URL it built is shown: a '/', '?' or '#' in a password ends the host early, so either can

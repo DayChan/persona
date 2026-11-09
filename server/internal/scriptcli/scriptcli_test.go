@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/nodeclient"
 )
 
@@ -205,6 +206,8 @@ func TestNotifyBestEffort(t *testing.T) {
 	for name, f := range map[string]*fake{
 		"no node":      {err: fmt.Errorf("%w: gone", nodeclient.ErrNoNode)},
 		"muted":        {reply: `{"sent":false,"reason":"muted"}`},
+		"no device":    {reply: `{"sent":false,"reason":"no_device"}`},
+		"filtered":     {reply: `{"sent":false,"reason":"filtered"}`},
 		"hub refuses":  {reply: `{"sent":false,"error":"unknown method notify"}`},
 		"broken reply": {reply: `nonsense`},
 	} {
@@ -226,6 +229,39 @@ func TestNotifyBestEffort(t *testing.T) {
 	}
 	if r := notify(&fake{reply: `{"sent":false,"queued":true}`}, "t", "--strict"); r.code != 1 || !strings.Contains(r.errOut, "没发出去") {
 		t.Fatalf("queued, --strict: %+v", r)
+	}
+}
+
+func TestNotifyUnsentReasons(t *testing.T) {
+	for _, tc := range []struct {
+		lang     i18n.Lang
+		reason   string
+		wantText string
+	}{
+		{i18n.En, "no_device", "Not sent: No device can receive notifications"},
+		{i18n.ZhHans, "no_device", "没发出去：没有能接收通知的设备"},
+		{i18n.Ja, "no_device", "送信できませんでした：通知を受信できるデバイスがありません"},
+		{i18n.En, "filtered", "Not sent: Notification settings or an active desktop prevented this notification on every available device"},
+		{i18n.ZhHans, "filtered", "没发出去：通知设置或在线的桌面客户端使所有可用设备都跳过了这条通知"},
+		{i18n.Ja, "filtered", "送信できませんでした：通知設定または接続中のデスクトップアプリにより、利用可能なすべてのデバイスでこの通知が抑制されました"},
+		// Existing and future reasons keep their machine-readable value in the diagnostic.
+		{"", "muted", "没发出去：hub 没有发送：muted"},
+		{i18n.En, "future_reason", "Not sent: The hub did not send it: future_reason"},
+	} {
+		for _, strict := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%s/strict=%t", tc.lang, tc.reason, strict), func(t *testing.T) {
+				f := &fake{reply: fmt.Sprintf(`{"sent":false,"reason":%q}`, tc.reason)}
+				args, wantCode := []string{"Build done"}, ExitOK
+				if strict {
+					args, wantCode = append(args, "--strict"), ExitDenied
+				}
+				var out, errOut bytes.Buffer
+				code := f.runner(false).Notify(i18n.With(context.Background(), tc.lang), args, &out, &errOut)
+				if code != wantCode || out.Len() != 0 || errOut.String() != "personad notify: "+tc.wantText+"\n" {
+					t.Fatalf("exit %d, out %q, err %q; want exit %d, empty stdout and diagnostic %q", code, out.String(), errOut.String(), wantCode, tc.wantText)
+				}
+			})
+		}
 	}
 }
 

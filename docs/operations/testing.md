@@ -23,6 +23,10 @@ paths and README checks, CI-regression tests, then the complete Web and runtime/
 add a new migration instead.
 The same step runs `scripts/ci/sleep_ratchet.py`. Each `_test.go` file under `server/` and `sdk/go/` has a committed count of `time.Sleep` calls (`scripts/ci/sleep_baseline.json`). The count may stay the same or go down, never up, and a new file starts at zero. Comments, string literals and a line carrying `// sleep-ok: <reason>` (the reason must be non-empty) do not count. `python3 scripts/ci/sleep_ratchet.py --update` only lowers the baseline; it refuses to raise a count or to add a file that still sleeps. See `docs/lessons/testing.md`.
 It does not queue separate guards, script shards and an aggregate runner. Any executed step failure still fails the real check.
+On a PR, all of these compare with the base branch as it is now: `scripts/ci/paths.py --print-base` takes the first parent of the
+merge commit that `actions/checkout` checks out (`refs/pull/<n>/merge`, whose second parent is the PR head), so the commit privacy range,
+the migration freeze, the sleep ratchet and lane selection see only the PR's commits. The event's `pull_request.base.sha` stays where
+the PR was opened and is only the fallback when HEAD is not that merge commit.
 Require **CI required** only; no repository rulesets are changed. A workflow change needs green hosted verification on the PR head.
 
 By maintainer decision, **server, Android, iOS/Watch, Mac and the full scripts suite are manual-only**. Sharding improved execution time,
@@ -176,7 +180,8 @@ Path mapping:
 | `schema/**` | `scripts/test/test_extension_schema.py`, `scripts/test/test_sdk_bundle.py`, plus `go test ./...` in sdk/go (the same three checks as CI's Extension schema job) |
 | `scripts/test/test_external_service_refs.py`, `scripts/{gen,test}/sdk_bundle*` | The scripts' own tests |
 | `scripts/**` | Select second-scale privacy / PR / schema / refs / bundle / i18n checks by path; when uncertain run PR and schema. Also run changed `scripts/<subdirectory>/test_*.py`, and `test_<name>.py` for changed `<name>.py` / `<name>.sh` scripts (`-`→`_`; `.sh` also checks `test_<name>_sh.py`), from the test directory like CI (#3968) |
-| `docs/**`, any `*.md` | `scripts/test/test_doc_paths.py`, `scripts/test/test_doc_go_paths.py` (quoted paths and CLAUDE.md documentation index) |
+| `docs/**`, any `*.md` | `scripts/test/test_doc_paths.py`, `scripts/test/test_doc_go_paths.py` (quoted paths and CLAUDE.md documentation index), `scripts/test/test_doc_wire.py` (protocol.md and extensions.md list every WebSocket type, feature flag, extension point and manifest field the code has) |
+| `server/internal/{proto,hub,extension}/**`, `schema/extension/manifest.schema.json` | Also `scripts/test/test_doc_wire.py`: these hold the code side of the lists it compares with the docs |
 | `apple/**` | `scripts/test/test_apple_l10n.py` (complete String Catalogs and Swift Chinese literals included in catalogs); iOS / macOS builds and tests need a Mac and are reported as skipped |
 | `deploy/docker/**`, `docs/operations/docker.md`, root `Dockerfile` | `scripts/test/test_docker_entrypoint.py` (also checks root `Dockerfile`’s `EXPOSE`) |
 | Other paths | No code checks; list unmapped paths individually |

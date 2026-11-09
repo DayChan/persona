@@ -122,6 +122,9 @@ nonisolated struct APIClient: Sendable {
     /// The Feishu account (gateway account number) the `/api/v1/lark` requests are about, sent as `ol_account`
     /// (docs/extensions/feishu.md「多账号」). nil: the hub's own (lark.account).
     var larkAccount: Int?
+    /// The manager every request names (`X-Persona-Manager`, docs/protocol/protocol.md "Per-manager routing"): another
+    /// manager's extension or connector. nil: none named, so the hub asks the default manager, as before.
+    var managerID: String?
     /// The hub has the extension routes (`features` has `extensions`, #1844): extension requests go to
     /// /api/v1/extensions and answer with the new keys; an older hub only has /api/v1/plugins (docs/extensions/extensions.md「命名和兼容」).
     var extensionsAPI = false
@@ -175,6 +178,20 @@ nonisolated struct APIClient: Sendable {
         return c
     }
 
+    static let managerHeader = "X-Persona-Manager"
+
+    /// This client for one manager's things (an item a merged list stamped with that manager): every request names it.
+    /// nil or empty: the default manager's, and nothing is named, as before. Each page makes its requests through its own
+    /// copy, so a request that goes out after the page moved on still names the manager it was made for.
+    func manager(_ id: String?) -> APIClient {
+        var c = self
+        c.managerID = id?.isEmpty == false ? id : nil
+        return c
+    }
+
+    /// What every request carries besides the caller's own headers: the manager it names.
+    private var routing: [String: String] { managerID.map { [Self.managerHeader: $0] } ?? [:] }
+
     /// `query` with the Feishu account a `/api/v1/lark` request is about, unless it names one already (a media URL
     /// the hub handed out for that account).
     func larkScoped(_ path: String, _ query: [String: String]) -> [String: String] {
@@ -191,6 +208,7 @@ nonisolated struct APIClient: Sendable {
                  timeout: TimeInterval = 30, opID: UUID? = nil) async throws -> Data {
         let query = larkScoped(path, query)
         let headers = clientMetadata.headers.merging(opID.map(HubNaming.operationHeaders) ?? [:]) { _, operation in operation }
+            .merging(routing) { _, manager in manager }
         if let answer = transport ?? (config.isDemo ? Self.local : nil) {
             let data = try await answer(LocalRequest(method: method, path: path, query: query.filter { !$0.value.isEmpty },
                                                      body: try body.map { try JSON.encoder.encode(AnyEncodable($0)) }, headers: headers))
@@ -257,6 +275,7 @@ nonisolated struct APIClient: Sendable {
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
         if let etag { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        for (name, value) in routing { req.setValue(value, forHTTPHeaderField: name) }
         let (data, resp) = try await Self.uncachedSession.data(for: req) // our own cache: URLSession's would hide the 304
         let http = resp as? HTTPURLResponse
         if http?.statusCode == 304 { return (nil, etag) }
@@ -268,7 +287,8 @@ nonisolated struct APIClient: Sendable {
         let query = larkScoped(path, query)
         if config.isDemo { throw APIError(status: 403, message: DemoText.notSent) }
         if let transport {
-            return try await transport(LocalRequest(method: "POST", path: path, query: query, body: Data(contentsOf: file), headers: clientMetadata.headers))
+            return try await transport(LocalRequest(method: "POST", path: path, query: query, body: Data(contentsOf: file),
+                                                    headers: clientMetadata.headers.merging(routing) { _, manager in manager }))
         }
         var req = URLRequest(url: url(path, query: query), timeoutInterval: timeout)
         req.httpMethod = "POST"
@@ -278,6 +298,7 @@ nonisolated struct APIClient: Sendable {
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
+        for (name, value) in routing { req.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.upload(for: req, fromFile: file)
         return try checked(data, response, requestID: requestID)
     }
@@ -331,6 +352,7 @@ nonisolated struct APIClient: Sendable {
         clientMetadata.apply(to: &req)
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         req.setValue(requestID, forHTTPHeaderField: "X-Client-Request-Id")
+        for (name, value) in routing { req.setValue(value, forHTTPHeaderField: name) }
         let (temp, response) = try await Self.uncachedSession.download(for: req, delegate: DownloadProgress(progress))
         defer { try? FileManager.default.removeItem(at: temp) }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

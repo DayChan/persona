@@ -294,6 +294,7 @@
     <string name="settings_ext_upgrade_available">Upgrades automatically later</string>
     <string name="settings_ext_upgrade_off">Auto-upgrade is off</string>
     <string name="settings_ext_upgrade_skipped">Didn\'t start after the last upgrade, so it\'s back on %1$s and won\'t auto-upgrade to this version</string>
+    <string name="settings_ext_upgrade_skipped_user">You rolled back from this version to %1$s, so it won\'t auto-upgrade to it</string>
     <string name="settings_ext_upgrade_failed">Didn\'t install</string>
     <string name="settings_ext_upgrade_failed_detail">Didn\'t install: %1$s</string>
     <string name="settings_ext_upgrade_incompatible">This hub can\'t install it</string>

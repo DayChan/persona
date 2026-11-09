@@ -20,8 +20,8 @@ personad notify "title" [body] [--silent] [--error] [--strict]
 
 | Exit code | `ask` | `notify` |
 | --- | --- | --- |
-| 0 | Approved (no options), or an option was picked (printed to stdout, one line) | Always 0 (best effort); with `--strict`, it means the hub accepted it |
-| 1 | Denied; or "Hand back to computer" was tapped on the phone and there's no one to ask in the terminal | Only with `--strict`: the hub did not accept it (no node, hub not connected, muted, hub too old) |
+| 0 | Approved (no options), or an option was picked (printed to stdout, one line) | Always 0 (best effort); with `--strict`, it means at least one push device or WebSocket connection was selected |
+| 1 | Denied; or "Hand back to computer" was tapped on the phone and there's no one to ask in the terminal | Only with `--strict`: the hub did not accept it (no node, hub not connected, hub too old), or no recipient was selected: `muted` (session muted), `no_device` (no reachable push device or capable WebSocket connection), `filtered` (all reachable recipients declined by notification preferences or desktop suppression) |
 | 2 | Usage error (no question, too many options, invalid `--timeout`…) | Usage error (no title, more than two arguments…). This is a mistake in the script, so it is not covered by "best effort" |
 | 3 | Timed out, nobody answered | - |
 | 4 | The phone can't be reached: no node, node not connected to the hub, hub didn't accept it | - |
@@ -29,8 +29,8 @@ personad notify "title" [body] [--silent] [--error] [--strict]
 
 - On exit code 4 or "Hand back to computer", if stdin is a real terminal (not `/dev/null` or a pipe) and `--require-remote` is not set, it falls back to asking in the terminal: a numbered list of options (type the number or the option text),
   or `[y/N]` without options. EOF counts as deny. A timeout or a denial is an answer, so neither falls back to the terminal.
-- Without `--strict`, a failure only writes one line to stderr, `没发出去：<reason>` ("not sent: <reason>"), and the exit code stays 0, so a `set -e` script is never broken by a notification.
-- The "confirmation" of `--strict` means the hub accepted and sent it (`{"sent":true}`), not that the phone displayed it: notification delivery has no receipt anyway (see `../protocol/protocol.md` ("Persistent connection notifications")).
+- Without `--strict`, a failure only writes one line to stderr, `Not sent: <reason>` (localized), and the exit code stays 0, so a `set -e` script is never broken by a notification.
+- The "confirmation" of `--strict` means it was handed to push or a capable WebSocket connection (`{"sent":true}`), not that the phone displayed it: notification delivery has no receipt anyway (see `../protocol/protocol.md` ("Persistent connection notifications")).
 
 ## Path
 
@@ -46,7 +46,7 @@ node's replies:
 
 - `ask`: `{"status":"answered|denied|dismissed|timeout|unavailable|invalid","answer":"…","error":"…","retry":true}`.
   `retry` means node is exiting (hub or node restart); the command reconnects to the next node with the same `attempt`, for at most `nodeclient.ResumeWait` (2 minutes), exactly like hook.
-- `notify`: `{"sent":true|false,"reason":"muted","error":"…"}`.
+- `notify`: `{"sent":true|false,"reason":"muted|no_device|filtered","error":"…"}` (the reason describes hub-side suppression).
 
 An old node doesn't know `ask` / `notify` (replies `{"error":"unknown kind"}`), and the command treats that as unreachable. With a new node and an old hub, the `notify` request fails with unknown method and is likewise treated as not sent.
 
@@ -78,7 +78,7 @@ node uses the "pane → session" table learned from hooks (`bindPane`) to find t
 ### Preferences and muting
 
 `notify` uses the hub's existing "send notification" path (the same function `deliverNotify` as extensions' `POST /api/v1/notify`): a device that turned off "Needs You" (`prefs.input`) doesn't get it, and a muted session / space sends nothing (`reason: "muted"`).
-Delivery goes through APNs (direct or via the push relay) and the persistent connection event of `ws_notify` (`kind: "alert"`).
+Delivery goes through APNs (direct or via the push relay) and the persistent connection event of `ws_notify` (`kind: "alert"`). If neither channel selects a recipient, the hub returns `sent: false`: `no_device` when no device has a usable push route and no capable connection is online; `filtered` when reachable recipients exist but all are excluded by "Needs You", manager notification switches, "Phone Muted", or the open-desktop rule. A selection on either channel is enough for `sent: true`; asynchronous APNs or relay failures do not change that reply.
 
 - `--error`: `interruption-level: time-sensitive`, and the title gets a "⚠️ " prefix; the default is `active`.
 - `--silent`: no `sound` in `aps`. `notifyRequest` gained an optional `silent` field for this, which the HTTP API also accepts.

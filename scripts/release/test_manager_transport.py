@@ -25,7 +25,7 @@ def idle_row(session_id='main-fixture', machine_id='box'):
 class TransportTests(unittest.TestCase):
     def test_cloudflare_fixed_proxy_preserves_strict_ssh_identity(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()  # macOS: /var/folders is a link into /private/var
             key, hosts, executable = root / 'key', root / 'known_hosts', root / 'cloudflared client'
             for path in (key, hosts): path.write_text('fixture')
             executable.write_bytes(b'#!/bin/sh\nexit 0\n'); executable.chmod(0o700)
@@ -59,7 +59,8 @@ class TransportTests(unittest.TestCase):
 
     def test_explicit_pins_and_key_only(self):
         with tempfile.TemporaryDirectory() as directory:
-            key, hosts = Path(directory) / 'key', Path(directory) / 'known_hosts'
+            root = Path(directory).resolve()  # transport_argv refuses a path through a link
+            key, hosts = root / 'key', root / 'known_hosts'
             key.write_text('fixture'); hosts.write_text('fixture')
             cfg = dict(kind='ssh', host='example.invalid', user='fixture', port=22,
                        identity_file=str(key), known_hosts_file=str(hosts))
@@ -75,7 +76,7 @@ class TransportTests(unittest.TestCase):
 
     def test_missing_pin_or_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); (root / 'key').write_text('fixture')
+            root = Path(directory).resolve(); (root / 'key').write_text('fixture')
             (root / 'link').symlink_to(root / 'key')
             for hosts in [root / 'missing', root / 'link']:
                 with self.assertRaises((ValueError, FileNotFoundError)):

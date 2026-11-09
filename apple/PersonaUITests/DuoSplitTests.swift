@@ -99,6 +99,17 @@ final class DuoSplitTests: XCTestCase {
         XCTAssertFalse(back.exists, "‹ still there with the list beside the chat")
     }
 
+    /// One search field: the system's drawer above the list. The list's first row has the quick filters alone, not the
+    /// phone's own field over them too (#1971: the sidebar column reads compact while the page is regular).
+    func testOneSearchField() {
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15))
+        sleep(2)
+        let fields = app.searchFields.allElementsBoundByIndex
+        print("DUO SEARCH FIELDS", fields.map { "\($0.frame)" }, "SIDEBAR", sidebar.frame)
+        XCTAssertEqual(sidebar.searchFields.count, 0, "a search field in the list's rows")
+        XCTAssertEqual(fields.count, 1, "search fields: \(fields.map { "\($0.frame)" })")
+    }
+
     /// Nothing open and the list closed: the empty page says how to get the list back (it filled the screen, no way back).
     func testEmptyPageBringsTheClosedListBack() {
         let closeList = app.buttons["隐藏边栏"]

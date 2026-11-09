@@ -4,6 +4,7 @@
   "busy_assistant": "アシスタントが作業中です",
   "no_package": "このハブ（{platform}）で使えるパッケージがありません",
   "skipped": "このバージョンは前回起動しなかったため、元のバージョンに戻しました",
+  "skipped_by_user": "このバージョンからロールバックしたため、自動ではインストールしません。入れるには手動で更新してください",
   "paused_disabled": "拡張機能がオフの間は一時停止中です。オンに戻すと元の設定に戻ります",
   "permissions_changed": "必要な権限が変わりました",
   "more_permissions_one": "権限が{count}件増えます：",

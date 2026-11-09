@@ -421,7 +421,7 @@ func (u *updater) confirm(ctx context.Context, p update.Pending) {
 	if u.edgeConfirmed != nil {
 		u.edgeConfirmed() // the edge's own check of this update ends (it would go back after 3 minutes)
 	}
-	u.updateNodes(ctx, p.Nodes)
+	u.updateNodes(ctx, p.Nodes, p.FromVersion)
 }
 
 // offline lists which of ids are not connected.
@@ -456,9 +456,16 @@ func (u *updater) rollback(p update.Pending, reason string) {
 }
 
 // updateNodes puts the release's node binaries where "Redeploy" takes them (the manager's, internal/devices deploy.go)
-// and has the manager redeploy each connected machine whose node is not this build, one at a time.
-func (u *updater) updateNodes(ctx context.Context, staged string) {
+// and has the manager redeploy each connected machine whose node is not this build, one at a time. With node updates
+// off, the hub moved on from version from alone: the builds of that version it leaves in bin/nodes go aside.
+func (u *updater) updateNodes(ctx context.Context, staged, from string) {
 	if !u.nodesEnabled() {
+		if from != "" && from != u.h.version {
+			if moved := setAsideOldNodes(identity.NodeBinaryDir()); len(moved) > 0 {
+				u.h.logf("update: node builds of %s set aside (node updates are off, Redeploy fetches %s): %s",
+					from, u.h.version, strings.Join(moved, ", "))
+			}
+		}
 		return
 	}
 	if staged != "" {

@@ -15,6 +15,13 @@ sys.path.insert(0, str(ROOT / "scripts" / "test"))
 from server_test_env import clean_environment
 
 
+def is_suite(path):
+    """A test_*.py that runs under unittest. Some are verification scripts that take arguments (test_rolling_compatibility.py,
+    test_source_development_resources.py): unittest runs no tests in them, which exits 0 on Python 3.11 but 5 ("NO TESTS
+    RAN") from 3.12, so a local run on a newer Python would count them as failures."""
+    return "unittest" in path.read_text(encoding="utf-8", errors="replace")
+
+
 def select_suites(suites, index=0, count=1):
     if count < 1 or not 0 <= index < count:
         raise ValueError("Shard count must be positive and index must be within the count")
@@ -26,7 +33,11 @@ def main():
     parser.add_argument("--shard-index", type=int, default=int(os.environ.get("CI_PYTHON_SHARD_INDEX", "0")))
     parser.add_argument("--shard-count", type=int, default=int(os.environ.get("CI_PYTHON_SHARD_COUNT", "1")))
     args = parser.parse_args()
-    suites = [path for path in ROOT.joinpath("scripts").rglob("test_*.py") if "node_modules" not in path.parts]
+    found = [path for path in ROOT.joinpath("scripts").rglob("test_*.py") if "node_modules" not in path.parts]
+    suites = [path for path in found if is_suite(path)]
+    if args.shard_index == 0:
+        for path in sorted(set(found) - set(suites)):
+            print(f"SKIP {path.relative_to(ROOT)} (not a unittest suite)", flush=True)
     try:
         suites = select_suites(suites, args.shard_index, args.shard_count)
     except ValueError as error:

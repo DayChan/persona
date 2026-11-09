@@ -19,6 +19,10 @@ type sessionWire struct {
 	LegacyStarted bool `json:"started_by_jarvis"`
 }
 
+// legacyStartedMember is sessionWire's legacy key as appendSession (session_wire.go) writes it: the literal stays in
+// this compatibility file.
+const legacyStartedMember = `"started_by_jarvis":`
+
 func (s Session) MarshalJSON() ([]byte, error) {
 	if b, ok := appendSession(make([]byte, 0, 1024), &s); ok {
 		return b, nil

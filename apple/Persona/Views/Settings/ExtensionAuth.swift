@@ -33,11 +33,17 @@ extension APIClient {
 }
 
 /// The extensions' sign-in states for the whole app: from the hub's lists and pages and its `extension_auth` events,
-/// the latest wins, so the list's row and the open page follow a sign-in finished elsewhere at once.
+/// the latest wins, so the list's row and the open page follow a sign-in finished elsewhere at once. Kept by id and
+/// manager (nil: the default's): each manager has its own copy of a built-in, signed in or not on its own.
 @MainActor @Observable final class ExtensionAuthStore {
     static let shared = ExtensionAuthStore(hub: { AppModel.shared.config?.url.absoluteString })
 
-    private(set) var byID: [String: ExtensionAuth] = [:]
+    struct Key: Hashable {
+        var id: String
+        var manager: String?
+    }
+
+    private(set) var byKey: [Key: ExtensionAuth] = [:]
     /// The extension whose sign-in should open when its page shows (an install that ended with `next: "auth"`).
     var openSignIn: String?
     @ObservationIgnored private let hub: () -> String?
@@ -48,22 +54,19 @@ extension APIClient {
     /// The hub has sign-ins (`extension_auth`): the page draws its own section for them.
     static func available(_ features: Set<String>) -> Bool { features.hasExtensionFeature("auth") }
 
-    func received(_ id: String, _ auth: ExtensionAuth?) {
+    /// `manager`: whose copy (nil: the default manager's).
+    func received(_ id: String, _ auth: ExtensionAuth?, manager: String? = nil) {
         if lastHub != hub() {
             lastHub = hub()
-            byID = [:]
+            byKey = [:]
         }
-        if byID[id] != auth { byID[id] = auth }
+        let key = Key(id: id, manager: manager)
+        if byKey[key] != auth { byKey[key] = auth }
     }
 
-    /// The extensions of a list just read.
-    func received(_ list: [HubExtension]) {
-        for p in list { received(p.id, p.auth) }
-    }
-
-    /// What is known of id's sign-in, else what the hub said with the extension.
-    func auth(_ id: String, else fallback: ExtensionAuth?) -> ExtensionAuth? {
-        lastHub == hub() ? byID[id] ?? fallback : fallback
+    /// What is known of id's sign-in in that manager's copy, else what the hub said with the extension.
+    func auth(_ id: String, manager: String? = nil, else fallback: ExtensionAuth?) -> ExtensionAuth? {
+        lastHub == hub() ? byKey[Key(id: id, manager: manager)] ?? fallback : fallback
     }
 }
 
@@ -76,6 +79,8 @@ extension APIClient {
     }
 
     let id: String
+    /// Whose copy is signed in (another manager's: every request names it); nil: the default manager's.
+    let manager: String?
     /// The step on screen; nil when not signing in.
     private(set) var prompt: ConnectorPrompt?
     var values: [String: String] = [:]
@@ -84,10 +89,14 @@ extension APIClient {
     private(set) var error: String?
     @ObservationIgnored private let deps: Deps
 
-    init(id: String, deps: Deps = .live) {
+    init(id: String, manager: String? = nil, deps: Deps = .live) {
         self.id = id
+        self.manager = manager
         self.deps = deps
     }
+
+    /// The client for this sign-in's requests: its manager named on each.
+    private var api: APIClient? { deps.api()?.manager(manager) }
 
     var signingIn: Bool { prompt != nil }
 
@@ -128,11 +137,11 @@ extension APIClient {
     }
 
     func logout() async {
-        guard let api = deps.api() else { return }
+        guard let api else { return }
         busy = true
         defer { busy = false }
         do {
-            deps.store.received(id, try await api.extensionAuthLogout(id))
+            deps.store.received(id, try await api.extensionAuthLogout(id), manager: manager)
             cancel()
             error = nil
         } catch {
@@ -142,13 +151,13 @@ extension APIClient {
 
     /// Asks the hub for the status again (after a sign-in, or the page opening).
     func refresh() async {
-        guard let api = deps.api(), let auth = try? await api.extensionAuth(id) else { return }
-        deps.store.received(id, auth)
+        guard let api, let auth = try? await api.extensionAuth(id) else { return }
+        deps.store.received(id, auth, manager: manager)
     }
 
     /// True when signing in is done.
     @discardableResult private func send(step: String, values: [String: String]) async -> Bool {
-        guard let api = deps.api() else { return false }
+        guard let api else { return false }
         busy = true
         defer { busy = false }
         do {
@@ -170,7 +179,7 @@ extension APIClient {
 
     /// The first step puts the status at Waiting for confirmation: the header says so too.
     private func refreshIfPending() async {
-        if deps.store.byID[id]?.state != .pending { await refresh() }
+        if deps.store.auth(id, manager: manager, else: nil)?.state != .pending { await refresh() }
     }
 }
 

@@ -101,7 +101,8 @@ nonisolated struct ExtensionInstallRequest: Encodable {
 /// Unsaved forms live only in memory, kept apart per hub and extension; rebuilding the view or reloading does not drop the drafts.
 @MainActor final class ExtensionDrafts {
     static let shared = ExtensionDrafts()
-    struct Key: Hashable { var source: String; var id: String }
+    /// An extension's draft by hub, id and manager (another manager's copy of the same id has its own).
+    struct Key: Hashable { var source: String; var id: String; var manager: String? = nil }
     struct Draft { var config: [String: JSONValue]; var numbers: [String: String] }
     var values: [Key: Draft] = [:]
 }

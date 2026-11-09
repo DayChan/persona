@@ -4,8 +4,8 @@ import SwiftUI
 // Settings › Managers (docs/assistant/managers.md): the list, one manager's page, and the install code sheet. The logic and words
 // are in ManagersModel.swift.
 
-/// The dot before a manager's status: online, offline, installing.
-private func managerDot(_ tone: ManagersText.Tone) -> some View {
+/// The dot before a manager's status: online, offline, installing (its rows here, the headings of grouped pages).
+func managerDot(_ tone: ManagersText.Tone) -> some View {
     Circle()
         .fill(tone == .online ? Theme.positive : tone == .installing ? Theme.accent : Theme.Hue.gray)
         .scaledFrame(width: Theme.Size.dotS, height: Theme.Size.dotS)
