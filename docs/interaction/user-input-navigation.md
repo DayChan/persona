@@ -18,7 +18,7 @@ Implementation evidence inspected on 2026-11-09:
 | --- | --- |
 | iOS and server, #2035 | Read-only inspection of an actively edited, unmerged implementation. Independent user-input indexing, bounded landing windows and request fencing are present in source. This does not establish build, simulator, device or server acceptance. |
 | iOS appearance | The inspected unmerged source now includes passive scroll reveal, a first-visible-row input-interval highlight, token-driven idle fade and a gesture preview containing the input plus an available short answer. These are source observations, not simulator/device acceptance. |
-| Desktop web, #2060 | [PR #2080](https://github.com/nwverse/persona/pull/2080) is merged and deployed. `NavRail.tsx`, `nav-rail.ts` and the `ChatView.tsx` loaded-message adapter implement the fine-pointer contract below; its latest-head browser and unit evidence is linked separately. The independent index remains gated on #2035 being merged. |
+| Desktop web, #2060 | [PR #2080](https://github.com/nwverse/persona/pull/2080) is merged and deployed. `NavRail.tsx`, `nav-rail.ts` and the `ChatView.tsx` loaded-message adapter provide the fine-pointer rail baseline. The immediate hover-preview dismissal required below supersedes its original card linger; the rail's idle fade is unchanged. The independent index remains gated on #2035 being merged. |
 | Other clients and layouts | No implementation claim for native Mac, Vision Pro, Android or watch. The inspected iOS integration is confined to Persona's new conversation layout on iPhone/iPad; existing layouts remain unchanged. |
 
 The current [iOS layout guide](../apple/ios.md#new-conversation-layout-1666) describes the merged baseline, including its
@@ -58,14 +58,15 @@ mark an unloaded range as read or claim that skipped bodies have been synchroniz
 | Normal conversation scrolling or touch in the central reading area | Reveal the rail and its viewport-owner highlight only. Keep normal scrolling, tapping and selection behavior. No preview selection or jump is caused by this touch. |
 | Pointer enters the rail, or touch begins a qualifying edge drag | Reveal/retain the rail; show the selected mark's preview. Keep viewport-owner and preview-selection states distinguishable. |
 | Pointer remains over the rail, edge drag is active, keyboard focus is inside, or a landing is pending | Do not fade the interactive control out from under the user. A loading state must not look like a completed jump. |
-| Scroll/pointer/touch activity ends | Briefly retain the rail and transient preview, then fade them after the shared idle delay without moving the conversation. Cancellation closes the preview immediately. |
+| Pointer leaves the rail after hover | Dismiss the hover preview immediately in the leave handler. Do not wait for an idle timer or opacity transition. An active captured drag or keyboard selection retains its own interaction ownership. |
+| Scroll activity ends | Briefly retain the rail, then fade it after the shared idle delay without moving the conversation. This delay applies to the rail, not hover-preview dismissal. Cancellation closes the preview immediately. |
 | Session changes, view becomes hidden, or interaction is cancelled | Close previews and retire obsolete selections, loading completions and fade timers. Cancellation does not jump. |
 
 Use design-system tokens for rail geometry, hit areas, highlight, preview surface, idle delay and motion. Reuse existing
 motion tokens where suitable; add missing tokens before UI code. The inspected web geometry/timing token is
-`NAV_RAIL_METRICS`: a 2,000 ms quiet delay followed by a 200 ms opacity transition (disabled under Reduce Motion).
-Hover, focus and an active drag retain visibility; on pointer leave the preview and rail remain briefly, then clear
-without a jump. The inspected iOS source uses `Theme.Motion.edgeScrubLinger` and `Theme.Motion.state` for passive
+`NAV_RAIL_METRICS`: a 2,000 ms quiet delay for the rail followed by a 200 ms opacity transition (disabled under Reduce Motion).
+Hover, focus and an active drag retain rail visibility. A hover preview closes immediately when the pointer leaves the
+rail; no timer delays that dismissal. The inspected iOS source uses `Theme.Motion.edgeScrubLinger` and `Theme.Motion.state` for passive
 fade; its scroll phase/visibility observers reveal and update marks without accepting a central scrub gesture.
 Simulator/device and accessibility acceptance remain separate from these source observations.
 
@@ -135,8 +136,10 @@ it does not implement the iOS edge recognizer or claim touch conformance.
 
 Answer snippets are optional on the wire and bounded. Render plain text, not executable markup or a full tool trace.
 The preview uses plain text capped at 120 characters for the input and 200 for the answer, with three rendered answer
-lines. It is non-hit-testing (`pointer-events: none`): moving off the edge starts the shared fade delay rather than
-extending a mouse hit zone over conversation text. The current web focus stays on the `nav` landmark (`tabIndex=0`),
+lines. It is non-hit-testing (`pointer-events: none`): leaving the edge dismisses the hover card immediately rather than
+extending a mouse hit zone over conversation text. If a future preview becomes interactive, leaving both the rail and
+card must dismiss it immediately; a fixed delay must not stand in for testing those two hit zones. The current web focus
+stays on the `nav` landmark (`tabIndex=0`),
 with Arrow keys, Home/End, Enter/Space and
 local Escape. Per-mark labels and `aria-current` distinguish destination and viewport owner; `aria-describedby` ties
 selection to the visible preview, while keyboard-only polite announcements avoid mouse-hover chatter. The invisible
@@ -283,7 +286,7 @@ Any change to this interaction must re-verify:
 
 - [ ] Touch central scroll/reveal does not scrub; vertical edge drag does; horizontal pager/drawer and left back swipe survive.
 - [ ] Reveal, idle fade and destination/viewport-owner highlights work during long replies, image groups, folding and window paging.
-- [ ] Desktop hover/drag previews input plus available answer; click/release commits once; cancellation, keyboard and focus behavior conform.
+- [ ] Desktop hover/drag previews input plus available answer; hover exit dismisses the card immediately without a timer; click/release commits once; cancellation, keyboard and focus behavior conform.
 - [ ] Recent forty-mark warm-up is independent of bodies; sparse pages and older-half paging stay bounded; a page arriving under the pointer preserves identity.
 - [ ] Injected, wake, cross-session and loop entries are excluded consistently; queued human and photo-only inputs survive; repeated text is not deduplicated away.
 - [ ] Unloaded commit loads one around window, not the intervening history; live coverage/cache/unread state remain unchanged; latest restores the live source.
