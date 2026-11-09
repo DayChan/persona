@@ -21,6 +21,8 @@ struct ConnectorDeps {
 /// deleting what it brought in.
 @Observable final class ConnectorSignInModel {
     let id: String
+    /// Whose copy (another manager's: every request names it, docs/assistant/managers.md "Grouping"); nil: the default's.
+    let manager: String?
     /// The step on screen; nil when not signing in.
     private(set) var prompt: ConnectorPrompt?
     /// A QR step's code as a picture for Save QR Code, drawn once per code.
@@ -33,10 +35,14 @@ struct ConnectorDeps {
     private(set) var archiveDeleted: String?
     @ObservationIgnored private let deps: ConnectorDeps
 
-    init(id: String, deps: ConnectorDeps = .live) {
+    init(id: String, manager: String? = nil, deps: ConnectorDeps = .live) {
         self.id = id
+        self.manager = manager
         self.deps = deps
     }
+
+    /// The client for this connector's requests: its manager named on each.
+    private var api: APIClient? { deps.api()?.manager(manager) }
 
     /// Every field of the step on screen is filled in.
     var canSend: Bool {
@@ -79,7 +85,7 @@ struct ConnectorDeps {
     /// True when signing in is done (the page reloads the connector).
     @discardableResult
     private func send(step: String, values: [String: String]) async -> Bool {
-        guard let api = deps.api() else { return false }
+        guard let api else { return false }
         busy = true
         defer { busy = false }
         do {
@@ -102,7 +108,7 @@ struct ConnectorDeps {
     }
 
     func setEnabled(_ on: Bool) async -> HubConnector? {
-        guard let api = deps.api() else { return nil }
+        guard let api else { return nil }
         do {
             return try await api.setConnector(id, enabled: on)
         } catch {
@@ -112,7 +118,7 @@ struct ConnectorDeps {
     }
 
     func logout() async {
-        guard let api = deps.api() else { return }
+        guard let api else { return }
         busy = true
         defer { busy = false }
         do {
@@ -124,7 +130,7 @@ struct ConnectorDeps {
     }
 
     func deleteData() async {
-        guard let api = deps.api() else { return }
+        guard let api else { return }
         busy = true
         defer { busy = false }
         do {
@@ -136,7 +142,7 @@ struct ConnectorDeps {
     }
 
     func setFeed(_ feed: ConnectorFeed, on: Bool) async -> HubConnector? {
-        guard let api = deps.api() else { return nil }
+        guard let api else { return nil }
         do {
             return try await api.setConnector(id, feed: feed, on: on)
         } catch {
@@ -146,7 +152,7 @@ struct ConnectorDeps {
     }
 
     func deleteArchive() async {
-        guard let api = deps.api() else { return }
+        guard let api else { return }
         busy = true
         defer { busy = false }
         do {
@@ -164,10 +170,11 @@ struct ConnectorSignInSections: View {
     var reload: () async -> Void
     @State private var model: ConnectorSignInModel
 
-    init(connector: HubConnector, reload: @escaping () async -> Void, deps: ConnectorDeps = .live) {
+    /// `manager`: whose copy the page is (nil: the default manager's).
+    init(connector: HubConnector, manager: String? = nil, reload: @escaping () async -> Void, deps: ConnectorDeps = .live) {
         self.connector = connector
         self.reload = reload
-        _model = State(initialValue: ConnectorSignInModel(id: connector.id, deps: deps))
+        _model = State(initialValue: ConnectorSignInModel(id: connector.id, manager: manager, deps: deps))
     }
 
     var body: some View {

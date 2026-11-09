@@ -118,7 +118,8 @@ People and Agents follow the same steps, each with their own GitHub account. Tem
   old Xcode reports errors that look like someone else's breakage.
 - Android: `scripts/app/android.sh [install|apk|test|lint|shots]` (`docs/android/android.md`).
 - Web: `cd web && npm test && npm run build`; deploy with `scripts/deploy/deploy.sh web` (`docs/web/web.md`).
-- Docs: `python3 scripts/test/test_doc_paths.py` and `python3 scripts/test/test_doc_go_paths.py`. Every change: `python3 scripts/privacy_check.py`.
+- Docs: `python3 scripts/test/test_doc_paths.py`, `python3 scripts/test/test_doc_go_paths.py` and `python3 scripts/test/test_doc_wire.py`
+  (every WebSocket type, feature flag, extension point and manifest field has its row). Every change: `python3 scripts/privacy_check.py`.
 - Releases: `docs/operations/release.md`. After `scripts/release/release.sh` uploads, run `python3 scripts/release/asc_testflight.py wait 45 <build number>`:
   it adds the build to the internal group and to the external group with Beta App Review. Report the build number and review status only after both.
 

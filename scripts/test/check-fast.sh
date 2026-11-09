@@ -41,7 +41,9 @@
 #                              <name>.py / <name>.sh (- read as _; db.sh's is test_db_sh.py), run from its
 #                              directory as CI does (#3968)
 #   docs/**, any *.md          scripts/test/test_doc_paths.py and test_doc_go_paths.py (paths quoted in the docs, the
-#                              CLAUDE.md doc index)
+#                              CLAUDE.md doc index), test_doc_wire.py (the wire lists in protocol.md, extensions.md)
+#   server/internal/{proto,hub,extension}/**, schema/extension/manifest.schema.json
+#                              also test_doc_wire.py: the code side of those wire lists
 #   apple/**                   scripts/test/test_apple_l10n.py (String Catalogs, Chinese Swift literals); the iOS/macOS
 #                              builds and tests are skipped with a note (they need a Mac)
 #   deploy/docker/**, docs/operations/docker.md, Dockerfile
@@ -693,7 +695,12 @@ else
     esac
     # The Linux suites in CI's Scripts tests job that guard files outside scripts/; a file can need several.
     case "$f" in
-      docs/*|*.md) script_test_add scripts/test/test_doc_paths.py; script_test_add scripts/test/test_doc_go_paths.py ;;
+      docs/*|*.md)
+        script_test_add scripts/test/test_doc_paths.py; script_test_add scripts/test/test_doc_go_paths.py
+        script_test_add scripts/test/test_doc_wire.py ;;
+      # The code side of the wire lists test_doc_wire.py compares with the docs.
+      server/internal/proto/*|server/internal/hub/*|server/internal/extension/*|schema/extension/manifest.schema.json)
+        script_test_add scripts/test/test_doc_wire.py ;;
     esac
     case "$f" in apple/*) script_test_add scripts/test/test_apple_l10n.py ;; esac
     case "$f" in deploy/docker/*|docs/operations/docker.md|Dockerfile) script_test_add scripts/test/test_docker_entrypoint.py ;; esac

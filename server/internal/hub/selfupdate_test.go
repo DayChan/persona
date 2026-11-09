@@ -505,7 +505,7 @@ func TestUpdateNodesBinariesInPlace(t *testing.T) {
 	local := newMachine(h, MachineConfig{ID: "hub", Name: "Hub", Kind: "local"})
 	local.online, local.info.Version = true, "v1" // the hub's own: runs the hub's binary, never deployed to
 	h.machines, h.byID["hub"] = []*Machine{local}, local
-	h.upd.updateNodes(context.Background(), staged)
+	h.upd.updateNodes(context.Background(), staged, "")
 	if b, _ := os.ReadFile(filepath.Join(nodes, "personad-darwin-arm64")); string(b) != "node for macs" {
 		t.Fatalf("node binary %q", b)
 	}
@@ -589,7 +589,7 @@ func TestUpdateDownloadsEveryNodePlatformInTheRelease(t *testing.T) {
 		t.Fatalf("the node binary for %s is not the hub's binary: %d bytes, gzip %v", own, len(b), len(b) > 1 && b[0] == 0x1f && b[1] == 0x8b)
 	}
 	// What the new hub does with them: "Redeploy" takes them from NodeBinaryDir (internal/devices nodeBinary).
-	h.upd.updateNodes(context.Background(), staged)
+	h.upd.updateNodes(context.Background(), staged, "")
 	for _, plat := range want {
 		if _, err := os.Stat(filepath.Join(nodes, "personad-"+plat)); err != nil {
 			t.Fatalf("no node binary for %s in NodeBinaryDir: %v", plat, err)

@@ -4,6 +4,7 @@
   "busy_assistant": "The assistant is working",
   "no_package": "No package for this hub ({platform})",
   "skipped": "This version didn’t start last time, so the previous version was restored",
+  "skipped_by_user": "You rolled back from this version, so it won’t be installed automatically. Update by hand to install it",
   "paused_disabled": "Paused while the extension is off; your setting applies again when you turn it on",
   "permissions_changed": "Its permissions changed",
   "more_permissions_one": "Asks for {count} more permission: ",

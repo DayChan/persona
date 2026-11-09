@@ -385,10 +385,11 @@ func (d *Devices) adminUsageRoutes(mux *http.ServeMux) {
 	// saved one): how many accounts and windows it saw. Nothing is saved.
 	handle("POST /api/v1/admin/usage-sources/test", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
-			URL  string `json:"url"`
-			Key  string `json:"key"`
+			ID       string `json:"id"`
+			Type     string `json:"type"`
+			URL      string `json:"url"`
+			Key      string `json:"key"`
+			ClearKey bool   `json:"clear_key"`
 		}
 		if !readAdminJSON(w, r, &in) {
 			return
@@ -404,7 +405,9 @@ func (d *Devices) adminUsageRoutes(mux *http.ServeMux) {
 			return
 		}
 		cfg.URL = norm
-		if cfg.Key == "" && in.ID != "" { // the saved key, only to the saved address
+		if in.ClearKey {
+			cfg.Key = ""
+		} else if cfg.Key == "" && in.ID != "" { // the saved key, only to the saved address
 			for _, s := range d.usageConfigNow().Sources {
 				if s.ID == in.ID && s.URL == norm && s.Type == cfg.Type {
 					cfg.Key = s.Key

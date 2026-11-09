@@ -47,6 +47,10 @@ const (
 	upgradeIncompatible = "incompatible"     // no package for this hub, or a newer hub needed
 )
 
+// skippedByUser is extensionUpgradeSettings.SkippedBy (and ExtensionUpgrade.SkippedBy) for a version the user rolled back
+// from by hand, as opposed to one that did not come up.
+const skippedByUser = "user"
+
 // autoUpgradePausedDisabled is ExtensionView.AutoUpgradePaused for an extension switched off: its own switch is kept,
 // and applies again once the extension is on.
 const autoUpgradePausedDisabled = "disabled"
@@ -59,6 +63,9 @@ type extensionUpgradeSettings struct {
 	Skipped  map[string]string               `json:"skipped,omitempty"`
 	Notified map[string]string               `json:"notified,omitempty"`
 	Last     map[string]ExtensionUpgradeNote `json:"last,omitempty"`
+	// SkippedBy: plugin → skippedByUser when its skipped version is one the user rolled back from (absent: it did not
+	// come up).
+	SkippedBy map[string]string `json:"skipped_by,omitempty"`
 }
 
 // PluginUpgradeNote is what happened last with a plugin's upgrade, for its page in the app.
@@ -82,6 +89,8 @@ type ExtensionUpgrade struct {
 	State            string                     `json:"state"`
 	AddedPermissions []extension.PermissionLine `json:"added_permissions,omitempty"`
 	Detail           string                     `json:"detail,omitempty"`
+	// SkippedBy is "user" for a skipped version the user rolled back from (absent: it did not come up).
+	SkippedBy string `json:"skipped_by,omitempty"`
 }
 
 type extensionUpgrades struct {
@@ -207,6 +216,7 @@ func (u *extensionUpgrades) change(ctx context.Context, f func(s *extensionUpgra
 func (s extensionUpgradeSettings) clone() extensionUpgradeSettings {
 	s.Off = slices.Clone(s.Off)
 	s.Skipped, s.Notified, s.Last = maps.Clone(s.Skipped), maps.Clone(s.Notified), maps.Clone(s.Last)
+	s.SkippedBy = maps.Clone(s.SkippedBy)
 	return s
 }
 
@@ -238,10 +248,37 @@ func (u *extensionUpgrades) forget(ctx context.Context, id string) {
 	}
 	if err := u.change(ctx, func(s *extensionUpgradeSettings) {
 		delete(s.Skipped, id)
+		delete(s.SkippedBy, id)
 		delete(s.Notified, id)
 		delete(s.Last, id)
 	}); err != nil {
 		u.h.logf("plugin %s: forgetting its upgrades: %v", id, err)
+	}
+}
+
+// rolledBackByUser keeps version, which the user rolled back from by hand (the admin page, the extension API that
+// personad extension rollback uses), from being installed again by auto-upgrade until the market has a newer one, as
+// an automatic rollback does (watched); the new-version row says why (#1826). A note left of version (upgraded to it)
+// goes: it is not installed any more. Nothing is pushed: the user did it.
+func (u *extensionUpgrades) rolledBackByUser(ctx context.Context, id, version string) {
+	if u == nil || version == "" {
+		return
+	}
+	u.load(ctx)
+	key := u.storageKey(id)
+	if err := u.change(ctx, func(s *extensionUpgradeSettings) {
+		if s.Skipped == nil {
+			s.Skipped = map[string]string{}
+		}
+		if s.SkippedBy == nil {
+			s.SkippedBy = map[string]string{}
+		}
+		s.Skipped[key], s.SkippedBy[key] = version, skippedByUser
+		if n, ok := s.Last[key]; ok && n.To == version {
+			delete(s.Last, key)
+		}
+	}); err != nil {
+		u.h.logf("plugin %s: keeping %s from auto-upgrade after its rollback: %v", id, version, err)
 	}
 }
 
@@ -353,6 +390,9 @@ func (u *extensionUpgrades) candidateIn(p *extension.Extension, l i18n.Lang) (up
 		up.State, up.Detail = upgradeIncompatible, i18n.Localize(engines, l)
 	case s.Skipped[id] == m.Version:
 		up.State, up.Detail = upgradeSkipped, i18n.T(l, "hub-extension_autoupgrade.skipped")
+		if s.SkippedBy[id] == skippedByUser {
+			up.SkippedBy, up.Detail = skippedByUser, i18n.T(l, "hub-extension_autoupgrade.skipped_by_user")
+		}
 	case !p.Record.Enabled: // before asking for consent: the user is not told of versions of one they switched off
 		up.State, up.Detail = upgradeOff, i18n.T(l, "hub-extension_autoupgrade.paused_disabled")
 	case up.RenameFrom != "" && ((s.Auto != nil && !*s.Auto) || slices.Contains(s.Off, id)):
@@ -539,6 +579,7 @@ func (u *extensionUpgrades) watched(ctx context.Context, id, from, to string, ro
 				s.Skipped = map[string]string{}
 			}
 			s.Skipped[key] = to
+			delete(s.SkippedBy, key) // this one did not come up
 			s.note(key, n)
 		})
 		u.tell(id, n, "rolled_back", func(i18n.Lang) i18n.Args { return i18n.Args{"name": name, "version": to, "from": from} })

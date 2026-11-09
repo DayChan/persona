@@ -4,6 +4,7 @@
   "busy_assistant": "助手正在工作",
   "no_package": "没有这台 hub（{platform}）能用的包",
   "skipped": "这个版本上次起不来，已回到原来的版本",
+  "skipped_by_user": "你从这个版本回滚过，所以不会自动装它；要装就手动更新",
   "paused_disabled": "扩展已关闭，自动升级暂停；重新打开后恢复你原来的设置",
   "permissions_changed": "要的权限有变化",
   "more_permissions_one": "要多 {count} 项权限：",

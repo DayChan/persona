@@ -17,7 +17,7 @@ Code locations refer to the current files and functions (checked 2026-11-06; aft
   i.e. control-group), then runs `systemctl --user restart personad`. There is no health check beyond `is-active`.
 - On SIGTERM (`signal.NotifyContext` in `main` of `cmd/personad/main.go`): the hub's ctx is cancelled at once, and every machine connection is killed at the same moment (the connections started by `startDevices(ctx)` in `runHub` of `hub/hub.go`).
   The shutdown order in `serveHTTP` of `hub/public.go`: close the listener first → `stopWebSockets` sends each client 1001 "hub stopping" and force-closes after 0.5 s (`stopWebSockets` in `hub/shutdown.go`)
-  → `http.Server.Shutdown` (2 s per step, 8 s total budget, `defaultShutdownTimeout` / `shutdownStepTimeout` in `shutdown.go`) → wait for node connections → close the database. **The listener closes before draining**, so the port is closed during the drain.
+  → `http.Server.Shutdown` (2 s per step, 8 s total budget, `DefaultShutdownTimeout` / `shutdownStepTimeout` in `shutdown.go`) → wait for node connections → close the database. **The listener closes before draining**, so the port is closed during the drain.
 - The process listens itself with `net.Listen` (`serveHTTP` in `public.go`, the TLS port in `startPublic`); there is no `SO_REUSEPORT`, `LISTEN_FDS` or socket activation.
   The new process only listens after `db.Open` (migrations), extensions, the knowledge base and everything else is up (`runHub` in `hub.go`).
 - Measured (journal of the restart on this dev machine at 19:30 on 2026-11-04): stopping began at 19:30:29.88, finished at 30.93, and the new process started listening at 31.14: **the port was closed for about 1.3 s**,

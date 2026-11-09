@@ -1058,6 +1058,15 @@ The release manifest is read only during self-update, with no later fallback: `n
 Now download every platform in the release manifest (four, matching `deploy.sh` and images); the hub platform's node binary is the same as hub itself, so reuse that download.
 For any download/build list derived from current runtime state, consider objects appearing only after update.
 
+## A hub-only update left node builds that passed for the new version (2026-11-09, #1825)
+
+With `auto_update_nodes` off (the default), the hub's self-update replaced only its own binary. `bin/nodes/personad-<os>-<arch>` stayed the previous
+build, and the manager's package lookup takes an unlabelled personad there for a build of the hub's version, ahead of the release site: every
+Redeploy installed the old node (or failed its self-check), and the mismatch could not be fixed from the apps. Now a confirmed hub-only update to
+another version renames those unlabelled builds to `.prev`, so the lookup falls through to the release of the hub's version.
+Whenever a file's meaning is "the build of whatever version the hub runs now", whatever changes the hub's version without changing that file
+must relabel it or move it.
+
 ## Generic plans make "empty means no filter" lose indexes (2026-11-06, #4907)
 
 - pgx caches prepared statements by default; after five executions Postgres may choose a generic plan that can't see parameter values.
@@ -1126,6 +1135,10 @@ Query escaping turns spaces into plus signs, but URI userinfo decoding keeps a p
 ## Reading an answer a reverse proxy passes on (#5278)
 
 When a `httputil.ReverseProxy` has to read what it forwards (the sent-as-user ledger wants the id in a write's answer), copy the bytes as they go to the client, after each `Write`, and read the copy once the handler is done: buffering the answer first would delay a stream and change what the client gets. Which bytes the copy holds depends on the request: a client that sent `Accept-Encoding` itself gets the API's compressed answer verbatim (and the answer's `Content-Encoding` says so), while a client that sent none gets the plain body, because the transport asked for gzip on its own and unpacked it. Read `Content-Encoding` from the answer's headers when the copy starts, not from the request, and bound both the copy and what a gzip copy unpacks to. Test both clients, a chunked answer that is still being written, an answer over the limit and a body that cannot be read: the command must get the same bytes in every case, and an unreadable answer must still be reported.
+
+## Notification success needs a selected recipient (#1910)
+
+Calling both notification channels does not mean either selected a recipient: a saved device may have no usable APNs or relay route, and a connected client may not support `ws_notify`. Return selected and reachable counts from the same recipient walk, before and after its preference filters, so the API can distinguish `no_device` from `filtered` without a separate readiness check racing that selection. Preserve the earlier session-level `muted` result and count both channels: a WebSocket notification can still go out without any push credentials. These counts are not asynchronous APNs / relay acceptance or proof that a phone displayed anything.
 
 ## A push's nil "wants" means "asked for explicitly" (2026-11-06, per-manager push switches)
 

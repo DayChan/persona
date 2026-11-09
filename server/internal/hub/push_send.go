@@ -36,10 +36,10 @@ func (p *Pusher) sendLocalizedQuietTo(build localized, collapseID string, wants 
 // sendFrom is sendLocalizedQuietTo for a push manager asked for (notify.request, its extensions' pushes, a computer's
 // personad notify): none to a device that turned that manager's pushes off (NotifyPrefs.MutedManagers), whatever else
 // it takes. "" is the hub's own push. wants keeps its meaning: nil (asked for explicitly) still goes past Phone Muted
-// and to an open desktop.
-func (p *Pusher) sendFrom(manager string, build localized, collapseID string, wants func(NotifyPrefs) bool, rule quietRule, sent func(Device)) {
+// and to an open desktop. Returns the selected count and the reachable count before preferences are applied.
+func (p *Pusher) sendFrom(manager string, build localized, collapseID string, wants func(NotifyPrefs) bool, rule quietRule, sent func(Device)) (selected, reachable int) {
 	if p == nil {
-		return
+		return 0, 0
 	}
 	online := p.desktopOnline != nil && p.desktopOnline()
 	byPrefs := alertWanted(wants, online)
@@ -47,7 +47,7 @@ func (p *Pusher) sendFrom(manager string, build localized, collapseID string, wa
 	if rule == quietHush {
 		hush = func(d Device) bool { return p.inQuiet(devicePrefs(d.Prefs)) }
 	}
-	p.sendBuiltWith(build, collapseID, "alert", "10", func(d Device) bool {
+	return p.sendBuiltWith(build, collapseID, "alert", "10", func(d Device) bool {
 		if wants != nil && p.desktopOpen != nil && p.desktopOpen(d.DeviceID) {
 			return false
 		}
@@ -159,9 +159,10 @@ func (p *Pusher) sendBuilt(build localized, collapseID, pushType, priority strin
 }
 
 // sendBuiltWith is sendBuilt where the devices hush picks get the push without a sound (hushed, quiet hours).
-func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority string, to func(Device) bool, hush func(Device) bool) {
+// Counts describe this selection, not asynchronous APNs or relay acceptance or delivery.
+func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority string, to func(Device) bool, hush func(Device) bool) (selected, candidates int) {
 	if p == nil {
-		return
+		return 0, 0
 	}
 	p.mu.Lock()
 	reachable := make([]Device, 0, len(p.devices))
@@ -183,7 +184,7 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 		}
 	}
 	if len(devices) == 0 {
-		return
+		return 0, len(reachable)
 	}
 	type built struct {
 		payload map[string]any
@@ -260,4 +261,5 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 			}
 		}(d)
 	}
+	return len(devices), len(reachable)
 }

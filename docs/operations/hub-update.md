@@ -87,6 +87,15 @@ continues to work; an interrupted queued transfer requires another explicit
 Redeploy while the policy is off. Already installed candidates still receive their
 confirmation, so disabling upgrades cannot strand them.
 
+With the policy off, a confirmed update to another version sets aside the node builds
+the Hub leaves in `bin/nodes/`: each `personad-<os>-<arch>` with no `.version` file
+beside it becomes `personad-<os>-<arch>.prev`. The manager takes an unlabelled
+personad there for a build of the Hub's own version, so left in place it would put
+the previous version back on every computer that Redeploy reaches (#1825). Set
+aside, Redeploy fetches the Hub's version from the release (`docs/operations/node-update.md`,
+"Node packages"). A build with a `.version` file says which one it is and stays; the
+directory is never created.
+
 The manager receives this policy in `devices.config`. An old external manager that
 does not understand it must be updated separately before relying on that gate;
 the built-in manager changes together with the Hub. Existing package containment

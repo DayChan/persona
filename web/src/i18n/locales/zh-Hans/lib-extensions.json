@@ -22,6 +22,7 @@
   "upgrade_available": "稍后自动升级",
   "upgrade_off": "自动升级关着",
   "upgrade_skipped": "上次升级后起不来，已回到 {from}，不再自动升级到这个版本",
+  "upgrade_skipped_user": "你从这个版本回滚到了 {from}，不会再自动升级到它",
   "upgrade_failed": "没装上",
   "upgrade_failed_detail": "没装上：{detail}",
   "upgrade_incompatible": "这台 hub 装不了",

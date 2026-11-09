@@ -54580,6 +54580,29 @@
       },
       "extractionState" : "manual"
     },
+    "You rolled back from this version to %@, so it won't auto-update to it" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You rolled back from this version to %1$@, so it won't auto-update to it"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このバージョンから%1$@にロールバックしたため、このバージョンには自動アップデートしません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你从这个版本回滚到了 %1$@，不会再自动升级到它"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "It installs as a background task that starts when you sign in, with no window and no administrator rights." : {
       "localizations" : {
         "en" : {

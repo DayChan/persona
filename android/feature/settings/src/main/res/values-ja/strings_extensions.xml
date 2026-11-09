@@ -287,6 +287,7 @@
     <string name="settings_ext_upgrade_available">後で自動で更新します</string>
     <string name="settings_ext_upgrade_off">自動更新はオフです</string>
     <string name="settings_ext_upgrade_skipped">前回の更新後に起動しなかったため%1$sに戻しました。このバージョンには自動更新しません</string>
+    <string name="settings_ext_upgrade_skipped_user">このバージョンから%1$sにロールバックしたため、このバージョンには自動更新しません</string>
     <string name="settings_ext_upgrade_failed">インストールできませんでした</string>
     <string name="settings_ext_upgrade_failed_detail">インストールできませんでした：%1$s</string>
     <string name="settings_ext_upgrade_incompatible">このハブにはインストールできません</string>

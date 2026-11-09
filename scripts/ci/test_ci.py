@@ -101,6 +101,7 @@ class AutomaticWorkflowTests(unittest.TestCase):
         self.assertIn('if: always()', gate)
         for command in ('scripts/ci/guards.sh', 'scripts/ci/web.sh', 'scripts/ci/runtimes.sh',
                         'scripts/test/test_doc_paths.py', 'scripts/test/test_doc_go_paths.py',
+                        'scripts/test/test_doc_wire.py',
                         "python3 -m unittest discover -s scripts/ci -p 'test_*.py'"):
             self.assertIn(command, gate)
         dependencies = gate.index('run: python3 -m pip install -r scripts/ci/requirements.txt')

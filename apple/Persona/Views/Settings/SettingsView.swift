@@ -276,7 +276,8 @@ struct SettingsView: View {
             // with `-openMachineDetail <id>` that machine's page), `-openDevices YES` (Devices), `-openHubUpdate YES` (hub),
             // `-openManagers YES` (Managers; `-openManagerPage <id>` one of them, `-showManagerCode YES` a new one's install code),
             // `-openSentAsYou YES` (Sent as You),
-            // `-openSkills YES` (Skills), `-openExtensions YES` (Extensions; `-openExtension <id>` one of them; the old `-openPlugin…` names too), `-openChannels YES`
+            // `-openSkills YES` (Skills), `-openExtensions YES` (Extensions; `-openExtension <id>` one of them, with `-openExtensionManager <id>`
+            // another manager's copy; the old `-openPlugin…` names too), `-openChannels YES`
             // (Channels; `-openChannel <id>` one of them).
             .onAppear(perform: openDebugPage)
             #endif
@@ -358,8 +359,10 @@ struct SettingsView: View {
         else if flag("openExtensions") || str("openExtension") != nil { // Settings › Extensions (› one (› a page of it))
             p.append(SettingsPage.plugins)
             if let id = str("openExtension") {
-                p.append(SettingsPage.plugin(id))
-                if let ui = str("openExtensionPage") { p.append(SettingsPage.pluginPage(plugin: id, ui: ui, title: "")) }
+                // `-openExtensionManager <id>`: another manager's copy of it.
+                let manager = d.string(forKey: "openExtensionManager")
+                p.append(SettingsPage.plugin(id, manager: manager))
+                if let ui = str("openExtensionPage") { p.append(SettingsPage.pluginPage(plugin: id, ui: ui, title: "", manager: manager)) }
             }
         }
         else if d.bool(forKey: "openChannels") || d.string(forKey: "openChannel") != nil { // Settings › Channels (› one)
@@ -461,13 +464,16 @@ enum SettingsPage: Hashable {
     /// Settings › hub: the hubs paired, by group (docs/protocol/multi-hub.md).
     case hubs
     case hub, skills
-    /// A connector of the hub's by its id (GET /api/v1/connectors): GitHub…
-    case connector(String)
-    /// Settings › Extensions, and one plugin by its id (docs/extensions/extensions.md).
+    /// A connector of the hub's by its id (GET /api/v1/connectors): GitHub…; `manager`: another manager's copy
+    /// (docs/assistant/managers.md "Grouping"), nil the default's.
+    case connector(String, manager: String? = nil)
+    /// Settings › Extensions, and one plugin by its id (docs/extensions/extensions.md) and manager (another manager's copy of
+    /// the id; nil: the default's).
     case plugins
-    case plugin(String)
-    /// A page a plugin draws (placement plugin_page, docs/extensions/extensions.md「声明式 UI」), titled until its View says otherwise.
-    case pluginPage(plugin: String, ui: String, title: String)
+    case plugin(String, manager: String? = nil)
+    /// A page a plugin draws (placement plugin_page, docs/extensions/extensions.md「声明式 UI」), titled until its View says
+    /// otherwise; `manager`: the plugin's (nil: the default's).
+    case pluginPage(plugin: String, ui: String, title: String, manager: String? = nil)
     /// Settings › Extensions › Extension Market, one plugin of a market, and the markets (docs/extensions/extensions.md「扩展市场」).
     case pluginMarket
     case marketExtension(market: String, id: String)
@@ -499,8 +505,8 @@ private struct SettingsDestinations: ViewModifier {
             .navigationDestination(for: ModelPurposeRoute.self) { r in ModelPurposeEditorView(purposeID: r.id).splitDetailPage() }
             .navigationDestination(for: ModelLauncherRoute.self) { r in ModelLauncherDetailView(name: r.name).splitDetailPage() }
             .navigationDestination(for: MachineDetailRoute.self) { r in MachineDetailView(ref: r.ref).splitDetailPage() }
-            .navigationDestination(for: MessagesChatsRoute.self) { _ in MessagesChatListView().splitDetailPage() }
-            .navigationDestination(for: MessagesThreadRoute.self) { r in MessagesThreadView(id: r.id, name: r.name).splitDetailPage() }
+            .navigationDestination(for: MessagesChatsRoute.self) { r in MessagesChatListView(manager: r.manager).splitDetailPage() }
+            .navigationDestination(for: MessagesThreadRoute.self) { r in MessagesThreadView(id: r.id, name: r.name, manager: r.manager).splitDetailPage() }
             .navigationDestination(for: SessionKey.self) { key in ChatView(key: key).id(key).splitDetailPage(ownsBack: true) }
             .extensionPushDestination()
     }
@@ -524,8 +530,8 @@ private struct SettingsDestinations: ViewModifier {
         case .phoneData: PhoneDataView()
         case .mail: MailAccountsView(inSheet: false)
         case .feishu: FeishuConnectorView()
-        case .connector(let id):
-            if id == "imessage" { MessagesConnectorView() } else { HubConnectorView(id: id) }
+        case .connector(let id, let manager):
+            if id == "imessage" { MessagesConnectorView(manager: manager) } else { HubConnectorView(id: id, manager: manager) }
         case .feishuBot: FeishuBotView()
         case .notifications: NotificationSettingsView()
         case .storage: StorageView()
@@ -542,8 +548,8 @@ private struct SettingsDestinations: ViewModifier {
         case .hub: HubSettingsPage()
         case .skills: SkillsPage()
         case .plugins: ExtensionsView()
-        case .plugin(let id): ExtensionDetailView(id: id)
-        case .pluginPage(let plugin, let ui, let title): ExtensionPageView(plugin: plugin, ui: ui, title: title)
+        case .plugin(let id, let manager): ExtensionDetailView(id: id, manager: manager)
+        case .pluginPage(let plugin, let ui, let title, let manager): ExtensionPageView(plugin: plugin, ui: ui, title: title, manager: manager)
         case .pluginMarket: ExtensionMarketView()
         case .marketExtension(let market, let id): MarketExtensionDetailView(market: market, id: id)
         case .pluginMarkets: ExtensionMarketsView()

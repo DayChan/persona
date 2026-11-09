@@ -33,17 +33,24 @@ struct ExtensionsView: View {
                                    message: String(localized: "Install extensions in the hub's admin page (/admin) or on the hub machine with personad extension install, then turn them on and set them up here."))
                         .listRowBackground(Color.clear)
                 }
+            } else if let groups = page.groups {
+                // Several managers (docs/assistant/managers.md "Grouping"): each one's under its name, the default first.
+                ForEach(groups) { group in
+                    Section {
+                        Group { rows(group.items) }
+                            .bareListRow()
+                    } header: {
+                        ManagerHeading(manager: group.manager, count: group.items.count)
+                    } footer: {
+                        if group.id == groups.last?.id { footer }
+                    }
+                }
             } else if let plugins = page.plugins {
                 Section {
-                    Group {
-                        ForEach(plugins) { p in
-                            NavigationLink(value: SettingsPage.plugin(p.id)) { ExtensionRowLabel(plugin: p) }
-                                .accessibilityIdentifier("plugin-\(p.id)")
-                        }
-                    }
-                    .bareListRow()
+                    Group { rows(plugins) }
+                        .bareListRow()
                 } footer: {
-                    Text("Extensions are installed, updated and uninstalled in the hub's admin page (/admin) or on the hub machine (personad extension). Here you can turn them on or off, change settings and enter secrets.")
+                    footer
                 }
             }
             if let error = page.error {
@@ -79,21 +86,39 @@ struct ExtensionsView: View {
             await page.load()
             await ExtensionSlots.shared.reload()
         }
+        .onChange(of: AppModel.shared.managersRevision) { Task { await page.load() } }
+    }
+
+    /// The rows of a list, each opening its manager's copy: an id is listed once per manager (each one's built-ins).
+    private func rows(_ plugins: [HubExtension]) -> some View {
+        ForEach(plugins, id: \.listKey) { p in
+            let manager = page.manager(of: p)
+            NavigationLink(value: SettingsPage.plugin(p.id, manager: manager)) { ExtensionRowLabel(plugin: p, manager: manager) }
+                .accessibilityIdentifier(manager.map { "plugin-\($0)-\(p.id)" } ?? "plugin-\(p.id)")
+        }
+    }
+
+    private var footer: some View {
+        Text("Extensions are installed, updated and uninstalled in the hub's admin page (/admin) or on the hub machine (personad extension). Here you can turn them on or off, change settings and enter secrets.")
     }
 }
 
 /// A plugin's row: its name, and its state (or version) on the right with a dot that says whether it needs the user.
 private struct ExtensionRowLabel: View {
     var plugin: HubExtension
+    /// Whose copy (nil: the default manager's): its sign-in is that copy's.
+    var manager: String?
+
+    private var auth: ExtensionAuth? { ExtensionAuthStore.shared.auth(plugin.id, manager: manager, else: plugin.auth) }
 
     var body: some View {
         if AppStyle.current.usesBeautifulUI {
-            SettingsRow(title: plugin.name, symbol: Theme.Icon.plugins, tint: ExtensionStateDot.tone(plugin), value: ExtensionText.summary(plugin, auth: ExtensionAuthStore.shared.auth(plugin.id, else: plugin.auth)))
+            SettingsRow(title: plugin.name, symbol: Theme.Icon.plugins, tint: ExtensionStateDot.tone(plugin), value: ExtensionText.summary(plugin, auth: auth))
         } else {
             LabeledContent {
                 HStack(spacing: Theme.Space.sm) {
                     ExtensionStateDot(plugin: plugin)
-                    Text(ExtensionText.summary(plugin, auth: ExtensionAuthStore.shared.auth(plugin.id, else: plugin.auth))).lineLimit(1)
+                    Text(ExtensionText.summary(plugin, auth: auth)).lineLimit(1)
                 }
             } label: {
                 Label {
@@ -149,21 +174,24 @@ struct ExtensionDetailView: View {
     @State private var page: ExtensionModel
     @State private var editingSecret: ExtensionSecret?
     @State private var declarations = ExtensionTextContributions()
-    @State private var connectorInbox = ExtensionConnectorsModel()
+    @State private var connectorInbox: ExtensionConnectorsModel
     @Environment(\.scenePhase) private var phase
 
     @State private var signIn: ExtensionSignInModel
     private var authStore: ExtensionAuthStore { .shared }
 
-    init(id: String) {
-        _page = State(initialValue: ExtensionModel(id: id))
-        _signIn = State(initialValue: ExtensionSignInModel(id: id))
+    /// `manager`: another manager's copy (docs/assistant/managers.md "Grouping"): everything the page reads and changes is
+    /// that manager's, and so are the pages and connectors it opens. nil: the default manager's.
+    init(id: String, manager: String? = nil) {
+        _page = State(initialValue: ExtensionModel(id: id, manager: manager))
+        _signIn = State(initialValue: ExtensionSignInModel(id: id, manager: manager))
+        _connectorInbox = State(initialValue: ExtensionConnectorsModel(manager: manager))
     }
 
     /// Its sign-in, with a hub that has them (#4507): the latest of the page's and the pushes'.
     private var auth: ExtensionAuth? {
         guard ExtensionAuthStore.available(AppModel.shared.hubFeatures), let d = page.detail else { return nil }
-        return authStore.auth(d.plugin.id, else: d.plugin.auth)
+        return authStore.auth(d.plugin.id, manager: page.manager, else: d.plugin.auth)
     }
 
     private struct ConnectorSectionsKey: Equatable {
@@ -258,10 +286,11 @@ struct ExtensionDetailView: View {
         // What the page read is the hub's latest word on the sign-in too; an install that ended waiting for a sign-in
         // opens it here (`next: "auth"`).
         .onChange(of: page.detail?.plugin.auth, initial: true) { _, a in
-            if let a, let id = page.detail?.plugin.id { authStore.received(id, a) }
+            if let a, let id = page.detail?.plugin.id { authStore.received(id, a, manager: page.manager) }
         }
         .task(id: auth != nil) {
-            guard let auth, authStore.openSignIn == page.id else { return }
+            // The market installs into the default manager: its sign-in opens on the default's page.
+            guard let auth, page.manager == nil, authStore.openSignIn == page.id else { return }
             authStore.openSignIn = nil
             if !auth.isSignedIn, !signIn.signingIn, page.detail?.plugin.enabled ?? true { await signIn.start() }
         }
@@ -308,7 +337,8 @@ struct ExtensionDetailView: View {
 
     private var stateText: String {
         guard let p = page.detail?.plugin else { return page.loading ? String(localized: "Loading… [File Viewer 86b6d0]") : String(localized: "Couldn't load [Connector Thread Models 153e20]") }
-        return [ExtensionText.state(p), p.version, ExtensionText.source(p.source)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        // Another manager's copy says whose it is (the default's page is as before).
+        return [ExtensionText.state(p), p.version, ExtensionText.source(p.source), page.managerName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// A market plugin's upgrades (docs/extensions/extensions.md「自动升级」): its own switch, its newer version (opening the market's
@@ -360,7 +390,7 @@ struct ExtensionDetailView: View {
         if !ui.isEmpty {
             Section {
                 ForEach(ui) { place in
-                    NavigationLink(value: SettingsPage.pluginPage(plugin: d.plugin.id, ui: place.id, title: place.title)) {
+                    NavigationLink(value: SettingsPage.pluginPage(plugin: d.plugin.id, ui: place.id, title: place.title, manager: page.manager)) {
                         Label { Text(place.title).lineLimit(1) } icon: { ThemedIcon(Theme.Icon.pluginPage) }
                     }
                     .accessibilityIdentifier("plugin-page-\(place.id)")
@@ -384,7 +414,7 @@ struct ExtensionDetailView: View {
                     }
                     .disabled(connectorInbox.changing != nil)
                     .accessibilityIdentifier("extension-connector-inbox-\(c.id)")
-                    NavigationLink(value: SettingsPage.connector(c.id)) {
+                    NavigationLink(value: SettingsPage.connector(c.id, manager: page.manager)) {
                         Label {
                             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                 Text("Connector Settings").lineLimit(1)

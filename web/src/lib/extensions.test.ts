@@ -233,6 +233,9 @@ describe("auto-upgrade (docs/extensions/extensions.md「自动升级」)", () =>
     expect(upgradeAction(up("waiting_idle"))).toBeNull();
     expect([upgradeDetail(up("off")), upgradeAction(up("off"))]).toEqual(["自动升级关着", "去升级"]);
     expect(upgradeDetail(up("skipped"))).toBe("上次升级后起不来，已回到 1.0.0，不再自动升级到这个版本");
+    // A version the user rolled back from by hand (#1826): not "didn't start".
+    expect(upgradeDetail(up("skipped", { skipped_by: "user" }))).toBe("你从这个版本回滚到了 1.0.0，不会再自动升级到它");
+    expect(upgradeAction(up("skipped", { skipped_by: "user" }))).toBe("去升级");
     expect(upgradeDetail(up("failed", { detail: "下载失败" }))).toBe("没装上：下载失败");
     expect(morePermissions([])).toBe("要的权限有变化");
     expect(morePermissions([{ key: "a", title: "甲" }, { key: "b", title: "乙", detail: "x" }])).toBe("要多两项权限：甲、乙（x）");

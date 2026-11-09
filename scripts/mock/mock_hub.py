@@ -11973,7 +11973,8 @@ def _catalog_item(c):
 
 # Auto-upgrade (docs/extensions/extensions.md "Automatic upgrades"): example-gateway, from a market at 1.0.0, has 1.1.0 there asking for one more
 # host. MOCK_PLUGIN_UPGRADE picks how it stands: needs_permission (default), waiting_idle, skipped, upgraded (the last
-# one went in by itself), disabled (switched off: auto-upgrade paused, its own switch kept), none.
+# one went in by itself), disabled (switched off: auto-upgrade paused, its own switch kept), rolled_back_by_user (the
+# user rolled back from 1.1.0 by hand: skipped as the user's, #1826), none.
 AUTO_UPGRADE = {"auto": True}
 # A market plugin's upgrade while it is on, put back when it is switched on again (_auto_upgrade_paused).
 _UPGRADE_WHILE_ON = {}
@@ -12006,7 +12007,10 @@ def _gateway_upgrade(state):
         up["detail"] = "插件正在用"
     elif state == "skipped":
         pl["upgrade_note"] = {"kind": "rolled_back", "from": "1.0.0", "to": "1.1.0", "detail": "exited with status 3", "at": at(5)}
-    if state in ("needs_permission", "waiting_idle", "skipped", "disabled"):
+    elif state == "rolled_back_by_user":  # no note: the version it was upgraded to is not installed any more
+        up["state"], up["skipped_by"] = "skipped", "user"
+        up["detail"] = "你从这个版本回滚过，所以不会自动装它；要装就手动更新"  # i18n-ignore: the hub's words
+    if state in ("needs_permission", "waiting_idle", "skipped", "disabled", "rolled_back_by_user"):
         pl["upgrade"] = up
     elif state == "upgraded":
         pl["upgrade_note"] = {"kind": "upgraded", "from": "0.9.0", "to": "1.0.0", "at": at(3)}
