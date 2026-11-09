@@ -85,7 +85,7 @@ func (h *Hub) extensionResolveRefused(p principal, id string, res proto.Resoluti
 	return "", "", ix.MachineID, ix.SessionID
 }
 
-// pressesKeys: res carries what a screen card's answer types or picks (assistant/fleet_ix.go screenAnswer).
+// pressesKeys: res carries what a screen card's answer types or picks (assistant/fleet_ix_screen.go screenAnswer).
 func pressesKeys(res proto.Resolution) bool {
 	return res.Option != "" || len(res.Options) > 0 || len(res.Keys) > 0 || len(res.PreKeys) > 0 || res.Text != ""
 }
