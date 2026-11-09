@@ -325,11 +325,13 @@ func TestNamedSessionThatHangsHoldsNothingUp(t *testing.T) {
 	if got := panes(l); !slices.Equal(got, []string{"w4:p1", "@build:w4:p1", "@review:w4:p1"}) {
 		t.Fatalf("panes %v", got)
 	}
+	blocked, release := context.WithCancel(context.Background())
+	defer release()
 	var calls sync.WaitGroup
 	calls.Add(1)
 	fs.build.handle("session.snapshot", func(map[string]any) any {
 		defer calls.Done()
-		time.Sleep(2 * time.Second) // a hung server, as far as the listing is concerned: longer than the three listings
+		<-blocked.Done() // stay hung until all three listings have finished
 		return sessionSnapshot(sidB)
 	})
 	for i := range 3 { // the second and third find the first call still out and do not ask again
@@ -345,6 +347,7 @@ func TestNamedSessionThatHangsHoldsNothingUp(t *testing.T) {
 			t.Errorf("listing %d: panes %v, want build's from its last answer", i, got)
 		}
 	}
+	release()
 	calls.Wait()
 	if n := len(fs.build.trace("session.snapshot")); n != 2 {
 		t.Errorf("build asked %d times, want 2 (once before it hung, once while it hung)", n)
@@ -625,15 +628,11 @@ func TestPaneOfPIDTellsSessionsApart(t *testing.T) {
 		t.Skip(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	for deadline := time.Now().Add(5 * time.Second); ; { // its environment is sleep's once it has exec'd
-		if b, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid), "cmdline")); strings.HasPrefix(string(b), "sleep") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("sleep did not start")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Its environment is sleep's once it has exec'd. Reuse the bounded readiness poll.
+	waitFor(t, "sleep to start", func() bool {
+		b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid), "cmdline"))
+		return err == nil && strings.HasPrefix(string(b), "sleep")
+	})
 	if got := n.paneOfPID(cmd.Process.Pid); got != "@build:w4:p1" {
 		t.Errorf("pane %q, want @build:w4:p1", got)
 	}
@@ -718,16 +717,41 @@ func TestNamedSessionsFollowHerdr(t *testing.T) {
 func TestLookupWaitsForTheListOut(t *testing.T) {
 	own, bld := newFakeHerdr(t), newFakeHerdr(t)
 	c := &herdr.Client{Socket: own.sock}
+	entered := make(chan struct{})
+	blocked, release := context.WithCancel(context.Background())
+	defer release()
 	h := &herdrHost{c: c, named: &herdrSessions{own: c, list: func(context.Context) ([]herdr.SessionInfo, error) {
-		time.Sleep(300 * time.Millisecond)
+		close(entered)
+		<-blocked.Done()
 		return []herdr.SessionInfo{{Name: "build", Running: true, Socket: bld.sock}}, nil
 	}}}
 	h.named.at = time.Now().Add(-time.Hour) // a list long out of date: running asks again in the background
 	if got := h.named.running(context.Background(), time.Now()); len(got) != 0 {
 		t.Fatalf("running %v before the answer", got)
 	}
-	if err := h.SendKeys(context.Background(), host.PaneRef{Kind: host.Herdr, ID: "@build:w1:p1"}, "esc"); err != nil {
-		t.Fatalf("keys while the list is out: %v", err)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session list was never requested")
+	}
+	keys := make(chan error, 1)
+	go func() {
+		keys <- h.SendKeys(context.Background(), host.PaneRef{Kind: host.Herdr, ID: "@build:w1:p1"}, "esc")
+	}()
+	// Observe that lookup remains pending while the list is held, then release it.
+	select {
+	case err := <-keys:
+		t.Fatalf("keys returned before the session list answered: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	release()
+	select {
+	case err := <-keys:
+		if err != nil {
+			t.Fatalf("keys while the list is out: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("keys did not finish after the session list answered")
 	}
 	if tr := bld.trace("pane.send_keys"); len(tr) != 1 {
 		t.Errorf("build keys %v", tr)

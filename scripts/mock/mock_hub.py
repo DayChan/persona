@@ -5161,6 +5161,33 @@ def inbox_triage_from(spec):
 INBOX_TRIAGE = inbox_triage_from(os.environ.get("MOCK_INBOX_TRIAGE", ""))
 
 
+# Sources the hub could not read this round (triage.sources[].read_error / read_reason, #1849; the hub's inbox_admit.go).
+# MOCK_INBOX_UNREAD=<name>[:<code>[:<reason>]],… : each name is marked not read (code timeout | rate_limited | failed,
+# default timeout); with no reason the source has no read_reason (the apps' own words). Adds `triage` (ok) if unset.
+def inbox_unread_into(triage, spec):
+    """The triage block with MOCK_INBOX_UNREAD's sources marked not read; triage as it was when spec is empty."""
+    if not spec:
+        return triage
+    out = copy.deepcopy(triage) if triage is not None else {"state": "ok", "waiting": 0}
+    sources = out.setdefault("sources", [])
+    for i, entry in enumerate(x for x in spec.split(",") if x.strip()):
+        parts = entry.split(":", 2)
+        name = parts[0].strip()
+        code = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "timeout"
+        src = next((x for x in sources if x.get("name") == name), None)
+        if src is None:
+            src = {"source": "unread%d" % (i + 1), "name": name, "state": "ok", "waiting": 0}
+            sources.append(src)
+        src["read_error"] = code
+        if len(parts) > 2 and parts[2].strip():
+            src["read_reason"] = parts[2].strip()
+    sources.sort(key=lambda x: x["source"])
+    return out
+
+
+INBOX_TRIAGE = inbox_unread_into(INBOX_TRIAGE, os.environ.get("MOCK_INBOX_UNREAD", ""))
+
+
 def inbox_list(query):
     """GET /api/v1/inbox (and POST …/refresh): the items, with `triage` when MOCK_INBOX_TRIAGE is set."""
     body = {"items": inbox_for(query), "as_of": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
@@ -16236,6 +16263,7 @@ if os.environ.get("MOCK_MOMENTS_FEED"):  # the project's posts say which feed th
 MOCK_HELP.append("MOCK_MOMENTS_FEED=<名字>  知识库的公司圈帖子带 feed（项目的「相关<名字>」和存档帖子页的标题用它；不设时叫「公司圈」）")
 MOCK_HELP.append("MOCK_NO_LARK=1  没装接飞书的扩展的 hub：features 里没有 lark / lark_moments / lark_attachments，/api/v1/lark/… 404，连接器里没有飞书")
 MOCK_HELP.append("MOCK_INBOX_TRIAGE=<状态>[:<条数>[:<来源名，逗号隔开>[:<原因>]]]  收件箱列表带 triage（新条目在等分拣，#1773）：unconfigured / paused / error / timeout / behind / ok；不设时没有 triage（老 hub）")
+MOCK_HELP.append("MOCK_INBOX_UNREAD=<来源名>[:<代码>[:<原因>]],…  收件箱 triage 的这些来源这一轮没读到（read_error / read_reason，#1849）：代码 timeout / rate_limited / failed；不写原因就没有 read_reason")
 
 # ---------- area: commenting in the Feishu document reader (#1290) ----------
 # MOCK_DOC_COMMENTS=1: the plugin says `lark_doc_comments`; GET /api/v1/lark/raw/documents/comments has three made-up

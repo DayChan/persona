@@ -37,6 +37,31 @@ const adminFallback: Plugin = {
   },
 };
 
+// Dev only: the component showcase's pictures (showcase.html, #829). The hub serves an extension's own picture (a ref) at
+// /api/v1/extensions/<id>/-/image/<token>; the showcase's fake hub writes "dev-showcase.<ref>" as the token (a real one
+// never starts so), and this serves the file of that name from src/showcase/images (anything else goes on to the hub).
+const showcaseImages: Plugin = {
+  name: "showcase-images",
+  apply: "serve",
+  configureServer(server) {
+    const dir = fileURLToPath(new URL("./src/showcase/images/", import.meta.url));
+    server.middlewares.use(async (req, res, next) => {
+      const m = /^\/api\/v1\/extensions\/showcase\/-\/image\/dev-showcase\.([A-Za-z0-9_.-]+)(?:\?|$)/.exec(req.url ?? "");
+      if (!m || m[1].includes("..")) return next();
+      const { readFile } = await import("node:fs/promises");
+      try {
+        const body = await readFile(dir + m[1] + ".png");
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.end(body);
+      } catch {
+        res.statusCode = 404;
+        res.end();
+      }
+    });
+  },
+};
+
 // Build only: main.tsx loads the language catalog, then React, then App, each a dynamic import that starts only when
 // the one before is in, so a cold first load waits for them one after another. This lets the client page's <head>
 // start fetching all of them at once (modulepreload fetches and parses, it does not run them: App still runs after
@@ -114,7 +139,7 @@ const katexFonts: Plugin = {
 };
 
 export default defineConfig({
-  plugins: [katexFonts, i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, startupPreload, classicWorker, thirdPartyLicenses],
+  plugins: [katexFonts, i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, showcaseImages, startupPreload, classicWorker, thirdPartyLicenses],
   // Text size (src/lib/text-scale.ts): font sizes become calc(size * var(--text-scale, 1)), after Tailwind wrote them.
   css: { postcss: { plugins: [textScale()] } },
   server: {

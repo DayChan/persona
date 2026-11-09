@@ -1,0 +1,125 @@
+{
+  "title": "行动作",
+  "sections": [
+    {
+      "title": "长按 / ⋮ / 左滑",
+      "footer": "这些动作只是捷径：点这一行进去的详情页里都能做到。",
+      "items": [
+        {
+          "type": "row",
+          "key": "one",
+          "title": "一个动作",
+          "subtitle": "长按或点 ⋮",
+          "action": {
+            "id": "open",
+            "push": {
+              "title": "一个动作"
+            }
+          },
+          "actions": [
+            {
+              "title": "重命名",
+              "icon": "edit",
+              "action": {
+                "id": "rename"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "two",
+          "title": "两个动作，一个能左滑",
+          "action": {
+            "id": "open",
+            "push": {
+              "title": "两个动作"
+            }
+          },
+          "actions": [
+            {
+              "title": "分享",
+              "icon": "share",
+              "swipe": true,
+              "action": {
+                "id": "share"
+              }
+            },
+            {
+              "title": "刷新",
+              "icon": "refresh",
+              "action": {
+                "id": "refresh"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "four",
+          "title": "四个动作，两个能滑",
+          "subtitle": "含 destructive + confirm",
+          "action": {
+            "id": "open",
+            "push": {
+              "title": "四个动作"
+            }
+          },
+          "actions": [
+            {
+              "title": "置顶",
+              "icon": "star",
+              "swipe": true,
+              "action": {
+                "id": "pin"
+              }
+            },
+            {
+              "title": "编辑",
+              "icon": "edit",
+              "action": {
+                "id": "edit"
+              }
+            },
+            {
+              "title": "分享",
+              "icon": "share",
+              "action": {
+                "id": "share"
+              }
+            },
+            {
+              "title": "删除",
+              "icon": "trash",
+              "role": "destructive",
+              "swipe": true,
+              "action": {
+                "id": "delete",
+                "confirm": "删除这一项？删除后不能恢复。"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "nopen",
+          "title": "没有详情页的行",
+          "subtitle": "只有菜单",
+          "badge": {
+            "text": "3",
+            "color": "blue"
+          },
+          "actions": [
+            {
+              "title": "标为已读",
+              "icon": "check",
+              "action": {
+                "id": "read"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

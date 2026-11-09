@@ -9,11 +9,13 @@ import { canonicalAppURL } from "./compatibility";
 import { api, ApiError, enc } from "./api";
 import { itemHeaders } from "./manager-choice";
 import { extRoot } from "./extension-api";
+import { areaBands, colorOf, hue, imageLoadable, readV6 } from "./extension-ui-v6";
 import { t } from "../i18n";
 import type { Comment, Hunk, Thread, TreeEntry } from "./code-view";
+import type { UIColor, UIImageSource, UIRowAction, UIRowControl, UISpark, UITile } from "./extension-ui-v6";
 
 /** The UI version the web draws (context.ui_version). */
-export const UI_VERSION = 5;
+export const UI_VERSION = 6;
 
 export type UITone = "neutral" | "positive" | "caution" | "danger";
 
@@ -55,7 +57,7 @@ export interface UIItem {
   ratio?: number;
   title?: string;
   subtitle?: string;
-  badge?: { text: string; tone?: UITone };
+  badge?: { text: string; tone?: UITone; color?: UIColor };
   action?: UIAction;
   /** button: normal | destructive */
   role?: string;
@@ -76,8 +78,8 @@ export interface UIItem {
   key?: string;
   /** row: one of an icon (ROW_ICONS), a picture with initials to fall back on, a thumbnail; empty: also its icon */
   icon?: string;
-  avatar?: { url?: string; text?: string };
-  thumbnail?: { url: string; aspect?: "square" | "wide" | string };
+  avatar?: { url?: string; text?: string; ref?: string; path?: string };
+  thumbnail?: { url?: string; aspect?: "square" | "wide" | string; ref?: string; path?: string };
   /** table */
   columns?: { title: string; align?: "start" | "end" | string }[];
   rows?: string[][];
@@ -126,6 +128,30 @@ export interface UIItem {
   suggestions?: boolean;
   /** code: a link to lines on the site, {start} and {end} filled in */
   line_url?: string;
+  /** UI version 6: image */
+  src?: UIImageSource;
+  alt?: string;
+  fit?: "fill" | "fit" | string;
+  no_zoom?: boolean;
+  /** image: square | landscape | wide | portrait | auto */
+  aspect?: string;
+  /** grid, carousel */
+  tiles?: UITile[];
+  max_columns?: number;
+  /** carousel: narrow | regular | wide */
+  width?: string;
+  /** row: a switch, slider or stepper; its extra actions */
+  control?: UIRowControl;
+  actions?: UIRowAction[];
+  /** row, metric: a small trend line; row, metric, empty: the icon's color */
+  spark?: UISpark;
+  icon_color?: UIColor;
+  /** chart: a donut's words in the hole, a candlestick's rising color */
+  center?: string;
+  rising?: "green" | "red" | string;
+  /** field: date, time, datetime limits */
+  earliest?: string;
+  latest?: string;
 }
 
 /** A view's tabs on top (UI version 4): choosing one sends {name: value} (with the search's q) at once. */
@@ -162,6 +188,8 @@ export interface UIMore {
 export interface ChartSeries {
   name?: string;
   tone?: UITone;
+  /** UI version 6: a named color in place of the series palette */
+  color?: UIColor;
   points: ChartPoint[];
 }
 
@@ -170,6 +198,12 @@ export interface ChartPoint {
   label: string;
   value: number;
   display?: string;
+  /** UI version 6, candlestick: the day's open, high, low, close (value is the close) and volume */
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  volume?: number;
 }
 
 /** One number of a stat_grid; the tone colors its detail. */
@@ -178,6 +212,8 @@ export interface UIStat {
   value: string;
   detail?: string;
   tone?: UITone;
+  /** UI version 6 */
+  spark?: UISpark;
 }
 
 export interface UISection {
@@ -366,6 +402,7 @@ export function fieldValues(view: UIView | null | undefined): Record<string, str
       if (it.kind === "secret") out[it.name] = "";
       else if (it.kind === "toggle") out[it.name] = it.value === "true" ? "true" : "false";
       else if (it.kind === "choice") out[it.name] = it.value ?? it.choices?.[0]?.value ?? "";
+      else if (it.kind === "multichoice") out[it.name] = it.value ?? "[]";
       else out[it.name] = it.value ?? "";
     }
     // a segmented is a field chosen at once: a submitting button sends its choice too
@@ -451,10 +488,20 @@ export function pushPage(stack: readonly UIPage[], push: UIPush, ui: string): UI
   return out.length > MAX_STACK ? [...out.slice(0, MAX_STACK - 1), page] : out;
 }
 
+/** The icons UI version 6 adds (docs/extensions/extensions.md "UI version 6"), on a row, a metric, a tile, a row action and a nav_page. */
+export const NEW_ICONS_6 = [
+  "home", "sofa", "light", "power", "fan", "thermometer", "droplet", "lock", "unlock", "door", "window", "camera", "video", "play",
+  "pause", "stop", "speaker", "tv", "plug", "battery", "bolt", "sun", "moon", "cloud", "rain", "snow", "wind", "leaf", "car",
+  "location", "robot", "wifi", "shield", "trend_up", "trend_down", "wallet", "bank", "heart", "plus", "minus", "trash", "edit",
+  "refresh", "share", "info",
+] as const;
+
 /** The fixed icons a row may have (docs/extensions/extensions.md "Declarative UI"): each app draws its own; unknown ones are left out. */
 export const ROW_ICONS = [
   "extension", "plugin", "chart", "gauge", "list", "bell", "doc", "calendar", "money", "person", "chat", "mail", "link", "folder",
   "star", "check", "warning", "clock", "tag", "search", "settings", "branch", "commit", "code", "pull_request", "merge", "file",
+  // UI version 6: the home's and the markets' meanings
+  ...NEW_ICONS_6,
 ] as const;
 export type RowIcon = (typeof ROW_ICONS)[number];
 
@@ -517,6 +564,7 @@ export const KNOWN_ITEMS: readonly string[] = [
   "text", "metric", "progress", "row", "button", "link", "field", "divider", "chart", "stat_grid", "segmented",
   "markdown", "table", "empty", "loading", // UI version 3
   "header", "breadcrumb", "file_tree", "code", "diff", "comment_thread", "composer", // UI version 4
+  "image", "grid", "carousel", // UI version 6
 ];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -552,6 +600,12 @@ function drawable(it: unknown): it is UIItem {
       return Array.isArray(it.comments) && it.comments.every((c) => isObject(c) && typeof c.author === "string");
     case "composer":
       return typeof it.name === "string" && !!it.name && Array.isArray(it.buttons) && it.buttons.some((b) => isObject(b) && readAction(b.action));
+    // UI version 6: a picture that can be loaded (https, or the hub's own path), tiles with titles
+    case "image":
+      return imageLoadable(it.src as UIImageSource | undefined) && typeof it.alt === "string" && !!it.alt;
+    case "grid":
+    case "carousel":
+      return Array.isArray(it.tiles) && it.tiles.some((t) => isObject(t) && typeof t.title === "string" && !!t.title);
     default:
       return true;
   }
@@ -670,6 +724,8 @@ function readItem(it: UIItem): UIItem {
   if (isObject(raw.action)) out.action = readAction(raw.action);
   // UI version 4: the other places an action sits, each read the same way
   for (const k of ["expand", "load", "comment", "reply", "context", "mark_viewed", "draft"] as const) if (k in raw) out[k] = readAction(raw[k]);
+  // UI version 6: a row's control and extra actions, a grid's or a carousel's tiles
+  readV6(out as unknown as Record<string, unknown>, raw);
   if ("line_url" in raw && !isHttps(String(raw.line_url).replaceAll("{start}", "1").replaceAll("{end}", "1"))) delete out.line_url;
   if (Array.isArray(raw.crumbs)) out.crumbs = (raw.crumbs as Record<string, unknown>[]).map((c) => ({ title: String(c.title), ...(readAction(c.action) ? { action: readAction(c.action) } : {}) }));
   if (Array.isArray(raw.buttons))
@@ -690,7 +746,7 @@ export function refreshDelay(view: UIView | null | undefined): number {
 
 /** A nav_page's icons (docs/extensions/extensions.md "UI slots"); each app draws its own. `plugin` is `extension` under its name
  *  before #1844 (the hub still sends it). */
-export const UI_ICONS = ["extension", "plugin", "chart", "gauge", "list", "bell", "doc", "calendar", "money", "branch", "code", "pull_request", "merge"] as const;
+export const UI_ICONS = ["extension", "plugin", "chart", "gauge", "list", "bell", "doc", "calendar", "money", "branch", "code", "pull_request", "merge", ...NEW_ICONS_6] as const;
 export type UIIcon = (typeof UI_ICONS)[number];
 
 /** An icon the web knows, else extension. */
@@ -754,10 +810,13 @@ export const pointText = (p: ChartPoint, unit?: string) => p.display || `${compa
 /** A linear scale from a domain to a range. */
 export const linear = (d0: number, d1: number, r0: number, r1: number) => (v: number) => (d1 === d0 ? (r0 + r1) / 2 : r0 + ((v - d0) / (d1 - d0)) * (r1 - r0));
 
-/** Round ticks around the values, zero always in (bars grow from it): the axis's bottom, top and its ticks. */
-export function niceTicks(min: number, max: number, count = 4): { lo: number; hi: number; ticks: number[] } {
-  let lo = Math.min(0, min);
-  let hi = Math.max(0, max);
+/**
+ * Round ticks around the values, zero always in (bars grow from it): the axis's bottom, top and its ticks. `zero`
+ * false (UI version 6: a candlestick's prices): only around the values.
+ */
+export function niceTicks(min: number, max: number, count = 4, zero = true): { lo: number; hi: number; ticks: number[] } {
+  let lo = zero ? Math.min(0, min) : min;
+  let hi = zero ? Math.max(0, max) : max;
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { lo: 0, hi: 1, ticks: [0, 1] };
   if (hi === lo) hi = lo + 1;
   const raw = (hi - lo) / Math.max(1, count);
@@ -806,7 +865,12 @@ export function barSpans(series: ChartSeries[], stacked: boolean): BarSpan[][] {
 
 /** The lowest and highest a chart reaches (stacked: the sums). */
 export function chartExtent(series: ChartSeries[], kind: string, stacked: boolean): [number, number] {
-  const vals = kind === "bar" && stacked ? barSpans(series, true).flatMap((c) => c.map((b) => b.to)) : series.flatMap((s) => s.points.map((p) => p.value));
+  const vals =
+    kind === "bar" && stacked
+      ? barSpans(series, true).flatMap((c) => c.map((b) => b.to))
+      : kind === "area" && stacked
+        ? areaBands(series, true).flatMap((s) => s.map((b) => b.to))
+        : series.flatMap((s) => s.points.map((p) => p.value));
   return vals.length ? [Math.min(...vals), Math.max(...vals)] : [0, 1];
 }
 
@@ -861,5 +925,15 @@ const TONE_COLOR: Record<UITone, string> = { neutral: "var(--ink-3)", positive: 
  */
 export function seriesColors(series: ChartSeries[]): string[] {
   let slot = 0;
-  return series.map((s) => (s.tone ? TONE_COLOR[toneOf(s.tone)] : `var(--series-${(slot++ % 4) + 1})`));
+  // UI version 6: a named color is the web's token of it (an unknown one takes the next of the palette)
+  return series.map((s) => (colorOf(s.color) ? hue(s.color) : s.tone ? TONE_COLOR[toneOf(s.tone)] : `var(--series-${(slot++ % 4) + 1})`));
+}
+
+/**
+ * The colors of a donut's or a pie's slices: the series' named color for the first, then the palette (the series colors
+ * and then the named hues, so eight slices never repeat).
+ */
+export function sliceColors(n: number): string[] {
+  const more = ["teal", "amber", "indigo", "orange"];
+  return Array.from({ length: n }, (_, i) => (i < 4 ? `var(--series-${i + 1})` : `var(--hue-${more[(i - 4) % more.length]})`));
 }

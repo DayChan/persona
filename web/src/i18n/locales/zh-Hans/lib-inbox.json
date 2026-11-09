@@ -46,6 +46,8 @@
   "triage_waiting_other": "有 {count} 条消息在等分拣",
   "triage_waiting_named_other": "有 {count} 条{name}消息在等分拣",
   "triage_waiting_reason": "{waiting}：{reason}",
+  "read_failed": "这一轮没读到，列表可能不全",
+  "read_failed_line": "{name}：{reason}",
   "refresh_failed": "没刷新成功：{error}",
   "done_failed": "没标成已处理：{error}",
   "undone_failed": "没移回：{error}",

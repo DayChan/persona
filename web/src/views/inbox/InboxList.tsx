@@ -27,6 +27,7 @@ import { openPolicyDialog, RulesDialog } from "./PolicyDialog";
 import { isNoHover } from "../../ui/media-query";
 import { DraftDialog } from "./InboxDialogs";
 import { TriageBanner } from "./TriageBanner";
+import { UnreadNotice } from "./UnreadNotice";
 import { EventMark } from "./InboxEvent";
 import { AgentWorking, Chip, Count, DraftCard, Glyph, ItemAvatar, Spark, StatusMenu, Tag, type GlyphName } from "./InboxParts";
 
@@ -182,6 +183,7 @@ export function InboxList({ selected }: { selected?: { id: string; manager?: str
         <BulkConfirm confirm={confirm} onClose={() => setConfirm(null)} />
 
         <TriageBanner triage={triage} />
+        <UnreadNotice triage={triage} />
         {/* never loaded (an error and no items): its own empty state with "Retry", not "All caught up" under the error (#2970);
             with agents waiting the list is not empty, so the reason stays a line over it */}
         {ready && failed && !empty && <p className="mt-4 text-[12.5px] text-red">{error}</p>}

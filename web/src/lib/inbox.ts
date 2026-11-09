@@ -791,6 +791,10 @@ export interface InboxTriageSource {
   state: string;
   reason?: string;
   waiting: number;
+  /** The latest round could not read this source (`timeout` / `rate_limited` / `failed`): what it lists may be behind. */
+  read_error?: string;
+  /** That for people, in the hub's language; may be empty. */
+  read_reason?: string;
 }
 
 /** What a state says when the hub gives no reason (the same words on iOS and Android). */
@@ -820,6 +824,22 @@ export function triageBanner(tr: InboxTriage | null | undefined): { text: string
   const waiting = name ? t("lib-inbox.triage_waiting_named", { count, name }) : t("lib-inbox.triage_waiting", { count });
   const text = reason ? t("lib-inbox.triage_waiting_reason", { waiting, reason }) : waiting;
   return { text, configure: tr.state === "unconfigured" };
+}
+
+/**
+ * The quiet notice over the list naming the sources the hub could not read this round (#1849): one line per source with a
+ * `read_error`, "name: the hub's read_reason" (the hub's own fallback words when it gives none), so a list that is behind
+ * does not look complete. Empty when every source was read, or from an older hub. Apart from the triage banner: a source
+ * can be unread while triage is ok and nothing waits. The same lines as Android (InboxTriageText.unread).
+ */
+export function triageUnread(tr: InboxTriage | null | undefined): string[] {
+  if (!tr || typeof tr !== "object" || !Array.isArray(tr.sources)) return [];
+  return tr.sources
+    .filter((x) => x && typeof x.read_error === "string" && x.read_error.trim())
+    .map((x) => t("lib-inbox.read_failed_line", {
+      name: (x.name ?? "").trim() || x.source || "",
+      reason: (x.read_reason ?? "").trim() || t("lib-inbox.read_failed"),
+    }));
 }
 
 // ── the list, shared by the page and the sidebar badge ───

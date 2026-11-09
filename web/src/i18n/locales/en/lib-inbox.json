@@ -48,6 +48,8 @@
   "triage_waiting_named_one": "{count} {name} message waiting for triage",
   "triage_waiting_named_other": "{count} {name} messages waiting for triage",
   "triage_waiting_reason": "{waiting}: {reason}",
+  "read_failed": "Not read this round; the list may be incomplete",
+  "read_failed_line": "{name}: {reason}",
   "refresh_failed": "Couldn't refresh: {error}",
   "done_failed": "Couldn't mark as done: {error}",
   "undone_failed": "Couldn't move back: {error}",

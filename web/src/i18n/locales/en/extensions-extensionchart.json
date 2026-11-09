@@ -8,5 +8,14 @@
   "summary_series_other": "{kind}, {count} points, {series}",
   "series_sep": ", ",
   "label": "Label",
-  "value": "Value"
+  "value": "Value",
+  "kind_area": "Area chart",
+  "kind_candlestick": "Candlestick chart",
+  "kind_donut": "Donut chart",
+  "kind_pie": "Pie chart",
+  "open": "Open",
+  "high": "High",
+  "low": "Low",
+  "close": "Close",
+  "volume": "Volume"
 }

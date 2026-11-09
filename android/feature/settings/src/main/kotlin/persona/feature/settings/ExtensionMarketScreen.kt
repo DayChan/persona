@@ -189,6 +189,7 @@ private fun MarketError(market: ExtensionMarket, error: String, busy: Boolean, o
 @Composable
 fun ExtensionCatalogPage(
     extensions: ExtensionManagement?, marketId: String, extensionId: String, onBack: () -> Unit, onInstalled: (String) -> Unit,
+    manager: String? = null,
     /** Installed and it signs in (`next: auth`, #4507): its page, with the sign-in started. */
     onSignIn: (String) -> Unit = onInstalled,
 ) {
@@ -197,7 +198,13 @@ fun ExtensionCatalogPage(
         return
     }
     val res = LocalResources.current
-    val model = remember(extensions, marketId, extensionId, res) { CatalogExtensionModel(extensions, marketId, extensionId, res) }
+    val model = remember(extensions, marketId, extensionId, res, manager) {
+        CatalogExtensionModel(extensions, marketId, extensionId, res, manager = manager)
+    }
+    // Both API names share the same owner for preview, consent, installation and operation progress.
+    PinnedExtension(listOf("extensions", "plugins").flatMap { base ->
+        listOf(listOf(base, extensionId), listOf(base, "-", "catalog"), listOf(base, "-", "install"), listOf(base, "-", "operations"))
+    }, model.owner)
     val state by model.state.collectAsState()
     val scope = rememberCoroutineScope()
     val feedback = LocalAppFeedback.current
@@ -245,7 +252,7 @@ fun ExtensionCatalogPage(
             onConfirm = { scope.launch { model.confirm()?.let { feedback?.notice(it) } } },
             onPreviewAgain = { scope.launch { model.previewAgain() } })
     }
-    if (removing && extension != null) UninstallDialog(extension.label, onDismiss = { removing = false }) { keep ->
+    if (removing && extension != null) UninstallDialog(extension.label, onDismiss = { removing = false }, installedVersion = extension.installed) { keep ->
         removing = false
         scope.launch { if (model.uninstall(keep)) feedback?.notice(res.getString(R.string.settings_ext_uninstalled, extension.label)) }
     }
@@ -413,9 +420,11 @@ internal fun PermissionList(title: String, permissions: List<ExtensionPermission
  * web: a plain "Remove" loses nothing a reinstall could pick up again). The market's page and the extension's own share it.
  */
 @Composable
-internal fun UninstallDialog(name: String, onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
+internal fun UninstallDialog(name: String, onDismiss: () -> Unit, installedVersion: String? = null, onConfirm: (Boolean) -> Unit) {
     var keep by remember { mutableStateOf(true) }
-    JDialog(onDismiss, title = stringResource(R.string.settings_ext_uninstall_title, name), text = stringResource(R.string.settings_ext_uninstall_text),
+    val version = installedVersion?.takeIf { it.isNotBlank() } ?: stringResource(R.string.settings_extension_missing)
+    val text = stringResource(R.string.settings_extension_remove_version, version) + "\n\n" + stringResource(R.string.settings_ext_uninstall_text)
+    JDialog(onDismiss, title = stringResource(R.string.settings_ext_uninstall_title, name), text = text,
         confirm = stringResource(R.string.settings_ext_uninstall) to { onConfirm(keep) }, destructive = true) {
         Row(Modifier.fillMaxWidth().padding(top = Tokens.Space.s), verticalAlignment = Alignment.CenterVertically) {
             JCheckbox(keep, { keep = it })
