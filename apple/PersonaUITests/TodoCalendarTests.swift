@@ -66,7 +66,7 @@ final class TodoCalendarTests: XCTestCase {
     }
 
     /// An entry on the calendar, by its title (its label starts with it).
-    private func entry(_ title: String) -> XCUIElement {
+    @MainActor private func entry(_ title: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", title + ",")).firstMatch
     }
 
@@ -86,7 +86,7 @@ final class TodoCalendarTests: XCTestCase {
         return false
     }
 
-    private func shot(_ name: String) {
+    @MainActor private func shot(_ name: String) {
         let s = app.screenshot()
         let a = XCTAttachment(screenshot: s)
         a.name = name

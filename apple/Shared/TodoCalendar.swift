@@ -254,7 +254,8 @@ nonisolated enum TodoCalendar {
         }
     }
 
-    /// The weekdays' short names in the order the weeks start, as a column's header: "Mon" · "周一" (`narrow`: "M" · "一").
+    /// The weekdays' short names in the order the weeks start, as a column's header: "Mon" (`narrow`: "M"), in the
+    /// calendar's locale.
     static func weekdaySymbols(calendar: Calendar, narrow: Bool) -> [String] {
         let symbols = narrow ? calendar.veryShortStandaloneWeekdaySymbols : calendar.shortStandaloneWeekdaySymbols
         let first = calendar.firstWeekday - 1
