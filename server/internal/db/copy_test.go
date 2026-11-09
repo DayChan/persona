@@ -28,6 +28,8 @@ func TestCopyTables(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO todos (id, title, notes) VALUES ('t1', '早报', 'a line
 and a tab	and a \ backslash')`,
+		`UPDATE todos SET done_at = now() WHERE id = 't1'`,
+		`UPDATE todos SET done_at = NULL WHERE id = 't1'`,
 		`INSERT INTO todo_agents (todo_id, machine_id, session_id) VALUES ('t1', 'm', 's')`,
 		`INSERT INTO settings (key, value) VALUES ('assistant', '{"main":"m-1","list":[1,2]}')`,
 	} {
@@ -58,6 +60,16 @@ and a tab	and a \ backslash')`,
 	var notes, value string
 	if err := to.pool.QueryRow(ctx, `SELECT notes FROM todos WHERE id = 't1'`).Scan(&notes); err != nil || notes != "a line\nand a tab\tand a \\ backslash" {
 		t.Fatalf("notes %q %v", notes, err)
+	}
+	if row, err := to.GetTodo(ctx, "t1"); err != nil || row.ReopenGeneration != 1 {
+		t.Fatalf("copied reopen generation: %+v %v", row, err)
+	}
+	closed, opened := true, false
+	if _, err := to.UpdateTodo(ctx, "t1", nil, nil, &closed, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if row, err := to.UpdateTodo(ctx, "t1", nil, nil, &opened, time.Now()); err != nil || row.ReopenGeneration != 2 {
+		t.Fatalf("reopen after copy: %+v %v", row, err)
 	}
 	if err := to.pool.QueryRow(ctx, `SELECT value::text FROM settings WHERE key = 'assistant'`).Scan(&value); err != nil || value != `{"list": [1, 2], "main": "m-1"}` {
 		t.Fatalf("settings %q %v", value, err)

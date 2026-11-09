@@ -28,9 +28,10 @@ type TodoRow struct {
 	StartError string `json:"start_error"`
 	// DoneBy is who marked it done: "" the user (or a failed start), DoneByAuto the hub's judge (#1092), with
 	// DoneReason. ReopenedAt: when the user last reopened it after it was done.
-	DoneBy     string     `json:"done_by"`
-	DoneReason string     `json:"done_reason"`
-	ReopenedAt *time.Time `json:"reopened_at"`
+	DoneBy           string     `json:"done_by"`
+	DoneReason       string     `json:"done_reason"`
+	ReopenedAt       *time.Time `json:"reopened_at"`
+	ReopenGeneration int64      `json:"-"`
 	// Quiet: a task from the main conversation while assistant.main_tasks_quiet was on (#1731): no pushes, Live
 	// Activity or task badges; the main conversation hears about it instead. Set once, when it is made.
 	Quiet bool `json:"quiet"`
@@ -80,12 +81,12 @@ type TodoAgentRow struct {
 }
 
 const todoColumns = `id, title, notes, done_at, created_at, updated_at, origin, plan_id, start_error, done_by, done_reason, reopened_at, quiet,
-	due_at, due_date, remind_at, reminded_at, priority`
+	due_at, due_date, remind_at, reminded_at, priority, reopen_generation`
 
 // todoDest is where a row of todoColumns is scanned to.
 func todoDest(r *TodoRow) []any {
 	return []any{&r.ID, &r.Title, &r.Notes, &r.DoneAt, &r.CreatedAt, &r.UpdatedAt, &r.Origin, &r.PlanID, &r.StartError, &r.DoneBy,
-		&r.DoneReason, &r.ReopenedAt, &r.Quiet, &r.DueAt, &r.DueDate, &r.RemindAt, &r.RemindedAt, &r.Priority}
+		&r.DoneReason, &r.ReopenedAt, &r.Quiet, &r.DueAt, &r.DueDate, &r.RemindAt, &r.RemindedAt, &r.Priority, &r.ReopenGeneration}
 }
 
 // ListTodos returns all todos ordered by created_at DESC.
@@ -203,6 +204,7 @@ func (e TodoEdit) Apply(cur *TodoRow, at time.Time) {
 		} else {
 			if cur.DoneAt != nil {
 				cur.ReopenedAt = &at // the same stretch of work must not close it again
+				cur.ReopenGeneration++
 			}
 			cur.DoneAt = nil
 			cur.StartError = "" // reopened: no longer failed
@@ -246,11 +248,11 @@ func (d *DB) EditTodo(ctx context.Context, id string, e TodoEdit, updatedAt time
 			return err
 		}
 		e.Apply(&cur, updatedAt)
-		_, err = tx.Exec(ctx, `UPDATE todos SET title = $2, notes = $3, done_at = $4, updated_at = $5, start_error = $6,
+		err = tx.QueryRow(ctx, `UPDATE todos SET title = $2, notes = $3, done_at = $4, updated_at = $5, start_error = $6,
 			done_by = $7, done_reason = $8, reopened_at = $9, due_at = $10, due_date = $11, remind_at = $12, reminded_at = $13,
-			priority = $14 WHERE id = $1`,
+			priority = $14 WHERE id = $1 RETURNING reopen_generation`,
 			cur.ID, cur.Title, cur.Notes, cur.DoneAt, cur.UpdatedAt, cur.StartError, cur.DoneBy, cur.DoneReason, cur.ReopenedAt,
-			cur.DueAt, cur.DueDate, cur.RemindAt, cur.RemindedAt, cur.Priority)
+			cur.DueAt, cur.DueDate, cur.RemindAt, cur.RemindedAt, cur.Priority).Scan(&cur.ReopenGeneration)
 		if err != nil {
 			return err
 		}

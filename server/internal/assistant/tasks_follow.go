@@ -246,7 +246,8 @@ func (s *Service) receiptTurnMatches(t Todo, machine, sid string, expected *rece
 	}
 	current, found := s.taskOf(context.Background(), machine, sid)
 	linked, ok := receiptLink(current, SessionRef{MachineID: machine, SessionID: sid})
-	if !found || !ok || current.ID != expected.Todo || t.ID != expected.Todo || !linked.Equal(expected.Linked) {
+	if !found || !ok || current.ID != expected.Todo || t.ID != expected.Todo || !linked.Equal(expected.Linked) ||
+		current.ReopenGeneration != expected.ReopenGeneration || t.ReopenGeneration != expected.ReopenGeneration {
 		return false
 	}
 	if expected.ID == "" {
@@ -298,7 +299,7 @@ func (s *Service) retryTaskReceipt(ctx context.Context, t Todo, machine, sid str
 		s.tasks.mu.Lock()
 		generation := s.tasks.workIDs[t.ID]
 		s.tasks.mu.Unlock()
-		expected = &receiptLook{Todo: t.ID, Machine: machine, Session: sid, Linked: linked, Work: work, Generation: generation}
+		expected = &receiptLook{Todo: t.ID, Machine: machine, Session: sid, Linked: linked, ReopenGeneration: t.ReopenGeneration, Work: work, Generation: generation}
 	}
 	if expected.ID == "" && expected.RetryID == "" {
 		copy := *expected
@@ -310,6 +311,13 @@ func (s *Service) retryTaskReceipt(ctx context.Context, t Todo, machine, sid str
 
 // receiptRecheckID names a fresh observation made when the old turn cannot be identified.
 func receiptRecheckID(id string) string { return "feed_recheck_" + strings.TrimPrefix(id, "feed_") }
+
+func receiptWorkGeneration(reopened int64, work string) string {
+	if reopened == 0 {
+		return work
+	}
+	return fmt.Sprintf("%d:%s", reopened, work)
+}
 
 // recoverTaskReceipt resumes follow-up from the committed feed, never from a later turn's transcript.
 func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptLook) (bool, error) {
@@ -529,6 +537,7 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if expected != nil && expected.ID != "" {
 		generation = expected.Generation
 	}
+	generation = receiptWorkGeneration(t.ReopenGeneration, generation)
 	previous, hadPrevious := s.tasks.receipted[t.ID]
 	previousGeneration, hadPreviousGeneration := s.tasks.receiptWorkIDs[t.ID]
 	if hadPrevious && (hadPreviousGeneration && previousGeneration == generation ||
@@ -760,8 +769,12 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	current, ok := s.taskOf(ctx, ref.MachineID, ref.SessionID)
 	currentLink, linkedOK := receiptLink(current, ref)
 	oldLink, wasLinked := receiptLink(t, ref)
+	if ok && current.ID == t.ID && current.ReopenGeneration != t.ReopenGeneration {
+		return "", errors.New("receipt task was reopened")
+	}
 	if expected != nil && (!ok || current.ID != t.ID || !linkedOK || !wasLinked || !currentLink.Equal(oldLink) ||
-		t.ID != expected.Todo || !oldLink.Equal(expected.Linked)) {
+		t.ID != expected.Todo || !oldLink.Equal(expected.Linked) || t.ReopenGeneration != expected.ReopenGeneration ||
+		current.ReopenGeneration != expected.ReopenGeneration) {
 		return "", errors.New("receipt look association changed")
 	}
 	s.tasks.receiptMu.Lock()
@@ -778,7 +791,7 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	generation := s.tasks.workIDs[t.ID]
 	s.tasks.mu.Unlock()
 	for _, candidate := range s.tasks.receiptLooks {
-		if candidate.Todo != t.ID {
+		if candidate.Todo != t.ID || candidate.ReopenGeneration != t.ReopenGeneration {
 			continue
 		}
 		pending = true
@@ -806,7 +819,7 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 			return s.appendBoundTaskReceipt(ctx, t, ref, oldLink, "feed_"+randomHex(16), body)
 		}
 		if _, atomic := s.store().(interface {
-			AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time) (bool, bool, error)
+			AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time, int64) (bool, bool, error)
 		}); atomic || s.todoDB() != nil {
 			if !ok || current.ID != t.ID || !linkedOK || !wasLinked || !currentLink.Equal(oldLink) {
 				return "", errors.New("receipt task association changed")
@@ -847,10 +860,10 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	row := db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body}
 	var inserted bool
 	if atomicStore, ok := s.store().(interface {
-		AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time) (bool, bool, error)
+		AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time, int64) (bool, bool, error)
 	}); ok {
 		var valid bool
-		inserted, valid, err = atomicStore.AppendTaskReceiptOnce(ctx, row, look.Machine, look.Session, look.Linked)
+		inserted, valid, err = atomicStore.AppendTaskReceiptOnce(ctx, row, look.Machine, look.Session, look.Linked, look.ReopenGeneration)
 		if err == nil && !valid {
 			return "", errors.New("receipt task association changed")
 		}
@@ -885,10 +898,10 @@ func (s *Service) appendBoundTaskReceipt(ctx context.Context, t Todo, ref Sessio
 	row := db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body}
 	var inserted bool
 	if atomicStore, ok := st.(interface {
-		AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time) (bool, bool, error)
+		AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time, int64) (bool, bool, error)
 	}); ok {
 		var valid bool
-		inserted, valid, err = atomicStore.AppendTaskReceiptOnce(ctx, row, ref.MachineID, ref.SessionID, linked)
+		inserted, valid, err = atomicStore.AppendTaskReceiptOnce(ctx, row, ref.MachineID, ref.SessionID, linked, t.ReopenGeneration)
 		if err == nil && !valid {
 			return "", errors.New("receipt task association changed")
 		}
@@ -957,25 +970,27 @@ func (s *Service) finishTaskReceipt(ctx context.Context, todoID, receiptID strin
 const receiptLooksSetting = "tasks.receipt_looks"
 
 type receiptLook struct {
-	Machine    string    `json:"machine"`
-	Session    string    `json:"session"`
-	Todo       string    `json:"todo"`
-	Linked     time.Time `json:"linked"`
-	Work       time.Time `json:"work,omitempty"`
-	Generation string    `json:"generation,omitempty"`
-	ID         string    `json:"id"`
-	At         time.Time `json:"at"`
-	Attempts   int       `json:"attempts,omitempty"`
-	RetryID    string    `json:"-"`
+	Machine          string    `json:"machine"`
+	Session          string    `json:"session"`
+	Todo             string    `json:"todo"`
+	Linked           time.Time `json:"linked"`
+	ReopenGeneration int64     `json:"reopen_generation"`
+	Work             time.Time `json:"work,omitempty"`
+	Generation       string    `json:"generation,omitempty"`
+	ID               string    `json:"id"`
+	At               time.Time `json:"at"`
+	Attempts         int       `json:"attempts,omitempty"`
+	RetryID          string    `json:"-"`
 }
 
 type receiptKey struct {
-	Ref        SessionRef
-	Generation string
+	Ref              SessionRef
+	Generation       string
+	ReopenGeneration int64
 }
 
 func receiptKeyOf(look receiptLook) receiptKey {
-	return receiptKey{Ref: SessionRef{MachineID: look.Machine, SessionID: look.Session}, Generation: look.Generation}
+	return receiptKey{Ref: SessionRef{MachineID: look.Machine, SessionID: look.Session}, Generation: look.Generation, ReopenGeneration: look.ReopenGeneration}
 }
 
 func receiptLink(t Todo, ref SessionRef) (time.Time, bool) {
@@ -1009,7 +1024,7 @@ func copyReceiptLooks(m map[receiptKey]receiptLook) map[receiptKey]receiptLook {
 }
 
 func sameReceiptLook(a, b receiptLook) bool {
-	return a.Machine == b.Machine && a.Session == b.Session && a.Todo == b.Todo && a.ID == b.ID && a.Generation == b.Generation &&
+	return a.Machine == b.Machine && a.Session == b.Session && a.Todo == b.Todo && a.ID == b.ID && a.Generation == b.Generation && a.ReopenGeneration == b.ReopenGeneration &&
 		a.Linked.Equal(b.Linked) && a.Work.Equal(b.Work) && a.At.Equal(b.At) && a.Attempts == b.Attempts
 }
 
@@ -1022,7 +1037,7 @@ func (s *Service) receiptLookLinked(ctx context.Context, look receiptLook) (bool
 		}
 		active := false
 		for _, t := range todos {
-			if t.ID == look.Todo && t.DoneAt == nil && t.Origin != "" {
+			if t.ID == look.Todo && t.DoneAt == nil && t.Origin != "" && t.ReopenGeneration == look.ReopenGeneration {
 				active = true
 				break
 			}
@@ -1046,11 +1061,11 @@ func (s *Service) receiptLookLinked(ctx context.Context, look receiptLook) (bool
 	}
 	t, ok := s.taskOf(ctx, look.Machine, look.Session)
 	linked, found := receiptLink(t, SessionRef{MachineID: look.Machine, SessionID: look.Session})
-	return ok && t.ID == look.Todo && found && linked.Equal(look.Linked), nil
+	return ok && t.ID == look.Todo && found && linked.Equal(look.Linked) && t.ReopenGeneration == look.ReopenGeneration, nil
 }
 
 // receiptLookSnapshot reads active tasks and links once for a pruning pass.
-func receiptLookSnapshot(ctx context.Context, st todoStore) (map[string]bool, map[[3]string]time.Time, error) {
+func receiptLookSnapshot(ctx context.Context, st todoStore) (map[string]int64, map[[3]string]time.Time, error) {
 	todos, err := st.ListTodos(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -1059,10 +1074,10 @@ func receiptLookSnapshot(ctx context.Context, st todoStore) (map[string]bool, ma
 	if err != nil {
 		return nil, nil, err
 	}
-	active := make(map[string]bool, len(todos))
+	active := make(map[string]int64, len(todos))
 	for _, t := range todos {
 		if t.DoneAt == nil && t.Origin != "" {
-			active[t.ID] = true
+			active[t.ID] = t.ReopenGeneration
 		}
 	}
 	links := make(map[[3]string]time.Time, len(agents))
@@ -1085,7 +1100,7 @@ func (s *Service) pruneReceiptLooks(ctx context.Context) {
 	if len(s.tasks.receiptLooks) == 0 {
 		return
 	}
-	var active map[string]bool
+	var active map[string]int64
 	var links map[[3]string]time.Time
 	if st := s.todoDB(); st != nil {
 		var err error
@@ -1097,7 +1112,7 @@ func (s *Service) pruneReceiptLooks(ctx context.Context) {
 	}
 	remove := make(map[receiptKey]receiptLook)
 	for ref, look := range s.tasks.receiptLooks {
-		if active != nil && active[look.Todo] {
+		if generation, ok := active[look.Todo]; ok && generation == look.ReopenGeneration {
 			linked, ok := links[[3]string{look.Todo, look.Machine, look.Session}]
 			if ok && linked.Equal(look.Linked) {
 				continue
@@ -1230,6 +1245,10 @@ func (s *Service) taskTurnEndedForTaskAfter(ctx context.Context, expected *Todo,
 }
 
 func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, machine, sid string, at, work time.Time, generation string, retrying bool) {
+	s.registerTaskReceiptLookWithPolicy(ctx, expected, machine, sid, at, work, generation, retrying, expected != nil)
+}
+
+func (s *Service) registerTaskReceiptLookWithPolicy(ctx context.Context, expected *Todo, machine, sid string, at, work time.Time, generation string, retrying, verifyLimit bool) {
 	ref := SessionRef{MachineID: machine, SessionID: sid}
 	s.tasks.receiptMu.Lock()
 	defer s.tasks.receiptMu.Unlock()
@@ -1239,7 +1258,7 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 	}
 	retry := func() {
 		if timerCtx.Err() == nil {
-			s.registerTaskReceiptLook(timerCtx, expected, machine, sid, at, work, generation, true)
+			s.registerTaskReceiptLookWithPolicy(timerCtx, expected, machine, sid, at, work, generation, true, verifyLimit)
 		}
 	}
 	if err := s.ensureTodosLoaded(ctx); err != nil {
@@ -1254,7 +1273,7 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 		if !ok {
 			return
 		}
-		valid, err := s.receiptLookLinked(ctx, receiptLook{Machine: machine, Session: sid, Todo: expected.ID, Linked: expectedLink})
+		valid, err := s.receiptLookLinked(ctx, receiptLook{Machine: machine, Session: sid, Todo: expected.ID, Linked: expectedLink, ReopenGeneration: expected.ReopenGeneration})
 		if err != nil {
 			s.logf("task %s: check receipt link: %v", expected.ID, err)
 			time.AfterFunc(time.Minute, retry)
@@ -1263,8 +1282,22 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 		if !valid {
 			return
 		}
-		if !found || t.ID != expected.ID || !linkedOK || !linked.Equal(expectedLink) {
+		if !found || t.ID != expected.ID || !linkedOK || !linked.Equal(expectedLink) || t.ReopenGeneration != expected.ReopenGeneration {
 			t, found, linked, linkedOK = *expected, true, expectedLink, true
+		}
+	} else if found && linkedOK {
+		valid, err := s.receiptLookLinked(ctx, receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, ReopenGeneration: t.ReopenGeneration})
+		if err != nil {
+			s.logf("task %s: check receipt link: %v", t.ID, err)
+			s.tasks.mu.Lock()
+			generation = s.tasks.workIDs[t.ID]
+			s.tasks.mu.Unlock()
+			expected = &t
+			time.AfterFunc(time.Minute, retry)
+			return
+		}
+		if !valid {
+			return
 		}
 	}
 	if (!found || !linkedOK) && s.store() != nil {
@@ -1286,12 +1319,14 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 		s.tasks.mu.Lock()
 		generation = s.tasks.workIDs[t.ID]
 		s.tasks.mu.Unlock()
+		// A retry must keep the event's association, including its reopen generation.
+		expected = &t
 	}
-	if retrying && expected != nil {
+	if retrying && verifyLimit && expected != nil {
 		s.tasks.mu.Lock()
 		receiptGeneration, hasReceipt := s.tasks.receiptWorkIDs[t.ID]
 		s.tasks.mu.Unlock()
-		if hasReceipt && receiptGeneration == generation {
+		if hasReceipt && receiptGeneration == receiptWorkGeneration(t.ReopenGeneration, generation) {
 			return
 		}
 		checkCtx, cancel := context.WithTimeout(timerCtx, agentReachMax)
@@ -1328,7 +1363,7 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 			return
 		}
 		if cancelled {
-			bound := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, Work: work, Generation: generation}
+			bound := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, ReopenGeneration: t.ReopenGeneration, Work: work, Generation: generation}
 			time.AfterFunc(0, func() {
 				if timerCtx.Err() == nil {
 					s.taskTurnEndedForLook(timerCtx, machine, sid, &bound)
@@ -1345,7 +1380,7 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 		time.AfterFunc(time.Minute, retry)
 		return
 	}
-	key := receiptKey{Ref: ref, Generation: generation}
+	key := receiptKey{Ref: ref, Generation: generation, ReopenGeneration: t.ReopenGeneration}
 	pending, exists := s.tasks.receiptLooks[key]
 	if exists && pending.Todo == t.ID && pending.Linked.Equal(linked) && !pending.At.After(at) {
 		return
@@ -1358,7 +1393,7 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 			return
 		}
 	}
-	look := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, Work: work, Generation: generation, ID: "feed_" + randomHex(16), At: at.UTC()}
+	look := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, ReopenGeneration: t.ReopenGeneration, Work: work, Generation: generation, ID: "feed_" + randomHex(16), At: at.UTC()}
 	if exists && pending.Todo == t.ID && pending.Linked.Equal(linked) {
 		look.ID = pending.ID
 	}
@@ -1447,9 +1482,16 @@ func (s *Service) armReceiptLook(ctx context.Context, look receiptLook, at time.
 			s.tasks.mu.Unlock()
 			return
 		}
-		delete(s.tasks.limitLooks, ref)
 		delete(s.tasks.receiptTimers, key)
 		delete(s.tasks.limitLookTokens, key)
+		delete(s.tasks.limitLooks, ref)
+		for other, deadline := range s.tasks.receiptTimers {
+			if other.Ref == ref {
+				if current, ok := s.tasks.limitLooks[ref]; !ok || deadline.Before(current) {
+					s.tasks.limitLooks[ref] = deadline
+				}
+			}
+		}
 		s.tasks.mu.Unlock()
 		if ctx.Err() != nil {
 			return

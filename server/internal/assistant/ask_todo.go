@@ -461,7 +461,7 @@ func (s *Service) closeAskTodo(ctx context.Context, id string) {
 		}
 	} else {
 		row = &db.TodoRow{ID: cur.ID, Title: cur.Title, Notes: cur.Notes, DoneAt: &now, CreatedAt: cur.CreatedAt, UpdatedAt: now,
-			Origin: cur.Origin, PlanID: cur.PlanID, Quiet: cur.Quiet, ReopenedAt: cur.ReopenedAt}
+			Origin: cur.Origin, PlanID: cur.PlanID, Quiet: cur.Quiet, ReopenedAt: cur.ReopenedAt, ReopenGeneration: cur.ReopenGeneration}
 		cur.keepPlan(row)
 	}
 	_, doneKeys, applied := s.setTodoRow(id, *row, nil)

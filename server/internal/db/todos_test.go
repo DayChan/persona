@@ -6,6 +6,64 @@ import (
 	"time"
 )
 
+func TestTodoReopenGeneration(t *testing.T) {
+	d, ctx := open(t), context.Background()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC)
+	id := "reopen-generation"
+	if err := d.CreateTodo(ctx, TodoRow{ID: id, Title: "Task", CreatedAt: at, UpdatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	closeTodo, openTodo := true, false
+	edit := func(done *bool, want int64) *TodoRow {
+		t.Helper()
+		row, err := d.UpdateTodo(ctx, id, nil, nil, done, at)
+		if err != nil || row.ReopenGeneration != want {
+			t.Fatalf("UpdateTodo: row=%+v err=%v, want generation %d", row, err, want)
+		}
+		return row
+	}
+	edit(nil, 0)
+	edit(&openTodo, 0)
+	edit(&closeTodo, 0)
+	row := edit(&openTodo, 1)
+	stored, err := d.GetTodo(ctx, id)
+	if row.ReopenedAt == nil || !row.ReopenedAt.Equal(at) || err != nil || stored.ReopenedAt == nil || !stored.ReopenedAt.Equal(at.Truncate(time.Microsecond)) || stored.ReopenGeneration != row.ReopenGeneration {
+		t.Fatalf("database precision: returned=%+v stored=%+v err=%v", row, stored, err)
+	}
+	edit(nil, 1)
+	edit(&openTodo, 1)
+	// Simulate an older binary's writes, using the same timestamp for both cycles.
+	if _, err := d.pool.Exec(ctx, `UPDATE todos SET done_at = $2 WHERE id = $1`, id, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.pool.Exec(ctx, `UPDATE todos SET done_at = NULL, reopened_at = $2 WHERE id = $1`, id, at); err != nil {
+		t.Fatal(err)
+	}
+	row, err = d.GetTodo(ctx, id)
+	if err != nil || row.ReopenGeneration != 2 {
+		t.Fatalf("legacy reopen: %+v %v", row, err)
+	}
+	if _, err := d.FailTodo(ctx, id, "failed", at); err != nil {
+		t.Fatal(err)
+	}
+	row, ok, err := d.RetryTodo(ctx, id, at.Add(-time.Hour))
+	if err != nil || !ok || row.ReopenGeneration != 3 || row.ReopenedAt == nil || !row.ReopenedAt.Equal(at.Add(-time.Hour).Truncate(time.Microsecond)) {
+		t.Fatalf("retry after clock rollback: %+v %v %v", row, ok, err)
+	}
+	edit(&closeTodo, 3)
+	edit(&openTodo, 4)
+	if _, err := d.pool.Exec(ctx, `UPDATE todos SET done_at = $2, reopen_generation = 9223372036854775807 WHERE id = $1`, id, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.UpdateTodo(ctx, id, nil, nil, &openTodo, at); err == nil {
+		t.Fatal("generation overflow reopened a todo")
+	}
+	row, err = d.GetTodo(ctx, id)
+	if err != nil || row.DoneAt == nil || row.ReopenGeneration != 1<<63-1 {
+		t.Fatalf("overflow changed todo: %+v %v", row, err)
+	}
+}
+
 func TestTodos(t *testing.T) {
 	d, ctx := open(t), context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)

@@ -12,6 +12,102 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+func TestReceiptReopenGenerationPostgres(t *testing.T) {
+	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated Postgres test database not configured")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || !strings.HasPrefix(u.Path, "/persona_test_") {
+		t.Fatal("test requires a disposable database")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	st, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	id, sid := "reopen_"+randomHex(8), "session_"+randomHex(8)
+	conversation := "reopen-" + id
+	linked := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+	if err := st.CreateTodo(ctx, db.TodoRow{ID: id, Title: "Task", Origin: conversation, CreatedAt: linked, UpdatedAt: linked}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.DeleteTodo(context.Background(), id) })
+	if _, err := st.LinkTodoAgent(ctx, id, "box", sid, "", "", "", "", linked); err != nil {
+		t.Fatal(err)
+	}
+	first := New(Options{Hub: newFakeHub(), Store: func() Store { return st }})
+	if err := first.ensureTodosLoaded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	oldTodo, ok := first.taskOf(ctx, "box", sid)
+	if !ok {
+		t.Fatal("initial task missing")
+	}
+	first.restoreTaskReceiptLooks(ctx)
+	first.taskTurnEndedForTaskAfter(ctx, &oldTodo, "box", sid, time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil {
+		t.Fatal(err)
+	}
+	var old receiptLook
+	for _, look := range state.Looks {
+		if look.Todo == id {
+			old = look
+		}
+	}
+	if old.ID == "" {
+		t.Fatal("initial wait missing")
+	}
+	closed, opened := true, false
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := st.UpdateTodo(ctx, id, nil, nil, &closed, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpdateTodo(ctx, id, nil, nil, &opened, at); err != nil {
+		t.Fatal(err)
+	}
+	ref := SessionRef{MachineID: "box", SessionID: sid}
+	if _, err := first.appendTaskReceiptForLook(ctx, oldTodo, ref, receiptBody{State: "done"}, time.Time{}, false, &old); err == nil {
+		t.Fatal("old wait wrote a receipt after reopen")
+	}
+	if _, err := st.AppendFeedOnce(ctx, db.FeedRow{ID: old.ID, Conversation: conversation, At: at, Kind: feedReceipt, Ref: id, Body: []byte(`{"state":"done"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if handled, err := first.recoverTaskReceipt(ctx, oldTodo, &old); !handled || err == nil {
+		t.Fatalf("old stored feed recovered after reopen: handled=%v err=%v", handled, err)
+	}
+	second := New(Options{Hub: newFakeHub(), Store: func() Store { return st }})
+	if err := second.ensureTodosLoaded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current, ok := second.taskOf(ctx, "box", sid)
+	if !ok || current.ReopenGeneration != 1 {
+		t.Fatalf("reopened task: %+v", current)
+	}
+	second.restoreTaskReceiptLooks(ctx)
+	second.taskTurnEndedForTaskAfter(ctx, &current, "box", sid, time.Now().Add(2*time.Hour))
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil {
+		t.Fatal(err)
+	}
+	var fresh receiptLook
+	for _, look := range state.Looks {
+		if look.Todo == id && look.ReopenGeneration == 1 {
+			fresh = look
+		}
+	}
+	if fresh.ID == "" || fresh.ID == old.ID {
+		t.Fatalf("new wait = %+v", fresh)
+	}
+	first.finishTaskReceipt(ctx, id, old.ID)
+	if _, err := second.appendTaskReceiptForLook(ctx, current, ref, receiptBody{State: "done"}, time.Time{}, false, &fresh); err != nil {
+		t.Fatalf("new generation could not write a receipt: %v", err)
+	}
+	second.finishTaskReceipt(ctx, id, fresh.ID)
+}
+
 func TestOrdinaryReceiptWithoutWaitKeepsCompletionPostgres(t *testing.T) {
 	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
 	if dsn == "" {

@@ -59,11 +59,12 @@ type Todo struct {
 	StartError string `json:"start_error,omitempty"`
 	// DoneBy is "auto" when the assistant closed the task because its judge found the work finished (#1092,
 	// docs/assistant/todos.md "Automatic completion"), with DoneReason; ReopenedAt: when the user last reopened it after it was done.
-	DoneBy     string      `json:"done_by,omitempty"`
-	DoneReason string      `json:"done_reason,omitempty"`
-	ReopenedAt *time.Time  `json:"reopened_at,omitempty"`
-	Spaces     []TodoSpace `json:"spaces"`
-	Agents     []TodoAgent `json:"agents"`
+	DoneBy           string      `json:"done_by,omitempty"`
+	DoneReason       string      `json:"done_reason,omitempty"`
+	ReopenedAt       *time.Time  `json:"reopened_at,omitempty"`
+	ReopenGeneration int64       `json:"-"`
+	Spaces           []TodoSpace `json:"spaces"`
+	Agents           []TodoAgent `json:"agents"`
 	// Quiet: a task from the main conversation while assistant.main_tasks_quiet was on (#1731,
 	// docs/assistant/unified-entry.md "Quiet tasks"): no pushes, Live Activity or task badges for its agents; the main
 	// conversation is told instead (quiet.go). Set when it is made, never changed.
@@ -254,21 +255,22 @@ func (s *Service) loadTodosLocked(ctx context.Context) error {
 
 	for _, tr := range tlist {
 		tmap[tr.ID] = &Todo{
-			ID:         tr.ID,
-			Title:      tr.Title,
-			Notes:      tr.Notes,
-			DoneAt:     tr.DoneAt,
-			CreatedAt:  tr.CreatedAt,
-			UpdatedAt:  tr.UpdatedAt,
-			Origin:     tr.Origin,
-			PlanID:     tr.PlanID,
-			StartError: tr.StartError,
-			DoneBy:     tr.DoneBy,
-			DoneReason: tr.DoneReason,
-			ReopenedAt: tr.ReopenedAt,
-			Quiet:      tr.Quiet,
-			Spaces:     make([]TodoSpace, 0),
-			Agents:     make([]TodoAgent, 0),
+			ID:               tr.ID,
+			Title:            tr.Title,
+			Notes:            tr.Notes,
+			DoneAt:           tr.DoneAt,
+			CreatedAt:        tr.CreatedAt,
+			UpdatedAt:        tr.UpdatedAt,
+			Origin:           tr.Origin,
+			PlanID:           tr.PlanID,
+			StartError:       tr.StartError,
+			DoneBy:           tr.DoneBy,
+			DoneReason:       tr.DoneReason,
+			ReopenedAt:       tr.ReopenedAt,
+			ReopenGeneration: tr.ReopenGeneration,
+			Quiet:            tr.Quiet,
+			Spaces:           make([]TodoSpace, 0),
+			Agents:           make([]TodoAgent, 0),
 		}
 		tmap[tr.ID].setPlan(tr)
 	}
@@ -1067,6 +1069,7 @@ func (s *Service) setTodoRow(id string, row db.TodoRow, guard func(*Todo) bool) 
 	t.DoneAt = row.DoneAt
 	t.StartError = row.StartError
 	t.DoneBy, t.DoneReason, t.ReopenedAt = row.DoneBy, row.DoneReason, row.ReopenedAt
+	t.ReopenGeneration = row.ReopenGeneration
 	t.setPlan(row)
 	t.UpdatedAt = row.UpdatedAt
 	var doneKeys [][2]string
@@ -1444,7 +1447,7 @@ func (s *Service) autoDoneTodo(ctx context.Context, id, reason string, work time
 			return false, nil
 		}
 		row = db.TodoRow{ID: t.ID, Title: t.Title, Notes: t.Notes, CreatedAt: t.CreatedAt, Origin: t.Origin, PlanID: t.PlanID,
-			ReopenedAt: t.ReopenedAt}
+			ReopenedAt: t.ReopenedAt, ReopenGeneration: t.ReopenGeneration}
 		row.DoneAt, row.DoneBy, row.DoneReason, row.UpdatedAt = &now, db.DoneByAuto, reason, now
 		t.keepPlan(&row)
 	}
@@ -1477,17 +1480,23 @@ func (s *Service) reopenTodo(ctx context.Context, id string) error {
 	if err := s.ensureTodosLoaded(ctx); err != nil {
 		return err
 	}
+	s.todos.writing.Lock()
 	cur, ok := s.todoNow(id)
 	if !ok {
+		s.todos.writing.Unlock()
 		return db.ErrTodoNotFound
 	}
 	if cur.DoneAt == nil {
+		s.todos.writing.Unlock()
 		return nil
 	}
-	s.todos.writing.Lock()
+	if s.todoDB() == nil && cur.ReopenGeneration == 1<<63-1 {
+		s.todos.writing.Unlock()
+		return errors.New("todo reopen generation exhausted")
+	}
 	now := time.Now().UTC()
 	row := &db.TodoRow{ID: cur.ID, Title: cur.Title, Notes: cur.Notes, CreatedAt: cur.CreatedAt, UpdatedAt: now,
-		Origin: cur.Origin, PlanID: cur.PlanID, ReopenedAt: &now, Quiet: cur.Quiet}
+		Origin: cur.Origin, PlanID: cur.PlanID, ReopenedAt: &now, ReopenGeneration: cur.ReopenGeneration + 1, Quiet: cur.Quiet}
 	cur.keepPlan(row)
 	if st := s.todoDB(); st != nil {
 		open := false
@@ -1517,9 +1526,22 @@ func (s *Service) reopenFailedTodo(ctx context.Context, id string) (Todo, bool, 
 		return Todo{}, false, db.ErrTodoNotFound
 	}
 	s.todos.writing.Lock()
+	cur, ok = s.todoNow(id)
+	if !ok {
+		s.todos.writing.Unlock()
+		return Todo{}, false, db.ErrTodoNotFound
+	}
+	if s.todoDB() == nil && (cur.DoneAt == nil || cur.StartError == "") {
+		s.todos.writing.Unlock()
+		return formatTodo(cur), false, nil
+	}
+	if s.todoDB() == nil && cur.ReopenGeneration == 1<<63-1 {
+		s.todos.writing.Unlock()
+		return Todo{}, false, errors.New("todo reopen generation exhausted")
+	}
 	now := time.Now().UTC()
 	row := db.TodoRow{ID: cur.ID, Title: cur.Title, Notes: cur.Notes, CreatedAt: cur.CreatedAt, UpdatedAt: now,
-		Origin: cur.Origin, PlanID: cur.PlanID, ReopenedAt: &now}
+		Origin: cur.Origin, PlanID: cur.PlanID, ReopenedAt: &now, ReopenGeneration: cur.ReopenGeneration + 1}
 	cur.keepPlan(&row)
 	if st := s.todoDB(); st != nil {
 		r, ok, err := st.RetryTodo(ctx, id, now)
