@@ -13,11 +13,17 @@ final class InboxRuleTests: XCTestCase {
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
         app.launchArguments = ["-pairURL", pair, "-tab", "mail", "-inbox.kind", "", "-inbox.source", ""]
         app.launchPinned()
+        /// Attached to the run; with TEST_RUNNER_PERSONA_SHOTS=<dir> also saved there.
         func shot(_ name: String) {
-            let a = XCTAttachment(screenshot: app.screenshot())
+            let screen = app.screenshot()
+            let a = XCTAttachment(screenshot: screen)
             a.name = "\(name) \(UITestStyle.name)"
             a.lifetime = .keepAlways
             add(a)
+            if let dir = ProcessInfo.processInfo.environment["PERSONA_SHOTS"] {
+                let file = "\(name) \(UITestStyle.name)".replacingOccurrences(of: " ", with: "-") + ".png"
+                try? screen.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
+            }
         }
         func text(_ s: String) -> XCUIElement {
             app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", s)).firstMatch
