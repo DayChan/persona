@@ -1,7 +1,7 @@
 {
   "forked": "新しいチャットに分岐しました",
   "fork_failed": "分岐できませんでした：{error}",
-  "session_loading": "セッション情報を読み込み中です。しばらくしてからもう一度お試しください",
+  "session_unavailable": "この会話は現在利用できません。しばらくしてからもう一度試すか、新しいチャットを始めてください",
   "not_delivered": "届きませんでした：{error}",
   "interrupted": "中断しました",
   "interrupt_failed": "中断できませんでした：{error}",

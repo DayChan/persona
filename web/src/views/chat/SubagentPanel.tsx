@@ -5,7 +5,7 @@ import { subagentParent, subagentTitle } from "../../lib/tasks";
 import { workflowAgentFor, workflowName } from "../../lib/workflows";
 import {  } from "../../ui/atoms";
 import { StatusMark } from "../../ui/StatusMark";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { ChatView } from "./ChatView";
 import { t } from "../../i18n";
 

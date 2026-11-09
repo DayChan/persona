@@ -534,9 +534,8 @@ struct ModelLauncherDetailView: View {
         await withTaskGroup(of: (String, LauncherCheck).self) { group in
             for id in machines {
                 group.addTask {
-                    let c = (try? await api.checkLauncher(name, machine: id.isEmpty ? nil : id))
-                        ?? LauncherCheck(ok: false, millis: 0, error: String(localized: "The request didn't finish"))
-                    return (id, c)
+                    do { return (id, try await api.checkLauncher(name, machine: id.isEmpty ? nil : id)) }
+                    catch { return (id, LauncherCheck.failed(error)) }
                 }
             }
             for await (id, c) in group { checks[id] = .some(c) }

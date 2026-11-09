@@ -110,17 +110,18 @@ func (c *conversation) spokeAt(now time.Time) time.Time {
 	return now
 }
 
-// userText adds to the user's line; spoke is when they stopped saying text (zero for no text).
+// userText adds to the user's line; spoke is when they stopped saying text (zero for no text). When it ends the line
+// (final), it returns when the user stopped saying it (zero: no line ended).
 //
 // The measured service sends the caption 1.2–1.4 s after they stop, often after the model began to answer them
 // (docs/lessons/voice.md "Timeline"). On protocol 2 such a line goes before the model's lines that began after spoke
 // (placeUser: the frame's before), and the model's line still open is not ended by it where the service ends the
 // model's turns itself (turnsEnd): the rest of the answer stays in the same line (#5673). Without that the caption is
 // the only end the model's line has, and it still ends it. Protocol 1's frames are as they always were.
-func (c *conversation) userText(text string, replace, final bool, spoke time.Time) {
+func (c *conversation) userText(text string, replace, final bool, spoke time.Time) time.Time {
 	if c.user == nil {
 		if strings.TrimSpace(text) == "" { // no words: no line (#5587)
-			return
+			return time.Time{}
 		}
 		before := ""
 		if c.version >= 2 {
@@ -141,15 +142,19 @@ func (c *conversation) userText(text string, replace, final bool, spoke time.Tim
 		c.user.at = spoke
 	}
 	c.show(c.user, "user", final)
-	if final {
-		c.remember("user", c.user.text, c.user.at)
-		c.user = nil
+	if !final {
+		return time.Time{}
 	}
+	c.remember("user", c.user.text, c.user.at)
+	at := c.user.at
+	c.user = nil
+	return at
 }
 
+// closeUser ends the user's open line, a caption of what they said: the model owes an answer to it (nudge.go).
 func (c *conversation) closeUser() {
 	if c.user != nil {
-		c.userText("", false, true, time.Time{})
+		c.userLineDone(c.userText("", false, true, time.Time{}))
 	}
 }
 

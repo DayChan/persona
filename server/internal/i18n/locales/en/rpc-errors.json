@@ -1,4 +1,5 @@
 {
+  "readonly_unsupported": "Cannot apply read-only mode on this launch path. Choose a compatible terminal launcher without conflicting permission options.",
   "timeout": "The request timed out. The computer may be busy or the network unstable. Check whether it went through, then try again later.",
   "unreachable": "The connection to this computer dropped. Reconnect it, check whether your last action went through, then try again.",
   "failed": "The request could not be completed. Open details for the diagnostic.",

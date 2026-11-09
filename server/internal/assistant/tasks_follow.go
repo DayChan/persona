@@ -188,6 +188,10 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	if !ok {
 		return
 	}
+	if current, ok := s.todoNow(t.ID); ok && (current.Cancelled() || current.AgentAborted(machine, sid)) {
+		s.logf("task %s: cancelled or agent %s/%s aborted: skipping turn end", t.ID, machine, sid)
+		return
+	}
 	agents, reached := s.taskAgentsReached(ctx, t)
 	if !reached || !taskAgentsSettled(t, agents) {
 		return
@@ -299,6 +303,10 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	text := strings.TrimSpace(last.LastText)
 	if _, answer := turnExchange(items); answer != "" {
 		text = answer
+	}
+	if current, ok := s.todoNow(t.ID); !ok || current.Cancelled() || current.AgentAborted(machine, sid) {
+		s.logf("task %s: cancelled or agent %s/%s aborted: not issuing done receipt", t.ID, machine, sid)
+		return
 	}
 	body := receiptBody{Title: t.Title, State: "done", Summary: clipMarkdown(text, 600), Machine: name}
 	// Persona follows up on a supervised stop through sigReview or sigIdle after judgment; the receipt need not wait.

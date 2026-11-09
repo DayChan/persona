@@ -380,7 +380,9 @@ function PlanTaskRow({ n, task, numbered, ultra, busy, onUltra }: { n: number; t
   const chips: { icon: IconName; text: string }[] = [
     { icon: "machine", text: machine },
     { icon: "folder", text: task.cwd.split("/").filter(Boolean).at(-1) ?? task.cwd },
-    { icon: "agent", text: task.model || task.launcher || t("assistant-tasks.default_model") },
+    // an explicit model wins over the preset's (resolved at the start, with the profile in use then); a launcher of its own
+    // is said with it: a different one runs instead of the preset's
+    { icon: "agent", text: task.model || [task.launcher, task.tier && t("assistant-tasks.preset", { tier: task.tier })].filter(Boolean).join(" · ") || t("assistant-tasks.default_model") },
   ];
   return (
     <div className={cx("flex flex-col gap-1.5", n > 1 && "border-t border-line pt-3")}>

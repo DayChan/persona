@@ -16,6 +16,8 @@
   "behind_other": "落后上游 {count} 个提交",
   "no_upstream": "没有上游分支",
   "in_sync": "已同步",
+  "upstream_gone": "远端已删除",
+  "upstream_gone_hint": "远端已经没有这个上游分支（比如合并后删掉的 PR 分支）。再推送之前，这里的提交只在这台电脑上。",
   "stashes_hint": "用 git stash 收起来的改动有几份",
   "stashes_one": "贮藏 {count}",
   "stashes_other": "贮藏 {count}",

@@ -148,5 +148,7 @@
   "auto_review_findings_one": "指摘 {count} 件",
   "auto_review_findings_other": "指摘 {count} 件",
   "auto_review_show": "レポートを表示",
-  "auto_review_hide": "レポートを隠す"
+  "auto_review_hide": "レポートを隠す",
+  "preset": "プリセット {tier}",
+  "plan_edit_model_placeholder_tier": "空欄ならプリセット {tier} のモデル"
 }

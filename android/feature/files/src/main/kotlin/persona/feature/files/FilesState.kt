@@ -245,7 +245,7 @@ class FilesController(
      */
     fun pull() {
         val snapshot = state.value
-        if (snapshot.pulling || snapshot.git?.upstream == null || snapshot.git.branch == null) return
+        if (snapshot.pulling || snapshot.git?.upstream == null || snapshot.git.gone || snapshot.git.branch == null) return
         // A status or log read in flight would land after the pull and show the branch as it was.
         gitJob?.cancel()
         moreJob?.cancel()

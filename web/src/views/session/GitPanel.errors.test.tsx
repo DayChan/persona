@@ -2,9 +2,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// SidePanel's task and subagent panels pull in the whole chat view; nothing here opens them.
-vi.mock("../assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("../chat/SubagentPanel", () => ({ SubagentPanel: () => null }));
 import type { GitCommit, GitStatus } from "../../lib/files";
 import { t } from "../../i18n";
 

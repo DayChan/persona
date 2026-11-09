@@ -49,5 +49,8 @@
   "add_provider": "添加模型供应商",
   "try_anyway": "仍然使用",
   "close_help": "关闭",
-  "forget_failed": "没能忘记「{id}」：{error}"
+  "forget_failed": "没能忘记「{id}」：{error}",
+  "preset": "预设",
+  "preset_hint": "来自 {profile}：一键填好启动器、模型和思考强度，之后仍可修改。",
+  "preset_left_out": "这里用不上：{what}，会按启动器或模型自己的设置运行。"
 }

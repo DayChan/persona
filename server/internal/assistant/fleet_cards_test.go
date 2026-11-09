@@ -20,8 +20,8 @@ import (
 	"github.com/nwverse/persona/server/internal/screen"
 )
 
-// The cards the manager makes itself (fleet_ix.go): a TUI dialog read off the screen, the Codex cards a node lists,
-// a plan answered in the terminal. Moved from the hub's tests with them.
+// The cards the manager makes itself: a TUI dialog read off the screen (fleet_ix_screen.go), the Codex cards a node
+// lists (fleet_ix_codex.go), a plan answered in the terminal (fleet_ix_terminal.go). Moved from the hub's tests with them.
 
 // Screens with a dialog the manager can read (screen.ParseDialog).
 const (

@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -52,11 +53,15 @@ type savedEventLog struct {
 
 func newEventLog() *eventLog { return &eventLog{stream: randomHex(8)} }
 
-// stampEvent puts "event_seq" first in the JSON object b.
+// stampEvent puts "event_seq" first in the JSON object b. The log owns that key: if b already has one at its top level
+// (a node's hook.event passes on what the sender put there; relayBroadcastFrom takes a manager's out itself, as an
+// extension_operation does not come through here), it is taken out first. Otherwise the apps would get the key twice
+// and, as they read a repeated key's last value, take the sender's number for their resume cursor.
 func stampEvent(b []byte, seq int64) []byte {
 	if len(b) < 2 || b[0] != '{' {
 		return b
 	}
+	b = withoutEventSeq(b)
 	head := `{"event_seq":` + strconv.FormatInt(seq, 10)
 	out := make([]byte, 0, len(b)+len(head)+1)
 	out = append(out, head...)
@@ -64,6 +69,52 @@ func stampEvent(b []byte, seq int64) []byte {
 		out = append(out, ',')
 	}
 	return append(out, b[1:]...)
+}
+
+// withoutEventSeq is the JSON object b without a top-level "event_seq". Every body comes from Go's encoder, which
+// writes that key as it is: one without the name anywhere has none and is not decoded (most bodies, under Hub.mu);
+// one with it only deeper down or as text comes back byte for byte. Only one that has it at the top level is written
+// again, from a map as relayBroadcastFrom writes a manager's message, so its other keys keep their order. A case
+// variant ("Event_seq") stays: the apps read exact keys, it is the sender's own field to them.
+func withoutEventSeq(b []byte) []byte {
+	if !hasEventSeq(b) {
+		return b
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(b, &m) != nil {
+		return b
+	}
+	if _, ok := m["event_seq"]; !ok {
+		return b
+	}
+	delete(m, "event_seq")
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(m) != nil {
+		return b
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+}
+
+var eventSeqKey = []byte(`"event_seq"`)
+
+// hasEventSeq: b has `"event_seq"`, quotes included, anywhere. bytes.Contains would look for its first byte, a quote,
+// which every key and string has, and fall back to comparing at every byte: that added some 70% to
+// BenchmarkEventLogAdd. A 'q' is rare in a body, so this finds each one with IndexByte and compares the key around it.
+func hasEventSeq(b []byte) bool {
+	const q = len(`"event_se`) // the q's place in the key
+	for i := q; i < len(b); i++ {
+		j := bytes.IndexByte(b[i:], 'q')
+		if j < 0 {
+			return false
+		}
+		i += j
+		if i+2 <= len(b) && bytes.Equal(b[i-q:i+2], eventSeqKey) {
+			return true
+		}
+	}
+	return false
 }
 
 // add numbers b, keeps it and returns it as it is to be sent.

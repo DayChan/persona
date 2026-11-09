@@ -21,7 +21,7 @@ import (
 // fields differ from them (a field added, renamed, retyped or retagged by a change that did not update this file),
 // appendSession leaves every session to the reflect encoder: the session is sent whole, only slower, until its line
 // here and this hash are brought up to date. TestSessionWireMatchesReflect fails meanwhile and prints the new hash.
-const sessionWireLayout = 0xf0a6a100138852d
+const sessionWireLayout = 0xb83807afe2294f67
 
 var sessionWireCurrent = sessionLayout() == sessionWireLayout
 
@@ -87,6 +87,8 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	w.str(`"cwd":`, s.Cwd, false)
 	w.str(`"workspace_cwd":`, s.WorkspaceCwd, true)
 	w.str(`"repo_root":`, s.RepoRoot, true)
+	w.str(`"worktree":`, s.Worktree, true)
+	w.str(`"branch":`, s.Branch, true)
 	w.str(`"status":`, s.Status, false)
 	w.str(`"pane_id":`, s.PaneID, true)
 	w.str(`"tab_id":`, s.TabID, true)
@@ -189,6 +191,9 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	w.boolean(`"turn_error_resumes":`, s.TurnErrorResumes, true)
 	w.boolean(`"turn_error_after_work":`, s.TurnErrorAfterWork, true)
 	w.str(`"turn_error_code":`, s.TurnErrorCode, true)
+	if s.ModelFallback != nil {
+		w.value(`"model_fallback":`, s.ModelFallback)
+	}
 	if s.Work != nil {
 		w.value(`"work":`, s.Work)
 	}

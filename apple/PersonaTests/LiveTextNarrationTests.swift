@@ -41,7 +41,7 @@ struct LiveTextNarrationTests {
         #expect(ChatStore.isLiveCopy(item(3, .thinking, text: "我先看看日志。"), of: "我", after: 2))
     }
 
-    /// A reply that begins like an earlier line of its turn ("我…") keeps streaming: that line is not its copy.
+    /// A reply that begins like an earlier line of its turn (the same first word) keeps streaming: that line is not its copy.
     @Test func aShortStartIsNotTakenForAnEarlierLine() async {
         let store = ChatStore(key: SessionKey(machineID: "test", sessionID: UUID().uuidString))
         store.merge([item(1, .text, role: "user", text: "看看"), item(2, .thinking, text: "我先看看日志。")])

@@ -63,6 +63,7 @@ func (s *Service) healthyPlace(ctx context.Context, t *PlanTask) bool {
 // and answers the machine's id and the session's: the machine it reached is the one the agent is linked to (looking it
 // up again after the start could find another, or none). A failed start counts against the launcher there.
 func (s *Service) startTaskAgent(ctx context.Context, t *PlanTask, retry bool) (mid, sid string, err error) {
+	t.normalizeReadonlyPermission()
 	if err := t.normalizeMachinePolicy(); err != nil {
 		return "", "", err
 	}

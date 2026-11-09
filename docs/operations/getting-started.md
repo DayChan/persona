@@ -42,9 +42,9 @@ If you have an always-on computer, put the hub on it. A laptop works as the hub 
 | --- | --- |
 | iPhone (iOS 26 or later) | [TestFlight public beta](https://testflight.apple.com/join/vsjfy3hE): install TestFlight from the App Store first, then tap this link. The App is called Persona Side |
 | Apple Watch | Installs along with the iPhone version |
-| Web | Nothing to install: once the hub is set up, open the hub's address in a browser (explained below) |
+| Web | Nothing to install: once the hub is set up, open the hub's address in a browser (explained below). On a computer you can also install it as an app ([web.md](../web/web.md), "On computers") |
 | Android | No public package yet; build it yourself ([android.md](../android/android.md)) |
-| Mac App | No package yet; build it yourself ([mac.md](../apple/mac.md)) |
+| Mac App | Frozen: it gets fixes, not new features ([mac.md](../apple/mac.md)). On a Mac, use the web app (it can be installed as an app); a Mac whose Agents Persona should reach also needs Persona Link ("Connect a computer" below) |
 
 ## Install the hub: paste one command
 

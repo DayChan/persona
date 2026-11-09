@@ -27,6 +27,7 @@ Phase one follows the sub-issues in section 7; after each step, align this docum
   and since #3505 the upstream pauses (`suspend`: closed while the target works and the call has been quiet for 60 seconds, back when there is something to say or you speak, `link{paused / waking / live}`, 4.9); `features` is `[target, runs, asks, resume, suspend]`. Protocol 1 frames are unchanged.
 - Since #3503, rounds in the bound chat not assigned during this call are also spoken (observed runs, protocol 2 only; main-chat rounds from other channels get just one sentence). For a bound Agent with session triage enabled, model errors that the manager will "continue" do not count as completion; triage waiting on an external dependency announces "Waiting for X" once; model errors speak only the category.
   A heartbeat is spoken after 2 minutes working silently; protocol 2 interruption `clear` follows upstream signals (`incomplete` arriving after a reply has finished does not count), with PCM energy used when the upstream reports no reply boundaries (4.5 rule 7).
+  Since #2297, a fast layer that owes the user an answer (their line, a typed line, a result handed to it) and stays silent for 15 seconds gets one `say` nudge (4.5 rule 9).
 - Protocol 1 delegation is hard-coded to the main chat. Before #3501, completion used polling `State` / `LastText` every 3 seconds, and the node truncated `LastText` to 200 characters, so it could speak someone else's round and only the first 200 characters.
   Since #3501, tracking is per round (4.3): each delegation is a `channel.Run`, locating the message by `client_msg_id`, waiting for its round to finish, reading the full answer, converting it to speakable text, and handing it to the fast layer;
   also added the user-speech gate (4.4), calls from other extensions declaring only `ask_persona` (3.7), and the `fake` dialect.
@@ -345,6 +346,7 @@ ext  → run …"sent" → …"working" → {"type":"link","state":"paused"} →
 | `status.go` (new) | Status queries, stop |
 | `asks.go` (new) | Spoken questions, answer recognition, `resolve`, approval announcements |
 | `suspend.go` (new, #3505) | Suspend, wake (PCM energy detection), 3-second ring buffer, wake retries |
+| `nudge.go` (new, #2297) | The answer the fast layer owes (from the user's line, a typed line, what is handed to it; answered by its audio, captions, handovers), one `say` nudge when it stays silent (4.5 rule 9) |
 | `items.go` (new) | HTTP `ItemSource` for `channel.ReadTurn` |
 | `spoken.go` (new) | Make replies speakable: identify code blocks, tables, inline code, paths, `file:line`, hashes, URLs, Markdown markers; placeholders from `prompts/voice/spoken.md` (paths keep filename only); truncate as "beginning + end" |
 | `info.go` (new) | `GET /info` |
@@ -527,6 +529,7 @@ Titles, goals, progress, recent turns, card questions, and Agent titles go insid
 | Send failure / gate rejection | `refused.md` | Final commentary for delegation | Yes |
 | Old folded delegation | `folded.md` (#3502) | **Nothing sent**: thinking with id causes another immediate sentence (lessons finding 4, 2/2). Call stays open; `folded.md` adds to the new result "This result includes the earlier request… that call will not return separately" | No |
 | Other-channel round | `observed.md` | `say` | One sentence |
+| Fast layer silent while it owes the user an answer (#2297) | `nudge.md` (`Cause`: `user` / `result`) | `say`, once per owed answer (rule 9) | Yes |
 
 **Rules**
 
@@ -577,6 +580,14 @@ Titles, goals, progress, recent turns, card questions, and Agent titles go insid
    "Sound" includes model playback not finished, voiced App audio, user captions or typed text, and this run's last announcement;
    speak only `activity` category ("Running tests / reading", no commands or paths) and time since assignment (observed runs since session became working), never Agent text, and do not close the user-speech gate.
    #3503 real-service run: a task took 2.5 minutes; at 2 minutes the model said "Still running, over two minutes, no result yet", without reading any command arguments.
+9. **Nudge** (#2297, both protocols, `nudge.go`): sometimes the fast layer owes the user an answer and says nothing, and the call sits silent until the user speaks again or hangs up; the instructions' "After every tool result, speak right away" was all there was against it.
+   - **Owed from**: the user's line once its caption is final (no more of it for `captionQuiet`, or the dialect ends it); a `text` frame as it is sent (one typed while paused: as the woken session gets it); anything the extension hands the fast layer (`sendNow`: a result on its delegation or said, a tool result on its call, a refusal, a status, a card, an approval announcement), except a heartbeat and the nudge itself.
+     A caption is **not** owed when the fast layer began to answer, or was still speaking (its computed play end), after the user stopped saying it (the line's time, from the App's voice): the tested service sends the whole caption 1.2–1.4 s after the user stops, often after the answer began and sometimes after all its audio is in (lessons "Timeline", "A late caption in the middle of an answer"), so its arrival says nothing of whether it was answered.
+   - **Answered by**: any fast-layer audio that goes to the App (not the dropped rest of an answer cut off by an `interrupt` or the energy rule), a caption delta with words, a delegation, a function call. A new owed answer replaces the old one and arms its nudge again.
+   - **When**: owed for at least `nudgeAfter` (15 seconds), counted from the latest of when it became owed, the fast layer's computed play end and when its session came up; and the user quiet for `nudgeQuiet` (4 seconds: no caption growing, no `text`, no voice in the App's audio by rule 3's energy and noise floor).
+     Then one `say` of `nudge.md` (`Cause: user`: "the user is waiting for your answer to what they just said; answer now in a sentence or two, ask them to repeat if you did not catch it"; `Cause: result`: "you have not told the user what was just handed to you; tell them now, no tools"), nothing of what was said or handed over. At most one per owed answer. It does not go through the insertion queue and never wakes a paused upstream.
+   - **Not while**: the upstream is paused, waking or reconnecting, or the call is over (a pause drops what was owed; a drop drops an owed result, which went with that session, and keeps an owed user line, which the next session has in its history); a card is asked or about to be (`askCur`); words wait in the queue; the App's `start` said `echo_cancellation: false` (the fast layer's own speech is captioned as the user's, so neither their lines nor their quiet can be told); and, for the user's words only, while a run of the call's is worked on (`sending`, `sent`, `working`, `held`, `blocked`; not `needs_you`) or the bound chat works (4.9's `works`): the user waits for that, and heartbeats cover it. An owed result is nudged even then.
+   - The thresholds are package variables (`nudgeAfter`, `nudgeQuiet`); tests other than the nudge's own set `nudgeAfter` to an hour (their scripted models say nothing they are not told to).
 
 ### 4.6 Status queries
 
@@ -737,6 +748,7 @@ How #3505 does it (`suspend.go`; constants from lessons "Recommended constants",
 | `tool_result.md` | New (#3501) | Function results: other people's words from knowledge/Agent reads in `<agent_output>`; not found, error, bad arguments, sent |
 | `folded.md` | New (#3502) | Folded into next: sentence in new result via `report.md`, never sent separately |
 | `observed.md` | New (#3503) | Other-channel round: "New reply on WeChat" (`Channel` name, empty for scheduled tasks/reports "elsewhere"), no contents |
+| `nudge.md` | New (#2297) | The fast layer owes the user an answer and is silent (4.5 rule 9): `Cause` `user` (answer what they just said, ask them to repeat if unclear) / `result` (tell them what was just handed to you, no tools); never mention the reminder; nothing of what was said or handed over |
 | `spoken.md` | New (#3501) | Summary placeholders (code, tables, links, images, filename paths/`file:line`, hashes, long code, omitted middle). No backchannel list: lessons recommends no backchannel filtering for interruption (#3503) |
 | `mcp/voice/send_to_agent.md` | Changed (#3502) | Remove "repeat then wait for confirmation" (also in `instructions.md`) |
 | `mcp/voice/delegate_task.md` | New (#3502) | Protocol 2 bound-chat function tool (4.4 "Tools") |
@@ -841,6 +853,10 @@ How #3505 does it (`suspend.go`; constants from lessons "Recommended constants",
   a service that refuses the tools before `session.started` (an `error` with `param: session.tools`, one saying "tools", `unsupported_extension` with no field, a close whose reason says "tools") gets exactly one more session without them, and the next conversation starts without them on its first try;
   a session refused without tools too fails after that one retry and nothing is remembered; `"tools": false` never declares them, `"tools": true` fails on a refusal with no retry;
   a refused key (handshake 401, or an `error` about the key) is never a fallback; `refusedTools` and `toolsMode` rule by rule. Tests of the plain-delegation path set `"tools": false` (`liveProvider`).
+- **#2297 covered** (`voice/nudge_test.go`, `silentUpstream` whose model never speaks): a typed line nudged once after `nudgeAfter` and only once, the next typed line nudged again, the log's `nudge:` line and the closing `nudges 2` without what was typed or said; a model that answers in time by a caption, audio or a handover (and then speaks about its result) is never nudged;
+  a caption final with nothing after it is nudged (`after the user's caption`), one that comes after the model's audio already answered is not; a delegation's result and a tool's result the model says nothing of are nudged (`Cause: result`); the user's line while a run works is not, the run's result then is;
+  no nudge while a card is asked (once it is answered on screen, the "answered elsewhere" sentence is); none without echo cancellation; none while paused, and the paused upstream is not woken; `nudgeDue` and what owes / answers rule by rule (`TestNudgeDue`, `TestAnswerOwed`). Goldens add `nudge.user.*`, `nudge.result.*`.
+  Each negative test fails with its rule taken out.
 - **#1485 covered** (`voice/calllog_test.go`): a bound call with one `delegate_task` logs its start, binding, upstream session and tools, the function call and its delegation, the gate's decision, the run's states and its send, and its last line with the counts, every line with the call's id; a handover nobody asked for logs the gate's refusal and the run refused (`unprompted`); calls at the same time have their own ids, and a start that fails says its code. None of the typed line, the caption, the model's reply, the task or the agent's answer is in the log.
 
 ### 4.14 Diagnosing a call (#1485)
@@ -868,6 +884,7 @@ Lines without a call id are the extension's own: its providers as it starts, its
 | `upstream: session error (code, param): …`, `upstream: the service refused persona-3 …` | The service's error on a live session (its own words, cut to 200 characters), and what was done with something it refused. |
 | `upstream: session 1 lost after 45s: …`, `reconnect (try 2 of 3) failed: …` | The upstream dropped; the reconnects. |
 | `paused the upstream (1): session 2 closed, …`, `waking the upstream: …`, `woke the upstream in 1.2s`, `wake (1 of 3) failed: …` | Suspension (4.9). |
+| `nudge: answer owed for 15.2s after a typed line` | The fast layer owed the user an answer and said nothing, so it was nudged once (4.5 rule 9): how long since it became owed, and what it was owed for (`the user's caption`, `a typed line`, `a tool result`, `a result`). |
 | `delegation dlg1: made in session 1[, waiting 2s for its function call]` | The model handed something over. With tools, its function call is waited for; `no function call came: handed over as it is` when none did. |
 | `function call delegate_task (call c1, delegation dlg1, session 1)` | The model called a function tool (`call c1: … is a tool this session did not declare: ignored` for one it was not given). |
 | `delegation dlg1: a task for agent m/a1 (34 characters)` | How a handover was routed: `a status (not gated)`, `a stop`, `the answer to card ix1`, `an answer in words`, `a task`; `no words: the user's last line` when the model gave no task. |
@@ -879,9 +896,9 @@ Lines without a call id are the extension's own: its providers as it starts, its
 | `card ix1: asked by voice`, `card ix1: answered (voice)`, `card ix1: released (elsewhere)`, `cards ix2: to be done on the screen, said by their kind` | Cards (4.7). |
 | `delegation dlg2: status answered: working, 1 cards waiting`, `delegation dlg3: stop: stopped` | A status answered (or `unreachable`, `gone`), a stop and how it went (`idle`, `gone`, `stop_failed`). |
 | `told the app: error machine_offline`, `fatal error upstream_failed: the call ends` | An error frame the app was sent. |
-| `conversation closed after 3m12s (the app hung up (1000)): user lines 4 (typed 1), model lines 5, delegations 2, function calls 2, runs 2 (done 1, refused 1), observed turns 0, cards asked 0, reconnects 0, pauses 1` | The call's end: how long it lasted, why it ended (the app hung up with its close code, its connection dropped, writing to it failed, `start failed: <code>`, `fatal error <code>`), and its counts; runs by their last state. |
+| `conversation closed after 3m12s (the app hung up (1000)): user lines 4 (typed 1), model lines 5, delegations 2, function calls 2, runs 2 (done 1, refused 1), observed turns 0, cards asked 0, reconnects 0, pauses 1, nudges 0` | The call's end: how long it lasted, why it ended (the app hung up with its close code, its connection dropped, writing to it failed, `start failed: <code>`, `fatal error <code>`), and its counts; runs by their last state. |
 
-**Reading one.** For "the model said it handed it over, and nothing came": find the call by its time (`conversation opened`), then look for a `delegation` or `function call` line. None: the model never handed anything over (it only said it did). A refusal by the gate: the user's words had not reached the service (no caption, no typed line, no own voice since the agent last spoke). A run that ends `refused` or `failed`, or a send that is not `ok`: the hub's code says why. A run `done` on a conversation other than the one expected: check `bound:` (protocol 2) or the `sent to` line (protocol 1: the main conversation of the moment).
+**Reading one.** For "the model went quiet": a `nudge:` line says it owed an answer that long and was reminded once; none means nothing was owed by the rules of 4.5 rule 9 (it had spoken, a run was working, a card was asked, no echo cancellation). For "the model said it handed it over, and nothing came": find the call by its time (`conversation opened`), then look for a `delegation` or `function call` line. None: the model never handed anything over (it only said it did). A refusal by the gate: the user's words had not reached the service (no caption, no typed line, no own voice since the agent last spoke). A run that ends `refused` or `failed`, or a send that is not `ok`: the hub's code says why. A run `done` on a conversation other than the one expected: check `bound:` (protocol 2) or the `sent to` line (protocol 1: the main conversation of the moment).
 
 ## 5. Configurable GPT-Live upstream
 

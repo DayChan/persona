@@ -23,5 +23,9 @@
   "err_cannot_run": "{purpose} 无法运行：{error}",
   "err_profiles": "最多可创建 {max} 个模型档位。",
   "err_active": "档位 {name} 正在使用，请先切换到其他档位再删除。",
-  "err_role": "更改模型档位需要完整权限。"
+  "err_role": "更改模型档位需要完整权限。",
+  "err_tier_model": "预设 {tier}：{model} 不是模型 ID。须以字母或数字开头，之后只能用字母、数字和 . _ - / : @ [ ]。",
+  "err_tier_description": "预设 {tier} 的说明最多 {max} 个字，且只能一行。",
+  "tier_strong": "建这个档位时主对话用的模型：设计、审查和难题。",
+  "tier_standard": "建这个档位时新建 Agent 用的模型：日常编码。"
 }

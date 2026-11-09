@@ -343,6 +343,9 @@ data class Session(
      * under its own folder, whose paths name no repository). Group by repository goes by it (core:domain repoOf); older hubs never send it.
      */
     @SerialName("repo_root") val repoRoot: String? = null,
+    /** The top of the git working tree cwd is in (repoRoot for the main checkout) and its branch, from the node (#1805). */
+    @SerialName("worktree") val worktree: String? = null,
+    @SerialName("branch") val branch: String? = null,
     @WireEnum("needs_you", "unread", "working", "idle", "offline", "unknown")
     @SerialName("state") val state: String? = AgentState.of(null, status).wire,
     @WireTime @SerialName("seen_at") val seenAt: String? = null,

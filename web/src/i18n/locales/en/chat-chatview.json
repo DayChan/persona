@@ -1,7 +1,7 @@
 {
   "forked": "Branched to a new chat",
   "fork_failed": "Couldn't branch: {error}",
-  "session_loading": "Still loading the session. Try again in a moment.",
+  "session_unavailable": "This conversation isn't available right now. Try again in a moment, or start a new chat.",
   "not_delivered": "Not delivered: {error}",
   "interrupted": "Interrupted",
   "interrupt_failed": "Couldn't interrupt: {error}",

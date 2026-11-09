@@ -73,8 +73,11 @@ func TestModelProfilesSeedAndCaptureCurrentConfiguration(t *testing.T) {
 	}
 	before, puts := profileStoreSnapshot(st.memStore)
 	v := profilesOf(t, s)
-	if v.Revision != 1 || v.Active != "" || v.Rollback != nil || len(v.Events) != 0 || len(v.Profiles) != 2 {
-		t.Fatalf("seeding applied a profile: %+v", v)
+	// The templates are copies of the configuration: performance is marked in use (its tiers work from the start),
+	// nothing switches and there is nothing to roll back.
+	if v.Revision != 1 || v.Active != seededProfile || v.Rollback != nil || len(v.Events) != 1 || v.Events[0].Action != "seed" ||
+		v.Events[0].By.Kind != "system" || len(v.Profiles) != 2 {
+		t.Fatalf("seeding: %+v", v)
 	}
 	for _, p := range v.Profiles {
 		if p.Purposes["assistant"].Model != "test-chat" || p.Purposes["assistant"].Runtime != "" ||
@@ -87,14 +90,19 @@ func TestModelProfilesSeedAndCaptureCurrentConfiguration(t *testing.T) {
 				t.Fatalf("capture lost launcher field %s", field.name)
 			}
 		}
-		if p.Tiers["strong"] != (ModelTier{Launcher: "current", Model: "test-chat"}) ||
-			p.Tiers["standard"] != (ModelTier{Launcher: "current", Model: "test-agents"}) {
+		strong, standard := p.Tiers["strong"], p.Tiers["standard"]
+		if strong.Description == "" || standard.Description == "" {
+			t.Fatalf("seeded tiers say nothing of when to use them: %+v", p.Tiers)
+		}
+		strong.Description, standard.Description = "", ""
+		if strong != (ModelTier{Launcher: "current", Model: "test-chat"}) || standard != (ModelTier{Launcher: "current", Model: "test-agents"}) {
 			t.Fatalf("tiers are not the current configuration: %+v", p.Tiers)
 		}
 	}
 	after, n := profileStoreSnapshot(st.memStore)
 	delete(after, modelProfilesKey)
-	if !reflect.DeepEqual(before, after) || n != puts+1 {
+	delete(after, modelProfileStateKey)
+	if !reflect.DeepEqual(before, after) || n != puts+2 { // the profiles and the state, in one transaction
 		t.Fatal("seeding reset model defaults or changed another setting")
 	}
 	if f.eventTypes() != "" || len(f.managed) != 0 {
@@ -122,7 +130,7 @@ func TestModelProfilesSeedAndCaptureCurrentConfiguration(t *testing.T) {
 	}
 	v = profilesOf(t, s)
 	if v.Profiles[0].Purposes["assistant"].Model != "test-later" ||
-		!reflect.DeepEqual(v.Profiles[0].Tiers, customTiers) || v.Profiles[1].Purposes["assistant"].Model != "test-chat" || v.Active != "" {
+		!reflect.DeepEqual(v.Profiles[0].Tiers, customTiers) || v.Profiles[1].Purposes["assistant"].Model != "test-chat" || v.Active != seededProfile {
 		t.Fatalf("capture applied or overwrote other profile data: %+v", v)
 	}
 	if got, err := s.modelRecord(ctx, "assistant"); err != nil || got.Binding.Model != "test-later" || got.Revision != 4 {

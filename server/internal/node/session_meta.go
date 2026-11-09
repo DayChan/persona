@@ -68,6 +68,8 @@ type quickMeta struct {
 	// turnErr: the latest turn failed on the model service, as the agent's record says it (transcript.Meta.TurnError…:
 	// a Codex rollout's task_complete, #2185; Claude Code's own reply for a failed request, #1710).
 	turnErr turnFailure
+	// modelFallback comes from the incremental scan as well: the fallback may outlast the quick tail.
+	modelFallback *proto.ModelRefusal
 	// rewound: the lines session.rewind, or a rewind seen in the terminal, went back over (File.RewoundLines), which
 	// Claude writes nothing for; kept from read to read, the tail leaves them out (applyRewound).
 	rewound []string
@@ -76,7 +78,7 @@ type quickMeta struct {
 // turnFailure is how the latest turn failed on the model service (Session.TurnError…): its text, its kind, a usage
 // limit's reset (zero: not known), whether the CLI goes on by itself after it and whether the turn did work first.
 type turnFailure struct {
-	text, kind         string
+	text, kind, code   string
 	resetsAt           time.Time
 	resumes, afterWork bool
 }
@@ -84,6 +86,7 @@ type turnFailure struct {
 // set puts the failure into a session; none clears what the session says of one.
 func (f turnFailure) set(s *proto.Session) {
 	s.TurnError, s.TurnErrorKind, s.TurnErrorResumes, s.TurnErrorAfterWork = f.text, f.kind, f.resumes, f.afterWork
+	s.TurnErrorCode = f.code
 	s.TurnErrorResetsAt = nil
 	if !f.resetsAt.IsZero() {
 		t := f.resetsAt.UTC()
@@ -98,6 +101,9 @@ func reported(text, kind string, rollout turnFailure) turnFailure {
 	f := turnFailure{text: text, kind: kind}
 	if rollout.text != "" && rollout.kind == kind {
 		f.resetsAt, f.afterWork = rollout.resetsAt, rollout.afterWork
+		if rollout.text == text {
+			f.code = rollout.code
+		}
 	}
 	return f
 }
@@ -122,6 +128,7 @@ func (n *Node) meta(path string, st os.FileInfo) quickMeta {
 			m.wf, m.wfScript = n.bgWorkflows(path)
 			m.ultracode, m.ultracodeAt = n.bgUltracode(path)
 			m.plan = n.bgPlan(path)
+			n.mergeModelFallback(path, &m)
 			n.mu.Lock()
 			current := n.metas[path]
 			m.toolLoop = current.toolLoop
@@ -143,6 +150,7 @@ func (n *Node) meta(path string, st os.FileInfo) quickMeta {
 	m.wf, m.wfScript = n.bgWorkflows(path)
 	m.ultracode, m.ultracodeAt = n.bgUltracode(path)
 	m.plan = n.bgPlan(path)
+	n.mergeModelFallback(path, &m)
 	n.mu.Lock()
 	current := n.metas[path]
 	m.toolLoop = current.toolLoop
@@ -188,6 +196,10 @@ func readQuickMetaSince(path string, st os.FileInfo, prev quickMeta) quickMeta {
 	first := tm.FirstUser
 	tm.ReadingTail()
 	off := max(st.Size()-quickTail, 0)
+	if off > 0 && prev.size >= off && prev.size <= st.Size() {
+		// All newly appended rows are in the tail, so it can invalidate the previous fallback itself.
+		tm.ModelFallback = prev.modelFallback
+	}
 	// The tail's lines in the transcript's tree: a turn the user went back over (a rewind in the terminal, then a recap
 	// beside it) is not where the agent's last words come from (transcript/branch.go).
 	var tail transcript.Tail
@@ -261,7 +273,8 @@ func readQuickMetaSince(path string, st os.FileInfo, prev quickMeta) quickMeta {
 	}
 	m.turnOpen = tm.Codex && (tm.TurnOpen || off > 0 && !tm.TurnClosed)
 	m.claudeTurn = !tm.Codex && tm.TurnOpen
-	m.turnErr = turnFailure{text: tm.TurnError, kind: tm.TurnErrorKind, resetsAt: tm.TurnErrorResetsAt,
+	m.modelFallback = tm.ModelFallback
+	m.turnErr = turnFailure{text: tm.TurnError, kind: tm.TurnErrorKind, code: tm.TurnErrorCode, resetsAt: tm.TurnErrorResetsAt,
 		resumes: tm.TurnErrorResumes, afterWork: tm.TurnErrorAfterWork}
 	if tm.TurnErrorKind == proto.TurnErrorUsageLimit && !tm.TurnErrorResumesSaid() && prev.size > 0 && prev.size <= st.Size() {
 		// Claude Code's notice that it goes on by itself is written once, at the first refused turn; the wait's wakes

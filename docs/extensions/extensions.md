@@ -1242,7 +1242,7 @@ The harness runs normal-build default/refusal and opt-in rejection, tagged defau
 
 ## Runtime status (#1857)
 
-The hub records per extension how it is running, viewable on the extension page of the admin UI ([admin.md](../operations/admin.md) ("Extensions")). Code is in `server/internal/extmgr/extension_metrics.go`;
+The hub records per extension how it is running, viewable on the extension page of the admin UI ([admin.md](../operations/admin.md) ("Extensions")). Code is in `server/internal/extmgr/extension_metrics*.go`;
 the host side (every call, every run, every log line) is the `Observer` in `extension/host`.
 
 - **Calls**: per method (`connector.status`, `ui.render`…) it records the count, error count (by error code) and a latency histogram (15 buckets from 1 ms to 60 s, plus one bucket for slower; p50 / p95 / p99 are interpolated linearly within the bucket).
