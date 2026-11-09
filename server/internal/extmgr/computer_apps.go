@@ -5,7 +5,7 @@ package extmgr
 // "Allow once" / "Always allow" / "Deny". Apps always allowed are kept by bundle id for that Mac in the hub's settings
 // (computerAppsKey) and listed, and removable, on the machine's page. Some are never remembered and asked about every
 // time (askedEveryTime), and so is a call whose apps cannot all be told (a script naming them by expression, a step
-// with no app).
+// with no app, a launch naming none). An app a call opens counts as one it operates.
 
 import (
 	"cmp"
@@ -67,10 +67,14 @@ var askedEveryTimeNames = []string{
 // approval: the plugin's "Ask the first time an app is operated", on unless turned off.
 func (s cuaSettings) approval() bool { return s.AppApproval == nil || *s.AppApproval }
 
-var getAppLiteral = lazyre.New(`getApp\(\s*(?:"([^"\\]+)"|'([^'\\]+)')\s*\)`)
+var (
+	getAppLiteral = lazyre.New(`getApp\(\s*(?:"([^"\\]+)"|'([^'\\]+)')\s*\)`)
+	launchLiteral = lazyre.New(`launch\(\s*(?:"([^"\\]+)"|'([^'\\]+)')\s*\)`)
+)
 
 // callApps is what a computer tool call names: its apps by name (or wholeScreen), and whether that is all it may
-// touch (false: a script naming its apps by expression or none, a step with no app of its own or the call's).
+// touch (false: a script naming its apps by expression or none, a step with no app of its own or the call's, a
+// launch_app step naming no app). An app the call opens (launch_app, cua.launch) is one it touches.
 func callApps(name, app, script string, steps json.RawMessage) (apps []string, whole bool) {
 	add := func(a string) {
 		if a = strings.TrimSpace(a); a != "" && !slices.Contains(apps, a) {
@@ -87,12 +91,24 @@ func callApps(name, app, script string, steps json.RawMessage) (apps []string, w
 		for _, m := range getAppLiteral.FindAllStringSubmatch(script, -1) {
 			add(m[1] + m[2])
 		}
-		return apps, len(apps) > 0 && strings.Count(script, "getApp(") == len(getAppLiteral.FindAllString(script, -1))
+		for _, m := range launchLiteral.FindAllStringSubmatch(script, -1) {
+			add(m[1] + m[2])
+		}
+		return apps, len(apps) > 0 && strings.Count(script, "getApp(") == len(getAppLiteral.FindAllString(script, -1)) &&
+			strings.Count(script, "launch(") == len(launchLiteral.FindAllString(script, -1))
 	}
 	var list []map[string]json.RawMessage
 	_ = json.Unmarshal(steps, &list)
 	whole = len(list) > 0
 	for _, s := range list {
+		if opened, ok := launchTarget(s); ok {
+			if opened == "" {
+				whole = false
+			} else {
+				add(opened)
+			}
+			continue
+		}
 		var named struct {
 			App string `json:"app"`
 		}
@@ -115,6 +131,32 @@ func callApps(name, app, script string, steps json.RawMessage) (apps []string, w
 		add(found)
 	}
 	return apps, whole
+}
+
+// launchTarget is the app a launch_app step opens, {"launch_app": {"name": …}} or {"tool": "launch_app", "args": {…}}:
+// its name or bundle id, "" when it names neither (not the call's default app: what opens then is the backend's
+// choice). ok is false for any other step.
+func launchTarget(s map[string]json.RawMessage) (opened string, ok bool) {
+	var tool string
+	args := s["launch_app"]
+	if raw, has := s["tool"]; has {
+		_ = json.Unmarshal(raw, &tool)
+	}
+	switch {
+	case tool == "launch_app":
+		args = s["args"]
+	case tool != "" || args == nil:
+		return "", false
+	}
+	var a struct {
+		Name     string `json:"name"`
+		BundleID string `json:"bundle_id"`
+	}
+	_ = json.Unmarshal(args, &a)
+	if opened = strings.TrimSpace(a.Name); opened == "" {
+		opened = strings.TrimSpace(a.BundleID)
+	}
+	return opened, true
 }
 
 // appsOn is what m's Cua Driver knows of the apps named: bundle id and name, by the name given (case aside); a name

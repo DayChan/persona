@@ -318,6 +318,15 @@ func TestGoldenVoiceTurnPrompts(t *testing.T) {
 				t.Errorf("observed.%s.%s says neither done nor still working: %s", name, lang, got)
 			}
 		}
+		for _, cause := range []string{"user", "result"} {
+			got := prompts.RenderVoiceNudge(prompts.VoiceNudge{Lang: lang, Cause: cause})
+			golden(t, "nudge."+cause+"."+lang, got)
+			// A nudge says nothing of what was said or handed over (the model has it), and is short: a say the model
+			// speaks after (docs/assistant/voice.md "Context for the fast layer" rule 9).
+			if strings.Contains(got, "<agent_output>") || runeLen(got) > 300 || strings.Contains(got, "\n") {
+				t.Errorf("nudge.%s.%s: %s", cause, lang, got)
+			}
+		}
 		var stands strings.Builder
 		for _, k := range []prompts.VoiceSpoken{{Kind: "code", N: 12}, {Kind: "code", N: 1}, {Kind: "table", N: 3}, {Kind: "link"},
 			{Kind: "image"}, {Kind: "path", Name: "runs.go"}, {Kind: "line", N: 42, Name: "runs.go"}, {Kind: "hash"}, {Kind: "snippet"},

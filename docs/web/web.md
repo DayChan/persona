@@ -7,6 +7,10 @@ keyframes and component grammar (Thinking's expandable trace, Tool Chips, Approv
 The components are rewritten from the site's React versions and wired to real data. They are not the site's demo components copied as is (those run their own demo animations and take no data).
 Text tokens (`--ink`, `--ink-2`, `--ink-3`, `--accent-ink`) reach at least 4.5:1 (WCAG AA for small text) on the tested base backgrounds (page / canvas / surface / inset / hover / hover-2 / field).
 `--ink-3` stays a step quieter than `--ink-2`; `src/ui/theme-contrast.test.ts` guards these pairs (#2804: dark `--ink-3` previously reached only 2.5–3.5:1).
+Dropdowns keep the browser's native `<select>` and its popup, but not its arrow, which ignores the field's padding (#2314): `src/styles.css` gives every single-line
+select the icon set's `chevron` (`--select-chevron`, drawn in `--ink-3`) 10 px inside its right edge, plus right padding that keeps the text clear of it. The rule is
+unlayered so its padding wins over the `px-*` utilities; a select that draws its own arrow adds `appearance-none` and is left alone. `src/ui/select-chevron.test.tsx`
+keeps the token equal to the icon and `--ink-3`.
 
 ## Color hierarchy and quiet surfaces
 
@@ -78,6 +82,8 @@ The browser check opens Overview, permission/plan cards, green/orange/AI workflo
   `python3 scripts/test/web_status_visuals_e2e.py <web URL> --hub <mock hub URL> [--shots <dir>]`.
   End-to-end check of visual polish (#3475: with reduced motion the spinner and the working dot still spin / breathe at 2.4 s while other animations are suppressed; counts on sidebar machine rows and workspace rows align on the right edge, ⋯ sits over the count and appears only on hover / keyboard focus, always on touch screens; the context bar shows amber caution at ≥ 90%; the toast's error icon and close button; light / dark × wide / 390 drawer × reduced motion on / off, plus one touch screen): start the mock hub with `MOCK_SPLIT_TABS=1 MOCK_SOURCES=1 MOCK_CONTEXT_DANGER=1`, serve the web app with `npx vite` (the toast check imports the app's own modules from it),
   run `python3 scripts/test/web_visual_polish_e2e.py <web URL> [--shots <dir>]`.
+  End-to-end check of dropdown arrows (#2314: every select on Settings › Agents / General / Persona / Models draws the chevron inside its right padding and no native arrow, its text starts at the left padding, and Machines › Usage's filter pills keep only their own arrow; wide / 390 × light / dark, Chrome and WebKit): start the mock hub and `npx vite`, then run
+  `python3 scripts/test/web_select_chevron_e2e.py <web URL> [--browser chromium|webkit|all] [--shots <dir>]` (Playwright for Python with Pillow).
   End-to-end check of folding sidebar groups (**Other agents** folds / unfolds / stays after reload, every group can fold under all five grouping modes, the arrow is always shown on touch screens, #1417): start the mock hub with `MOCK_SOURCES=1`, then run
   `python3 scripts/test/web_sidebar_fold_e2e.py <web URL> [--shots <dir>]`.
   End-to-end check of collapsing the sidebar to an icon rail (#2524: the button and Ctrl+Alt+B, persists after reload, page / Agents / status groups fold and persist, narrow screens still use the drawer): start the mock hub with `MOCK_SOURCES=1`,
