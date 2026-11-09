@@ -121,6 +121,7 @@
   "other_provider": "Use another",
   "done_title": "{name} is connected",
   "done_pick_later": "To use it for the main conversation or Agents, pick it under Models.",
+  "direct_note": "The main conversation and Agents can't run on it. Processing, Sorting and other uses without a picked model may now use it; change that under Models.",
   "more_options_model": "Default model",
   "assign_hint_works": "The main conversation already works with Claude Code on {machine}, so this is off. Turn it on to use this key instead (only where nobody has picked a model).",
   "assign_hint_works_here": "The main conversation already works with Claude Code on your computer, so this is off. Turn it on to use this key instead (only where nobody has picked a model).",

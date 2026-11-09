@@ -16,6 +16,8 @@
   "not_logged_in_detail": "Sign in once on {machine}, or use an API key instead.",
   "auth_failed_title": "The model's key doesn't work",
   "auth_failed_detail": "The model's key is wrong or has expired. Use one that works.",
+  "model_fallback_unavailable_title": "The refusal fallback model is unavailable",
+  "model_fallback_unavailable_detail": "The upstream refused the request, so Claude Code switched this session to a fallback model that the service cannot use. Start a new conversation, or use /model in the Claude Code terminal to choose the original model. Nothing is resent automatically; the request may be refused again.",
   "model_route_title": "This model isn't available",
   "model_route_detail": "The model name is wrong, or the model isn't available right now. Try another model.",
   "rate_limited_title": "The model is being used too fast",

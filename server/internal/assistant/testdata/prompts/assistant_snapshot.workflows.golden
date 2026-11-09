@@ -4,7 +4,7 @@
 - Agents：需要你 0 个，完成未看 0 个，工作中 1 个（详情用 agents_list）
   - 工作中：各端对齐审计
   - 后台 workflow 在跑（这些 Agent 这一轮停着是在等结果，不是做完了，结果回来会叫醒它们；别关它们）：各端对齐审计（mac-a，session_id=d4a7f6ff）的「parity-audit」阶段 Verify（2/2），169/185 个 agent 完成，已跑 14 分钟
-- 从对话开的任务（task_plan；用 agent_send 对它的 Agent 说话）：
+- 从对话开的任务（task_plan；问已有结果看这里，不够用 agent_read 读它的对话；要它新查、新做或改方向才用 agent_send）：
   - 各端对齐审计（todo_3）：在做，mac-a session_id=d4a7f6ff：审计在后台跑，等结果；后台 workflow 在跑（在等它的结果，没做完）：「parity-audit」阶段 Verify（2/2），169/185 个 agent 完成，已跑 14 分钟
 - iPhone：App 不在前台，phone_* 工具会先尝试在后台唤醒 App，失败就请他打开 App
 - 已安排的跟进：没有

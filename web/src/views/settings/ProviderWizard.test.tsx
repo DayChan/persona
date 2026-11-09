@@ -267,6 +267,25 @@ describe("ProviderWizard from presets", () => {
     expect(button("保存")!.disabled).toBe(false);
   });
 
+  it("keeps a direct API off the main conversation: no switch, no assign, no Claude Code warning", async () => {
+    Object.assign(getState(), { features: ["builtin_presets", "assistant_readiness"] });
+    readiness = withSteps("setup", [step("computer", "ok"), step("claude", "problem", "claude_missing"), step("model", "unknown"), step("first_message", "todo")]);
+    await open();
+    act(() => button("示例 Responses")!.click());
+    expect(document.body.querySelector('button[role="switch"]')).toBeNull();
+    // said before saving: uses with no model picked may move to it
+    expect(text()).toContain("没有单独选模型的用途，现在可能会改用它");
+    type(keyInput(), "sk-test-123456");
+    await waitAutoTest();
+    await act(async () => button("保存")!.click());
+    await flush();
+    const post = calls.find((c) => c.method === "POST" && c.path.endsWith("/launchers"));
+    expect(post?.body).toEqual({ api_key: "sk-test-123456", preset: "example-gateway/api" });
+    expect(text()).toContain("主对话和 Agent 不能用它");
+    expect(text()).not.toContain("要让主对话或 Agent 用它");
+    expect(document.body.querySelector('[data-testid="wizard-no-claude"]')).toBeNull();
+  });
+
   it("asks for the address and the auth only for the custom gateway", async () => {
     await open();
     act(() => button("自定义兼容网关")!.click());

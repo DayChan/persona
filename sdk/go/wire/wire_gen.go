@@ -230,11 +230,22 @@ type Permissions struct {
 	AgentRuntimes bool `json:"agent_runtimes,omitempty"`
 	// It receives the error and crash reports of the hub and the user's devices, scrubbed (no message text, tokens, user
 	// names, machine names or IP addresses). Needed by contributes.error_reports.
-	ErrorReports bool `json:"error_reports,omitempty"`
+	ErrorReports bool               `json:"error_reports,omitempty"`
+	Storage      *StoragePermission `json:"storage,omitempty"`
 	// It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
 	// printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
 	// contributes.auth_relay.
 	AuthRelay bool `json:"auth_relay,omitempty"`
+}
+
+// StoragePermission: default-deny installation-scoped business data, separate from credentials. Only declared logical
+// keys or literal prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing
+// RPC limits and host quotas. Queue and blob methods additionally require their flags.
+type StoragePermission struct {
+	Keys     []string `json:"keys,omitempty"`
+	Patterns []string `json:"patterns,omitempty"`
+	Queues   bool     `json:"queues,omitempty"`
+	Blobs    bool     `json:"blobs,omitempty"`
 }
 
 // Contributes: contributions by extension point. A point this hub does not know installs with a warning, not taking
@@ -4662,6 +4673,177 @@ type AssistantMessagesResult struct {
 	NextSeq  *int               `json:"next_seq,omitempty"`
 }
 
+type StorageEmptyParams struct {
+}
+
+// StorageRequestResult: opaque timestamped request identity from the host. Retry only the same ID and payload;
+// expires after five minutes and is never automatically regenerated for an unknown effect.
+type StorageRequestResult struct {
+	RequestID string `json:"request_id"`
+}
+
+type StorageKeyParams struct {
+	Key string `json:"key"`
+}
+
+// StorageEntry: canonical base64 business bytes, at most64KiB decoded; revision is an opaque CAS token.
+type StorageEntry struct {
+	Revision string `json:"revision"`
+	Data     string `json:"data"`
+}
+
+type StorageListParams struct {
+	Prefix string `json:"prefix,omitempty"`
+	After  string `json:"after,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+type StorageMutationItem struct {
+	Key      string `json:"key"`
+	Revision string `json:"revision,omitempty"`
+	Deleted  bool   `json:"deleted,omitempty"`
+	JobID    string `json:"job_id,omitempty"`
+}
+
+type StorageListResult struct {
+	Items []StorageMutationItem `json:"items"`
+	More  bool                  `json:"more"`
+}
+
+// StorageOperation: one atomic operation. Empty revision means require absence; missing revision is unconditional.
+// Queue enqueue/ack require separate queue permission; their job and progress changes commit atomically.
+type StorageOperation struct {
+	Kind      string  `json:"kind"`
+	Key       string  `json:"key"`
+	Data      string  `json:"data,omitempty"`
+	Revision  *string `json:"revision,omitempty"`
+	Dedup     string  `json:"dedup,omitempty"`
+	NotBefore int64   `json:"not_before,omitempty"`
+	JobID     string  `json:"job_id,omitempty"`
+	Lease     string  `json:"lease,omitempty"`
+}
+
+type StorageTransactionParams struct {
+	RequestID  string             `json:"request_id"`
+	Operations []StorageOperation `json:"operations"`
+}
+
+type StorageTransactionResult struct {
+	Items []StorageMutationItem `json:"items"`
+}
+
+type StorageQueueListParams struct {
+	Key   string `json:"key"`
+	After string `json:"after,omitempty"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+type StorageJob struct {
+	ID         string `json:"id"`
+	Dedup      string `json:"dedup"`
+	Data       string `json:"data"`
+	State      string `json:"state"`
+	NotBefore  int64  `json:"not_before"`
+	Attempts   int64  `json:"attempts"`
+	Lease      string `json:"lease,omitempty"`
+	LeaseUntil int64  `json:"lease_until,omitempty"`
+}
+
+type StorageQueueListResult struct {
+	Items []StorageJob `json:"items"`
+	More  bool         `json:"more"`
+}
+
+type StorageEnqueueParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+	Dedup     string `json:"dedup"`
+	Data      string `json:"data"`
+	NotBefore int64  `json:"not_before,omitempty"`
+}
+
+type StorageJobResult struct {
+	ID    string `json:"id"`
+	State string `json:"state,omitempty"`
+}
+
+type StorageClaimParams struct {
+	RequestID    string `json:"request_id"`
+	Key          string `json:"key"`
+	LeaseSeconds int    `json:"lease_seconds"`
+}
+
+// StorageClaimResult: one claimed job; job is absent when no pending job is due.
+type StorageClaimResult struct {
+	Job *StorageJob `json:"job,omitempty"`
+}
+
+type StorageSettleParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+	ID        string `json:"id"`
+	Lease     string `json:"lease,omitempty"`
+}
+
+type StorageRetryParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+	ID        string `json:"id"`
+	Lease     string `json:"lease"`
+	NotBefore int64  `json:"not_before"`
+}
+
+type StorageDeleteResult struct {
+	Deleted bool `json:"deleted"`
+}
+
+type StorageBlobCreateParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+}
+
+type StorageBlobCreateResult struct {
+	Handle string `json:"handle"`
+}
+
+type StorageBlobWriteParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+	Handle    string `json:"handle"`
+	Offset    int    `json:"offset"`
+	Data      string `json:"data"`
+}
+
+type StorageBlobWriteResult struct {
+	Bytes int `json:"bytes"`
+}
+
+type StorageBlobMutateParams struct {
+	RequestID string `json:"request_id"`
+	Key       string `json:"key"`
+	Handle    string `json:"handle"`
+}
+
+type StorageBlobFinishResult struct {
+	Handle   string `json:"handle"`
+	Bytes    int    `json:"bytes"`
+	Complete bool   `json:"complete"`
+}
+
+type StorageBlobReadParams struct {
+	Key    string `json:"key"`
+	Handle string `json:"handle"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
+}
+
+type StorageBlobReadResult struct {
+	Data   string `json:"data"`
+	Offset int    `json:"offset"`
+	Bytes  int    `json:"bytes"`
+	Eof    bool   `json:"eof"`
+}
+
 // Bounded JSON scalar, not executable content. Strings at most 4096 code points; finite numbers in the JSON-safe
 // range.
 type UIStreamScalar = json.RawMessage
@@ -5344,6 +5526,7 @@ var newDef = map[string]func() any{
 	"NodePermissions":               func() any { return new(NodePermissions) },
 	"SecretSpec":                    func() any { return new(SecretSpec) },
 	"Permissions":                   func() any { return new(Permissions) },
+	"StoragePermission":             func() any { return new(StoragePermission) },
 	"Contributes":                   func() any { return new(Contributes) },
 	"SkillItem":                     func() any { return new(SkillItem) },
 	"PromptItem":                    func() any { return new(PromptItem) },
@@ -5683,6 +5866,34 @@ var newDef = map[string]func() any{
 	"AssistantMessagesParams":       func() any { return new(AssistantMessagesParams) },
 	"AssistantMessage":              func() any { return new(AssistantMessage) },
 	"AssistantMessagesResult":       func() any { return new(AssistantMessagesResult) },
+	"StorageEmptyParams":            func() any { return new(StorageEmptyParams) },
+	"StorageRequestResult":          func() any { return new(StorageRequestResult) },
+	"StorageKeyParams":              func() any { return new(StorageKeyParams) },
+	"StorageEntry":                  func() any { return new(StorageEntry) },
+	"StorageListParams":             func() any { return new(StorageListParams) },
+	"StorageMutationItem":           func() any { return new(StorageMutationItem) },
+	"StorageListResult":             func() any { return new(StorageListResult) },
+	"StorageOperation":              func() any { return new(StorageOperation) },
+	"StorageTransactionParams":      func() any { return new(StorageTransactionParams) },
+	"StorageTransactionResult":      func() any { return new(StorageTransactionResult) },
+	"StorageQueueListParams":        func() any { return new(StorageQueueListParams) },
+	"StorageJob":                    func() any { return new(StorageJob) },
+	"StorageQueueListResult":        func() any { return new(StorageQueueListResult) },
+	"StorageEnqueueParams":          func() any { return new(StorageEnqueueParams) },
+	"StorageJobResult":              func() any { return new(StorageJobResult) },
+	"StorageClaimParams":            func() any { return new(StorageClaimParams) },
+	"StorageClaimResult":            func() any { return new(StorageClaimResult) },
+	"StorageSettleParams":           func() any { return new(StorageSettleParams) },
+	"StorageRetryParams":            func() any { return new(StorageRetryParams) },
+	"StorageDeleteResult":           func() any { return new(StorageDeleteResult) },
+	"StorageBlobCreateParams":       func() any { return new(StorageBlobCreateParams) },
+	"StorageBlobCreateResult":       func() any { return new(StorageBlobCreateResult) },
+	"StorageBlobWriteParams":        func() any { return new(StorageBlobWriteParams) },
+	"StorageBlobWriteResult":        func() any { return new(StorageBlobWriteResult) },
+	"StorageBlobMutateParams":       func() any { return new(StorageBlobMutateParams) },
+	"StorageBlobFinishResult":       func() any { return new(StorageBlobFinishResult) },
+	"StorageBlobReadParams":         func() any { return new(StorageBlobReadParams) },
+	"StorageBlobReadResult":         func() any { return new(StorageBlobReadResult) },
 	"UIStreamCapability":            func() any { return new(UIStreamCapability) },
 	"UIStreamSnapshot":              func() any { return new(UIStreamSnapshot) },
 	"UIStreamDelta":                 func() any { return new(UIStreamDelta) },
@@ -5771,4 +5982,19 @@ var Calls = map[string]Call{
 	"model.complete":                 {Name: "model.complete", From: "program", Params: "ModelCompleteParams", Result: "ModelCompleteResult"},
 	"assistant.conversations":        {Name: "assistant.conversations", From: "program", Params: "AssistantConversationsParams", Result: "AssistantConversationsResult"},
 	"assistant.messages":             {Name: "assistant.messages", From: "program", Params: "AssistantMessagesParams", Result: "AssistantMessagesResult"},
+	"storage.request":                {Name: "storage.request", From: "program", Params: "StorageEmptyParams", Result: "StorageRequestResult"},
+	"storage.get":                    {Name: "storage.get", From: "program", Params: "StorageKeyParams", Result: "StorageEntry"},
+	"storage.list":                   {Name: "storage.list", From: "program", Params: "StorageListParams", Result: "StorageListResult"},
+	"storage.transaction":            {Name: "storage.transaction", From: "program", Params: "StorageTransactionParams", Result: "StorageTransactionResult"},
+	"storage.queue.list":             {Name: "storage.queue.list", From: "program", Params: "StorageQueueListParams", Result: "StorageQueueListResult"},
+	"storage.queue.enqueue":          {Name: "storage.queue.enqueue", From: "program", Params: "StorageEnqueueParams", Result: "StorageJobResult"},
+	"storage.queue.claim":            {Name: "storage.queue.claim", From: "program", Params: "StorageClaimParams", Result: "StorageClaimResult"},
+	"storage.queue.ack":              {Name: "storage.queue.ack", From: "program", Params: "StorageSettleParams", Result: "StorageJobResult"},
+	"storage.queue.forget":           {Name: "storage.queue.forget", From: "program", Params: "StorageSettleParams", Result: "StorageDeleteResult"},
+	"storage.queue.retry":            {Name: "storage.queue.retry", From: "program", Params: "StorageRetryParams", Result: "StorageJobResult"},
+	"storage.blob.create":            {Name: "storage.blob.create", From: "program", Params: "StorageBlobCreateParams", Result: "StorageBlobCreateResult"},
+	"storage.blob.write":             {Name: "storage.blob.write", From: "program", Params: "StorageBlobWriteParams", Result: "StorageBlobWriteResult"},
+	"storage.blob.finish":            {Name: "storage.blob.finish", From: "program", Params: "StorageBlobMutateParams", Result: "StorageBlobFinishResult"},
+	"storage.blob.delete":            {Name: "storage.blob.delete", From: "program", Params: "StorageBlobMutateParams", Result: "StorageDeleteResult"},
+	"storage.blob.read":              {Name: "storage.blob.read", From: "program", Params: "StorageBlobReadParams", Result: "StorageBlobReadResult"},
 }

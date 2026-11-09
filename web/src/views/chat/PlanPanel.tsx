@@ -2,7 +2,7 @@
 import { usePlan } from "../../lib/plan-store";
 import { planProgress } from "../../lib/work-groups";
 import { t } from "../../i18n";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { PlanList, planSummary } from "./PlanCard";
 
 export function PlanPanel({ mid, sid, onClose }: { mid: string; sid: string; onClose: () => void }) {

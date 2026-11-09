@@ -16,6 +16,8 @@
   "behind_other": "{count} commits behind upstream",
   "no_upstream": "No upstream branch",
   "in_sync": "Up to date",
+  "upstream_gone": "Deleted on the remote",
+  "upstream_gone_hint": "The upstream branch is gone from the remote (a merged pull request's branch, for example). The commits here are only on this computer until you push again.",
   "stashes_hint": "Number of git stash entries",
   "stashes_one": "{count} stash",
   "stashes_other": "{count} stashes",

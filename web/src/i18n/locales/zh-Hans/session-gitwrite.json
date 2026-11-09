@@ -18,6 +18,7 @@
   "push_confirm_one": "{count} 个提交会推到 {upstream}。",
   "push_confirm_other": "{count} 个提交会推到 {upstream}。",
   "push_new": "远端还没有 {branch}：会在 origin 上建同名分支，之后跟踪它。",
+  "push_gone": "远端已删除 {upstream}：推送会用 {branch} 重新建它。",
   "push_never_force": "不会强制推送：远端有更新的提交时会停下并说明。",
   "branches": "分支",
   "branch_search": "查找或输入新分支名",

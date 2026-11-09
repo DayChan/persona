@@ -120,6 +120,7 @@
   "other_provider": "换一家",
   "done_title": "{name} 接好了",
   "done_pick_later": "要让主对话或 Agent 用它，到「模型配置」里选。",
+  "direct_note": "主对话和 Agent 不能用它。信息处理、信息筛选等没有单独选模型的用途，现在可能会改用它；要调整，到「模型配置」里选。",
   "more_options_model": "默认模型",
   "assign_hint_works": "主对话现在用 {machine} 上的 Claude Code，已经能用，所以默认不换。打开就改成用这个 Key（只改还没人设置过的）。",
   "assign_hint_works_here": "主对话现在用电脑上的 Claude Code，已经能用，所以默认不换。打开就改成用这个 Key（只改还没人设置过的）。",

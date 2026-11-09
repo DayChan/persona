@@ -21,6 +21,13 @@ struct GitPullTests {
         #expect(hub.sent("POST", "/api/v1/machines/mac/git/pull").count == 1)
     }
 
+    /// A deleted upstream (#1884) comes as `gone`; an older node leaves it out.
+    @Test func decodesDeletedUpstream() throws {
+        let gone = #"{"is_repo":true,"branch":"feature","upstream":"origin/feature","gone":true,"ahead":0,"behind":0,"files":[],"stashes":0,"commits":[]}"#
+        #expect(try JSON.decoder.decode(GitStatus.self, from: Data(gone.utf8)).gone == true)
+        #expect(try JSON.decoder.decode(GitStatus.self, from: Data(Self.status.utf8)).gone == nil)
+    }
+
     @Test func reportsUpdatedAndAlreadyCurrent() async throws {
         let hub = FakeHub()
         let model = GitPullModel()

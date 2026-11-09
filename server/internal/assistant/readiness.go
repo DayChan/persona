@@ -418,13 +418,14 @@ func (s *Service) readinessQuick(ctx context.Context, within time.Duration) *Rea
 	return last
 }
 
-// readinessBlocks: the step keeps the main conversation from answering (mode setup). A rate limit passes by itself.
+// readinessBlocks: the step keeps the main conversation from answering (mode setup). A rate limit passes by itself;
+// a session refusal fallback says nothing about the configured model a new conversation will use.
 func readinessBlocks(st ReadinessStep) bool {
 	switch st.State {
 	case StepTodo:
 		return true
 	case StepProblem:
-		return st.Code != proto.TurnErrorRateLimited
+		return st.Code != proto.TurnErrorRateLimited && st.Code != proto.TurnErrorModelFallbackUnavailable
 	}
 	return false
 }
@@ -470,9 +471,7 @@ func (s *Service) readinessMain(ctx context.Context, machine, main string) (prot
 			if text, kind := turnError(sess); text != "" && sess.TurnError == "" {
 				sess.TurnError, sess.TurnErrorKind = text, kind
 			}
-			if sess.TurnError != "" && sess.TurnErrorCode == "" {
-				sess.TurnErrorCode = turnErrorCode(sess.TurnError)
-			}
+			sess.TurnErrorCode = sessionTurnErrorCode(sess)
 			return sess, true
 		}
 	}
@@ -498,7 +497,7 @@ func (s *Service) readinessModel(ctx context.Context, lang i18n.Lang, d Device, 
 	if hasMain && (main.Launcher == "" || main.Launcher == launcher) {
 		switch {
 		case main.TurnError != "":
-			ev = append(ev, readinessEvidence{at: main.UpdatedAt, text: main.TurnError})
+			ev = append(ev, readinessEvidence{at: main.UpdatedAt, text: main.TurnError, code: sessionTurnErrorCode(main)})
 		case answeredWell(main):
 			ev = append(ev, readinessEvidence{at: main.UpdatedAt, ok: true})
 		}
@@ -562,6 +561,8 @@ func (s *Service) readinessModel(ctx context.Context, lang i18n.Lang, d Device, 
 				action, alt = "edit_provider", "test_assistant"
 			case proto.TurnErrorModelRoute:
 				alt = "test_assistant"
+			case proto.TurnErrorModelFallbackUnavailable:
+				action = "" // recovery is a new conversation or the TUI's /model, neither is a model-settings action
 			}
 			st := s.readinessStep(lang, StepModel, StepProblem, code, d.Name, launcher, action)
 			st.Machine = d.ID
@@ -659,7 +660,11 @@ func (s *Service) readinessFirst(ctx context.Context, lang i18n.Lang, d Device, 
 		return ReadinessStep{ID: StepFirstMessage, State: StepOK}
 	}
 	if hasMain && main.TurnErrorCode != "" {
-		return s.readinessStep(lang, StepFirstMessage, StepProblem, main.TurnErrorCode, d.Name, "", "test_assistant")
+		action := "test_assistant"
+		if main.TurnErrorCode == proto.TurnErrorModelFallbackUnavailable {
+			action = ""
+		}
+		return s.readinessStep(lang, StepFirstMessage, StepProblem, main.TurnErrorCode, d.Name, "", action)
 	}
 	return s.readinessStep(lang, StepFirstMessage, StepTodo, codeNeverTried, d.Name, "", "test_assistant")
 }

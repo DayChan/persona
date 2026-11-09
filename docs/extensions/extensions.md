@@ -269,6 +269,7 @@ Following Chrome: declared explicitly, shown in full at install time, and an upg
 | `network` | A list of host names, may start with `*.` (matches only subdomains, not the name itself), lowercase, no scheme, port or path; IP addresses must be listed literally | Which places it will reach | Sandboxed extensions can only go out through the hub's egress proxy, which lets only these hosts through, see "Egress" below; unsandboxed ones are still only shown and logged |
 | `hub` | A list of scopes, see "Hub API: scopes" below | Which parts of the hub API it uses (read the knowledge base, drive Agents…) | The token the extension gets opens only routes in these scopes; anything else returns 403 `permission_denied` |
 | `hub_api` (legacy form) | `true` | Gets the hub's address and full token (`PERSONA_HUB_URL`, `PERSONA_HUB_TOKEN`) and can do everything the hub's owner can | Without acceptance these two variables are not given; the install page labels it "Full access (legacy form)" and shows a warning. If `hub` is also written, `hub` wins |
+| `storage` | `{keys: [...], patterns: [...], queues?: true, blobs?: true}` | Keep bounded, installation-owned business data in the manager's Postgres database | Default-deny stdio callbacks check declared logical keys, actual grants, installation epoch and the host-created process attempt; no files, SQL, credentials, hub scopes or extra network authority. See "Installation-owned business storage" below |
 | `launcher_keys` | `true` | Uses a launcher's key to reach its gateway (required for `quota` contributions and `ui` with `launcher_section`) | The extension never sees the key: the hub or that computer sends the request for it, and only to the launcher's own gateway; without acceptance, it isn't asked |
 | `gh_login` | `true` | Reads the GitHub token from gh's sign-in on the computer you pick (#2830, used for moving the GitHub connector out of the hub) | The hub gives it only to extensions that asked for it and were approved at install (`connector.credentials.gh_token`); the token lives only in the extension's memory |
 | `usage_gateways` | `true` | Reads the account list of the gateways among the usage sources (no keys) (#4576): which accounts, status and quota the account-pool gateways connected under hub admin › usage sources have | Given only to extensions that asked for it and were approved at install (`usage.gateway_accounts`, "Quota" below); returns what the manager last read, with no admin key and no gateway address |
@@ -285,6 +286,86 @@ Following Chrome: declared explicitly, shown in full at install time, and an upg
 | `node.permissions.macos_privacy` | `true` | Will request Mac system permissions like Full Disk Access and Accessibility | Shown only; system permissions need the user's consent on that Mac |
 | Install command-line programs (implied by `tools`) | — | Downloads and installs the listed programs on the hub machine (each with its version and where it comes from) | The hub downloads them itself, verifies them against the manifest's sha256 / integrity, installs them in the extension's own directory, without sudo and without running install scripts; counted in the permission summary, and an upgrade with a new program or a changed source needs consent again (a version change alone doesn't), see "Command-line programs (tools)" |
 | Secrets sent to computers (`node.secrets`) | — | These secrets are sent to the selected computers | Handed to the program in memory only, never written to that computer's disk |
+
+### Installation-owned business storage (#1187)
+
+Installed source programs may explicitly request a bounded logical store:
+
+```json
+{"permissions":{"storage":{"keys":["preferences"],"patterns":["state/*","queue/*","media/*"],"queues":true,"blobs":true}}}
+```
+
+A key is case-sensitive ASCII letters, digits, `-`, `_`, `.`, or `/`, at most 128 characters. Empty names, leading/trailing or repeated slashes, `.`/`..` segments and escaped filesystem paths are rejected. Patterns are a nonempty literal logical prefix followed by one terminal `*`, not regexes or filesystem globs; `state/*` permits `state/topic` but not `state` or `other/topic`. Declare at most 128 keys and 32 patterns. Missing storage permission denies every operation. Queues and blobs require their separate flags as well as a declared key; install and expanded-upgrade consent disclose each flag. `hub_api`, HTTP scopes and network permissions cannot cover storage authority.
+
+The manager derives the persisted installation, grant revision and opaque process-attempt identity from trusted initialization/stdio callbacks. Guests cannot select an installation or supply a run identity. Each callback rechecks that persisted installation and current grants under a Postgres row lock. A retired process, disable, uninstall, configuration/grant change or reinstall cannot keep using the old scope. A trusted initialization binds the new attempt before guest storage calls; displaced queue leases become **unknown**, not pending. Other runtime modes and source-node programs do not acquire this capability through a fallback.
+
+#### Typed RPC and SDK
+
+`schema/extension/storage.schema.json` defines the plugin-side methods; generated wire DTOs and the official TypeScript `ExtensionStorage` client share them. The client forwards calls without automatic retries. Values and chunks use canonical standard base64; `storageBytes` / `storageValue` encode and decode bounded bytes, not files.
+
+| Method | Purpose |
+| --- | --- |
+| `storage.request` | Obtain an opaque mutation ID with a host-time expiry window |
+| `storage.get`, `storage.list` | Read one entry or bounded key/revision metadata; list filters to currently granted keys and uses the last returned key as `after` |
+| `storage.transaction` | Atomically `check`, `put`, `delete`, `enqueue` or `ack` up to 32 operations, including queue reservations with related progress, or completion with a result record |
+| `storage.queue.enqueue`, `storage.queue.list` | Deduplicate a job by its declared queue key and immutable deduplication identity; read cursor-addressable pages |
+| `storage.queue.claim`, `storage.queue.ack` | Claim due pending work with a host-run-bound lease; complete only the current unexpired lease |
+| `storage.queue.retry`, `storage.queue.forget` | Explicitly return a currently leased job to pending under the same job ID and a bounded future deadline; remove only completed jobs |
+| `storage.blob.create`, `storage.blob.write` | Allocate an opaque handle under a declared key and append bounded chunks at the exact committed offset |
+| `storage.blob.finish`, `storage.blob.read`, `storage.blob.delete` | Seal before reading, read bounded offset ranges, or delete; handles are neither paths nor independently transferable permissions |
+
+Each mutating request carries `request_id`. For a transaction entry, omit `revision` for an unconditional update, pass `""` to require absence, or pass the previous opaque revision for CAS. A `check` requires a revision. A failed operation rolls back the whole transaction, including any earlier progress/queue changes and its receipt. For example:
+
+```ts
+import { ExtensionStorage, storageBytes, type Hub } from "@persona/extension";
+
+async function createPreferences(hub: Hub) {
+  const store = new ExtensionStorage(hub);
+  const { request_id } = await store.request();
+  const request = {
+    request_id,
+    operations: [{ kind: "put", key: "preferences", revision: "",
+      data: storageBytes(new TextEncoder().encode('{"version":1}')) }],
+  };
+  // Persist this exact request identity/payload when recovering an unknown result.
+  // Do not manufacture a new ID to repeat an uncertain operation.
+  return store.transaction(request);
+}
+```
+
+Postgres commits the business mutation and payload-fingerprinted replay receipt together **before** success is acknowledged. Replaying the same live ID and payload recovers the committed result; changing the method/payload conflicts. Current key and queue/blob grants are checked before receipt lookup. Request IDs expire after five minutes (at most five seconds of future clock skew); expired IDs stay refused even after their receipt is pruned. A full live receipt ledger rejects another mutation rather than evicting a replay guard. A claim receipt cannot renew or resurrect an expired, completed, retried or replaced-run lease. The same active lease can recover a lost claim response; a stale claim replay is refused.
+
+Queue leases last 1–60 seconds. Expiry or process loss is visible as `unknown` and is never automatically re-enqueued. An explicit retry accepts only the current live worker and preserves the original job ID, with `not_before` between now and 24 hours ahead; integrations choose their own bounded backoff and exhaustion policy. A claim/reservation is **not external-write permission**. Existing exact-operation confirmations and protocol-specific deduplication still gate each effect. A reservation-save failure means no send; external success followed by receipt-save failure is unknown, not authorization for a new send. This store makes no exactly-once remote-delivery promise and provides no privileged unknown-job resolution or transport.
+
+#### Bounds and failure semantics
+
+| Bound | Limit |
+| --- | --- |
+| One value / one blob write or read chunk | 64 KiB decoded; canonical base64 is at most 87,384 bytes |
+| One storage request / transaction | 256 KiB encoded / 32 operations |
+| One installation | 8 MiB of decoded data plus bounded identities, keys and receipts; 256 entries, 256 queue names, 128 total jobs, 32 blobs and 256 live receipts |
+| One encoded persisted state document | 12 MiB; this is a database-document bound, **not** an enlarged RPC frame |
+| All active and retained spaces in this manager database | 128 MiB encoded / 512 spaces |
+| Retained spaces per public extension identity | Eight |
+| List page / queue page | 64 entry metadata items / 32 jobs (default 16); every item remains cursor-addressable |
+| Manager storage call | Five seconds, within unchanged existing RPC/frame, page and runtime budgets |
+
+Metadata and receipts count toward the aggregate; filling a blob to the nominal data cap can therefore fail earlier. No truncation, eviction of pending jobs, memory replacement, larger source frame or extra host/network permission is used to fit data. Blob chunks preserve their exact original bytes and require seal-before-read. Credentials stay in existing sealed plugin/connector storage and must not be written into this business store.
+
+Stable error categories include `permission_denied`, `invalid_params`, `not_found`, `storage_conflict`, `storage_quota`, `storage_retired`, `storage_expired`, `storage_corrupt`, `storage_unavailable`, `storage_unknown`, `storage_canceled` and `storage_timeout`; display text is localized and never an authorization/recovery signal. Cancellation/timeout or a lost reply can leave a commit outcome unknown. Recover only with the original live request ID/payload and inspect committed state when it expires; the SDK does not create replacement IDs. Database failures never fall back to memory. Persisted invalid or newer-format state is refused and preserved, not reset to defaults. Durable acknowledgments assume Postgres WAL durability (`fsync` and synchronous commit enabled); no promise is made for unsafe administrator settings or loss of the underlying storage.
+
+#### Uninstall, retention and explicit owner restore
+
+`keep_data=1` atomically detaches business data before removing the installation and its credentials. `keep_data=0` deletes its active/retained business spaces and credentials. A full retention set fails uninstall before deleting either data or credentials. Disable/logout retain business records without making a revoked scope usable. Existing plugin/connector credential stores retain their own revocation behavior and are never restored from business data.
+
+A new same-ID installation gets an empty namespace. It cannot list or read retained data on its own. Only the authenticated owner principal, not a full/paired/answer-only device role, a forged owner header or an extension token, may call:
+
+- `GET /api/v1/extensions/{id}/-/storage/retained`: opaque IDs, retirement times and encoded byte counts only.
+- `POST /api/v1/extensions/{id}/-/storage/restore` with `{source, request_id}`: explicitly bind that exact retained space to the new installation. A changed request or another extension/installation is refused. Actual new data is never overwritten; an untouched empty namespace may be replaced. A lost restore response can be replayed with the same identity and payload.
+
+Restore commits atomically, clears old-installation replay receipts and leaves displaced leases unknown, then replaces the guest so initialization binds the restored space. Failure preserves the retained input and never silently recreates credentials.
+
+This generic store is **not a legacy filesystem importer, business-schema upgrade/downgrade, lease-renewal service, media URL or protocol-specific send/recovery implementation**. Migrations needing those contracts remain blocked until their separately scoped implementation and installed-source restart/crash acceptance preserve the original behavior. The store's schema version is 1; unsupported persisted versions fail closed. Source-default packages, marketplace indexes, signing changes and production activation remain separate phase gates.
 
 #### Hub API: scopes (#1855)
 
@@ -983,6 +1064,8 @@ For extensions installed from an extension marketplace (source `market:<marketpl
   An unreadable catalog, a bad signature or a missing catalog entry does not mean the marketplace was removed. Client handling of this reason (disabled switches, an explanation of how to resume, and affected-extension counts in deletion confirmations) remains follow-up work.
 - **More permissions**: no upgrade; the user is told once ("Example UI 1.2.0 needs one more permission: broader network access (api.example.com), go confirm"), and the upgrade happens only after the user confirms in the app
   (through the marketplace preview and upgrade, with the permission summary).
+  While the master switch or the extension's own switch is off, such a version (more permissions, a changed permission summary, or new dependencies or pack members to confirm) is only shown on the extension's page (#1828):
+  its `upgrade` still says `needs_permission` with what it asks for, but there is no `upgrade_note`, no broadcast and no push, and it is not recorded as told, so the user is told at the first check once both switches are on again.
   A new name in top-level `secrets` counts too, whether required or optional and even when absent from `node.secrets`: the marketplace candidate immediately shows `needs_permission` with "Use more secrets" and the new secrets' titles.
   Automatic checks do not download the package; the user starts a marketplace preview to review and confirm it. Repeated checks, marketplace refreshes and manager restarts do not repeat the notice for that version. Keeping, removing or reordering secret names, or changing only their titles or required flags, adds no secret permission.
 - **Telling the user**: success, rollback, waiting for confirmation and install failure are all recorded on the extension (`ExtensionView.upgrade_note`); online apps receive `{"type": "extension_upgrade", "extension", "note"}`;
@@ -1159,7 +1242,7 @@ The harness runs normal-build default/refusal and opt-in rejection, tagged defau
 
 ## Runtime status (#1857)
 
-The hub records per extension how it is running, viewable on the extension page of the admin UI ([admin.md](../operations/admin.md) ("Extensions")). Code is in `server/internal/extmgr/extension_metrics.go`;
+The hub records per extension how it is running, viewable on the extension page of the admin UI ([admin.md](../operations/admin.md) ("Extensions")). Code is in `server/internal/extmgr/extension_metrics*.go`;
 the host side (every call, every run, every log line) is the `Observer` in `extension/host`.
 
 - **Calls**: per method (`connector.status`, `ui.render`…) it records the count, error count (by error code) and a latency histogram (15 buckets from 1 ms to 60 s, plus one bucket for slower; p50 / p95 / p99 are interpolated linearly within the bucket).

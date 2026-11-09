@@ -320,7 +320,10 @@ func (s *Service) providerTest(ctx context.Context, in probeInput) map[string]an
 		"messages": []any{map[string]any{"role": "user", "content": "ping"}}}
 	if t.api == "responses" {
 		path = "responses"
-		payload = map[string]any{"model": t.model, "input": []any{map[string]any{"role": "user", "content": "ping"}}, "stream": true, "store": false}
+		// The same shape as the real calls (ai.respond: the system prompt as a developer message), so a key that
+		// passes is one those calls work with.
+		payload = map[string]any{"model": t.model, "input": []any{map[string]any{"role": "developer", "content": "Reply in one word."},
+			map[string]any{"role": "user", "content": "ping"}}, "stream": true, "store": false}
 	} else if t.api == "chat" {
 		path = "chat/completions"
 		payload = map[string]any{"model": t.model, "messages": []any{map[string]any{"role": "user", "content": "ping"}}, "stream": true, "max_tokens": 256}

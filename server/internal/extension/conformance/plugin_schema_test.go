@@ -23,6 +23,7 @@ import (
 	"github.com/nwverse/persona/server/internal/connector/serve"
 	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/extension"
+	"github.com/nwverse/persona/server/internal/extmgr/storage"
 	"github.com/nwverse/persona/server/internal/kbwire"
 )
 
@@ -128,6 +129,34 @@ var goTypes = map[string]any{
 
 	"TodoChangedEvent":  assistantwire.TodoChangedEvent{},
 	"TodoDecisionEvent": assistantwire.TodoDecisionEvent{},
+
+	// Storage params are the actual manager-engine decoder types. Dynamic result
+	// objects are validated against these wire DTOs before committing/acknowledging.
+	"StorageEmptyParams":       struct{}{},
+	"StorageRequestResult":     wire.StorageRequestResult{},
+	"StorageKeyParams":         storage.KeyParams{},
+	"StorageEntry":             storage.Entry{},
+	"StorageListParams":        storage.ListParams{},
+	"StorageListResult":        wire.StorageListResult{},
+	"StorageTransactionParams": storage.Transaction{},
+	"StorageTransactionResult": wire.StorageTransactionResult{},
+	"StorageQueueListParams":   storage.QueueList{},
+	"StorageQueueListResult":   wire.StorageQueueListResult{},
+	"StorageEnqueueParams":     storage.Enqueue{},
+	"StorageJobResult":         wire.StorageJobResult{},
+	"StorageClaimParams":       storage.Claim{},
+	"StorageClaimResult":       wire.StorageClaimResult{},
+	"StorageSettleParams":      storage.Settle{},
+	"StorageDeleteResult":      wire.StorageDeleteResult{},
+	"StorageRetryParams":       storage.Retry{},
+	"StorageBlobCreateParams":  storage.CreateBlob{},
+	"StorageBlobCreateResult":  wire.StorageBlobCreateResult{},
+	"StorageBlobWriteParams":   storage.WriteBlob{},
+	"StorageBlobWriteResult":   wire.StorageBlobWriteResult{},
+	"StorageBlobMutateParams":  storage.MutateBlob{},
+	"StorageBlobFinishResult":  wire.StorageBlobFinishResult{},
+	"StorageBlobReadParams":    storage.ReadBlob{},
+	"StorageBlobReadResult":    wire.StorageBlobReadResult{},
 }
 
 // The calls of the server the schemas must list: the connector methods connector/serve answers and calls (the bare
@@ -162,6 +191,10 @@ var assistantCalls = []string{assistantwire.MethodAssistantConversations, assist
 // The to-do events the hub tells the extensions granted todos.read (todos.schema.json).
 var todoCalls = []string{"event." + assistantwire.EventTodoChanged, "event." + assistantwire.EventTodoDecision}
 
+var storageCalls = []string{"storage.request", "storage.get", "storage.list", "storage.transaction",
+	"storage.queue.list", "storage.queue.enqueue", "storage.queue.claim", "storage.queue.ack", "storage.queue.forget", "storage.queue.retry",
+	"storage.blob.create", "storage.blob.write", "storage.blob.finish", "storage.blob.delete", "storage.blob.read"}
+
 func TestPluginSchemasListTheServersCalls(t *testing.T) {
 	var want []string
 	for _, m := range serverCalls {
@@ -175,6 +208,7 @@ func TestPluginSchemasListTheServersCalls(t *testing.T) {
 	want = append(want, modelCalls...)
 	want = append(want, assistantCalls...)
 	want = append(want, sentCalls...)
+	want = append(want, storageCalls...)
 	for _, name := range want {
 		if _, ok := wire.Calls[name]; !ok {
 			t.Errorf("%s: the server has it, schema/extension does not list it (x-methods / x-events)", name)
@@ -182,7 +216,7 @@ func TestPluginSchemasListTheServersCalls(t *testing.T) {
 	}
 	for name := range wire.Calls {
 		if (strings.HasPrefix(name, serve.Namespace+".") || strings.HasPrefix(name, channel.Namespace+".") ||
-			strings.HasPrefix(name, "kb.") || strings.HasPrefix(name, "event.kb.") || strings.HasPrefix(name, "event.todo.") || strings.HasPrefix(name, "sent.") || strings.HasPrefix(name, "model.") || strings.HasPrefix(name, "assistant.")) &&
+			strings.HasPrefix(name, "kb.") || strings.HasPrefix(name, "event.kb.") || strings.HasPrefix(name, "event.todo.") || strings.HasPrefix(name, "sent.") || strings.HasPrefix(name, "model.") || strings.HasPrefix(name, "assistant.") || strings.HasPrefix(name, "storage.")) &&
 			!slices.Contains(want, name) {
 			t.Errorf("%s: schema/extension lists it, the server has no such call", name)
 		}

@@ -14,5 +14,7 @@
   "name_minimax": "MiniMax",
   "desc_minimax": "国内直接开通，按量付费",
   "name_minimax_intl": "MiniMax 国际版",
-  "desc_minimax_intl": "minimax.io，海外账号和支付方式"
+  "desc_minimax_intl": "minimax.io，海外账号和支付方式",
+  "name_grok": "Grok",
+  "desc_grok": "xAI，海外账号和支付方式；不能用于主对话和 Agents"
 }

@@ -57,6 +57,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1018280a, 0 2px 6px #10182808;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #0000000b;
   --shadow-overlay: 0 0 0 1px var(--line), 0 8px 28px #0001;
+  --shadow-nav-preview: 0 12px 40px #00000014;
   --shadow-inset-field: inset 0 1px 2px #0000001f;
 }
 
@@ -99,6 +100,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #0003, 0 2px 6px #0003;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #00000038;
   --shadow-overlay: 0 0 0 1px var(--line-strong), 0 8px 28px #00000057;
+  --shadow-nav-preview: 0 12px 40px #00000060;
   --shadow-inset-field: inset 0 1px 2px #0006;
 }
 
@@ -176,11 +178,13 @@
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-nav-preview: var(--shadow-nav-preview);
   --shadow-inset-field: var(--shadow-inset-field);
 
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
+  --radius-nav-preview: 16px;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);

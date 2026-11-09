@@ -270,12 +270,25 @@ export interface Permissions {
    * user names, machine names or IP addresses). Needed by contributes.error_reports.
    */
   error_reports?: boolean;
+  storage?: StoragePermission;
   /**
    * It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
    * printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
    * contributes.auth_relay.
    */
   auth_relay?: boolean;
+}
+
+/**
+ * Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+ * prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+ * host quotas. Queue and blob methods additionally require their flags.
+ */
+export interface StoragePermission {
+  keys?: string[];
+  patterns?: string[];
+  queues?: boolean;
+  blobs?: boolean;
 }
 
 /**
@@ -4917,6 +4930,185 @@ export interface AssistantMessagesResult {
   next_seq?: number;
 }
 
+export interface StorageEmptyParams {
+}
+
+/**
+ * Opaque timestamped request identity from the host. Retry only the same ID and payload; expires after five minutes
+ * and is never automatically regenerated for an unknown effect.
+ */
+export interface StorageRequestResult {
+  request_id: string;
+}
+
+export interface StorageKeyParams {
+  key: string;
+}
+
+/**
+ * Canonical base64 business bytes, at most64KiB decoded; revision is an opaque CAS token.
+ */
+export interface StorageEntry {
+  revision: string;
+  data: string;
+}
+
+export interface StorageListParams {
+  prefix?: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface StorageMutationItem {
+  key: string;
+  revision?: string;
+  deleted?: boolean;
+  job_id?: string;
+}
+
+export interface StorageListResult {
+  items: StorageMutationItem[];
+  more: boolean;
+}
+
+/**
+ * One atomic operation. Empty revision means require absence; missing revision is unconditional. Queue enqueue/ack
+ * require separate queue permission; their job and progress changes commit atomically.
+ */
+export interface StorageOperation {
+  kind: string;
+  key: string;
+  data?: string;
+  revision?: string;
+  dedup?: string;
+  not_before?: number;
+  job_id?: string;
+  lease?: string;
+}
+
+export interface StorageTransactionParams {
+  request_id: string;
+  operations: StorageOperation[];
+}
+
+export interface StorageTransactionResult {
+  items: StorageMutationItem[];
+}
+
+export interface StorageQueueListParams {
+  key: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface StorageJob {
+  id: string;
+  dedup: string;
+  data: string;
+  state: string;
+  not_before: number;
+  attempts: number;
+  lease?: string;
+  lease_until?: number;
+}
+
+export interface StorageQueueListResult {
+  items: StorageJob[];
+  more: boolean;
+}
+
+export interface StorageEnqueueParams {
+  request_id: string;
+  key: string;
+  dedup: string;
+  data: string;
+  not_before?: number;
+}
+
+export interface StorageJobResult {
+  id: string;
+  state?: string;
+}
+
+export interface StorageClaimParams {
+  request_id: string;
+  key: string;
+  lease_seconds: number;
+}
+
+/**
+ * One claimed job; job is absent when no pending job is due.
+ */
+export interface StorageClaimResult {
+  job?: StorageJob;
+}
+
+export interface StorageSettleParams {
+  request_id: string;
+  key: string;
+  id: string;
+  lease?: string;
+}
+
+export interface StorageRetryParams {
+  request_id: string;
+  key: string;
+  id: string;
+  lease: string;
+  not_before: number;
+}
+
+export interface StorageDeleteResult {
+  deleted: boolean;
+}
+
+export interface StorageBlobCreateParams {
+  request_id: string;
+  key: string;
+}
+
+export interface StorageBlobCreateResult {
+  handle: string;
+}
+
+export interface StorageBlobWriteParams {
+  request_id: string;
+  key: string;
+  handle: string;
+  offset: number;
+  data: string;
+}
+
+export interface StorageBlobWriteResult {
+  bytes: number;
+}
+
+export interface StorageBlobMutateParams {
+  request_id: string;
+  key: string;
+  handle: string;
+}
+
+export interface StorageBlobFinishResult {
+  handle: string;
+  bytes: number;
+  complete: boolean;
+}
+
+export interface StorageBlobReadParams {
+  key: string;
+  handle: string;
+  offset: number;
+  limit: number;
+}
+
+export interface StorageBlobReadResult {
+  data: string;
+  offset: number;
+  bytes: number;
+  eof: boolean;
+}
+
 /**
  * Bounded JSON scalar, not executable content. Strings at most 4096 code points; finite numbers in the JSON-safe
  * range.
@@ -5322,4 +5514,19 @@ export const CALLS: Record<string, Call> = {
   "model.complete": { from: "program", params: "ModelCompleteParams", result: "ModelCompleteResult" },
   "assistant.conversations": { from: "program", params: "AssistantConversationsParams", result: "AssistantConversationsResult" },
   "assistant.messages": { from: "program", params: "AssistantMessagesParams", result: "AssistantMessagesResult" },
+  "storage.request": { from: "program", params: "StorageEmptyParams", result: "StorageRequestResult" },
+  "storage.get": { from: "program", params: "StorageKeyParams", result: "StorageEntry" },
+  "storage.list": { from: "program", params: "StorageListParams", result: "StorageListResult" },
+  "storage.transaction": { from: "program", params: "StorageTransactionParams", result: "StorageTransactionResult" },
+  "storage.queue.list": { from: "program", params: "StorageQueueListParams", result: "StorageQueueListResult" },
+  "storage.queue.enqueue": { from: "program", params: "StorageEnqueueParams", result: "StorageJobResult" },
+  "storage.queue.claim": { from: "program", params: "StorageClaimParams", result: "StorageClaimResult" },
+  "storage.queue.ack": { from: "program", params: "StorageSettleParams", result: "StorageJobResult" },
+  "storage.queue.forget": { from: "program", params: "StorageSettleParams", result: "StorageDeleteResult" },
+  "storage.queue.retry": { from: "program", params: "StorageRetryParams", result: "StorageJobResult" },
+  "storage.blob.create": { from: "program", params: "StorageBlobCreateParams", result: "StorageBlobCreateResult" },
+  "storage.blob.write": { from: "program", params: "StorageBlobWriteParams", result: "StorageBlobWriteResult" },
+  "storage.blob.finish": { from: "program", params: "StorageBlobMutateParams", result: "StorageBlobFinishResult" },
+  "storage.blob.delete": { from: "program", params: "StorageBlobMutateParams", result: "StorageDeleteResult" },
+  "storage.blob.read": { from: "program", params: "StorageBlobReadParams", result: "StorageBlobReadResult" },
 };

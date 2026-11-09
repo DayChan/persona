@@ -981,10 +981,14 @@ func (h *Hub) toSubscribers(machineID, sessionID string, v any) {
 // URL's ?features= or in client_hello. v is encoded only once some client follows the session: most streamed deltas
 // are for sessions no app has open.
 func (h *Hub) toSubscribersWith(machineID, sessionID, feature string, v any) {
-	key := [2]string{machineID, sessionID}
-	var b []byte
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.toSubscribersLocked(machineID, sessionID, feature, v)
+}
+
+func (h *Hub) toSubscribersLocked(machineID, sessionID, feature string, v any) {
+	key := [2]string{machineID, sessionID}
+	var b []byte
 	for c := range h.clients {
 		c.mu.Lock()
 		sub := c.subs[key]

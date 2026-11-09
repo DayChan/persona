@@ -102,4 +102,141 @@ struct FoldedWorkTests {
         #expect(steps.count == 2)
         if case .call(let c) = steps.last { #expect(c.result?.text == "ok") } else { Issue.record("call") }
     }
+
+    @Test func partialOverlapRetainsPromotionAfterRemovingTheFold() throws {
+        let s = store()
+        var f = fold(2, 8, tools: 3, thoughts: 1)
+        f.fold?.supervisionUser = true
+        s.merge([item(1, .text, role: "user", text: "Fictional input"), f, item(10, .text, text: "Fictional answer")])
+        // Only a thought arrives: the actual visibility tool may still be on an unloaded part of the fold.
+        let thought = item(2, .thinking, text: "Fictional plan")
+        s.merge([thought])
+        #expect(!s.items.contains { $0.kind == .fold })
+        #expect(s.items.first { $0.id == thought.id }?.supervisionUser == true)
+        #expect(Supervision.visible(s.items, results: [:], live: false))
+        s.merge([thought]) // An unmarked duplicate cannot erase the transferred evidence.
+        #expect(s.items.first { $0.id == thought.id }?.supervisionUser == true)
+        var finish = item(7, .toolUse, tool: "finish")
+        finish.toolName = "supervision_finish"
+        let silent = item(8, .toolResult, role: "user", text: #"{"visibility":"silent"}"#, tool: "finish")
+        s.merge([finish, silent])
+        #expect(Supervision.visible(s.items, results: ["finish": silent], live: false))
+        let persisted = try JSON.decoder.decode([Item].self, from: JSON.encoder.encode(s.items))
+        #expect(Supervision.visible(persisted, results: ["finish": silent], live: false))
+        #expect(persisted.first { $0.id == thought.id }?.text == thought.text)
+    }
+
+    @Test func duplicateFoldPromotionUpdatesAndNeverDowngrades() {
+        let s = store()
+        let quiet = fold(2, 8, tools: 3)
+        s.merge([quiet])
+        #expect(!Supervision.visible(s.items, results: [:], live: false))
+        var promoted = quiet
+        promoted.fold?.supervisionUser = true
+        s.merge([promoted])
+        #expect(s.items.count == 1 && s.items[0].fold?.supervisionUser == true)
+        s.merge([quiet])
+        #expect(s.items.count == 1 && s.items[0].fold?.supervisionUser == true)
+        #expect(Supervision.visible(s.items, results: [:], live: false))
+    }
+
+    @Test func promotionTransfersBackIntoAReplacementFold() {
+        let s = store()
+        var thought = item(2, .thinking, text: "Fictional plan")
+        thought.supervisionUser = true
+        s.merge([thought, item(3, .toolUse, tool: "read")])
+        let quiet = fold(2, 8, tools: 3)
+        s.merge([quiet])
+        #expect(s.items.count == 1 && s.items[0].fold?.supervisionUser == true)
+        s.merge([quiet])
+        #expect(Supervision.visible(s.items, results: [:], live: false))
+        s.unfold(quiet, into: [item(2, .thinking, text: "Fictional plan")]) // The caller's stale fold has no mark.
+        #expect(s.items[0].supervisionUser == true)
+    }
+
+    @Test func aRepeatedPromotedFoldUpdatesWorkThatStaysOpen() {
+        let s = store()
+        let quiet = fold(2, 8, tools: 3)
+        s.merge([quiet])
+        s.unfold(quiet, into: work())
+        var promoted = quiet
+        promoted.fold?.supervisionUser = true
+        s.merge([promoted])
+        #expect(!s.items.contains { $0.kind == .fold })
+        #expect(s.items.allSatisfy { $0.supervisionUser == true })
+        s.merge([quiet])
+        #expect(Supervision.visible(s.items, results: [:], live: false))
+        s.merge([fold(2, 10, tools: 4)]) // A longer page may fold the work again, but its promotion stays.
+        #expect(s.items.count == 1 && s.items[0].fold?.supervisionUser == true)
+    }
+
+    @Test func promotionUsesBlockBoundsAndIncludesToolImagesNotUserImages() {
+        let s = store()
+        var f = fold(2, 3, tools: 1)
+        f.id = "fold:2#1"
+        f.fold?.throughID = "3#1"
+        f.fold?.supervisionUser = true
+        s.merge([f])
+        let before = item(2, .thinking) // Same seq, outside the fold's opening block.
+        var covered = item(3, .image, role: "user", tool: "read")
+        covered.id = "3#1"
+        var outside = covered
+        outside.id = "3#2"
+        var own = item(2, .image, role: "user")
+        own.id = "2#2" // Inside the seq range, but user input is not folded work.
+        s.merge([before, covered, outside, own])
+        #expect(!s.items.contains { $0.kind == .fold })
+        #expect(s.items.first { $0.id == covered.id }?.supervisionUser == true)
+        #expect(s.items.first { $0.id == outside.id }?.supervisionUser != true)
+        #expect(s.items.first { $0.id == before.id }?.supervisionUser != true)
+        #expect(s.items.first { $0.id == own.id }?.supervisionUser != true)
+    }
+
+    @Test func ordinaryPartialOverlapDoesNotInventPromotion() {
+        let s = store()
+        s.merge([fold(2, 8, tools: 3)])
+        s.merge([item(3, .toolUse, tool: "read")])
+        #expect(s.items.map(\.seq) == [3])
+        #expect(!Supervision.visible(s.items, results: [:], live: false))
+    }
+
+    @Test func aMixedBatchKeepsRealWorkInsteadOfItsOverlappingPromotedFold() {
+        let s = store()
+        var f = fold(2, 8, tools: 3)
+        f.fold?.supervisionUser = true
+        let read = item(3, .toolUse, tool: "read")
+        s.merge([f, read])
+        #expect(s.items.map(\.id) == [read.id])
+        #expect(s.items[0].supervisionUser == true)
+    }
+
+    @Test func reverseOrderPagesAndDuplicateReceiptsKeepTheirOriginalTool() {
+        let s = store()
+        var notify = item(2, .toolUse, tool: "notify")
+        notify.toolName = "notify_user"
+        var receipt = item(3, .toolResult, role: "user", text: "failed", tool: "notify")
+        receipt.isError = true
+        s.merge([receipt, item(6, .text, text: "Fictional answer")])
+        s.merge([item(1, .text, role: "user", text: "Fictional input"), notify])
+        #expect(!Supervision.visible(s.items, results: ["notify": receipt], live: false))
+        receipt.isError = false
+        receipt.text = "ok"
+        s.merge([receipt])
+        let results = Dictionary(uniqueKeysWithValues: s.items.filter { $0.kind == .toolResult }.map { ($0.toolUseID!, $0) })
+        #expect(Supervision.visible(s.items, results: results, live: false))
+        #expect(s.items.map(\.seq) == [1, 2, 3, 6])
+        #expect(s.items.filter { $0.id == receipt.id }.count == 1)
+    }
+
+    @Test func aNewHistoryDropsOldPromotionAndOpenedFoldEvidence() {
+        let s = store()
+        var promoted = fold(2, 8, tools: 3)
+        promoted.fold?.supervisionUser = true
+        s.apply([promoted], span: ItemSpan(history: "old", to: 8))
+        s.unfold(promoted, into: [item(3, .toolUse, tool: "read")])
+        #expect(s.items[0].supervisionUser == true)
+        s.apply([fold(2, 8, tools: 3)], span: ItemSpan(history: "new", to: 8))
+        #expect(s.items.count == 1 && s.items[0].kind == .fold)
+        #expect(!Supervision.visible(s.items, results: [:], live: false))
+    }
 }

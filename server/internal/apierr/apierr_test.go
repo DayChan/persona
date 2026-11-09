@@ -23,6 +23,19 @@ type langWriter struct {
 
 func (w langWriter) Lang() i18n.Lang { return w.lang }
 
+func TestReadonlyStartRefusalLocalization(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+		want := i18n.T(lang, "rpc-errors.readonly_unsupported")
+		if got := Sentence(lang, "readonly_unsupported", nil); got != want || got == "" {
+			t.Fatalf("%s task refusal = %q, want %q", lang, got, want)
+		}
+		body := LocalizedBody(http.StatusConflict, "readonly_unsupported", errors.New("node diagnostic"), lang)
+		if body["error"] != want {
+			t.Fatalf("%s HTTP refusal = %v, want %q", lang, body, want)
+		}
+	}
+}
+
 func call(t *testing.T, w http.ResponseWriter, rec *httptest.ResponseRecorder, err error) map[string]any {
 	t.Helper()
 	Call(w, err)

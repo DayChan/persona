@@ -31,6 +31,10 @@ const (
 
 // The classes of a launcher's error (classifyLauncherError).
 const (
+	// errKindOnboarding: Claude Code's first-run setup is unfinished (hasCompletedOnboarding is missing or false).
+	// Only a person at the machine can finish it, so it never enters auto repair; periodic and on-demand probes
+	// clear the record once setup is done.
+	errKindOnboarding  = "onboarding"
 	errKindModelRoute  = "model_route"
 	errKindAuth        = "auth"
 	errKindCLIOutdated = "cli_outdated"
@@ -66,6 +70,9 @@ var (
 	repairDeadline = 45 * time.Minute
 	// healthCheckTimeout bounds one check (the node's own is 90 seconds).
 	healthCheckTimeout = 100 * time.Second
+	// healthRecheckThrottle: how long a failing launcher keeps the on-demand probe's answer instead of probing again,
+	// so a burst of starts does not turn into a burst of probes.
+	healthRecheckThrottle = 30 * time.Second
 )
 
 const defaultHealthInterval = 30 * time.Minute
@@ -135,8 +142,18 @@ type healthBook struct {
 	checking map[string]bool            // machines being checked now
 	// The app's starts answered at once (launcher_health_starts.go): those seen starting, by machine and session, and
 	// the failed ones already counted, when (kept with the records: healthStore.Counted).
-	starting map[[2]string]startWatch
-	counted  map[[2]string]time.Time
+	starting  map[[2]string]startWatch
+	counted   map[[2]string]time.Time
+	recheck   map[string]*healthRecheck // on-demand probes in flight, by healthKey
+	recheckAt map[string]time.Time      // last on-demand probe, by healthKey
+}
+
+// healthRecheck is an on-demand launcher probe one start is running and concurrent starts wait for.
+type healthRecheck struct {
+	done    chan struct{}
+	res     healthResult
+	got     bool
+	waiters int // starts that joined this probe instead of starting their own
 }
 
 func healthKey(machine, launcher string) string { return machine + "/" + launcher }
@@ -171,6 +188,9 @@ func (s *Service) healthLoadLocked(ctx context.Context) {
 	b.recs, b.repairs = map[string]*LauncherHealth{}, map[string]*machineRepair{}
 	if b.online == nil {
 		b.online, b.checking = map[string]bool{}, map[string]bool{}
+	}
+	if b.recheck == nil {
+		b.recheck, b.recheckAt = map[string]*healthRecheck{}, map[string]time.Time{}
 	}
 	var stored healthStore
 	if st := s.store(); st != nil {
@@ -309,7 +329,10 @@ var launcherErrorKinds = []struct {
 	kind string
 	re   *lazyre.Regexp
 }{
-	// First: the limit's words name no other cause, and its line may carry a prefix ("Error: …"). Claude Code's own
+	// First: its markers are specific to the node's onboarding messages (node/claudeonboarding.go). Both the Chinese
+	// and the English message carry hasCompletedOnboarding, so no Chinese literal is needed here (i18n baseline).
+	{errKindOnboarding, lazyre.New(`hasCompletedOnboarding|first-run setup`)},
+	// Then the limit: its words name no other cause, and its line may carry a prefix ("Error: …"). Claude Code's own
 	// line ("You've hit your session limit · resets 4:20pm (…)", an older "Claude AI usage limit reached|…") and
 	// Codex's (its message, its error kinds in a rollout and the app-server). A gateway's 429, "rate limit" or "quota"
 	// is not a subscription's limit and stays in its class.
@@ -331,10 +354,11 @@ func classifyLauncherError(text string) string {
 }
 
 // repairNow: a failure the repairs know right away; the others wait for a second one in a row. Never a usage limit,
-// however many in a row: nothing on the machine is broken, it waits for the reset.
+// however many in a row: nothing on the machine is broken, it waits for the reset. The same for an unfinished
+// first-run setup: only a person at the machine can finish it.
 func (r LauncherHealth) repairNow() bool {
 	switch r.Kind {
-	case errKindUsageLimit:
+	case errKindUsageLimit, errKindOnboarding:
 		return false
 	case errKindModelRoute, errKindAuth, errKindCLIOutdated:
 		return true

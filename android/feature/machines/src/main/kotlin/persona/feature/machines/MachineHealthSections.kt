@@ -62,9 +62,11 @@ internal fun LazyListScope.machineHealth(
         }
         doctor is DoctorLoad.Unavailable -> item("health-unavailable") {
             JInlineStatus(stringResource(doctor.why.text), tone = InlineTone.Caution,
-                action = if (doctor.why == DoctorUnavailable.OldNode && onDeploy != null && showsDeploy(machine)) ({
+                // Not a Redeploy the hub would refuse (#1868): the card's deploy line says why.
+                action = if (doctor.why == DoctorUnavailable.OldNode && onDeploy != null && showsDeploy(machine) &&
+                    (deploying(machine) || offersRedeploy(machine))) ({
                     JButton(stringResource(R.string.machines_redeploy), onDeploy, kind = JButtonKind.Secondary, size = JButtonSize.Small,
-                        loading = machine.deploying)
+                        loading = deploying(machine))
                 }) else null)
         }
         doctor is DoctorLoad.Failed -> item("health-failed") {

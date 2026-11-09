@@ -4,9 +4,10 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO = "${{ github.event.pull_request.head.repo.full_name || github.repository }}"
-BRANCH = "${{ github.head_ref || github.ref_name }}"
-CI_LANE = "${{ github.event_name == 'pull_request' && 'pr-fast' || inputs.lanes || 'auto' }}"
+REPO = "${{ github.repository }}"
+BRANCH = "${{ github.ref_name }}"
+FULL = "${{ inputs.full }}"
+CI_LANE = "${{ inputs.lanes }}"
 APPLE_LANE = "${{ inputs.lane || 'ios' }}"
 
 
@@ -14,11 +15,10 @@ def workflow(filename):
     return yaml.load((ROOT / '.github/workflows' / filename).read_text(), Loader=yaml.BaseLoader)
 
 
-def group(filename, repo='example/project', branch='main', event='workflow_dispatch', lanes='auto', lane='ios'):
+def group(filename, repo='example/project', branch='main', full='true', lanes='auto', lane='ios'):
     template = workflow(filename)['concurrency']['group']
-    return (template.replace(REPO, repo).replace(BRANCH, branch)
-            .replace(CI_LANE, 'pr-fast' if event == 'pull_request' else lanes)
-            .replace(APPLE_LANE, lane))
+    return (template.replace(REPO, repo).replace(BRANCH, branch).replace(FULL, full)
+            .replace(CI_LANE, lanes).replace(APPLE_LANE, lane))
 
 
 class ConcurrencyTests(unittest.TestCase):
@@ -39,16 +39,17 @@ class ConcurrencyTests(unittest.TestCase):
                 self.assertNotEqual(group(filename, branch='main'), group(filename, branch='feature'))
 
     def test_lanes_and_caller_groups_remain_independent(self):
-        self.assertNotEqual(group('ci.yml', lanes='server'), group('ci.yml', lanes='android'))
-        self.assertNotEqual(group('ci.yml', event='pull_request'), group('ci.yml', lanes='auto'))
+        self.assertNotEqual(group('ci.yml', full='false', lanes='server'),
+                            group('ci.yml', full='false', lanes='android'))
+        self.assertNotEqual(group('ci.yml', full='true', lanes='auto'),
+                            group('ci.yml', full='false', lanes='auto'))
         self.assertNotEqual(group('apple-test.yml', lane='ios'), group('apple-test.yml', lane='macos'))
         self.assertNotEqual(group('ci.yml', lanes='apple'), group('apple-test.yml', lane='ios'))
         # Stable file prefixes deduplicate direct/reusable lane dispatches without
         # reusing the caller's github.workflow group, which would cancel the caller.
         for filename in ('apple-test.yml', 'server-test.yml', 'android-test.yml', 'scripts-tests.yml'):
             self.assertNotIn('github.workflow', workflow(filename)['concurrency']['group'])
-        self.assertIn('workflow_dispatch', workflow('ci.yml')['on'])
-        self.assertIn('pull_request', workflow('ci.yml')['on'])
+        self.assertEqual(set(workflow('ci.yml')['on']), {'workflow_dispatch'})
         self.assertIn('workflow_call', workflow('apple-test.yml')['on'])
         self.assertIn('workflow_dispatch', workflow('apple-test.yml')['on'])
 

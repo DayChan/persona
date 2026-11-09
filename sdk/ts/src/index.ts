@@ -1,6 +1,7 @@
 import { extensionEnv, hubEnv } from './compat.js';
 import { ExactJSON } from './exact-json.ts';
 export { ExactJSON, JSONIntegerError } from './exact-json.ts';
+export { ExtensionStorage, storageBytes, storageValue } from './storage.ts';
 // Persona extension SDK for TypeScript (docs/extensions/extensions.md "Writing an extension: SDK, templates and CLI"): an extension program's side of
 // the process protocol, for Bun. Build the program with `bun build --compile` into one executable per platform:
 // the package holds only that, and the hub needs no runtime.

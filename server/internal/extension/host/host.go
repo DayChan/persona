@@ -8,6 +8,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -251,6 +253,15 @@ func (p *Proc) Stop() {
 	if p.client != nil {
 		p.client.CloseIdleConnections()
 	}
+}
+
+type invocationRunKey struct{}
+
+// InvocationRun identifies the trusted transport's exact process attempt, also
+// during initialization. It is not a guest field or an authorization credential.
+func InvocationRun(ctx context.Context) string {
+	run, _ := ctx.Value(invocationRunKey{}).(string)
+	return run
 }
 
 // Generation identifies the active initialized process run, never a source claim.
@@ -689,17 +700,29 @@ func (p *Proc) runOnce(ctx context.Context) error {
 	if !p.spec.attached() { // an attached one's run starts when it comes online (up)
 		p.run(RunStart, "")
 	}
-	runCtx, stopRun := context.WithCancel(ctx)
+	runCtx, stopRun := context.WithCancel(context.WithValue(ctx, invocationRunKey{}, rand.Text()))
 	defer stopRun()
 	var s *session
 	if p.spec.RPC {
 		peer := rpc.New("h", writerOf(ch))
 		peer.Limits = p.spec.RPCBounds
-		peer.OnRequest = p.spec.Handle
+		if p.spec.Handle != nil {
+			peer.OnRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				call, cancel := context.WithCancel(context.WithValue(ctx, invocationRunKey{}, InvocationRun(runCtx)))
+				stop := context.AfterFunc(runCtx, cancel)
+				defer stop()
+				defer cancel()
+				if err := runCtx.Err(); err != nil {
+					return nil, err
+				}
+				return p.spec.Handle(call, method, params)
+			}
+		}
 		peer.OnEvent = p.spec.OnEvent
 		go func() { _ = peer.Serve(context.Background(), out) }()
 		s = &session{peer: peer}
 		if err := p.initialize(runCtx, s); err != nil {
+			stopRun()
 			p.end(ch, peer)
 			return err
 		}
@@ -712,6 +735,9 @@ func (p *Proc) runOnce(ctx context.Context) error {
 	p.kill = func() { once.Do(func() { close(killed) }) }
 	p.mu.Unlock()
 	defer func() {
+		// Fence host callbacks before waiting for child/peer cleanup. Neither
+		// process loss nor slow cleanup may extend a storage invocation's life.
+		stopRun()
 		var peer *rpc.Peer
 		if s != nil {
 			peer = s.peer

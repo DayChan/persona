@@ -44,6 +44,7 @@ func (s *Service) toolTaskPlan(ctx context.Context, sessionID string, args json.
 	reused := map[string]bool{}
 	for i := range a.Tasks {
 		t := &a.Tasks[i]
+		t.normalizeReadonlyPermission()
 		t.TodoID, t.Error, t.ErrorCode, t.ErrorArgs = "", "", "", nil
 		t.Title, t.Prompt, t.Cwd = strings.TrimSpace(t.Title), strings.TrimSpace(t.Prompt), strings.TrimSpace(t.Cwd)
 		t.Model = strings.TrimSpace(t.Model)

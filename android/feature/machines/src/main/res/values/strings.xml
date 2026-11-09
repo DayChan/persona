@@ -89,6 +89,11 @@
     <string name="machines_deploying">Installing the hub\'s Persona build on this computer…</string>
     <string name="machines_deploy_failed_last">Last deploy failed: %1$s</string>
     <string name="machines_redeploy">Redeploy</string>
+    <string name="machines_deploy_waiting_idle">Waiting for the agents on this computer to go idle before updating Persona…</string>
+    <string name="machines_deploy_transferring">Sending the hub\'s Persona build to this computer…</string>
+    <string name="machines_deploy_restarting">Restarting Persona on this computer…</string>
+    <string name="machines_deploy_confirming">Waiting for Persona on this computer to reconnect and match the hub\'s build…</string>
+    <string name="machines_deploy_unsupported">This computer can\'t be updated from here yet. Update Persona on it first.</string>
     <string name="machines_controls_title">Engine and connection</string>
     <string name="machines_engine">Engine</string>
     <string name="machines_reconnecting">Reconnecting…</string>

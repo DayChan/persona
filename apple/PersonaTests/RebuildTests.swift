@@ -72,6 +72,35 @@ struct RebuildTests {
         }
     }
 
+    @Test func supervisionAndMultiBlockInputsRebuildIncrementallyLikeAFullTranscript() {
+        var supervise = Self.item(3, "user", .text, text: "Fictional supervision", queued: true)
+        supervise.id = "u3#1"
+        supervise.injected = Injected(kind: "system", state: "supervise", line: "Check tasks", level: "triage")
+        var photo = Self.item(3, "user", .image)
+        photo.id = "u3#0"
+        photo.image = ImagePayload(mime: "image/png", data: "")
+        var extra = Self.item(3, "user", .text, text: "Fictional additional details")
+        extra.id = "u3#2" // A second nonqueued text block must not be an incremental boundary inside this input.
+        var nextPhoto = photo
+        nextPhoto.seq = 6
+        nextPhoto.id = "u6#1"
+        var next = Self.item(6, "user", .text, text: "Next genuine queued input", queued: true)
+        next.id = "u6#0"
+        let items = [Self.item(1, "user", .text, text: "First request"), Self.item(2, "assistant", .text, text: "First answer"),
+                     photo, supervise, extra, Self.item(4, "assistant", .text, text: "Supervision answer"),
+                     Self.item(5, "system", .recap, text: "Fictional recap"), next, nextPhoto,
+                     Self.item(7, "assistant", .text, text: "Next answer"), Self.item(8, "user", .text, text: "Last request")]
+        var settled: ChatStore.SettledRows?
+        for count in 1...items.count {
+            let prefix = Array(items.prefix(count))
+            let built = ChatStore.rebuild(prefix, settled: settled)
+            let fullRows = ChatStore.buildRows(ChatStore.picturesAfterTheirText(prefix))
+            #expect(built.rows == fullRows, "\(count) items: rows")
+            #expect(built.blocks == ChatBlock.build(fullRows), "\(count) items: blocks")
+            settled = built.settled
+        }
+    }
+
     /// Cost of one event in a 1000-exchange session (printed, for the record): the full rebuild against the incremental one.
     @Test func incrementalRebuildIsCheap() {
         var items: [Item] = []

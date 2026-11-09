@@ -1,0 +1,18 @@
+{
+  "denied": "This extension has no permission to access this stored data.",
+  "invalid": "The storage request is invalid.",
+  "quota": "The extension storage quota is full. No data was changed.",
+  "conflict": "The stored data changed, or this request ID was used for another operation.",
+  "not_found": "The stored item was not found.",
+  "retired": "This installation or runtime is no longer authorized to access the data.",
+  "expired": "This storage request has expired. Do not repeat an uncertain operation with a new request ID.",
+  "corrupt": "The stored data could not be validated. It has not been replaced with defaults.",
+  "unknown": "The storage commit outcome is unknown. Retry only the original request ID and payload.",
+  "unavailable": "Extension storage is unavailable. No in-memory replacement was used.",
+  "canceled": "The storage request was canceled.",
+  "timeout": "The storage request timed out. Its commit outcome may be unknown.",
+  "permission_queues": "Also use bounded durable queues under those keys.",
+  "permission_blobs": "Also store bounded binary blobs under those keys.",
+  "permission_title": "Store declared extension business data",
+  "permission_detail": "Only the declared keys or patterns: {keys}. Storage is installation-scoped and bounded; no access to files, SQL, credentials or additional network hosts."
+}

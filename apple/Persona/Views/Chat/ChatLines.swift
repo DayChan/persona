@@ -55,7 +55,101 @@ struct ChatLines {
     /// streaming in (drawn after the lines): the words before them are in its work line already, where they go once
     /// those are written. Out of it until then, they stayed under the new words as these streamed in, and then folded
     /// away: every sentence of a running turn moved the chat up two lines and down three (2026-11-04).
+    /// Supervision folding is independent of the optional conversation layout, and only enabled for Persona chats.
+    var foldSupervision = false
+    var openSupervision: Set<String> = []
+    var openAllSupervision = false
+    var active = false
+
+    static func hidesLiveSupervision(_ lines: [ChatLine], open: Set<String>, openAll: Bool = false) -> Bool {
+        // A cleared stream can remain pending until its transcript item arrives, even after the turn stops.
+        // Only the newest transcript owner matters; task/feed/day decorations do not begin another round.
+        for line in lines.reversed() {
+            switch line.content {
+            case .feed, .quick, .day: continue
+            case .supervision(let id, _, _): return open.contains(id) == openAll
+            default: return false
+            }
+        }
+        return false
+    }
+
+    /// A round can cross recaps and compactions. Only the next actual input ends it.
     func lines(_ blocks: [ChatBlock], live liveID: String?, streaming: Bool = false) -> [ChatLine] {
+        guard foldSupervision else { return flatLines(blocks, live: liveID, streaming: streaming) }
+        let all = blocks.flatMap(Self.transcriptItems)
+        let results = all.reduce(into: [String: Item]()) { out, item in
+            if item.kind == .toolResult, let id = item.toolUseID { out[id] = item }
+        }
+        var out: [ChatLine] = []
+        var round: [ChatLine]? = nil
+        var evidence: [Item] = []
+        var running = false
+        func flush() {
+            guard let trace = round, let first = trace.first else { return }
+            if Supervision.visible(evidence, results: results, live: running) {
+                out += Self.visibilityTools(trace)
+            } else {
+                out.append(.supervision(id: "sv-" + first.id, lines: trace, live: running))
+            }
+            round = nil
+            evidence = []
+            running = false
+        }
+        for block in blocks {
+            let items = Self.transcriptItems(block)
+            if case .turn(let turn) = block, turn.ordered.contains(where: \.isUserInput) {
+                flush()
+                if items.contains(where: { Injected.of($0)?.isSupervision == true }) { round = [] }
+            }
+            let lines = flatLines([block], live: liveID, streaming: streaming)
+            if round != nil {
+                round! += lines
+                evidence += items
+                if case .turn(let turn) = block, turn.id == liveID { running = true }
+            } else { out += lines }
+        }
+        // The run can resume after a recap before its first transcript item arrives.
+        if round != nil, active { running = true }
+        flush()
+        return Self.foldRecaps(Self.foldAPIErrors(out))
+    }
+
+    static func transcriptItems(_ block: ChatBlock) -> [Item] {
+        switch block {
+        case .row(let row): return transcriptItems(row)
+        case .turn(let turn): return (turn.ordered + turn.tail + turn.trailing).flatMap(transcriptItems)
+        }
+    }
+
+    static func transcriptItems(_ row: ChatRow) -> [Item] {
+        switch row {
+        case .user(let i), .assistant(let i), .thinking(let i), .notice(let i), .image(let i), .recap(let i): return [i]
+        case .tools(let steps): return steps.flatMap { step in
+            switch step {
+            case .call(let call): return [call.use] + [call.result].compactMap { $0 }
+            case .thought(let i), .folded(let i): return [i]
+            }
+        }
+        }
+    }
+
+    /// A successful visibility action must not disappear inside an ordinary closed work line.
+    static func visibilityTools(_ lines: [ChatLine]) -> [ChatLine] {
+        lines.flatMap { line -> [ChatLine] in
+            guard case .work(let id, let items, let live, let start, let end) = line.content else { return [line] }
+            let kept = items.filter { item in
+                if case .step(.call(let call)) = item { return Supervision.tool(call.use.toolName) != nil }
+                return false
+            }
+            guard !kept.isEmpty else { return [line] }
+            let rest = items.filter { item in !kept.contains(where: { $0.id == item.id }) }
+            return (rest.isEmpty && !live ? [] : [.work(id: id, items: rest, live: live, start: start, end: end)])
+                + kept.map { .workStep(group: id, item: $0, first: true) }
+        }
+    }
+
+    private func flatLines(_ blocks: [ChatBlock], live liveID: String?, streaming: Bool = false) -> [ChatLine] {
         var out: [ChatLine] = []
         for block in blocks {
             switch block {
@@ -188,6 +282,18 @@ struct ChatLines {
         out.reserveCapacity(lines.count)
         for line in lines {
             out.append(line)
+            if case .supervision(let id, let trace, _) = line.content {
+                if openSupervision.contains(id) != openAllSupervision {
+                    let raw = Self.visibilityTools(trace).map { child -> ChatLine in
+                        if case .row(.user(let item)) = child.content {
+                            return .supervisionInput(item)
+                        }
+                        return child
+                    }
+                    out += unfold(raw)
+                }
+                continue
+            }
             if case .work(let id, let items, let live, _, _) = line.content, !isOpen(id, live: live) {
                 // Subagents launched one after another stay out together; any other call that stays out (a listed
                 // workflow run's) on its own.

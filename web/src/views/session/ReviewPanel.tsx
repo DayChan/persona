@@ -23,7 +23,7 @@ import { Icon } from "../../ui/icons";
 import type { MenuItem } from "../../ui/menu-model";
 import { t } from "../../i18n";
 import { DiffView, KeysHelp, ReviewBar, ReviewKeys, ReviewProvider, ReviewToolbar } from "../extensions/DiffReview";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { Empty, Segmented } from "./files/parts";
 
 /** The panel sits beside the chat (it covers it below this width). */

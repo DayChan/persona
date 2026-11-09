@@ -162,6 +162,20 @@ type Item struct {
 	TurnDuration *TurnDuration `json:"turn_duration,omitempty"`
 	// Compact: this notice is where the context was compacted (Claude Code's compact_boundary).
 	Compact *Compact `json:"compact,omitempty"`
+	// ModelRefusal preserves Claude Code's refusal record on a notice.
+	ModelRefusal *ModelRefusal `json:"model_refusal,omitempty"`
+}
+
+// ModelRefusal is a Claude Code model_refusal_* record. Values are kept as recorded, including unknown categories
+// and scopes; Raw preserves the complete JSONL row for clients that need the original signal.
+type ModelRefusal struct {
+	Subtype       string `json:"subtype"`
+	OriginalModel string `json:"original_model,omitempty"`
+	FallbackModel string `json:"fallback_model,omitempty"`
+	Category      string `json:"category,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	Explanation   string `json:"explanation,omitempty"`
+	Raw           string `json:"raw,omitempty"`
 }
 
 // MessageSource preserves an input's provenance without changing the model's role.

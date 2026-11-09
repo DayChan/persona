@@ -19,7 +19,7 @@ permissions:
   contents: read
 concurrency:
   # A file-specific prefix cannot collide with the CI caller's group.
-  group: apple-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-${{ inputs.lane || 'ios' }}
+  group: apple-${{ github.repository }}-${{ github.ref_name }}-${{ inputs.lane || 'ios' }}
   cancel-in-progress: true
 jobs:
   apple:

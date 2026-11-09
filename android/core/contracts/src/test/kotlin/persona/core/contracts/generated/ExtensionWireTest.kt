@@ -29,6 +29,7 @@ class ExtensionWireTest {
         "InitializeParams" to ExtensionInitializeParams.serializer(),
         "InitializeResult" to ExtensionInitializeResult.serializer(),
         "Manifest" to ExtensionManifest.serializer(),
+        "StoragePermission" to ExtensionStoragePermission.serializer(),
         "PersonaCard" to ExtensionPersonaCard.serializer(),
         "WidgetPlaces" to ExtensionWidgetPlaces.serializer(),
         "WidgetAnswer" to ExtensionWidgetAnswer.serializer(),
@@ -75,6 +76,31 @@ class ExtensionWireTest {
             val raw = json.parseToJsonElement(f.readText())
             val back = json.encodeToJsonElement(serializer, json.decodeFromJsonElement(serializer, raw))
             assertTrue("${f.name} round trip differs:\n$raw\n$back", same(raw, back))
+        }
+    }
+
+    @Test fun storagePermissionsRoundTripWithProductionCodec() {
+        val serializer = ExtensionStoragePermission.serializer()
+        val declared = json.parseToJsonElement(File(examples, "StoragePermission.declared.json").readText())
+        val sparse = listOf("{}", """{"keys":["preferences"]}""",
+            """{"patterns":["state/*"],"queues":false,"blobs":false}""")
+            .map(JsonCodec::parseToJsonElement)
+        for (raw in sparse + declared) {
+            val value = JsonCodec.decodeFromJsonElement(serializer, raw)
+            val back = JsonCodec.encodeToJsonElement(serializer, value)
+            assertTrue("storage permission production round trip differs: $raw / $back", same(raw, back))
+        }
+        val value = JsonCodec.decodeFromJsonElement(serializer, declared)
+        assertEquals(listOf("preferences"), value.keys)
+        assertEquals(listOf("state/*"), value.patterns)
+        assertEquals(true, value.queues)
+        assertEquals(true, value.blobs)
+
+        for (raw in listOf("{}", """{"hub_api":true,"network":["https://example.com"]}""")) {
+            val permissions = JsonCodec.decodeFromJsonElement(ExtensionPermissions.serializer(), JsonCodec.parseToJsonElement(raw))
+            assertNull("other grants must not manufacture storage", permissions.storage)
+            val back = JsonCodec.encodeToJsonElement(ExtensionPermissions.serializer(), permissions) as JsonObject
+            assertFalse("absent storage must stay absent", "storage" in back)
         }
     }
 

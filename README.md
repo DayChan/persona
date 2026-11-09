@@ -47,7 +47,7 @@ https://github.com/user-attachments/assets/1c16db32-72e3-4d74-8cbf-1976d27b0b78
 
 ## How it works
 
-You run a small hub on an always-on machine; your devices talk only to it, and it reaches each of your computers, where Agents run in herdr or Orca. Your data stays on your own hardware.
+You run a small hub on an always-on machine; your devices talk only to it, and it reaches each of your computers, where Agents run in herdr, Orca or Paseo. Your data stays on your own hardware.
 [Architecture](docs/server/architecture.md) · [Network and security](docs/operations/network.md)
 
 ## Get started
