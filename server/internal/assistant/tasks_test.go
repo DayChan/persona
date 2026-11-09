@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -827,6 +828,272 @@ func TestTaskStartTimingOutStillEndsTheTask(t *testing.T) {
 			}
 		}
 	})
+}
+
+// gatedPlanStore holds each read of a started plan until all n writers of its tasks have come: n reads held together
+// (writers that do not lock the plan, each about to write back a copy without the others' fields), or every writer not
+// through yet holding or waiting on the plan's lock (patchPlanTask). Either way the writes overlap as much as they can.
+type gatedPlanStore struct {
+	*profileTaskStore
+	s        *Service
+	mu       sync.Mutex
+	n        int // the reads to hold (0: none)
+	reading  int // held now
+	released int // let through
+	timedOut bool
+	// then runs once, right after the next read of a started plan: another writer landing before the reader writes.
+	then func(id string)
+}
+
+func newGatedPlanStore() *gatedPlanStore {
+	return &gatedPlanStore{profileTaskStore: &profileTaskStore{memStore: &memStore{}, plans: map[string]db.TaskPlanRow{}}}
+}
+
+// hold makes the next n reads of a started plan wait for each other (gatedPlanStore).
+func (st *gatedPlanStore) hold(n int) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.n, st.reading, st.released, st.timedOut = n, 0, 0, false
+}
+
+// done is whether all the held reads were let through, and whether one of them waited in vain.
+func (st *gatedPlanStore) done() (bool, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.released >= st.n, st.timedOut
+}
+
+func (st *gatedPlanStore) TaskPlan(ctx context.Context, id string) (*db.TaskPlanRow, error) {
+	row, err := st.profileTaskStore.TaskPlan(ctx, id)
+	if err != nil || row.State != planStarted {
+		return row, err
+	}
+	st.mu.Lock()
+	then, held := st.then, st.reading+st.released < st.n
+	st.then = nil
+	if held {
+		st.reading++
+	}
+	st.mu.Unlock()
+	if then != nil {
+		then(id)
+	}
+	if !held {
+		return row, nil
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		st.mu.Lock()
+		left, late := st.n-st.released, time.Now().After(deadline)
+		if st.reading >= left || st.s.tasks.planEdits.waiting(id) >= left || late {
+			st.timedOut = st.timedOut || late
+			st.reading--
+			st.released++
+			st.mu.Unlock()
+			return row, nil
+		}
+		st.mu.Unlock()
+	}
+}
+
+// setTask changes task i of plan id as another writer would, past the assistant.
+func (st *gatedPlanStore) setTask(id string, i int, change func(*PlanTask)) {
+	st.planMu.Lock()
+	defer st.planMu.Unlock()
+	row := st.plans[id]
+	p := planFromRow(row)
+	change(&p.Tasks[i])
+	row.Tasks, _ = json.Marshal(p.Tasks)
+	st.plans[id] = row
+}
+
+// startTogetherHub is a fake hub whose machines answer no session.start until n have come: starts that fail together,
+// each past the launcher's health check before the first failure counts against it. It keeps the last plan the apps
+// were told of.
+type startTogetherHub struct {
+	*fakeHub
+	mu       sync.Mutex
+	n, came  int
+	all      chan struct{} // closed when n came
+	lastPlan *TaskPlan
+}
+
+func (h *startTogetherHub) Broadcast(ctx context.Context, b Broadcast) {
+	var ev struct {
+		Type string    `json:"type"`
+		Plan *TaskPlan `json:"plan"`
+	}
+	if json.Unmarshal(b.Message, &ev) == nil && ev.Type == "task_plan" {
+		h.mu.Lock()
+		h.lastPlan = ev.Plan
+		h.mu.Unlock()
+	}
+	h.fakeHub.Broadcast(ctx, b)
+}
+
+func (h *startTogetherHub) DeviceCall(ctx context.Context, p DeviceCall) (json.RawMessage, error) {
+	if p.Method == DeviceSessionStart {
+		h.mu.Lock()
+		if h.came++; h.came == h.n {
+			close(h.all)
+		}
+		h.mu.Unlock()
+		select {
+		case <-h.all:
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return h.fakeHub.DeviceCall(ctx, p)
+}
+
+// planTasks is a plan of n read-only tasks on box, task i titled "task i".
+func planTasks(n int) json.RawMessage {
+	var tasks []map[string]any
+	for i := range n {
+		tasks = append(tasks, map[string]any{"title": fmt.Sprintf("task %d", i), "prompt": fmt.Sprintf("look at part %d", i),
+			"machine": "box", "cwd": "/code/app", "readonly": true})
+	}
+	raw, _ := json.Marshal(map[string]any{"tasks": tasks})
+	return raw
+}
+
+// storedPlan is the one plan st has.
+func storedPlan(t *testing.T, st *gatedPlanStore) *TaskPlan {
+	t.Helper()
+	st.planMu.Lock()
+	defer st.planMu.Unlock()
+	if len(st.plans) != 1 {
+		t.Fatalf("%d plans", len(st.plans))
+	}
+	for _, row := range st.plans {
+		return planFromRow(row)
+	}
+	return nil
+}
+
+// Tasks of one plan whose starts fail together each keep their error, with its code for the card's remedy: each failed
+// start wrote back the plan it read before the others wrote theirs, so only the last one's error stayed (#2192).
+func TestPlanTasksFailingTogetherAllKeepTheirError(t *testing.T) {
+	const n = 4
+	st := newGatedPlanStore()
+	f := newFakeHub()
+	f.sessions["box"] = nil
+	f.settings = &Settings{Timezone: "Asia/Shanghai"}
+	f.failStart = &rpc.Error{Code: proto.CodeLauncherMissing, Message: "terminal has no launcher", Data: json.RawMessage(`{"where":"terminal","launcher":"work"}`)}
+	h := &startTogetherHub{fakeHub: f, n: n, all: make(chan struct{})}
+	s := withSettings(t, f, New(Options{Hub: h, Store: func() Store { return st }, Logf: testLogf(t)}))
+	st.s = s
+	st.hold(n)
+	if _, err := s.toolTaskPlan(context.Background(), "conv1", planTasks(n)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "every start's failure to be written", func() bool {
+		done, _ := st.done()
+		return done && s.tasks.planEdits.len() == 0
+	})
+	if _, timedOut := st.done(); timedOut {
+		t.Fatal("the plan's writers did not all come")
+	}
+	h.mu.Lock()
+	told := h.lastPlan
+	h.mu.Unlock()
+	for what, p := range map[string]*TaskPlan{"stored": storedPlan(t, st), "told to the apps last": told} {
+		if p == nil || len(p.Tasks) != n {
+			t.Fatalf("%s plan: %+v", what, p)
+		}
+		for i, task := range p.Tasks {
+			if task.TodoID == "" || task.Error == "" || task.ErrorCode != proto.CodeLauncherMissing || task.ErrorArgs["launcher"] != "work" {
+				t.Errorf("%s plan: task %d lost its start error: %+v", what, i, task)
+			}
+		}
+	}
+}
+
+// Tasks moved to another machine and their plan's other tasks failing to start at the same time all keep what they
+// recorded: where the moved ones run and why the others did not start (#2192).
+func TestPlanTaskMovesAndFailuresAllStay(t *testing.T) {
+	const n = 4
+	ctx := context.Background()
+	st := newGatedPlanStore()
+	s, f := newTaskServiceOn(t, st)
+	st.s = s
+	f.failStart = errors.New("Failed to authenticate")
+	p := &TaskPlan{ID: "plan_rmw", Conversation: "conv1", State: planStarted, CreatedAt: time.Now().UTC()}
+	for i := range n {
+		todo, err := s.createTodo(ctx, fmt.Sprintf("task %d", i), "look", p.Conversation, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Tasks = append(p.Tasks, PlanTask{Title: todo.Title, Prompt: "look", Machine: "box", Cwd: "/code/app", Readonly: true,
+			TodoID: todo.ID})
+	}
+	if err := s.savePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	st.hold(n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			if i%2 == 0 { // moved: where it runs now
+				s.updatePlanTask(ctx, p.ID, i, PlanTask{Machine: fmt.Sprintf("mac%d", i), Cwd: "/work", Why: "box is busy"})
+				return
+			}
+			s.startPlanTask(p.ID, p.Conversation, i, p.Tasks[i], false)
+		})
+	}
+	wg.Wait()
+	if _, timedOut := st.done(); timedOut {
+		t.Fatal("the plan's writers did not all come")
+	}
+	for i, task := range storedPlan(t, st).Tasks {
+		switch {
+		case i%2 == 0 && (task.Machine != fmt.Sprintf("mac%d", i) || task.Cwd != "/work" || task.Error != ""):
+			t.Errorf("moved task %d: %+v", i, task)
+		case i%2 == 1 && (task.Machine != "box" || !strings.Contains(task.Error, "Failed to authenticate")):
+			t.Errorf("failed task %d: %+v", i, task)
+		}
+	}
+	if s.tasks.planEdits.len() != 0 {
+		t.Fatalf("%d plan locks kept", s.tasks.planEdits.len())
+	}
+}
+
+// A retried task clears only its own error on the plan card: what another task of the plan recorded while the retry
+// looked up the machine and reopened the todo stays. The retry wrote back the plan as it had read it (#2192).
+func TestRetryKeepsWhatTheOtherTasksRecorded(t *testing.T) {
+	ctx := context.Background()
+	st := newGatedPlanStore()
+	s, f := newTaskServiceOn(t, st)
+	st.s = s
+	f.failStart = &rpc.Error{Code: "open_elsewhere", Message: "open elsewhere"} // not held against the launcher: the retry goes
+	if _, err := s.toolTaskPlan(ctx, "conv1", planTasks(2)); err != nil {
+		t.Fatal(err)
+	}
+	var p *TaskPlan
+	waitFor(t, "both starts to fail", func() bool {
+		p = storedPlan(t, st)
+		for _, task := range p.Tasks {
+			if task.Error == "" || todoNow(s, task.TodoID).StartError == "" {
+				return false
+			}
+		}
+		return s.tasks.planEdits.len() == 0
+	})
+	f.mu.Lock()
+	f.failStart = nil
+	f.mu.Unlock()
+	st.mu.Lock()
+	st.then = func(id string) {
+		st.setTask(id, 1, func(task *PlanTask) { task.Error = "open elsewhere again" })
+	}
+	st.mu.Unlock()
+	if _, err := s.retryTask(ctx, p.Tasks[0].TodoID); err != nil {
+		t.Fatal(err)
+	}
+	if got := storedPlan(t, st).Tasks; got[0].Error != "" || got[1].Error != "open elsewhere again" {
+		t.Fatalf("retried task's error %q, the other task's %q", got[0].Error, got[1].Error)
+	}
+	waitFor(t, "the retried agent", func() bool { return len(todoNow(s, p.Tasks[0].TodoID).Agents) == 1 })
 }
 
 // A plan card in the main conversation waiting for the user's "Start" has no todo yet, so nothing else in the snapshot

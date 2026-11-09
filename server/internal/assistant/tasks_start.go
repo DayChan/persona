@@ -236,11 +236,11 @@ func (s *Service) startPlanTask(planID, conversation string, i int, t PlanTask, 
 	if ferr := s.failTodo(ctx, t.TodoID, reason); ferr != nil {
 		s.logf("task %s: fail: %v", t.TodoID, ferr)
 	}
-	if p, lerr := s.loadPlan(ctx, planID); lerr == nil && i < len(p.Tasks) {
-		p.Tasks[i].Error = err.Error()
-		p.Tasks[i].ErrorCode, p.Tasks[i].ErrorArgs = codedStartRefusal(err)
-		_, _ = s.movePlan(ctx, p, planStarted)
-		s.event(ctx, map[string]any{"type": "task_plan", "plan": p})
+	if perr := s.patchPlanTask(ctx, planID, i, func(pt *PlanTask) {
+		pt.Error = err.Error()
+		pt.ErrorCode, pt.ErrorArgs = codedStartRefusal(err)
+	}); perr != nil {
+		s.logf("plan %s: task %d's start error: %v", planID, i, perr)
 	}
 	s.tasks.mu.Lock()
 	s.tasks.receipted[t.TodoID] = time.Now()
@@ -344,11 +344,10 @@ func (s *Service) retryTask(ctx context.Context, todoID string) (json.RawMessage
 	if !ok { // another assistant sharing the store reopened it first
 		return view, nil
 	}
-	p.Tasks[i].Error, p.Tasks[i].ErrorCode, p.Tasks[i].ErrorArgs = "", "", nil
-	if _, err := s.movePlan(ctx, p, planStarted); err != nil {
+	// Read again under the plan's lock: what the plan's other tasks recorded since p was read stays.
+	if err := s.patchPlanTask(ctx, p.ID, i, func(pt *PlanTask) { pt.Error, pt.ErrorCode, pt.ErrorArgs = "", "", nil }); err != nil {
 		s.logf("plan %s: %v", p.ID, err)
 	}
-	s.event(ctx, map[string]any{"type": "task_plan", "plan": p})
 	s.logf("task %s: retrying its start on %s", todoID, m.ID)
 	started = true
 	go func() {

@@ -137,6 +137,10 @@ type tasksState struct {
 	// todayLocks: a conversation's id -> the lock ensureToday holds from looking for the day's "Today" card to
 	// appending it, so that concurrent opens of a chat make one card, not one each.
 	todayLocks cardLocks
+	// planEdits: a plan's lock, by its id, while one of its started tasks changes (patchPlanTask; kept only while held or
+	// waited on, as a card's). The tasks are one blob that movePlan writes whole, so two tasks changing at once (their
+	// starts failing together) would each write back the other's old fields.
+	planEdits cardLocks
 }
 
 func newTasksState() tasksState {
@@ -211,6 +215,29 @@ func (s *Service) movePlan(ctx context.Context, p *TaskPlan, from string) (bool,
 	}
 	raw, _ := json.Marshal(p.Tasks)
 	return st.UpdateTaskPlan(ctx, p.ID, from, p.State, raw, p.UpdatedAt)
+}
+
+// patchPlanTask changes task i of started plan planID with change, writes the plan back and tells the apps. The plan
+// stays locked from reading it until the apps are told, so what its other tasks record meanwhile stays, and the apps get
+// the plan in the order it was written (they keep the last one they got). Telling them is a one-way broadcast, so the
+// lock never waits on an answer; change must not call the hub or a node. A plan with no task i, or not started (any
+// more), is left as it is.
+func (s *Service) patchPlanTask(ctx context.Context, planID string, i int, change func(*PlanTask)) error {
+	s.tasks.planEdits.acquire(planID)
+	defer s.tasks.planEdits.release(planID)
+	p, err := s.loadPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+	if i < 0 || i >= len(p.Tasks) || p.State != planStarted {
+		return nil
+	}
+	change(&p.Tasks[i])
+	if ok, err := s.movePlan(ctx, p, planStarted); err != nil || !ok {
+		return err
+	}
+	s.event(ctx, map[string]any{"type": "task_plan", "plan": p})
+	return nil
 }
 
 // appendFeed adds an item to a conversation's feed and tells the clients.

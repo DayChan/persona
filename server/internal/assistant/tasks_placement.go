@@ -146,15 +146,10 @@ func (s *Service) startTaskAgent(ctx context.Context, t *PlanTask, retry bool) (
 
 // updatePlanTask keeps the machine, directory and why task i of started plan planID runs with now.
 func (s *Service) updatePlanTask(ctx context.Context, planID string, i int, t PlanTask) {
-	p, err := s.loadPlan(ctx, planID)
-	if err != nil || i >= len(p.Tasks) {
-		return
-	}
-	p.Tasks[i].Machine, p.Tasks[i].Cwd, p.Tasks[i].Why = t.Machine, t.Cwd, t.Why
-	p.Tasks[i].Launcher, p.Tasks[i].Model, p.Tasks[i].Effort = t.Launcher, t.Model, t.Effort
-	if _, err := s.movePlan(ctx, p, planStarted); err != nil {
+	if err := s.patchPlanTask(ctx, planID, i, func(pt *PlanTask) {
+		pt.Machine, pt.Cwd, pt.Why = t.Machine, t.Cwd, t.Why
+		pt.Launcher, pt.Model, pt.Effort = t.Launcher, t.Model, t.Effort
+	}); err != nil {
 		s.logf("plan %s: %v", planID, err)
-		return
 	}
-	s.event(ctx, map[string]any{"type": "task_plan", "plan": p})
 }
