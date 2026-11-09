@@ -1053,6 +1053,31 @@ func (s *Service) receiptLookLinked(ctx context.Context, look receiptLook) (bool
 	return ok && t.ID == look.Todo && found && linked.Equal(look.Linked), nil
 }
 
+// receiptLookSnapshot reads active tasks and links once for a pruning pass.
+func receiptLookSnapshot(ctx context.Context, st todoStore) (map[string]bool, map[[3]string]time.Time, error) {
+	todos, err := st.ListTodos(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	agents, err := st.ListAllTodoAgents(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	active := make(map[string]bool, len(todos))
+	for _, t := range todos {
+		if t.DoneAt == nil && t.Origin != "" {
+			active[t.ID] = true
+		}
+	}
+	links := make(map[[3]string]time.Time, len(agents))
+	for _, a := range agents {
+		if a.ReleasedAt == nil && a.DismissedAt == nil {
+			links[[3]string{a.TodoID, a.MachineID, a.SessionID}] = a.LinkedAt
+		}
+	}
+	return active, links, nil
+}
+
 // pruneReceiptLooks removes waits whose todo or association was cancelled.
 func (s *Service) pruneReceiptLooks(ctx context.Context) {
 	s.tasks.receiptMu.Lock()
@@ -1061,20 +1086,46 @@ func (s *Service) pruneReceiptLooks(ctx context.Context) {
 		s.logf("task receipt looks: prune: %v", err)
 		return
 	}
-	changed := false
+	if len(s.tasks.receiptLooks) == 0 {
+		return
+	}
+	var active map[string]bool
+	var links map[[3]string]time.Time
+	if st := s.todoDB(); st != nil {
+		var err error
+		active, links, err = receiptLookSnapshot(ctx, st)
+		if err != nil {
+			s.logf("task receipt looks: read links: %v", err)
+			return
+		}
+	}
+	remove := make(map[receiptKey]receiptLook)
 	for ref, look := range s.tasks.receiptLooks {
+		if active != nil && active[look.Todo] {
+			linked, ok := links[[3]string{look.Todo, look.Machine, look.Session}]
+			if ok && linked.Equal(look.Linked) {
+				continue
+			}
+		}
+		// A batch can predate a reopen or relink. Recheck candidates before
+		// removing them rather than treating the snapshot as current.
 		valid, err := s.receiptLookLinked(ctx, look)
 		if err != nil {
 			s.logf("task %s: check receipt link: %v", look.Todo, err)
-			continue
+			return
 		}
 		if !valid {
-			delete(s.tasks.receiptLooks, ref)
-			changed = true
+			remove[ref] = look
 		}
 	}
-	if changed {
+	for ref := range remove {
+		delete(s.tasks.receiptLooks, ref)
+	}
+	if len(remove) != 0 {
 		if err := s.saveReceiptLooksLocked(ctx); err != nil {
+			for ref, look := range remove {
+				s.tasks.receiptLooks[ref] = look
+			}
 			s.logf("task receipt looks: prune: %v", err)
 		}
 	}

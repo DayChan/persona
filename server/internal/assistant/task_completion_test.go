@@ -15,6 +15,178 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+type receiptSnapshotTestStore struct {
+	memStore
+	todoStore
+	todos       []db.TodoRow
+	laterTodos  []db.TodoRow
+	agents      []db.TodoAgentRow
+	todoReads   int
+	agentReads  int
+	failTodoAt  int
+	failAgentAt int
+	failCAS     bool
+}
+
+func (st *receiptSnapshotTestStore) ListTodos(context.Context) ([]db.TodoRow, error) {
+	st.todoReads++
+	if st.todoReads == st.failTodoAt {
+		return nil, errors.New("todo read failed")
+	}
+	if st.todoReads > 1 && st.laterTodos != nil {
+		return append([]db.TodoRow(nil), st.laterTodos...), nil
+	}
+	return append([]db.TodoRow(nil), st.todos...), nil
+}
+
+func (st *receiptSnapshotTestStore) ListAllTodoAgents(context.Context) ([]db.TodoAgentRow, error) {
+	st.agentReads++
+	if st.agentReads == st.failAgentAt {
+		return nil, errors.New("agent read failed")
+	}
+	return append([]db.TodoAgentRow(nil), st.agents...), nil
+}
+
+func (st *receiptSnapshotTestStore) CompareSetting(ctx context.Context, key string, revision int64, value any) (bool, error) {
+	if st.failCAS {
+		return false, errors.New("setting write failed")
+	}
+	return st.memStore.CompareSetting(ctx, key, revision, value)
+}
+
+func receiptSnapshotService(t *testing.T, st *receiptSnapshotTestStore, looks []receiptLook) *Service {
+	t.Helper()
+	if err := st.PutSetting(context.Background(), receiptLooksSetting, receiptLookState{Revision: 1, Looks: looks}); err != nil {
+		t.Fatal(err)
+	}
+	return New(Options{Hub: newFakeHub(), Store: func() Store { return st }})
+}
+
+func TestPruneReceiptLooksBatchesActiveLinks(t *testing.T) {
+	ctx := context.Background()
+	linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	st := &receiptSnapshotTestStore{
+		todos:  []db.TodoRow{{ID: "a", Origin: "conv"}, {ID: "b", Origin: "conv"}},
+		agents: []db.TodoAgentRow{{TodoID: "a", MachineID: "box", SessionID: "s1", LinkedAt: linked}, {TodoID: "b", MachineID: "box", SessionID: "s2", LinkedAt: linked}},
+	}
+	looks := []receiptLook{
+		{Todo: "a", Machine: "box", Session: "s1", Linked: linked, ID: "one", Generation: "g1"},
+		{Todo: "a", Machine: "box", Session: "s1", Linked: linked, ID: "two", Generation: "g2"},
+		{Todo: "b", Machine: "box", Session: "s2", Linked: linked, ID: "three"},
+	}
+	s := receiptSnapshotService(t, st, looks)
+	s.pruneReceiptLooks(ctx)
+	var got receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &got); err != nil || len(got.Looks) != len(looks) {
+		t.Fatalf("active waits = %+v, %v", got, err)
+	}
+	if st.todoReads != 1 || st.agentReads != 1 {
+		t.Fatalf("table reads: todos=%d agents=%d", st.todoReads, st.agentReads)
+	}
+}
+
+func TestPruneReceiptLooksRechecksReopenedTask(t *testing.T) {
+	ctx := context.Background()
+	linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	done := linked.Add(time.Hour)
+	st := &receiptSnapshotTestStore{
+		todos:      []db.TodoRow{{ID: "task", Origin: "conv", DoneAt: &done}},
+		laterTodos: []db.TodoRow{{ID: "task", Origin: "conv"}},
+		agents:     []db.TodoAgentRow{{TodoID: "task", MachineID: "box", SessionID: "s1", LinkedAt: linked}},
+	}
+	s := receiptSnapshotService(t, st, []receiptLook{{Todo: "task", Machine: "box", Session: "s1", Linked: linked, ID: "wait"}})
+	s.pruneReceiptLooks(ctx)
+	var got receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &got); err != nil || len(got.Looks) != 1 {
+		t.Fatalf("reopened task lost wait = %+v, %v", got, err)
+	}
+	if st.todoReads != 2 || st.agentReads != 2 {
+		t.Fatalf("recheck reads: todos=%d agents=%d", st.todoReads, st.agentReads)
+	}
+}
+
+func TestPruneReceiptLooksKeepsAllOnStoreFailure(t *testing.T) {
+	for _, mode := range []string{"snapshot-todos", "snapshot-agents", "recheck-todos", "recheck-agents", "save"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+			st := &receiptSnapshotTestStore{
+				todos:  []db.TodoRow{{ID: "task", Origin: "conv"}},
+				agents: []db.TodoAgentRow{{TodoID: "task", MachineID: "box", SessionID: "s1", LinkedAt: linked}},
+			}
+			looks := []receiptLook{
+				{Todo: "task", Machine: "box", Session: "s1", Linked: linked, ID: "active"},
+				{Todo: "task", Machine: "box", Session: "s1", Linked: linked.Add(-time.Minute), ID: "stale", Generation: "old"},
+			}
+			s := receiptSnapshotService(t, st, looks)
+			switch mode {
+			case "snapshot-todos":
+				st.failTodoAt = 1
+			case "snapshot-agents":
+				st.failAgentAt = 1
+			case "recheck-todos":
+				st.failTodoAt = 2
+			case "recheck-agents":
+				st.failAgentAt = 2
+			case "save":
+				st.failCAS = true
+			}
+			s.pruneReceiptLooks(ctx)
+			var got receiptLookState
+			if _, err := st.Setting(ctx, receiptLooksSetting, &got); err != nil || len(got.Looks) != len(looks) {
+				t.Fatalf("store failure lost waits = %+v, %v", got, err)
+			}
+			if len(s.tasks.receiptLooks) != len(looks) {
+				t.Fatalf("store failure lost cached waits: %+v", s.tasks.receiptLooks)
+			}
+		})
+	}
+}
+
+func TestPruneReceiptLooksRemovesOnlyInvalidLinks(t *testing.T) {
+	ctx := context.Background()
+	linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	done := linked.Add(time.Hour)
+	st := &receiptSnapshotTestStore{
+		todos: []db.TodoRow{{ID: "valid", Origin: "conv"}, {ID: "done", Origin: "conv", DoneAt: &done}, {ID: "manual"}, {ID: "released", Origin: "conv"}, {ID: "dismissed", Origin: "conv"}, {ID: "missing-agent", Origin: "conv"}},
+		agents: []db.TodoAgentRow{
+			{TodoID: "valid", MachineID: "box", SessionID: "v", LinkedAt: linked},
+			{TodoID: "done", MachineID: "box", SessionID: "d", LinkedAt: linked},
+			{TodoID: "manual", MachineID: "box", SessionID: "m", LinkedAt: linked},
+			{TodoID: "released", MachineID: "box", SessionID: "r", LinkedAt: linked, ReleasedAt: &done},
+			{TodoID: "dismissed", MachineID: "box", SessionID: "x", LinkedAt: linked, DismissedAt: &done},
+		},
+	}
+	looks := []receiptLook{
+		{Todo: "valid", Machine: "box", Session: "v", Linked: linked, ID: "valid"},
+		{Todo: "done", Machine: "box", Session: "d", Linked: linked, ID: "done"},
+		{Todo: "manual", Machine: "box", Session: "m", Linked: linked, ID: "manual"},
+		{Todo: "released", Machine: "box", Session: "r", Linked: linked, ID: "released"},
+		{Todo: "dismissed", Machine: "box", Session: "x", Linked: linked, ID: "dismissed"},
+		{Todo: "missing-agent", Machine: "box", Session: "z", ID: "missing-agent"},
+		{Todo: "missing-task", Machine: "box", Session: "n", Linked: linked, ID: "missing-task"},
+	}
+	s := receiptSnapshotService(t, st, looks)
+	s.pruneReceiptLooks(ctx)
+	var got receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &got); err != nil || len(got.Looks) != 1 || got.Looks[0].ID != "valid" {
+		t.Fatalf("pruned waits = %+v, %v", got, err)
+	}
+	restarted := New(Options{Hub: newFakeHub(), Store: func() Store { return st }})
+	restarted.tasks.receiptMu.Lock()
+	err := restarted.receiptLooksLocked(ctx)
+	remaining := copyReceiptLooks(restarted.tasks.receiptLooks)
+	restarted.tasks.receiptMu.Unlock()
+	if err != nil || len(remaining) != 1 {
+		t.Fatalf("waits after manager replacement = %+v, %v", remaining, err)
+	}
+	for _, look := range remaining {
+		if look.ID != "valid" {
+			t.Fatalf("unexpected restored wait: %+v", look)
+		}
+	}
+}
+
 type deadlineBlockedSessionsHub struct {
 	*fakeHub
 	entered chan struct{}
