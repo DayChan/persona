@@ -753,7 +753,7 @@ struct InboxDetailView: View {
     /// anything else as before: the source with the actions over it.
     @ViewBuilder private var page: some View {
         if current.isEvent {
-            InboxEventPage(item: current, accounts: accounts, draft: { drafting = true }, handOff: { handingOff = true })
+            InboxEventPage(item: current, accounts: accounts, draft: { drafting = true })
                 .navigationTitle(current.title)
                 .navigationBarTitleDisplayMode(.inline)
         } else {

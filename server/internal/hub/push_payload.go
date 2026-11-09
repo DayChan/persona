@@ -7,8 +7,10 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/textfmt"
@@ -196,6 +198,33 @@ func donePayloadIn(l i18n.Lang, machineID, machine, sessionID, title, text strin
 			"category":  "SESSION_DONE", // iOS: a reply from the notification (NotificationActions.swift)
 		},
 		"machine_id": machineID, "session_id": sessionID,
+	}
+}
+
+// decideCategory is the category of a decision's push (#2056): the app registers it with one action, OK, which takes the
+// recommendation (POST /api/v1/todos/{id}/accept with the push's todo.asked_at; apple/Persona/App/NotificationActions.swift).
+const decideCategory = "TODO_DECIDE"
+
+// decidePayloadIn is the alert of a to-do whose conclusion waits for the owner's decision and recommends an option: the
+// texts are the assistant's (the card's words), and `todo` carries what its OK needs: the to-do, the round (asked_at, as
+// the accept route takes it) and the recommendation, and the manager whose to-do it is (owner), as the hub's merged
+// lists stamp every item (ownership_lists.go): OK names it in ManagerHeader, so it reaches that manager whichever one
+// is the default.
+func decidePayloadIn(owner, machineID, machine, sessionID, title, text string, todo assistantwire.NotifyTodo) map[string]any {
+	td := map[string]any{"id": todo.ID, "asked_at": todo.AskedAt.UTC().Format(time.RFC3339Nano), "recommend": todo.Recommend}
+	if owner != "" {
+		td["manager"] = owner
+	}
+	return map[string]any{
+		"aps": map[string]any{
+			"alert":              map[string]any{"title": title, "subtitle": machine, "body": text},
+			"sound":              "default",
+			"thread-id":          sessionID,
+			"category":           decideCategory,
+			"interruption-level": "time-sensitive",
+		},
+		"machine_id": machineID, "session_id": sessionID,
+		"todo": td,
 	}
 }
 
