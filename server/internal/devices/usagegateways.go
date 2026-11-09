@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -283,7 +284,7 @@ func (g *usageGateways) accounts(now time.Time) []proto.UsageAccount {
 		if !s.on() || st == nil {
 			continue
 		}
-		for _, a := range st.samples {
+		for n, a := range st.samples {
 			if now.Sub(a.SampledAt) > usageHubMaxAge {
 				continue
 			}
@@ -291,6 +292,9 @@ func (g *usageGateways) accounts(now time.Time) []proto.UsageAccount {
 			a.Sources = []string{s.Name}
 			if a.Ref != "" {
 				a.Ref = s.ID + ":" + a.Ref
+				a.Origin = a.Ref
+			} else {
+				a.Origin = s.ID + "#" + strconv.Itoa(n)
 			}
 			if st.errCode != "" {
 				a.Problem, a.Stale = "unreachable", true

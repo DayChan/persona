@@ -49,6 +49,10 @@ type UsageAccount struct {
 	// Ref is the account's identity at its gateway ("<source id>:<account id>"), when the source has one. Hub-internal:
 	// it is never sent out. Two samples with refs from one source but different accounts are never merged.
 	Ref string `json:"-"`
+	// Origin is where this sample was read (#1904): "<machine id>/<n>" for the n-th account of a machine's answer, the
+	// gateway's Ref, or "<source id>#<n>" for a gateway account without one. Hub-internal, never sent out: it only tells
+	// apart, in a stable order, accounts that nothing else does.
+	Origin string `json:"-"`
 }
 
 // UsageSnapshot is what a node answers to usage.windows.

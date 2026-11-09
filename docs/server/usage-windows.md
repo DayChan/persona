@@ -52,7 +52,8 @@ The gateway's `rate_limits.spend_limit` (an amount of money) is not a window and
   - **Each account appears once**: two samples from the same source (Codex / Claude) are the same account if any one window has "the same length and the same reset time (to the second)". The reset time belongs to the account and reads the same on any computer, so no account id is needed and no credentials are touched.
   - For several samples of the same account, each window length takes the window from the **newest sample**, so a computer unused for a long time cannot bring back a 5-hour window that has already rolled over.
   - Samples older than 30 minutes are marked `stale` (sorted last, faded in the UI and labeled "out of date"); windows older than 3 days or past their reset time are dropped.
-  - Accounts with the same name are numbered by id ("Codex Pro", "Codex Pro 2"); the id is a digest of the longest window's length and reset time, stable within a week.
+  - **Every account has its own id** (clients use it as the row key, #1904): a digest of the longest plan window's length and reset time, stable within a week. For an account an account-pool gateway reports, its gateway account id goes into the digest too (two accounts of one gateway are never one, even with the same reset time); for an account whose longest window has no reset time, where it was read does (the computer and its place in that computer's answer, or the gateway account). Neither is sent out, only the digest. Two accounts that still share one (only per-model windows, resetting together) get `-2`, `-3`… in the order of where they were read.
+  - Accounts with the same name are numbered by id ("Codex Pro", "Codex Pro 2"), so the numbering does not depend on which computer answered first.
   - Sorted by the fullest window, highest first.
 
 API (read-only, not usable with extension tokens, `testdata/route_scopes.txt`):

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -146,8 +147,9 @@ func (u *usageWindowsHub) poll(ctx context.Context, sources []usageSource, now t
 			delete(u.byMachine, id)
 			continue
 		}
-		for _, acct := range a.accounts {
+		for n, acct := range a.accounts { // a node answers its accounts in a fixed order (sorted by where it read them)
 			acct.Local, acct.Sources, acct.Problem, acct.Ref = true, nil, "", "" // what a node says of where it came from is not taken
+			acct.Origin = id + "/" + strconv.Itoa(n)
 			all = append(all, acct)
 		}
 	}
@@ -288,6 +290,7 @@ func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAcc
 			return a.Model < b.Model
 		})
 		acct.Sources = uniqueSorted(sources)
+		acct.Ref, acct.Origin = firstOf(members, func(m proto.UsageAccount) string { return m.Ref }), firstOf(members, func(m proto.UsageAccount) string { return m.Origin })
 		acct.ID = usageAccountID(acct)
 		if len(newest.Sources) > 0 && !newest.Local {
 			acct.Stale = newest.Stale || now.Sub(acct.SampledAt) > usageGatewayStaleAfter
@@ -297,8 +300,22 @@ func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAcc
 		out = append(out, acct)
 	}
 
+	// Whatever still shares an id (two accounts with only per-model windows that reset together) is numbered in the
+	// order of where it was read, so that every id is a row of its own in the clients' lists (#1904).
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ID != out[j].ID {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Origin < out[j].Origin
+	})
+	ids := map[string]int{}
+	for i := range out {
+		ids[out[i].ID]++
+		if n := ids[out[i].ID]; n > 1 {
+			out[i].ID = fmt.Sprintf("%s-%d", out[i].ID, n)
+		}
+	}
 	// two accounts with one name: "Codex Pro", "Codex Pro 2", numbered by id so that it does not change with the numbers
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	count := map[string]int{}
 	for i := range out {
 		count[out[i].Name]++
@@ -344,8 +361,22 @@ func mostUsed(a proto.UsageAccount) float64 {
 	return model
 }
 
+// firstOf is the smallest non-empty value of field among the samples of one account ("" when none has one).
+func firstOf(members []proto.UsageAccount, field func(proto.UsageAccount) string) string {
+	first := ""
+	for _, m := range members {
+		if v := field(m); v != "" && (first == "" || v < first) {
+			first = v
+		}
+	}
+	return first
+}
+
 // usageAccountID is stable while the account's longest window is: it names the window by length and reset time, which
-// only change when that window rolls over (a week), not with every number.
+// only change when that window rolls over (a week), not with every number. That tells apart accounts with a reset time
+// (two sharing one are one account), but not two accounts of one gateway, which are never one, nor accounts without a
+// reset time: the gateway's account id (its Ref) and, without a reset time, where it was read (its Origin) go in too
+// (#1904). Both stay in the hash: neither a gateway's account id nor a machine's is sent out.
 func usageAccountID(a proto.UsageAccount) string {
 	w := a.Windows[len(a.Windows)-1]
 	for i := len(a.Windows) - 1; i >= 0; i-- { // the longest window of the plan itself, not of one model
@@ -358,7 +389,14 @@ func usageAccountID(a proto.UsageAccount) string {
 	if w.ResetsAt != nil {
 		resets = w.ResetsAt.Unix()
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d", a.Provider, w.WindowMinutes, resets)))
+	key := fmt.Sprintf("%s|%d|%d", a.Provider, w.WindowMinutes, resets)
+	switch {
+	case a.Ref != "":
+		key += "|" + a.Ref
+	case w.ResetsAt == nil:
+		key += "|" + a.Origin
+	}
+	sum := sha256.Sum256([]byte(key))
 	return a.Provider + "-" + hex.EncodeToString(sum[:4])
 }
 
