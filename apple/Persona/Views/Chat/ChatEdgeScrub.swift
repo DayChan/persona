@@ -354,16 +354,21 @@ struct SessionNavigationOverlay: View {
     let viewport: EdgeScrubViewport
 
     var body: some View {
-        EdgeScrubOverlay(state: scrub)
+        // Keep observers and the DEBUG probe mounted when the tick view is empty, without intercepting touches.
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            EdgeScrubOverlay(state: scrub)
+            #if DEBUG
+            EdgeNavigationProbe(navigation: navigation, scrub: scrub)
+            #endif
+        }
+            .allowsHitTesting(false)
             .overlay(alignment: .topTrailing) {
                 if navigation.loadingTarget {
                     ProgressView().controlSize(.small).padding(Theme.Space.m).allowsHitTesting(false)
                 }
             }
             .onAppear { viewport.setIndex(navigation.marks, history: navigation.history) }
-            #if DEBUG
-            .overlay(alignment: .topLeading) { EdgeNavigationProbe(navigation: navigation, scrub: scrub) }
-            #endif
             .onChange(of: navigation.history) { old, new in
                 viewport.setIndex(navigation.marks, history: new)
                 if old != nil, old != new { scrub.close() }
