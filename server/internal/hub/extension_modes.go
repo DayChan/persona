@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -8,12 +9,13 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/extwire"
+	"github.com/nwverse/persona/server/internal/proto"
 )
 
 // An extension's token changes the permission mode of a conversation its extension opened, and nothing else of any
 // session (agents.permission_mode, docs/extensions/extensions.md "Hub API: scopes"): who opened it is what its
-// manager's snapshot says (assistantwire.SessionView.OpenedBy). Every refusal goes to the extension's audit in its
-// manager (extwire.HubAudit).
+// manager's snapshot says (assistantwire.SessionView.OpenedBy). Approving a plan sets its session's permission mode
+// too, so it is held to the same. Every refusal goes to the extension's audit in its manager (extwire.HubAudit).
 
 // codeModeRefused answers a permission mode change an extension's token may not make; the body's reason says why.
 const codeModeRefused = "permission_mode_refused"
@@ -39,6 +41,21 @@ func (h *Hub) extensionModeRefused(p principal, mid, sid string, fields map[stri
 		return modeRefusedNotOpened
 	}
 	return ""
+}
+
+// extensionPlanRefused is why extension token p may not approve card id with mode ("" when it may), and the card's
+// machine and session: approving a plan sets its session's permission mode (the agent's bypassPermissions when mode is
+// ""). Only a plan's answer approves, so one for a card the hub does not hold pending is refused as well.
+func (h *Hub) extensionPlanRefused(p principal, id, mode string) (why, mid, sid string) {
+	ix, pending := h.pendingInteraction(id)
+	if !pending {
+		return modeRefusedNotOpened, "", ""
+	}
+	if ix.Kind != proto.IxPlan {
+		return "", ix.MachineID, ix.SessionID
+	}
+	fields := map[string]any{"permission_mode": cmp.Or(mode, "bypassPermissions")}
+	return h.extensionModeRefused(p, ix.MachineID, ix.SessionID, fields), ix.MachineID, ix.SessionID
 }
 
 // refuseExtensionMode answers 403 for the change extension token p may not make, and has its manager record why.

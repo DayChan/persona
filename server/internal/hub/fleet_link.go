@@ -513,6 +513,12 @@ func (h *Hub) fleetRoutesRelayed(api *http.ServeMux) {
 			writeErr(w, http.StatusForbidden, errors.New("this device can only answer with a card's own choices"))
 			return
 		}
+		if pr := principalOf(r.Context()); pr.Role == roleExtension && res.Approve != nil && *res.Approve {
+			if why, mid, sid := h.extensionPlanRefused(pr, r.PathValue("id"), res.Mode); why != "" { // extension_modes.go
+				h.refuseExtensionMode(w, r, pr, mid, sid, why)
+				return
+			}
+		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.forwardOwned(w, r, h.byInteraction)
 	}))
