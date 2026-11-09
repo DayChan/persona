@@ -256,6 +256,21 @@ func newHTTPError(resp *http.Response, raw []byte) *httpError {
 
 func (e *httpError) Error() string { return fmt.Sprintf("ai: HTTP %d: %s", e.status, e.body) }
 
+// Transient: the same request tried again may get an answer: the call ran out of time, the connection failed, or an
+// upstream answered 5xx or 408 (often a gateway in front of the model). A request turned down (other 4xx), a model
+// that isn't set up, a pause (IsPaused: wait for the gate, don't hurry it) and a reply's own problems are not.
+func Transient(err error) bool {
+	if err == nil || IsPaused(err) {
+		return false
+	}
+	var h *httpError
+	if errors.As(err, &h) {
+		return h.status >= 500 || h.status == http.StatusRequestTimeout
+	}
+	var u *url.Error // the request got no answer at all (a deadline, a refused or reset connection)
+	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &u)
+}
+
 // retryAfter reads Retry-After: seconds or an HTTP date.
 func retryAfter(v string) time.Duration {
 	v = strings.TrimSpace(v)

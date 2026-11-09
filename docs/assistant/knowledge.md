@@ -14,7 +14,7 @@ As part of moving hub business logic into managers (`docs/assistant/assistant.md
   The assistant's `kb_*` tools, knowledge base in live snapshots, and knowledge directory in the assistant directory's CLAUDE.md are local manager calls (no longer `app.call kb.*`).
 - **Sources** (in the manager's `internal/extmgr` since 2026-11-05; the methods below are unchanged but now called directly in-process, without the bus; attachments also no longer have a 4 MB limit): data delivered by connectors and plugins (chat messages, posts…). The knowledge base asks sources (`app.call connectors.*`, data in and out):
   `connectors.archives` (which connectors to read now: signed in with "Include in knowledge base" on, their polling intervals, other archive names, attachment support; and those with documents / meetings / events),
-  `connectors.changes` (a connector's changes since a cursor), `connectors.archive_media` (attachments for a message; when the manager is elsewhere, up to 4 MB, since one bus message must not occupy a slow link longer than a heartbeat; larger ones leave `[附件]` ("[attachment]") on the line), `connectors.items` / `connectors.doc_title` (documents, meetings, events).
+  `connectors.changes` (a connector's changes since a cursor), `connectors.archive_media` (attachments for a message; when the manager is elsewhere, up to 4 MB, since one bus message must not occupy a slow link longer than a heartbeat; larger ones leave `[附件]` ("[attachment]") on the line), `connectors.items` / `connectors.doc_title` (documents, meetings, events). A connector declaring `history` also offers its older history, read-only: `connectors.history_chats`, `connectors.history` and `connectors.history_anchors` (`docs/protocol/connector-protocol.md` "History").
   **The manager owns the cursor** (`cursors/<connector>.json`, same file as before), which advances only after writing the data. For Moments posts submitted by plugin programs (`posts.*`, `archive.chats`), the hub first checks
   whether "Include in knowledge base" is on, then forwards them unchanged to the manager (`kb.posts_put`, `kb.posts_comments`, `kb.posts_pending`, `kb.archived_chats`).
 - **When the hub's own features need the knowledge base**, they ask the manager over the bus through one hub function, `kbAsk` (`hub/kb.go`; those features are also moving into the manager, becoming local calls afterwards):
@@ -49,11 +49,31 @@ As part of moving hub business logic into managers (`docs/assistant/assistant.md
 - **Visible differences**: only those under "disconnected" above. The old connector interface the hub read one chat at a time (`connector.Chats`; no connector implements it since the Lark gateway path was removed)
   is no longer read; plugin posts never used it.
 
+## Deleting a connector's saved knowledge (#1836)
+
+The connector settings actions `DELETE /api/v1/connectors/{id}/archive` and `DELETE /api/v1/connectors/{id}/data` share the same knowledge-base cleanup.
+The former switches off knowledge ingestion; the latter switches off the connector and also removes its Inbox entries. They remove:
+
+- Chats and people owned by the connector, including conversations filed under its declared `archive_sources`, with messages, attachments and summaries.
+- Archived posts whose `source` is this connector, including their Markdown and metadata; the Moments index is rewritten from the remaining posts.
+- Documents, meetings and events whose `source` is this connector, with their database index rows.
+- References to the removed entities in projects, the connector's archive cursor and deleted chats' history-import state. Affected projects are marked dirty for rewriting from the remaining content.
+
+The deletion result and audit include `chats`, `people`, `posts` and `items` counts; the HTTP result also includes `inbox` (zero for archive-only deletion).
+New connector ingestion records `connector` on chats and people and `source` on items; document links discovered in chats inherit the chat's connector.
+These fields identify the writer separately from the archive namespace. Explicit ownership prevents one connector from deleting another's records even when their archive source names overlap.
+For older chats and people without `connector`, the connector's own namespace and its unshared archive aliases remain usable for deletion; another registered connector's ID is never an alias for this purpose.
+Legacy items without `source` are deleted only when `where` identifies a chat being deleted. Items without a known owner or source chat, posts without `source`, and legacy records under shared aliases remain saved because their writer cannot be established safely. Old timeline lines that identify chats only by a shared display name also remain; deleting those lines would risk removing another source's history.
+Turning knowledge ingestion off stops items as well as conversations and posts (`docs/extensions/connectors.md`, "Settings › Connectors"). Re-enabling it lets the connector sync again from the reset cursor.
+
 ## Recordings (#3235)
 
 Transcribed text from phone recordings (and watch recordings relayed through the phone) is synced by the phone via `PUT /api/v1/recordings/{id}` ([protocol.md](../protocol/protocol.md) ("Recording sync"), [recording.md](../apple/recording.md)); audio is not uploaded.
 
 - One item per recording, keyed by the phone's UUID; each upload replaces the whole record, and a `revision` below the stored one is not written (out-of-order and replayed uploads retain only the latest). With `complete: false`, it is stored and searchable but no model is called.
+- Recording revisions commit metadata, timestamped segments and rendered transcript together. Before replacing any of the three existing files, the store syncs a `.recording-undo.json` snapshot of their accepted bytes (including missing files for a first upload). Removing that journal after all replacements is the commit point. Failed uploads publish no index or change notification and attempt to restore the accepted files; equal revisions remain retryable.
+- Detail, segment, reconciliation, search and summarization readers wait for active replacements and use a coherent accepted snapshot while a journal remains. Writable open restores pending snapshots before returning a store; a recovery error prevents opening or further recording metadata edits. Read-only open refuses an archive requiring recovery. Legacy directories need no migration, and the existing file paths and transcript links stay valid.
+- Recovery assumes one writable store owns the archive directory. Individual file contents are synced before replacement and directory syncing is best effort where supported; subprocess interruption and replacement failures are tested, not arbitrary hardware or filesystem corruption. External filesystem readers must wait for writable recovery if a journal remains: raw files can contain unfinished replacements after interruption or failed restoration. The journal covers upload content, not a transaction with generated summaries, project links or the database index; that index remains rebuildable from files.
 - For completed transcripts (`complete: true`) whose current revision has not been summarized, each manager round selects at most 3 for the model (same purpose as chat compression, `kb.compress`, prompt `prompts/kb/recording.md`; if no model is available, stop this round and retry next round):
   produces a summary, one-line description, title (used if the user has not named it), tags and mentioned projects; projects are linked normally (a "Recording · Title" project timeline entry). At most 24k characters go to the model (keeping the beginning and end).
 - Retention follows assistant setting `recording_days` (default 14 days, independent of `text_days`): each round deletes directories and index rows whose start time predates retention; tombstones are retained equally long.
@@ -214,6 +234,14 @@ text. Direct `AppendMessages` writes and imported history keep their existing be
 remains described below. No public message wire fields or Markdown line format change. Receipts expire with their original text day during pruning (original
 instants keep them correct across timezone changes). Pruning does not decrement `messages` or `pending`, matching existing behavior. Forgetting a source removes
 its entire chat directories, including receipts and any completed recovery state, so importing it again is allowed.
+
+### What sources report for the selection (#1523)
+
+Which chats and documents the knowledge base keeps is decided by one selection config with priority rules (the issue has the design). The rules read only what the
+connector reports (`docs/protocol/connector-protocol.md` "Chat flags and document signals"): a chat's kind (dm, group, bot, official, system; a source's other kinds such as mail match no kind rule) and the
+owner's flags `muted`, `collapsed` and `done` (`kbwire.SourceChat` on every `archive.changes` batch, `connectorwire.HistoryChat` on every `history.chats` entry); a message's
+`mine`, `mentioned` (the owner by name) and `mentioned_all` (an @all, which counts only with the mentions rule's `include_all`), daily batches and history pages alike; a document's `signals` (`mentions`, `comment_mentions`, `authored`, `viewed`; `kbwire.Item.Signals`, kept with the item as the source last reported them). A connector that does
+not report one never matches its rule.
 
 ### History import
 

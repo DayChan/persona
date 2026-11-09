@@ -74,6 +74,8 @@ type Handler interface {
 	// The channels (channels.go, feishu.go): the hub hands over what comes in from the chat apps.
 	// ChannelReceive is channels.receive: the owner's message from a plugin's channel.
 	ChannelReceive(ctx context.Context, p ChannelReceive) error
+	// ChannelUnbound is channels.unbound: discard the channel's pending replies and questions before rebinding.
+	ChannelUnbound(ctx context.Context, p ChannelUnbound) error
 	// FeishuMessage is feishu.message: the owner's message to the Feishu bot.
 	FeishuMessage(ctx context.Context, p FeishuMessage) error
 	// FeishuAction is feishu.card_action: the owner pressed one of the bot's cards.

@@ -1,4 +1,6 @@
 {
+  "supervise_one": "Supervision: {count} delegated task needs attention",
+  "supervise_other": "Supervision: {count} delegated tasks need attention",
   "task_done": "Task \"{title}\" is done",
   "task_needs": "Task \"{title}\" needs you",
   "task_interrupted": "Task \"{title}\" was interrupted",

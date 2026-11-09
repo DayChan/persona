@@ -18,7 +18,7 @@ This document covers the implementation: protocol, tradeoffs, and verification.
 
 Code in `server/internal/hub/`: `mesh.go` (records, view loop), `mesh_view.go` (records and routing), `mesh_group.go` (primary, term, roles),
 `peer_*.go` (pairing, links, dialing, forwarding, node streams, admin APIs, CLI); database in `internal/db/peers.go` (migration 0151) and `internal/db/center.go` (migration 0191);
-multiple paths, deduplication, and path selection in `internal/devices/paths.go`, a computer's connection (create, use, switch) in `internal/devices/conn.go`, kind service (dialing connectors) in `internal/devices/service.go`; discovery in `internal/mdns/`.
+multiple paths in `internal/devices/paths.go`, deduplication in `internal/devices/paths_group.go`, path selection in `internal/devices/paths_choose.go`, a computer's connection (create, use, switch) in `internal/devices/conn.go`, kind service (dialing connectors) in `internal/devices/service.go`; discovery in `internal/mdns/`.
 
 The first version (#394, peer-to-peer mesh: each computer had an owning hub, events and subscriptions flooded between hubs, credentials shared across the group) has been replaced entirely; see "First version" at the end.
 

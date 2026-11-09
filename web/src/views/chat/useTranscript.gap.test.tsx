@@ -63,6 +63,14 @@ async function open(sid: string) {
 }
 
 describe("a gap in the pushed items", () => {
+  it("fills from covered when a pushed batch says more_after", async () => {
+    await open("s1");
+    push({ from_seq: 100, to_seq: 110, items: [item(110)], more_after: true } as ItemsEvent);
+    await act(async () => void vi.advanceTimersByTime(1600));
+    expect(fills()).toBe(1);
+    expect(calls.find((c) => c.includes("after_seq="))).toContain("after_seq=110");
+  });
+
   it("is filled 1.5 s after it shows, while gapped pushes keep coming", async () => {
     await open("s1");
     // 101-110 were lost; the agent keeps pushing a row every 400 ms.

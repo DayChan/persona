@@ -1,5 +1,6 @@
 📋 督办：你派出去的任务有 {{len .Entries}} 个要你处理
-（这是 Persona 的督办消息，不是用户发的。这一轮正常结束时不会推送给用户：要用户知道的事你用 notify_user 推，要用户决定的用 ask_user 问。）
+（这是 Persona 的督办消息，不是用户发的。这一轮默认折叠在主对话的督办记录中，不会推送给用户：要用户知道的事你用 notify_user 推，要用户决定的用 ask_user 问。）
+<persona-supervision level="{{if .Level}}{{.Level}}{{else}}triage{{end}}" />
 {{range $i, $e := .Entries}}
 {{inc $i}}. 任务「{{$e.Title}}」（{{$e.ID}}{{with $e.Link}}，链接 {{.}}{{end}}）：{{if eq $e.Kind "review"}}hub 判断做完了，等你验收{{else if eq $e.Kind "idle"}}Agent 停下了，但没做完{{else if eq $e.Kind "needs_you"}}Agent 在等回答{{with $e.Minutes}}，等了 {{.}} 分钟{{end}}{{if $e.Quiet}}（用户没收到推送，只有你知道）{{end}}{{else if eq $e.Kind "stalled"}}{{$e.Minutes}} 分钟没有进展{{else if eq $e.Kind "interrupted"}}被模型服务出错打断了{{else if eq $e.Kind "failed"}}Agent 没开起来{{else if eq $e.Kind "report"}}Agent 主动向你汇报：{{if eq $e.Report "question"}}要你拍板{{else if eq $e.Report "blocked"}}卡住了{{else if eq $e.Report "done"}}说做完了，交差{{else}}进度{{end}}{{with $e.Step}}（第 {{.}}{{with $e.Steps}}/{{.}}{{end}} 步）{{end}}{{end}}{{with $e.Detail}}（{{.}}）{{end}}{{with $e.Machine}}；在 {{.}}{{end}}{{with $e.Session}} session_id={{.}}{{end}}{{if $e.Round}}；已返工 {{$e.Round}} 轮{{end}}
    验收标准：{{with $e.DoneWhen}}{{range $j, $c := .}}{{if $j}}；{{end}}{{$c}}{{end}}{{else}}派活时没写，按任务本身要的结果判断{{end}}{{with $e.Ask}}
@@ -20,4 +21,5 @@
 - 没有进展的：用 agent_read 看它在干什么，卡住了就催一句或换个走法；几个任务抢同一份资源（编译、模拟器）就排好先后告诉它们。
 - 出错 / 没开起来的：能重试就让它继续（agent_send「继续」）或重新派；重复派了的用 task_review cancelled 取消多余的那个。
 - 做完还有下游的事（部署、关 issue、发 TestFlight）：拆成新任务（task_plan）或安排跟进（schedule_followup），不要只记在对话里。
-- 只把要用户决定的事和已验收的结果告诉用户；没什么要用户知道的，这一轮就安静结束。
+- 先确认 Agent 最后这一轮在推进本任务，而不是回复跨会话问题、别的对话或巡检；后者不算交差。只要是误报就纠正任务状态，不要向用户复述「误报」。
+- 只把要用户决定的事和已验收的结果告诉用户。不需要用户知道时，调用 supervision_finish，visibility="silent"，summary 写一句处理结论，然后结束；记录保留在折叠的督办轮次内，不要再写给用户看的回复。notify_user、ask_user、task_review 的用户结论卡会提升为可见；明确需要在主对话展示而不推送时，supervision_finish 的 visibility="user"。已提升的轮次不能再静默。

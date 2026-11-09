@@ -123,16 +123,40 @@ func (n *layoutNode) tabs(worktree string, out *[]Tab) {
 
 // Worktree is one worktree of worktree.ps.
 type Worktree struct {
-	WorktreeID  string `json:"worktreeId"`
-	HostID      string `json:"hostId"`
-	Path        string `json:"path"`
-	Branch      string `json:"branch"`
-	DisplayName string `json:"displayName"`
-	Repo        string `json:"repo"`
+	WorktreeID    string `json:"worktreeId"`
+	HostID        string `json:"hostId"`
+	Path          string `json:"path"`
+	Branch        string `json:"branch"`
+	DisplayName   string `json:"displayName"`
+	Repo          string `json:"repo"`
+	RepoID        string `json:"repoId"`
+	IsMain        *bool  `json:"isMainWorktree"`
+	Unread        *bool  `json:"unread"`
+	SidebarStatus string `json:"sidebarStatus"`
+	WorkspaceKind string `json:"workspaceKind"`
 	// ParentWorktreeID is the worktree this one is a child of in Orca's sidebar (its "N children"); empty for a top-level one.
 	ParentWorktreeID string `json:"parentWorktreeId"`
 	// Agents are the agents Orca's own hooks reported in the worktree's panes.
 	Agents []AgentRow `json:"agents"`
+}
+
+// WorktreeHeads reads Git identity in one catalog request, without inspecting terminals.
+// Old runtimes may not provide this optional display metadata.
+func (c *Client) WorktreeHeads(ctx context.Context) (map[string]string, error) {
+	var res struct {
+		Worktrees []struct {
+			ID   string `json:"id"`
+			Head string `json:"head"`
+		} `json:"worktrees"`
+	}
+	if err := c.Call(ctx, ListTimeout, "worktree.list", map[string]any{}, &res); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(res.Worktrees))
+	for _, w := range res.Worktrees {
+		out[w.ID] = w.Head
+	}
+	return out, nil
 }
 
 // AgentRow is one agent of worktree.ps: its pane, kind and state from Orca's hooks.
@@ -399,6 +423,11 @@ func (c *Client) SetPaneTitle(ctx context.Context, t Target, title string) error
 	return c.Call(ctx, CallTimeout, "terminal.setPaneTitle", p, nil)
 }
 
+// RenameWorktree changes only the sidebar display name, leaving its branch, path and parent alone.
+func (c *Client) RenameWorktree(ctx context.Context, id, name string) error {
+	return c.Call(ctx, CallTimeout, "worktree.set", map[string]any{"worktree": "id:" + id, "displayName": name}, nil)
+}
+
 // RepoAdd registers a new git repository or folder workspace with Orca.
 func (c *Client) RepoAdd(ctx context.Context, path, kind string) error {
 	return c.Call(ctx, CallTimeout, "repo.add", map[string]any{"path": path, "kind": kind}, nil)
@@ -409,6 +438,8 @@ func (c *Client) RepoAdd(ctx context.Context, path, kind string) error {
 // (Orca's base ref when empty). Parent (a worktree selector) is the worktree it is listed under in Orca's sidebar.
 type WorktreeCreate struct {
 	Repo, Name, Branch, Base, Parent string
+	// Generated lets Orca retire collisions and keeps its first-work branch naming eligible.
+	Generated bool
 }
 
 // CreatedWorktree is the worktree worktree.create made. Orca picks another folder and branch (a "-2" suffix) when the
@@ -422,7 +453,12 @@ type CreatedWorktree struct {
 // CreateWorktree is worktree.create: Orca makes the checkout and keeps it as one of its worktrees, without activating
 // it (no focus change, no setup hooks).
 func (c *Client) CreateWorktree(ctx context.Context, w WorktreeCreate) (*CreatedWorktree, error) {
-	p := map[string]any{"repo": w.Repo, "name": w.Name, "branchNameOverride": w.Branch, "activate": false}
+	p := map[string]any{"repo": w.Repo, "name": w.Name, "activate": false}
+	if w.Generated {
+		p["nameWasGenerated"] = true
+	} else {
+		p["branchNameOverride"] = w.Branch
+	}
 	if w.Base != "" {
 		p["baseBranch"] = w.Base
 	}

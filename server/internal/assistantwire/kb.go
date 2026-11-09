@@ -26,6 +26,17 @@ const (
 	ConnectorsItems = "connectors.items"
 	// ConnectorsDocTitle: {id, url} → {title}: a document's title ("" when the connector cannot tell).
 	ConnectorsDocTitle = "connectors.doc_title"
+
+	// Importing older history (connector.History; docs/protocol/connector-protocol.md "History"), read-only, for a
+	// connector that archives into the knowledge base now and declares history (ArchiveSource.History):
+	//   ConnectorsHistoryChats: {id} → HistoryChatsResult: the conversations it can import.
+	//   ConnectorsHistory: HistoryParams {id, query} → connectorwire.HistoryPage: one page of one of them.
+	//   ConnectorsHistoryAnchors: HistoryAnchorsParams {id, query} → connectorwire.HistoryAnchors: the owner's
+	//   messages over a window, for one declaring history_anchors (ArchiveSource.HistoryAnchors).
+	// A connector's error comes back as it is; a call that timed out is never sent again by the caller.
+	ConnectorsHistoryChats   = "connectors.history_chats"
+	ConnectorsHistory        = "connectors.history"
+	ConnectorsHistoryAnchors = "connectors.history_anchors"
 )
 
 // Archives is connectors.archives' answer.
@@ -44,6 +55,27 @@ type ArchiveSource struct {
 	Sources []string `json:"sources,omitempty"`
 	// Media: it hands over its messages' attachments (connectors.archive_media).
 	Media bool `json:"media,omitempty"`
+	// History: it can import a conversation's older history (connectors.history_chats, connectors.history).
+	History bool `json:"history,omitempty"`
+	// HistoryAnchors: it can search for the owner's messages to read around (connectors.history_anchors).
+	HistoryAnchors bool `json:"history_anchors,omitempty"`
+}
+
+// HistoryChatsResult is connectors.history_chats' answer.
+type HistoryChatsResult struct {
+	Chats []connectorwire.HistoryChat `json:"chats"`
+}
+
+// HistoryParams is connectors.history's params.
+type HistoryParams struct {
+	ID    string                     `json:"id"`
+	Query connectorwire.HistoryQuery `json:"query"`
+}
+
+// HistoryAnchorsParams is connectors.history_anchors' params.
+type HistoryAnchorsParams struct {
+	ID    string                            `json:"id"`
+	Query connectorwire.HistoryAnchorsQuery `json:"query"`
 }
 
 // ChangesResult is connectors.changes' answer.
@@ -61,8 +93,8 @@ const (
 	// MethodKBProjects: {machine_id, cwd} → {projects: [KBProject]}: the projects whose code directories hold cwd on
 	// that machine (an agent's turn is triaged with their names).
 	MethodKBProjects = "kb.projects"
-	// MethodKBForget: {source} → KBForgotten: a source's chats and people go, with their index rows, their places in
-	// projects and the cursor ("Delete saved data").
+	// MethodKBForget: KBForget → KBForgotten: a connector's knowledge content goes, with its index rows, project
+	// associations and cursors ("Delete saved data").
 	MethodKBForget = "kb.forget"
 	// The posts a connector's program hands the hub (connector.KnowledgeBase, docs/protocol/connector-protocol.md "Knowledge base"),
 	// for that connector (KBPosts.Connector; the hub checked it may write now):
@@ -111,10 +143,19 @@ type KBProject struct {
 	Name string `json:"name"`
 }
 
-// KBForgotten is kb.forget's answer: how many chats and people went.
+// KBForget identifies the connector and the additional sources its archive may write to.
+// ArchiveSources comes from the registered manifest, never from a client deletion request.
+type KBForget struct {
+	Source         string   `json:"source"`
+	ArchiveSources []string `json:"archive_sources,omitempty"`
+}
+
+// KBForgotten is kb.forget's answer: how many entities were removed.
 type KBForgotten struct {
 	Chats  int `json:"chats"`
 	People int `json:"people"`
+	Posts  int `json:"posts"`
+	Items  int `json:"items"`
 }
 
 // KBContextResult is kb.context's answer.

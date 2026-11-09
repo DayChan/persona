@@ -790,7 +790,7 @@ func TestCenterServiceConnector(t *testing.T) {
 		_ = c.Close(websocket.StatusGoingAway, "restarting")
 	}
 	// The path failed three times in a row by now (not paired, paired elsewhere, the restart), so the manager waits
-	// 8 s before it tries again (devices/paths.go pathEnded) and only then hears the 401: wait well past that.
+	// 8 s before it tries again (devices/paths_choose.go pathEnded) and only then hears the 401: wait well past that.
 	eventually(t, 30*time.Second, "a wrong credential is refused", func() bool {
 		return strings.Contains(center.machines(t, tok)["example-workstation"].Error, "不认")
 	})

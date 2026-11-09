@@ -336,7 +336,7 @@ func (m *Machine) setLink(l *mgrLink) *mgrLink {
 		default:
 		}
 	}
-	m.d.wakeOwnerOf(m) // the machine whose path this entry is (paths.go)
+	m.d.wakeOwnerOf(m) // the machine whose path this entry is (paths_group.go)
 	m.d.changed()
 	return old
 }

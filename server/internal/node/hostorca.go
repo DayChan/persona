@@ -24,7 +24,7 @@ import (
 // terminal.* calls take) are looked up from it. Spaces are worktrees, slots their tabs.
 //
 // Phase 1: listing, state (Orca's own hooks, polled), plain-text reads, typing, keys, prompts, process → session,
-// closing. No colors, no history, no live stream, no starting or renaming. The socket pushes nothing: no Watcher, the
+// closing, starting and explicit worktree/tab renames. No colors, no history, no live stream. The socket pushes nothing: no Watcher, the
 // node polls every second.
 //
 // Orca writes whatever it is sent into the terminal, and pastes a prompt only when it recognises an agent in front:
@@ -309,13 +309,39 @@ func (h *orcaHost) Spaces(ctx context.Context) ([]host.Space, error) {
 		return nil, orcaErr(err)
 	}
 	out := make([]host.Space, 0, len(trees))
+	var heads map[string]string
+	if slices.ContainsFunc(trees, func(w orcart.Worktree) bool { return w.WorkspaceKind == "git" && w.Branch == "" }) {
+		// Optional detached identity metadata is bulk-read, without blocking the main inventory.
+		headCtx, cancel := context.WithTimeout(ctx, time.Second)
+		heads, _ = h.c.WorktreeHeads(headCtx)
+		cancel()
+	}
+	projectPaths := map[string]string{}
+	for _, w := range trees {
+		if w.IsMain != nil && *w.IsMain && (w.HostID == "" || w.HostID == "local") {
+			projectPaths[orcaProjectID(w)] = w.Path
+		}
+	}
 	for _, w := range trees {
 		if w.WorktreeID != "" {
 			out = append(out, host.Space{ID: w.WorktreeID, Label: orcaSpaceLabel(w.Branch, w.Path),
-				Number: len(out) + 1, Cwd: w.Path, Branch: strings.TrimPrefix(w.Branch, "refs/heads/"), ParentID: orcaParent(w.WorktreeID, w.ParentWorktreeID)})
+				Number: len(out) + 1, Cwd: w.Path, Branch: strings.TrimPrefix(w.Branch, "refs/heads/"), ParentID: orcaParent(w.WorktreeID, w.ParentWorktreeID), DisplayName: w.DisplayName,
+				ProjectID: orcaProjectID(w), ProjectName: w.Repo, ProjectPath: projectPaths[orcaProjectID(w)], IsMain: w.IsMain,
+				Unread: w.Unread, SidebarStatus: w.SidebarStatus, WorkspaceKind: w.WorkspaceKind, Head: heads[w.WorktreeID]})
 		}
 	}
 	return out, nil
+}
+
+func orcaProjectID(w orcart.Worktree) string {
+	if w.RepoID != "" {
+		return w.RepoID
+	}
+	// Older Orca versions still use the documented <repo-id>::<path> workspace address.
+	if id, _, ok := strings.Cut(w.WorktreeID, "::"); ok {
+		return id
+	}
+	return ""
 }
 
 // orcaParent is a worktree's parent space, never itself.

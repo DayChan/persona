@@ -198,14 +198,14 @@ func TestGitSwitch(t *testing.T) {
 func TestGitStash(t *testing.T) {
 	f := newPullFixture(t)
 	ctx := context.Background()
-	if _, err := f.node.gitStash(ctx, f.local, "push", 0, "", false); err == nil {
+	if _, err := f.node.gitStash(ctx, f.local, "push", 0, "", false, ""); err == nil {
 		t.Fatal("stashed nothing")
 	} else if code, _ := gitCodeOf(t, err); code != gitCodeNoStash {
 		t.Fatalf("code %s", code)
 	}
 	putFile(t, f.local, "app.txt", "work in progress\n")
 	putFile(t, f.local, "new.txt", "untracked\n")
-	res, err := f.node.gitStash(ctx, f.local, "push", 0, "half done", true)
+	res, err := f.node.gitStash(ctx, f.local, "push", 0, "half done", true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestGitStash(t *testing.T) {
 		t.Fatalf("after push: files %v stashes %+v", res.Status.Files, res.Stash)
 	}
 	putFile(t, f.local, "app.txt", "something else\n")
-	_, err = f.node.gitStash(ctx, f.local, "apply", 0, "", false)
+	_, err = f.node.gitStash(ctx, f.local, "apply", 0, "", false, res.Stash[0].OID)
 	if err == nil {
 		t.Fatal("applied over a change to the same file")
 	}
@@ -224,21 +224,21 @@ func TestGitStash(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.local, "new.txt")); err != nil { // the failed apply put the untracked file back
 		t.Fatal(err)
 	}
-	if res, err = f.node.gitStash(ctx, f.local, "pop", 0, "", false); err != nil {
+	if res, err = f.node.gitStash(ctx, f.local, "pop", 0, "", false, res.Stash[0].OID); err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Stash) != 0 || len(res.Status.Files) != 2 {
 		t.Fatalf("after pop: files %v stashes %+v", res.Status.Files, res.Stash)
 	}
-	if _, err := f.node.gitStash(ctx, f.local, "drop", 3, "", false); err == nil {
+	if _, err := f.node.gitStash(ctx, f.local, "drop", 3, "", false, ""); err == nil {
 		t.Fatal("dropped a stash that is not there")
-	} else if code, _ := gitCodeOf(t, err); code != gitCodeNoStash {
+	} else if code, _ := gitCodeOf(t, err); code != gitCodeStashStale {
 		t.Fatalf("code %s", code)
 	}
-	if _, err := f.node.gitStash(ctx, f.local, "push", 0, "", false); err != nil {
+	if res, err = f.node.gitStash(ctx, f.local, "push", 0, "", false, ""); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = f.node.gitStash(ctx, f.local, "drop", 0, "", false); err != nil || len(res.Stash) != 0 {
+	if res, err = f.node.gitStash(ctx, f.local, "drop", 0, "", false, res.Stash[0].OID); err != nil || len(res.Stash) != 0 {
 		t.Fatalf("drop: %v %+v", err, res)
 	}
 }

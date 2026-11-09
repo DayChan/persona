@@ -288,7 +288,7 @@ func (m *Machine) serve(ctx context.Context, c *nodeConn) error {
 	}
 	// The hub has it connected before it is asked to hand the node what is the hub's (devices.connected).
 	m.d.reportNow()
-	m.d.learnUID(p, info.MachineUID) // the paths reaching the same computer become one machine (paths.go)
+	m.d.learnUID(p, info.MachineUID) // the paths reaching the same computer become one machine (paths_group.go)
 	sctx, scancel := context.WithCancel(ctx)
 	defer scancel()
 	if c.via == "tailcat" && p.src == m {

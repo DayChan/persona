@@ -71,6 +71,9 @@ type Pusher struct {
 	saveMu      sync.Mutex // one device row write at a time, always the latest state (save, setPrefs)
 	// storeTimeout bounds each device row write, which never runs under mu; tests shorten it.
 	storeTimeout time.Duration
+	// prefsEdit holds one change of a device's settings from its read to its write (editPrefs); taken before saveMu
+	// and mu, never by a push.
+	prefsEdit sync.Mutex
 }
 
 // deviceStoreTimeout: how long a device row write may take before it gives up (the pool has no statement_timeout).
@@ -276,12 +279,16 @@ func (p *Pusher) signedOut(credential string) {
 	}
 }
 
-// forget drops a device, whatever token it has now (signedOut).
+// forget drops a device, whatever token it has now (signedOut), with all of its push bookkeeping: a push accepted
+// just before still marked dirty would have maintenance write a row for a device that is gone.
 func (p *Pusher) forget(d Device) {
 	p.saveMu.Lock()
 	defer p.saveMu.Unlock()
 	p.mu.Lock()
 	delete(p.devices, d.DeviceID)
+	delete(p.failed, d.DeviceID)
+	delete(p.replaced, d.DeviceID)
+	delete(p.acceptedDirty, d.DeviceID)
 	p.mu.Unlock()
 	p.deleteRow(d)
 }
@@ -386,6 +393,27 @@ func (p *Pusher) setPrefsBy(id, credential string, prefs NotifyPrefs) error {
 	d.Prefs = raw
 	p.devices[id] = d
 	return nil
+}
+
+// editPrefs changes a device's settings with edit and stores them as setPrefsBy does, holding prefsEdit from the read
+// to the write: two partial changes at once (the apps send one switch per PUT) both take effect, the later one is not
+// written over the settings as they were before the earlier was stored. before is the settings as they were; after
+// as stored, normalized as devicePrefs reads them. An error from edit stores nothing.
+func (p *Pusher) editPrefs(id, credential string, edit func(*NotifyPrefs) error) (before, after NotifyPrefs, err error) {
+	p.prefsEdit.Lock()
+	defer p.prefsEdit.Unlock()
+	after = p.prefs(id)
+	before = after
+	if after.Look != nil {
+		look := *after.Look
+		before.Look = &look // a partial look changes the one after points to
+	}
+	if err := edit(&after); err != nil {
+		return before, after, err
+	}
+	raw, _ := json.Marshal(after)
+	after = devicePrefs(raw) // normalizes an unknown "done"
+	return before, after, p.setPrefsBy(id, credential, after)
 }
 
 // mailTargets are the languages some device wants its mail translated into (Settings › Translation on, mail in scope).

@@ -44,7 +44,7 @@ func TestGoldenSessionTitle(t *testing.T) {
 	f.replies = []string{"改个名字", "修复 | 搜索框和顶栏重叠"}
 	s := newTestService(t, f)
 	started := time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)
-	if got := s.makeTitle(context.Background(), started, "搜索的时候搜索框和顶栏叠在一起了", "是两个组件一起用导致的。"); got != "1101 | 修复 | 搜索框和顶栏重叠" {
+	if got, _ := s.makeTitle(context.Background(), started, "搜索的时候搜索框和顶栏叠在一起了", "是两个组件一起用导致的。"); got != "1101 | 修复 | 搜索框和顶栏重叠" {
 		t.Fatalf("%q", got)
 	}
 	c := f.modelCalls()

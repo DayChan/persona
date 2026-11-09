@@ -315,10 +315,7 @@ func (s *Service) snapshotSchedule(ctx context.Context, loc *time.Location, now 
 	// Runs are kept in the order they ended, At is when they started: a long run recorded late sits after a later
 	// one, so the whole history (at most maxRuns) is looked through, not cut at the first run before since.
 	var all []prompts.SnapshotMiss
-	for _, r := range sc.runs {
-		if r.At.Before(since) || r.Status != runFailed && r.Status != runSkipped {
-			continue
-		}
+	for _, r := range sc.missedRuns(since) {
 		all = append(all, prompts.SnapshotMiss{At: r.At.In(loc), Label: clip(r.Title, 30), Why: clip(oneLine(r.Error), 60),
 			Skipped: r.Status == runSkipped})
 	}

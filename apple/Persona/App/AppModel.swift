@@ -176,8 +176,6 @@ final class AppModel {
     var toast: Toast?
     /// The extension page opened from a notification, widget or shortcut; not written to UserDefaults.
     var extensionOpen: ExtensionSystemOpen?
-    /// A Mac whose live screen is up (`ScreenDrawer`, RootView presents it; #1343): opened from the chat's running
-    /// work, its ··· menu, the machine page or a tool's details.
     /// The live screen asked for (VNC); a window of its own shows it, over whatever is presented (#1604).
     var screenOpen: ScreenOpen? { didSet { if screenOpen != oldValue { ScreenWindow.shared.show(screenOpen) } } }
     /// What a chat's model last did on each Mac (`ComputerActivity`), kept by the open chat: the live screen shows it
@@ -2825,13 +2823,13 @@ final class AppModel {
     func renameSession(_ k: SessionKey, tab: String?, title: String?) async {
         guard session(k)?.canTerminal == true, let api = api(k.group) else { return }
         let tab = tab?.trimmingCharacters(in: .whitespacesAndNewlines), title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        edit(machine: k.machineRef) { s in
-            guard s.sessionID == k.sessionID else { return }
-            if let tab, !tab.isEmpty { s.slotName = tab }
-            if let title, !title.isEmpty { s.title = title }
-        }
         do {
             try await api.renameSession(k, tabName: tab?.isEmpty == false ? tab : nil, title: title?.isEmpty == false ? title : nil)
+            edit(machine: k.machineRef) { s in
+                guard s.sessionID == k.sessionID else { return }
+                if let tab, !tab.isEmpty { s.slotName = tab }
+                if let title, !title.isEmpty { s.title = title }
+            }
             toast = Toast(String(localized: "Renamed"), style: .success)
         } catch { show(error) }
         await refresh()

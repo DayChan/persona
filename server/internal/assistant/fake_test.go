@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -53,6 +54,7 @@ type fakeHub struct {
 	sessions      map[string][]proto.Session // by machine: the machines there are
 	sessionsFail  map[string]int             // by machine: sessions.list fails offline this many more times (then recovers)
 	items         []proto.Item               // session.items answers this
+	pageTurns     bool                       // and only the last n turns of it to "turns": n, as the node does (else all of it)
 	itemsPage     int                        // > 0: session.items with after_seq pages them by seq, this many a page
 	calls         []DeviceCall
 	known         map[string]bool  // conversations the nodes have
@@ -64,6 +66,8 @@ type fakeHub struct {
 	larkCLI       bool
 	slowSnapshots time.Duration // the connectors' live states come this late (nothing: there are none)
 	replies       []string      // the model's answers, in turn (the last one again when they run out)
+	answers       []fakeAnswer  // how each of those answers comes, in turn (none: at once and whole)
+	modelDown     bool          // the model's gateway answers 502 to the calls replies would answer: asked, never answering
 	noModel       bool
 	asked         []modelCall
 	pushes        []Notification
@@ -131,6 +135,8 @@ type fakeHub struct {
 	// questions it got.
 	auth      map[string]proto.ClaudeAuthStatus
 	authAsked []string
+	// authHold, when set, holds claude.auth_status's answer until it is closed (a node running a slow launcher).
+	authHold chan struct{}
 	// nodes answer node methods on any machine, by method, before the answers below (answerNode).
 	nodes map[string]nodeAnswer
 }
@@ -244,7 +250,11 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 			}
 			return json.Marshal(map[string]any{"items": page, "more_after": more})
 		}
-		return json.Marshal(map[string]any{"items": f.items})
+		items := f.items
+		if n, _ := a["turns"].(float64); f.pageTurns && n > 0 {
+			items = lastTurns(items, int(n))
+		}
+		return json.Marshal(map[string]any{"items": items})
 	case DeviceSessionRename:
 		f.sends = append(f.sends, map[string]any{"rename": a})
 		return json.RawMessage(`{"ok":true}`), nil
@@ -305,6 +315,14 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 	case assistantwire.DeviceClaudeAuthStatus:
 		name, _ := a["name"].(string)
 		f.authAsked = append(f.authAsked, p.Device+"/"+name)
+		if hold := f.authHold; hold != nil {
+			f.mu.Unlock()
+			select {
+			case <-hold:
+			case <-ctx.Done():
+			}
+			f.mu.Lock()
+		}
 		if f.auth == nil {
 			return nil, errors.New("unknown method claude.auth_status")
 		}
@@ -1003,7 +1021,7 @@ func (f *fakeHub) fakeModel(t *testing.T) {
 			user = in.Messages[0].Content
 		}
 		f.mu.Lock()
-		reply, fail := "", false
+		reply, fail, down, delay, stop := "", false, false, time.Duration(0), "end_turn"
 		switch {
 		case in.System == tabName:
 			f.tabAsked = append(f.tabAsked, in.System+"\n---\n"+user)
@@ -1030,13 +1048,29 @@ func (f *fakeHub) fakeModel(t *testing.T) {
 			if len(f.replies) > 0 {
 				reply = f.replies[min(len(f.asked), len(f.replies))-1]
 			}
+			if n := len(f.asked); n <= len(f.answers) {
+				delay = f.answers[n-1].delay
+				stop = cmp.Or(f.answers[n-1].stop, stop)
+			}
+			down = f.modelDown
 		}
 		f.mu.Unlock()
 		if fail {
 			http.Error(w, `{"error":{"message":"no model"}}`, http.StatusBadRequest)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"content": []any{map[string]any{"type": "text", "text": reply}}})
+		if down {
+			http.Error(w, `{"error":{"message":"upstream unavailable"}}`, http.StatusBadGateway)
+			return
+		}
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"content": []any{map[string]any{"type": "text", "text": reply}}, "stop_reason": stop})
 	}))
 	t.Cleanup(srv.Close)
 	key := filepath.Join(t.TempDir(), "key")
@@ -1044,6 +1078,26 @@ func (f *fakeHub) fakeModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.hello.Models.AI = ai.Config{BaseURL: srv.URL, APIKeyFile: key, Model: "fake"}
+}
+
+// lastTurns is the last n turns of items, as the node pages a transcript (transcript.File.PageTurns): a turn opens
+// with a prompt.
+func lastTurns(items []proto.Item, n int) []proto.Item {
+	start := len(items)
+	for seen := 0; start > 0 && seen < n; {
+		start--
+		if it := items[start]; it.Role == "user" && it.Kind == proto.KindText && !it.Queued {
+			seen++
+		}
+	}
+	return items[start:]
+}
+
+// fakeAnswer is how the fake model gives one answer: after delay (a caller that gives up first gets none), stopping for
+// stop ("": end_turn; "max_tokens": cut off).
+type fakeAnswer struct {
+	delay time.Duration
+	stop  string
 }
 
 // modelRecordOf is what s's model configuration has purpose set to.

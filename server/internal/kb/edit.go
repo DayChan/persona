@@ -73,6 +73,13 @@ func (s *Store) putEntity(kind, id string, v any, t *Tagging, manual bool) (err 
 	if s.readOnly {
 		return ErrReadOnly
 	}
+	if kind == KindRecording {
+		s.recFilesMu.Lock()
+		if err := s.recoverRecordingLocked(id); err != nil {
+			s.recFilesMu.Unlock()
+			return err
+		}
+	}
 	s.metaMu.Lock()
 	if kind == KindChat {
 		s.mu.Lock()
@@ -83,6 +90,9 @@ func (s *Store) putEntity(kind, id string, v any, t *Tagging, manual bool) (err 
 			s.mu.Unlock()
 		}
 		s.metaMu.Unlock()
+		if kind == KindRecording {
+			s.recFilesMu.Unlock()
+		}
 		if err == nil && changed {
 			s.notify(kind, id, "metadata")
 		}
@@ -165,15 +175,28 @@ func (s *Store) putSummary(kind, id, text string, manual bool) error {
 	if s.readOnly {
 		return ErrReadOnly
 	}
+	if kind == KindRecording {
+		s.recFilesMu.Lock()
+		if err := s.recoverRecordingLocked(id); err != nil {
+			s.recFilesMu.Unlock()
+			return err
+		}
+	}
+	unlock := func() {
+		s.metaMu.Unlock()
+		if kind == KindRecording {
+			s.recFilesMu.Unlock()
+		}
+	}
 	s.metaMu.Lock()
 	var t Tagging
 	exists, err := readJSON(s.entityPath(kind, id), &t)
 	if err != nil {
-		s.metaMu.Unlock()
+		unlock()
 		return err
 	}
 	if !manual && (!exists || t.fieldLocked("summary")) {
-		s.metaMu.Unlock()
+		unlock()
 		return nil
 	}
 	path := s.path(kind, id, "summary.md")
@@ -183,7 +206,7 @@ func (s *Store) putSummary(kind, id, text string, manual bool) error {
 	if changed {
 		err = writeFile(path, next)
 	}
-	s.metaMu.Unlock()
+	unlock()
 	if err == nil && changed {
 		s.notify(kind, id, "summary")
 	}

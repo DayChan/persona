@@ -58,3 +58,44 @@ describe("answerCard", () => {
     expect(ended).toEqual([]);
   });
 });
+
+it("sends secret text unchanged and stores only a redacted receipt", async () => {
+  const card: Interaction = { ...ix, kind: "screen", secret: true };
+  const body = Object.freeze({ text: "synthetic-secret" });
+  apiOp.mockResolvedValue({});
+  expect(await answerCard(card, body)).toEqual({ ok: true, already: false });
+  expect(apiOp).toHaveBeenCalledWith("/interactions/p1/resolve", { method: "POST", json: body });
+  expect(ended[0]?.[1]).toMatchObject({ resolution: { text: "<redacted>" } });
+  expect(body.text).toBe("synthetic-secret");
+});
+
+it("redacts field and elicitation secrets by schema and name without mutating the payload", async () => {
+  const card: Interaction = {
+    ...ix, kind: "elicitation", fields: [{ key: "hidden", label: "Hidden", secret: true }],
+    elicitation: { mode: "form", requested_schema: { type: "object", properties: {
+      hidden: { type: "string", format: "password" }, write: { type: "string", writeOnly: true }, visible: { type: "string" },
+    } } },
+  };
+  const values = Object.freeze({ hidden: "synthetic", api_key: "synthetic", visible: "keep" });
+  const content = Object.freeze({ hidden: "synthetic", write: "synthetic", TOKEN: "synthetic", visible: "keep", count: 3, enabled: false });
+  const body = Object.freeze({ action: "accept", values, content });
+  apiOp.mockResolvedValue({});
+  expect(await answerCard(card, body)).toEqual({ ok: true, already: false });
+  expect(apiOp).toHaveBeenCalledWith("/interactions/p1/resolve", { method: "POST", json: body });
+  expect(ended[0]?.[1]).toMatchObject({ resolution: {
+    action: "accept", values: { hidden: "<redacted>", api_key: "<redacted>", visible: "<redacted>" },
+    content: { hidden: "<redacted>", write: "<redacted>", TOKEN: "<redacted>", visible: "keep", count: 3, enabled: false },
+  } });
+  expect(body.content.hidden).toBe("synthetic");
+  expect(body.values.hidden).toBe("synthetic");
+});
+
+it("preserves non-secret text and does not record failed secret answers", async () => {
+  apiOp.mockResolvedValue({});
+  await answerCard({ ...ix, kind: "screen" }, { text: "ordinary answer" });
+  expect(ended[0]?.[1]).toMatchObject({ resolution: { text: "ordinary answer" } });
+  ended.length = 0;
+  apiOp.mockRejectedValue(new Error("offline"));
+  expect((await answerCard({ ...ix, kind: "screen", secret: true }, { text: "synthetic" })).ok).toBe(false);
+  expect(ended).toEqual([]);
+});

@@ -567,6 +567,10 @@ func TestRelayNeedsAKey(t *testing.T) {
 	if len(f.got) != 0 {
 		t.Fatalf("pushed %d", len(f.got))
 	}
+	// A key that does not parse: the route says the push failed, not that the relay works.
+	if r, _ := h.push.routeOfID("phone"); r.Route != pushRelay || r.Reason != pushFailed || !strings.HasPrefix(r.Detail, "seal: ") {
+		t.Fatalf("route with a garbage key: %+v", r)
+	}
 }
 
 // A hub with its own key keeps pushing straight to APNs, even for a phone that also registered with a relay.

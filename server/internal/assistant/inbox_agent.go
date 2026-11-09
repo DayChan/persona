@@ -132,7 +132,19 @@ func (a *InboxAgent) startDue(now time.Time) bool {
 func (s *Service) handInbox(ctx context.Context) {
 	b := &s.inbox
 	if !s.inboxConfig(ctx).Agent.Enabled {
-		return
+		b.mu.Lock()
+		pending := false
+		for _, it := range b.items {
+			active, queued := inboxAgentReleaseState(it)
+			if active || queued {
+				pending = true
+				break
+			}
+		}
+		b.mu.Unlock()
+		if !pending {
+			return
+		}
 	}
 	b.handAgain.Store(true)
 	if !b.handing.TryLock() {
@@ -159,6 +171,7 @@ func (s *Service) handPass(ctx context.Context) {
 	cfg := s.inboxConfig(ctx).Agent
 	b := &s.inbox
 	if !cfg.Enabled {
+		s.releaseInboxAgents(ctx)
 		return
 	}
 	if f := b.passHook; f != nil {
@@ -181,6 +194,48 @@ func (s *Service) handPass(ctx context.Context) {
 	s.saveWrites(ctx, escalated, "its escalation")
 	s.deliverPending(ctx)
 	s.startInboxAgents(ctx, cfg)
+}
+
+// releaseInboxAgents returns unfinished twin work to the user even while promotion and starts are disabled.
+func (s *Service) releaseInboxAgents(ctx context.Context) {
+	b := &s.inbox
+	b.mu.Lock()
+	var changed []*inboxWrite
+	now := time.Now()
+	for _, it := range b.items {
+		if w := b.releaseInboxAgent(it, now); w != nil {
+			changed = append(changed, w)
+		}
+	}
+	b.mu.Unlock()
+	s.saveWrites(ctx, changed, "the disabled AI twin's work")
+}
+
+// releaseInboxAgent drops queued work and releases an unfinished item. Completed suggestions and confirmed
+// actions waiting for a reply stay available. The caller holds b.mu and persists the returned write.
+func (b *inboxBook) releaseInboxAgent(it *InboxItem, now time.Time) *inboxWrite {
+	active, pending := inboxAgentReleaseState(it)
+	if !active && !pending {
+		return nil
+	}
+	w := beginWrite(it)
+	if active {
+		b.failHandling(it, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now)
+	}
+	if a := it.Agent; a != nil {
+		a.Pending, a.Wake, a.Back, a.RetryAfter = nil, false, "", nil
+	}
+	b.settle(w)
+	return w
+}
+
+// inboxAgentReleaseState identifies unfinished handling and queued work while the caller holds the inbox lock.
+func inboxAgentReleaseState(it *InboxItem) (active, pending bool) {
+	a, h := it.Agent, it.Handling
+	active = it.open() && (h != nil && (h.State == HandlingLooking || h.State == HandlingAgent) ||
+		h == nil && a != nil && (a.State == AgentQueued || a.State == AgentRunning))
+	pending = a != nil && (len(a.Pending) > 0 || a.Wake || a.Back != "" || a.RetryAfter != nil)
+	return active, pending
 }
 
 // startInboxAgents starts a processing conversation for the queued events that have none (newest first, while fewer

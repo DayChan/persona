@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/connector"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/kb"
 	"github.com/nwverse/persona/server/internal/kbwire"
@@ -23,7 +25,8 @@ import (
 func (h *Manager) kbSourcesCall(ctx context.Context, p assistantwire.AppCall) (json.RawMessage, bool, error) {
 	switch p.Method {
 	case assistantwire.ConnectorsArchives, assistantwire.ConnectorsChanges, assistantwire.ConnectorsArchiveMedia,
-		assistantwire.ConnectorsItems, assistantwire.ConnectorsDocTitle, assistantwire.ConnectorsOwner:
+		assistantwire.ConnectorsItems, assistantwire.ConnectorsDocTitle, assistantwire.ConnectorsOwner,
+		assistantwire.ConnectorsHistoryChats, assistantwire.ConnectorsHistory, assistantwire.ConnectorsHistoryAnchors:
 	default:
 		return nil, false, nil
 	}
@@ -39,6 +42,10 @@ func (h *Manager) kbSourcesCall(ctx context.Context, p assistantwire.AppCall) (j
 			return raw, true, err
 		}
 		return nil, true, errKBOff
+	}
+	switch p.Method {
+	case assistantwire.ConnectorsHistoryChats, assistantwire.ConnectorsHistory, assistantwire.ConnectorsHistoryAnchors:
+		return h.kbHistoryCall(ctx, p)
 	}
 	var a struct {
 		ID     string `json:"id"`
@@ -131,8 +138,10 @@ func (h *Manager) kbArchives(ctx context.Context) assistantwire.Archives {
 			continue
 		}
 		_, media := a.(connector.ArchiveMedia)
+		_, history := connector.As[connector.History](c)
+		_, anchors := connector.As[connector.HistoryAnchors](c)
 		out.Archives = append(out.Archives, assistantwire.ArchiveSource{ID: c.ID(), PollMS: c.Manifest().Poll.Milliseconds(),
-			Sources: h.archiveSources(c), Media: media})
+			Sources: h.archiveSources(c), Media: media, History: history, HistoryAnchors: history && anchors})
 	}
 	return out
 }
@@ -151,6 +160,82 @@ func (h *Manager) kbArchive(id string) (connector.Archive, error) {
 }
 
 var errArchiveOff = i18n.Err("hub-kb_sources.archive_off")
+
+// historyTimeout bounds one history read of a connector in the hub (a program's calls have their own as well). The
+// knowledge base never sends a read that timed out again: the source may have served it. A var for the tests.
+var historyTimeout = 2 * time.Minute
+
+// kbHistoryCall answers connectors.history_chats, connectors.history and connectors.history_anchors: read-only, only
+// for a connector that archives into the knowledge base now (kbArchive) and declares the capability. Nothing is
+// decided here: the query goes to the connector checked and with its limit cut, its answer and error come back as
+// they are (docs/protocol/connector-protocol.md "History").
+func (h *Manager) kbHistoryCall(ctx context.Context, p assistantwire.AppCall) (json.RawMessage, bool, error) {
+	var params struct {
+		ID    string          `json:"id"`
+		Query json.RawMessage `json:"query"`
+	}
+	if len(p.Params) > 0 {
+		if err := json.Unmarshal(p.Params, &params); err != nil {
+			return nil, true, err
+		}
+	}
+	if _, err := h.kbArchive(params.ID); err != nil {
+		return nil, true, err
+	}
+	c := h.connectorByID(params.ID)
+	hist, ok := connector.As[connector.History](c)
+	if !ok {
+		return nil, true, fmt.Errorf("connector %q has no history", params.ID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, historyTimeout)
+	defer cancel()
+	var out any
+	var err error
+	switch p.Method {
+	case assistantwire.ConnectorsHistoryChats:
+		var chats []connectorwire.HistoryChat
+		chats, err = hist.HistoryChats(ctx)
+		if chats == nil {
+			chats = []connectorwire.HistoryChat{}
+		}
+		out = assistantwire.HistoryChatsResult{Chats: chats}
+	case assistantwire.ConnectorsHistory:
+		var q connectorwire.HistoryQuery
+		if err := unmarshalQuery(params.Query, &q); err != nil {
+			return nil, true, err
+		}
+		if err := q.Check(); err != nil {
+			return nil, true, err
+		}
+		out, err = hist.History(ctx, q.Clamped())
+	default:
+		anchors, ok := connector.As[connector.HistoryAnchors](c)
+		if !ok {
+			return nil, true, fmt.Errorf("connector %q cannot search its history", params.ID)
+		}
+		var q connectorwire.HistoryAnchorsQuery
+		if err := unmarshalQuery(params.Query, &q); err != nil {
+			return nil, true, err
+		}
+		if err := q.Check(); err != nil {
+			return nil, true, err
+		}
+		out, err = anchors.HistoryAnchors(ctx, q.Clamped())
+	}
+	if err != nil {
+		return nil, true, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, true, err
+}
+
+// unmarshalQuery reads a history query; none is the zero query (which a history read then refuses for its chat).
+func unmarshalQuery(raw json.RawMessage, out any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
 
 // kbMediaMost is the largest attachment connectors.archive_media hands over (a bigger one stays an attachment
 // placeholder): the whole of connector.ArchiveMediaMost wherever the manager runs, since the knowledge base is in its
@@ -175,6 +260,21 @@ func (h *Manager) archiveSources(c connector.Connector) []string {
 		}
 	}
 	return out
+}
+
+// forgetArchiveSources allows legacy records without connector attribution to be deleted only when their
+// source name belongs to this connector alone. Explicitly attributed records are matched by the knowledge base.
+func (h *Manager) forgetArchiveSources(c connector.Connector) []string {
+	sources := h.archiveSources(c)
+	for _, other := range h.connectors.All() {
+		if other.ID() == c.ID() {
+			continue
+		}
+		sources = slices.DeleteFunc(sources, func(source string) bool {
+			return slices.Contains(other.Manifest().ArchiveSources, source)
+		})
+	}
+	return sources
 }
 
 // kbConnectorOwner exposes only identity metadata to the assistant, never account credentials or server settings.

@@ -26,7 +26,7 @@ func needsTriageModelSetup(l i18n.Lang) string {
 	return i18n.T(l, "hub-extension_inbox.needs_triage_setup")
 }
 
-// canEnablePlugin is the registry's CanEnable: a plugin with an inbox connector without a fallback needs the triage
+// canEnableExtension is the registry's CanEnable: a plugin with an inbox connector without a fallback needs the triage
 // model. Built-in plugins are the hub's own sources (#1690's line) and keep their way.
 func (h *Manager) canEnableExtension(ctx context.Context, source string, m *extension.Manifest) error {
 	if source == extension.SourceBuiltin {
@@ -45,7 +45,7 @@ func (h *Manager) canEnableExtension(ctx context.Context, source string, m *exte
 	return nil
 }
 
-// pluginsNeedingTriage are the names of the plugins that are on and need the triage model: installed ones whose
+// extensionsNeedingTriage are the names of the plugins that are on and need the triage model: installed ones whose
 // inbox connector has no fallback (a hub.json one just waits for the model; a built-in one has its fallbacks).
 func (h *Manager) extensionsNeedingTriage() []string {
 	if h.extensions == nil {
@@ -94,7 +94,7 @@ func (h *Manager) hubJSONWaitsForTriageModel(ctx context.Context, p *extension.E
 	return err == nil && !usable // while the assistant can't be asked, it is not said to need setting up
 }
 
-// writePluginErr answers a refused plugin change: 409 needs_triage_model when the triage model is missing, else
+// writeExtensionErr answers a refused plugin change: 409 needs_triage_model when the triage model is missing, else
 // status with code.
 func writeExtensionErr(w http.ResponseWriter, status int, code string, err error) {
 	if errors.Is(err, errNeedsTriageModel) {

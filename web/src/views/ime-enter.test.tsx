@@ -6,7 +6,8 @@
 // model ID (#4937).
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../lib/lazy-page";
 vi.hoisted(() => {
   window.matchMedia ??= ((query: string) => ({ matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
 });
@@ -189,6 +190,8 @@ describe("Safari's candidate Enter (isComposing false, keyCode 229)", () => {
 });
 
 describe("Safari's candidate keys in the code views and the provider wizard (#4937)", () => {
+  // the code views are their own chunk (lib/lazy-page.ts, #1794): in before they are drawn
+  beforeAll(() => loadPages(), 60_000);
   const safari = (el: HTMLElement, key: string, init: KeyboardEventInit = {}) =>
     act(async () => {
       el.dispatchEvent(new KeyboardEvent("keydown", { key, keyCode: 229, isComposing: false, bubbles: true, cancelable: true, ...init }));

@@ -205,6 +205,8 @@ func install(e *env, args []string) error {
 		noSystemd(e, why, bin)
 		if withNode {
 			fmt.Fprintf(e.stdout, "常驻 node 同理：nohup %s node --attach >> %s 2>&1 &\n", shellQuote(e.nodeBin()), shellQuote(e.nodeLog()))
+			// nodeupdate.Options: what restarts the node on exit has to say so, or the hub cannot update it.
+			fmt.Fprintln(e.stdout, "  交给退出后会重启它的进程管理（容器的入口脚本、supervisord、runit、s6）时写成 node --attach --supervised，hub 才能远程更新它；nohup、cron 不会重启它，别加。")
 		}
 		printInvite(e, invite)
 		return exitCode(1)

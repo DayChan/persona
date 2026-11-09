@@ -64,12 +64,6 @@ func ParseNumber(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
-// NumberAt is the build number for t.
-func NumberAt(t time.Time) int64 {
-	n, _ := strconv.ParseInt(t.UTC().Format("200601021504"), 10, 64)
-	return n
-}
-
 // Newer says whether a release numbered latest replaces this build: only a strictly larger number does. A build
 // deployed straight from master carries its build time, so an older release seen later never downgrades it
 // (TestNoDowngrade).

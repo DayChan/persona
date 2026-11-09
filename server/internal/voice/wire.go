@@ -117,7 +117,7 @@ func (w liveWire) say(s, id string) []any { return []any{withEventID(w.text(s), 
 // A thinking is held to the append's token limit; a commentary only to its characters (docs/lessons/voice.md "Errors":
 // a delegation's commentary of 1300 Chinese characters went through on the measured service, its limit is 4000
 // characters), so a whole answer fits in one. Another service may hold a commentary to the append's tokens: it refuses
-// it (evError, param content) and the conversation sends a shorter one (session.go, deliver).
+// it (evError, param content) and the conversation sends a shorter one (session_speak.go, deliver).
 func (liveWire) reply(delegation, s string, final bool, id string) []any {
 	if final {
 		return []any{withEventID(map[string]any{"type": "session.commentary.append", "delegation_id": delegation,

@@ -3,6 +3,7 @@ package kb
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 // keyed by its UUID, the whole state every time (revision orders them), so replays, reordering and a transcript
 // completed later all land on one entry. Only text: the audio stays on the phone. A directory per recording:
 // meta.json, segments.json, transcript.md (what the searches read), summary.md (the model's, once it is complete).
+// Uploads journal the accepted files until all replacements commit (recording_commit.go).
 // recordings/.deleted.json is the tombstones: a late upload of a deleted one is refused. Kept recordingDays.
 
 // KindRecording is the recordings' kind and directory.
@@ -124,8 +126,8 @@ func recordingDays(days int) int {
 
 func (s *Store) Recording(id string) (*Recording, bool) {
 	var r Recording
-	ok, err := readJSON(s.path(KindRecording, id, "meta.json"), &r)
-	if !ok || err != nil {
+	raw, err := s.recordingRead(id, "meta.json")
+	if err != nil || raw == nil || json.Unmarshal(raw, &r) != nil {
 		return nil, false
 	}
 	r.persisted = true
@@ -149,7 +151,10 @@ func (s *Store) Recordings() []*Recording {
 // RecordingSegments reads a recording's segments.
 func (s *Store) RecordingSegments(id string) []RecordingSegment {
 	var segs []RecordingSegment
-	_, _ = readJSON(s.path(KindRecording, id, "segments.json"), &segs)
+	raw, err := s.recordingRead(id, "segments.json")
+	if err == nil {
+		_ = json.Unmarshal(raw, &segs)
+	}
 	return segs
 }
 
@@ -248,15 +253,10 @@ func (e *Engine) PutRecording(rawID string, u RecordingUpload, now time.Time) (s
 	}
 	r.Name = st.recordingName(r)
 	r.Updated = now.UTC()
-	if err := writeJSON(st.path(KindRecording, id, "segments.json"), nonNilSegments(u.Segments)); err != nil {
+	if err := st.commitRecording(r, u.Segments); err != nil {
 		return "", err
 	}
-	if err := writeFile(st.path(KindRecording, id, "transcript.md"), []byte(st.renderTranscript(r, u.Segments))); err != nil {
-		return "", err
-	}
-	if err := st.putEntity(KindRecording, id, r, &r.Tagging, false); err != nil {
-		return "", err
-	}
+	st.notify(KindRecording, id, "metadata")
 	st.notify(KindRecording, id, "messages")
 	e.index(KindRecording, id, r.Name, r.Tagging, r.OneLine, r.StartedAt)
 	return RecordingStored, nil
@@ -323,7 +323,10 @@ func (e *Engine) DeleteRecording(rawID string, now time.Time) (bool, error) {
 	if !existed {
 		return false, nil
 	}
-	if err := os.RemoveAll(st.path(KindRecording, id)); err != nil {
+	st.recFilesMu.Lock()
+	err := os.RemoveAll(st.path(KindRecording, id))
+	st.recFilesMu.Unlock()
+	if err != nil {
 		return false, err
 	}
 	e.unlinkRecording(id, r.Projects)
@@ -368,7 +371,13 @@ func (e *Engine) PruneRecordings(now time.Time) int {
 	defer st.recMu.Unlock()
 	var gone []string
 	for _, r := range st.Recordings() {
-		if r.StartedAt.Before(cut) && os.RemoveAll(st.path(KindRecording, r.ID)) == nil {
+		if !r.StartedAt.Before(cut) {
+			continue
+		}
+		st.recFilesMu.Lock()
+		err := os.RemoveAll(st.path(KindRecording, r.ID))
+		st.recFilesMu.Unlock()
+		if err == nil {
 			e.unlinkRecording(r.ID, r.Projects)
 			st.notify(KindRecording, r.ID, "metadata")
 			gone = append(gone, r.ID)
@@ -448,14 +457,32 @@ func (e *Engine) SummarizeRecordings(ctx context.Context, max int) int {
 }
 
 func (e *Engine) summarizeRecording(ctx context.Context, r *Recording) error {
-	segs := e.Store.RecordingSegments(r.ID)
+	files, err := e.Store.recordingSnapshot(r.ID)
+	if err != nil {
+		return err
+	}
+	var snapshot Recording
+	if files["meta.json"] == nil {
+		return nil
+	}
+	if err := json.Unmarshal(files["meta.json"], &snapshot); err != nil {
+		return err
+	}
+	r = &snapshot
+	if !r.Complete || r.Chars == 0 || r.SummarizedRev >= r.Revision {
+		return nil
+	}
+	var segs []RecordingSegment
+	if err := json.Unmarshal(files["segments.json"], &segs); err != nil {
+		return err
+	}
 	zone := e.Store.Zone()
 	in := prompts.KBRecordingInput{Pinned: r.Pinned, Title: r.Title, Device: r.Device, Language: r.Language,
 		Start: r.StartedAt.In(zone), Minutes: int(r.Duration / 60), Projects: e.knownProjects(), Tags: e.TopTags(40),
 		Transcript: clipMiddle(e.Store.renderTranscript(r, segs), recordingPromptChars)}
 	var out recordingSummary
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	err := e.modelFor("kb.compress").JSONMax(cctx, prompts.RenderKBRecording(prompts.KBOwner{Owner: e.Owner}), prompts.RenderKBRecordingInput(in), 4000, &out)
+	err = e.modelFor("kb.compress").JSONMax(cctx, prompts.RenderKBRecording(prompts.KBOwner{Owner: e.Owner}), prompts.RenderKBRecordingInput(in), 4000, &out)
 	cancel()
 	if err != nil {
 		return err

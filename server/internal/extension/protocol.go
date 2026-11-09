@@ -146,7 +146,7 @@ const (
 // HubCapabilities are this hub's.
 func HubCapabilities() []string { return []string{HubInboxGroup} }
 
-// PluginInfo is the plugin as the hub installed it.
+// ExtensionInfo is the plugin as the hub installed it.
 type ExtensionInfo struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`

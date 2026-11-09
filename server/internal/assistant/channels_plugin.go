@@ -233,6 +233,10 @@ func (s *Service) channelTarget(ctx context.Context, id string) (resolvedTarget,
 // channelForward sends the owner's message to the conversation the channel talks to (starting it when there is none
 // yet) and follows its turn.
 func (s *Service) channelForward(ctx context.Context, id string, m channel.Message) error {
+	c := &s.chans
+	c.mu.Lock()
+	generation := c.generation[id]
+	c.mu.Unlock()
 	v, ok := s.pluginChannel(ctx, id)
 	if !ok {
 		return fmt.Errorf("no channel %s", id)
@@ -308,7 +312,7 @@ func (s *Service) channelForward(ctx context.Context, id string, m channel.Messa
 			return err
 		}
 	}
-	s.startChannelRun(run)
+	s.startChannelRunForBinding(run, &generation)
 	return nil
 }
 
@@ -421,6 +425,7 @@ func (s *Service) askInChannel(ctx context.Context, id string, ix proto.Interact
 	c.mu.Lock()
 	s.loadChannelStateLocked(ctx)
 	known := slices.ContainsFunc(c.st.Asks, func(a *channel.Ask) bool { return a.Channel == id && a.ID == ix.ID })
+	generation := c.generation[id]
 	now := c.clock()
 	c.mu.Unlock()
 	if known {
@@ -441,7 +446,7 @@ func (s *Service) askInChannel(ctx context.Context, id string, ix proto.Interact
 		return
 	}
 	c.mu.Lock()
-	if _, ended := c.ended[ix.ID]; !ended && !slices.ContainsFunc(c.st.Asks, func(x *channel.Ask) bool { return x.Channel == id && x.ID == a.ID }) {
+	if _, ended := c.ended[ix.ID]; !ended && c.generation[id] == generation && !slices.ContainsFunc(c.st.Asks, func(x *channel.Ask) bool { return x.Channel == id && x.ID == a.ID }) {
 		c.st.Asks = append(c.st.Asks, a)
 		s.saveChannelStateLocked()
 	}

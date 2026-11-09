@@ -35,16 +35,10 @@ struct NotificationSettingsView: View {
             BackgroundPushSection(status: pushStatus)
 
             Section {
-                Toggle(isOn: binding(\.input)) {
-                    Label {
-                        VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                            Text("When You're Needed")
-                            Text("Questions, plan approvals, tool permissions, a terminal waiting for input").font(Theme.Font.caption).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        ThemedIcon("exclamationmark.bubble").foregroundStyle(StatusPalette.needsYou.dot)
-                    }
-                }
+                SettingsSwitchRow(title: String(localized: "When You're Needed"),
+                                  detail: String(localized: "Questions, plan approvals, tool permissions, a terminal waiting for input"),
+                                  symbol: "exclamationmark.bubble", tint: StatusPalette.needsYou.dot, iconColor: StatusPalette.needsYou.dot,
+                                  isOn: binding(\.input))
             } footer: {
                 #if os(macOS)
                 Text("On permission and plan notifications you can Allow/Approve or Deny/Reject directly (hover over the notification and click Options).")
@@ -76,26 +70,12 @@ struct NotificationSettingsView: View {
             // Live Activities (Lock Screen and Dynamic Island) are an iPhone's: a Mac has neither (docs/apple/mac.md).
             #if os(iOS)
             Section {
-                Toggle(isOn: binding(\.liveActivity)) {
-                    Label {
-                        VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                            Text("Lock Screen and Dynamic Island")
-                            Text("One Live Activity sums up agents that need you, are working, or are done").font(Theme.Font.caption).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        ThemedIcon(Theme.Icon.persona).foregroundStyle(Theme.brand)
-                    }
-                }
-                Toggle(isOn: binding(\.lockDetails)) {
-                    Label {
-                        VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                            Text("Show Details on Lock Screen")
-                            Text("When off, the Lock Screen shows only counts and “A permission is waiting”, not agent names or content").font(Theme.Font.caption).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        ThemedIcon(Theme.Icon.view).foregroundStyle(.secondary)
-                    }
-                }
+                SettingsSwitchRow(title: String(localized: "Lock Screen and Dynamic Island"),
+                                  detail: String(localized: "One Live Activity sums up agents that need you, are working, or are done"),
+                                  symbol: Theme.Icon.persona, tint: Theme.brand, iconColor: Theme.brand, isOn: binding(\.liveActivity))
+                SettingsSwitchRow(title: String(localized: "Show Details on Lock Screen"),
+                                  detail: String(localized: "When off, the Lock Screen shows only counts and “A permission is waiting”, not agent names or content"),
+                                  symbol: Theme.Icon.view, tint: Theme.Hue.gray, iconColor: .secondary, isOn: binding(\.lockDetails))
                 .disabled(prefs?.liveActivity == false)
                 NavigationLink {
                     IslandSettingsView(island: binding(\.island))

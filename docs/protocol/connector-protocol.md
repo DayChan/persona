@@ -41,7 +41,7 @@ Manifest fields:
 
 | Field | Meaning |
 | --- | --- |
-| capabilities | status, tools, actions (writes below), events, inbox, archive, items (knowledge docs / meetings / events), login, options, threads (Inbox thread opens native chat), snapshot (unread chats / today's meetings for assistant), group (Inbox event grouping, requires inbox, “Event grouping” below), meta (connector tracks each event metadata; hub calls `group.append`, requires group / `meta_description`), fallback (every Inbox item promises `extra.rule_tier`, no method, requires inbox; `docs/extensions/extensions.md` “Generic Inbox rules”), machines (depends on user's computer; `machines.online` on connection, #2830), recall (can take back what it sent: the hub calls `recall` below, only once the user agreed; shown at install, `docs/extensions/extensions.md` “Taking back what it sent: recall”). Hub calls only declared capabilities |
+| capabilities | status, tools, actions (writes below), events, inbox, archive, items (knowledge docs / meetings / events), login, options, threads (Inbox thread opens native chat), snapshot (unread chats / today's meetings for assistant), group (Inbox event grouping, requires inbox, “Event grouping” below), meta (connector tracks each event metadata; hub calls `group.append`, requires group / `meta_description`), fallback (every Inbox item promises `extra.rule_tier`, no method, requires inbox; `docs/extensions/extensions.md` “Generic Inbox rules”), machines (depends on user's computer; `machines.online` on connection, #2830), recall (can take back what it sent: the hub calls `recall` below, only once the user agreed; shown at install, `docs/extensions/extensions.md` “Taking back what it sent: recall”), history (older history can be imported into the knowledge base: `history.chats` / `archive.history`, requires archive, “History” below), `history_anchors` (can search for the owner's messages: `history.anchors`, requires history). Hub calls only declared capabilities |
 | hosts | Link hostnames for app recognition |
 | `agent_tools` | Tools exposed to coding Agents, name globs; omitted means assistant only |
 | unlisted | Tools / writes excluded from model tool list, name globs; connector's frontend calls by name, e.g. Telegram tg CLI. Not permissions: direct calls still work, writes still gated, Agent access still `agent_tools` |
@@ -67,9 +67,12 @@ Manifest fields:
 | `recall` | `{action, message_ref, target?, at?}` → `{recalled}` | Only for a connector that declares `recall`, and **only once the user agreed on their own device**: the program never starts one (a `recall` the program sends the hub is `unknown method`). The params are the sent-as-user ledger row's, none of what the message said: `action` (the tool's name, `sent.record`, or `METHOD /path` for a write the node's gate forwarded), `message_ref` (never empty), `target` (the row's, as kept), `at` (when the row was written, RFC 3339). Answer `{"recalled": true}` only when the service confirms the message is no longer there (one that was already gone included; a repeat after success is a success too): `{}`, `false` and anything undecodable are taken as not knowing. Errors: `not_recallable` (it cannot, nothing was sent), `not_signed_in` / `offline` / `rate_limited` (it cannot act now), `recall_unknown` (it may have gone through), a program that does not have the method answers `unknown_method`, and `unknown_method` and `no_capability` count as `not_recallable` to the hub; any other error is the service refusing, in one sentence (the hub keeps the first line, 200 characters). The hub gives the call 30 seconds, then counts it as not known. `message_ref` of a write is `actions.do`'s answer or `sent.record`'s |
 | `inbox.collect` | `{}` → `{things: [InboxThing]}` | Memory-only |
 | `inbox.reply` | `{thread, item_id?, last?, text, client_id?, changes?}` → `{}` | User pressed Send, itself confirmation. App `client_id` ensures one send on retry, connector derives if absent. `changes: [{ref, field, value}]` first update document-row status (Change Status / AI-twin proposal), allowing empty text |
-| `archive.changes` | `{cursor, limit}` → `{batches: [{source?, chat, messages}], next, more}` | Program-owned cursor, stored / returned unchanged, initial empty string. Batches archive as `<source>-<chat.id>`; absent source uses connector ID, otherwise must be `archive_sources`; invalid source drops batch / logs |
+| `archive.changes` | `{cursor, limit}` → `{batches: [{source?, chat: {id, name, kind, topic?, muted?, collapsed?, done?, updated_at?}, messages}], next, more}` | Program-owned cursor, stored / returned unchanged, initial empty string. Chat flags and message fields below (“Chat flags and document signals”). Batches archive as `<source>-<chat.id>`; absent source uses connector ID, otherwise must be `archive_sources`; invalid source drops batch / logs |
 | `archive.media` | `{ref}` → `{mime, data}` | Base64 archive media, max 20 MB, stored in chat attachments. Optional; absent yields [Attachment] row |
-| `items.list` | `{}` → `{items: [{kind, id, title, url?, at?, where?}]}` | Knowledge items, kind docs / meetings / events; only if items declared |
+| `history.chats` | `{}` → `{chats: [{id, name, kind, muted?, collapsed?, done?, bot?, estimate?, source?}]}` | History declared only, read-only. The conversations whose older history can be imported (“History” below) |
+| `archive.history` | `{chat, before?, after?, around?, limit?}` → `{messages?, older?, newer?, more?, unreadable?, pace?}` | History declared only, read-only. One page of one conversation, oldest first (“History” below) |
+| `history.anchors` | `{chat?, since?, until?, cursor?, limit?}` → `{anchors?: [{chat, source?, position, at?, mine?, mention?, message?}], next?, more?, pace?}` | `history_anchors` declared only, read-only. The owner's messages over a window (“History” below) |
+| `items.list` | `{}` → `{items: [{kind, id, title, url?, at?, where?, signals?}]}` | Knowledge items, kind docs / meetings / events; only if items declared. `signals` below (“Chat flags and document signals”) |
 | `items.doc_title` | `{url}` → `{title}` | Chat document-link title; unreadable empty string |
 | `snapshot.get` | `{tz?}` → `{chats?: {at_me: [{name, unread, preview?}], other: [{name, unread}]}, meetings?: [{start, end, title}]}` | Snapshot declared only (#1520). Current user state for assistant live snapshot / Today card: unread chats awaiting user, mentions include latest-text prefix; today's meetings in tz, not ended / declined, start order. Fast: hub waits max 3 seconds, omits on timeout. Unknown portions omitted |
 | `group.tool` | `{thread, name, args}` → any JSON | Group declared only, optional `unknown_method` tells model unavailable. Association model can inspect thread: `messages_before` {message,n}, n≤30; `messages_around` {message,n}, n before / after; search {query,n} matching thread messages. Each id / time / sender / truncated body. Raw result to model, remove avatar / media, truncate >8 KB; errors `{"error": …}` |
@@ -95,7 +98,7 @@ Taking back a sent message (#5278): a connector that declares the capability `re
 
 Since 2026-11-04, assistant-manager process groups / sorts Inbox (`docs/assistant/inbox.md` “Who owns what”). Connectors still talk only to hub; hub forwards `inbox.collect` unchanged and proxies `inbox.reply`, `inbox.settle`, `group.*` for manager. **Protocol unchanged**.
 
-Each messages entry: id, position, `sender_id`, `sender_name`, mine, type, text, at, media, `sender_handles: [{kind, value}]` (raw identity clues; hub stores HMAC only, `docs/assistant/knowledge.md` “Identity clues”).
+Each messages entry: id, position, `sender_id`, `sender_name`, mine, mentioned, `mentioned_all`, type, text, at, media, `sender_handles: [{kind, value}]` (raw identity clues; hub stores HMAC only, `docs/assistant/knowledge.md` “Identity clues”).
 For `archive.changes`, nonempty `id` is stable within the batch source and chat: live ingestion keeps its first durable version and ignores replay, including edited
 bodies with that ID. Distinct IDs remain distinct even when their text is identical. `position` is pagination only. Missing IDs retain legacy append behavior
 without replay protection; existing Markdown cannot reconstruct old IDs (`docs/assistant/knowledge.md` "Connector replay and recovery").
@@ -131,6 +134,72 @@ Group-capable connectors submit each thread's new messages as a **batch awaiting
 | changed event | `{scope}` | Chats / items / inbox changed; hub fetches promptly. Unknown scope dropped / logged |
 
 If extension also contributes events (`docs/extensions/extensions.md` “Events”), hub event.<name> is delivered to `serve.Listener` connector Hear(ctx,name,params) in own goroutine, no response. Without implementation, drop as before. WeChat bot uses `agent.needs_you` (`docs/extensions/wechat.md`).
+
+### Chat flags and document signals
+
+The knowledge base's selection (#1523) decides what it keeps of a chat or a document by what the program reports, the
+same way for every connector. Every field here is optional and additive (no version change): a program that cannot tell
+one leaves it out, and its chats or documents never match that rule; a hub that does not know one ignores it.
+
+- **A chat** (an `archive.changes` batch's `chat`, a `history.chats` entry): the selection's kind rules match `kind` dm
+  (a person), group, bot (bots, apps, agents), official (an official or service account) and system (the service's own
+  notices). `history.chats` allows only these; a batch's chat may have another kind (`mail`, `issue`, `pr`…), which
+  matches no kind rule. `muted`: the owner
+  muted it, a source's automatic muting of large groups included; `collapsed`: the owner folded it away (a chat box,
+  folded groups); `done`: the owner marked it done. A batch carries them every time it reports the chat, so a change at
+  the source reaches the knowledge base with the next message.
+- **A message** (batches and history pages alike): `mine` is the owner's own; `mentioned` says the owner is mentioned by
+  name in it (the program decides: an @-mention of the owner or, for a source without mention data, a match of the
+  owner's display names in the text); `mentioned_all` says it mentions everyone in the chat (an @all / @everyone). A
+  message can carry both. Report an @all as `mentioned_all` alone: whether it counts as a mention is the selection's
+  `include_all`, decided by the hub.
+- **A document** (`items.list`): `signals` are why it concerns the owner, each at most once: `mentions` (the document
+  mentions the owner), `comment_mentions` (a comment or reply on it does), `authored` (the owner owns it), `viewed`
+  (the owner opened it recently). Only what the program can list read-only; no other value.
+
+### History
+
+`archive.changes` only moves forward from the account's one cursor. A conversation's older history is imported
+through three read-only calls, one conversation and one page at a time, at the pace the program sets. The hub asks
+only a connector that declares the capability, and the knowledge base drives the import through the hub
+(`connectors.history_chats`, `connectors.history`, `connectors.history_anchors`, only while "Add to knowledge base" is on).
+Messages have the `archive.changes` shape (see `mentioned` below) and are filed under the chat `<source>-<id>` like a batch.
+
+- **`history.chats`** lists the conversations: `kind` is dm, group, bot, official (an official or service account) or
+  system (the service's own notices); `muted`, `collapsed` and `done` are the owner's flags at the source (“Chat flags
+  and document signals”); `estimate` roughly how many messages
+  it has (0 or absent: unknown), to size the import; `source` as a batch's. An `id` is unique across all of the
+  program's sources: a query, a page and an anchor name a conversation by `id` alone.
+- **`archive.history`** reads one page. At most one of `before`, `after` and `around` (a position or a cursor the
+  program answered, handed back as it is); none is the newest page. Messages are oldest first. `older` is the cursor to
+  go further back, `newer` the one to go forward.
+  - **`limit` is a hint, not a count.** The hub sends at most 200; 0 or absent is the program's own default. A program
+    may answer more (one real source answers limit+10 around a position and limit+5 paging back). The caller goes on
+    from the cursors in the answer, never from how many it asked for.
+  - **The start of the conversation**: `more` false (or no messages) means there is nothing older, and `older` is empty.
+    A page with no messages never says `more`, and an unreadable one carries no `more`, `older` or `newer`.
+    Where positions are numbers, the oldest is 0. A paced or unreadable answer is empty with `more` false as well, so
+    the caller reads an answer in this order: `pace` first (never the start: wait or stop, then read the same place
+    again), then `unreadable`, and only then `more` false or no messages (`connectorwire.HistoryPage.AtStart`).
+  - **Unreadable**: a conversation the account can no longer read (it left, the group was dissolved, the source answers
+    not found) is `{unreadable: true}` with no messages, not an error. It is permanent: the caller skips it and does not
+    count it as a failure. A search may still find messages in it (`history.anchors`, `message`).
+- **`history.anchors`** (optional, for a source that can search): the messages the owner sent (`mine`) or was mentioned
+  in (`mention`) between `since` and `until`, in one conversation (`chat`) or all of them; `cursor` is the previous
+  answer's `next`. The caller reads the page around each (`archive.history` with `around: position`), instead of the
+  whole conversation. `message` is the hit itself: the only way to keep one from an unreadable conversation. `source`
+  is the name its conversation is filed under, as in `history.chats` (one the account left is often missing there). A
+  search hit may carry no `sender_id`.
+- **`mentioned`** on a message (here and in `archive.changes`): the owner is mentioned by name in it. The program decides
+  (an @-mention of the owner, or a match of the owner's display names); an @all alone is `mentioned_all`, not `mentioned`.
+- **Pace**: an answer may carry `pace: {retry_after_ms?, stop?, reason?}`. `retry_after_ms` asks the caller to wait that
+  long before the next read (a 429 and its Retry-After); `stop` asks it not to go on until a person did something (an
+  expired sign-in, a 401, a policy refusal), with `reason` for people and never a secret. A page with pace is still read
+  for the messages it holds. A program may instead answer an error with a code (`rate_limited`, `not_signed_in`); the
+  hub passes it on as it is.
+- **Timeouts**: a read that timed out has an unknown result (the source may have served it, and counted it against a
+  limit). The caller never retries it on its own; the next read is the import's next step, at its own pace.
+- **Read-only**: none of these calls writes anything at the source.
 
 ### Knowledge base
 
@@ -192,14 +261,17 @@ Without Go implementation to compare, `conformance.CheckProgram(t, manifest, run
 | `thread.page` | `connector.ThreadPage` | First Inbox thread, oldest first, ≤limit; unique nonempty IDs / at; non-event non-mine has sender name; text or media; `chat.reply` own action with chat / text. If before, earlier page no duplicates / newer messages |
 | `thread.media` | `connector.Media` | Once only if page has ref |
 | `archive.changes` | `serve.ChangesResult` | Follow next until more false, then query final cursor again. With data next nonempty, never resets empty / stalls; no duplicate message IDs per chat; id / at / text or media (knowledge append-only, live replay dedup by source/chat/id, drops undated / empty); `sender_handles` kind / value |
-| `items.list` | `serve.ItemsResult` | Kind docs / meetings / events, id / title |
+| `history.chats` | `serve.HistoryChatsResult` | History declared only. `chats` present (empty `[]`); each id once across sources, with a name, kind dm / group / bot / official / system, estimate not negative; the flags (`muted`, `collapsed`, `done`, `bot`) optional, no other field |
+| `archive.history` | `connectorwire.HistoryPage` | The first three conversations, from the newest page back up to four pages, going on from `older` (never from the count). Oldest first, unique nonempty IDs / at; `more` needs messages and a new `older`; no `more`, no `older`; unreadable has no messages, `more` or cursors; a `stop` pace has a reason; an older page does not start after the newer one (pages may overlap). Stops at the start, an unreadable conversation or any pace |
+| `history.anchors` | `connectorwire.HistoryAnchors` | `history_anchors` declared only. No window (a fixture's dates stay put); each anchor chat / position, mine or mention, a `message` with an id; `more` needs `next`. Then `archive.history` around the first anchor |
+| `items.list` | `serve.ItemsResult` | Kind docs / meetings / events, id / title; `signals` optional, each a known one (mentions / comment_mentions / authored / viewed) at most once |
 | `login.step` | `connector.Prompt` | Fields, done, `device_code`, or qr; QR url / interval / step, `WithLogin` polls until done. Input step nonempty name (empty restarts); done requires account |
 | logout | `{}` | Only last after `WithLogin`; status no longer ok, secrets deleted via `secrets.delete` |
 | `connector.changed` event | `serve.ChangedEvent` | Own contribution, events declared, known scope |
 | program `secrets.*` calls | `{contribution, data?}` | Own contribution present |
 
-Manifest also checked: capabilities implemented by `connector/proc.Conn` plus promise-only fallback; fallback means each nongroup-batch inbox item has known `extra.rule_tier` / tier (#1899). No duplicate capabilities; kinds only with inbox; `kind_descriptions` keys declared. **Never call `actions.do`** (writes only after gate), `recall` (a recall deletes a message) or `inbox.reply` (user Send); a manifest may declare `recall`, which `CheckProgram` accepts.
-`WithLogin(values)` fills fields each step, requires ok afterward; fixture backends only, never real credentials; leaked supplied secret fails. `RequireData()` rejects empty `inbox.collect` / `thread.page` / `archive.changes`, preventing empty implementations passing.
+Manifest also checked: capabilities implemented by `connector/proc.Conn` plus promise-only fallback; fallback means each nongroup-batch inbox item has known `extra.rule_tier` / tier (#1899). No duplicate capabilities; kinds only with inbox; history only with archive, `history_anchors` only with history; `kind_descriptions` keys declared. **Never call `actions.do`** (writes only after gate), `recall` (a recall deletes a message) or `inbox.reply` (user Send); a manifest may declare `recall`, which `CheckProgram` accepts.
+`WithLogin(values)` fills fields each step, requires ok afterward; fixture backends only, never real credentials; leaked supplied secret fails. `RequireData()` rejects empty `inbox.collect` / `thread.page` / `archive.changes` / `history.chats` / `history.anchors`, preventing empty implementations passing.
 
 For your program: first `extension/conformance` start / stop / handshake, then fresh process `CheckProgram`; internal packages cannot be imported by other repos, so tests live here:
 

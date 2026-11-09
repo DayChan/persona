@@ -236,7 +236,7 @@ func TestConnectorThatStartsOff(t *testing.T) {
 	}
 }
 
-// "Delete saved data": the connector is switched off (and stays off), its chats, people and inbox items go, the rest
+// "Delete saved data": the connector is switched off (and stays off), its knowledge content and inbox items go; the rest
 // stays.
 func TestConnectorDataDelete(t *testing.T) {
 	h := newTestManager(t)
@@ -246,14 +246,14 @@ func TestConnectorDataDelete(t *testing.T) {
 	_ = h.addConnector(&exampleConnector{})
 	mux := h.routes()
 	// The knowledge base and the inbox are the assistant's (in this process): the manager asks it to delete the
-	// source's chats and people (kb.forget) and its inbox items (inbox.forget), which it does (tested there).
+	// source's knowledge content (kb.forget) and its inbox items (inbox.forget), which it does (tested there).
 	a := forgettingAssistant(h)
 
 	if code, _ := call(t, mux, "DELETE", "/api/v1/connectors/nope/data", h.cfg.Token, ""); code != 404 {
 		t.Fatalf("an unknown connector: %d", code)
 	}
 	code, out := call(t, mux, "DELETE", "/api/v1/connectors/example/data", h.cfg.Token, "")
-	if code != 200 || out["chats"] != 1.0 || out["people"] != 1.0 || out["inbox"] != 1.0 {
+	if code != 200 || out["chats"] != 1.0 || out["people"] != 1.0 || out["posts"] != 2.0 || out["items"] != 3.0 || out["inbox"] != 1.0 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
 	if h.connectors.Enabled("example") || !strings.Contains(st.settings[connectorSettingsKey], `"example":false`) {
@@ -278,11 +278,12 @@ func TestConnectorDataDelete(t *testing.T) {
 	}
 }
 
-// forgettingAssistant is a fake assistant whose knowledge base and inbox each had one of what a source is asked to
-// forget.
+// forgettingAssistant is a fake assistant reporting deletion counts for each type of saved content.
 func forgettingAssistant(h *Manager) *fakeAssistant {
 	a := withAssistant(h)
-	a.on(assistantwire.MethodKBForget, func(json.RawMessage) (any, error) { return map[string]any{"chats": 1, "people": 1}, nil })
+	a.on(assistantwire.MethodKBForget, func(json.RawMessage) (any, error) {
+		return assistantwire.KBForgotten{Chats: 1, People: 1, Posts: 2, Items: 3}, nil
+	})
 	a.on(assistantwire.MethodInboxForget, func(json.RawMessage) (any, error) { return map[string]any{"deleted": 1}, nil })
 	return a
 }

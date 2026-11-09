@@ -1,10 +1,12 @@
 package hub
 
 import (
-	"github.com/nwverse/persona/server/internal/compat"
+	"encoding/json"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/compat"
 )
 
 // Taking a card's push back once the card is over (#4349): answered on the computer, the web or the watch, withdrawn
@@ -28,6 +30,9 @@ const (
 	withdrawEvery = time.Minute
 	// withdrawMost bounds the ids in one push (APNs takes 4 KB); the rest go with the next.
 	withdrawMost = 40
+	// withdrawIDBytes bounds the encoded ids in one push too: runtime ids may be 128 characters, and forty of those
+	// are more than a sealed push carries (relayMaxPlain, under APNs' 4 KB). The rest leaves room for aps, hub_id and iat.
+	withdrawIDBytes = relayMaxPlain - 256
 )
 
 type withdrawals struct {
@@ -135,8 +140,8 @@ func (p *Pusher) flushWithdraw(device string) {
 	}
 	q.timer = nil
 	ids := q.ids
-	if len(ids) > withdrawMost {
-		ids, q.ids = ids[:withdrawMost:withdrawMost], ids[withdrawMost:]
+	if n := withdrawBatch(ids); n < len(ids) {
+		ids, q.ids = ids[:n:n], ids[n:]
 	} else {
 		q.ids = nil
 	}
@@ -148,6 +153,20 @@ func (p *Pusher) flushWithdraw(device string) {
 	}
 	p.sendAs(map[string]any{"aps": map[string]any{"content-available": 1}, "resolved_interaction_ids": ids}, "", "background", "5",
 		func(d Device) bool { return d.DeviceID == device && hasFeature(d, featureWithdraw) })
+}
+
+// withdrawBatch is how many of ids, from the first, go in one push: at most withdrawMost, and only as many as fit
+// withdrawIDBytes encoded. Always at least one, so the queue moves.
+func withdrawBatch(ids []string) int {
+	size := 0
+	for i, id := range ids {
+		b, _ := json.Marshal(id)
+		size += len(b) + 1 // and its comma
+		if i == withdrawMost || i > 0 && size > withdrawIDBytes {
+			return i
+		}
+	}
+	return len(ids)
 }
 
 func hasFeature(d Device, feature string) bool { return slices.Contains(d.Features, feature) }

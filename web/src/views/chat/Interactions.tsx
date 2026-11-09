@@ -578,6 +578,13 @@ function SecretRunCard({ ix }: { ix: Interaction }) {
 }
 
 function ScreenCard({ ix }: { ix: Interaction }) {
+  const input = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    const el = input.current;
+    return () => {
+      if (el) el.value = "";
+    };
+  }, []);
   const d = ix.dialog;
   const [text, setText] = useState("");
   const [typing, setTyping] = useState<string | null>(null);
@@ -616,11 +623,15 @@ function ScreenCard({ ix }: { ix: Interaction }) {
         ) : (
           <>
             <input
+              ref={ix.secret ? input : undefined}
               type={ix.secret ? "password" : "text"}
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={ix.secret ? t("chat-interactions.password") : t("chat-interactions.type_and_enter")}
-              autoComplete="off"
+              autoComplete={ix.secret ? "one-time-code" : "off"}
+              autoCapitalize={ix.secret ? "off" : undefined}
+              autoCorrect={ix.secret ? "off" : undefined}
+              {...(ix.secret ? SECRET_INPUT : {})}
               className="h-8 min-w-0 flex-1 rounded-control bg-surface px-2.5 text-[13px] text-ink shadow-btn outline-none placeholder:text-ink-3"
             />
             <Button tone="primary" busy={busy === "text"} disabled={busy !== null} onClick={() => go({ text, keys: ["enter"] }, "text")}>
@@ -879,6 +890,13 @@ const inputType = (f: Field) =>
 
 /** One field of an MCP form: its title ("Required" / "Optional"), what it is for, the control, and what is wrong with it. */
 function ElicitationField({ field: f, value, error, onChange }: { field: Field; value: unknown; error?: string; onChange: (v: unknown) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    const el = input.current;
+    return () => {
+      if (el) el.value = "";
+    };
+  }, []);
   const id = useId();
   const text = f.type !== "boolean" && f.choices.length === 0;
   const list = Array.isArray(value) ? value : [];
@@ -904,14 +922,17 @@ function ElicitationField({ field: f, value, error, onChange }: { field: Field; 
       ) : (
         <input
           id={id}
+          ref={f.secret ? input : undefined}
           type={inputType(f)}
           inputMode={numberInputMode(f)}
           value={value === undefined ? "" : String(value)}
           // an emptied field is not filled in: a required one says so, an optional one is left out
           onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
           placeholder={f.schema.format === "date-time" ? "2026-01-01T09:00:00Z" : undefined}
-          autoComplete={f.secret ? "new-password" : "off"}
-          spellCheck={f.secret ? false : undefined}
+          autoComplete={f.secret ? "one-time-code" : "off"}
+          autoCapitalize={f.secret ? "off" : undefined}
+          autoCorrect={f.secret ? "off" : undefined}
+          {...(f.secret ? SECRET_INPUT : {})}
           aria-invalid={error ? true : undefined}
           className={cx(
             "h-8 w-full min-w-0 rounded-control bg-surface px-2.5 text-[13px] text-ink shadow-btn outline-none placeholder:text-ink-3",

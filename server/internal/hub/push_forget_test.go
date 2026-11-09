@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/db"
 )
 
 // forgetStore is a database whose device row delete either hangs until the caller gives up (a locked row) or fails.
@@ -118,5 +120,83 @@ func TestForgetStoreErrorIsLogged(t *testing.T) {
 				t.Fatalf("no log line for the failed delete; logged %q", logs.lines)
 			}
 		})
+	}
+}
+
+// bookkeepingOf reports which of the pusher's per-device maps still hold id.
+func bookkeepingOf(p *Pusher, id string) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var left []string
+	if _, ok := p.failed[id]; ok {
+		left = append(left, "failed")
+	}
+	if _, ok := p.replaced[id]; ok {
+		left = append(left, "replaced")
+	}
+	if p.acceptedDirty[id] {
+		left = append(left, "acceptedDirty")
+	}
+	return left
+}
+
+// Signing out a device that had a push accepted, a push fail and a renewed grant clears all of its bookkeeping, so
+// the next maintenance pass writes no row for it: not its own, and not a ghost row with an empty id.
+func TestSignedOutClearsPushBookkeeping(t *testing.T) {
+	rows := &deviceRows{rows: map[string]db.Device{}}
+	p := newPusher(t.TempDir(), rows, t.Logf)
+	d := Device{DeviceID: "phone", Name: "Phone", APNSToken: "tok", Credential: "cred-a"}
+	if err := p.register(d); err != nil {
+		t.Fatal(err)
+	}
+	p.pushed(d, nil)
+	p.pushed(d, errors.New("APNs refused"))
+	p.mu.Lock()
+	p.replaced[d.DeviceID] = "old-grant"
+	p.mu.Unlock()
+
+	p.signedOut("cred-a")
+	if left := bookkeepingOf(p, d.DeviceID); len(left) > 0 {
+		t.Fatalf("signed-out device still in %v", left)
+	}
+	if err := p.reconcileDevices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := rows.row(""); ok {
+		t.Fatal("maintenance wrote a devices row with an empty id")
+	}
+	if _, ok, _ := rows.row(d.DeviceID); ok {
+		t.Fatal("maintenance wrote the signed-out device's row back")
+	}
+	for _, id := range []string{d.DeviceID, ""} {
+		if _, ok := p.routeOfID(id); ok {
+			t.Fatalf("routeOfID(%q) still finds a device", id)
+		}
+	}
+}
+
+// Maintenance skips an accepted push whose device is no longer registered instead of upserting a zero Device, and
+// drops the stale mark.
+func TestReconcileSkipsForgottenDirtyDevice(t *testing.T) {
+	rows := &deviceRows{rows: map[string]db.Device{}}
+	p := newPusher(t.TempDir(), rows, t.Logf)
+	p.mu.Lock()
+	p.acceptedDirty = map[string]bool{"gone": true}
+	p.mu.Unlock()
+
+	if err := p.reconcileDevices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	rows.mu.Lock()
+	n := len(rows.rows)
+	rows.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("maintenance wrote %d rows for a device that is not registered", n)
+	}
+	if left := bookkeepingOf(p, "gone"); len(left) > 0 {
+		t.Fatalf("forgotten device still in %v", left)
+	}
+	if _, ok := p.routeOfID(""); ok {
+		t.Fatal("a device with an empty id is in memory")
 	}
 }

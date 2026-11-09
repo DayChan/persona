@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -199,6 +200,7 @@ func (s *filingProbeStore) PutInboxItem(ctx context.Context, id string, data []b
 type filingSecondSave struct{}
 
 func filingConversation(h *inboxHub, it *InboxItem, sid string) {
+	h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 	it.Agent.MachineID, it.Agent.SessionID = "server", sid
 	it.Handling.MachineID, it.Handling.SessionID = "server", sid
 	h.f.setSessions("server", proto.Session{SessionID: sid, Status: proto.StatusWorking})

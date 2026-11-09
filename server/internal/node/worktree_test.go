@@ -31,6 +31,29 @@ type worktreeFixture struct {
 	repo string // the repository of workspace w1
 }
 
+func TestAutomaticWorktreeNamesAlsoWorkWithHerdr(t *testing.T) {
+	w := worktreeNode(t)
+	prep, err := request(t, w.n, "worktree.prepare", map[string]any{"workspace_id": "w1"})
+	if err != nil || prep["automatic_name"] != true || prep["choose_parent"] == true {
+		t.Fatalf("herdr naming capabilities: %v, %v", prep, err)
+	}
+	seen := map[string]bool{}
+	for range 2 {
+		res, err := request(t, w.n, "worktree.create", map[string]any{"workspace_id": "w1", "auto_name": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		branch, path := str(res["branch"]), str(res["path"])
+		if !strings.HasPrefix(branch, "persona/worktree-") || seen[branch] || path == "" {
+			t.Fatalf("must return a unique generated branch and checkout: %v", res)
+		}
+		seen[branch] = true
+		if head := runPullGit(t, path, "rev-parse", "HEAD"); head != runPullGit(t, w.repo, "rev-parse", "HEAD") {
+			t.Fatal("generated worktree does not start at the source HEAD")
+		}
+	}
+}
+
 // worktreeNode is a node on a fake herdr whose workspace w1 is a real repository (branch main, one commit, a second
 // local branch "spare"). The fake's worktree.create does what herdr does: a real `git worktree add`.
 func worktreeNode(t *testing.T) worktreeFixture {

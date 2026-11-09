@@ -223,7 +223,7 @@ func (s *Service) lang(ctx context.Context) i18n.Lang {
 
 // call is a DeviceCall whose answer is read into out (nil: not read).
 func (s *Service) call(ctx context.Context, device, method string, params, out any) error {
-	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend {
+	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend && p["supervision"] != true {
 		if id, _ := p["session_id"].(string); id != "" && s.supervising(id) {
 			s.releasePushes(ctx, id) // something else speaks there: its turns are pushed again (a supervision message holds them anew)
 		}

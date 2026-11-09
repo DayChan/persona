@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chatLines } from "./turns";
 import type { Item } from "./types";
-import { NAV_RAIL_PREVIEW_MAX, hasNavRailRoom, navRailExcerpt, navRailPreview, navRailTicks, pickActiveTick, planNavRailTicks } from "./nav-rail";
+import { NAV_RAIL_PREVIEW_MAX, activeNavRailOffset, navRailExcerpt, navRailPreview, navRailTicks, pickActiveTick, planNavRailTicks } from "./nav-rail";
 
 const u = (seq: number, text: string, extra: Partial<Item> = {}): Item => ({ id: `u${seq}#0`, seq, role: "user", kind: "text", text, ...extra });
 const a = (seq: number, text: string): Item => ({ id: `a${seq}#0`, seq, role: "assistant", kind: "text", text });
@@ -84,28 +84,24 @@ describe("navRailExcerpt", () => {
   });
 });
 
-describe("hasNavRailRoom", () => {
-  it("needs the centered column plus the gutter beside it", () => {
-    expect(hasNavRailRoom(880)).toBe(false);
-    expect(hasNavRailRoom(880 + 2 * 43)).toBe(false);
-    expect(hasNavRailRoom(880 + 2 * 44)).toBe(true);
-    expect(hasNavRailRoom(1600)).toBe(true);
-  });
-});
-
 describe("planNavRailTicks", () => {
   it("keeps the normal pitch while the ticks fit", () => {
-    expect(planNavRailTicks(10, 200)).toEqual({ start: 0, pitch: 9, hidden: 0 });
-    expect(planNavRailTicks(0, 0)).toEqual({ start: 0, pitch: 9, hidden: 0 });
+    expect(planNavRailTicks(10, 200)).toEqual({ start: 0, pitch: 9, hidden: 0, count: 10 });
+    expect(planNavRailTicks(0, 0)).toEqual({ start: 0, pitch: 9, hidden: 0, count: 0 });
   });
 
-  it("compresses the pitch before dropping ticks", () => {
-    expect(planNavRailTicks(20, 100)).toEqual({ start: 0, pitch: 5, hidden: 0 });
+  it("compresses the pitch before windowing ticks", () => {
+    expect(planNavRailTicks(20, 100)).toEqual({ start: 0, pitch: 5, hidden: 0, count: 20 });
   });
 
-  it("keeps only the newest run when even the least pitch cannot fit, one slot for the placeholder", () => {
-    const plan = planNavRailTicks(30, 40); // 8 slots of 5px, one goes to the placeholder
-    expect(plan).toEqual({ start: 23, pitch: 5, hidden: 23 });
+  it("keeps every selected input accessible in a bounded moving window", () => {
+    expect(planNavRailTicks(30, 40)).toEqual({ start: 22, pitch: 5, hidden: 22, count: 8 });
+    for (let focus = 0; focus < 1000; focus++) {
+      const plan = planNavRailTicks(1000, 200, focus);
+      expect(plan.count).toBe(40);
+      expect(plan.start).toBeLessThanOrEqual(focus);
+      expect(plan.start + plan.count).toBeGreaterThan(focus);
+    }
   });
 });
 
@@ -118,8 +114,21 @@ describe("pickActiveTick", () => {
     expect(pickActiveTick(4, 1000, at)).toBe(3);
   });
 
-  it("the first when the view is above every question, and unmounted lines count as read past", () => {
+  it("the first above the view, without treating missing anchors as already read", () => {
     expect(pickActiveTick(4, 50, at)).toBe(0);
-    expect(pickActiveTick(4, 250, (i) => (i < 2 ? null : tops[i]))).toBe(1);
+    expect(pickActiveTick(4, 250, (i) => (i < 2 ? null : tops[i]))).toBe(2);
+    expect(pickActiveTick(4, 250, (i) => (i === 3 ? null : tops[i]))).toBe(1);
+    expect(pickActiveTick(4, 250, () => null)).toBeNull();
+  });
+});
+
+describe("activeNavRailOffset", () => {
+  it("tracks the last input above the viewport from cached offsets", () => {
+    const offsets = [{ index: 0, top: 100 }, { index: 2, top: 300 }, { index: 4, top: 900 }];
+    expect(activeNavRailOffset(offsets, 50)).toBe(0);
+    expect(activeNavRailOffset(offsets, 300)).toBe(2);
+    expect(activeNavRailOffset(offsets, 800)).toBe(2);
+    expect(activeNavRailOffset(offsets, 1500)).toBe(4);
+    expect(activeNavRailOffset([], 100)).toBeNull();
   });
 });

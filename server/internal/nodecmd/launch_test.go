@@ -62,17 +62,6 @@ func shortHome(t *testing.T) string {
 	return home
 }
 
-// launchEnv is the environment for a child personad with home as its home and no Persona / Persona overrides.
-func launchEnv(home string) []string {
-	env := []string{}
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "PERSONA_") && !strings.HasPrefix(kv, "HOME=") {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "HOME="+home)
-}
-
 // A node that takes the connection and never answers: launch gives up after LaunchNodeWait and says which socket
 // did not answer and what to do, instead of waiting forever (#4548).
 func TestLaunchGivesUpOnANodeThatDoesNotAnswer(t *testing.T) {

@@ -221,7 +221,9 @@ struct AgentRowMenu: View, Equatable {
             Button { model.markSeen(key) } label: { Label("Mark as Seen", systemImage: Theme.Icon.view) }
         }
         if terminal {
-            Button { if let s = now() { actions.rename(s) } } label: { Label("Rename… [Assistant Sidebar ec4cd0]", systemImage: Theme.Icon.edit) }
+            Button { if let s = now() { actions.rename(s) } } label: {
+                Label(String(localized: "agent.rename", defaultValue: "Rename Agent…"), systemImage: Theme.Icon.edit)
+            }
         }
         Button { model.toggleMute(key) } label: {
             Label(muted ? String(localized: "Unmute [Chat View 3834f9]") : String(localized: "Mute"), systemImage: muted ? Theme.Icon.unmute : Theme.Icon.mute)

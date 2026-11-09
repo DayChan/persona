@@ -371,11 +371,17 @@ func (s *Service) deliverRelay(ctx context.Context, machine, to string, msg rela
 	if msg.Tool == noticeTool || msg.Tool == superviseTool || msg.Tool == askAnswerTool {
 		text = msg.Text
 	}
-	if err := s.call(ctx, machine, DeviceAssistantSend, map[string]any{"session_id": to, "text": text, "resume_only": true}, nil); err != nil {
+	if msg.Tool == superviseTool {
+		// Register before dispatch: a fast MCP call can arrive before assistant.send returns.
+		s.holdPushes(ctx, to)
+	}
+	if err := s.call(ctx, machine, DeviceAssistantSend, map[string]any{"session_id": to, "text": text, "resume_only": true, "supervision": msg.Tool == superviseTool}, nil); err != nil {
+		if msg.Tool == superviseTool {
+			s.releasePushes(ctx, to)
+		}
 		return err
 	}
 	if msg.Tool == superviseTool {
-		s.holdPushes(ctx, to) // its answer is not pushed unless it pushes (supervise_digest.go)
 		return nil
 	}
 	if msg.Tool == noticeTool || msg.Tool == askAnswerTool {
