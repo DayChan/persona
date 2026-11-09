@@ -496,6 +496,8 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		Keys             []string      `json:"keys"`
 		Lines            int           `json:"lines"`
 		BeforeSeq        int           `json:"before_seq"`
+		AroundSeq        *int          `json:"around_seq"`
+		History          string        `json:"history"`
 		AfterSeq         *int          `json:"after_seq"`
 		Limit            int           `json:"limit"`
 		SinceSeq         int           `json:"since_seq"`
@@ -1072,6 +1074,14 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		}
 		it.Image = nil // images come from session.image
 		return n.echoed(p.SessionID, f, []proto.Item{it})[0], nil
+	case "session.navigation":
+		f, err := n.file(p.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		n.refresh(p.SessionID, f)
+		out, err := f.Navigation(p.BeforeSeq, p.Limit, p.History)
+		return out, navigationError(err)
 	case "session.items":
 		f, err := n.file(p.SessionID)
 		if err != nil {
@@ -1094,6 +1104,9 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		}
 		if p.ThroughSeq > 0 { // a fold being opened: the lines it stands for
 			page, more := f.Range(p.FromSeq, p.ThroughSeq, 1000)
+			if p.History != "" && p.History != f.History() {
+				return nil, navigationError(transcript.ErrNavigationHistory)
+			}
 			return map[string]any{"items": items(page), "more": more}, nil
 		}
 		// Pages counted back from the end fold the agent's work for callers that ask (transcript.FoldWork).
@@ -1103,16 +1116,32 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 			}
 			return page
 		}
+		if p.AroundSeq != nil {
+			page, older, newer, span, err := f.Around(*p.AroundSeq, p.Limit, p.History)
+			if err != nil {
+				return nil, navigationError(err)
+			}
+			return withSpan(map[string]any{"items": items(fold(page)), "has_more": older, "more_after": newer}, span, true), nil
+		}
 		if p.AfterSeq != nil {
 			// more_after: the 500 cap cut it short; the caller asks again after the last seq (or takes the latest page).
 			page, more, span := f.After(*p.AfterSeq, 500)
+			if p.History != "" && p.History != span.History {
+				return nil, navigationError(transcript.ErrNavigationHistory)
+			}
 			return withSpan(map[string]any{"items": items(page), "has_more": false, "more_after": more}, span, true), nil
 		}
 		if p.Turns > 0 { // the phone pages by exchanges (user prompt + answer), not by rows
 			page, more, span := f.PageTurns(p.BeforeSeq, min(p.Turns, 10), 2000)
+			if p.History != "" && p.History != span.History {
+				return nil, navigationError(transcript.ErrNavigationHistory)
+			}
 			return withSpan(map[string]any{"items": items(fold(page)), "has_more": more}, span, false), nil
 		}
 		page, more, span := f.Page(p.BeforeSeq, limit)
+		if p.History != "" && p.History != span.History {
+			return nil, navigationError(transcript.ErrNavigationHistory)
+		}
 		return withSpan(map[string]any{"items": items(fold(page)), "has_more": more}, span, false), nil
 	case "session.watch":
 		// The stream outlives this request: it follows the connection (rpc.ConnContext), not the reply.

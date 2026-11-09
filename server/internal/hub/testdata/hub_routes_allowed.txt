@@ -73,6 +73,7 @@ GET /api/v1/sessions/{mid}/{sid}/info
 GET /api/v1/sessions/{mid}/{sid}/items
 GET /api/v1/sessions/{mid}/{sid}/items/{iid}/full
 GET /api/v1/sessions/{mid}/{sid}/items/{iid}/image
+GET /api/v1/sessions/{mid}/{sid}/navigation
 GET /api/v1/sessions/{mid}/{sid}/screen
 GET /api/v1/skills
 GET /api/v1/ws

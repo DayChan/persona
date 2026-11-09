@@ -8,6 +8,10 @@ import (
 func (h *Hub) sessionRoutes(api *http.ServeMux) {
 	api.HandleFunc("GET /api/v1/sessions", h.listSessions)
 	api.HandleFunc("POST /api/v1/sessions", h.withClientOp("start", h.startSession))
+	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/navigation", h.proxy("session.navigation", func(r *http.Request) any {
+		q := r.URL.Query()
+		return map[string]any{"session_id": r.PathValue("sid"), "before_seq": atoi(q.Get("before_seq")), "limit": atoi(q.Get("limit")), "history": q.Get("history")}
+	}))
 	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items", h.withMachine(h.sessionItems))
 	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items/{iid}/image", h.withMachine(h.sessionImage))
 	api.HandleFunc("GET /api/v1/sessions/{mid}/{sid}/items/{iid}/full", h.withMachine(h.sessionItemFull))

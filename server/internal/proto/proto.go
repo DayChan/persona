@@ -14,6 +14,7 @@ const (
 // Features are what this hub supports beyond the first protocol, listed in the WebSocket hello and /health for
 // clients that need to know before they try (docs/protocol/protocol.md).
 var Features = []string{
+	FeatureSessionNavigation,   // lightweight user-message index and bounded around_seq transcript windows
 	nodeproto.PersonaContracts, // bidirectional pre-cutover runtime identities
 	"locale",                   // Accept-Language, client_hello.locale and a device's locale pick the language of text for people (docs/protocol/i18n.md)
 	"assistant_compact",        // POST /api/v1/assistant/conversations/{id}/compact, session.compaction

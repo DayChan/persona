@@ -416,12 +416,17 @@ type wireAdder func(string, string, string, string, json.RawMessage, map[string]
 // wireNode exercises the real RPC consumer without launching a node or opening a network connection.
 func wireNode(t *testing.T, reply func(json.RawMessage) any) *Machine {
 	t.Helper()
+	return wireNodeMethod(t, "session.items", reply)
+}
+
+func wireNodeMethod(t *testing.T, expectedMethod string, reply func(json.RawMessage) any) *Machine {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	h2nR, h2nW := io.Pipe()
 	n2hR, n2hW := io.Pipe()
 	hp, np := rpc.New("h", h2nW), rpc.New("n", n2hW)
 	np.OnRequest = func(_ context.Context, method string, p json.RawMessage) (any, error) {
-		if method != "session.items" {
+		if method != expectedMethod {
 			return nil, fmt.Errorf("unexpected method: %s", method)
 		}
 		return reply(p), nil

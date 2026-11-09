@@ -446,10 +446,13 @@ func (h *Hub) sessionItems(w http.ResponseWriter, r *http.Request, m *Machine) {
 	params := map[string]any{"session_id": r.PathValue("sid")}
 	// Only the paging the app gave: one it left out or sent empty (iOS's latest page has before_seq=) is not 0 to a
 	// runtime, which may take before_seq 0 as a bad value and refuse every page, and the app's sync then asks again.
-	for _, k := range []string{"before_seq", "limit", "turns"} {
+	for _, k := range []string{"before_seq", "limit", "turns", "around_seq"} {
 		if v := q.Get(k); v != "" {
 			params[k] = atoi(v)
 		}
+	}
+	if history := q.Get("history"); history != "" {
+		params["history"] = history
 	}
 	if q.Has("after_seq") { // what came after the app's newest item (background sync); has_more is meaningless here
 		params["after_seq"] = atoi(q.Get("after_seq"))

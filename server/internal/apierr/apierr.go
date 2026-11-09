@@ -199,15 +199,17 @@ func LocalizedBody(status int, code string, err error, l i18n.Lang) map[string]a
 }
 
 var rpcFailureKeys = map[string]string{
-	"timeout":            "rpc-errors.timeout",
-	"node_unreachable":   "rpc-errors.unreachable",
-	"internal":           "rpc-errors.failed",
-	"input_draft":        "rpc-errors.input_draft",
-	"dialog_open":        "rpc-errors.dialog_open",
-	"prompt_changed":     "rpc-errors.prompt_changed",
-	"attach_busy":        "rpc-errors.attach_busy",
-	"node_outdated":      "rpc-errors.node_outdated",
-	"assistant_in_doubt": "rpc-errors.in_doubt",
+	"stale_history":             "rpc-errors.stale_history",
+	"navigation_target_missing": "rpc-errors.navigation_target_missing",
+	"timeout":                   "rpc-errors.timeout",
+	"node_unreachable":          "rpc-errors.unreachable",
+	"internal":                  "rpc-errors.failed",
+	"input_draft":               "rpc-errors.input_draft",
+	"dialog_open":               "rpc-errors.dialog_open",
+	"prompt_changed":            "rpc-errors.prompt_changed",
+	"attach_busy":               "rpc-errors.attach_busy",
+	"node_outdated":             "rpc-errors.node_outdated",
+	"assistant_in_doubt":        "rpc-errors.in_doubt",
 	// queued messages sent now (#6088)
 	"nothing_queued":       "rpc-errors.nothing_queued",
 	"send_now_unsupported": "rpc-errors.send_now_unsupported",

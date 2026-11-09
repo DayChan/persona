@@ -1,4 +1,6 @@
 {
+  "stale_history": "The conversation history changed. Reload the message index and select the message again.",
+  "navigation_target_missing": "This message is no longer in the conversation. Reload the message index.",
   "timeout": "The request timed out. The computer may be busy or the network unstable. Check whether it went through, then try again later.",
   "unreachable": "The connection to this computer dropped. Reconnect it, check whether your last action went through, then try again.",
   "failed": "The request could not be completed. Open details for the diagnostic.",
