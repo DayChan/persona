@@ -23,21 +23,24 @@ func (s *Service) completionChildrenRunning(machine string, root proto.Session) 
 	if completionChild(root) {
 		return false
 	}
-	list := s.nodeSessions(machine)
-	byID := make(map[string]proto.Session, len(list))
-	for _, sess := range list {
-		byID[sess.SessionID] = sess
-	}
-	for _, child := range list {
-		if child.SessionID == root.SessionID || !completionChild(child) ||
-			(child.Status != proto.StatusWorking && child.Status != proto.StatusBlocked && !backgroundRunning(child)) {
-			continue
+	// Only the running children are copied out of the machine's list; of each row only its parent is kept, the last
+	// row of an id counting (a parent no row names is "", as is one whose row has none).
+	parentOf := map[string]string{}
+	running, _ := s.nodeSessionsWhere(machine, func(sess *proto.Session) bool {
+		if sess.ParentSessionID != "" {
+			parentOf[sess.SessionID] = sess.ParentSessionID
+		} else {
+			delete(parentOf, sess.SessionID)
 		}
+		return sess.SessionID != root.SessionID && completionChild(*sess) &&
+			(sess.Status == proto.StatusWorking || sess.Status == proto.StatusBlocked || backgroundRunning(*sess))
+	})
+	for _, child := range running {
 		if child.RootSessionID == root.SessionID {
 			return true
 		}
 		seen := map[string]bool{child.SessionID: true}
-		for parent := child.ParentSessionID; parent != "" && !seen[parent]; parent = byID[parent].ParentSessionID {
+		for parent := child.ParentSessionID; parent != "" && !seen[parent]; parent = parentOf[parent] {
 			if parent == root.SessionID {
 				return true
 			}

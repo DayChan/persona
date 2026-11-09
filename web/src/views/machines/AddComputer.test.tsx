@@ -21,6 +21,8 @@ const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { sta
 let posts: { path: string; body: unknown }[] = [];
 let refuse = "";
 let machine: Record<string, unknown> | null = null;
+let reads = 0; // GET /machines
+let visibility: DocumentVisibilityState = "visible";
 
 function hub(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const path = String(input).split("?")[0]!.replace(/^.*\/api\/v1/, "");
@@ -42,7 +44,7 @@ function hub(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
       }),
     );
   }
-  if (path === "/machines") return Promise.resolve(json({ machines: machine ? [machine] : [] }));
+  if (path === "/machines") return (reads++, Promise.resolve(json({ machines: machine ? [machine] : [] })));
   if (path === "/machines/home/confirm") {
     machine = { ...machine, trust: undefined };
     return Promise.resolve(json({ ok: true }));
@@ -81,12 +83,20 @@ const poll = async () => {
   await act(async () => { vi.advanceTimersByTime(3100); });
   await flush();
 };
+const show = async (v: DocumentVisibilityState) => {
+  visibility = v;
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  await flush();
+};
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   posts = [];
   refuse = "";
   machine = null;
+  reads = 0;
+  visibility = "visible";
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
   localStorage.removeItem("persona.addComputer.os.home");
   vi.stubGlobal("fetch", vi.fn(hub));
   host = document.createElement("div");
@@ -97,6 +107,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  Reflect.deleteProperty(document, "visibilityState");
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -126,6 +137,20 @@ describe("AddComputer", () => {
     await click("是我的电脑");
     expect(posts.at(-1)).toEqual({ path: "/machines/home/confirm", body: undefined });
     expect(text()).toContain("已添加：家里的服务器");
+  });
+
+  it("stops asking for the computer while the tab is hidden and asks once right away on coming back", async () => {
+    await startLinux();
+    expect(reads).toBe(0); // the code was just made: the first read waits one period
+    await show("hidden");
+    await poll();
+    await poll();
+    await poll();
+    expect(reads).toBe(0);
+    machine = { ...machine, online: true };
+    await show("visible");
+    expect(reads).toBe(1);
+    expect(text()).toContain("有一台电脑想加入：家里的服务器，是你的吗？");
   });
 
   it("removes it when it is not yours", async () => {

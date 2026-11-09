@@ -16,6 +16,9 @@ rsync -a --delete --exclude bin server/ "$H":"$D/server/"
 rsync -a --delete sdk/go/ "$H":"$D/sdk/go/"
 # Manifest example tests parse the extension templates' persona-extension.json (../../../sdk/templates).
 rsync -a --delete sdk/templates/ "$H":"$D/sdk/templates/"
+# The extension page tests bundle guest code with Bun straight from the TypeScript SDK's sources (denohost's adapter.ts
+# and testdata, extmgr's testdata import ../../../../sdk/ts/src). Its sources need no npm packages, so no node_modules (#1947).
+rsync -a --delete --exclude node_modules sdk/ts/ "$H":"$D/sdk/ts/"
 # Extension conformance tests read the source schemas' valid and invalid examples outside the Go module.
 rsync -a --delete schema/extension/ "$H":"$D/schema/extension/"
 # Wire, continuity and resolution tests read the shared fixtures next to server/ (../../../spec from a package),
@@ -27,7 +30,8 @@ rsync -a --delete --prune-empty-dirs --include '*/' --include '*.md' --exclude '
 rsync -a scripts/test/server_test_env.py "$H":"$D/server_test_env.py"
 RESOLVER=$(python3 scripts/persona_identity.py --service hub --prefix -)
 # The recovered service root is only for locating the database configuration, never the Go test environment.
+# ~/.local/bin: the pinned Bun (docs/operations/testing.md), which a non-interactive shell may not have on PATH (#1947).
 ssh "$H" "$RESOLVER
-cd ~/$D/server && export PATH=\$PATH:/opt/homebrew/bin:/usr/local/go/bin && \
+cd ~/$D/server && export PATH=\$PATH:\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/go/bin && \
   python3 -I ../server_test_env.py --database-file \"\$PERSONA_HOME/hub.json\" -- \
   ${GOCMD:-go test -count=1 -p 1} ${*:-./...}"

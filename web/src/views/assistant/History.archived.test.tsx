@@ -14,15 +14,18 @@ const hub = vi.hoisted(() => ({
   posted: [] as string[],
   /** When set, the archive POST waits for it. */
   hold: null as Promise<void> | null,
+  /** When set, the hub is unreachable: every request fails, the archive POST and the reload after it. */
+  down: false,
 }));
 vi.mock("../../lib/api", async (original) => {
   const real = await original<typeof import("../../lib/api")>();
   return {
     ...real,
     api: vi.fn(async (path: string, init?: { method?: string }) => {
+      if (init?.method === "POST") hub.posted.push(path);
+      if (hub.down) throw new real.ApiError(0, "offline", {});
       if (path === "/assistant?archived=1") return { conversations: hub.fetched };
       if (init?.method === "POST") {
-        hub.posted.push(path);
         await hub.hold;
         return { ok: true };
       }
@@ -68,10 +71,24 @@ const flush = async () => {
   for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); });
 };
 const archivedHeading = () => [...host.querySelectorAll("button[aria-expanded]")].find((b) => b.textContent?.includes("已归档"))?.textContent ?? "";
+const mount = async () => {
+  root = createRoot(host);
+  act(() => root.render(<History onToggleSidebar={() => {}} />));
+  await flush();
+};
+/** Picks `label` in the menu of the row titled `对话 <sid>`. */
+const choose = async (sid: string, label: string) => {
+  const row = [...host.querySelectorAll("a")].find((a) => a.textContent?.includes(`对话 ${sid}`))!.parentElement!;
+  await act(async () => (row.querySelector('button[aria-label="更多"]') as HTMLButtonElement).click());
+  const item = [...document.querySelectorAll('[role="menuitem"], button')].find((b) => b.textContent?.trim() === label) as HTMLElement;
+  await act(async () => item.click());
+  await flush();
+};
 
 beforeEach(async () => {
   hub.posted = [];
   hub.hold = null;
+  hub.down = false;
   hub.fetched = [conv("main"), conv("back", { archived: true } as Partial<Session>), conv("keep")];
   hub.state = {
     assistant: { machine_id: "server", main: "main", conversations: [conv("main"), conv("keep")] },
@@ -79,9 +96,7 @@ beforeEach(async () => {
   };
   host = document.createElement("div");
   document.body.append(host);
-  root = createRoot(host);
-  act(() => root.render(<History onToggleSidebar={() => {}} />));
-  await flush();
+  await mount();
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -124,5 +139,31 @@ describe("全部对话's 已归档", () => {
     expect(archivedHeading()).toContain("已归档（2）");
     await push([conv("main"), conv("back", { archived: true } as Partial<Session>), conv("keep")]); // brought back elsewhere later
     expect(archivedHeading()).toContain("已归档（1）");
+  });
+});
+
+// One the node no longer lists goes only by what was read: when the hub refuses the change and cannot be read again
+// either (unreachable), the row stays where it was.
+describe("全部对话 when the hub is unreachable", () => {
+  beforeEach(async () => {
+    act(() => root.unmount());
+    hub.fetched = [...hub.fetched, conv("old"), conv("gone", { archived: true } as Partial<Session>)];
+    await mount();
+  });
+
+  it("puts one back when archiving it fails", async () => {
+    expect(archivedHeading()).toContain("已归档（2）");
+    hub.down = true;
+    await choose("old", "归档");
+    expect(hub.posted).toEqual(["/assistant/conversations/old/archive"]);
+    expect(archivedHeading()).toContain("已归档（2）");
+  });
+
+  it("keeps one archived when restoring it fails", async () => {
+    await act(async () => ([...host.querySelectorAll("button[aria-expanded]")].find((b) => b.textContent?.includes("已归档")) as HTMLButtonElement).click());
+    hub.down = true;
+    await choose("gone", "取消归档");
+    expect(hub.posted).toEqual(["/assistant/conversations/gone/unarchive"]);
+    expect(archivedHeading()).toContain("已归档（2）");
   });
 });

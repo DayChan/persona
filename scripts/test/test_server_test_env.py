@@ -171,8 +171,12 @@ class ServerTestEnvironmentTests(unittest.TestCase):
             profile = remote / "live-profile"
             for path in (checkout / "scripts/test", checkout / "server", checkout / "spec", checkout / "apple",
                          checkout / "docs", checkout / "sdk/go/ext", checkout / "sdk/go/wire/schema",
-                         checkout / "sdk/templates/go", checkout / "schema/extension/examples/invalid", tools, profile):
+                         checkout / "sdk/templates/go", checkout / "sdk/ts/src", checkout / "sdk/ts/node_modules/typescript",
+                         checkout / "schema/extension/examples/invalid", tools, profile):
                 path.mkdir(parents=True)
+            # the extension page tests bundle the TypeScript SDK's sources on the hub; its node_modules stays here (#1947)
+            (checkout / "sdk/ts/src/index.ts").write_text("export const fixture = true;\n")
+            (checkout / "sdk/ts/node_modules/typescript/package.json").write_text('{"name":"typescript"}\n')
             (checkout / "docs/guide.md").write_text("# Fixture guide\n")
             (checkout / "sdk/templates/go/persona-extension.json").write_text('{"template":true}\n')
             sdk = checkout / "sdk/go"
@@ -218,7 +222,9 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                  "else:\n"
                  " assert source.is_dir() and destination.parent.is_dir()\n"
                  " if '--delete' in sys.argv and destination.exists(): shutil.rmtree(destination)\n"
-                 " shutil.copytree(source,destination,dirs_exist_ok=True)\n"
+                 # a plain --exclude NAME leaves NAME out; with --include filters (apple/, docs/) the fixture copies all
+                 " skip=[a for i,a in enumerate(sys.argv) if i and sys.argv[i-1]=='--exclude'] if '--include' not in sys.argv else []\n"
+                 " shutil.copytree(source,destination,dirs_exist_ok=True,ignore=shutil.ignore_patterns(*skip) if skip else None)\n"
                  "if str(source)=='sdk/go':\n"
                  f" pathlib.Path({str(sdk_capture)!r}).write_text(json.dumps(sys.argv[1:]))\n"
                  "if str(source)=='schema/extension':\n"
@@ -238,6 +244,8 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                  "assert not (schema/'stale.json').exists()\n"
                  "assert (base/'docs/guide.md').read_text()=='# Fixture guide\\n'\n"
                  "assert (base/'sdk/templates/go/persona-extension.json').read_text()=='{\"template\":true}\\n'\n"
+                 "assert (base/'sdk/ts/src/index.ts').read_text()=='export const fixture = true;\\n'\n"
+                 "assert not (base/'sdk/ts/node_modules').exists()\n"
                  f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args':sys.argv[1:],'env':dict(os.environ),'sdk_source':(sdk/'ext/fixture.go').read_text()}}))\n"
                  "sys.exit(int(os.environ.get('FAKE_GO_EXIT','0')))\n")
             environment = {
@@ -276,6 +284,8 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                                      ["-a", "--delete", "schema/extension/",
                                       "fake-hub:.cache/persona-test-checkout/schema/extension/"])
                     self.assertFalse((remote_schema / "stale.json").exists())
+                    # the pinned Bun lives in the hub user's ~/.local/bin, which a non-interactive shell may lack (#1947)
+                    self.assertIn(str(remote / ".local/bin"), child["PATH"].split(os.pathsep))
                     self.assertEqual(recorded["args"], expected)
                     self.assertEqual({key for key in child if key.startswith(("PERSONA_"))},
                                      {"PERSONA_TEST_DATABASE_URL"})

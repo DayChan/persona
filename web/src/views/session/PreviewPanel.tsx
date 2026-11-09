@@ -62,12 +62,14 @@ export function PreviewPanel({ mid, sid, cwd, port, path, onClose }: { mid: stri
   const options = useMemo(() => previewOptions(servers, ports ?? []), [servers, ports]);
   const menu = useMenu();
 
-  const load = useCallback(async () => {
+  // `current` says whether the caller still wants the reply: one that comes back after the panel moved on changes nothing.
+  const load = useCallback(async (current: () => boolean = () => true) => {
     try {
       const res = await api<PreviewServers>(`/machines/${enc(mid)}/preview/servers?cwd=${enc(cwd)}`);
-      setServers(res);
+      if (current()) setServers(res);
       return res;
     } catch (e) {
+      if (!current()) return null;
       if (e instanceof ApiError && e.code === "node_outdated") setPhase({ kind: "old" });
       else setPhase({ kind: "failed", error: errorText(e) });
       return null;
@@ -100,12 +102,20 @@ export function PreviewPanel({ mid, sid, cwd, port, path, onClose }: { mid: stri
     // the session's ports change as it runs: only the first look picks
   }, [load, mid, sid, port, path, show]);
 
-  // waiting for a started server: its port, every 1.5 s, for 90 s
+  // waiting for a started server: its port, every 1.5 s, for 90 s. One read at a time and none while the tab is hidden;
+  // a reply that comes back after Cancel (or any other phase) is dropped, so it can't open the page or fail the panel.
   useEffect(() => {
     if (phase.kind !== "starting") return;
     const o = phase.option;
+    let stopped = false;
+    let reading = false;
     const timer = setInterval(async () => {
-      const res = await load();
+      if (reading || document.visibilityState === "hidden") return;
+      reading = true;
+      const res = await load(() => !stopped);
+      reading = false;
+      // no reply: load already moved the panel to failed or old
+      if (stopped || !res) return;
       const now = previewOptions(res, ports ?? []).find((x) => x.port === o.port);
       if (now?.listening) show({ port: o.port, path: o.path, name: o.name });
       else if (Date.now() - phase.since > 90_000) {
@@ -113,7 +123,10 @@ export function PreviewPanel({ mid, sid, cwd, port, path, onClose }: { mid: stri
         setPhase({ kind: "choose" });
       }
     }, 1500);
-    return () => clearInterval(timer);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [phase, load, ports, show]);
 
   const start = async (o: PreviewOption) => {

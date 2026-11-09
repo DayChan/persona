@@ -53,23 +53,28 @@ func AskOf(text string) string {
 	}
 	tail := last[:n]
 	var lowered [askTail]string // each sentence lower-cased once, when first needed (a sentence is never "")
-	lower := func(i int) string {
+	// says: the sayings re match sentence i lower-cased. An ASCII sentence holding none of their words is read as it is
+	// (MayMatchLowered), so a reply that asks nothing, most of them, is not copied to be lowered.
+	says := func(re *lazyre.Regexp, i int) bool {
+		if !re.MayMatchLowered(tail[i]) {
+			return false
+		}
 		if lowered[i] == "" {
 			lowered[i] = strings.ToLower(tail[i])
 		}
-		return lowered[i]
+		return re.MatchString(lowered[i])
 	}
 	// The last question mark wins; else the last sentence with a saying that asks.
 	for i := len(tail) - 1; i >= 0; i-- {
-		if endsAsking(tail[i]) && !askNone.MatchString(lower(i)) {
+		if endsAsking(tail[i]) && !says(askNone, i) {
 			return clipAsk(tail[i])
 		}
 	}
-	if askNone.MatchString(lower(len(tail) - 1)) {
+	if says(askNone, len(tail)-1) {
 		return "" // the close says there is nothing else to decide: a saying earlier is an offer, not a question
 	}
 	for i := len(tail) - 1; i >= 0; i-- {
-		if l := lower(i); askPhrases.MatchString(l) && !askNone.MatchString(l) {
+		if says(askPhrases, i) && !says(askNone, i) {
 			return clipAsk(tail[i])
 		}
 	}

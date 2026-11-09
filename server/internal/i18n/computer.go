@@ -14,8 +14,10 @@ func ComputerText(l Lang, text string) string {
 	if text == "" || l == "" {
 		return text
 	}
-	for _, form := range computerTemplates() {
-		match := form.pattern.FindStringSubmatch(text)
+	forms := computerTemplates()
+	for i := range forms { // by index: a range value copies each template, for every text
+		form := &forms[i]
+		match := form.match(text)
 		if match == nil {
 			continue
 		}

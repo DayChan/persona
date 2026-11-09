@@ -4,8 +4,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closePalette, openPalette } from "../lib/palette";
+import { closePalette, openPalette, setPaletteQuery, usePalette } from "../lib/palette";
+import { closeHelp, toggleHelp } from "../lib/shortcut-help";
+import { registerShortcut } from "../lib/shortcuts";
 import { Palette } from "./Palette";
+import { ShortcutHelp } from "./ShortcutHelp";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // the modules read the colour scheme when they load
@@ -32,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   closePalette();
+  closeHelp();
   host.remove();
   opener.remove();
   vi.restoreAllMocks();
@@ -109,5 +113,32 @@ describe("the palette for assistive technology", () => {
     expect(document.activeElement).toBe(field());
     show(false);
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("gives the focus back to what opened it after a command opened a dialog in its place", () => {
+    // the shell's palette and shortcut help: picking "Keyboard shortcuts" closes the one and opens the other in one render
+    const unregister = registerShortcut("help", () => toggleHelp());
+    function Shell() {
+      const palette = usePalette();
+      return (
+        <>
+          <Palette open={palette.open} onClose={closePalette} onNewAgent={() => {}} />
+          <ShortcutHelp />
+        </>
+      );
+    }
+    try {
+      act(() => openPalette("command"));
+      act(() => root.render(<Shell />));
+      act(() => setPaletteQuery(">app:help"));
+      key(field(), "Enter");
+      // the help Dialog is named by its title; the palette's card by aria-label
+      const help = document.querySelector<HTMLElement>("[role=dialog][aria-labelledby]")!;
+      expect(help.contains(document.activeElement)).toBe(true);
+      key(document.activeElement!, "Escape");
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      unregister();
+    }
   });
 });

@@ -137,6 +137,8 @@ export function RenameDialog({ session, open, onClose }: { session: Session; ope
   const hasTab = !session.assistant && Boolean(session.slot_id);
   const body = renameBody(session, tab, title);
   const save = async () => {
+    // the form submits on Enter while the field stays editable: a second Enter would rename (type /rename) twice
+    if (busy) return;
     if (!body) return onClose();
     setBusy(true);
     try {
@@ -194,6 +196,7 @@ export function RenameSpaceDialog({ session, open, onClose }: { session: Session
   }, [open]);
   const next = name.trim();
   const save = async () => {
+    if (busy) return; // a second Enter while the first rename is out
     if (!session.space_id || !next || next === session.space_name) return onClose();
     setBusy(true);
     try {

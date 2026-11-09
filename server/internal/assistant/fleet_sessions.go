@@ -150,7 +150,7 @@ func (s *Service) publishList(machine string) []proto.Session {
 // decorated returns a machine's sessions as the apps get them: the unified states, the pending interaction counts,
 // what the assistant says of its conversations, the work and todos.
 func (s *Service) decoratedUnarchived(machine string) []proto.Session {
-	return s.decorateInventory(machine, slices.Clone(s.nodeSessions(machine)), true)
+	return s.decorateInventory(machine, s.nodeSessions(machine), true) // a copy already: the devices' list stays as it is
 }
 
 // decorateInventory owns list. A subset gets the same live fields as the full

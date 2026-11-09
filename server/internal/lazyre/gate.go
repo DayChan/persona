@@ -4,6 +4,7 @@ import (
 	"regexp/syntax"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // A gated pattern (NewGated) answers MatchString by first looking for the literals every match starts with: a large
@@ -30,6 +31,15 @@ func NewGated(src string) *Regexp {
 func (r *Regexp) Gated() bool {
 	r.Regexp()
 	return r.gate != nil
+}
+
+// MayMatchLowered is false only when strings.ToLower(s) cannot match r: s is ASCII and, its letters lower-cased as it is
+// read, holds none of the literals every match starts with. A caller that matches lower-cased texts (r.MatchString of
+// strings.ToLower(s)) then lowers, which copies, only the texts that may match. True for any other s, and for a pattern
+// without a gate.
+func (r *Regexp) MayMatchLowered(s string) bool {
+	r.Regexp() // makes the gate
+	return r.gate == nil || r.gate.openLowered(s)
 }
 
 // gateLiterals is the gate of src: strings one of which every match starts with, none inside another; nil when
@@ -144,6 +154,66 @@ func newGate(src string) *gate {
 		}
 	}
 	return g
+}
+
+// openLowered: strings.ToLower(s) may hold one of the gate's literals. For an ASCII s that text is s with A-Z turned
+// into a-z, byte for byte, so this is open on it with each byte lower-cased as it is read, and nothing is copied. Other
+// runes may lower into other bytes: an s holding one is taken as open.
+func (g *gate) openLowered(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return true
+		}
+	}
+	if g.first == nil {
+		for _, l := range g.lits {
+			for i := 0; i+len(l) <= len(s); i++ {
+				if hasLoweredPrefix(s[i:], l) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := lowerASCII(s[i])
+		ls := g.first[b]
+		if ls == nil {
+			continue
+		}
+		if i+1 < len(s) {
+			if c := lowerASCII(s[i+1]); g.second[b][c>>6]&(1<<(c&63)) == 0 {
+				continue
+			}
+		}
+		for _, l := range ls {
+			if hasLoweredPrefix(s[i:], l) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasLoweredPrefix: the ASCII s, lower-cased, starts with l.
+func hasLoweredPrefix(s, l string) bool {
+	if len(s) < len(l) {
+		return false
+	}
+	for j := 0; j < len(l); j++ {
+		if lowerASCII(s[j]) != l[j] {
+			return false
+		}
+	}
+	return true
+}
+
+// lowerASCII is c as strings.ToLower turns an ASCII byte.
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }
 
 // open: s holds one of the gate's literals, so the pattern may match it.
