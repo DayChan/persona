@@ -471,7 +471,7 @@ private fun LarkConversationScreen(repository: InboxRepository, route: LarkRoute
 
 @Composable
 internal fun LarkBubble(
-    original: LarkMessage,
+    message: LarkMessage,
     showSender: Boolean,
     repository: InboxRepository,
     onlineSince: Long?,
@@ -492,7 +492,6 @@ internal fun LarkBubble(
     onAddPin: ((LarkMessage) -> Unit)? = null,
 ) {
     val display = LocalLarkMessageDisplay.current
-    val message = remember(original, display) { original.shown(display) }
     // "Keep recalled messages" shows what the Lark gateway kept of a recalled message, marked "Recalled"; otherwise it is one line.
     if (message.system && !(message.recalled && display.showsBody(message))) {
         TimelineMark(if (message.recalled) stringResource(R.string.inbox_lark_recalled)
@@ -518,7 +517,7 @@ internal fun LarkBubble(
             ) {
                 message.quote?.let { quote ->
                     JNotice(if (quote.recalled) stringResource(R.string.inbox_lark_recalled)
-                        else display.summary(quote.text), title = quote.sender)
+                        else quote.text, title = quote.sender)
                 }
                 message.parts.forEach { part ->
                     LarkPartContent(

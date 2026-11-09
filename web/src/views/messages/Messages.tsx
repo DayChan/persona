@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { shortTime } from "../../lib/inbox";
 import { accountTitle, larkAccounts, useLarkAccounts, type LarkAccountsState } from "../../lib/lark-accounts";
-import { HIDDEN_DISPLAY, summaryText, useLarkDisplayState, type LarkMessageDisplay } from "../../lib/lark-display";
+import { useLarkDisplayState } from "../../lib/lark-display";
 import {
   arrangeConversations, conversationPreview, filterConversations, larkChatsFor, unreadBadge, useLarkChats, useLarkHome, type LarkChatsStore,
   type LarkConversation,
@@ -152,7 +152,8 @@ function ChatHeader({ chat, account }: { chat?: LarkConversation; account?: stri
 }
 
 function ChatList({ selected, store: larkChats, accounts }: { selected?: string; store: LarkChatsStore; accounts: LarkAccountsState }) {
-  const display = useLarkDisplayState(accounts.request).snapshot ?? HIDDEN_DISPLAY;
+  // Keeps the account's message display settings loaded and reread after a reconnect, ready for the chat that opens.
+  useLarkDisplayState(accounts.request);
   const s = useLarkChats(larkChats);
   const [query, setQuery] = useState("");
   const end = useRef<HTMLDivElement>(null);
@@ -220,7 +221,7 @@ function ChatList({ selected, store: larkChats, accounts }: { selected?: string;
 
         {shown.length > 0 && (
           <div className="mt-3 flex flex-col gap-1.5">
-            {shown.map((c) => <ChatRow key={c.id} c={c} selected={c.id === selected} display={display} />)}
+            {shown.map((c) => <ChatRow key={c.id} c={c} selected={c.id === selected} />)}
           </div>
         )}
         {!query && s.moreProblem && (
@@ -271,10 +272,10 @@ function PinnedShelf({ chats, selected }: { chats: LarkConversation[]; selected?
   );
 }
 
-function ChatRow({ c, selected, display }: { c: LarkConversation; selected: boolean; display: LarkMessageDisplay }) {
+function ChatRow({ c, selected }: { c: LarkConversation; selected: boolean }) {
   const to = { name: "messages", id: c.id } as const;
   const b = unreadBadge(c);
-  const preview = conversationPreview({ ...c, preview: c.preview && summaryText(display, c.preview) });
+  const preview = conversationPreview(c);
   return (
     <a
       data-chat={c.id}

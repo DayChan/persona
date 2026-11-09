@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
 import type { LarkMessage } from "./inbox";
 import {
-  HIDDEN_DISPLAY, LarkDisplayModel, quoteSummary, shownParts, showsBody, showsHistory, summaryText, versionParts, type LarkDisplayDeps, type LarkMessageDisplay,
+  HIDDEN_DISPLAY, LarkDisplayModel, quoteSummary, showsBody, showsHistory, versionParts, type LarkDisplayDeps, type LarkMessageDisplay,
 } from "./lark-display";
 import { pinSummary } from "./lark-pins";
 
@@ -117,10 +117,8 @@ describe("LarkDisplayModel", () => {
 describe("message source text", () => {
   const text = "**raw source text**";
 
-  it("preserves the message, quote, pin and summary without interpreting its contents", () => {
+  it("keeps the quote and pin text exactly as the source sent it", () => {
     for (const display of [on, HIDDEN_DISPLAY]) {
-      expect(shownParts(display, [{ kind: "text", text }])).toEqual({ parts: [{ kind: "text", text }] });
-      expect(summaryText(display, text)).toBe(text);
       expect(quoteSummary(display, { text })).toBe(text);
       expect(pinSummary({ id: "p1", message_id: "m1", message: msg({ text }) }, display)).toBe(text);
     }

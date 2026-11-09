@@ -130,6 +130,3 @@ internal fun LarkMessage.listKey() = clientId?.let { "client:$it" } ?: "message:
 internal fun larkMessageDisplay(data: JsonObject): LarkMessageDisplay =
     LarkMessageDisplay(accountId = data.text("account_id"),
         antiRecall = data.flag("anti_recall"), showEditHistory = data.flag("show_edit_history"))
-
-/** Message text is displayed exactly as supplied by the source. */
-internal fun LarkMessage.shown(display: LarkMessageDisplay): LarkMessage = this

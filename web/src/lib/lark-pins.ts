@@ -6,7 +6,7 @@ import { t } from "../i18n";
 import { api, ApiError, enc, errorText } from "./api";
 import type { LarkMessage, LarkPage } from "./inbox";
 import { larkPath } from "./lark-accounts";
-import { HIDDEN_DISPLAY, showsBody, summaryText, type LarkMessageDisplay } from "./lark-display";
+import { HIDDEN_DISPLAY, showsBody, type LarkMessageDisplay } from "./lark-display";
 
 export interface ChatPin {
   id: string;
@@ -94,7 +94,7 @@ export function pinSummary(p: ChatPin, display: LarkMessageDisplay = HIDDEN_DISP
   const m = p.message;
   if (!m || m.deleted) return t("lib-lark-pins.message_unavailable");
   if (!showsBody(display, m)) return t("lib-lark-pins.message_recalled");
-  const text = summaryText(display, (m.text || (m.parts ?? []).map((x) => x.text ?? "").join("")).trim());
+  const text = (m.text || (m.parts ?? []).map((x) => x.text ?? "").join("")).trim();
   const fallback = m.type === "IMAGE" ? t("lib-lark-pins.fallback_image") : m.type === "FILE" ? t("lib-lark-pins.fallback_file") : t("lib-lark-pins.fallback_message");
   return m.recalled ? t("lib-lark-pins.recalled_kept", { text: text || fallback }) : text || fallback;
 }

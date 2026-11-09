@@ -42,18 +42,10 @@ export function showsHistory(d: LarkMessageDisplay, m: LarkMessage): boolean {
   return d.show_edit_history && showsBody(d, m) && (m.edit_history ?? []).length > 0;
 }
 
-/** Preserve the parts supplied by the message source. */
-export function shownParts(_d: LarkMessageDisplay, parts: LarkPart[]): { parts: LarkPart[] } {
-  return { parts };
-}
-
-/** Message summaries preserve the original text. */
-export const summaryText = (_d: LarkMessageDisplay, text: string) => text;
-
 /** A quoted message in one line: what it said (marked "Recalled" when recalled and kept), or that it was recalled. */
 export function quoteSummary(d: LarkMessageDisplay, q: NonNullable<LarkMessage["reply_to"]>): string {
-  if (!q.recalled) return summaryText(d, q.text ?? "");
-  const text = summaryText(d, (q.text ?? "").trim());
+  if (!q.recalled) return q.text ?? "";
+  const text = (q.text ?? "").trim();
   if (!(d.anti_recall && q.retained === true && text)) return t("lib-lark-display.recalled");
   return t("lib-lark-display.recalled_kept", { text });
 }

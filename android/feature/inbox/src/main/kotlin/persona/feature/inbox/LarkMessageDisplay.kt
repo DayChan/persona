@@ -6,9 +6,6 @@ data class LarkMessageDisplay(
     val antiRecall: Boolean = false,
     val showEditHistory: Boolean = false,
 ) {
-    /** Summaries preserve the text supplied by the message source. */
-    fun summary(text: String): String = text
-
     companion object {
         val Hidden = LarkMessageDisplay()
     }
