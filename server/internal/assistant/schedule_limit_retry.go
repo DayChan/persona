@@ -16,8 +16,8 @@ type scheduleRunsStore interface {
 	CompareScheduleRuns(context.Context, int64, json.RawMessage) (bool, error)
 }
 
-// mutateScheduleRunsLocked merges the local unsaved records and applies one operation to the latest history.
-// The version check protects this list from concurrent writers in other managers. sc.mu must be held.
+// mutateScheduleRunsLocked applies one operation to the latest history. The version check protects this list
+// from concurrent writers in other managers. sc.mu must be held.
 func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mutate func([]ScheduleRun) []ScheduleRun) error {
 	st := s.store()
 	if st == nil {
@@ -39,11 +39,6 @@ func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mu
 			}
 		} else if _, err := st.Setting(ctx, runsKey, &stored); err != nil {
 			return err
-		}
-		for _, r := range sc.runs {
-			if !slices.ContainsFunc(stored, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
-				stored = append(stored, r)
-			}
 		}
 		stored = mutate(stored)
 		if len(stored) > maxRuns {
@@ -85,15 +80,18 @@ type scheduleLimitRetry struct {
 
 // armLimitRetry saves the wait before letting the scheduler see it. If storage is temporarily unavailable,
 // keep trying while the watcher is alive; a failed save must not be mistaken for a durable wait.
-func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at time.Time) {
+func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at time.Time) bool {
 	for {
+		if ctx.Err() != nil {
+			return false
+		}
 		sc, err := s.lockedSchedule(ctx)
 		if err == nil {
 			i := sc.indexLocked(run.RefID)
 			if i < 0 || (!run.of.IsZero() && sc.tasks[i].LastRun.After(run.of)) ||
 				retryCancelled(sc.tasks[i], i >= 0, run, sc.runs, time.Now()) != "" {
 				sc.mu.Unlock()
-				return
+				return true // the task no longer needs this wait
 			}
 			tasks := slices.Clone(sc.tasks)
 			tasks[i].LimitRetry = &scheduleLimitRetry{At: at.UTC(), Turn: turn.UTC(), LastRun: tasks[i].LastRun, Failed: run}
@@ -101,13 +99,13 @@ func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at t
 			sc.mu.Unlock()
 			if err == nil {
 				s.broadcastSchedule()
-				return
+				return true
 			}
 		}
 		select {
 		case <-ctx.Done():
 			s.logf("task %s: could not persist its limit retry: %v", run.RefID, ctx.Err())
-			return
+			return false
 		case <-time.After(time.Second):
 		}
 	}
@@ -251,10 +249,23 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		delete(sc.limitActive, w.Failed.ID)
 		return true
 	}
-	// recordRun keeps outcomes in memory on storage failure; flush them before dropping the durable claim.
+	// recordRun keeps outcomes in memory on storage failure; flush this retry's result before dropping its claim.
+	var pending *ScheduleRun
+	for _, r := range sc.runs {
+		if r.RetryOf == w.Failed.ID || r.ID == "retry_unknown_"+w.Failed.ID {
+			copy := r
+			pending = &copy
+			break
+		}
+	}
 	if s.store() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun { return runs })
+		err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
+			if pending != nil && !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == pending.ID }) {
+				runs = append(runs, *pending)
+			}
+			return runs
+		})
 		cancel()
 		if err != nil {
 			return false

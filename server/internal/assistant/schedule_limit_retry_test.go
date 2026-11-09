@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -13,10 +15,14 @@ import (
 
 type limitNotifyHub struct {
 	*fakeHub
-	fail bool
+	fail     bool
+	onNotify func()
 }
 
 func (h *limitNotifyHub) NotifyRequest(ctx context.Context, req NotifyRequest) error {
+	if h.onNotify != nil {
+		h.onNotify()
+	}
 	if h.fail {
 		return errors.New("notification unavailable")
 	}
@@ -40,6 +46,7 @@ type limitTestStore struct {
 	mu                sync.Mutex
 	revision          int64
 	runsRevision      int64
+	beforeTaskCompare func()
 	beforeRunsCompare func()
 }
 
@@ -53,6 +60,10 @@ func (st *limitTestStore) ReadSchedule(ctx context.Context) (json.RawMessage, in
 
 func (st *limitTestStore) CompareSchedule(ctx context.Context, revision int64, raw json.RawMessage) (bool, error) {
 	st.mu.Lock()
+	if hook := st.beforeTaskCompare; hook != nil {
+		st.beforeTaskCompare = nil
+		hook()
+	}
 	defer st.mu.Unlock()
 	if revision != st.revision {
 		return false, nil
@@ -110,6 +121,48 @@ func limitRetryFixture(t *testing.T) (*Service, *fakeHub, *limitTestStore, time.
 	run := ScheduleRun{ID: "failed", RefID: "limit", At: started, Status: runFailed, MachineID: "server", SessionID: "s1", of: started}
 	s.armLimitRetry(t.Context(), run, now, now.Add(time.Hour))
 	return s, f, st, now
+}
+
+func TestLimitRetryArmStopsOnShutdownDuringStorageFailure(t *testing.T) {
+	s, _, st, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	st.failWrites(tasksKey)
+	attempted := make(chan struct{})
+	st.mu.Lock()
+	st.beforeTaskCompare = func() { close(attempted) }
+	st.mu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan bool, 1)
+	go func() { result <- s.armLimitRetry(ctx, w.Failed, w.Turn, now.Add(time.Hour)) }()
+	awaitBusSignal(t, attempted)
+	cancel()
+	select {
+	case saved := <-result:
+		if saved {
+			t.Fatal("failed write reported a durable wait")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("arm did not stop on shutdown")
+	}
+}
+
+func TestLimitRetryWaitStoredBeforeFailureNotice(t *testing.T) {
+	_, f, st, _ := limitRetryFixture(t)
+	s := newServiceOn(t, f, st)
+	checked := make(chan bool, 1)
+	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
+		var tasks []Task
+		_, err := st.Setting(context.Background(), tasksKey, &tasks)
+		found := err == nil && slices.ContainsFunc(tasks, func(task Task) bool { return task.ID == "p" && task.LimitRetry != nil })
+		checked <- found
+	}}
+	s.sched.limitWait = func(time.Time, time.Time) time.Duration { return time.Hour }
+	limitRun(t, f, s, nil)
+	if !<-checked {
+		t.Fatal("failure notice was sent before the retry wait was stored")
+	}
 }
 
 func TestLimitRetrySurvivesRestartAndIsConsumedOnce(t *testing.T) {
@@ -197,6 +250,29 @@ func TestLimitRetryOwnerLostAfterClaimDoesNotSend(t *testing.T) {
 	runs := scheduleRuns(restarted)
 	if len(runs) == 0 || runs[len(runs)-1].ID != "retry_unknown_failed" {
 		t.Fatal("owner loss did not leave an unknown outcome")
+	}
+}
+
+func TestLimitRetryPostgresManagersClaimOnce(t *testing.T) {
+	st := scheduleStore(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	started := now.Add(-48 * time.Hour)
+	run := ScheduleRun{ID: "pg-failed", RefID: "pg-limit", At: started, MachineID: "server", SessionID: "s1"}
+	task := Task{ID: "pg-limit", Title: "Limit", Prompt: "Example", Repeat: repeatOnce, At: started, LastRun: started,
+		LimitRetry: &scheduleLimitRetry{At: now, Turn: now, LastRun: started, Failed: run}}
+	if err := st.PutSetting(t.Context(), tasksKey, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	first := newServiceOn(t, f, st)
+	second := newServiceOn(t, f, st)
+	first.loadSchedule(t.Context())
+	second.loadSchedule(t.Context())
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	_, a := first.consumeLimitRetry(t.Context(), task.ID, *task.LimitRetry, c, now)
+	_, b := second.consumeLimitRetry(t.Context(), task.ID, *task.LimitRetry, c, now)
+	if !a || b {
+		t.Fatalf("Postgres claim results: first=%v second=%v", a, b)
 	}
 }
 
@@ -347,6 +423,41 @@ func TestLimitRetryOutlivesWeekAndTruncatedHistory(t *testing.T) {
 	restarted.sched.inflight.Wait()
 	if got := scheduleSendCount(f); got != 1 {
 		t.Fatalf("sent at reset: %d", got)
+	}
+}
+
+func TestLimitRetryHistoryDoesNotRestoreTruncatedRuns(t *testing.T) {
+	s, _, st, now := limitRetryFixture(t)
+	for range maxRuns {
+		s.recordRun(ScheduleRun{RefID: "old", At: now, Status: runOK})
+	}
+	var newer []ScheduleRun
+	for i := range maxRuns {
+		newer = append(newer, ScheduleRun{ID: fmt.Sprintf("new-%03d", i), RefID: "new", At: now.Add(time.Hour), Status: runOK})
+	}
+	raw, err := json.Marshal(newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rev, _, err := st.ReadScheduleRuns(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.CompareScheduleRuns(t.Context(), rev, raw); err != nil || !ok {
+		t.Fatalf("replace history: %v %v", ok, err)
+	}
+	s.recordRun(ScheduleRun{RefID: "latest", At: now.Add(2 * time.Hour), Status: runOK})
+	var stored []ScheduleRun
+	if _, err := st.Setting(t.Context(), runsKey, &stored); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range stored {
+		if r.RefID == "old" {
+			t.Fatal("stale cached history replaced newer records")
+		}
+	}
+	if len(stored) != maxRuns {
+		t.Fatalf("history contains %d runs, want %d", len(stored), maxRuns)
 	}
 }
 

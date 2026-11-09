@@ -256,7 +256,8 @@ type schedule struct {
 	inflight sync.WaitGroup
 	// limitInflight holds the scheduler owner until claimed retry sends have returned.
 	limitInflight sync.WaitGroup
-	limitJoining  func() // test barrier before joining in-flight retry workers
+	limitJoining  func()          // test barrier before joining in-flight retry workers
+	limitArmCtx   context.Context // canceled when the scheduler stops
 	// waitTold: by task, the wait on the user its skip was pushed for (tellWaitingSkip, waitKey): a patrol every 30
 	// minutes behind one card is pushed once. Another wait (the old turn answered, then stopped at a new card) is
 	// news again; a skip that finds the conversation no longer waiting, a run going in, or the task deleted clears it.
@@ -1185,6 +1186,9 @@ func (s *Service) Run(ctx context.Context) {
 // picked up) and wakes early when the list changes; the old 20-second poll ran follow-ups up to 20 seconds late
 // (measured: 21 s on 2026-10-30).
 func (s *Service) scheduleLoop(ctx context.Context) {
+	s.sched.mu.Lock()
+	s.sched.limitArmCtx = ctx
+	s.sched.mu.Unlock()
 	wake := s.sched.wakeup()
 	var nextLimitScan time.Time
 	var ownerDone <-chan struct{}
@@ -1488,6 +1492,8 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 			if j := slices.IndexFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }); j >= 0 {
 				runs[j].Status, runs[j].Error, runs[j].StreakTold = status, errText, streakRun.StreakTold
+			} else {
+				runs = append(runs, streakRun) // a prior attempt to save this outcome may have failed
 			}
 			return runs
 		}); err != nil {
@@ -1798,42 +1804,52 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	full := text
 	text = clip(oneLine(text), 300)
 	s.logf("task %s run %s failed: %s", t.ID, run.ID, text)
+	limited := false
+	if !run.Retried {
+		reset, turn, resumes, isLimited := s.runLimit(ctx, m.ID, run.SessionID, full)
+		limited = isLimited
+		if limited && !resumes {
+			now := time.Now()
+			wait := s.limitRetryWait(reset, now)
+			s.logf("task %s run %s: the usage limit resets at %s: retried in %s", t.ID, run.ID, reset.UTC().Format(time.RFC3339), wait.Round(time.Second))
+			// Persist before any failure notification. Retry through a database outage until the manager stops.
+			s.sched.mu.Lock()
+			armCtx := s.sched.limitArmCtx
+			s.sched.mu.Unlock()
+			if armCtx == nil { // a watcher started without the scheduler (tests)
+				armCtx = ctx
+			}
+			if !s.armLimitRetry(armCtx, run, turn, now.Add(wait)) {
+				return
+			}
+		} else if limited {
+			s.logf("task %s run %s: its conversation goes on by itself once the usage limit resets at %s: not retried", t.ID, run.ID, reset.UTC().Format(time.RFC3339))
+		}
+	}
 	streak := s.updateRun(run, runFailed, text)
-	name := t.labelIn(s.lang(ctx))
+	reportCtx, reportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer reportCancel()
+	name := t.labelIn(s.lang(reportCtx))
 	if t.Space == SpaceHealth { // the lock screen does not name a health task (health.go)
 		name, _ = healthNotice(s.lang(ctx))
 	}
 	if !streak { // the streak notice already said it failed, with this reason
-		s.push(ctx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID, Title: i18n.T(s.lang(ctx), "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: text})
+		s.push(reportCtx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID, Title: i18n.T(s.lang(reportCtx), "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: text})
 	}
 	if run.Retried {
 		return
 	}
-	if reset, turn, resumes, limited := s.runLimit(ctx, m.ID, run.SessionID, full); limited {
-		// A subscription's usage limit (docs/assistant/agent-work.md "Usage limits"): a retry before it resets is
-		// refused at once. The conversation that goes on by itself then needs none; otherwise the retry waits for the
-		// reset, however long that is — the watcher's time is for the turn, not for this.
-		if resumes {
-			s.logf("task %s run %s: its conversation goes on by itself once the usage limit resets at %s: not retried", t.ID, run.ID,
-				reset.UTC().Format(time.RFC3339))
-			return
-		}
-		now := time.Now()
-		wait := s.limitRetryWait(reset, now)
-		s.logf("task %s run %s: the usage limit resets at %s: retried in %s", t.ID, run.ID, reset.UTC().Format(time.RFC3339), wait.Round(time.Second))
-		// A long storage outage must not exhaust the turn watcher's 30-minute deadline.
-		s.armLimitRetry(context.Background(), run, turn, now.Add(wait))
+	if limited {
 		return
-	} else {
-		delay := runRetryDelay
-		if s.runRetry > 0 {
-			delay = s.runRetry
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(delay):
-		}
+	}
+	delay := runRetryDelay
+	if s.runRetry > 0 {
+		delay = s.runRetry
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(delay):
 	}
 	// The failure push sends the user to the task's page; by now they may have switched it off, deleted it or changed
 	// its prompt. The retry goes by what the schedule holds now, not by the copy the run started with: that copy ran
