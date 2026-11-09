@@ -79,6 +79,7 @@ import SwiftUI
                 $0.hubName = "家里"; $0.meshHubs = 1; $0.pending = true
             }, nil),
         ]
+        let attentionMenus = needsYouStates()
         for dark in [false, true] {
             let mode = dark ? "dark" : "light"
             for (name, s, down) in menus {
@@ -143,7 +144,86 @@ import SwiftUI
             png(RenameView(model: renamed, name: "Studio", result: (true, "好了：这台电脑在 hub 上叫「Studio」，App、网页和管理界面里马上就会变。")),
                 dark: dark, to: dir.appendingPathComponent("rename-done-\(mode).png"))
             png(icons(dark: dark), dark: dark, to: dir.appendingPathComponent("icons-\(mode).png"), plain: true)
+            // "Needs you": the hub's summary in the menu, the count by the icon, and the web address window.
+            for (name, attention, off) in attentionMenus {
+                var s = menus[0].1!
+                s.attention = attention
+                let m = LinkModel()
+                m.show(s, endpoints: endpoints, machine: "macbook", node: nodeInstalled, notificationsOff: off)
+                png(MenuView(model: m, now: now), dark: dark, to: dir.appendingPathComponent("menu-needs-\(name)-\(mode).png"))
+            }
+            // Passive mode and a hub without an https public URL: nowhere to open the web app until it is set.
+            var passiveNeeds = menus[9].1!
+            passiveNeeds.attention = LinkAttention(needsYou: 1, items: [attentionMenus[1].1.items[0]])
+            let nowhere = LinkModel()
+            nowhere.show(passiveNeeds, endpoints: endpoints, machine: "macbook", passive: pairedPassive, node: nodeInstalled)
+            png(MenuView(model: nowhere, now: now), dark: dark, to: dir.appendingPathComponent("menu-needs-no-web-address-\(mode).png"))
+            png(WebAddressView(model: nowhere), dark: dark, to: dir.appendingPathComponent("web-address-empty-\(mode).png"))
+            let set = LinkModel()
+            var activeNeeds = menus[0].1!
+            activeNeeds.attention = attentionMenus[1].1
+            set.show(activeNeeds, endpoints: endpoints, machine: "macbook", webAddress: "https://web.example.com/persona")
+            png(WebAddressView(model: set), dark: dark, to: dir.appendingPathComponent("web-address-set-\(mode).png"))
+            png(WebAddressView(model: set, address: "file:///tmp"), dark: dark, to: dir.appendingPathComponent("web-address-invalid-\(mode).png"))
+            png(countedIcons(dark: dark), dark: dark, to: dir.appendingPathComponent("icons-count-\(mode).png"), plain: true)
         }
+    }
+
+    /// The "Needs you" summaries the snapshots show: none, one, all four kinds with a muted one, more than the menu
+    /// lists (and than the hub sends), the longest text the hub sends, notifications turned off, and an item that does
+    /// not notify without being muted (a question the assistant is still deciding on: listed as any other).
+    static func needsYouStates() -> [(String, LinkAttention, Bool)] {
+        let web = "https://hub.example.com/persona"
+        func item(_ n: Int, _ title: String, _ place: String, _ kind: String, _ detail: String, muted: Bool = false,
+                  notify: Bool? = nil) -> LinkAttention.Item {
+            LinkAttention.Item(machineID: n % 2 == 0 ? "mac-mini" : "macbook", sessionID: "s\(n)", title: title, place: place,
+                               kind: kind, detail: detail, muted: muted, notify: notify ?? !muted, interactionID: "ix\(n)",
+                               route: "/s/macbook/s\(n)")
+        }
+        let five = [
+            item(1, "Fix the login redirect", "macbook · web › 2", "permission", "Bash: npm test"),
+            item(2, "Move uploads to the job queue", "mac-mini · api › 1", "plan", "Add a retry table and a worker"),
+            item(3, "Pick a chart library", "macbook · site › 3", "question", "Which one should the dashboard use?"),
+            item(4, "Release notes draft", "mac-mini · docs › 1", "screen", ""),
+            item(5, "Nightly dependency bump", "macbook · deps › 4", "permission", "Edit: package.json", muted: true),
+        ]
+        // The hub clips title and place to 80 characters and the detail to 60.
+        let long = item(6, String(repeating: "Investigate why the background sync retries forever ", count: 2).prefix(80).description,
+                        String(repeating: "macbook · a-very-long-workspace-name › 12 ", count: 2).prefix(80).description,
+                        "permission", String(repeating: "Bash: npm run test -- --watch=false ", count: 2).prefix(60).description)
+        let twenty = (0..<20).map { five[$0 % 5].with(session: "s\($0 + 10)") }
+        let deciding = item(7, "Tidy the release checklist", "mac-mini · release › 1", "question",
+                            "Should the changelog list internal fixes?", notify: false)
+        return [
+            ("none", LinkAttention(needsYou: 0, webURL: web, items: []), false),
+            ("one", LinkAttention(needsYou: 1, webURL: web, items: [five[0]]), false),
+            ("five", LinkAttention(needsYou: 5, webURL: web, items: five), false),
+            ("overflow", LinkAttention(needsYou: 23, more: 3, webURL: web, items: twenty), false),
+            ("long", LinkAttention(needsYou: 2, webURL: web, items: [long, five[1]]), false),
+            ("notifications-off", LinkAttention(needsYou: 1, webURL: web, items: [five[0]]), true),
+            ("not-notifying", LinkAttention(needsYou: 3, webURL: web, items: [five[0], deciding, five[4]]), false),
+        ]
+    }
+
+    /// The menu bar icon with a count, as MenuBarIcon draws it there.
+    static func countedIcons(dark: Bool) -> some View {
+        let cases: [(LinkLook, Int)] = [(.connected, 1), (.connected, 5), (.connected, 23), (.connected, 120),
+                                        (.nodeMissing, 2), (.connecting, 3), (.listening, 1)]
+        return HStack(spacing: 18) {
+            ForEach(Array(cases.enumerated()), id: \.offset) { _, c in
+                let count = LinkAttention.countText(c.1) ?? ""
+                VStack(spacing: 6) {
+                    Image(nsImage: MenuBarIcon.counted(c.0.symbol, count: count))
+                        .renderingMode(.template)
+                        .frame(height: 22)
+                    Text(c.0.symbol).font(.caption2).fixedSize()
+                }
+            }
+        }
+        .foregroundStyle(dark ? Color.white : Color.black.opacity(0.85))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(dark ? Color(white: 0.17) : Color(white: 0.93))
     }
 
     /// The menu bar icons as they look there: the template symbol in the bar's text color.
@@ -194,5 +274,14 @@ import SwiftUI
             try? rep.representation(using: .png, properties: [:])?.write(to: url)
         }
         window.orderOut(nil)
+    }
+}
+
+private extension LinkAttention.Item {
+    func with(session: String) -> Self {
+        var copy = self
+        copy.sessionID = session
+        copy.route = "/s/\(machineID)/\(session)"
+        return copy
     }
 }

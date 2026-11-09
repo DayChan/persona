@@ -189,12 +189,15 @@ func TestReadonlyTaskDispatchBoundary(t *testing.T) {
 			if _, _, err := s.startTaskAgent(context.Background(), &task, true); err != nil {
 				t.Fatal(err)
 			}
-			want := permission
+			want, stored := permission, permission
+			if want == "" {
+				want = "default"
+			}
 			if readonly {
-				want = "plan"
+				want, stored = "plan", "plan"
 			}
 			got, _ := f.starts[0]["permission_mode"].(string)
-			if got != want || task.Permission != want {
+			if got != want || task.Permission != stored {
 				t.Fatalf("readonly=%v permission=%q: launch=%v task=%+v", readonly, permission, f.starts, task)
 			}
 		}

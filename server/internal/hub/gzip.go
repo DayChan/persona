@@ -3,23 +3,25 @@ package hub
 import (
 	"compress/gzip"
 	"io"
-	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/nwverse/persona/server/internal/webasset"
 )
 
 // Responses are gzipped for clients that take it (#2149). One Feishu chat's messages came to 2.9 MB of JSON that
 // gzip makes 70 KB, and the phone spent seconds receiving them; the web app's main bundle went out at full size too.
 // URLSession, OkHttp, browsers and Go's client all ask for gzip and undo it themselves.
 //
-// Only what compresses and is worth it: text, JSON, JavaScript, XML, SVG and wasm of gzipMinSize bytes or more.
+// Only what compresses and is worth it: text, JSON, JavaScript, XML, SVG and wasm of gzipMinSize bytes or more
+// (webasset.CompressibleType; a published personad keeps the web client's hashed assets gzipped already, web.go).
 // These pass as they are:
 //   - WebSocket upgrades, long-lived streams (longLived), HEAD, and requests for a range;
 //   - the admin pages and API: their cookie and CSRF token are secrets that a compressed size could give away (BREACH);
 //   - responses that set a cookie, carry their own encoding or a range, or are an event stream.
-const gzipMinSize = 1024
+const gzipMinSize = webasset.MinSize
 
 var gzipWriters = sync.Pool{New: func() any { return gzip.NewWriter(io.Discard) }}
 
@@ -82,23 +84,6 @@ func acceptsGzip(values []string) bool {
 		}
 	}
 	return star
-}
-
-// compressibleType: a media type that gzip makes much smaller, and that is not an event stream.
-func compressibleType(contentType string) bool {
-	mt, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return false
-	}
-	switch {
-	case mt == "text/event-stream":
-		return false
-	case strings.HasPrefix(mt, "text/"), mt == "application/json", strings.HasSuffix(mt, "+json"),
-		mt == "application/javascript", mt == "application/x-javascript", mt == "application/xml",
-		strings.HasSuffix(mt, "+xml"), mt == "application/wasm":
-		return true
-	}
-	return false
 }
 
 // gzipWriter holds the start of a response until it knows whether to compress it. That is when gzipMinSize bytes
@@ -184,7 +169,7 @@ func (g *gzipWriter) compressible() bool {
 		}
 		ct = http.DetectContentType(g.buf)
 	}
-	return compressibleType(ct)
+	return webasset.CompressibleType(ct)
 }
 
 // start sends the header, compressed or as it is, and then what was held.

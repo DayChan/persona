@@ -28,6 +28,7 @@ export function TranslationSettings({ onConfigure }: { onConfigure: () => void }
 
   return (
     <>
+      <h2 className="mb-3 px-1 text-[15px] font-semibold text-ink">{t("settings-nav.tab_translate")}</h2>
       <Group footer={t("settings-translationsettings.footer")}>
         <Row label={<span className="flex items-center gap-2"><Icon name="translate" size={14} className="text-ink-3" />{t("settings-translationsettings.auto")}</span>}>
           <Switch on={prefs.enabled} onChange={(on) => setTranslatePrefs({ enabled: on })} label={t("settings-translationsettings.auto")} />

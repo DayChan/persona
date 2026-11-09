@@ -10,11 +10,17 @@ vi.hoisted(() => {
 });
 vi.mock("../lib/store", async (original) => ({
   ...(await original<typeof import("../lib/store")>()),
-  useStore: (select: (state: { features: string[] }) => unknown) => select({ features: ["channels", "extension_manager"] }),
+  useStore: (select: (state: { features: string[]; machines: unknown[]; conn: string; link: { networkUp: boolean; restarting: boolean }; hubName: string; mesh: unknown[] }) => unknown) => select({ features: ["channels", "extension_manager"], machines: [], conn: "online", link: { networkUp: true, restarting: false }, hubName: "", mesh: [] }),
 }));
 vi.mock("./settings/ShortcutSettings", () => ({ ShortcutSettings: () => <div data-page="shortcuts" /> }));
 vi.mock("./settings/NotificationSettings", () => ({ NotificationSettings: () => <div data-page="notifications" /> }));
 vi.mock("./settings/ModelConfiguration", () => ({ ModelConfiguration: ({ open }: { open: string | null }) => <div data-page="model-config" data-open={open} /> }));
+vi.mock("./settings/TranslationSettings", () => ({ TranslationSettings: () => <div data-page="translation" /> }));
+vi.mock("./settings/AssistantSettings", () => ({ AssistantSettings: () => <div data-page="persona" /> }));
+vi.mock("./settings/SidebarPages", () => ({ SidebarPagesGroup: () => <div data-page="sidebar-pages" /> }));
+vi.mock("../lib/pwa", async (original) => ({ ...(await original<typeof import("../lib/pwa")>()), useInstall: () => "installed" }));
+vi.mock("../lib/api", async (original) => ({ ...(await original<typeof import("../lib/api")>()), api: () => Promise.resolve({}) }));
+vi.mock("./settings/AgentSettings", () => ({ AgentSettings: ({ agent }: { agent: string }) => <div data-page="agent" data-agent={agent} /> }));
 vi.mock("./settings/Extensions", () => ({ Extensions: ({ open }: { open: string | null }) => <div data-page="extensions" data-open={open} /> }));
 
 import { t } from "../i18n";
@@ -35,6 +41,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 const mount = async (url: string) => {
   history.replaceState(null, "", url);
@@ -48,7 +55,7 @@ describe("Settings category navigation", () => {
     await mount("/settings?tab=shortcuts");
     const region = host.querySelector('[role="region"]')!;
     expect(host.querySelector("header nav")).toBeNull();
-    expect(nav().nextElementSibling).toBe(region);
+    expect(nav().parentElement!.nextElementSibling).toBe(region);
     expect(nav().getAttribute("aria-label")).toBe(t("settings.categories"));
     expect(nav().classList.contains("overflow-y-auto")).toBe(true);
     expect(region.classList.contains("overflow-y-auto")).toBe(true);
@@ -79,9 +86,35 @@ describe("Settings category navigation", () => {
 
   it("keeps deep-linked configuration purpose and manager when choosing its category again", async () => {
     await mount("/settings?tab=model-config&purpose=agent.triage&manager=example");
+    expect(location.search).toBe("?tab=models&purpose=agent.triage&manager=example");
+    expect(location.hash).toBe("#settings-model-config");
     expect(host.querySelector('[data-page="model-config"]')?.getAttribute("data-open")).toBe("agent.triage");
-    await act(async () => category(t("settings-nav.tab_model_config")).click());
-    expect(location.search).toBe("?tab=model-config&manager=example");
+    await act(async () => category(t("settings-nav.tab_models")).click());
+    expect(location.search).toBe("?tab=models&manager=example");
+  });
+
+  it("redirects old agent, translation, and assistant links to their new categories", async () => {
+    await mount("/settings?tab=codex");
+    expect(location.pathname + location.search + location.hash).toBe("/settings?tab=agents#settings-codex");
+    expect([...host.querySelectorAll('[data-page="agent"]')].map((el) => el.getAttribute("data-agent"))).toEqual(["claude", "codex", "agy", "omp"]);
+    await act(async () => root.render(null));
+    await mount("/settings?tab=translate");
+    expect(location.pathname + location.search + location.hash).toBe("/settings?tab=general#settings-translation");
+    expect(host.querySelector('[data-page="translation"]')).not.toBeNull();
+    await act(async () => root.render(null));
+    await mount("/settings?tab=assistant");
+    expect(location.search).toBe("?tab=persona");
+    expect(host.querySelector('[data-page="persona"]')).not.toBeNull();
+  });
+
+  it("scrolls a shared old link to its section in the combined page", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    await mount("/settings?tab=agy");
+    expect(location.hash).toBe("#settings-agy");
+    await act(async () => {});
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
   });
 
   it("preserves legacy extension deep links", async () => {

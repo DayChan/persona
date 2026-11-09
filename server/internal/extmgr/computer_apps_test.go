@@ -25,6 +25,15 @@ func TestCallApps(t *testing.T) {
 		{"computer_run", "", "", `[{"click": {"app": "Calculator", "name": "6"}}, {"click": {"app": "Calculator", "name": "7"}}]`, "Calculator", true},
 		{"computer_run", "Notes", "", `[{"tool": "press_key", "args": {"key": "return"}}]`, "Notes", true},
 		{"computer_run", "", "", `[{"tool": "press_key", "args": {"key": "return"}}]`, "", false},
+		// An app the call opens is one it touches, not the call's default app.
+		{"computer_run", "Calculator", "", `[{"launch_app": {"name": "Terminal"}}]`, "Terminal", true},
+		{"computer_run", "Calculator", "", `[{"tool": "launch_app", "args": {"name": "Terminal"}}, {"click": {"name": "7"}}]`, "Terminal,Calculator", true},
+		{"computer_run", "", "", `[{"launch_app": {"bundle_id": "com.apple.Terminal"}}]`, "com.apple.Terminal", true},
+		{"computer_run", "Calculator", "", `[{"launch_app": {}}, {"click": {"name": "7"}}]`, "Calculator", false},
+		{"computer_run", "Calculator", "", `[{"tool": "launch_app"}]`, "", false},
+		{"computer_run", "", `const a = await cua.getApp("Calculator"); await cua.launch("Terminal");`, "", "Calculator,Terminal", true},
+		{"computer_run", "", `await cua.launch('Terminal'); return 1`, "", "Terminal", true},
+		{"computer_run", "", `const a = await cua.getApp("Calculator"); await cua.launch(name);`, "", "Calculator", false},
 	} {
 		apps, whole := callApps(c.name, c.app, c.script, json.RawMessage(c.steps))
 		if strings.Join(apps, ",") != c.want || whole != c.whole {
@@ -73,6 +82,20 @@ func TestComputerAppsAreAskedOnce(t *testing.T) {
 	defer cancel()
 	if res := h.callComputerTool(short, "conv1234", "computer_run", json.RawMessage(`{"machine": "mac", "steps": `+calc+`}`)); res.IsError {
 		t.Fatalf("always allowed: not asked again: %+v", res)
+	}
+	// Calculator is allowed, but a call in it that opens Terminal asks about Terminal, every time.
+	for _, args := range []string{
+		`{"machine": "mac", "app": "Calculator", "steps": [{"launch_app": {"name": "Terminal"}}]}`,
+		`{"machine": "mac", "script": "const a = await cua.getApp(\"Calculator\"); await cua.launch(\"Terminal\"); return 1"}`,
+	} {
+		done := make(chan proto.ToolResult, 1)
+		go func() { done <- h.callComputerTool(ctx, "conv1234", "computer_run", json.RawMessage(args)) }()
+		if card := answerCard(t, h, true, false); !strings.Contains(card.Summary, "「Terminal」") || strings.Contains(card.Summary, "Calculator") || card.AlwaysLabel != "" {
+			t.Fatalf("%s: asked about Terminal alone, with no 一直允许: %+v", args, card)
+		}
+		if res := <-done; res.IsError {
+			t.Fatalf("%+v", res)
+		}
 	}
 	code, out := call(t, mux, "GET", "/api/v1/machines/mac/computer/apps", h.cfg.Token, "")
 	apps, _ := out["apps"].([]any)

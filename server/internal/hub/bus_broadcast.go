@@ -29,6 +29,9 @@ import (
 //     replacing one it carried), so an app showing one manager's assistant page leaves the others' live updates out.
 //     The assistant's go without it, as they always did (one it carried is taken out): no "manager" is the
 //     assistant's (docs/protocol/protocol.md).
+//   - its place in the stream: a top-level "event_seq" is taken out. The apps read it from every message for their
+//     resume cursor, and only the event log numbers a message; an extension_operation, which the log does not keep,
+//     goes without one.
 
 // managerMessageTypes are the types the managers send the apps (internal/assistant Service.event, internal/extmgr
 // Manager.broadcast and broadcastExtension).
@@ -98,6 +101,7 @@ func (h *Hub) relayBroadcastFrom(from string, message json.RawMessage) error {
 	} else {
 		m[ManagerQuery] = from
 	}
+	delete(m, "event_seq") // the event log's, and an extension_operation skips the log (stampEvent never sees it)
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)

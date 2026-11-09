@@ -70,6 +70,35 @@ func TestWorkflowPollPushesAgentTools(t *testing.T) {
 	}
 }
 
+// A retried agent reaches the hub although no count changes (#2323): the stalled attempt and its retry both run, and
+// neither has called a tool yet, so only the agents' ids tell the lists apart. Clients would keep linking the
+// replaced attempt otherwise.
+func TestWorkflowPollPushesRetriedAgent(t *testing.T) {
+	n, f, home := herdrNode(t)
+	const cwd = "/tmp/workflow-poll-retry"
+	sess := workflowPollSession(t, n, f, home, cwd, nil)
+	pushes, stop := pollNode(t, n)
+	defer stop()
+	ids := func(s proto.Session) string {
+		var out []string
+		for _, a := range s.Workflows[0].Agents {
+			out = append(out, a.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	before := nextWorkflowPush(t, pushes, 5*time.Second)
+	if got := ids(before); got != "a1,a2" {
+		t.Fatalf("initial agents: %s", got)
+	}
+	appendFile(t, filepath.Join(sess, "subagents", "workflows", "wf_poll", "journal.jsonl"),
+		`{"type":"started","key":"v2:first","agentId":"a3","label":"review:first","phase":"Review"}`+"\n")
+	after := nextWorkflowPush(t, pushes, 3*time.Second)
+	w := after.Workflows[0]
+	if got := ids(after); got != "a2,a3" || w.AgentsStarted != 2 || w.AgentsRunning != 2 {
+		t.Fatalf("after the retry: agents %s, %+v", got, w)
+	}
+}
+
 // workflowPollSession is a stopped session of n's whose turn launched the workflow run wf_poll, two agents started;
 // agents are the transcripts of those that have one. It returns the session's directory.
 func workflowPollSession(t *testing.T, n *Node, f *fakeHerdr, home, cwd string, agents map[string]string) string {
@@ -82,8 +111,8 @@ func workflowPollSession(t *testing.T, n *Node, f *fakeHerdr, home, cwd string, 
 		`{"type":"user","uuid":"u1","timestamp":"`+stamp+`","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"Workflow launched in background. Task ID: wt1\nSummary: Review\nRun ID: wf_poll\n"}]}}`,
 		`{"type":"system","subtype":"turn_duration","durationMs":1000,"pendingWorkflowCount":1,"timestamp":"`+stamp+`"}`)
 	sess := strings.TrimSuffix(tp, ".jsonl")
-	writeRun(t, sess, "wf_poll", `{"type":"started","agentId":"a1","label":"review:first","phase":"Review"}`+"\n"+
-		`{"type":"started","agentId":"a2","label":"review:second","phase":"Review"}`+"\n", nil, time.Minute)
+	writeRun(t, sess, "wf_poll", `{"type":"started","key":"v2:first","agentId":"a1","label":"review:first","phase":"Review"}`+"\n"+
+		`{"type":"started","key":"v2:second","agentId":"a2","label":"review:second","phase":"Review"}`+"\n", nil, time.Minute)
 	for id, body := range agents {
 		if err := os.WriteFile(filepath.Join(sess, "subagents", "workflows", "wf_poll", "agent-"+id+".jsonl"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)

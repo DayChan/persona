@@ -158,7 +158,7 @@ fun ExtensionPage(
         return
     }
     val res = LocalResources.current
-    val model = remember(extensions, extensionId, res) { ExtensionModel(extensions, extensionId, res) }
+    val model = remember(extensions, extensionId, res, manager) { ExtensionModel(extensions, extensionId, res, manager) }
     val state by model.state.collectAsState()
     val scope = rememberCoroutineScope()
     val feedback = LocalAppFeedback.current

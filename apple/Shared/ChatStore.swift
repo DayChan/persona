@@ -769,7 +769,7 @@ final class ChatStore {
     /// `item` is the transcript line of the streamed `live` text: the reply (a text item), or the words written before a
     /// tool call, which Claude Code streams as text and records as a thinking block (#1966: their live copy never landed,
     /// and stayed at the end of the chat with its cursor). Written after line `since` (the newest when the text began):
-    /// an earlier line that starts the same way ("我…") is not it.
+    /// an earlier line that starts the same way (the same first word) is not it.
     nonisolated static func isLiveCopy(_ item: Item, of live: String, after since: Int = 0) -> Bool {
         !live.isEmpty && item.seq > since && item.role == "assistant" && (item.kind == .text || item.kind == .thinking)
             && (item.text ?? "").hasPrefix(live)

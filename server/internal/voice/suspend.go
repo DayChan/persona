@@ -146,6 +146,7 @@ func (c *conversation) maybePause(now time.Time) {
 	c.dropAudio, c.cutAt, c.barge = false, time.Time{}, barge{}
 	c.closeAsst()
 	c.closeUser()
+	c.owed = owedAnswer{} // nothing is owed by a session that is gone after a minute's quiet (nudge.go)
 	c.sendApp(map[string]any{"type": "link", "state": linkPaused})
 	c.logf("paused the upstream (%d): session %d closed, the conversation works and nobody spoke for %v", s.pauses, sessionNo(c.gen-1),
 		now.Sub(c.quietSince()).Round(time.Second))
@@ -291,6 +292,7 @@ func (c *conversation) flushRing() {
 			c.remember("user", text, time.Now())
 			c.gate.user = time.Now()
 			c.gate.typed = c.gate.user
+			c.owe(c.gate.user, owedTyped, false) // the woken session owes it an answer (nudge.go)
 			out = append(out, w.text(text))
 		default:
 			c.sus.state, c.sus.flush, c.sus.failed, c.sus.spoke = "", false, 0, false
