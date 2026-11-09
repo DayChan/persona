@@ -130,3 +130,7 @@ Where the business type needs fields of its own, it stays a separate type with t
 ### Phone data tools
 claude calls the MCP tool `phone_calendar_events` → `personad mcp` → node.sock → hub → finds an online iPhone (WS) → the app queries with EventKit → returns the same way.
 When the app is not online, it returns the error "iPhone is not online, please open Persona".
+
+### Runtime list origin projection
+
+`internal/sessionorigin` classifies the runtime DTO's pane/host metadata using the host registry, matching the clients' desktop-first origin rule (`docs/protocol/protocol.md`, "Pane/host origins"). The hub's existing list adapter adds this scalar to bounded rows and passes it to `internal/sessionlist`; the generic index only stores and matches it. State, preferences and Agents membership remain with their existing owners.

@@ -31,6 +31,7 @@
   "node_temporary": "This connection uses a temporary node. Install the resident node service first.",
   "node_unmanaged": "The resident node is not managed by launchd/systemd, so recovery after failure cannot be guaranteed.",
   "node_no_ps": "ps is missing, so the rollback process cannot be verified.",
+  "node_ps_no_start": "ps here cannot report a process’s start time (BusyBox’s cannot; install procps), so the rollback process cannot be verified.",
   "node_no_systemd_run": "systemd-run is missing, so the independent rollback monitor cannot start.",
   "node_no_executable": "Could not locate the resident node’s executable.",
   "node_bad_executable": "The resident node’s executable is unavailable.",

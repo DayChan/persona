@@ -1,8 +1,9 @@
 // Start an agent on one of your computers: machine, folder (recent ones first), launcher, model and effort for this
 // start, Claude Code's ultracode switch (#3428: off each time, never remembered), the first message.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { hubLabel } from "../lib/mesh";
-import { api, ApiError, enc, errorText, isAbort } from "../lib/api";
+import { api, ApiError, credentialOwner, enc, errorText, getToken, isAbort, subscribeCredentialOwner } from "../lib/api";
+import { defaultManager, useKnownDefault } from "../lib/manager-choice";
 import { pickAttachment, releaseAttachments, type LocalAttachment } from "../lib/attachments";
 import { browserStartKeys, launchAgent, presetPrompt, type NewAgentPreset } from "../lib/new-agent";
 import { AttachmentTray } from "../ui/AttachmentTray";
@@ -14,7 +15,7 @@ import {
 import { BYPASS_MODE, BYPASS_WARNING, EFFORTS, effortTitle, PERMISSION_MODES } from "../lib/session-actions";
 import { baseName, shortPath } from "../lib/format";
 import { addAgentWorktree, agentBranch, agentNameHint, suggestedPath, worktreeStatus, type WorktreeStatus } from "../lib/worktree";
-import { useStore } from "../lib/store";
+import { getState, useStore } from "../lib/store";
 import type { Launcher } from "../lib/types";
 import { AgentMark } from "../ui/AgentMark";
 import { Button, cx, Dialog, Spinner, Switch, toast } from "../ui/atoms";
@@ -82,6 +83,23 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const submitted = useRef(false);
+  const preparation = useRef<AbortController | null>(null);
+  const promptRevision = useRef(0);
+  const credential = useSyncExternalStore(subscribeCredentialOwner, credentialOwner, credentialOwner);
+  const knownDefault = useKnownDefault();
+  const manager = machines.find((m) => m.id === mid)?.manager || knownDefault || defaultManager();
+  const targetOnline = online.some((m) => m.id === mid);
+  const retirePreparation = () => {
+    const previous = preparation.current;
+    preparation.current = null;
+    previous?.abort();
+  };
+  const dismiss = () => {
+    retirePreparation();
+    // Keep admission closed until another opening, including events in the same React batch.
+    submitted.current = true;
+    onClose();
+  };
   // a preset's folder, put in once its computer is the chosen one (choosing a computer loads that one's last folder)
   const presetCwd = useRef<{ mid: string; cwd: string } | null>(null);
   const attachmentsRef = useRef(attachments);
@@ -102,6 +120,13 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const [wtBranch, setWtBranch] = useState("");
   const [wtBusy, setWtBusy] = useState(false);
   const [wtError, setWtError] = useState("");
+  // Cleanup fences completions even when the transport ignores abort. A target change starts a new admission scope.
+  useLayoutEffect(() => {
+    submitted.current = false;
+    setWtBusy(false);
+    setWtError("");
+    return retirePreparation;
+  }, [open, mid, cwd, manager, credential, targetOnline]);
   const [repo, setRepo] = useState<WorktreeStatus | null>(null);
   useEffect(() => {
     setRepo(null);
@@ -117,7 +142,10 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const worktreeOffered = Boolean(repo?.path);
   useEffect(() => {
     if (!open || !preset) return;
-    if (preset.prompt) setPrompt((draft) => presetPrompt(preset.prompt, draft));
+    if (preset.prompt) {
+      promptRevision.current++;
+      setPrompt((draft) => presetPrompt(preset.prompt, draft));
+    }
     if (preset.machineId && preset.cwd && online.some((m) => m.id === preset.machineId)) {
       presetCwd.current = { mid: preset.machineId, cwd: preset.cwd };
       setMid(preset.machineId);
@@ -278,8 +306,17 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
   const ultracodeBlocked = ultracodeShown ? startBlocked(picked?.claude_version) : "";
 
   const start = () => {
-    if (submitted.current || loadingModels || !online.some((m) => m.id === mid) || !cwd.trim()) return;
+    if (!open || submitted.current || loadingModels || !online.some((m) => m.id === mid) || !cwd.trim()) return;
     submitted.current = true;
+    const controller = new AbortController();
+    preparation.current = controller;
+    const owner = credentialOwner();
+    const token = getToken();
+    const revision = promptRevision.current;
+    const snapshot = { text: prompt.trim(), attachments: [...attachments] };
+    const current = () => preparation.current === controller && !controller.signal.aborted && owner === credentialOwner()
+      && getState().machines.some((m) => m.id === mid && m.online)
+      && manager === (getState().machines.find((m) => m.id === mid)?.manager || defaultManager());
     localStorage.setItem(`new.cwd.${mid}`, cwd.trim());
     if (launcher && !unified) localStorage.setItem(`new.launcher.${mid}`, launcher);
     const picks = startPicks({ agent, list: models.list, model, effort, followed });
@@ -293,25 +330,35 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
     // only an explicit "on" is sent: off is what a new Claude is anyway
     const ultra = ultracodeShown && !ultracodeBlocked && ultracode ? true : undefined;
     const launch = (dir: string) => {
-      launchAgent({ machineId: mid, cwd: dir, launcher, ...picks, permissionMode: permissionMode || undefined, host: opensIn, ultracode: ultra, text: prompt.trim(), attachments });
-      attachmentsRef.current = [];
-      setAttachments([]);
-      setPrompt("");
-      onClose();
+      if (!current()) return;
+      // The launch owns its previews; removing or unmounting the editable draft cannot revoke them.
+      const sent = snapshot.attachments.map((a) => ({ ...a, url: a.url ? URL.createObjectURL(a.file) : undefined }));
+      launchAgent({ machineId: mid, cwd: dir, launcher, ...picks, permissionMode: permissionMode || undefined, host: opensIn, ultracode: ultra, text: snapshot.text, attachments: sent });
+      const ids = new Set(snapshot.attachments.map((a) => a.id));
+      releaseAttachments(attachmentsRef.current.filter((a) => ids.has(a.id)));
+      attachmentsRef.current = attachmentsRef.current.filter((a) => !ids.has(a.id));
+      setAttachments(attachmentsRef.current);
+      if (promptRevision.current === revision) setPrompt("");
+      dismiss();
     };
     // in a worktree of its own (#6115): made first; a failure says why here, and nothing starts
     if (inWorktree && worktreeOffered) {
       setWtBusy(true);
       setWtError("");
-      void addAgentWorktree(mid, cwd.trim(), agentNameHint(prompt, cwd), wtBranch)
+      void addAgentWorktree(mid, cwd.trim(), agentNameHint(prompt, cwd), wtBranch, { signal: controller.signal, token, tokenOwner: owner })
         .then(
           (wt) => launch(wt.path),
           (e) => {
+            if (!current()) return;
             submitted.current = false;
             setWtError(errorText(e));
           },
         )
-        .finally(() => setWtBusy(false));
+        .finally(() => {
+          if (!current()) return;
+          preparation.current = null;
+          setWtBusy(false);
+        });
       return;
     }
     launch(cwd.trim());
@@ -322,11 +369,11 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
       <>
         <Dialog
           open={open}
-          onClose={onClose}
+          onClose={dismiss}
           title={t("newagent.title")}
           width={520}
           footer={
-            <Button tone="quiet" onClick={onClose}>
+            <Button tone="quiet" onClick={dismiss}>
               {t("common.cancel")}
             </Button>
           }
@@ -344,7 +391,7 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
                 tone="primary"
                 icon="plus"
                 onClick={() => {
-                  onClose(); // the add flow is a dialog of its own, not one over this
+                  dismiss(); // the add flow is a dialog of its own, not one over this
                   adding.open();
                 }}
               >
@@ -361,13 +408,13 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
     <>
       <Dialog
         open={open}
-        onClose={onClose}
+        onClose={dismiss}
         title={t("newagent.title")}
         width={520}
         footer={
           <>
             <span className="mr-auto min-w-0 truncate text-[11.5px] text-ink-3">{cwd ? shortPath(cwd) : t("newagent.pick_folder")}</span>
-            <Button tone="quiet" onClick={onClose}>
+            <Button tone="quiet" onClick={dismiss}>
               {t("common.cancel")}
             </Button>
             <Button tone="primary" busy={wtBusy} disabled={loadingModels || !online.some((m) => m.id === mid) || !cwd.trim()} onClick={start}>
@@ -637,7 +684,7 @@ export function NewAgent({ open, onClose, preset }: { open: boolean; onClose: ()
               }} /></div>}
               <textarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                onChange={(e) => { promptRevision.current++; setPrompt(e.target.value); }}
                 onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
                 onKeyDown={(e) => {
                   if (e.nativeEvent.isComposing || e.keyCode === 229) return;

@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
-// The rail's own drawing rules (lib/nav-rail.test.ts) are pure; these pin what the component does around them: a chat
-// below the tick minimum, and a touch screen (no precise pointer), measure nothing (mounting draws no extra frame, and
-// scrolling a long touch chat does no layout work — the panes-renders regression), while a wide chat with enough
-// questions draws a tick per question after its first measure.
-import { act, Profiler } from "react";
+// Component contracts: passive cached scroll tracking, transient visibility, stable selection and accessible input.
+import { act, Profiler, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NAV_RAIL_MIN_TICKS, type NavRailTick } from "../../lib/nav-rail";
@@ -58,12 +55,22 @@ beforeEach(() => {
   commits = 0;
 });
 afterEach(() => {
+  vi.useRealTimers();
   finePointer.matches = true;
   act(() => root.unmount());
   host.remove();
 });
 
 describe("NavRail", () => {
+  it("rearms a frame cancelled by StrictMode's initial effect replay", async () => {
+    const sc = scrollerWith(700, 600);
+    act(() => root.render(<StrictMode><NavRail ticks={[]} scroller={sc} onJump={() => {}} reset="example/strict" /></StrictMode>));
+    await settle();
+    act(() => root.render(<StrictMode><NavRail ticks={[tick(1), tick(2)]} scroller={sc} onJump={() => {}} reset="example/strict" /></StrictMode>));
+    await settle();
+    expect(host.querySelectorAll("[data-nav-rail] button")).toHaveLength(2);
+  });
+
   it("draws a tick per question in a wide chat once measured", async () => {
     const sc = scrollerWith(1200, 600);
     act(() => root.render(
@@ -139,7 +146,7 @@ describe("NavRail", () => {
     act(() => { finePointer.set(true); });
     expect(flashed).toBe(false); // the commit that learns the pointer is back must not draw the old geometry
     await settle();
-    expect(host.querySelector("[data-nav-rail]")).toBeNull(); // measured the narrow chat: still no room
+    expect(host.querySelectorAll("[data-nav-rail] button")).toHaveLength(8); // the right edge works in narrow desktops too
   });
 
   it("does not restore a hover preview after the precise pointer comes back", async () => {
@@ -158,5 +165,122 @@ describe("NavRail", () => {
     await settle();
     expect(host.querySelectorAll("[data-nav-rail] button")).toHaveLength(8);
     expect(host.querySelector("[data-nav-rail-preview]")).toBeNull();
+  });
+
+  it("starts hidden, wakes for scrolling and keyboard focus, and fades after quiet", async () => {
+    const sc = scrollerWith(700, 600);
+    act(() => root.render(<NavRail ticks={[tick(1), tick(2)]} scroller={sc} onJump={() => {}} reset="example/s1" />));
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    expect(rail.dataset.visible).toBe("false");
+    vi.useFakeTimers();
+    act(() => sc.dispatchEvent(new Event("scroll")));
+    expect(rail.dataset.visible).toBe("true");
+    await act(async () => vi.advanceTimersByTimeAsync(2100));
+    expect(rail.dataset.visible).toBe("false");
+    act(() => rail.focus());
+    expect(rail.dataset.visible).toBe("true");
+    await act(async () => vi.advanceTimersByTimeAsync(2100));
+    expect(rail.dataset.visible).toBe("true");
+    act(() => rail.blur());
+    await act(async () => vi.advanceTimersByTimeAsync(2100));
+    expect(rail.dataset.visible).toBe("false");
+    vi.useRealTimers();
+  });
+
+  it("selects every loaded input with the keyboard in a bounded window without jumping until Enter", async () => {
+    const sc = scrollerWith(700, 120);
+    const jump = vi.fn();
+    act(() => root.render(<NavRail ticks={Array.from({ length: 50 }, (_, i) => tick(i))} scroller={sc} onJump={jump} reset="example/s1" />));
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    const press = (key: string) => act(() => rail.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    act(() => rail.focus());
+    press("Home");
+    expect(host.querySelector("[data-nav-preview]")?.textContent).toBe("question 0");
+    for (let i = 1; i < 50; i++) {
+      press("ArrowDown");
+      expect(host.querySelector("[data-nav-preview]")?.textContent).toBe(`question ${i}`);
+      expect(host.querySelector('[aria-live="polite"]')?.textContent).toContain(`question ${i}`);
+      expect(host.querySelector(`[data-tick="${i}"]`)).not.toBeNull();
+    }
+    expect(host.querySelectorAll("button").length).toBeLessThan(20);
+    expect(jump).not.toHaveBeenCalled();
+    press("Enter");
+    expect(jump).toHaveBeenLastCalledWith("seg:49");
+    press("Escape");
+    expect(host.querySelector("[data-nav-preview]")).toBeNull();
+  });
+
+  it("keeps preview identity when older inputs are prepended", async () => {
+    const sc = scrollerWith(700, 600);
+    const jump = vi.fn();
+    const render = (ticks: NavRailTick[]) => act(() => root.render(<NavRail ticks={ticks} scroller={sc} onJump={jump} reset="example/s1" />));
+    render([tick(2), tick(3)]);
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    act(() => rail.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    render([tick(0), tick(1), tick(2), tick(3)]);
+    await settle();
+    expect(host.querySelector("[data-nav-preview]")?.textContent).toBe("question 3");
+    act(() => rail.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(jump).toHaveBeenCalledWith("seg:3");
+  });
+
+  it("freezes drag identities across prepends, commits once on release and never on cancellation", async () => {
+    const sc = scrollerWith(700, 600);
+    const jump = vi.fn();
+    const render = (ticks: NavRailTick[]) => act(() => root.render(<NavRail ticks={ticks} scroller={sc} onJump={jump} reset="example/s1" />));
+    render([tick(2), tick(3), tick(4)]);
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    rail.setPointerCapture = vi.fn();
+    rail.releasePointerCapture = vi.fn();
+    const pointer = (type: string, y: number) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(e, "pointerId", { value: 7 });
+      act(() => rail.dispatchEvent(e));
+    };
+    pointer("pointerdown", 291);
+    render([tick(0), tick(1), tick(2), tick(3), tick(4)]);
+    await settle();
+    pointer("pointermove", 300);
+    expect(host.querySelector("[data-nav-preview]")?.textContent).toBe("question 3");
+    expect(jump).not.toHaveBeenCalled();
+    pointer("pointerup", 300);
+    act(() => host.querySelector('[data-tick="3"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(jump).toHaveBeenLastCalledWith("seg:3");
+    pointer("pointerdown", 291);
+    pointer("pointercancel", 291);
+    pointer("pointerup", 291);
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(host.querySelector("[data-nav-preview]")).toBeNull();
+  });
+
+  it("does no per-message layout reads or transcript renders on ordinary scroll frames", async () => {
+    const sc = scrollerWith(700, 600);
+    const content = document.createElement("div");
+    content.dataset.chatContent = "";
+    sc.append(content);
+    const boxes = Array.from({ length: 40 }, (_, i) => {
+      const row = document.createElement("div");
+      row.dataset.line = `seg:${i}`;
+      const child = document.createElement("div");
+      child.getBoundingClientRect = vi.fn(() => ({ top: i * 100 - sc.scrollTop } as DOMRect));
+      row.append(child);
+      content.append(row);
+      return child;
+    });
+    const query = vi.spyOn(sc, "querySelectorAll");
+    act(() => root.render(<NavRail ticks={boxes.map((_, i) => tick(i))} scroller={sc} onJump={() => {}} reset="example/s1" />));
+    await settle();
+    query.mockClear();
+    for (const child of boxes) vi.mocked(child.getBoundingClientRect).mockClear();
+    act(() => { sc.scrollTop = 530; sc.dispatchEvent(new Event("scroll")); });
+    await settle();
+    expect(host.querySelector('[aria-current="true"]')?.getAttribute("data-tick")).toBe("5");
+    expect(query).not.toHaveBeenCalled();
+    for (const child of boxes) expect(child.getBoundingClientRect).not.toHaveBeenCalled();
   });
 });

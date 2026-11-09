@@ -28,6 +28,10 @@ const NodeUsage = `  personad node --stdio     run the node protocol on stdin/st
   personad node --attach    resident node (launchd, in the login session): serves what --stdio relays, so what it
                            starts can use the login keychain (docs/server/server.md「常驻 node」); set up for tailcat,
                            also reachable by the hub over tailcat
+  personad node --attach --supervised
+                           the same, run by something other than systemd or launchd that starts it again whenever it
+                           exits (a container's entry script, supervisord, runit, s6): the hub can then update it
+                           (docs/operations/link.md "Without systemd"). Not for nohup or cron @reboot: nothing restarts those
   personad node tailcat init --hub <key> [--derp-map-url <url>]
                            let the hub reach this machine over tailcat when it cannot ssh here; prints the address
                            for hub.json (docs/server/server.md「tailcat 打洞」)
@@ -79,9 +83,22 @@ func exitNodeUsage(err error) {
 	os.Exit(2)
 }
 
+// residentArgs reads what may follow --attach: --supervised, at most once. Anything else is refused rather than
+// ignored: a mistyped flag would leave the node quietly unable to take updates from the hub.
+func residentArgs(args []string) (supervised bool, err error) {
+	for _, a := range args {
+		if a != "--supervised" || supervised {
+			return false, fmt.Errorf("node --attach takes only --supervised, not %q (%s node -h for usage)", strings.Join(args, " "), CommandName())
+		}
+		supervised = true
+	}
+	return supervised, nil
+}
+
 // runResident is `personad node --attach`: relays over ssh, and the hub over tailcat when this machine is set up for
-// it. A new binary arriving over tailcat ends it (exit 0): its supervisor starts the new one.
-func runResident(ctx context.Context, b Build) error {
+// it. A new binary arriving over tailcat ends it (exit 0): its supervisor starts the new one. supervised: started with
+// --supervised, something other than systemd or launchd restarts it when it exits (nodeupdate.Options).
+func runResident(ctx context.Context, b Build, supervised bool) error {
 	// tailcat stops only after Attach has closed the hub's connection: torn down first, the close would never reach
 	// the hub, which would then take the dead connection for a live one until its pings went unanswered.
 	tctx, tstop := context.WithCancel(context.Background())
@@ -89,7 +106,7 @@ func runResident(ctx context.Context, b Build) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	restart := make(chan struct{})
-	updater := nodeupdate.New(b.Version, func() { close(restart); cancel() })
+	updater := nodeupdate.New(b.Version, func() { close(restart); cancel() }, nodeupdate.Options{Supervised: supervised})
 	node.SetResident(b.Program, b.Version)
 	defer updater.Close()
 	if updater.RestartRequired() {

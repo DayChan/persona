@@ -1,6 +1,7 @@
 {
-  "rail": "问题导航",
-  "jump": "跳到第 {index} 个问题：{preview}",
-  "attachments_other": "{count} 个附件",
-  "earlier": "更早的问题还有 {count} 个"
+  "rail": "用户输入导航",
+  "jump": "跳到第 {index} 条用户输入：{preview}",
+  "keys": "用方向键预览，Home 或 End 选择第一条或最后一条，Enter 或空格定位，Escape 取消预览。",
+  "selection": "第 {index} 条用户输入，共 {count} 条：{preview}。{answer}",
+  "attachments_other": "{count} 个附件"
 }

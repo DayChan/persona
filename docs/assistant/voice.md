@@ -42,7 +42,7 @@ Phase one follows the sub-issues in section 7; after each step, align this docum
 | No "delegation complete" event; thinking limited to 500 tokens each time; commentary on the tested service limited to 4000 **characters** (lessons "Errors"; only this service tested, other upstreams may also limit to 500 tokens) | Send one commentary per delegation, containing the whole result; if the upstream rejects its length (`error`, `param: content`), retry with a 450-token short version; if the delegation is gone, use `say` (4.5 rules 4, 6) |
 | Any thinking / commentary cancels all pending automatic replies in the **entire session** | No incremental progress announcements; send nothing else immediately after creating a delegation |
 | In the live dialect, commentary without delegation is a user turn (`text` / `say` in `wire.go`) | No path for "silent and without delegation". `say` makes the model speak and may interrupt it, hence the interruption gate (4.5) |
-| The live dialect has no "user finished speaking" event; user captions close only when the model speaks or delegates (`closeUser` in `session.go`) | The extension uses its own silence timer to decide the utterance is finished |
+| The live dialect has no "user finished speaking" event; user captions close only when the model speaks or delegates (`closeUser` in `session_lines.go`) | The extension uses its own silence timer to decide the utterance is finished |
 | No truncate | After interruption, the model believes the whole speech was delivered |
 | The codex dialect's `say` truncates the entire input to 500 bytes (`wire.go`) | Chunking required |
 | `maxReconnects = 3`, never reset during a call | Reset after the connection has been stable for a while |
@@ -219,7 +219,7 @@ the hub forwards App HTTP / WS unchanged through `/api/v1/bus/relay` to the mana
 | `VoiceAudio` | Same | Capture (VoiceProcessing echo cancellation), resampling, playback, `clear`, route changes, tones |
 | Call bar, thread tail | iOS, new apple/Persona/Views/Voice/ directory | Replaces ChatView composer; captions are temporary tail rows; cards remain `PendingCards` |
 | Forwarding | hub: `hub/extensions_link.go`; manager: `extmgr/extension_routes.go`, `extensions.go` | Authentication; read-only device 403; identifies caller to extension; registers forwarded WS by principal and closes on revocation |
-| `conversation` + `gate` | `voice/session.go`, gate.go (new) | Frames, protocol negotiation; user-speech and interruption gates; `clear` on interruption |
+| `conversation` + `gate` | `voice/session.go`, `voice/session_app.go`, gate.go (new) | Frames, protocol negotiation; user-speech and interruption gates; `clear` on interruption |
 | `runs` | voice/runs.go (new) | One `channel.Run` per delegation: send, track, read reply, announce |
 | `hubLink` | voice/hublink.go (new) | One hub WS per extension process; ref-count subscriptions per session; nonblocking read loop; 5-second fallback polling |
 | `asks` / `status` / `suspend` | voice/asks.go, status.go, suspend.go (new) | Spoken questions and answers; status queries; suspension and wake |
@@ -335,7 +335,7 @@ ext  → run …"sent" → …"working" → {"type":"link","state":"paused"} →
 
 | File | Contents |
 | --- | --- |
-| `session.go` (changed) | Protocol negotiation, `target` / `recent` / `resume`, new frames; old frames for protocol 1; reconnect count reset after 60 seconds stable; tool declarations based on role and target |
+| `session.go`, `session_lines.go`, `session_upstream.go` | Protocol negotiation, `target` / `recent` / `resume`, new frames; old frames for protocol 1; reconnect count reset after 60 seconds stable; tool declarations based on role and target |
 | `gate.go` (new) | User-speech gate (#3501); announcement gate (user stopped 1.2 seconds, upstream silent 1.5 seconds; #3502 adds noise floor and max user-speech wait); speech queue (question / approval > result > heartbeat, expired heartbeats dropped); interruption threshold |
 | `target.go` (new) | `start` frame, target validation (in session list; sendability matches App `canSend`: nonexternal source, or `capabilities.send` true); snapshot |
 | `hublink.go` (new) | Shared hub WS: `hello`, subscription ref-counts, nonblocking fan-out, reconnect backoff, fallback polling |
@@ -562,7 +562,7 @@ Titles, goals, progress, recent turns, card questions, and Agent titles go insid
    Do not preload full text as thinking chunks: thinking before results makes the model speak ("Got it, I'll keep this background in mind", 1/1; lessons finding 4b is 8/35).
    Thinking still caps at 450 tokens. Codex `say` chunks cap at 500 bytes.
 7. **Interruption** (protocol 2 only): user interrupts fast-layer speech, extension sends `clear` and sets `dropAudio`. GPT-Live has no truncate, so model thinks the segment finished; it has the full text, so follow-ups still work.
-   Original design: "speech over 0.5 seconds with text remaining after removing backchannels (mm, yes, OK…)"; #3503 follows lessons "Suggested constants" (`barge` in `gate.go`, `cutIn` in `session.go`),
+   Original design: "speech over 0.5 seconds with text remaining after removing backchannels (mm, yes, OK…)"; #3503 follows lessons "Suggested constants" (`barge` in `gate.go`, `cutIn` in `session_app.go`),
    using neither backchannel words nor captions: whole captions arrive 1.2 seconds after user speech, too late for 0.5 seconds;
    - **Follow upstream**: if reply boundaries are reported (tested `response.event`: any `response.created` / `completed` / `incomplete`), the model stops itself on interruption and reports `incomplete`; immediately send `clear`.
      Do not send for `incomplete` after the same reply's `completed` (replaced by next segment, lessons "Other behavior"): speech finished, and clearing would cut its still-unplayed App tail. No PCM rule then;

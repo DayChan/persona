@@ -18,3 +18,21 @@ func TestCheckNodeStdioArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestResidentArgs(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		supervised bool
+	}{{nil, false}, {[]string{"--supervised"}, true}} {
+		got, err := residentArgs(c.args)
+		if err != nil || got != c.supervised {
+			t.Errorf("%q: %v %v", c.args, got, err)
+		}
+	}
+	// A mistyped or repeated flag is refused: ignored, it would leave the node unable to take updates without a word.
+	for _, args := range [][]string{{"--supervise"}, {"supervised"}, {"--supervised", "--supervised"}, {"--supervised", "x"}, {"--stdio"}} {
+		if got, err := residentArgs(args); err == nil || got || !strings.Contains(err.Error(), "--supervised") {
+			t.Errorf("%q: %v %v", args, got, err)
+		}
+	}
+}

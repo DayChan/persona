@@ -78,7 +78,6 @@
   "server/internal/assistant/supervise_test.go": 2,
   "server/internal/assistant/tasks_reuse_test.go": 1,
   "server/internal/assistant/tasks_test.go": 7,
-  "server/internal/assistant/todo_autolink_undo_test.go": 1,
   "server/internal/assistant/todo_events_test.go": 2,
   "server/internal/assistant/todo_outcome_test.go": 1,
   "server/internal/assistant/todo_sessions_test.go": 2,
