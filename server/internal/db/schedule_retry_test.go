@@ -113,6 +113,78 @@ func TestScheduleCompare(t *testing.T) {
 	}
 }
 
+func TestScheduleRunsCompare(t *testing.T) {
+	d, other := scheduleDBs(t)
+	ctx := context.Background()
+	raw, rev, found, err := d.ReadScheduleRuns(ctx)
+	if err != nil || found || rev != 0 || raw != nil {
+		t.Fatalf("missing: %s %d %v %v", raw, rev, found, err)
+	}
+	if ok, err := d.CompareScheduleRuns(ctx, 0, json.RawMessage(`[]`)); err != nil || !ok {
+		t.Fatalf("insert missing: %v %v", ok, err)
+	}
+	if _, err := d.pool.Exec(ctx, `DELETE FROM settings WHERE key = $1`, scheduleRunsKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutSetting(ctx, scheduleRunsKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, rev, found, err = other.ReadScheduleRuns(ctx)
+	if err != nil || !found || rev == 0 || string(raw) != "null" {
+		t.Fatalf("legacy null: %s %d %v %v", raw, rev, found, err)
+	}
+	if ok, err := other.CompareScheduleRuns(ctx, 0, json.RawMessage(`[]`)); err != nil || ok {
+		t.Fatalf("insert over existing null: %v %v", ok, err)
+	}
+	if ok, err := d.CompareScheduleRuns(ctx, rev, json.RawMessage(`[]`)); err != nil || !ok {
+		t.Fatalf("replace null: %v %v", ok, err)
+	}
+	raw, rev, found, err = other.ReadScheduleRuns(ctx)
+	if err != nil || !found || rev == 0 || string(raw) != `[]` {
+		t.Fatalf("empty: %s %d %v %v", raw, rev, found, err)
+	}
+	var wg sync.WaitGroup
+	results := make(chan bool, 2)
+	for _, db := range []*DB{d, other} {
+		wg.Go(func() {
+			ok, err := db.CompareScheduleRuns(ctx, rev, json.RawMessage(`[{}]`))
+			if err != nil {
+				t.Error(err)
+			}
+			results <- ok
+		})
+	}
+	wg.Wait()
+	close(results)
+	wins := 0
+	for ok := range results {
+		if ok {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent CAS wins = %d", wins)
+	}
+	_, rev, _, err = d.ReadScheduleRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.PutSetting(ctx, scheduleRunsKey, []any{}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := d.CompareScheduleRuns(ctx, rev, json.RawMessage(`[{}]`)); err != nil || ok {
+		t.Fatalf("ordinary write was missed: %v %v", ok, err)
+	}
+	for _, input := range []string{"null", "{}", "[", `"x"`, ""} {
+		if _, err := d.CompareScheduleRuns(ctx, 0, json.RawMessage(input)); err == nil {
+			t.Errorf("accepted %q", input)
+		}
+	}
+	if _, _, found, err := d.ReadSchedule(ctx); err != nil || found {
+		t.Fatalf("runs leaked into tasks: %v %v", found, err)
+	}
+}
+
 func TestScheduleSettingsTable(t *testing.T) {
 	manager, _ := scheduleDBs(t)
 	ctx := context.Background()
