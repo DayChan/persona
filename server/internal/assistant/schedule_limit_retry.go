@@ -654,11 +654,12 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	task := sc.tasks[i]
 	runID := "retry_unknown_" + w.Failed.ID
 	known := false
+	manual := !sc.tasks[i].LimitRetry.ManualAt.IsZero()
 	err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 		known = slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == w.Failed.ID && r.Status != runSkipped })
 		if !known && !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == runID }) {
 			runs = append(runs, ScheduleRun{ID: runID, Kind: task.kind(), RefID: id, Title: task.label(), Due: w.At, At: now.UTC(), Status: runFailed,
-				Error: message, MachineID: w.Failed.MachineID, SessionID: w.Failed.SessionID, Retried: true})
+				Error: message, MachineID: w.Failed.MachineID, SessionID: w.Failed.SessionID, Retried: true, Manual: manual})
 		}
 		return runs
 	})

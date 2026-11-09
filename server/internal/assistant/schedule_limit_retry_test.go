@@ -697,8 +697,8 @@ func TestLimitRetryManualOwnConversationPreSendAndAmbiguousErrors(t *testing.T) 
 					t.Fatal("ambiguous send was retried or lost its outcome")
 				}
 				runs := scheduleRuns(restarted)
-				if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_failed" }) {
-					t.Fatal("missing unknown outcome")
+				if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_failed" && r.Manual }) {
+					t.Fatal("missing manual unknown outcome")
 				}
 			} else if !ok || task.LimitRetry != nil || task.RunSessionID == "" || task.RunMachineID == "" {
 				t.Fatalf("successful new conversation was not adopted: %+v", task)
@@ -723,6 +723,46 @@ func TestLimitRetryManualRunRequiresOwner(t *testing.T) {
 	}
 }
 
+func TestLimitRetryUnknownRecordsActualAttemptMode(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		t.Run(fmt.Sprintf("manual=%v", manual), func(t *testing.T) {
+			s, f, st, now := limitRetryFixture(t)
+			sc, err := s.lockedSchedule(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tasks := slices.Clone(sc.tasks)
+			wait := *tasks[0].LimitRetry
+			wait.Failed.Manual = !manual // the failed run's mode is not the retry attempt's mode
+			tasks[0].LimitRetry = &wait
+			err = s.saveLocked(sc, tasks)
+			sc.ownerHeld = true
+			sc.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if manual {
+				if _, w, _, _, err := s.admitManualTask(t.Context(), "limit", now); err != nil || w == nil {
+					t.Fatalf("manual claim: %v", err)
+				}
+				s.sched.limitInflight.Done()
+				s.sched.inflight.Done()
+			} else {
+				c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+				if _, ok := s.consumeLimitRetry(t.Context(), "limit", wait, c, now.Add(2*time.Hour)); !ok {
+					t.Fatal("automatic claim failed")
+				}
+			}
+			restarted := newServiceOn(t, f, st)
+			restarted.runLimitRetries(t.Context(), now.Add(3*time.Hour))
+			runs := scheduleRuns(restarted)
+			if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_failed" && r.Manual == manual }) {
+				t.Fatalf("wrong attempt mode: %+v", runs)
+			}
+		})
+	}
+}
+
 func TestLimitRetryManualClaimRestoresUnknownAfterRestart(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	s.sched.mu.Lock()
@@ -741,8 +781,8 @@ func TestLimitRetryManualClaimRestoresUnknownAfterRestart(t *testing.T) {
 		t.Fatal("manual claim resent")
 	}
 	runs := scheduleRuns(restarted)
-	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_failed" }) {
-		t.Fatal("missing unknown result")
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_failed" && r.Manual }) {
+		t.Fatal("missing manual unknown result")
 	}
 }
 
@@ -1608,8 +1648,8 @@ func TestLimitRetryCrashAfterClaimReportsUnknownOnce(t *testing.T) {
 		t.Fatal("restored claim was sent again or not settled")
 	}
 	runs := scheduleRuns(restarted)
-	if len(runs) == 0 || runs[len(runs)-1].ID != "retry_unknown_failed" || runs[len(runs)-1].Error == "" {
-		t.Fatalf("missing unknown result: %+v", runs)
+	if len(runs) == 0 || runs[len(runs)-1].ID != "retry_unknown_failed" || runs[len(runs)-1].Error == "" || runs[len(runs)-1].Manual {
+		t.Fatalf("missing automatic unknown result: %+v", runs)
 	}
 	f.mu.Lock()
 	pushes := len(f.pushes)
