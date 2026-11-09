@@ -4,6 +4,8 @@
   "list_sep": "、",
   "task_no_machine": "「{task}」：コンピューター{machine}がありません",
   "no_machine": "コンピューター{machine}がありません",
+  "fixed_launcher_unhealthy": "固定コンピューター {machine} のランチャー {launcher} は利用できません：{reason}。タスクはこのコンピューターに残ります。正常に戻ってから再試行してください。",
+  "start_identity_conflict": "起動応答で、指定したコンピューター上のセッションを確認できませんでした。",
   "failed_start": "開始できませんでした：{reason}",
   "task_failed_title": "「{name}」を開始できませんでした",
   "task_failed_title_health": "タスクを開始できませんでした",

@@ -66,6 +66,7 @@
   "scope_machines_read": "View your computers (connectivity and load)",
   "scope_notify": "Send notifications to your devices",
   "scope_assistant_ask": "Start Persona chats and read chat activity",
+  "scope_assistant_read": "Read your Persona chats (your messages and its replies)",
   "scope_todos_read": "View to-dos",
   "scope_todos_write": "Create and edit to-dos and link chats to them (no deletion)",
   "scope_models": "Use the model you pick for it in Settings › Model configuration (never the key)",

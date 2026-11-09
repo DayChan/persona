@@ -24,11 +24,13 @@ const (
 	ScopeTodosRead            = extwire.ScopeTodosRead
 	ScopeTodosWrite           = extwire.ScopeTodosWrite
 	ScopeModels               = extwire.ScopeModels
+	ScopeAssistantRead        = extwire.ScopeAssistantRead
 )
 
 // HubScopes are the scopes, in the order the install screen lists them.
 var HubScopes = []string{ScopeKBRead, ScopeKBWrite, ScopeInboxRead, ScopeInboxWrite, ScopeAgentsRead, ScopeAgentsControl,
-	ScopeAgentsPermissionMode, ScopeMachinesRead, ScopeNotify, ScopeAssistantAsk, ScopeTodosRead, ScopeTodosWrite, ScopeModels}
+	ScopeAgentsPermissionMode, ScopeMachinesRead, ScopeNotify, ScopeAssistantAsk, ScopeAssistantRead, ScopeTodosRead,
+	ScopeTodosWrite, ScopeModels}
 
 // InEveryScope says whether a token of every scope (an extension granted the hub's full token the old way, hub_api,
 // that gets one of every scope instead) has scope s: all but agents.permission_mode, which an extension gets only when
@@ -54,6 +56,7 @@ var scopeTitles = map[string]string{
 	ScopeTodosRead:            "scope_todos_read",
 	ScopeTodosWrite:           "scope_todos_write",
 	ScopeModels:               "scope_models",
+	ScopeAssistantRead:        "scope_assistant_read",
 }
 
 // ScopeTitle is how the install screen says scope s; ok false for what is not a scope.

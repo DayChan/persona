@@ -80,6 +80,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, named(usage))
 		os.Exit(2)
 	}
+	if nodecmd.IsHelpArg(os.Args[1]) || os.Args[1] == "help" { // asked for: stdout and exit 0, as persona-hub and persona-manager
+		fmt.Println(named(usage))
+		return
+	}
 	if os.Args[1] == sandbox.ValidationRunCommand {
 		os.Exit(sandbox.RunValidation(os.Args[2:]))
 	}

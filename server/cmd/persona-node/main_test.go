@@ -94,8 +94,8 @@ func TestPersonaNodeCommandLine(t *testing.T) {
 			t.Errorf("%v is not the device's: %d %q", args, code, out)
 		}
 	}
-	for _, h := range []string{"-h", "--help"} {
-		if out, code := run(h); code != 0 || !strings.Contains(out, "usage:") || strings.Contains(out, "has no") {
+	for _, h := range []string{"-h", "--help", "help"} {
+		if out, code := run(h); code != 0 || !strings.Contains(out, "usage:") || !strings.Contains(out, "persona-node tool ") || strings.Contains(out, "has no") {
 			t.Errorf("%s: %d %q", h, code, out)
 		}
 	}

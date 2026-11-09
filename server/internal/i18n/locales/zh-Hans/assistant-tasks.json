@@ -4,6 +4,8 @@
   "list_sep": "、",
   "task_no_machine": "「{task}」：没有这台电脑 {machine}",
   "no_machine": "没有这台电脑 {machine}",
+  "fixed_launcher_unhealthy": "固定电脑 {machine} 上的启动器 {launcher} 不可用：{reason}。任务仍留在该电脑，请在健康恢复后重试。",
+  "start_identity_conflict": "启动响应未确认所请求电脑上的会话身份。",
   "failed_start": "没开起来：{reason}",
   "task_failed_title": "「{name}」没开起来",
   "task_failed_title_health": "任务没开起来",

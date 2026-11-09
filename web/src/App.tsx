@@ -1,4 +1,4 @@
-import { Component, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Component, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { api, errorText, getToken, handleUnauthorized, setToken } from "./lib/api";
 import { pair, takeToken } from "./lib/auth";
 import { useCloseOnBack } from "./lib/back-close";
@@ -10,14 +10,14 @@ import { drawerA11y, focusBack, useDrawerDrag } from "./lib/drawer";
 import { acceptHubs, here, rememberHub, takeHubs } from "./lib/hubs";
 import { useSessionPanels } from "./lib/panel-memory";
 import { resolveTab, tabOfSessionLink, tabPagePane } from "./lib/herdr-tree";
-import { resolveSessionLink, sessionLinkRoute } from "./lib/session-link";
-import { href, navigate, onLinkClick, routePath, useRoute } from "./lib/router";
+import { resolveSessionLink, sessionLinkRoute, type SessionLink } from "./lib/session-link";
+import { href, navigate, onLinkClick, type Route, routePath, useRoute } from "./lib/router";
 import { ago, sessionTitle, shortPath } from "./lib/format";
 import type { Session } from "./lib/types";
 import { unreachable } from "./lib/shell";
 import { ConnectionPill } from "./views/ConnectionPill";
 import { NARROW, useKeyboardFrame, useMedia } from "./lib/viewport";
-import { connect, disconnect, reset, useStore } from "./lib/store";
+import { connect, disconnect, reset, type State, useStore } from "./lib/store";
 import { watchRoster } from "./lib/managers";
 import { t } from "./i18n";
 import { Button, cx, EASE, IconButton, Loading, Spinner, Toasts } from "./ui/atoms";
@@ -139,6 +139,44 @@ function PageLoading() {
   );
 }
 
+// A machine's sessions as a `/s/…` or `/t/…` page looks them up: the complete rows, then the summaries not among them.
+function pageRows(s: State, mid: string): Session[] {
+  const complete = s.sessions[mid] ?? [];
+  const details = new Set(complete.map((row) => row.session_id));
+  return [...complete, ...s.sessionSummaries.filter((row) => row.machine_id === mid && !details.has(row.session_id))];
+}
+
+/** What a `/s/…` or `/t/…` page opens, settled from its machine's rows. Only plain values: a push for another session on
+ *  the machine leaves it equal (useStore's shallow compare), so the shell and everything it draws are left alone. */
+interface PageTarget {
+  /** How a `/s/…` link's id settled (lib/session-link.ts); undefined on a `/t/…` page. */
+  link?: SessionLink["kind"];
+  /** Where the link really goes, replacing it in place (Back doesn't come here again); "" when it stays. */
+  to: string;
+  /** The page's machine: a tab's panes are all on it. */
+  mid: string;
+  /** The conversation shown; undefined while there is none to show. */
+  sid?: string;
+}
+
+function pageTarget(s: State, route: Route): PageTarget | undefined {
+  if (route.name === "tab") {
+    // the pane a tab opens on: the asked-for one, its session, or the tab's most urgent (lib/herdr-tree.ts)
+    const pane = tabPagePane(resolveTab(pageRows(s, route.mid), route), route, s.loaded);
+    return { link: undefined, to: "", mid: route.mid, sid: pane?.sid };
+  }
+  if (route.name !== "session") return undefined;
+  const rows = pageRows(s, route.mid);
+  // an old `/s/…` link of a pane in a tab becomes that tab's `/t/…`
+  const tab = tabOfSessionLink(rows, route);
+  // a `/s/…` link with only the front of an id (the 8-character ones shown everywhere, #2464): the whole id's link;
+  // several sessions starting with it are listed to pick from (SessionChoices)
+  const link = resolveSessionLink(rows, route.mid, route.sid, s.loaded);
+  const to = tab ? routePath(tab) : link.kind === "prefix" ? routePath(sessionLinkRoute(rows, link.session, route.view)) : "";
+  const shown = link.kind === "exact" || link.kind === "unlisted";
+  return { link: link.kind, to, mid: route.mid, sid: shown ? route.sid : undefined };
+}
+
 function Shell() {
   const route = useRoute();
   // an error report's breadcrumb: the kind of page only (its name), never the ids or the query in its address
@@ -148,29 +186,13 @@ function Shell() {
   const hubName = useStore((s) => s.hubName);
   useEffect(() => void rememberHub(here(), hubName), [hubName]);
   // the conversation on the page: a session's (`/s/…`), or the pane a tab (`/t/…`) opens on
-  const tabSessions = useStore((s) => {
-    if (route.name !== "tab" && route.name !== "session") return undefined;
-    const complete = s.sessions[route.mid] ?? [];
-    const details = new Set(complete.map((row) => row.session_id));
-    return [...complete, ...s.sessionSummaries.filter((row) => row.machine_id === route.mid && !details.has(row.session_id))];
-  });
+  const target = useStore((s) => pageTarget(s, route));
   const loaded = useStore((s) => s.loaded);
-  const path = href(route);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `route` is parsed anew each render; its path says it all
-  const tabPane = useMemo(() => (route.name === "tab" ? resolveTab(tabSessions ?? [], route) : undefined), [tabSessions, path]);
-  // an old `/s/…` link of a pane in a tab becomes that tab's `/t/…` (in place: Back doesn't come here again)
-  const tabLink = route.name === "session" ? tabOfSessionLink(tabSessions ?? [], route) : undefined;
-  // a `/s/…` link with only the front of an id (the 8-character ones shown everywhere, #2464): the whole id's link,
-  // in place; several sessions starting with it are listed to pick from
-  const link = route.name === "session" ? resolveSessionLink(tabSessions ?? [], route.mid, route.sid, loaded) : undefined;
-  const linkTo = link?.kind === "prefix" && route.name === "session" ? sessionLinkRoute(tabSessions ?? [], link.session, route.view) : undefined;
-  const tabLinkPath = tabLink ? routePath(tabLink) : linkTo ? routePath(linkTo) : "";
+  const tabLinkPath = target?.to ?? "";
   useEffect(() => {
     if (tabLinkPath) navigate(tabLinkPath, true);
   }, [tabLinkPath]);
-  const pane = route.name === "session" ? (link?.kind === "exact" || link?.kind === "unlisted" ? { mid: route.mid, sid: route.sid } : undefined)
-    : route.name === "tab" ? tabPagePane(tabPane, route, loaded)
-    : undefined;
+  const pane = target?.sid ? { mid: target.mid, sid: target.sid } : undefined;
   const launch = useStore((s) => (pane ? s.launches[pane.sid] : undefined));
   const starting = useStore((s) => (pane ? (s.sessions[pane.mid] ?? []).find((session) => session.session_id === pane.sid)?.starting : undefined));
   const shell = useRef<HTMLDivElement>(null);
@@ -290,7 +312,7 @@ function Shell() {
   else switch (route.name) {
     case "session":
     case "tab":
-      main = link?.kind === "ambiguous" ? <SessionChoices sid={route.name === "session" ? route.sid : ""} candidates={link.candidates} all={tabSessions ?? []} onToggleSidebar={toggle} />
+      main = route.name === "session" && target?.link === "ambiguous" ? <SessionChoices mid={route.mid} sid={route.sid} onToggleSidebar={toggle} />
         : !pane ? (loaded && route.name === "tab" ? <TabGone onToggleSidebar={toggle} /> : <Loading />)
         : launch ? <StartingAgent launch={launch} onToggleSidebar={toggle} />
         : <ChatView key={`${pane.mid}/${pane.sid}`} mid={pane.mid} sid={pane.sid} starting={starting} onToggleSidebar={toggle} inPage />;
@@ -489,7 +511,12 @@ function TabGone({ onToggleSidebar }: { onToggleSidebar: () => void }) {
 }
 
 // A `/s/…` link whose id prefix more than one session on the machine starts with (#2464): pick one, none is guessed.
-function SessionChoices({ sid, candidates, all, onToggleSidebar }: { sid: string; candidates: Session[]; all: Session[]; onToggleSidebar: () => void }) {
+function SessionChoices({ mid, sid, onToggleSidebar }: { mid: string; sid: string; onToggleSidebar: () => void }) {
+  // read here, not in the shell: the list keeps up with the machine's pushes without drawing the whole app again
+  const all = useStore((s) => pageRows(s, mid));
+  const loaded = useStore((s) => s.loaded);
+  const link = resolveSessionLink(all, mid, sid, loaded);
+  const candidates = link.kind === "ambiguous" ? link.candidates : [];
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       <p className="text-[13px] text-ink-2">{t("app.session_choices", { count: candidates.length, sid })}</p>

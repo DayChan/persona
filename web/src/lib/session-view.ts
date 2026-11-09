@@ -2,7 +2,7 @@
 // as Moshi's session page does: a "Terminal | Chat" switch in the header and ⌘J. Which one shows is the address's
 // `?view=chat|term`; an address without it shows what that agent's page showed last (kept per browser), else the
 // conversation. Pure helpers here, so they are tested without a DOM; the hook is the page's side of it.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionCan, stateOf } from "./format";
 import { paneRoute } from "./herdr-tree";
 import { navigate, useRoute, type Route, type SessionView } from "./router";
@@ -81,5 +81,12 @@ export function useSessionView(mid: string, sid: string, canTerminal: boolean): 
     rememberView(mid, sid, view);
     setRemembered(view);
   }, [mid, sid, view, canTerminal]);
-  return [view, (v) => onPage && navigate({ ...route, view: v }, true)];
+  // one function for the page's life, reading the address when called: the chat's header is memoized on it
+  const at = useRef(route);
+  at.current = route;
+  const setView = useCallback((v: SessionView) => {
+    const now = at.current;
+    if (now.name === "session" || now.name === "tab") navigate({ ...now, view: v }, true);
+  }, []);
+  return [view, setView];
 }

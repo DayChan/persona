@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 // A burst of hub pushes renders the page once per animation frame, not once per push; what the user does still
-// renders at once, and a pending card the hub sends again unchanged changes nothing.
+// renders at once, and a pending card or a machines list the hub sends again unchanged changes nothing.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { connect, endInteraction, getState, refresh, reset, savePins, useStore } from "./store";
+import { applyMachine, connect, endInteraction, getState, refresh, reset, savePins, useStore } from "./store";
 import { NO_PINS } from "./pins";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -183,5 +183,99 @@ describe("a pending card sent again", () => {
       ["ix2", "发吗？"],
       ["ix1", "现在发吗？"],
     ]);
+  });
+});
+
+describe("a machines list sent again", () => {
+  // what the sidebar, the Machines page and the palette read: the list itself
+  let listRenders = 0;
+  function MachinesProbe() {
+    useStore((s) => s.machines);
+    listRenders++;
+    return null;
+  }
+  const machine = (id: string, online = true) => ({ id, name: id.toUpperCase(), online, engine: "herdr", system: { cores: 8 } });
+  const answering = (machines: unknown[]) =>
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(new Response(JSON.stringify(url.includes("/machines") ? { machines } : {}), { status: 200 }))));
+
+  beforeEach(() => {
+    act(() => root.render(<MachinesProbe />));
+    listRenders = 0;
+  });
+
+  it("pushed unchanged: the page keeps its list and does not render", () => {
+    const s = online();
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    const before = getState().machines;
+    listRenders = 0;
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    expect(listRenders).toBe(0);
+    expect(getState().machines).toBe(before);
+  });
+
+  it("answered unchanged by GET /machines, or pushed as the answer was: no render", async () => {
+    answering([machine("a"), machine("b")]);
+    await act(() => refresh());
+    const before = getState().machines;
+    expect(before.map((m) => m.id)).toEqual(["a", "b"]);
+    listRenders = 0;
+    await act(() => refresh());
+    expect(listRenders).toBe(0);
+    expect(getState().machines).toBe(before);
+    const s = online();
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    expect(getState().machines).toBe(before);
+    expect(listRenders).toBe(0);
+  });
+
+  it("applyMachine() with what the list already says: no render", () => {
+    const s = online();
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    const before = getState().machines;
+    listRenders = 0;
+    act(() => applyMachine(machine("a")));
+    expect(listRenders).toBe(0);
+    expect(getState().machines).toBe(before);
+  });
+
+  it("one machine changed: one render, and the other keeps its object", () => {
+    const s = online();
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    const [a, b] = getState().machines;
+    listRenders = 0;
+    act(() => s.push({ type: "machines", machines: [machine("a", false), machine("b")] }));
+    runFrame();
+    expect(listRenders).toBe(1);
+    expect(getState().machines[0]).not.toBe(a);
+    expect(getState().machines[0].online).toBe(false);
+    expect(getState().machines[1]).toBe(b);
+  });
+
+  it("reordered, added or removed: a new list, each machine still there keeps its object", () => {
+    const s = online();
+    act(() => s.push({ type: "machines", machines: [machine("a"), machine("b")] }));
+    runFrame();
+    const [a, b] = getState().machines;
+    listRenders = 0;
+    act(() => s.push({ type: "machines", machines: [machine("b"), machine("a")] }));
+    runFrame();
+    expect(listRenders).toBe(1);
+    expect(getState().machines[0]).toBe(b);
+    expect(getState().machines[1]).toBe(a);
+    act(() => s.push({ type: "machines", machines: [machine("b"), machine("a"), machine("c")] }));
+    runFrame();
+    expect(listRenders).toBe(2);
+    expect(getState().machines.map((m) => m.id)).toEqual(["b", "a", "c"]);
+    act(() => s.push({ type: "machines", machines: [machine("b")] }));
+    runFrame();
+    expect(listRenders).toBe(3);
+    expect(getState().machines).toHaveLength(1);
+    expect(getState().machines[0]).toBe(b);
   });
 });

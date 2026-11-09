@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,7 @@ func TestTopicRootOpensATodo(t *testing.T) {
 	database := todoTestDB(t)
 	e := newThreadEnv(t, database)
 	e.publicURL = "https://hub.example.com/"
+	cardsBefore := feedRefs(e.s, "m1", feedTask) // earlier tests' cards stay in the database
 	e.deliver(rootEvent("om_r1", "发天气 App 1.3 版"))
 
 	todo := onlyTodo(e.s)
@@ -67,8 +69,8 @@ func TestTopicRootOpensATodo(t *testing.T) {
 	if todo.Supervision == nil || todo.Supervision.Supervisor != "m1" {
 		t.Fatalf("supervision %+v", todo.Supervision)
 	}
-	if got := feedRefs(e.s, "m1", feedTask); len(got) != 1 || got[0] != todo.ID {
-		t.Fatalf("the main conversation's task cards: %v, want the one for %s", got, todo.ID)
+	if got := feedRefs(e.s, "m1", feedTask); !slices.Equal(got, append(cardsBefore, todo.ID)) {
+		t.Fatalf("the main conversation's task cards: %v, want %v and the one for %s", got, cardsBefore, todo.ID)
 	}
 	row, err := database.GetTodo(context.Background(), todo.ID)
 	if err != nil || row == nil || row.Origin != "m1" {

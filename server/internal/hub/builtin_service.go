@@ -90,7 +90,7 @@ func managerMode(dir string, args []string, out io.Writer) error {
 // service to this hub. Only in service mode: while the hub starts the built-in manager itself, a second one would run
 // next to it (the hub refuses to trade such a code then, too).
 func ManagerCode(ctx context.Context, out io.Writer) error {
-	cfg, err := LoadConfig()
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}

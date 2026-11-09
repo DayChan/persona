@@ -11,25 +11,32 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/apierr"
+	"github.com/nwverse/persona/server/internal/clitext"
 )
 
 // The mesh from the command line on the hub's machine (docs/server/mesh.md "Command line"): the same peers API as the admin page,
 // under /api/v1/admin/cli/, over loopback with the master token (peerCLIRoutes).
 
+// adminCallLimit bounds each of these commands' calls (adminCall): a hub that takes the connection but never answers (a
+// stuck hub, or another program on hub.json's port) ends the command with an error instead of holding it forever. A
+// variable so tests can shorten it.
+var adminCallLimit = 45 * time.Second
+
 // PairPeer prints a code another hub pairs with this one by (`personad hub pair --peer`): the code alone on stdout, what
-// to do with it on stderr.
-func PairPeer() error {
-	cfg, err := LoadConfig()
+// to do with it on stderr. ctx is the command's (Ctrl-C ends it).
+func PairPeer(ctx context.Context) error {
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}
 	var code peerCode
-	if err := cfg.adminCall(context.Background(), http.MethodPost, "/api/v1/admin/cli/peers/code", nil, &code); err != nil {
+	if err := cfg.adminCall(ctx, http.MethodPost, "/api/v1/admin/cli/peers/code", nil, &code); err != nil {
 		return err
 	}
 	fmt.Println(code.Code)
@@ -40,29 +47,28 @@ func PairPeer() error {
 }
 
 // PeerCommand is `personad hub peer add <code>|-`, `personad hub peer list`, `personad hub peer remove <hub_id>`,
-// `personad hub peer center [<hub_id>] [--confirm]` (set as center; this hub when no id is given).
-func PeerCommand(args []string, stdin io.Reader, out io.Writer) error {
-	if len(args) == 0 {
-		return errors.New("用法：personad hub peer add <互联码>|- ｜ list ｜ remove <hub_id> ｜ center [<hub_id>] [--confirm]")
+// `personad hub peer center [<hub_id>] [--confirm]` (set as center; this hub when no id is given). ctx is the command's
+// (Ctrl-C ends it); an argument mistake is a clitext.UsageError, found before hub.json is read. Help asked for prints
+// the usage on out (exit 0).
+func PeerCommand(ctx context.Context, args []string, stdin io.Reader, out io.Writer) error {
+	if peerHelpAsked(args) {
+		fmt.Fprintln(out, clitext.Named(peerUsage))
+		return nil
 	}
-	cfg, err := LoadConfig()
+	if err := checkPeerArgs(args); err != nil {
+		return err
+	}
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
 	switch args[0] {
 	case "add":
-		if len(args) != 2 {
-			return errors.New("用法：personad hub peer add <互联码>（- 从标准输入读）")
-		}
 		code := args[1]
 		if code == "-" {
-			line, err := bufio.NewReader(stdin).ReadString('\n')
-			if err != nil && line == "" {
-				return fmt.Errorf("读不到互联码：%w", err)
+			if code, err = readPeerCode(ctx, stdin); err != nil {
+				return err
 			}
-			code = strings.TrimSpace(line)
 		}
 		var p peerItem
 		if err := cfg.adminCall(ctx, http.MethodPost, "/api/v1/admin/cli/peers", map[string]string{"code": code}, &p); err != nil {
@@ -87,7 +93,9 @@ func PeerCommand(args []string, stdin io.Reader, out io.Writer) error {
 				Online bool   `json:"online"`
 			} `json:"center"`
 		}
-		if err := cfg.adminCall(ctx, http.MethodGet, "/api/v1/admin/cli/mesh", nil, &mesh); err == nil {
+		if err := cfg.adminCall(ctx, http.MethodGet, "/api/v1/admin/cli/mesh", nil, &mesh); err != nil && ctx.Err() != nil {
+			return err // stopped (Ctrl-C): not an older hub without the mesh route
+		} else if err == nil {
 			if mesh.Role == "center" {
 				fmt.Fprintf(out, "这台是中心（任期 %d）。\n", mesh.Term)
 			} else {
@@ -110,9 +118,6 @@ func PeerCommand(args []string, stdin io.Reader, out io.Writer) error {
 		}
 		return nil
 	case "remove":
-		if len(args) != 2 {
-			return errors.New("用法：personad hub peer remove <hub_id>")
-		}
 		if err := cfg.adminCall(ctx, http.MethodDelete, "/api/v1/admin/cli/peers/"+args[1], nil, nil); err != nil {
 			return err
 		}
@@ -152,7 +157,81 @@ func PeerCommand(args []string, stdin io.Reader, out io.Writer) error {
 		fmt.Fprintf(out, "中心现在是「%s」（任期 %d）。\n", res.Center.Name, res.Term)
 		return nil
 	}
-	return fmt.Errorf("不认识的子命令 %q", args[0])
+	return fmt.Errorf("unknown peer command %q", args[0]) // checkPeerArgs let through a command this switch lacks
+}
+
+// readPeerCode reads `peer add -`'s code, a line on stdin; Ctrl-C (ctx) ends the wait.
+func readPeerCode(ctx context.Context, stdin io.Reader) (string, error) {
+	type read struct {
+		line string
+		err  error
+	}
+	got := make(chan read, 1)
+	go func() { // left blocked on stdin when ctx ends first: the command is over then
+		line, err := bufio.NewReader(stdin).ReadString('\n')
+		got <- read{line, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case r := <-got:
+		if r.err != nil && r.line == "" {
+			return "", fmt.Errorf("读不到互联码：%w", r.err)
+		}
+		return strings.TrimSpace(r.line), nil
+	}
+}
+
+// peerUsage is `hub peer`'s usage line.
+const peerUsage = "usage: personad hub peer add <code>|- | list | remove <hub_id> | center [<hub_id>] [--confirm]"
+
+// peerHelpAsked: help as the command, or -h / --help anywhere (no code or hub id starts with "-": codes are
+// persona://peer links, ids UUIDs).
+func peerHelpAsked(args []string) bool {
+	if len(args) > 0 && args[0] == "help" {
+		return true
+	}
+	return slices.ContainsFunc(args, clitext.IsHelpArg)
+}
+
+// checkPeerArgs refuses what PeerCommand would otherwise drop or misread: an extra word (`list x`), a second id
+// (`center a b`), a flag taken for an id or a code (`center --bogus`, `remove -x`).
+func checkPeerArgs(args []string) error {
+	if len(args) == 0 {
+		return clitext.UsageError(peerUsage)
+	}
+	rest := args[1:]
+	switch args[0] {
+	case "add":
+		if len(rest) != 1 || (rest[0] != "-" && strings.HasPrefix(rest[0], "-")) {
+			return clitext.UsageError("usage: personad hub peer add <code> (- reads the code from stdin)")
+		}
+	case "list":
+		if len(rest) != 0 {
+			return clitext.UsageError("usage: personad hub peer list (takes no arguments)")
+		}
+	case "remove":
+		if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
+			return clitext.UsageError("usage: personad hub peer remove <hub_id>")
+		}
+	case "center":
+		ids := 0
+		for _, a := range rest {
+			switch {
+			case a == "--confirm":
+			case strings.HasPrefix(a, "-"):
+				return clitext.UsageError(fmt.Sprintf("peer center: unknown flag %q; usage: personad hub peer center [<hub_id>] [--confirm]", a))
+			default:
+				ids++
+			}
+		}
+		if ids > 1 {
+			return clitext.UsageError("usage: personad hub peer center [<hub_id>] [--confirm] (at most one hub id)")
+		}
+	default:
+		return clitext.UsageError(fmt.Sprintf("unknown peer command %q; %s", args[0], peerUsage))
+	}
+	return nil
 }
 
 func peerStateText(p peerItem) string {
@@ -169,18 +248,20 @@ func peerStateText(p peerItem) string {
 	return s
 }
 
-// adminCall calls this machine's hub over loopback with the master token.
+// adminCall calls this machine's hub over loopback with the master token, for at most adminCallLimit.
 func (c *Config) adminCall(ctx context.Context, method, path string, body, out any) error {
 	_, port, err := net.SplitHostPort(c.Listen)
 	if n, perr := strconv.Atoi(port); err != nil || perr != nil || n <= 0 || n > 65535 {
 		return errors.New("hub.json 的 listen 没有有效端口")
 	}
+	callCtx, cancel := context.WithTimeout(ctx, adminCallLimit)
+	defer cancel()
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://"+net.JoinHostPort("127.0.0.1", port)+path, rd)
+	req, err := http.NewRequestWithContext(callCtx, method, "http://"+net.JoinHostPort("127.0.0.1", port)+path, rd)
 	if err != nil {
 		return err
 	}
@@ -191,6 +272,12 @@ func (c *Config) adminCall(ctx context.Context, method, path string, body, out a
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() // stopped (Ctrl-C)
+		}
+		if callCtx.Err() != nil {
+			return fmt.Errorf("the hub on 127.0.0.1:%s did not answer within %s: it may be stuck, or another program is listening on hub.json's port", port, adminCallLimit)
+		}
 		return errors.New("无法连接本机 hub：hub 可能没在运行，或没监听回环地址")
 	}
 	defer resp.Body.Close()

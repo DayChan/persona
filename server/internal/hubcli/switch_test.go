@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +114,25 @@ func TestSwitchWithNothingServing(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("no switch asked for")
+	}
+}
+
+// --status only says what serves now: with --binary, --prev or --timeout it refuses (exit 1 through main, as the other
+// mistakes of hub switch; hub-systemd.sh reads any other code as "no edge") instead of printing the status and
+// dropping them, before it asks the edge anything.
+func TestSwitchStatusTakesNoOtherFlags(t *testing.T) {
+	asked := fakeEdge(t, "/bin/personad")
+	for _, args := range [][]string{{"--status", "--binary", "x"}, {"--prev", "x", "--status"}, {"--status", "--timeout", "1m"}} {
+		if err := runHubSwitch(args); err == nil || !strings.Contains(err.Error(), "--status") {
+			t.Errorf("%q: %v, want it refused", args, err)
+		}
+	}
+	if err := runHubSwitch([]string{"--status"}); err != nil {
+		t.Fatalf("--status: %v", err)
+	}
+	select {
+	case b := <-asked:
+		t.Fatalf("a status asked the edge to switch to %s", b)
+	default:
 	}
 }

@@ -348,15 +348,10 @@ func (s *Service) view(ctx context.Context, withArchived bool, space ...string) 
 		out.Cwd = s.spaceCwd(d, sp)
 		var list []proto.Session
 		if s.fleetOn() {
-			// Select the headless conversations before decorating or serializing
-			// the inventory: coding sessions can outnumber them by thousands.
+			// Select the headless conversations before copying, decorating or serializing the inventory: coding
+			// sessions can outnumber them by thousands.
 			if m, found := s.fleetMachine(d.ID); found {
-				for _, c := range s.nodeSessions(m.ID) {
-					if m.isAssistant(c) {
-						list = append(list, c)
-					}
-				}
-				list = s.decorateInventory(m.ID, list, false)
+				list = s.decorateInventory(m.ID, s.assistantSessions(m), false)
 			}
 		} else {
 			list, _ = s.sessions(ctx, d.ID)

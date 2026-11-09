@@ -230,7 +230,10 @@ func (c *Config) applyEnv() {
 	}
 }
 
-// LoadConfig reads ~/.persona/hub.json, creating it with defaults (and a fresh token) on first run.
+// LoadConfig reads ~/.persona/hub.json for the hub's own start (and the programs that run beside it in its container). On
+// the first run it creates the file with defaults and a fresh token; a file written before that run (scripts/deploy/db.sh
+// puts only database_url in it) gets a token, or every start would make up a different one. Commands that only talk to a
+// hub already running here use runningHubConfig, which never writes.
 func LoadConfig() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -240,33 +243,55 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, "hub.json")
-	cfg := defaultConfig()
-	b, err := os.ReadFile(path)
-	switch {
-	case os.IsNotExist(err):
-		out, _ := json.MarshalIndent(cfg, "", "  ")
-		if err := os.WriteFile(path, out, 0o600); err != nil {
+	cfg, err := readConfigFile(dir)
+	if errors.Is(err, errNoHubJSON) || errors.Is(err, errNoHubToken) {
+		if err := initConfigFile(dir); err != nil {
 			return nil, err
 		}
-	case err != nil:
+		return readConfigFile(dir)
+	}
+	return cfg, err
+}
+
+// runningHubConfig is hub.json for the commands that only talk to the hub running on this machine (pair, peer,
+// manager-code, assistant-token). It never writes, not even the state directory: a hub.json one of them made would make
+// a later `persona-hub setup` take this machine for a hub that has already run (setup.go, config).
+func runningHubConfig() (*Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
 		return nil, err
-	default:
-		if err := json.Unmarshal(b, cfg); err != nil {
-			return nil, fmt.Errorf("parse %s: %w", path, err)
-		}
-		// A hub.json written by someone else first (scripts/deploy/db.sh only puts database_url in it) has no token: keep
-		// the generated one, or every start (and `personad hub pair`) would make up a different one.
-		var raw map[string]any
-		if err := json.Unmarshal(b, &raw); err == nil {
-			if _, ok := raw["token"]; !ok {
-				raw["token"] = cfg.Token
-				out, _ := json.MarshalIndent(raw, "", "  ")
-				if err := os.WriteFile(path, out, 0o600); err != nil {
-					return nil, err
-				}
-			}
-		}
+	}
+	return readConfigFile(identity.DataDir(home))
+}
+
+var (
+	errNoHubJSON  = errors.New("set this machine up as the hub first: persona-hub setup (or personad hub setup)")
+	errNoHubToken = errors.New("the hub has not started with this hub.json yet: start it, or set this machine up as " +
+		"the hub with persona-hub setup (or personad hub setup)")
+)
+
+// readConfigFile is <dir>/hub.json over the defaults, with the environment's overrides. It never writes: a missing file
+// is errNoHubJSON, one without a token errNoHubToken (LoadConfig fills both in).
+func readConfigFile(dir string) (*Config, error) {
+	path := filepath.Join(dir, "hub.json")
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("no %s: %w", path, errNoHubJSON)
+	}
+	if err != nil {
+		return nil, err
+	}
+	cfg := defaultConfig()
+	cfg.Token = "" // the file's, never one made up here
+	if err := json.Unmarshal(b, cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	raw, err := parseJSONObject(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if _, ok := raw.get("token"); !ok {
+		return nil, fmt.Errorf("%s has no token: %w", path, errNoHubToken)
 	}
 	for _, machine := range cfg.Machines {
 		switch machine.Trust {
@@ -281,6 +306,40 @@ func LoadConfig() (*Config, error) {
 	}
 	cfg.dir = dir
 	return cfg, nil
+}
+
+// errHubJSONKept ends an edit of hub.json with nothing to change: editHubJSON then writes nothing.
+var errHubJSONKept = errors.New("hub.json kept as it is")
+
+// initConfigFile gives <dir>/hub.json what the hub's first run needs, as every other edit of it is made (editHubJSON:
+// under the directory's lock, a temporary file renamed over the old one, mode 0600): none yet gets defaultConfig, one
+// without a token (db.sh's, the only copy of the database password) gets a token and keeps everything else, so a key it
+// leaves out (machines: the hub's default computer at every start) stays out. A token another process wrote in the
+// meantime is kept.
+func initConfigFile(dir string) error {
+	err := editHubJSON(dir, func(o *jsonObject) error {
+		if _, ok := o.get("token"); ok {
+			return errHubJSONKept
+		}
+		if _, err := os.Stat(filepath.Join(dir, "hub.json")); err == nil {
+			return o.set("token", randomHex(24)) // as defaultConfig makes it
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		out, err := marshalNoEscape(defaultConfig())
+		if err != nil {
+			return err
+		}
+		defaults, err := parseJSONObject(out)
+		if err != nil {
+			return err
+		}
+		return fillMissing(o, defaults)
+	})
+	if errors.Is(err, errHubJSONKept) {
+		return nil
+	}
+	return err
 }
 
 // noPublicURLHint is what `hub pair` says when hub.json's public_url is empty.
@@ -299,12 +358,13 @@ func (c *Config) PairURL() string {
 	return "persona://pair?" + url.Values{"url": {c.PublicURL}, "token": {c.Token}}.Encode()
 }
 
-func Pair(legacy bool, android ...bool) error {
-	cfg, err := LoadConfig()
+// Pair prints a pairing QR code for the app (`personad hub pair`); ctx is the command's (Ctrl-C ends the wait for the hub).
+func Pair(ctx context.Context, legacy bool, android ...bool) error {
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}
-	return cfg.printPair(context.Background(), legacy, os.Stdout, android...)
+	return cfg.printPair(ctx, legacy, os.Stdout, android...)
 }
 
 func (c *Config) printPair(ctx context.Context, legacy bool, out io.Writer, android ...bool) error {
@@ -334,13 +394,13 @@ func (c *Config) printPair(ctx context.Context, legacy bool, out io.Writer, andr
 
 // PairMachine prints a pairing link for one link machine's persona-link (docs/operations/link.md): the link alone on stdout,
 // so it can be piped (`… | persona-link pair -`), what to do with it on stderr. add: hub.json gets the machine first
-// when it has none of that id (named name; confirmed: the master token over loopback added it).
-func PairMachine(machine string, add bool, name string) error {
-	cfg, err := LoadConfig()
+// when it has none of that id (named name; confirmed: the master token over loopback added it). ctx is the command's.
+func PairMachine(ctx context.Context, machine string, add bool, name string) error {
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}
-	return cfg.printLinkPair(context.Background(), machine, add, name, os.Stdout, os.Stderr)
+	return cfg.printLinkPair(ctx, machine, add, name, os.Stdout, os.Stderr)
 }
 
 func (c *Config) printLinkPair(ctx context.Context, machine string, add bool, name string, out, help io.Writer) error {

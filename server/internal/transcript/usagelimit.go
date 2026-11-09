@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/lazyre"
 )
 
@@ -13,16 +14,10 @@ import (
 // says more (the assistant line's quotaLimits, read by the parser); these read the words for what an older version
 // wrote, a launcher check's output and a node that does not send the record's fields yet.
 
-// usageLimitLine is the line Claude Code writes itself when a subscription's limit refused a request: "You've hit
-// your session limit · resets 4:20pm (Asia/Shanghai)", "You've hit your weekly limit · resets Sep 28, 4pm (…)". The
-// limit is named within a few words, before any full stop: "You've hit your target of 90%. Next, the rate limit…" is
-// a reply.
-var usageLimitLine = lazyre.New(`^You(?:'|’)ve hit your [^·\n.]{0,40}\blimit\b`)
-
 // UsageLimitText: text is Claude Code's line for a subscription usage limit (only as the start of the text: a reply
-// may quote one).
+// may quote one). The pattern lives in assistantwire, which CutOff shares; a contract package cannot import this one.
 func UsageLimitText(text string) bool {
-	return usageLimitLine.MatchString(strings.TrimSpace(text))
+	return assistantwire.UsageLimitText(text)
 }
 
 // usageLimitReset is how Claude Code says when a limit resets: "resets 4:20pm (Area/City)", "resets at 4pm (UTC)"; past

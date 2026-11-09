@@ -3,6 +3,7 @@ package transcript
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -360,9 +361,20 @@ func ParseLine(seq int, line []byte, meta *Meta) []proto.Item {
 	return items
 }
 
+// lineJSON is encoding/json's way of decoding without its check of the whole input before it decodes (its legacy
+// error semantics): the decoder checks each byte as it reads it anyway, so input that is not JSON fails all the same,
+// read once instead of twice. A transcript line is mostly its message, and a message's content was read up to four
+// times (the line, then the content as a string, as blocks, a tool result's again). The error differs from
+// json.Unmarshal's (its type and text, and it stops at the first value of the wrong type), so only for callers that
+// just ask whether decoding failed; TestLineJSONMatchesUnmarshal checks it fails and decodes as json.Unmarshal does.
+var lineJSON = jsonv2.JoinOptions(json.DefaultOptionsV1(), json.ReportErrorsWithLegacySemantics(false))
+
+// unmarshalLine is json.Unmarshal reading data once (lineJSON); err only says whether it failed.
+func unmarshalLine(data []byte, v any) error { return jsonv2.Unmarshal(data, v, lineJSON) }
+
 func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 	var e entry
-	if err := json.Unmarshal(line, &e); err != nil {
+	if err := unmarshalLine(line, &e); err != nil {
 		return nil
 	}
 	meta.tree = treeLine{uuid: e.UUID, parent: e.ParentUUID, sidechain: e.IsSidechain, assistant: e.Type == "assistant",
@@ -598,7 +610,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			}
 		}
 		var s string
-		if json.Unmarshal(e.Message.Content, &s) == nil {
+		if unmarshalLine(e.Message.Content, &s) == nil {
 			if strings.Contains(s, "<task-notification>") {
 				meta.taskFinished(s, e.Timestamp)
 			}
@@ -615,7 +627,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			return items
 		}
 		var blocks []block
-		if json.Unmarshal(e.Message.Content, &blocks) != nil {
+		if unmarshalLine(e.Message.Content, &blocks) != nil {
 			return nil
 		}
 		var out []proto.Item
@@ -674,7 +686,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			meta.Model = e.Message.Model
 		}
 		var blocks []block
-		if json.Unmarshal(e.Message.Content, &blocks) != nil {
+		if unmarshalLine(e.Message.Content, &blocks) != nil {
 			return nil
 		}
 		var out []proto.Item
@@ -781,11 +793,11 @@ func firstTag(s, tag string) string {
 
 func toolResultContent(raw json.RawMessage) (string, []*proto.Image) {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if unmarshalLine(raw, &s) == nil {
 		return s, nil
 	}
 	var blocks []block
-	if json.Unmarshal(raw, &blocks) != nil {
+	if unmarshalLine(raw, &blocks) != nil {
 		return "", nil
 	}
 	var parts []string

@@ -87,6 +87,11 @@ func (d *mirrorDevices) Sessions(id string) ([]proto.Session, bool) {
 	return slices.Clone(list), true
 }
 
+func (d *mirrorDevices) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
+	list, ok := d.Sessions(id)
+	return slices.DeleteFunc(list, func(s proto.Session) bool { return !keep(&s) }), ok
+}
+
 func (d *mirrorDevices) Session(id, session string) (proto.Session, bool) {
 	list, _ := d.Sessions(id)
 	for _, s := range list {

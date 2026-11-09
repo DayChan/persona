@@ -67,7 +67,7 @@ func TestTaskReceiptReview(t *testing.T) {
 			}
 			f.setSessions("box", session)
 			receipted := false
-			s.hub = &receiptReadHookHub{fakeHub: f, beforeRead: func(reads int) {
+			f.hookReads(receiptHooks{before: func(reads int) {
 				if reads == 2 && !receipted {
 					t.Fatal("the judge started reading the turn before the receipt was written")
 				}
@@ -84,7 +84,7 @@ func TestTaskReceiptReview(t *testing.T) {
 				if len(s.supervise.pending) != 0 || len(s.supervise.sent) != 0 {
 					t.Error("the supervisor was signaled before the receipt was written")
 				}
-			}}
+			}})
 			s.taskTurnEnded(ctx, "box", "s1")
 			if !receipted {
 				t.Fatal("the receipt was not broadcast")
@@ -126,37 +126,18 @@ func TestTaskReceiptReview(t *testing.T) {
 	}
 }
 
-type receiptReadHookHub struct {
-	*fakeHub
-	reads      int
-	beforeRead func(int)
-	afterRead  func(int)
-	receipt    func(FeedItem)
+// receiptHooks run around the fake's session.items reads (counted from when they are set) and on receipt broadcasts.
+// They live on the fake, not on a hub swapped in, because the service's goroutines read s.hub at any time.
+type receiptHooks struct {
+	before  func(read int)
+	after   func(read int)
+	receipt func(FeedItem)
 }
 
-func (h *receiptReadHookHub) DeviceCall(ctx context.Context, p DeviceCall) (json.RawMessage, error) {
-	if p.Method == DeviceSessionItems {
-		h.reads++
-		if h.beforeRead != nil {
-			h.beforeRead(h.reads)
-		}
-	}
-	result, err := h.fakeHub.DeviceCall(ctx, p)
-	if p.Method == DeviceSessionItems && h.afterRead != nil {
-		h.afterRead(h.reads)
-	}
-	return result, err
-}
-
-func (h *receiptReadHookHub) Broadcast(ctx context.Context, b Broadcast) {
-	var event struct {
-		Type string   `json:"type"`
-		Item FeedItem `json:"item"`
-	}
-	if json.Unmarshal(b.Message, &event) == nil && event.Type == "assistant_feed" && event.Item.Kind == feedReceipt && h.receipt != nil {
-		h.receipt(event.Item)
-	}
-	h.fakeHub.Broadcast(ctx, b)
+func (f *fakeHub) hookReads(h receiptHooks) {
+	f.mu.Lock()
+	f.readHooks, f.itemReads = h, 0
+	f.mu.Unlock()
 }
 
 func TestTaskReceiptReviewUsesLatestTodo(t *testing.T) {
@@ -165,7 +146,7 @@ func TestTaskReceiptReviewUsesLatestTodo(t *testing.T) {
 			s, f, todo := newSupervisedService(t)
 			agentTurn(s, f, proto.StatusWorking, "", 0)
 			changed := false
-			s.hub = &receiptReadHookHub{fakeHub: f, beforeRead: func(reads int) {
+			f.hookReads(receiptHooks{before: func(reads int) {
 				if reads != 1 {
 					return
 				}
@@ -179,7 +160,7 @@ func TestTaskReceiptReviewUsesLatestTodo(t *testing.T) {
 				}
 				s.todos.mu.Unlock()
 				changed = true
-			}}
+			}})
 			agentTurn(s, f, proto.StatusDone, "Work checked.", 0)
 			if !changed {
 				t.Fatal("the task was not changed while reading its receipt summary")

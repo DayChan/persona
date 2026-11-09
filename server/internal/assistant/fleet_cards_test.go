@@ -1050,9 +1050,8 @@ func TestTerminalPlanResultClearsTheCardWithoutApprovingAnything(t *testing.T) {
 			if status != "dismissed" || res != nil {
 				t.Fatalf("must not record a made-up phone approval: %s %+v", status, res)
 			}
-			if len(ft.toldOf(assistantwire.EventFleetResolved)) == 0 {
-				t.Fatal("the hub never got interaction_resolved")
-			}
+			// finished tells the hub after the hook is released: wait for it rather than look once
+			waitFor(t, "the hub to get interaction_resolved", func() bool { return len(ft.toldOf(assistantwire.EventFleetResolved)) > 0 })
 		})
 	}
 }

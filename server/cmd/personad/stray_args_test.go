@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/hubcli"
 )
 
 // TestStrayArgsRefused runs main in a child process (this test binary, re-executed): arguments after hub run, hub
-// slot, hub tailcat-key and relay's config path are refused with exit 2 and the usage, before anything starts or is
-// written (no hub.json, no tailcat key, no listener).
+// slot, hub tailcat-key, hub doctor, hub manager-code, hub assistant-token and relay's config path, and an unknown hub
+// command, are refused with exit 2 and the usage (no log timestamp), before anything starts or is written (no
+// hub.json, no tailcat key, no listener).
 func TestStrayArgsRefused(t *testing.T) {
 	if args := os.Getenv("PERSONAD_TEST_MAIN_ARGS"); args != "" {
 		os.Args = append([]string{"personad"}, strings.Split(args, "\x1f")...)
@@ -28,6 +31,10 @@ func TestStrayArgsRefused(t *testing.T) {
 		{[]string{"hub", "run", "x"}, "usage: personad hub [run]"},
 		{[]string{"hub", "slot", "x"}, "personad hub slot takes no arguments"},
 		{[]string{"hub", "tailcat-key", "x"}, "personad hub tailcat-key takes no arguments"},
+		{[]string{"hub", "doctor", "x"}, "personad hub doctor takes no arguments"},
+		{[]string{"hub", "manager-code", "x"}, "personad hub manager-code takes no arguments"},
+		{[]string{"hub", "assistant-token", "x"}, "personad hub assistant-token takes no arguments"},
+		{[]string{"hub", "bogus"}, "unknown hub command \"bogus\"\nusage:\n" + named(hubcli.Usage)},
 		{[]string{"relay", "a", "b"}, "usage: personad relay [config]"},
 	} {
 		// A regression would start a server: the deadline keeps it from hanging the test.

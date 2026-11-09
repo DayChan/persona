@@ -41,7 +41,9 @@ func startReceiptNode(t *testing.T, h *Hub, start func(context.Context, json.Raw
 	})
 	go func() { _ = hubPeer.Serve(ctx, hubIn) }()
 	go func() { _ = nodePeer.Serve(ctx, nodeIn) }()
+	m.mu.Lock()
 	m.peer, m.online = hubPeer, true
+	m.mu.Unlock()
 }
 
 func TestSessionStartReceipt(t *testing.T) {

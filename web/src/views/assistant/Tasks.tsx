@@ -1047,6 +1047,8 @@ function MessageCard({ item }: { item: FeedItem }) {
 }
 
 // ── above the composer ──
+// The chat re-renders on every streamed item and hands these only the conversation: they are memo and read the rest
+// from the store and the feed themselves, so an item that changes nothing they show renders none of them.
 
 /** The oldest question the conversation's tasks' agents ask, under its task's name ("N more"). */
 function questionsIn(s: State, conversation: string) {
@@ -1063,7 +1065,7 @@ function questionsIn(s: State, conversation: string) {
   return { asks: out.sort((a, b) => byTime(a.ix.created_at, b.ix.created_at)), answered: done };
 }
 
-export function TaskQuestions({ conversation }: { conversation: string }) {
+export const TaskQuestions = memo(function TaskQuestions({ conversation }: { conversation: string }) {
   // a card for another agent coming or going leaves these rows as they were: no render
   const asks = useStoreRows((s) => questionsIn(s, conversation).asks);
   const answered = useStoreRows((s) => questionsIn(s, conversation).answered);
@@ -1087,7 +1089,7 @@ export function TaskQuestions({ conversation }: { conversation: string }) {
       )}
     </div>
   );
-}
+});
 
 /** The dock: "All N" held at its left edge (it does not scroll), then a pill for each task going on (waiting first) and,
  * in the main conversation, each agent going on that no task stands for (#1113), scrolling on their own (iOS TaskDock). */
@@ -1105,7 +1107,7 @@ function dockTasksIn(s: State, conversation: string, plans: Record<string, TaskP
     .map(({ t, st }) => ({ t, st, ask: st === "needs_you" ? taskAsk(taskInteraction(t, s.interactions, mostUrgentAgent(t, lookup)?.session)) : undefined }));
 }
 
-export function TaskDock({ conversation }: { conversation: string }) {
+export const TaskDock = memo(function TaskDock({ conversation }: { conversation: string }) {
   const plans = useFeed((s) => s.plans);
   const [menuFor, setMenuFor] = useState<{ todo: Todo; el: HTMLElement } | null>(null);
   const [board, setBoard] = useState(false);
@@ -1184,10 +1186,10 @@ export function TaskDock({ conversation }: { conversation: string }) {
       {board && <TaskBoard open conversation={conversation} onClose={() => setBoard(false)} />}
     </div>
   );
-}
+});
 
 /** "Talking to "xx"" while the next message goes straight to a task; × gives it back to Persona. */
-export function RouteChip({ conversation }: { conversation: string }) {
+export const RouteChip = memo(function RouteChip({ conversation }: { conversation: string }) {
   const todoId = useFeed((s) => s.routes[conversation]);
   const todo = useTodo(todoId);
   if (!todo) return null;
@@ -1202,7 +1204,7 @@ export function RouteChip({ conversation }: { conversation: string }) {
       </span>
     </div>
   );
-}
+});
 
 export function DayLine({ date }: { date: Date }) {
   return <div className="py-1 text-center text-[12px] text-ink-3">{dayLabel(date)}</div>;

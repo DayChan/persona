@@ -180,10 +180,11 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 	shown, via := r.sessions, r.marks
 	r.mu.RUnlock()
 	lang := s.lang(context.Background())
+	dir := m.assistantCwd() // once, not a path.Join for each row
 	for i := range list {
 		list[i].MachineID = machine
 		list[i].PendingInteractions = counts[list[i].SessionID]
-		list[i].Assistant = m.isAssistant(list[i])
+		list[i].Assistant = isAssistantSession(&list[i], dir, m.manager)
 		if list[i].Assistant {
 			list[i].Space = identity.SpaceOf(list[i].Cwd)
 		}

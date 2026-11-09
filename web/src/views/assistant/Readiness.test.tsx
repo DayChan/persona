@@ -96,7 +96,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Object.assign(getState(), { features: [] });
+  Object.assign(getState(), { features: [], machines: [] });
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
@@ -207,7 +207,8 @@ describe("the main conversation's readiness", () => {
   it("asks about the computer waiting to be confirmed in place, then asks for the readiness again", async () => {
     fake.features = ["assistant_readiness", "machine_trust", "machines_add"];
     fake.machines = [{ id: "m1", name: "小林的 MacBook", online: true, trust: "pending" }];
-    Object.assign(getState(), { features: fake.features }); // what readinessChanged reads outside React
+    // what readinessChanged and the confirm button read outside React
+    Object.assign(getState(), { features: fake.features, machines: fake.machines });
     readiness = {
       ...setup,
       steps: [{ id: "computer", state: "problem", code: "machine_pending", machine: "m1", title: "确认这台电脑是你的", action: { id: "confirm_computer" } }, ...setup.steps.slice(1)],

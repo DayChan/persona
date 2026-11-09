@@ -9,7 +9,7 @@ import {
   type Readiness, type ReadinessStep,
 } from "../../lib/readiness";
 import { navigate } from "../../lib/router";
-import { useStore } from "../../lib/store";
+import { getState, useStore } from "../../lib/store";
 import { AddComputer, type PendingComputer } from "../machines/AddComputer";
 import { Button, Collapse, copyText, cx, Dialog, IconButton } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
@@ -44,14 +44,15 @@ export function useReadinessGate(on = true): ReadinessGate {
   const [nudged, setNudged] = useState(0);
   const canAdd = useStore((s) => canAddComputer(s.features));
   const canConfirm = useStore((s) => canConfirmComputer(s.features));
-  const machines = useStore((s) => s.machines);
   const r = on ? readiness : null;
   const step = blockingStep(r);
   const machine = r?.machine?.name ?? "";
   // "Add computer" is the in-app flow where a signed-in device can add one; the how-to pointing at /admin on an older hub
   const help = (h: HelpTopic) => (h === "add_computer" && canAdd ? setComputer({}) : setTopic(h));
+  // the machine list is read on the click, not subscribed to: every chat and the Persona page hold this gate, and a
+  // machines push or refresh replaces the whole list
   const confirm = () => {
-    const m = canConfirm ? pendingToConfirm(machines, step?.machine) : undefined;
+    const m = canConfirm ? pendingToConfirm(getState().machines, step?.machine) : undefined;
     if (m) setComputer({ confirm: { id: m.id, name: m.name } });
     else navigate("/machines");
   };

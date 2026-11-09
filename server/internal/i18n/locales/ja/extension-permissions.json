@@ -66,6 +66,7 @@
   "scope_machines_read": "コンピューターの接続状態と負荷を表示",
   "scope_notify": "デバイスに通知を送信",
   "scope_assistant_ask": "Persona の会話を開始して会話の動きを読み取り",
+  "scope_assistant_read": "Persona との会話を読み取り（あなたのメッセージとその返信）",
   "scope_todos_read": "To-do を表示",
   "scope_todos_write": "To-do の作成と編集、会話の関連付け（削除不可）",
   "scope_models": "設定 › モデル設定 で選んだモデルを使う（キーには触れない）",

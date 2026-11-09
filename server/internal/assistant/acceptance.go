@@ -182,6 +182,7 @@ func (s *Service) postAsk(ctx context.Context, t Todo, a acceptAsk) bool {
 	default:
 		a.NoCard = true
 	}
+	posted := a.MessageID != "" // read before a is shared: a retry may set its card once the book has it
 	b.mu.Lock()
 	if c := b.asks[t.ID]; c != nil && c.AskedAt.IsZero() {
 		a.Earlier = c.Earlier // the claim's: it also has a card of the round before that a retry posted meanwhile
@@ -190,7 +191,7 @@ func (s *Service) postAsk(ctx context.Context, t Todo, a acceptAsk) bool {
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
 	s.boardChanged() // it waits for the owner now
-	return a.MessageID != ""
+	return posted
 }
 
 // acceptLines are the card's three lines: the small model reads the task and the reply; without it (or when it

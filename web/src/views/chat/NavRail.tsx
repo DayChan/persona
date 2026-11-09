@@ -75,6 +75,14 @@ export function NavRail({ ticks, scroller, onJump, reset }: { ticks: NavRailTick
     raf.current = 0;
     const sc = view.current;
     if (!sc) return;
+    // Fewer questions than the rail's minimum keeps it away whatever the room is, so there is nothing to measure:
+    // writing no state, mounting a short chat (or one whose lines are still loading) draws no extra frame. The
+    // pointer-wake band goes with it — a strip rect left from an earlier rail would wake an empty margin.
+    if (list.current.length < NAV_RAIL_MIN_TICKS) {
+      railX.current = null;
+      setActive((x) => (x === null ? x : null));
+      return;
+    }
     // clientWidth: the column centers in the content box, and a classic scrollbar is not free margin
     const fits = hasNavRailRoom(sc.clientWidth);
     setRoom(fits);
@@ -83,7 +91,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: { ticks: NavRailTick
     const strip = railRef.current?.getBoundingClientRect();
     railX.current = strip ? { left: strip.left, right: strip.right } : null;
     const now = list.current;
-    if (!fits || now.length < NAV_RAIL_MIN_TICKS) {
+    if (!fits) {
       setActive((x) => (x === null ? x : null));
       return;
     }

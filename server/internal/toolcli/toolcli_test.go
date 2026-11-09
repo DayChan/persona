@@ -150,8 +150,75 @@ func TestOneTool(t *testing.T) {
 	if code, _, errOut := run(t, f, "", "example_list", "not json"); code != exitUsage || !strings.Contains(errOut, "not JSON") {
 		t.Fatalf("bad args: %d %q", code, errOut)
 	}
-	if code, _, _ := run(t, f, ""); code != exitUsage {
-		t.Fatalf("nothing: %d", code)
+	f.calls = nil
+	if code, out, errOut := run(t, f, ""); code != exitUsage || out != "" || failureKind(errOut) != "usage" || !strings.Contains(errOut, "personad tool <tool>") || len(f.calls) != 0 {
+		t.Fatalf("nothing: %d stdout %q stderr %q calls %v", code, out, errOut, f.calls)
+	}
+}
+
+// failureKind is the kind of a failure written as the one JSON line on stderr ("" when stderr is not exactly that).
+func failureKind(stderr string) string {
+	line, ok := strings.CutSuffix(stderr, "\n")
+	var got struct {
+		Error string `json:"error"`
+		Kind  string `json:"kind"`
+	}
+	if !ok || strings.Contains(line, "\n") || json.Unmarshal([]byte(line), &got) != nil || got.Error == "" {
+		return ""
+	}
+	return got.Kind
+}
+
+// Usage mistakes are the documented failure on stderr (one JSON line of kind usage, or "<name>: …" with --format text),
+// exit 2, and reach no node; help is the usage on stdout, exit 0.
+func TestUsageMistakes(t *testing.T) {
+	for _, args := range [][]string{
+		{},
+		{""},
+		{"--bogus"},
+		{"--cli"},
+		{"--cli", ""},
+		{"--cli", "--format", "json"},
+		{"--cli", "example", "list", "--format"},
+		{"--cli", "example", "--format=", "list"},
+		{"example_list", "[1]"},
+		{"example_list", `"s"`},
+		{"example_list", "null"},
+		{"example_list", "7"},
+		{"example_list", "not json"},
+		{"example_list", "{}", "{}"},
+	} {
+		f := &fakeNode{}
+		if code, out, errOut := run(t, f, "", args...); code != exitUsage || out != "" || failureKind(errOut) != "usage" || len(f.calls) != 0 {
+			t.Errorf("%q: exit %d stdout %q stderr %q calls %v, want exit 2, one usage line on stderr, no call", args, code, out, errOut, f.calls)
+		}
+	}
+	// Stdin that is not one JSON object is a mistake too.
+	f := &fakeNode{}
+	if code, _, errOut := run(t, f, "[1]", "example_list", "-"); code != exitUsage || failureKind(errOut) != "usage" || len(f.calls) != 0 {
+		t.Errorf("stdin: exit %d stderr %q calls %v", code, errOut, f.calls)
+	}
+	// With --format text the mistake is said for people.
+	for args, want := range map[string]string{
+		"--cli --format text":                       "personad tool: ",
+		"--cli example --format=text list --format": "example: ",
+	} {
+		f := &fakeNode{}
+		code, out, errOut := run(t, f, "", strings.Fields(args)...)
+		if code != exitUsage || out != "" || !strings.HasPrefix(errOut, want) || strings.Count(errOut, "\n") != 1 || len(f.calls) != 0 {
+			t.Errorf("%s: exit %d stdout %q stderr %q calls %v", args, code, out, errOut, f.calls)
+		}
+	}
+	// Arguments that are a JSON object, spaces around it included, still go through.
+	f = &fakeNode{}
+	if code, _, errOut := run(t, f, "", "example_list", " \n{\"limit\":5} "); code != exitOK || len(f.calls) != 1 {
+		t.Errorf("object: exit %d stderr %q calls %v", code, errOut, f.calls)
+	}
+	for _, help := range []string{"-h", "--help", "help"} {
+		f := &fakeNode{}
+		if code, out, errOut := run(t, f, "", help); code != exitOK || !strings.Contains(out, "personad tool --cli <connector>") || errOut != "" || len(f.calls) != 0 {
+			t.Errorf("%s: exit %d stdout %q stderr %q", help, code, out, errOut)
+		}
 	}
 }
 

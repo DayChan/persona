@@ -37,12 +37,13 @@ func buildInfo() update.Build {
 // usage: the hub's commands without "hub " (persona-hub hub <command> works too: what the edge and older scripts run).
 const usage = `usage:
   persona-hub [run]         run the hub (config ~/.persona/hub.json); behind its edge on Linux and macOS
-  persona-hub switch [--binary <path>] [--prev <path>] [--status]
-                           have the running edge switch to another binary (docs/operations/hub-restart.md)
-  persona-hub setup [--yes] [--listen :18660] [--tls :18662] [--outside] [--no-service] [--json]
-                           set this machine up as the hub (docs/assistant/onboarding.md); PERSONA_SPLIT_PROGRAMS=0 keeps
+  persona-hub switch [--binary <path>] [--prev <path>] [--timeout 8m] | --status
+                           have the running edge switch to another binary, or say what serves now (docs/operations/hub-restart.md)
+  persona-hub setup [--yes] [--listen :18660] [--tls :18662] [--outside] [--no-service | --manager-service] [--json]
+                           set this machine up as the hub (docs/assistant/onboarding.md); --manager-service: an existing
+                           hub's built-in manager becomes a service of its own; PERSONA_SPLIT_PROGRAMS=0 keeps
                            its services on personad until setup runs again without it (Linux; macOS stays on personad)
-  persona-hub pair [--legacy] [--android] | --machine <id> [--add [--name <name>]] | --peer
+  persona-hub pair [--legacy | --android] | --machine <id> [--add [--name <name>]] | --peer
                            pairing codes for phones, a computer's persona-link, another hub
   persona-hub peer add|list|remove|center …    linked hubs (docs/server/mesh.md)
   persona-hub doctor        check the hub's configuration, network and certificates (read only)
@@ -55,7 +56,7 @@ const usage = `usage:
   persona-hub version [-v]  the version; -v adds the channel and build number`
 
 func main() {
-	hubcli.Word = ""
+	hubcli.Word, hubcli.Help = "", usage
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "hub" { // persona-hub hub <command>: personad's form
 		args = args[1:]

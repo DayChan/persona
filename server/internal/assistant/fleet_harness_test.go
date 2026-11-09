@@ -138,6 +138,29 @@ func (d *fleetDevs) Sessions(id string) ([]proto.Session, bool) {
 	return append([]proto.Session(nil), n.sessions...), true
 }
 
+// SessionsWhere copies out only what keep accepts, as the devices do: a benchmark of a view then counts no copy of the
+// whole list.
+func (d *fleetDevs) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := d.machines[id]
+	if n == nil {
+		return nil, false
+	}
+	return keptWhere(n.sessions, keep), true
+}
+
+// keptWhere is the sessions of list keep accepts, copied (Devices.SessionsWhere).
+func keptWhere(list []proto.Session, keep func(*proto.Session) bool) []proto.Session {
+	var out []proto.Session
+	for i := range list {
+		if keep(&list[i]) {
+			out = append(out, list[i])
+		}
+	}
+	return out
+}
+
 // Session finds one session in place, as devices.Session does: copying the whole list here would make a benchmark of a
 // lookup measure this fake instead.
 func (d *fleetDevs) Session(id, session string) (proto.Session, bool) {

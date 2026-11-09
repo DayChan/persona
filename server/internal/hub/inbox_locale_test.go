@@ -16,6 +16,7 @@ import (
 func TestInboxRelayedErrorAndSavedStatusLocale(t *testing.T) {
 	h := newTestHub(t)
 	manager, _ := connectInboxManager(t, h)
+	manager.mu.Lock() // the bus is asking the manager things already
 	manager.http = func(_ context.Context, r assistantwire.HTTPRequest) (any, error) {
 		if r.Path == "/api/v1/inbox/missing" {
 			return assistantwire.HTTPResponse{Status: 404, Header: http.Header{"Content-Type": {"application/json"}}, Body: json.RawMessage(`{"error":"no such inbox item","code":"not_found","retryable":false}`)}, nil
@@ -23,6 +24,7 @@ func TestInboxRelayedErrorAndSavedStatusLocale(t *testing.T) {
 		raw := []byte(`{"items":[{"id":"example","source":"mail","kind":"mail","title":"User title","preview":"no such inbox item","agent":{"error":"the inbox item could not be saved"}}]}`)
 		return assistantwire.HTTPResponse{Status: 200, Header: http.Header{"Content-Type": {"application/json"}, "Content-Length": {strconv.Itoa(len(raw))}}, Body: raw}, nil
 	}
+	manager.mu.Unlock()
 	routes := h.routes()
 	for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
 		for _, path := range []string{"/api/v1/inbox/missing", "/api/v1/inbox"} {

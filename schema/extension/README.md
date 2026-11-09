@@ -14,6 +14,7 @@ from them instead of being written once per platform:
 | `connector.schema.json` | **Plugin-side.** The `connectors` extension point's calls (`docs/protocol/connector-protocol.md`): everything the hub asks a connector program (`connector.status`, `connector.inbox.collect`, `connector.thread.page`, `connector.archive.changes`, `connector.group.*`, `connector.login.step`…), what the program asks back (`connector.secrets.*`, the knowledge base's `connector.posts.*` and `connector.archive.chats`, `connector.credentials.gh_token`, and the hub's own `sent.record`, which puts a send of the connector's in the sent-as-user ledger), `connector.recall` (the hub asks a connector that declares `recall` to take back a message it sent, once the user agreed), the `connector.changed` event, the capabilities, states and error codes |
 | `channel.schema.json` | **Plugin-side.** The `channel` extension point's calls (`docs/extensions/channels.md` "4. Contributing a channel"): `channel.receive` and `channel.status` from the program, `channel.send`, `channel.typing` and `channel.edit` from the hub, `cannot_send` |
 | `kb.schema.json` | **Plugin-side.** The knowledge base an extension reads and writes directly (`docs/extensions/extensions.md` "Knowledge base RPC"): `kb.list`, `kb.get`, `kb.day`, `kb.search`, `kb.update`, `kb.owner`, and the events `event.kb.changed` / `event.kb.forgotten` |
+| `assistant.schema.json` | **Plugin-side.** Reading the user's conversations with the assistant (`docs/extensions/extensions.md` "Assistant conversations"): `assistant.conversations`, `assistant.messages` with the permission `assistant.read` |
 | `models.schema.json` | **Plugin-side.** Calling a model through the hub (`docs/extensions/extensions.md` "Model calls"): `model.complete` with the permission `models` |
 | `todos.schema.json` | **Plugin-side.** The to-do events an extension subscribed to and was granted `todos.read` is told of (`docs/extensions/extensions.md` "Events"): `event.todo.changed`, `event.todo.decision` |
 | `examples/` | Examples: `<definition>.<name>.json` must hold to the schema; those under `examples/invalid/` must not. The plugin-side schemas' are in `examples/plugin/` (and `examples/plugin/invalid/`) |
@@ -112,7 +113,7 @@ Suspend stops UI-only timers/polling and bounds/cancels pending UI work, indepen
 reconnect reauthorize and send a fresh full snapshot rather than replaying a stale chain. Close is idempotent for
 already closed/unknown owned sessions, and releases effects, timers, callbacks and ephemeral state. Upgrade,
 disable, revocation or runtime restart disposes the generation; the client reopens. Lifecycle code now lives in
-`server/internal/extmgr/ui_page_sessions.go`, with thin connection forwarding in `server/internal/hub/ui_stream.go`.
+`server/internal/extmgr/ui_page_*.go`, with thin connection forwarding in `server/internal/hub/ui_stream.go`.
 
 `UIStreamSnapshot.keyed.json` → `UIStreamDelta.operations.json` → `UIStreamSnapshot.after-operations.json` is the
 shared native operation trace (root metadata clearing, zero ratio, insert, move, remove, empty section replacement).

@@ -185,7 +185,7 @@ export function StarterLauncherChip() {
 // ── the header ──────────────────────────────────────────
 
 /** The persona's dot beside a Persona conversation's title, in the conversation's state; nothing for the page's mark. */
-export function AssistantFace({ session, last }: { session?: Session; last?: Item }) {
+export function AssistantFace({ session, last }: { session?: Session; last?: Pick<Item, "role" | "kind"> }) {
   const persona = usePersona();
   const conn = useStore((s) => s.conn);
   const machineOnline = useStore((s) => s.machines.find((m) => m.id === (session?.machine_id ?? s.assistant?.machine_id))?.online);

@@ -65,7 +65,8 @@ func TestPlacesThatSealAreKnown(t *testing.T) {
 		"internal/extmgr/extensions.go":               1, // hubSealer: the registry's plugin_secrets
 		"internal/extmgr/bots.go":                     1, // bots.feishu
 		"internal/extmgr/connectors.go":               1, // connector_secrets
-		"internal/extmgr/extension_market.go":         2, // plugin_markets.token_sealed
+		"internal/extmgr/extension_market_edit.go":    1, // plugin_markets.token_sealed
+		"internal/extmgr/extension_market_routes.go":  1, // plugin_markets.token_sealed
 		"internal/extension/registry_settings.go":     1, // plugin_secrets
 		"internal/mail/store.go":                      4, // its box, encrypt and its calls: mail_accounts
 		"internal/mail/oauth.go":                      1, // the OAuth state, in the sign-in URL only

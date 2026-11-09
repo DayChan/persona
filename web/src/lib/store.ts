@@ -625,7 +625,7 @@ function onMessage(msg: Record<string, unknown>) {
       break;
     case "machines":
       machinesRev++;
-      set({ machines: msg.machines as Machine[] });
+      set({ machines: stableMachines(state.machines, (msg.machines as Machine[] | null) ?? []) });
       break;
     case "sessions_list":
       // A hint is not a checkpoint. Even resumed connections must check the HTTP epoch.
@@ -727,7 +727,22 @@ export function saveMutes(mutes: AgentMutes): Promise<void> {
 export function applyMachine(m: Machine) {
   if (!state.machines.some((x) => x.id === m.id)) return;
   machinesRev++;
-  set({ machines: state.machines.map((x) => (x.id === m.id ? { ...x, ...m } : x)) });
+  set({ machines: stableMachines(state.machines, state.machines.map((x) => (x.id === m.id ? { ...x, ...m } : x))) });
+}
+
+/** `next`, with each machine that is the same as `prev`'s of that id (sameValue) kept as `prev`'s object, and `prev`
+ *  itself when nothing changed: the hub sends its whole list again on events that often leave this page's as it was
+ *  (an extension's features, a device report), and a new array of new rows redrew every view that reads the list. */
+function stableMachines(prev: Machine[], next: Machine[]): Machine[] {
+  const before = new Map(prev.map((m) => [m.id, m]));
+  let same = prev.length === next.length;
+  const out = next.map((m, i) => {
+    const old = before.get(m.id);
+    const kept = old && sameValue(old, m) ? old : m;
+    same &&= kept === prev[i];
+    return kept;
+  });
+  return same ? prev : out;
 }
 
 /** "Pin" (optimistic): PUT /pins; throws when the hub refuses, with the pins put back. */
@@ -1031,7 +1046,7 @@ export async function refresh() {
     patch.sessions = by;
   }
   if (interactions.status === "fulfilled") patch.interactions = mergeInteractions(interactions.value.interactions ?? [], before);
-  if (machines.status === "fulfilled" && machinesAt === machinesRev) patch.machines = machines.value.machines ?? [];
+  if (machines.status === "fulfilled" && machinesAt === machinesRev) patch.machines = stableMachines(state.machines, machines.value.machines ?? []);
   if (mutes.status === "fulfilled" && mutesAt === mutesSaves.rev) patch.mutes = { spaces: mutes.value.spaces ?? [], sessions: mutes.value.sessions ?? [], allowed: mutes.value.allowed ?? [] };
   if (pins.status === "fulfilled" && pinsAt === pinsSaves.rev) patch.pins = pinsOf(pins.value);
   set(patch);

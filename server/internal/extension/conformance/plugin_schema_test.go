@@ -107,6 +107,11 @@ var goTypes = map[string]any{
 	"KBChangedEvent":   assistantwire.KBChanged{},
 	"KBForgottenEvent": assistantwire.KBForgottenEvent{},
 
+	"AssistantConversationsParams": assistantwire.AssistantConversationsParams{},
+	"AssistantConversationsResult": assistantwire.AssistantConversationsResult{},
+	"AssistantMessagesParams":      assistantwire.AssistantMessagesParams{},
+	"AssistantMessagesResult":      assistantwire.AssistantMessagesResult{},
+
 	"ModelCompleteParams": assistantwire.ModelCompleteParams{},
 	"ModelCompleteResult": assistantwire.ModelCompleteResult{},
 	"ModelPause":          assistantwire.ModelPause{},
@@ -141,6 +146,9 @@ var kbCalls = []string{assistantwire.MethodKBList, assistantwire.MethodKBGet, as
 // The model call the hub forwards for extensions granted models (models.schema.json).
 var modelCalls = []string{assistantwire.MethodModelComplete}
 
+// The assistant's conversations the hub forwards for extensions granted assistant.read (assistant.schema.json).
+var assistantCalls = []string{assistantwire.MethodAssistantConversations, assistantwire.MethodAssistantMessages}
+
 // The to-do events the hub tells the extensions granted todos.read (todos.schema.json).
 var todoCalls = []string{"event." + assistantwire.EventTodoChanged, "event." + assistantwire.EventTodoDecision}
 
@@ -155,6 +163,7 @@ func TestPluginSchemasListTheServersCalls(t *testing.T) {
 	want = append(want, kbCalls...)
 	want = append(want, todoCalls...)
 	want = append(want, modelCalls...)
+	want = append(want, assistantCalls...)
 	want = append(want, sentCalls...)
 	for _, name := range want {
 		if _, ok := wire.Calls[name]; !ok {
@@ -163,7 +172,7 @@ func TestPluginSchemasListTheServersCalls(t *testing.T) {
 	}
 	for name := range wire.Calls {
 		if (strings.HasPrefix(name, serve.Namespace+".") || strings.HasPrefix(name, channel.Namespace+".") ||
-			strings.HasPrefix(name, "kb.") || strings.HasPrefix(name, "event.kb.") || strings.HasPrefix(name, "event.todo.") || strings.HasPrefix(name, "sent.") || strings.HasPrefix(name, "model.")) &&
+			strings.HasPrefix(name, "kb.") || strings.HasPrefix(name, "event.kb.") || strings.HasPrefix(name, "event.todo.") || strings.HasPrefix(name, "sent.") || strings.HasPrefix(name, "model.") || strings.HasPrefix(name, "assistant.")) &&
 			!slices.Contains(want, name) {
 			t.Errorf("%s: schema/extension lists it, the server has no such call", name)
 		}

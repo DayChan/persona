@@ -266,6 +266,7 @@ func sendsRun(t *testing.T, seed int64) {
 		return h
 	}
 	h := newHub()
+	routes := h.routes() // built once per hub: routes() records h.apiMux, so posts at once must share it
 	var hubSide *rpc.Peer
 	link := func() {
 		m := h.byID["box"]
@@ -312,7 +313,7 @@ func sendsRun(t *testing.T, seed int64) {
 	}
 	link()
 	post := func(id string) {
-		code, out := call(t, h.routes(), "POST", sendPath, h.cfg.Token, fmt.Sprintf(`{"text":"message %s","client_msg_id":"%s"}`, id, id))
+		code, out := call(t, routes, "POST", sendPath, h.cfg.Token, fmt.Sprintf(`{"text":"message %s","client_msg_id":"%s"}`, id, id))
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
@@ -341,6 +342,7 @@ func sendsRun(t *testing.T, seed int64) {
 			link() // the node reconnects
 		default:
 			h = newHub() // the hub restarts on the same database
+			routes = h.routes()
 			link()
 		}
 	}

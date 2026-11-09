@@ -72,6 +72,8 @@ func connectTaskNode(t *testing.T, h *Hub, id string) *taskNode {
 			tn.sends = append(tn.sends, p)
 		case "session.items":
 			return map[string]any{"items": tn.items}, nil
+		case "launchers.check":
+			return proto.LauncherCheck{OK: true, Agent: "claude", Answer: "ok"}, nil
 		}
 		return map[string]any{}, nil
 	}
@@ -173,7 +175,7 @@ func TestTaskPlanReadOnlyStartsAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res, "Started 1 task") {
+	if !strings.Contains(res, "Queued 1 task") {
 		t.Fatalf("result = %q", res)
 	}
 	waitFor(t, "the agent to start and link", func() bool {
@@ -265,6 +267,32 @@ func retryReq(h *Hub, mux http.Handler, todoID string) *httptest.ResponseRecorde
 	return w
 }
 
+// The task node answers the health probe separately from session startup. A fixed
+// retry must observe that recovery before it dispatches; an empty RPC response
+// is not a passing health check.
+func waitForTaskLauncherRecovery(t *testing.T, h *Hub) {
+	t.Helper()
+	mux := h.routes()
+	waitFor(t, "the launcher's passing health check", func() bool {
+		r := todoRequest("GET", "/api/v1/launchers/health?machine=box", nil)
+		r.Header.Set("Authorization", "Bearer "+h.cfg.Token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("health: %d %s", w.Code, w.Body)
+		}
+		var res struct {
+			Records []struct {
+				State string `json:"state"`
+			} `json:"records"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		return len(res.Records) > 0 && res.Records[0].State == "ok"
+	})
+}
+
 // Retrying a task that did not start starts the same task again in the same todo (#1396): reopened and starting at
 // once, the plan's error gone, the agent started with what the first start had, and linked; one receipt in all.
 func TestTaskRetryStartsTheSameTask(t *testing.T) {
@@ -274,6 +302,7 @@ func TestTaskRetryStartsTheSameTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	todo := failedStart(t, h, "did not become ready")
+	waitForTaskLauncherRecovery(t, h)
 	tn.mu.Lock()
 	tn.failStart, tn.gate = nil, make(chan struct{})
 	tn.mu.Unlock()
@@ -328,6 +357,7 @@ func TestTaskRetryFailsAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	todo := failedStart(t, h, "did not become ready")
+	waitForTaskLauncherRecovery(t, h)
 	tn.mu.Lock()
 	tn.failStart = errors.New("launcher not found")
 	tn.mu.Unlock()
@@ -350,7 +380,8 @@ func TestTaskRetryFailsAgain(t *testing.T) {
 	if n := receipts(h); n != 1 {
 		t.Fatalf("%d receipts", n)
 	}
-	// It can be retried again: a finished retry is not still marked as starting.
+	// It can be retried again after the check recovers; a finished retry is not still marked as starting.
+	waitForTaskLauncherRecovery(t, h)
 	if w := retryReq(h, mux, todo.ID); w.Code != http.StatusOK {
 		t.Fatalf("retry again: %d %s", w.Code, w.Body)
 	}
@@ -365,6 +396,7 @@ func TestTaskRetryTwiceStartsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	todo := failedStart(t, h, "did not become ready")
+	waitForTaskLauncherRecovery(t, h)
 	tn.mu.Lock()
 	tn.failStart, tn.gate = nil, make(chan struct{})
 	tn.mu.Unlock()
@@ -401,6 +433,7 @@ func TestTaskRetryWithTheMachineOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	todo := failedStart(t, h, "did not become ready")
+	waitForTaskLauncherRecovery(t, h)
 	m := h.byID["box"]
 	m.mu.Lock()
 	tnPeer := m.peer
@@ -450,6 +483,7 @@ func TestTaskRetryWithTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	todo := failedStart(t, h, "did not become ready")
+	waitForTaskLauncherRecovery(t, h)
 	tn.mu.Lock()
 	tn.failStart, tn.gate = nil, make(chan struct{})
 	tn.mu.Unlock()

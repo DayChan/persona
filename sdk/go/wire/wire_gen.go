@@ -4343,6 +4343,93 @@ type ModelInvalidOutput struct {
 	Usage   ModelUsage `json:"usage"`
 }
 
+// AssistantErrorCode: error.code of the assistant calls besides permission_denied (data {scope: "assistant.read"}):
+// invalid_params; not_found (assistant.messages: no such conversation in the assistant's own space);
+// assistant_offline (the manager is away: try again); machine_offline (the assistant's computer is not connected or
+// not set up: try again).
+const (
+	AssistantErrorCodeInvalidParams    = "invalid_params"
+	AssistantErrorCodeNotFound         = "not_found"
+	AssistantErrorCodeAssistantOffline = "assistant_offline"
+	AssistantErrorCodeMachineOffline   = "machine_offline"
+)
+
+// AssistantErrorCodes are the values of AssistantErrorCode, in order.
+var AssistantErrorCodes = []string{"invalid_params", "not_found", "assistant_offline", "machine_offline"}
+
+// AssistantConversationsParams: assistant.conversations (assistant.read): the conversations last active at or after
+// since, newest first.
+type AssistantConversationsParams struct {
+	// An RFC 3339 time: last active at or after it.
+	Since string `json:"since"`
+	// An RFC 3339 time: those known to have started at or after it are left out.
+	Until           string `json:"until,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	// 0 is 50.
+	Limit  int `json:"limit,omitempty"`
+	Offset int `json:"offset,omitempty"`
+}
+
+type AssistantConversation struct {
+	ID string `json:"id"`
+	// Empty while it has none.
+	Title string `json:"title"`
+	// The main conversation.
+	Main     bool `json:"main,omitempty"`
+	Archived bool `json:"archived,omitempty"`
+	// Who opened it: user, channel, inbox, task, spawned, lark_agent or extension.
+	Origin string `json:"origin"`
+	// When it began, when known.
+	Started time.Time `json:"started,omitzero"`
+	// Its last activity.
+	Updated time.Time `json:"updated"`
+}
+
+type AssistantConversationsResult struct {
+	Items      []AssistantConversation `json:"items"`
+	Total      int                     `json:"total"`
+	NextOffset *int                    `json:"next_offset,omitempty"`
+}
+
+// AssistantMessagesParams: assistant.messages (assistant.read): one conversation's words in time order, paged by seq.
+type AssistantMessagesParams struct {
+	// The conversation (assistant.conversations' id).
+	ID string `json:"id"`
+	// An RFC 3339 time: messages at or after it.
+	Since string `json:"since,omitempty"`
+	// An RFC 3339 time: messages before it.
+	Until string `json:"until,omitempty"`
+	// Continue after this seq (the last page's next_seq).
+	AfterSeq *int `json:"after_seq,omitempty"`
+	// 0 is 200.
+	Limit int `json:"limit,omitempty"`
+}
+
+type AssistantMessage struct {
+	Seq  int       `json:"seq"`
+	At   time.Time `json:"at"`
+	Role string    `json:"role"`
+	Text string    `json:"text"`
+	// The text was cut for pages (a very long message).
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// Values of AssistantRole.
+const (
+	AssistantRoleUser      = "user"
+	AssistantRoleAssistant = "assistant"
+)
+
+// AssistantRoles are the values of AssistantRole, in order.
+var AssistantRoles = []string{"user", "assistant"}
+
+// AssistantMessagesResult: next_seq is set while there is more to read (pass it as after_seq), even when this page
+// has no messages.
+type AssistantMessagesResult struct {
+	Messages []AssistantMessage `json:"messages"`
+	NextSeq  *int               `json:"next_seq,omitempty"`
+}
+
 // Bounded JSON scalar, not executable content. Strings at most 4096 code points; finite numbers in the JSON-safe
 // range.
 type UIStreamScalar = json.RawMessage
@@ -5342,6 +5429,12 @@ var newDef = map[string]func() any{
 	"ModelCompleteResult":          func() any { return new(ModelCompleteResult) },
 	"ModelPause":                   func() any { return new(ModelPause) },
 	"ModelInvalidOutput":           func() any { return new(ModelInvalidOutput) },
+	"AssistantConversationsParams": func() any { return new(AssistantConversationsParams) },
+	"AssistantConversation":        func() any { return new(AssistantConversation) },
+	"AssistantConversationsResult": func() any { return new(AssistantConversationsResult) },
+	"AssistantMessagesParams":      func() any { return new(AssistantMessagesParams) },
+	"AssistantMessage":             func() any { return new(AssistantMessage) },
+	"AssistantMessagesResult":      func() any { return new(AssistantMessagesResult) },
 	"UIStreamCapability":           func() any { return new(UIStreamCapability) },
 	"UIStreamSnapshot":             func() any { return new(UIStreamSnapshot) },
 	"UIStreamDelta":                func() any { return new(UIStreamDelta) },
@@ -5423,4 +5516,6 @@ var Calls = map[string]Call{
 	"event.todo.changed":             {Name: "event.todo.changed", From: "hub", Params: "TodoChangedEvent", Result: "", Event: true},
 	"event.todo.decision":            {Name: "event.todo.decision", From: "hub", Params: "TodoDecisionEvent", Result: "", Event: true},
 	"model.complete":                 {Name: "model.complete", From: "program", Params: "ModelCompleteParams", Result: "ModelCompleteResult"},
+	"assistant.conversations":        {Name: "assistant.conversations", From: "program", Params: "AssistantConversationsParams", Result: "AssistantConversationsResult"},
+	"assistant.messages":             {Name: "assistant.messages", From: "program", Params: "AssistantMessagesParams", Result: "AssistantMessagesResult"},
 }

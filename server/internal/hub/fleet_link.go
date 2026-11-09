@@ -267,14 +267,13 @@ func stamped(list []proto.Session, manager string) []proto.Session {
 	return list
 }
 
-// decoratedSession is one of m's sessions as the apps get it.
+// decoratedSession is one of m's sessions as the apps get it: that one copied and stamped, not the whole list.
 func (h *Hub) decoratedSession(m *Machine, sid string) (proto.Session, bool) {
-	for _, s := range h.decorated(m) {
-		if s.SessionID == sid {
-			return s, true
-		}
+	s, ok := m.session(sid)
+	if ok {
+		s.Manager = h.machineOwner(m.cfg.ID)
 	}
-	return proto.Session{}, false
+	return s, ok
 }
 
 // listedWaitMax is how long awaitListed waits at most (Hub.listedWait shortens it in tests: their fake nodes start

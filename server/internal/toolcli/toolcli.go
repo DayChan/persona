@@ -10,10 +10,12 @@
 //	    name); with --format text the connector shows its answer for people (docs/protocol/connector-protocol.md "Command line")
 //
 // Output is for a program: one line of JSON on stdout, or text for a person. A failure is one line of JSON on stderr
-// ({error, kind, retry_after}), or "<name>: …" with --format text, and an exit code by its kind.
+// ({error, kind, retry_after}), or "<name>: …" with --format text, and an exit code by its kind; a mistake in the
+// command line is one too (kind usage), found before anything is called.
 package toolcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,31 +84,31 @@ var call = func(ctx context.Context, name string, args any) (proto.ToolResult, e
 	return res, nil
 }
 
-const usage = `personad tool: a connector's tools from the assistant's shell, through the Persona hub
-  personad tool <tool> [<json args> | -]
-  personad tool --cli <connector> [--format json|text] <words…>`
+const (
+	usageTool = "personad tool <tool> [<json args> | -]"
+	usageCLI  = "personad tool --cli <connector> [--format json|text] <words…>"
+	usage     = "personad tool: a connector's tools from the assistant's shell, through the Persona hub\n  " + usageTool + "\n  " + usageCLI
+)
 
-// Main runs one command line and returns its exit code.
+// Main runs one command line and returns its exit code. Help is the usage on stdout; a mistake in the command line
+// is a failure of kind usage on stderr, before anything is called.
 func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprintln(stdout, usage)
-		if len(args) == 0 {
-			return exitUsage
-		}
 		return exitOK
 	}
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	if args[0] == "--cli" {
-		if len(args) < 2 || args[1] == "" {
-			fmt.Fprintln(stderr, usage)
-			return exitUsage
-		}
-		return commandLine(ctx, args[1], args[2:], stdin, stdout, stderr)
+	if len(args) > 0 && args[0] == "--cli" {
+		return commandLine(ctx, args[1:], stdin, stdout, stderr)
 	}
 	out := failer{name: "personad tool", stderr: stderr}
 	var toolArgs json.RawMessage = json.RawMessage(`{}`)
 	switch {
+	case len(args) == 0 || args[0] == "":
+		return out.fail(exitUsage, "no tool named: "+usageTool+", or "+usageCLI, 0)
+	case strings.HasPrefix(args[0], "-"):
+		return out.fail(exitUsage, "unknown option "+args[0]+": "+usageTool+", or "+usageCLI, 0)
 	case len(args) > 2:
 		return out.fail(exitUsage, "one tool and one JSON object of its arguments", 0)
 	case len(args) == 2 && args[1] == "-":
@@ -118,8 +120,8 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 	case len(args) == 2:
 		toolArgs = json.RawMessage(args[1])
 	}
-	if !json.Valid(toolArgs) {
-		return out.fail(exitUsage, "the arguments are not JSON", 0)
+	if mistake := argsMistake(toolArgs); mistake != "" {
+		return out.fail(exitUsage, mistake, 0)
 	}
 	res, err := call(ctx, args[0], toolArgs)
 	if err != nil {
@@ -132,6 +134,17 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 	}
 	fmt.Fprintln(stdout, text)
 	return exitOK
+}
+
+// argsMistake is what is wrong with a tool's arguments, which are one JSON object ("" when nothing is).
+func argsMistake(b []byte) string {
+	if !json.Valid(b) {
+		return "the arguments are not JSON"
+	}
+	if t := bytes.TrimLeft(b, " \t\r\n"); len(t) == 0 || t[0] != '{' {
+		return "the arguments are not a JSON object: " + usageTool
+	}
+	return ""
 }
 
 // plan is what a connector's <id>_cli tool makes of a command line: the call it means, or what to say right away
@@ -148,24 +161,22 @@ type plan struct {
 	Render string `json:"render"` // how --format text asks the connector to show the answer ("" prints it as it is)
 }
 
-// commandLine runs the connector's command line: the words planned by <connector>_cli, the tool it names called,
-// the answer shown.
-func commandLine(ctx context.Context, conn string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	format := "json"
-	var words []string
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--format" && i+1 < len(args):
-			format = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--format="):
-			format = strings.TrimPrefix(a, "--format=")
-		default:
-			words = append(words, a)
-		}
+// commandLine runs the connector's command line (`<connector> [--format json|text] <words…>`): the words planned by
+// <connector>_cli, the tool it names called, the answer shown.
+func commandLine(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	conn := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		conn, args = args[0], args[1:]
 	}
+	format, words, mistake := formatFlag(args)
 	out := failer{name: conn, text: format == "text", stderr: stderr}
-	if format != "json" && format != "text" {
+	switch {
+	case conn == "":
+		out.name = "personad tool"
+		return out.fail(exitUsage, "no connector named: "+usageCLI, 0)
+	case mistake != "":
+		return out.fail(exitUsage, mistake, 0)
+	case format != "json" && format != "text":
 		return out.fail(exitUsage, fmt.Sprintf("--format %s: json or text", format), 0)
 	}
 	in := map[string]any{"argv": append([]string{}, words...)}
@@ -245,6 +256,26 @@ func commandLine(ctx context.Context, conn string, args []string, stdin io.Reade
 	return exitOK
 }
 
+// formatFlag takes --format json|text (or --format=…) out of a command line's words; a --format with nothing after it
+// is a mistake, not a word for the connector.
+func formatFlag(args []string) (format string, words []string, mistake string) {
+	format = "json"
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--format" && i+1 < len(args):
+			format = args[i+1]
+			i++
+		case a == "--format":
+			mistake = "--format needs a value: json or text"
+		case strings.HasPrefix(a, "--format="):
+			format = strings.TrimPrefix(a, "--format=")
+		default:
+			words = append(words, a)
+		}
+	}
+	return format, words, mistake
+}
+
 // failer writes a failure as the format says: "<name>: …" for people, one line of JSON for a program.
 type failer struct {
 	name   string
@@ -261,8 +292,11 @@ func (f failer) fail(code int, msg string, retry int) int {
 	if retry > 0 {
 		out["retry_after"] = retry
 	}
-	b, _ := json.Marshal(out)
-	fmt.Fprintln(f.stderr, string(b))
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b) // one line, with its newline
+	enc.SetEscapeHTML(false)   // the usage's <tool> stays readable as it is, not \u003ctool\u003e
+	_ = enc.Encode(out)
+	_, _ = f.stderr.Write(b.Bytes())
 	return code
 }
 

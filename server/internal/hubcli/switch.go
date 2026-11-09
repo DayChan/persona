@@ -31,6 +31,17 @@ func runHubSwitch(args []string) error {
 	if fs.NArg() != 0 {
 		return errors.New("hub switch takes no positional arguments")
 	}
+	if *status { // it only says what serves now: a switch's flags with it would be dropped without a word
+		var err error
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "status" && err == nil {
+				err = fmt.Errorf("hub switch --status only says what serves now: it takes no --%s", f.Name)
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
 	st, err := hubedge.Status(hub.ControlPath())
 	if err != nil {
 		fmt.Printf("hub switch: no edge here (%v)\n", err)

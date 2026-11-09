@@ -158,7 +158,7 @@ func (h *Hub) runAssistant(ctx context.Context, token string) error {
 // AssistantToken is `personad hub assistant-token`: a new bus token for an assistant run elsewhere (hub.json
 // assistant.external), printed once. A connection with the token it replaces is hung up.
 func AssistantToken(ctx context.Context, out io.Writer) error {
-	cfg, err := LoadConfig()
+	cfg, err := runningHubConfig()
 	if err != nil {
 		return err
 	}

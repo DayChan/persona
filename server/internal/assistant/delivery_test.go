@@ -126,7 +126,7 @@ func TestAutoFinishHoldsUndeliveredWork(t *testing.T) {
 func TestTaskPromptCarriesTheDeliveryStandard(t *testing.T) {
 	s, f := newTaskService(t)
 	ctx := context.Background()
-	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "修", Prompt: "修好登录", Machine: "box", Cwd: "/code/app"}); err != nil {
+	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "修", Prompt: "修好登录", Machine: "box", Cwd: "/code/app"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := f.starts[0]["prompt"].(string); p != "修好登录" {
@@ -134,10 +134,10 @@ func TestTaskPromptCarriesTheDeliveryStandard(t *testing.T) {
 	}
 	f.starts = nil
 	deliveryOn(t, s)
-	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "修", Prompt: "修好登录", Machine: "box", Cwd: "/code/app"}); err != nil {
+	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "修", Prompt: "修好登录", Machine: "box", Cwd: "/code/app"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "查", Prompt: "查一下", Machine: "box", Cwd: "/code/app", Readonly: true}); err != nil {
+	if _, _, err := s.startTaskAgent(ctx, &PlanTask{Title: "查", Prompt: "查一下", Machine: "box", Cwd: "/code/app", Readonly: true}, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.starts) != 2 {

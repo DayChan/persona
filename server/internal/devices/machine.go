@@ -591,6 +591,19 @@ func (m *Machine) sessionList() []proto.Session {
 	return slices.Clone(m.sessions)
 }
 
+// sessionsWhere copies out the sessions keep accepts (Devices.SessionsWhere).
+func (m *Machine) sessionsWhere(keep func(*proto.Session) bool) []proto.Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []proto.Session
+	for i := range m.sessions { // by index: a range value copies every (large) session it passes
+		if keep(&m.sessions[i]) {
+			out = append(out, m.sessions[i])
+		}
+	}
+	return out
+}
+
 func (m *Machine) session(id string) (proto.Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

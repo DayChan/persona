@@ -49,7 +49,7 @@ func TestTaskCompletionRejectsAResumedTurnDuringJudgment(t *testing.T) {
 			s.tasks.mu.Unlock()
 			f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, LastText: "Earlier work finished"})
 			changed := false
-			s.hub = &receiptReadHookHub{fakeHub: f, beforeRead: func(int) {
+			f.hookReads(receiptHooks{before: func(int) {
 				if changed {
 					return
 				}
@@ -57,7 +57,7 @@ func TestTaskCompletionRejectsAResumedTurnDuringJudgment(t *testing.T) {
 				s.taskWorking(ctx, "box", "s1")
 				// Even a short resumed turn that already stopped invalidates the older judgment.
 				f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, LastText: "More work remains"})
-			}}
+			}})
 			s.autoFinishTask(todo, work, true)
 			current := todoNow(s, todo.ID)
 			if !changed || current.DoneAt != nil || current.Supervision != nil && current.Supervision.State == reviewPending {
@@ -137,7 +137,7 @@ func TestTaskCompletionReconcilesAnAnswerArrivingDuringTheRead(t *testing.T) {
 	s.fleetKeepPrevious("box", []proto.Session{idle})
 	f.setItems(proto.Item{Kind: proto.KindText, Role: "assistant", Text: "Checking"},
 		proto.Item{Kind: proto.KindToolResult, Role: "user", ToolUseID: "command", Text: "Tool output"})
-	s.hub = &receiptReadHookHub{fakeHub: f, afterRead: func(read int) {
+	f.hookReads(receiptHooks{after: func(read int) {
 		if read != 1 {
 			return
 		}
@@ -148,7 +148,7 @@ func TestTaskCompletionReconcilesAnAnswerArrivingDuringTheRead(t *testing.T) {
 		final.Status, final.Rev = proto.StatusDone, 2
 		f.setSessions("box", final)
 		s.setSessions("box", []proto.Session{final})
-	}}
+	}})
 	s.taskTurnEnded(ctx, "box", "s1")
 	waitFor(t, "completion without another session update", func() bool { return todoNow(s, todo.ID).DoneAt != nil })
 }

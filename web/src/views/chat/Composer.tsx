@@ -2,7 +2,7 @@ import { storedValue } from "../../lib/compatibility";
 // Beautiful UI's Prompt Bar, wired to a session: multi-line input, / commands, @ files and sessions, image attachments
 // (paste, drop, pick; click one to mark it up), files uploaded to the session's machine, send — and stop while the
 // agent works and nothing is typed. Quotes, edits and edited images from the chat arrive as draft events (drafts.ts).
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuickPrompts } from "../../lib/extension-declared";
 import { promptCommands, type ComposerCommand as Command } from "../../lib/extension-prompts";
 import { LOOP_TEXT, loopHint } from "../../lib/loop-command";
@@ -77,7 +77,8 @@ function fromDraftImage(img: DraftImage, id = uuid()): Attachment {
   return { ...img, id, url: URL.createObjectURL(new Blob([bytes], { type: img.mime })) };
 }
 
-export function Composer({
+// memo: a chat renders again for each transcript item, and this box takes none of them (ChatView keeps its props stable)
+export const Composer = memo(function Composer({
   draftKey,
   placeholder,
   machineId,
@@ -866,7 +867,7 @@ export function Composer({
       )}
     </div>
   );
-}
+});
 
 /** The visible height (above the keyboard), followed while `on`: the grow limit comes from it. */
 function useVisibleHeight(on: boolean): number {

@@ -120,14 +120,7 @@ func (h *Hub) deleteSession(w http.ResponseWriter, r *http.Request, m *Machine) 
 		return
 	}
 	id := r.PathValue("sid")
-	var s proto.Session
-	found := false
-	for _, x := range h.decorated(m) {
-		if x.SessionID == id {
-			s, found = x, true
-			break
-		}
-	}
+	s, found := h.decoratedSession(m, id)
 	switch {
 	case !found:
 		writeErr(w, http.StatusNotFound, errDeleteUnknown)

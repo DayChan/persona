@@ -755,6 +755,17 @@ func (d *Devices) Sessions(id string) ([]proto.Session, bool) {
 	return m.sessionList(), true
 }
 
+// SessionsWhere are those of a machine's sessions keep accepts, copied out without the rest; false when there is no
+// such machine. keep reads each session in place, under the machine's lock: it must not change or keep it, nor call
+// the devices.
+func (d *Devices) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
+	m := d.machineByID(id)
+	if m == nil {
+		return nil, false
+	}
+	return m.sessionsWhere(keep), true
+}
+
 // Canonical is the id of the machine id names (an entry another one absorbed: that one's); id itself when there is
 // none.
 func (d *Devices) Canonical(id string) string {

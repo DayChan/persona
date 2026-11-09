@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,7 +107,10 @@ func TestQuietHoursStoredBadWindowIsOff(t *testing.T) {
 func TestQuietHoursPushes(t *testing.T) {
 	h, f := testLive(t)
 	night := time.Date(2026, 11, 6, 2, 0, 0, 0, time.UTC)
-	h.push.now = func() time.Time { return night }
+	// The clock moves under the pusher, never swapped: a push still going out reads it (Pusher.pushed).
+	var clock atomic.Int64
+	clock.Store(night.UnixNano())
+	h.push.now = func() time.Time { return time.Unix(0, clock.Load()).UTC() }
 	if err := h.push.setPrefs("phone", NotifyPrefs{Input: true, Done: DoneAlways,
 		Quiet: QuietHours{Enabled: true, Start: "23:00", End: "07:00", TZ: "UTC"}}); err != nil {
 		t.Fatal(err)
@@ -143,7 +147,7 @@ func TestQuietHoursPushes(t *testing.T) {
 		t.Fatalf("an assistant reminder inside the window: %v", a)
 	}
 
-	h.push.now = func() time.Time { return night.Add(10 * time.Hour) }
+	clock.Store(night.Add(10 * time.Hour).UnixNano())
 	h.notifyDone(assistantwire.AssistantID, "done", "m", "box", "s", "finished", "", done)
 	h.notifyInteraction(assistantwire.AssistantID, ix, "box")
 	for _, c := range f.calls(t, 4)[2:] {

@@ -23,7 +23,7 @@ func (m fleetMachine) assistantCwd() string {
 
 // isAssistant: sess is one of this manager's assistant's conversations on the machine (isAssistantSession).
 func (m fleetMachine) isAssistant(sess proto.Session) bool {
-	return isAssistantSession(sess, m.assistantCwd(), m.manager)
+	return isAssistantSession(&sess, m.assistantCwd(), m.manager)
 }
 
 // fleetMachines are the machines the devices carry.
@@ -93,10 +93,21 @@ func (s *Service) nodeSessions(machine string) []proto.Session {
 	return list
 }
 
+// assistantSessions are this manager's assistant's conversations on machine m (isAssistant), copied out of its node's
+// list without the rest: a machine can list thousands of coding sessions beside them.
+func (s *Service) assistantSessions(m fleetMachine) []proto.Session {
+	if s.devs == nil {
+		return nil
+	}
+	dir := m.assistantCwd()
+	list, _ := s.devs.SessionsWhere(m.ID, func(sess *proto.Session) bool { return isAssistantSession(sess, dir, m.manager) })
+	return list
+}
+
 // isAssistantSession identifies manager's headless conversations in its directory dir, or its health space's. A host
 // pane is stronger evidence than a shared working directory. Another manager's directory, left on a machine moved
 // away from it, is not this one's (docs/assistant/managers.md "Directories on a computer").
-func isAssistantSession(sess proto.Session, dir, manager string) bool {
+func isAssistantSession(sess *proto.Session, dir, manager string) bool {
 	if sess.PaneID != "" || dir == "" || sess.Cwd == "" {
 		return false
 	}

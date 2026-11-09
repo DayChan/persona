@@ -37,7 +37,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, nodecmd.Named(usage))
 		os.Exit(2)
 	}
-	if nodecmd.IsHelpArg(os.Args[1]) {
+	if nodecmd.IsHelpArg(os.Args[1]) || os.Args[1] == "help" {
 		fmt.Println(nodecmd.Named(usage))
 		return
 	}

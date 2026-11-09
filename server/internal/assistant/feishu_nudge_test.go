@@ -91,6 +91,11 @@ func (h hookDevs) Sessions(id string) ([]proto.Session, bool) {
 	return h.fleetDevs.Sessions(id)
 }
 
+func (h hookDevs) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
+	list, ok := h.Sessions(id)
+	return keptWhere(list, keep), ok
+}
+
 // service is a manager on r's hub, database and computer.
 func (r *nudgeRig) service() *Service {
 	s := withSettings(r.t, r.f, New(Options{Hub: r.f, Store: func() Store { return r.st }, Logf: testLogf(r.t), Devices: hookDevs{r.d, r}}))

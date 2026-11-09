@@ -126,6 +126,11 @@ func (d *boardDevs) Sessions(id string) ([]proto.Session, bool) {
 	}
 	return append([]proto.Session(nil), m.sessions...), true
 }
+
+func (d *boardDevs) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
+	list, ok := d.Sessions(id)
+	return keptWhere(list, keep), ok
+}
 func (d *boardDevs) CallNode(ctx context.Context, id, method string, params json.RawMessage) (json.RawMessage, error) {
 	d.mu.Lock()
 	m := d.machines[d.canon(id)]

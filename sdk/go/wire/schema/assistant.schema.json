@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assistant.schema.json",
+  "title": "Assistant conversations",
+  "description": "Reading the user's conversations with the Persona assistant (docs/extensions/extensions.md \"Assistant conversations\", #1288): assistant.conversations and assistant.messages, with the permission assistant.read in the manifest's permissions.hub, checked against what the user granted (as kb.read is). Read-only. Only the assistant's own space: health-space and guest conversations are never listed or read. Only words: the user's messages and the assistant's replies, without tools, thinking, notices, images, the messages Persona typed in for the model, other sessions' messages and slash commands, and with context blocks stripped from the user's text. Params are strict: an unknown field is invalid_params. Plugin-side: only the hub and the program speak it.",
+  "x-side": "plugin",
+  "x-methods": {
+    "assistant.conversations": {"from": "program", "params": "AssistantConversationsParams", "result": "AssistantConversationsResult"},
+    "assistant.messages": {"from": "program", "params": "AssistantMessagesParams", "result": "AssistantMessagesResult"}
+  },
+  "$defs": {
+    "AssistantErrorCode": {
+      "description": "error.code of the assistant calls besides permission_denied (data {scope: \"assistant.read\"}): invalid_params; not_found (assistant.messages: no such conversation in the assistant's own space); assistant_offline (the manager is away: try again); machine_offline (the assistant's computer is not connected or not set up: try again).",
+      "type": "string",
+      "enum": ["invalid_params", "not_found", "assistant_offline", "machine_offline"]
+    },
+    "AssistantConversationsParams": {
+      "description": "assistant.conversations (assistant.read): the conversations last active at or after since, newest first.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "since": {"type": "string", "description": "An RFC 3339 time: last active at or after it."},
+        "until": {"type": "string", "description": "An RFC 3339 time: those known to have started at or after it are left out."},
+        "include_archived": {"type": "boolean"},
+        "limit": {"type": "integer", "minimum": 0, "maximum": 200, "description": "0 is 50."},
+        "offset": {"type": "integer", "minimum": 0}
+      },
+      "required": ["since"]
+    },
+    "AssistantConversation": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string", "description": "Empty while it has none."},
+        "main": {"type": "boolean", "description": "The main conversation."},
+        "archived": {"type": "boolean"},
+        "origin": {"type": "string", "description": "Who opened it: user, channel, inbox, task, spawned, lark_agent or extension."},
+        "started": {"type": "string", "format": "date-time", "x-go-pointer": true, "description": "When it began, when known."},
+        "updated": {"type": "string", "format": "date-time", "description": "Its last activity."}
+      },
+      "required": ["id", "title", "origin", "updated"]
+    },
+    "AssistantConversationsResult": {
+      "type": "object",
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/$defs/AssistantConversation"}},
+        "total": {"type": "integer"},
+        "next_offset": {"type": "integer", "x-go-pointer": true}
+      },
+      "required": ["items", "total"]
+    },
+    "AssistantMessagesParams": {
+      "description": "assistant.messages (assistant.read): one conversation's words in time order, paged by seq.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "description": "The conversation (assistant.conversations' id)."},
+        "since": {"type": "string", "description": "An RFC 3339 time: messages at or after it."},
+        "until": {"type": "string", "description": "An RFC 3339 time: messages before it."},
+        "after_seq": {"type": "integer", "minimum": 0, "x-go-pointer": true, "description": "Continue after this seq (the last page's next_seq)."},
+        "limit": {"type": "integer", "minimum": 0, "maximum": 500, "description": "0 is 200."}
+      },
+      "required": ["id"]
+    },
+    "AssistantMessage": {
+      "type": "object",
+      "properties": {
+        "seq": {"type": "integer"},
+        "at": {"type": "string", "format": "date-time"},
+        "role": {"$ref": "#/$defs/AssistantRole"},
+        "text": {"type": "string"},
+        "truncated": {"type": "boolean", "description": "The text was cut for pages (a very long message)."}
+      },
+      "required": ["seq", "at", "role", "text"]
+    },
+    "AssistantRole": {
+      "type": "string",
+      "enum": ["user", "assistant"]
+    },
+    "AssistantMessagesResult": {
+      "description": "next_seq is set while there is more to read (pass it as after_seq), even when this page has no messages.",
+      "type": "object",
+      "properties": {
+        "messages": {"type": "array", "items": {"$ref": "#/$defs/AssistantMessage"}},
+        "next_seq": {"type": "integer", "x-go-pointer": true}
+      },
+      "required": ["messages"]
+    }
+  }
+}

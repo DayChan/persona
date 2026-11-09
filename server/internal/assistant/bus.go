@@ -545,6 +545,9 @@ func (b *BusHub) request(ctx context.Context, method string, params json.RawMess
 	if out, ok, err := s.kbRequest(ctx, method, params); ok { // the knowledge base's (kb_bus.go)
 		return out, err
 	}
+	if out, ok, err := s.conversationsRequest(ctx, method, params); ok { // extensions' assistant.read (conversations_rpc.go)
+		return out, err
+	}
 	if out, ok, err := inboxRequest(ctx, s, method, decode); ok { // the inbox's (inbox_bus.go)
 		return out, err
 	}

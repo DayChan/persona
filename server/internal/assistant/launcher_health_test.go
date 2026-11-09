@@ -249,7 +249,7 @@ func TestLauncherHealthMovesPlannedTasks(t *testing.T) {
 	ctx := context.Background()
 	s.healthRound(ctx, true)
 	res, err := s.toolTaskPlan(ctx, "conv9", json.RawMessage(`{"tasks":[{"title":"修 CI","prompt":"修 CI","machine":"l4","cwd":"~/code/app","launcher":"work",
-		"readonly":false,"user_requested":false,"why":"代码在那"}]}`))
+		"readonly":false,"user_requested":false,"machine_policy":"flexible","why":"代码在那"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4598,6 +4598,85 @@ export interface ModelInvalidOutput {
 }
 
 /**
+ * error.code of the assistant calls besides permission_denied (data {scope: "assistant.read"}): invalid_params;
+ * not_found (assistant.messages: no such conversation in the assistant's own space); assistant_offline (the manager
+ * is away: try again); machine_offline (the assistant's computer is not connected or not set up: try again).
+ */
+export type AssistantErrorCode = "invalid_params" | "not_found" | "assistant_offline" | "machine_offline" | (string & {});
+export const ASSISTANT_ERROR_CODES = ["invalid_params", "not_found", "assistant_offline", "machine_offline"] as const;
+
+/**
+ * assistant.conversations (assistant.read): the conversations last active at or after since, newest first.
+ */
+export interface AssistantConversationsParams {
+  /** An RFC 3339 time: last active at or after it. */
+  since: string;
+  /** An RFC 3339 time: those known to have started at or after it are left out. */
+  until?: string;
+  include_archived?: boolean;
+  /** 0 is 50. */
+  limit?: number;
+  offset?: number;
+}
+
+export interface AssistantConversation {
+  id: string;
+  /** Empty while it has none. */
+  title: string;
+  /** The main conversation. */
+  main?: boolean;
+  archived?: boolean;
+  /** Who opened it: user, channel, inbox, task, spawned, lark_agent or extension. */
+  origin: string;
+  /** When it began, when known. */
+  started?: string;
+  /** Its last activity. */
+  updated: string;
+}
+
+export interface AssistantConversationsResult {
+  items: AssistantConversation[];
+  total: number;
+  next_offset?: number;
+}
+
+/**
+ * assistant.messages (assistant.read): one conversation's words in time order, paged by seq.
+ */
+export interface AssistantMessagesParams {
+  /** The conversation (assistant.conversations' id). */
+  id: string;
+  /** An RFC 3339 time: messages at or after it. */
+  since?: string;
+  /** An RFC 3339 time: messages before it. */
+  until?: string;
+  /** Continue after this seq (the last page's next_seq). */
+  after_seq?: number;
+  /** 0 is 200. */
+  limit?: number;
+}
+
+export interface AssistantMessage {
+  seq: number;
+  at: string;
+  role: AssistantRole;
+  text: string;
+  /** The text was cut for pages (a very long message). */
+  truncated?: boolean;
+}
+
+export type AssistantRole = "user" | "assistant" | (string & {});
+export const ASSISTANT_ROLES = ["user", "assistant"] as const;
+
+/**
+ * next_seq is set while there is more to read (pass it as after_seq), even when this page has no messages.
+ */
+export interface AssistantMessagesResult {
+  messages: AssistantMessage[];
+  next_seq?: number;
+}
+
+/**
  * Bounded JSON scalar, not executable content. Strings at most 4096 code points; finite numbers in the JSON-safe
  * range.
  */
@@ -4995,4 +5074,6 @@ export const CALLS: Record<string, Call> = {
   "event.todo.changed": { from: "hub", params: "TodoChangedEvent", event: true },
   "event.todo.decision": { from: "hub", params: "TodoDecisionEvent", event: true },
   "model.complete": { from: "program", params: "ModelCompleteParams", result: "ModelCompleteResult" },
+  "assistant.conversations": { from: "program", params: "AssistantConversationsParams", result: "AssistantConversationsResult" },
+  "assistant.messages": { from: "program", params: "AssistantMessagesParams", result: "AssistantMessagesResult" },
 };

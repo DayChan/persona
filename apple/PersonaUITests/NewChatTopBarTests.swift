@@ -1,8 +1,8 @@
 import XCTest
 
-/// The top bar's New Chat (`assistant-new`) leaves the conversation shown for the welcome: from the main conversation and
-/// from another one, in the shell and the old layout, with the keyboard up, from the history drawer, and right after a
-/// first message started a conversation. On build 209 a tap in the shell on the main conversation did nothing about one
+/// The top bar's New Chat (`assistant-new`) leaves the conversation shown for the welcome, in the shell (the iPhone's only
+/// layout since #1696): from the main conversation and from another one, with the keyboard up, from the history drawer,
+/// and right after a first message started a conversation. On build 209 a tap in the shell on the main conversation did nothing about one
 /// launch in five: the model went to a new conversation and the page was not redrawn (#1749; gone since #1393).
 ///   PORT=18793 python3 scripts/mock/mock_hub.py &
 ///   TEST_RUNNER_PERSONA_MOCK_HUB=http://127.0.0.1:18793 [TEST_RUNNER_NEWCHAT_RUNS=10] xcodebuild test …
@@ -20,13 +20,10 @@ final class NewChatTopBarTests: XCTestCase {
     }
 
     @MainActor func testNewChatLeavesAConversation() throws {
-        for oldLayout in [false, true] {
-            for (name, id) in conversations {
-                let app = launch(oldLayout: oldLayout, ["-openAssistant", "server/\(id)"])
-                let label = "\(oldLayout ? "old layout" : "shell"), \(name)"
-                try newChat(app, from: label)
-                app.terminate()
-            }
+        for (name, id) in conversations {
+            let app = launch(["-openAssistant", "server/\(id)"])
+            try newChat(app, from: name)
+            app.terminate()
         }
     }
 
@@ -35,7 +32,7 @@ final class NewChatTopBarTests: XCTestCase {
         var failed = 0, notes: [String] = []
         let runs = Int(ProcessInfo.processInfo.environment["NEWCHAT_RUNS"] ?? "") ?? 5
         for run in 1...runs {
-            let app = launch(oldLayout: false, ["-openAssistant", "server/\(conversations[0].1)", "-probes", "YES"])
+            let app = launch(["-openAssistant", "server/\(conversations[0].1)", "-probes", "YES"])
             let new = app.buttons["assistant-new"].firstMatch
             XCTAssertTrue(new.waitForExistence(timeout: 20), "run \(run): no New Chat")
             _ = waitUntil(15) { new.isEnabled && !self.welcome(app).exists }
@@ -57,57 +54,47 @@ final class NewChatTopBarTests: XCTestCase {
 
     /// The user's case: two conversations started from New Chat, then New Chat again.
     @MainActor func testNewChatAfterStartingConversations() throws {
-        for oldLayout in [false, true] {
-            let app = launch(oldLayout: oldLayout, ["-newAssistant", "YES"])
-            let layout = oldLayout ? "old layout" : "shell"
-            XCTAssertTrue(welcome(app).waitForExistence(timeout: 20), "\(layout): no welcome to start from")
-            for round in 1...3 {
-                send(app, "新对话测试 \(round)", oldLayout: oldLayout)
-                XCTAssertTrue(waitUntil(20) { !self.welcome(app).exists }, "\(layout), round \(round): the conversation did not start")
-                shot(app, "\(layout) started \(round)")
-                try newChat(app, from: "\(layout), round \(round)")
-            }
-            app.terminate()
+        let app = launch(["-newAssistant", "YES"])
+        XCTAssertTrue(welcome(app).waitForExistence(timeout: 20), "no welcome to start from")
+        for round in 1...3 {
+            send(app, "新对话测试 \(round)")
+            XCTAssertTrue(waitUntil(20) { !self.welcome(app).exists }, "round \(round): the conversation did not start")
+            shot(app, "started \(round)")
+            try newChat(app, from: "round \(round)")
         }
+        app.terminate()
     }
 
     /// Typing in a conversation: the first tap on New Chat is not spent on putting the keyboard away.
     @MainActor func testNewChatWithTheKeyboardUp() throws {
-        for oldLayout in [false, true] {
-            let app = launch(oldLayout: oldLayout, ["-openAssistant", "server/\(conversations[1].1)"])
-            let layout = oldLayout ? "old layout" : "shell"
-            XCTAssertTrue(app.buttons["assistant-new"].firstMatch.waitForExistence(timeout: 20), "\(layout): no New Chat")
-            let field = composer(app, oldLayout: oldLayout)
-            XCTAssertTrue(field.waitForExistence(timeout: 20), "\(layout): no composer\n\(app.debugDescription)")
-            field.tap()
-            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "\(layout): no keyboard")
-            try newChat(app, from: "\(layout), keyboard up")
-            app.terminate()
-        }
+        let app = launch(["-openAssistant", "server/\(conversations[1].1)"])
+        XCTAssertTrue(app.buttons["assistant-new"].firstMatch.waitForExistence(timeout: 20), "no New Chat")
+        let field = composer(app)
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "no composer\n\(app.debugDescription)")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no keyboard")
+        try newChat(app, from: "keyboard up")
+        app.terminate()
     }
 
     /// A conversation opened from the history drawer: nothing the drawer leaves behind covers New Chat.
     @MainActor func testNewChatAfterOpeningFromTheSidebar() throws {
-        for oldLayout in [false, true] {
-            let app = launch(oldLayout: oldLayout, ["-openAssistant", "server/\(conversations[0].1)"])
-            let layout = oldLayout ? "old layout" : "shell"
-            let menu = app.buttons["assistant-sidebar-button"].firstMatch
-            XCTAssertTrue(menu.waitForExistence(timeout: 20), "\(layout): no sidebar button")
-            RunLoop.current.run(until: Date().addingTimeInterval(1))
-            menu.tap()
-            let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "帮我约周五")).firstMatch
-            XCTAssertTrue(row.waitForExistence(timeout: 10), "\(layout): the sidebar did not list the conversation\n\(app.debugDescription)")
-            row.tap()
-            try newChat(app, from: "\(layout), from the sidebar")
-            app.terminate()
-        }
+        let app = launch(["-openAssistant", "server/\(conversations[0].1)"])
+        let menu = app.buttons["assistant-sidebar-button"].firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no sidebar button")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        menu.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "帮我约周五")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the sidebar did not list the conversation\n\(app.debugDescription)")
+        row.tap()
+        try newChat(app, from: "from the sidebar")
+        app.terminate()
     }
 
-    @MainActor private func launch(oldLayout: Bool, _ extra: [String]) -> XCUIApplication {
+    @MainActor private func launch(_ extra: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
-        app.launchArguments = ["-pairURL", pair, "-app.tab", "assistant", "-dev.openChat", "", "-openChatsFresh", "YES",
-                               "-ui.oldLayout", oldLayout ? "YES" : "NO"] + extra
+        app.launchArguments = ["-pairURL", pair, "-app.tab", "assistant", "-dev.openChat", "", "-openChatsFresh", "YES"] + extra
         app.launchPinned()
         dismissAlerts()
         return app
@@ -130,22 +117,18 @@ final class NewChatTopBarTests: XCTestCase {
         XCTAssertTrue(came, "\(label): New Chat did nothing (enabled \(new.isEnabled), hittable \(new.isHittable))\n\(app.debugDescription)")
     }
 
-    @MainActor private func send(_ app: XCUIApplication, _ text: String, oldLayout: Bool) {
-        let field = composer(app, oldLayout: oldLayout)
+    @MainActor private func send(_ app: XCUIApplication, _ text: String) {
+        let field = composer(app)
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no composer")
         field.tap()
         field.typeText(text)
-        let button = oldLayout ? app.buttons.matching(NSPredicate(format: "label == %@", "发送")).firstMatch
-            : app.buttons["shell-composer-send"].firstMatch
+        let button = app.buttons["shell-composer-send"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5), "no send button")
         button.tap()
     }
 
-    /// The composer's text field: the shell's by its id; the old layout's is the page's only text view or field.
-    @MainActor private func composer(_ app: XCUIApplication, oldLayout: Bool) -> XCUIElement {
-        guard oldLayout else { return app.descendants(matching: .any)["shell-composer-field"].firstMatch }
-        _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
-        return app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+    @MainActor private func composer(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["shell-composer-field"].firstMatch
     }
 
     private func dismissAlerts() {
