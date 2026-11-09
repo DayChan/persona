@@ -38,18 +38,20 @@ type Workflow struct {
 	// AgentsStarted counts the agents it started so far (the total is not known before it ends: scripts fan out as
 	// they go), AgentsDone those that returned, AgentsFailed those the journal says failed (not counted as done; absent
 	// from older nodes, which counted them as done), AgentsRunning those still at it. Agents stopped when the run ended
-	// are none of the three.
+	// are none of the three. A retried agent counts once, as its latest attempt: the attempts it replaced are in no
+	// count, PhaseStats or Agents (#2323; older nodes counted each, running until the run ended).
 	AgentsStarted int        `json:"agents_started"`
 	AgentsDone    int        `json:"agents_done"`
 	AgentsFailed  int        `json:"agents_failed,omitempty"`
 	AgentsRunning int        `json:"agents_running"`
-	Tokens        int        `json:"tokens,omitempty"` // sum of each agent's latest usage, not cumulative usage
-	Calls         int        `json:"calls,omitempty"`  // all agents' tool calls, before Agents is capped
+	Tokens        int        `json:"tokens,omitempty"` // sum of each agent's latest usage, not cumulative usage; replaced attempts too
+	Calls         int        `json:"calls,omitempty"`  // all agents' tool calls, before Agents is capped; replaced attempts too
 	StartedAt     time.Time  `json:"started_at"`
 	EndedAt       *time.Time `json:"ended_at,omitempty"`   // nil while it runs
 	UpdatedAt     time.Time  `json:"updated_at,omitempty"` // its last sign of life (journal or an agent's transcript)
 	Error         string     `json:"error,omitempty"`      // a failed or killed run's error, first line
-	// Agents are its agents in the order they started (at most WorkflowAgentsMax, the latest kept).
+	// Agents are its agents in the order they started (at most WorkflowAgentsMax, the latest kept); a retried one is
+	// listed as its latest attempt, where that attempt started.
 	Agents []WorkflowAgent `json:"agents,omitempty"`
 }
 

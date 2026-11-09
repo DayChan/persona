@@ -29,6 +29,8 @@ private struct LarkAccountsPage: View {
 private struct LarkConversationsPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.shell) private var shell
+    /// iPhone Duo's bars down the side: the shell's bar is the side rail there (`ShellSideRail`).
+    @Environment(\.shellRailEdge) private var railEdge
     @Environment(\.tabIsActive) private var active
     @State private var store: LarkConversationsModel
     @State private var path: [LarkConversation] = []
@@ -173,7 +175,10 @@ private struct LarkConversationsPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(shell == nil ? .visible : .hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                if let shell { topBar(shell) }
+                if let shell, railEdge == nil { topBar(shell) }
+            }
+            .overlay {
+                if let shell, let railEdge { sideRail(shell, edge: railEdge) }
             }
             .pageToolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -291,6 +296,19 @@ private struct LarkConversationsPage: View {
         }
         .padding(.horizontal, Theme.Space.l).padding(.top, Theme.Space.xxs)
         .shellTopBarScaled().modifier(ShellBarAtRest(page: 2))
+    }
+
+    /// The bar as the side rail (iPhone Duo): the face and Lark Settings, then the switch at the foot of the column.
+    private func sideRail(_ shell: ShellState, edge: HorizontalEdge) -> some View {
+        @Bindable var model = model
+        return ShellSideRail(edge: edge) {
+            ShellPersonaButton(id: "feishu-sidebar") { shell.drawer.open() }
+            ShellCircleButton(symbol: Theme.Icon.settings, label: String(localized: "Lark Settings"), id: "feishu-settings") { openConnectionSettings() }
+        } switcher: {
+            ShellSwitch(tab: $model.selectedTab, axis: .vertical) { EmptyView() } workMenu: { EmptyView() }
+        }
+        .shellTopBarScaled()
+        .modifier(ShellBarAtRest(page: 2)) // ShellMovingBar stands in while the strip slides
     }
 }
 #endif

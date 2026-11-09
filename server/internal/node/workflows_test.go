@@ -474,6 +474,175 @@ func TestWorkflowAgentFailsWhileRead(t *testing.T) {
 	}
 }
 
+// interruptedLine is how a retried workflow agent's transcript ends (Claude Code 2.1.3xx, scrubbed): the user line the
+// retry writes into the attempt it replaces. The journal says nothing about that attempt again.
+func interruptedLine(agent, at string) string {
+	return `{"parentUuid":"p-` + agent + `","isSidechain":true,"promptId":"prompt-example","agentId":"` + agent + `","type":"user",` +
+		`"message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]},"uuid":"u-` + agent +
+		`","timestamp":"` + at + `","userType":"external","entrypoint":"cli"}` + "\n"
+}
+
+// A stalled agent retried from Claude Code's workflow view (#2323): the same call (key) starts again under a new agent
+// id, and the attempt it replaced never gets a result. The call counts once, as its latest attempt; the phase is not
+// left running with one agent too many (it showed 2/3 and stayed current). What the replaced attempt spent still counts.
+func TestWorkflowRetriedAgent(t *testing.T) {
+	_, parent, sess := workflowSession(t)
+	// The journal of the real run, scrubbed: probe a stalls, probe b returns, a is retried as a2, which returns; the
+	// next phase starts.
+	journal := `{"type":"launched"}
+{"type":"started","key":"v2:probe-a","agentId":"a","label":"probe:model-a","phase":"Probe"}
+{"type":"started","key":"v2:probe-b","agentId":"b","label":"probe:model-b","phase":"Probe"}
+{"type":"result","key":"v2:probe-b","agentId":"b","result":"OK","remoteControlDeviceReport":false}
+{"type":"started","key":"v2:probe-a","agentId":"a2","label":"probe:model-a","phase":"Probe"}
+{"type":"result","key":"v2:probe-a","agentId":"a2","result":"OK","remoteControlDeviceReport":false}
+{"type":"started","key":"v2:look","agentId":"c","label":"investigate:server","phase":"Investigate"}
+`
+	writeRun(t, sess, "wf_retry", journal, nil, 0)
+	dir := filepath.Join(sess, "subagents", "workflows", "wf_retry")
+	const usage = `{"input_tokens":1,"cache_read_input_tokens":2,"cache_creation_input_tokens":3,"output_tokens":4}`
+	files := map[string]string{
+		"agent-a.jsonl": edgeReply("a1", "2026-01-01T00:00:00Z", "model-a", `[{"type":"tool_use","id":"ta","name":"Read","input":{}}]`, usage) +
+			interruptedLine("a", "2026-01-01T00:09:00Z"),
+		"agent-b.jsonl":  edgeReply("b1", "2026-01-01T00:00:00Z", "model-b", `[{"type":"text","text":"OK"}]`, usage),
+		"agent-a2.jsonl": edgeReply("a21", "2026-01-01T00:09:01Z", "model-a", `[{"type":"text","text":"OK"}]`, usage),
+		"agent-c.jsonl":  edgeReply("c1", "2026-01-01T00:10:00Z", "model-b", `[{"type":"text","text":"reading"}]`, usage),
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := proto.Workflow{TaskID: "task", RunID: "wf_retry", Status: proto.WorkflowRunning, Running: true,
+		Phases: []string{"Probe", "Investigate"}, StartedAt: time.Now().Add(-time.Hour)}
+	w, _ := workflowProgress(&wfJournal{}, dir, "", parent, run, "")
+	if w.AgentsStarted != 3 || w.AgentsDone != 2 || w.AgentsRunning != 1 || w.Phase != "Investigate" || w.PhaseIndex != 2 {
+		t.Fatalf("run counters = %+v", w)
+	}
+	// The replaced attempt's usage and its tool call were spent: they stay in the run's totals.
+	if w.Tokens != 40 || w.Calls != 1 {
+		t.Fatalf("totals = tokens %d, calls %d", w.Tokens, w.Calls)
+	}
+	want := []proto.WorkflowPhaseStats{{Title: "Probe", Started: 2, Done: 2}, {Title: "Investigate", Started: 1, Running: 1}}
+	if !reflect.DeepEqual(w.PhaseStats, want) {
+		t.Fatalf("phase_stats = %+v, want %+v", w.PhaseStats, want)
+	}
+	var ids []string
+	for _, a := range w.Agents {
+		ids = append(ids, a.ID+"="+a.Status)
+	}
+	if got := strings.Join(ids, ","); got != "b=done,a2=done,c=running" {
+		t.Fatalf("agents = %s", got)
+	}
+
+	// Ended: the replaced attempt is not a stopped agent either.
+	ended := time.Now()
+	run.Status, run.Running, run.EndedAt = proto.WorkflowCompleted, false, &ended
+	w, _ = workflowProgress(&wfJournal{}, dir, "", parent, run, "")
+	if w.AgentsStarted != 3 || w.AgentsDone != 2 || len(w.Agents) != 3 || w.PhaseStats[0] != (proto.WorkflowPhaseStats{Title: "Probe", Started: 2, Done: 2}) {
+		t.Fatalf("ended run = %+v", w)
+	}
+}
+
+// The retry is read the way it comes in practice: the run is read while the stalled attempt runs, then the retry's
+// started line, then its result, each read for what the journal gained. A rewritten journal forgets the calls with
+// the agents.
+func TestWorkflowRetriedAgentWhileRead(t *testing.T) {
+	_, parent, sess := workflowSession(t)
+	writeRun(t, sess, "wf_retry_read", `{"type":"started","key":"v2:probe-a","agentId":"a","label":"probe:model-a","phase":"Probe"}
+{"type":"started","key":"v2:probe-b","agentId":"b","label":"probe:model-b","phase":"Probe"}
+{"type":"result","key":"v2:probe-b","agentId":"b","result":"OK"}
+`, map[string]string{"a": "…", "b": "OK", "a2": "OK"}, 0)
+	dir := filepath.Join(sess, "subagents", "workflows", "wf_retry_read")
+	subagents := filepath.Join(sess, "subagents")
+	run := proto.Workflow{TaskID: "task", RunID: "wf_retry_read", Status: proto.WorkflowRunning, Running: true,
+		Phases: []string{"Probe"}, StartedAt: time.Now().Add(-time.Hour)}
+	probe := func(w proto.Workflow) proto.WorkflowPhaseStats { return w.PhaseStats[0] }
+	appendJournal := func(line string) {
+		t.Helper()
+		f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.WriteString(line)
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		expireWorkflow(dir)
+	}
+
+	if w := readWorkflow(subagents, parent, run, ""); probe(w) != (proto.WorkflowPhaseStats{Title: "Probe", Started: 2, Done: 1, Running: 1}) {
+		t.Fatalf("while a stalls: %+v", w.PhaseStats)
+	}
+	appendJournal(`{"type":"started","key":"v2:probe-a","agentId":"a2","label":"probe:model-a","phase":"Probe"}` + "\n")
+	w := readWorkflow(subagents, parent, run, "")
+	if probe(w) != (proto.WorkflowPhaseStats{Title: "Probe", Started: 2, Done: 1, Running: 1}) || w.AgentsStarted != 2 ||
+		len(w.Agents) != 2 || w.Agents[1].ID != "a2" || !w.Agents[1].Running {
+		t.Fatalf("while the retry runs: %+v", w)
+	}
+	appendJournal(`{"type":"result","key":"v2:probe-a","agentId":"a2","result":"OK"}` + "\n")
+	w = readWorkflow(subagents, parent, run, "")
+	if probe(w) != (proto.WorkflowPhaseStats{Title: "Probe", Started: 2, Done: 2}) || w.AgentsRunning != 0 {
+		t.Fatalf("after the retry returned: %+v", w)
+	}
+
+	// A late line for the replaced attempt changes nothing: the call is its latest attempt's.
+	appendJournal(`{"type":"failed","key":"v2:probe-a","agentId":"a"}` + "\n")
+	if w = readWorkflow(subagents, parent, run, ""); w.AgentsDone != 2 || w.AgentsFailed != 0 || len(w.Agents) != 2 {
+		t.Fatalf("after a late line for the replaced attempt: %+v", w)
+	}
+
+	// Rewritten: the calls start over with the agents.
+	if err := os.WriteFile(filepath.Join(dir, "journal.jsonl"), []byte(`{"type":"started","key":"v2:probe-a","agentId":"x","phase":"Probe"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expireWorkflow(dir)
+	if w = readWorkflow(subagents, parent, run, ""); w.AgentsStarted != 1 || len(w.Agents) != 1 || w.Agents[0].ID != "x" || !w.Agents[0].Running {
+		t.Fatalf("after a rewrite: %+v", w)
+	}
+}
+
+// What a key does and does not merge: a retry of an agent that had already returned replaces it too (seen in a real
+// journal), identical calls with keys of their own stay apart, and journals without keys are read as before.
+func TestWorkflowAgentKeys(t *testing.T) {
+	for _, tt := range []struct {
+		name, journal, want string
+		started, done       int
+	}{
+		{"retry of a finished agent", `{"type":"started","key":"v2:k","agentId":"a"}
+{"type":"result","key":"v2:k","agentId":"a"}
+{"type":"started","key":"v2:k","agentId":"a2"}
+`, "a2=running", 1, 0},
+		{"retried twice", `{"type":"started","key":"v2:k","agentId":"a"}
+{"type":"started","key":"v2:k","agentId":"a2"}
+{"type":"started","key":"v2:k","agentId":"a3"}
+{"type":"result","key":"v2:k","agentId":"a3"}
+`, "a3=done", 1, 1},
+		{"identical calls have their own keys", `{"type":"started","key":"v2:one","agentId":"a"}
+{"type":"started","key":"v2:two","agentId":"b"}
+{"type":"result","key":"v2:one","agentId":"a"}
+`, "a=done,b=running", 2, 1},
+		{"no keys", `{"type":"started","agentId":"a"}
+{"type":"started","agentId":"b"}
+{"type":"result","agentId":"b"}
+`, "a=running,b=done", 2, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, parent, sess := workflowSession(t)
+			writeRun(t, sess, "wf_keys", tt.journal, nil, time.Minute)
+			run := proto.Workflow{TaskID: "task", RunID: "wf_keys", Status: proto.WorkflowRunning, Running: true, StartedAt: time.Now().Add(-time.Hour)}
+			w, _ := workflowProgress(&wfJournal{}, filepath.Join(sess, "subagents", "workflows", "wf_keys"), "", parent, run, "")
+			var got []string
+			for _, a := range w.Agents {
+				got = append(got, a.ID+"="+a.Status)
+			}
+			if strings.Join(got, ",") != tt.want || w.AgentsStarted != tt.started || w.AgentsDone != tt.done {
+				t.Fatalf("agents %v, started %d, done %d", got, w.AgentsStarted, w.AgentsDone)
+			}
+		})
+	}
+}
+
 // A run's journal is read for what it gained: a line still being written waits for its end, a rewritten or replaced
 // journal is read again from its start.
 func TestWorkflowJournalIncremental(t *testing.T) {

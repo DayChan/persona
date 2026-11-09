@@ -81,6 +81,10 @@ def main():
     webdist = root / 'server/internal/hub/webdist'
     try:
         shutil.copytree(root / 'web/dist', webdist, dirs_exist_ok=True)
+        # The binaries' privacy scan reads printable strings, which gzip hides: scan the web client as built, then
+        # keep its hashed assets gzipped as the hub sends them (docs/web/web.md "Precompressed assets").
+        run(['python3', 'scripts/release/check_bundle_privacy.py', '--whole-short', str(webdist)], root)
+        run(['go', 'run', './internal/webasset/precompress', 'internal/hub/webdist'], root / 'server')
         run(['go', 'generate', './internal/runtimepkg'], root / 'server')
         flags = (f'-s -w -X main.version={version} -X main.channel=release '
                  f'-X main.build={args.build} -X main.commit={sha} -X main.updateURL={args.update_url}')

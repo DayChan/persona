@@ -147,6 +147,14 @@ NPM_REGISTRY="${PERSONA_NPM_REGISTRY:-https://registry.npmjs.org/}"
 (cd web && { [ -d node_modules ] || npm ci --no-audit --no-fund --registry="$NPM_REGISTRY"; } && npm run build) >/dev/null
 cleanup
 cp -R web/dist/. "$WEBDIST/"
+# The binaries' privacy scan below reads printable strings, which gzip hides: scan the web client as built first. Then
+# keep its hashed assets gzipped, as the hub sends them (docs/web/web.md "Precompressed assets"), and check that it did.
+python3 scripts/release/check_bundle_privacy.py --whole-short "$WEBDIST"
+(cd server && go run ./internal/webasset/precompress internal/hub/webdist)
+[ -n "$(find "$WEBDIST/assets" -type f -name '*.gz' -print -quit)" ] || { echo "no precompressed web assets in $WEBDIST" >&2; exit 1; }
+left="$(find "$WEBDIST/assets" -type f -size +1023c \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.svg' \
+  -o -name '*.json' -o -name '*.txt' -o -name '*.html' -o -name '*.xml' -o -name '*.wasm' \) -print -quit)"
+[ -z "$left" ] || { echo "web asset left uncompressed: $left" >&2; exit 1; }
 
 # Public dependency constants are classified by build-info checksums; verify the actual module cache before building.
 (cd server && go mod verify)
