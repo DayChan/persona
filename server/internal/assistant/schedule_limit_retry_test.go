@@ -1255,10 +1255,15 @@ func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
 }
 
 func TestLimitRetryObservedWorkingFailureIsReported(t *testing.T) {
-	for _, mode := range []string{"automatic", "manual"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct{ mode, kind, text string }{
+		{"automatic", "limit", limitText}, {"manual", "limit", limitText},
+		{"automatic", "ordinary", "API Error: 503 upstream unavailable"}, {"manual", "ordinary", "API Error: 503 upstream unavailable"},
+	} {
+		t.Run(tc.mode+"/"+tc.kind, func(t *testing.T) {
+			mode := tc.mode
 			s, f, st, now := limitRetryFixture(t)
 			s.turnPoll = 10 * time.Millisecond
+			s.runRetry = 10 * time.Millisecond
 			s.sched.limitWait = func(time.Time, time.Time) time.Duration { return time.Hour }
 			sc, err := s.lockedSchedule(t.Context())
 			if err != nil {
@@ -1302,9 +1307,9 @@ func TestLimitRetryObservedWorkingFailureIsReported(t *testing.T) {
 			go func() { s.watchScheduledRun(run, task, Device{ID: "server"}); close(done) }()
 			awaitBusSignal(t, seen)
 			f.mu.Lock()
-			f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}, {ID: "failure", Role: "assistant", Kind: "text", Text: limitText}}
+			f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}, {ID: "failure", Role: "assistant", Kind: "text", Text: tc.text}}
 			for i := range f.sessions["server"] {
-				f.sessions["server"][i].Status, f.sessions["server"][i].State, f.sessions["server"][i].TurnError = proto.StatusDone, proto.StateIdle, limitText
+				f.sessions["server"][i].Status, f.sessions["server"][i].State, f.sessions["server"][i].TurnError = proto.StatusDone, proto.StateIdle, tc.text
 			}
 			f.mu.Unlock()
 			select {
@@ -1318,16 +1323,13 @@ func TestLimitRetryObservedWorkingFailureIsReported(t *testing.T) {
 			restarted := newServiceOn(t, f, st)
 			runs := scheduleRuns(restarted)
 			if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
-				return r.ID == run.ID && r.Status == runFailed && strings.Contains(r.Error, "hit your")
+				return r.ID == run.ID && r.Status == runFailed && strings.Contains(r.Error, tc.text)
 			}) {
 				t.Fatalf("error not recorded: %+v", runs)
 			}
 			current, _ := taskByID(restarted, "limit")
-			if mode == "automatic" && current.LimitRetry != nil {
-				t.Fatal("automatic retry armed another retry")
-			}
-			if mode == "manual" && (current.LimitRetry == nil || current.LimitRetry.Failed.ID != run.ID) {
-				t.Fatal("manual replacement did not retain the new limit wait")
+			if current.LimitRetry != nil {
+				t.Fatal("replacement failure armed another automatic retry")
 			}
 			if got := scheduleSendCount(f); got != 0 {
 				t.Fatalf("watcher resent %d messages", got)
