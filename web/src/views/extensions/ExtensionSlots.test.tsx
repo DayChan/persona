@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../../lib/lazy-page";
 import { ExtensionNavPage } from "./ExtensionSlots";
 
 const data = vi.hoisted(() => ({ place: undefined as { extension: string; id: string; title?: string; extension_name?: string } | undefined }));
@@ -15,6 +16,9 @@ function header(place: typeof data.place) {
 }
 
 const count = (html: string, text: string) => html.split(text).length - 1;
+
+// the code views and the extension page are their own chunks (lib/lazy-page.ts, #1794): in before anything is drawn
+beforeAll(() => loadPages(), 60_000);
 
 describe("extension page top bar (#3115)", () => {
   it("writes a name that is the page's title once", () => {

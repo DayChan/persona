@@ -1,5 +1,13 @@
 # Lessons: web UI and interactions
 
+## Pushed batches follow more_after too (#1118)
+
+- A contiguous reconnect replay can still be incomplete when its final batch carries `more_after`. Follow that flag on pushed batches as well as HTTP pages, continuing from the updated contiguous coverage cursor through the existing gap-fill timer; do not wait for another push to reveal a gap.
+
+## State updaters stay pure under StrictMode (#1165)
+
+- Keep React state updaters free of mutations to refs. Echo matching claims transcript IDs, so do it in the effect, then pass captured IDs and a timestamp into a pure pending-message filter. Exercise sending and transcript delivery under StrictMode to catch double-invocation failures.
+
 ## Render-count tests must separate store pushes from live clocks (#1989)
 
 A Profiler counts every commit beneath it, including status clocks and deferred mount work unrelated to the store update under test. Drain mount timers before taking the baseline, keep time fixed during the measured push sequence, and explicitly flush the real store's batched notifications inside `act`. Freezing timers without delivering those notifications can make a zero-redraw test pass vacuously: retain all negative assertions and add a positive control proving a current-conversation update still redraws and changes the DOM. Clear timers and restore real time after unmounting each test.
@@ -101,6 +109,17 @@ Adding Bcc to the request alone leaves Bcc-only edits lost on dismissal and Bcc-
 - A detail pane can retain its old response while its route changes. Key the editing boundary by requested kind/id, opaque credential generation and the actual default manager; capture that manager and token on reads and writes, and fence late results as well as submission. The server canonicalizes source IDs, including recording UUID case, so response ownership follows the captured request rather than raw ID equality. After a successful write, a failed authoritative read needs a read-only retry; returning to the save action can repeat an already accepted mutation. Admit saves synchronously before React renders busy state, and send only the confirmed-facts field so unrelated metadata and locks stay intact.
 - Captured credentials must still use normal sign-out on a current-owner 401. Explicit token requests opt in with their opaque credential generation, and recovery checks both that generation and the current token. This keeps retired requests and pairing/probe tokens isolated without making expired Knowledge credentials look like retryable save failures.
 
+### Relationship removal needs two authoritative ends (#1482)
+
+- Related-entry display includes provenance such as an item's source chat; eligibility must inspect raw metadata membership and the supported update mapping. Project-to-item corrections update the item with a project removal. A linked item carries its raw source ID, while project item references and detail responses use the canonical storage ID; preserve both identities through eligibility, dispatch and readback. Verify absence, whole-list protection and cleared field provenance on both records rather than relying on the visible links or the PUT status. A rejected attribution write can leave both edges removed and locked while an extension still owns one list.
+- Multi-entity removals can fail after saving one end. Keep the original intent outside the rendered row and retain an accessible pending correction after dialog dismissal, refresh both ends after rejection, and offer the same idempotent correction even when the row disappears. After an accepted request, retry failed verification with reads only. A successful HTTP status from an older hub can still leave the relationship unchanged.
+- React Strict Mode rehearses effect cleanup on mount. Recreate a verification abort controller and restore its live flag in setup, then exercise the actual detail component under Strict Mode; a permanently retired mount can otherwise leave every confirmation inert.
+
+### Persisted computer-app approvals survive live control being unavailable (#1489)
+
+- The approvals list and revoke use manager settings, so render them outside the online/enabled control gates. Display and encode the returned identifier verbatim: it may be a bundle ID, a `name:` identifier or `screen`.
+- Apply the successful DELETE's complete list, and invalidate earlier reads when admitting the write. Aborting a request alone cannot fence a transport that already has a response. Machine routes ignore the manager header in favor of current ownership: a captured header is not a precondition. Enforce `expected_manager` against the hub's single captured routing target before relay; a receiving-manager check cannot protect a handover to an older receiver. Mint the acknowledgement at the hub and retire prior mutation admission on refresh. Use a guarded mutation path that legacy receivers cannot match, so a hub downgrade after the capability read also fails safely. Removing a saved record does not enable `app_approval`; future-prompt copy must be conditional. Bind confirmation, retry and finalizers to the machine, actual manager and credential generation; pass captured credentials with their owner so current 401 recovery still works.
+
 ## Overview with no computers (2026-11-06, #3729)
 
 - No pending Agent does not mean an Agent can be started. Overview's idle summary and cards distinguish "No computers" from "Computers exist, no tasks"; the header must not keep suggesting New Agent. Use the total computer count, not treating offline computers as never connected.
@@ -119,6 +138,10 @@ Adding Bcc to the request alone leaves Bcc-only edits lost on dismissal and Bcc-
 ## Extension sign-in startup belongs to its identity (#1296)
 
 An auth status push rerenders the sign-in group and replaces inline completion callbacks. Keep those callbacks current independently of startup, or their effect dependency chain sends another empty step and restarts authentication. Key the flow by extension identity and fence success, error and finally with its request lifetime; a shared mounted flag can accept an old identity's response after replacement. Retire on cancel before the parent unmounts, clean up scheduled and in-flight polling, and serialize Next, form submission and Restart before React rerenders. Regress the real group with synthetic transport, status-only pushes, retained fields, late responses, explicit retry and StrictMode effect replay.
+
+## Provider probes belong to an editor opening and its connection (#1314)
+
+- Settings keeps the provider wizard mounted while closed. Fence discovery and connection-test success, failure and busy cleanup by an editor generation and the inputs used by the request, including headers and protocol. Comparing values only at completion misses close/reopen and input changes followed by restoration. Invalidate at commit before promise continuations can affect a replacement editor, and release retired busy indicators so the current editor can retry. Discovery still merges through a functional form update to preserve model edits made while waiting; model selection is not a connection change. Regress with the actual component and deferred HTTP responses, including the saved payload and a fresh request still pending when the retired request settles.
 
 ## Panel identity for workspaces without sessions (2026-11-04, #1646)
 
@@ -194,6 +217,8 @@ Exercise the actual hook and upload helper together with a synthetic XHR transpo
 
 ### Talking to hub
 
+- **Per-chat rule removal has a durable retry state** (#1481): DELETE `store_failed` disables the live rule before its durable removal succeeds. Retain the original opaque ID and destination separately from the GET list, which can already omit it, and keep Retry revoke until a successful DELETE. Fence both ledger and rule reads at mutation admission and across credential generations, navigation and manager changes; an old page must not revive a removed rule. Exercise the actual settings component with the real REST client and deferred synthetic responses, including normal current-owner 401 handling.
+
 - **A failed to-do read is not an empty list** (#5173): both the full refresh and the dedicated retry must record the shared `errorText` result and clear it on success. Apply the existing request-order guard to errors as well as lists: a late failure must not overwrite a newer success or repopulate state after sign-out. Show the failure only when the underlying list is empty, not when a search merely filters out existing rows; retain 404 as the unsupported-hub case. Hide the header counts during an empty-list failure too: zero counts imply a successful empty read even when the body explains the failure.
 
 - **Check error-text consumers before localizing shared errors** (#3728): besides display, `errorText` drives login, worktree compatibility checks, missing-session explanations, and offline-toast coalescing. After adding explanations to 5xx errors, `^unsupported` no longer matches the localized prefix; compatibility checks use `ApiError.message` instead. Display retains full original text and HTTP status, preserving session-specific explanations and coalesced 502 / 503 / 504 offline notices. Keep 401 `invalid token` unchanged.
@@ -244,9 +269,12 @@ Six parallel lanes (chat rendering, message actions, Agents list / Machines, Ter
 - `Menu` anchors only to elements: temporarily place a `position:fixed`, 0×0 span at the click point; delete on close (not as a side effect in a setState updater).
 - Own message bubbles originally had no action row; adding one changes chat spacing. Put an `absolute right-full` hover bar left of the bubble (already 12% margin there).
 - Browsers prohibit top-level navigation to `data:`; use `fetch(dataURL).blob()` then `URL.createObjectURL`. Image clipboard writes (`ClipboardItem`) require a secure context; hide the button on plaintext-HTTP hubs.
+- An image that displayed successfully can fail its separate download request (#1588). Check `Response.ok` before reading the body or creating a save link; use the existing failure toast and leave Download available for retry. Regress the actual viewer with JSON/HTML HTTP errors, then a successful retry, preserving original bytes, MIME, filename and Blob URL cleanup. Inspect the toast in the built app: DOM visibility alone misses a toast painted behind the full-screen viewer at the same stacking level.
 - Viewer / editor Esc handlers must run in window capture phase and `stopPropagation`, or chat's Esc interrupt fires too.
 
 ### Sidebar and Machines
+
+- **Usage totals belong to the complete report scope** (#1567): bind accepted data and request status to the machine, range, model and launcher. Keep selector catalogs separately while another scope loads or fails; they are navigation options, not evidence of that scope's totals. Show current failures with retry, and label retained same-scope data as potentially stale. A scope cleanup alone does not order overlapping polls: ignore superseded success, error, unsupported and completion handlers even when transport cancellation arrives late. Exercise the actual component through the REST client with deferred synthetic fetch responses, including machine changes and empty launcher encoding.
 
 - **A `seen` the page only sends is lost without a word** (#6493): the web sent `{"type":"seen"}` on open and drew whatever the hub pushed next. `send` drops the message while the socket is still connecting (opening a chat link, a reload, a tab coming back after its socket went quiet), a half-open socket swallows it, and the next list still says Unread: the green dot stays after reading. Mark it seen locally at once and keep the mark until the hub's own rows say it was recorded (a later `seen_at`), with an HTTP retry after 5 s and a resend after hello (`lib/seen-outbox.ts`, the app's `SeenOutbox`). Hold the mark in the store's `set` so every way rows come in (pushes, paged-list pages, HTTP answers) is drawn seen, and hold it in `SessionRow` too: the paged sidebar draws the list's own rows, not the store's. The mock hub always takes the socket's `seen` and pushes back at once, so a plain mock run does not show this; rewrite or drop frames with `page.routeWebSocket` to check it.
 - **Do not compare the page's own `seen_at` with the hub's**: "Mark all as seen" writes a local `seen_at` into its copy, which would read as "recorded" and drop the mark before the hub ever had it. Remember the value written and ignore it.

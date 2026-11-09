@@ -248,9 +248,9 @@ func (h *Hub) waitClientOp(w http.ResponseWriter, r *http.Request, op *db.Client
 			writeClientOpResult(w, result)
 			return
 		case "unknown":
-			// Start and reply retries must not repeat side effects or replace a recorded HTTP outcome.
+			// Start, checkout and reply retries must not repeat side effects or replace a recorded HTTP outcome.
 			// A recovered pending operation has no result and remains explicitly unknown.
-			if op.Kind == "start" || op.Kind == "assistant_start" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "inbox_handoff" || op.Kind == "lark_thread_reply" {
+			if op.Kind == "start" || op.Kind == "assistant_start" || op.Kind == "worktree_create" || op.Kind == "lark_send" || op.Kind == "inbox_reply" || op.Kind == "inbox_handoff" || op.Kind == "lark_thread_reply" {
 				var result clientOpResult
 				if json.Unmarshal(op.Result, &result) == nil && result.Status >= 200 && result.Status <= 599 {
 					writeClientOpResult(w, result)

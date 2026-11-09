@@ -225,7 +225,7 @@ func (c *Client) messages(ctx context.Context, hc *http.Client, key string, r Re
 		}
 	}
 	if out.StopReason == "refusal" { // declined, usually with no text at all: not a reply that lacks its JSON
-		return Reply{Model: out.Model, Usage: out.Usage}, true, ErrRefused
+		return Reply{Model: out.Model, Usage: out.Usage}, true, &RefusalError{StopReason: out.StopReason}
 	}
 	return Reply{Text: b.String(), Truncated: out.StopReason == "max_tokens", Model: out.Model, Usage: out.Usage}, true, nil
 }
@@ -260,6 +260,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 		return reply, false, newHTTPError(resp, raw)
 	}
 	var b strings.Builder
+	refused := false // a refusal content part came: the model declined, whatever else the stream says
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -268,14 +269,21 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 			continue
 		}
 		var ev struct {
-			Type     string `json:"type"`
-			Delta    string `json:"delta"`
-			Message  string `json:"message"`
+			Type    string `json:"type"`
+			Delta   string `json:"delta"`
+			Message string `json:"message"`
+			// Part is the content part of response.content_part.added/done: type output_text or refusal.
+			Part struct {
+				Type string `json:"type"`
+			} `json:"part"`
 			Response struct {
 				Model string `json:"model"`
 				Error *struct {
 					Message string `json:"message"`
 				} `json:"error"`
+				IncompleteDetails *struct {
+					Reason string `json:"reason"`
+				} `json:"incomplete_details"`
 				Usage *struct {
 					InputTokens        int `json:"input_tokens"`
 					OutputTokens       int `json:"output_tokens"`
@@ -288,17 +296,47 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 		if json.Unmarshal([]byte(strings.TrimSpace(data)), &ev) != nil {
 			continue
 		}
+		finished := func() Reply {
+			r := Reply{Text: b.String(), Model: ev.Response.Model}
+			if u := ev.Response.Usage; u != nil { // input_tokens counts the cached ones too
+				r.Usage = Usage{InputTokens: u.InputTokens - u.InputTokensDetails.CachedTokens, OutputTokens: u.OutputTokens,
+					CacheReadInputTokens: u.InputTokensDetails.CachedTokens}
+			}
+			return r
+		}
 		switch ev.Type {
 		case "response.output_text.delta":
 			b.WriteString(ev.Delta)
+		case "response.refusal.delta", "response.refusal.done":
+			refused = true
+		case "response.content_part.added", "response.content_part.done":
+			if ev.Part.Type == "refusal" {
+				refused = true
+			}
 		case "response.completed":
-			reply = Reply{Text: b.String(), Model: ev.Response.Model}
-			if u := ev.Response.Usage; u != nil { // input_tokens counts the cached ones too
-				reply.Usage = Usage{InputTokens: u.InputTokens - u.InputTokensDetails.CachedTokens, OutputTokens: u.OutputTokens,
-					CacheReadInputTokens: u.InputTokensDetails.CachedTokens}
+			reply = finished()
+			if refused { // a refusal part, whatever text came with it: the same as the Messages API's stop_reason
+				return Reply{Model: reply.Model, Usage: reply.Usage}, true, &RefusalError{StopReason: "refusal"}
 			}
 			return reply, true, nil
-		case "response.failed", "response.incomplete", "error":
+		case "response.incomplete":
+			reason := ""
+			if d := ev.Response.IncompleteDetails; d != nil {
+				reason = d.Reason
+			}
+			if reason == "content_filter" || refused { // stopped by a filter: declined, not a failure to retry
+				if reason != "content_filter" {
+					reason = "refusal"
+				}
+				reply = finished()
+				return Reply{Model: reply.Model, Usage: reply.Usage}, true, &RefusalError{StopReason: reason}
+			}
+			msg := ev.Message
+			if ev.Response.Error != nil {
+				msg = ev.Response.Error.Message
+			}
+			return reply, true, fmt.Errorf("ai: %s: %s", ev.Type, msg)
+		case "response.failed", "error":
 			msg := ev.Message
 			if ev.Response.Error != nil {
 				msg = ev.Response.Error.Message
@@ -349,6 +387,17 @@ var ErrTruncated = errors.New("ai: reply cut off at max_tokens")
 // ErrRefused: the model declined the request (the Messages API's stop_reason "refusal", e.g. a safety classifier).
 // The same input is declined again, so sending it as is once more only spends a call.
 var ErrRefused = errors.New("ai: the model declined to answer")
+
+// RefusalError is ErrRefused with what the upstream said: StopReason is "refusal" (the Messages API's stop_reason, a
+// Responses API refusal part or a Chat Completions refusal delta) or "content_filter" (an incomplete response's reason
+// or a Chat Completions finish_reason). errors.Is(err, ErrRefused) holds for it; the Reply returned with it still has
+// the call's Model and Usage.
+type RefusalError struct {
+	StopReason string
+}
+
+func (e *RefusalError) Error() string { return ErrRefused.Error() }
+func (e *RefusalError) Unwrap() error { return ErrRefused }
 
 // FirstObject extracts the first balanced {...} from model output (tolerating fences and chatter).
 func FirstObject(s string) (string, error) {

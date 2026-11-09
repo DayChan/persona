@@ -13,6 +13,7 @@ import Observation
         var revision: UInt64
         var partitions: [Partition]
         var settings: AgentListProjection.Settings
+        var workspaceRevision: UInt64 = 0
     }
 
     static func partitions(_ model: AppModel) -> [Partition] {
@@ -54,7 +55,8 @@ import Observation
             value = next
             if readyKey == key { return next }
         }
-        if value == nil || immediate || publishedKey?.partitions != key.partitions || publishedKey?.settings != key.settings {
+        if value == nil || immediate || publishedKey?.partitions != key.partitions || publishedKey?.settings != key.settings ||
+            publishedKey?.workspaceRevision != key.workspaceRevision {
             invalidate()
             let next = AgentListProjection.build(input())
             publishedKey = key

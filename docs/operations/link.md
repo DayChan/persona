@@ -342,6 +342,9 @@ Errors are JSON: `{"error":"<code>","message":"<human-readable Chinese>"}`.
   - The hub stores only the hash.
   - Can open only `/api/v1/link` and `/api/v1/link/stream`; every other endpoint returns 403.
   - Visible and revocable in App **Settings › Devices**; revocation immediately disconnects the link (4002).
+  - Deleting the computer in the admin console revokes them too, and adding a computer from the admin console, an app or
+    `personad hub pair --add` first revokes any left under its id, so an earlier computer of that id does not come back as
+    the new one.
 - Both kinds of pairing code can be exchanged for it:
   - `personad hub pair --machine <id>`: a code specifically for this computer (`pair_tokens.machine_id`). The link is `persona://link?…&machine=<id>`,
     exchangeable only for this computer's link credentials and nothing else. Stdout contains only the link, explanations go to stderr for easy piping.

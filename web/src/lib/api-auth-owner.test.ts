@@ -31,7 +31,8 @@ it.each([
   const init = mode.startsWith("ordinary") ? {} : mode === "probe" ? { token } : {
     token: mode === "different-token" ? "synthetic-probe-token" : token, tokenOwner,
   };
-  const result = api("/machines", init).catch((error: Error) => error);
+  const metadata = vi.fn();
+  const result = api("/machines", { ...init, onResponse: metadata }).catch((error: Error) => error);
   if (mode.includes("retired-generation")) {
     setToken("synthetic-other-token");
     setToken(token);
@@ -39,6 +40,7 @@ it.each([
   respond(new Response(JSON.stringify({ error: "invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }));
   expect((await result as Error).message).toBe("invalid token");
   expect(unauthorized).toHaveBeenCalledTimes(expected);
+  expect(metadata).not.toHaveBeenCalled();
 });
 
 it("adapts React subscriptions to the shared credential publication without duplicate notifications", () => {
@@ -62,4 +64,15 @@ it("adapts React subscriptions to the shared credential publication without dupl
   setToken("synthetic-next-token");
   expect(consumer).toHaveBeenCalledTimes(2);
   expect(react).toHaveBeenCalledTimes(2);
+});
+
+
+it("exposes successful response metadata through the authenticated API without forwarding its callback", async () => {
+  const metadata = vi.fn();
+  const result = api("/machines", { onResponse: metadata });
+  respond(new Response(JSON.stringify({ machines: [] }), { headers: { "X-Persona-Computer-Apps-Owner": "example-manager" } }));
+  expect(await result).toEqual({ machines: [] });
+  expect(metadata).toHaveBeenCalledOnce();
+  expect(metadata.mock.calls[0]![0].get("X-Persona-Computer-Apps-Owner")).toBe("example-manager");
+  expect(vi.mocked(fetch).mock.calls[0]![1]).not.toHaveProperty("onResponse");
 });

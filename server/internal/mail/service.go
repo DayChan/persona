@@ -51,7 +51,7 @@ type Service struct {
 
 	// now is swappable in tests.
 	now func() time.Time
-	// imapDial and smtpDial are swappable in tests; nil means the real network.
+	// imapDial and sendMail are swappable in tests; nil means the real network.
 	imapDial func(a *MailAccount) (*imapclient.Client, error)
 	// googleClientID is the iOS OAuth client used for "Sign in with Google" (hub.json google.client_id).
 	googleClientID string

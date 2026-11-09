@@ -45,8 +45,14 @@ type machineTrustStore interface {
 	SetMachinePending(ctx context.Context, id, actor string) error
 	ConfirmMachine(ctx context.Context, id string) (bool, error)
 	ForgetMachineTrust(ctx context.Context, id string) error
-	RevokeMachineCredentials(ctx context.Context, machine string) ([]string, error)
+	credentialRevoker
 	AddMachineAudit(ctx context.Context, machine, action, actor string, detail json.RawMessage) error
+}
+
+// credentialRevoker revokes a computer's Persona Link (db.DB has it): its credentials, and its pairing codes not used
+// yet. The ids of the credentials revoked.
+type credentialRevoker interface {
+	RevokeMachineCredentials(ctx context.Context, machine string) ([]string, error)
 }
 
 // machineTrust is the pending computers as the database has them, kept in memory: the machine list asks often.
@@ -250,18 +256,15 @@ func (h *Hub) rejectMachine(ctx context.Context, id, actor, action string) error
 		h.clearKept(ctx, id) // an old record of a manager that kept it (machines_kept.go)
 		h.removeMachineLive(id)
 	}
-	revoked, err := ts.RevokeMachineCredentials(ctx, id)
+	revoked, err := h.revokeComputer(ctx, id)
 	if err != nil {
 		return err
-	}
-	for _, cred := range revoked {
-		h.revoked(cred) // its open link goes too
 	}
 	if err := ts.ForgetMachineTrust(ctx, id); err != nil {
 		return err
 	}
 	h.setPendingLocal(id, time.Time{}, false)
-	detail, _ := json.Marshal(map[string]any{"credentials_revoked": len(revoked)})
+	detail, _ := json.Marshal(map[string]any{"credentials_revoked": revoked})
 	h.machineAudit(ctx, id, action, actor, detail)
 	h.logf("[%s] %s by %s: removed", id, action, actor)
 	h.broadcastMachines()

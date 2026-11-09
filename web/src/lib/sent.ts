@@ -4,6 +4,7 @@
 //
 // The pure parts (the wire shapes, where a send went, how it was let through, who asked, paging and refreshing the
 // list, the failures in plain words) are plain functions for the tests; the page is settings/SentSettings.tsx.
+import type { ChatRuleState } from "./sent-chat-rules";
 import { formatDate, t } from "../i18n";
 import { api, ApiError, errorText } from "./api";
 
@@ -53,6 +54,7 @@ export interface SentItem {
   let_through: SentLetThrough;
   message_ref?: string;
   recalled_at?: string;
+  chat_rule?: ChatRuleState;
 }
 
 /** A page of rows; `next` is the `before` of the page after it, null on the last. */
@@ -99,6 +101,10 @@ function row(raw: unknown): SentItem | null {
     let_through: object(r.let_through) as SentLetThrough,
     message_ref: str(r.message_ref) || undefined,
     recalled_at: str(r.recalled_at) || undefined,
+    chat_rule: r.chat_rule && typeof r.chat_rule === "object" && !Array.isArray(r.chat_rule) ? {
+      can: object(r.chat_rule).can === true, exists: object(r.chat_rule).exists === true,
+      id: str(object(r.chat_rule).id) || undefined, reason: str(object(r.chat_rule).reason) || undefined,
+    } : undefined,
   };
 }
 
@@ -108,8 +114,8 @@ export function sentPage(raw: unknown): SentPage {
   return { items, next: typeof r.next === "number" ? r.next : null };
 }
 
-export async function listSent(o: { before?: number | null; limit?: number; connector?: string | null } = {}): Promise<SentPage> {
-  return sentPage(await api<unknown>(sentPath(o)));
+export async function listSent(o: { before?: number | null; limit?: number; connector?: string | null; signal?: AbortSignal } = {}): Promise<SentPage> {
+  return sentPage(await api<unknown>(sentPath(o), { signal: o.signal }));
 }
 
 // ── failures ─────────────────────────────────────────────

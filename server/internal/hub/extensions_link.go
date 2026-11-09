@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -321,6 +322,10 @@ func (h *Hub) relayToManager(w http.ResponseWriter, r *http.Request, admin bool)
 // hub's headers (any the client sent are dropped); the hub's credentials stay with the hub. While the manager is
 // away: 503 assistant_offline, or the last answer of a kept GET.
 func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id string) {
+	guardedApps, guardedRevoke, ok := computerAppsPrecondition(w, r, id)
+	if !ok {
+		return
+	}
 	keep := r.Method == http.MethodGet && slices.Contains(extwire.KeptRoutes, r.URL.Path)
 	key := r.URL.Path + "?" + r.URL.RawQuery
 	if id != devicesOwner {
@@ -371,6 +376,13 @@ func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id str
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", "manager"
 			pr.Out.Host = "manager"
+			if guardedRevoke {
+				// A legacy manager receives its existing endpoint only after this hub enforced the owner.
+				segments := strings.SplitN(pr.Out.URL.EscapedPath(), "/", 8)
+				segments[7] = strings.TrimPrefix(segments[7], "revoke/")
+				pr.Out.URL.RawPath = strings.Join(segments, "/")
+				pr.Out.URL.Path, _ = url.PathUnescape(pr.Out.URL.RawPath)
+			}
 			for k := range pr.Out.Header {
 				if strings.HasPrefix(strings.ToLower(k), "x-persona-") {
 					pr.Out.Header.Del(k)
@@ -386,6 +398,15 @@ func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id str
 				pr.Out.URL.RawQuery = q.Encode()
 			}
 			pr.Out.Header["X-Forwarded-For"] = nil
+		},
+		ModifyResponse: func(res *http.Response) error {
+			if apps, _ := computerAppsRoute(r); apps {
+				res.Header.Del(computerAppsOwnerHeader)
+				if guardedApps && res.StatusCode >= 200 && res.StatusCode < 300 {
+					res.Header.Set(computerAppsOwnerHeader, id)
+				}
+			}
+			return nil
 		},
 		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return h.dialManager(ctx, id)

@@ -13,6 +13,8 @@
   "total": "合计",
   "by_kind": "分类",
   "old_node": "这台电脑的 node 还不记录启动器，更新后才能按启动器筛选。",
+  "retry": "重试",
+  "stale_report": "显示的是这些筛选条件下上次成功获取的报告，数据可能已过时。",
   "old_hub": "部署新版本的 hub 后，这里会显示这台电脑的 token 用量。",
   "throughput": "吞吐",
   "per_minute": "每分钟",

@@ -189,7 +189,7 @@ func (h *Hub) KBOwner(ctx context.Context) (wire.KBOwner, error) {
 // ModelComplete asks a model for one answer (permission models): it runs on the extension's own purpose in Settings ›
 // Model configuration, which the user chooses; no key and no budget. With JSONSchema the result's JSON has the answer
 // decoded. Errors carry wire.ModelErrorCode* or permission_denied; model_paused (wire.ModelPause) is worth trying
-// again after its until.
+// again after its until, model_refused (wire.ModelRefusal) is not: the same input is declined again.
 func (h *Hub) ModelComplete(ctx context.Context, p wire.ModelCompleteParams) (wire.ModelCompleteResult, error) {
 	return callHub[wire.ModelCompleteResult](ctx, h, "model.complete", p)
 }

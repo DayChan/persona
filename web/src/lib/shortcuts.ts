@@ -435,7 +435,6 @@ function commit(next: ShortcutPrefs, save = true) {
 export const getBindings = (): Bindings => snapshot;
 /** The chords as set, whether on or off: what the settings show and check conflicts against. */
 export const getConfigured = (): Bindings => configured;
-export const getOverrides = (): Overrides => prefs.overrides;
 export const getShortcutPrefs = (): ShortcutPrefs => prefs;
 
 /** Binds a command to a chord (the caller has checked it), or clears it with ""; the default chord drops the override. */

@@ -11,7 +11,7 @@ type Call = { path: string; resolve: (v: unknown) => void; reject: (e: unknown) 
 const calls: Call[] = [];
 vi.mock("../../lib/api", async (orig) => ({
   ...(await orig<typeof import("../../lib/api")>()),
-  api: (path: string) => new Promise((resolve, reject) => calls.push({ path, resolve, reject })),
+  api: (path: string) => path === "/connectors/sent/chat-rules" ? Promise.resolve({ rules: [], most: 500 }) : new Promise((resolve, reject) => calls.push({ path, resolve, reject })),
 }));
 const copied: string[] = [];
 vi.mock("../../ui/atoms", async (orig) => ({
@@ -79,7 +79,7 @@ async function loaded(items: unknown[], next: number | null = null) {
 }
 
 describe("设置 › 以你的名义发出", () => {
-  it("asks for the first page with no query, and for nothing else (the filter needs no list of connectors)", async () => {
+  it("asks for the first page with no query, without a connector inventory (rules load independently)", async () => {
     await render();
     expect(calls.map((c) => c.path)).toEqual(["/connectors/sent"]);
     expect(text()).toContain("加载中");

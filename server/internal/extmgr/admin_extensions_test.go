@@ -23,7 +23,7 @@ func adminExtensionHub(t *testing.T) (*Manager, *extensionStore, *b1Admin) {
 	return h, ps, b1SignedIn(t, h)
 }
 
-// pluginIn is the plugin id in GET /api/v1/admin/plugins's answer (built-in ones are there too), nil when absent.
+// extensionIn is the plugin id in GET /api/v1/admin/plugins's answer (built-in ones are there too), nil when absent.
 func extensionIn(list map[string]any, id string) map[string]any {
 	ps, _ := list["plugins"].([]any)
 	for _, p := range ps {
@@ -221,7 +221,7 @@ func TestAdminExtensionsUpload(t *testing.T) {
 	}
 }
 
-// Previews stage up to 200 MB each: at most pluginPreviewsPer in the window, failed ones counted too.
+// Previews stage up to 200 MB each: at most extensionPreviewsPer in the window, failed ones counted too.
 func TestAdminExtensionPreviewsAreLimited(t *testing.T) {
 	h, _, c := adminExtensionHub(t)
 	now := time.Now()
