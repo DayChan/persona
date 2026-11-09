@@ -2,6 +2,12 @@
 
 Pitfalls, unusual behavior, and the decisions made at the time (formerly in `CLAUDE.md`, “Lessons”; see `docs/lessons/README.md` for the index). Add new lessons to the relevant section, or create one if none fits.
 
+- A profile-free ad-hoc Mac test app still has its sandbox (#2092). `macSnapshot` can exit normally but report failure
+  when its output points to an external temporary directory. Keep the sandbox, render into that synthetic app's own
+  container temporary directory, then copy the PNG out. Inspect both appearances: an opened audit input under glass
+  was unreadable in the dark offscreen capture; a standard message-box background and explicit primary text restored
+  its legibility without changing the normal chat or removing sandbox protections.
+
 - Separate test execution results from merge policy (2026-11-08, #1124). After preparing profile-free snapshot entitlements, real local Mac tests returned xcodebuild exit zero, but strict xcresult inspection found 437 Passed cases and one Skipped old-hub opt-in case. That is not a green Mac lane. By maintainer decision, Mac temporarily does not block merging: run it independently in parallel with the required iOS/Watch/HTML lane, preserve its red/green result and strict guard, and exclude only the Mac job from the aggregator's dependency graph. Do not use `continue-on-error`, change rulesets or claim skipped integrations passed. Cache and further parallelization work belongs to #1214.
 
 - Native page readiness does not mean remote images have decoded, and top/bottom pairs can omit the middle of a long list (2026-11-08, #1149). The first five-style native matrix captured some thumbnail placeholders after its fixed 600 ms settle. Capture mode now observes completion of the actual renderer's image task (no substitute prefetch or injected image), waits at most 30 seconds for the snapshot's HTTPS avatar/thumbnail URLs, and records the decoded URLs. Only the shared fixture's reserved `.invalid` failure image is excluded. For previously omitted overview/home/list content, capture overlapping 75%-viewport tiles through the actual scroll end, bounded to 64 advances. The manifest validator rejects missing images, scroll gaps and incomplete final positions. Preserve original incomplete images; recapture only the affected groups and actually inspect the supplements before calling visual comparison passed.

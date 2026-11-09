@@ -18,7 +18,7 @@ import (
 // manager connected the computers itself; it moved here as it was (fleet_*.go):
 //
 //   - the interactions (approval / question / plan / screen / Codex cards): made from the nodes' interaction.create
-//     and what their sessions show, kept, waited for, answered, expired (fleet_ix.go);
+//     and what their sessions show, kept, waited for, answered, expired (fleet_ix*.go);
 //   - each Agent's state as the apps get it — the unified state, "Needs you", "Unread" / "Seen", the work and todos it shows —
 //     and the session lists (this file, fleet_sessions.go, fleet_seen.go);
 //   - the pushes and the Live Activity's content: when a finished turn is worth a push, a card's push, what the
@@ -40,16 +40,16 @@ type fleetBook struct {
 	// reportSent: assistant conversation -> when a scheduled run or a task notice was sent into it (noteReportTurn):
 	// the turn it starts is pushed however short it is.
 	reportSent map[string]time.Time
-	// codexAnnounced: Codex card id -> when it was announced (fleet_ix.go)
+	// codexAnnounced: Codex card id -> when it was announced (fleet_ix_codex.go)
 	codexAnnounced map[string]time.Time
-	// codexEnded: Codex card id -> when the node stopped listing it (fleet_ix.go)
+	// codexEnded: Codex card id -> when the node stopped listing it (fleet_ix_codex.go)
 	codexEnded map[string]time.Time
-	// screenAnswered: screen card id -> when it was answered (fleet_ix.go screenJustAnsweredLocked)
+	// screenAnswered: screen card id -> when it was answered (fleet_ix_screen.go screenJustAnsweredLocked)
 	screenAnswered map[string]answeredScreen
-	// screenDetached: screen card id -> the card its node's connection ended while it was open (fleet_ix.go
+	// screenDetached: screen card id -> the card its node's connection ended while it was open (fleet_ix_screen.go
 	// screenBackLocked): read again off the same dialog once the node is back, it is that card, not a new question.
 	screenDetached map[string]screenGone
-	// screenHandedBack: screen card id -> the card handed back to the computer (fleet_ix.go screenHandedBackLocked):
+	// screenHandedBack: screen card id -> the card handed back to the computer (fleet_ix_screen.go screenHandedBackLocked):
 	// the same dialog still on screen gets no new card until the agent moves on (#4867).
 	screenHandedBack map[string]screenGone
 	// upgradeEvery / upgradeFor override screenUpgradeEvery / screenUpgradeFor (0: those; upgradeScreenCard). Tests

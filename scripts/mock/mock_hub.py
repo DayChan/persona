@@ -3231,6 +3231,30 @@ if MOCK_TASKS:
         _base = min(x["seq"] for x in ITEMS[ASK1])
         for _i, _x in enumerate(ITEMS[ASK1]):
             _x["seq"] = _base + _i
+    # MOCK_SUPERVISION=1: native quiet-round coverage, with synthetic audit and visible promotion receipts only.
+    if os.environ.get("MOCK_SUPERVISION") == "1":
+        TASK_FEED[ASK1] = []
+        _quiet = "检查示例任务的进展，不需要用户处理。"
+        _visible = "示例任务需要用户选择发布窗口。"
+        ITEMS[ASK1] = [
+            it("user", "text", 5, text="帮我检查示例任务的进展。", client_msg_id="mock-supervision-user-1"),
+            it("assistant", "text", 4.9, text="我会跟进，有需要你决定的事情再告诉你。"),
+            it("user", "text", 4.8, text=_quiet, injected={"kind": "system", "state": "supervise", "level": "triage", "line": "督办：检查示例任务"}),
+            it("assistant", "tool_use", 4.7, tool_use_id="mock-supervision-read", tool_name="Bash", tool_input={"command": "printf 'synthetic checks passed'", "description": "Inspect synthetic task checks"}),
+            it("user", "tool_result", 4.6, tool_use_id="mock-supervision-read", text="synthetic checks passed"),
+            it("assistant", "text", 4.5, text="示例任务的测试通过，无需你处理。"),
+            it("assistant", "tool_use", 4.4, tool_use_id="mock-supervision-finish", tool_name="mcp__persona__supervision_finish", tool_input={"visibility": "silent", "summary": "Synthetic checks passed"}),
+            it("user", "tool_result", 4.3, tool_use_id="mock-supervision-finish", text='{"visibility":"silent"}'),
+            it("assistant", "recap", 4.2, text="示例督办上下文已保存。"),
+            it("assistant", "text", 4.1, text="后台核对也完成了，继续静默跟进。"),
+            it("user", "text", 3, text="下一条真实输入仍在督办记录之外。", client_msg_id="mock-supervision-user-2", queued=True),
+            it("assistant", "text", 2.9, text="是的，这条消息正常显示。"),
+            it("user", "text", 2.8, text=_visible, injected={"kind": "system", "state": "supervise", "level": "user", "line": "督办：需要你决定"}),
+            it("assistant", "text", 2.7, text="需要你决定：示例任务今天发布，还是明天发布？"),
+        ]
+        ITEMS[ASK1].sort(key=lambda x: x["ts"])
+        for _i, _x in enumerate(ITEMS[ASK1]):
+            _x["seq"] = _i + 1
     # MOCK_RELAYED=1: a message another Persona conversation sent with conversation_send (prompts/assistant/relay.md),
     # then one you typed: only yours is the pale blue bubble (#2643).
     if os.environ.get("MOCK_RELAYED") == "1":
@@ -13155,6 +13179,22 @@ def model_configuration(include_uses=False):
     return catalog
 
 
+# The model profiles (GET /api/v1/model-profiles, docs/assistant/model-profiles.md) with the Agent presets of #2225: performance
+# in use, as the templates are when first made.
+MOCK_PRESETS = {"quick": {"launcher": "sonnetcc", "description": "Small, quick fixes"},
+                "review": {"launcher": "claude", "model": "opus", "effort": "high", "description": "Code review and design"}}
+
+
+def model_defaults_profiles(h, p):
+    """GET /api/v1/model-profiles under MOCK_MODEL_DEFAULTS. False otherwise."""
+    if not MODEL_DEFAULTS or p != "/api/v1/model-profiles":
+        return False
+    h.send_json({"revision": 1, "active": "performance", "events": [], "profiles": [
+        {"id": "performance", "name": "Performance", "active": True, "changes": [], "tiers": MOCK_PRESETS},
+        {"id": "economy", "name": "Economy", "changes": ["agent.new"], "tiers": {"quick": MOCK_PRESETS["quick"]}}]})
+    return True
+
+
 def model_defaults_launchers(h, p, q):
     """GET /api/v1/machines/{mid}/launchers with the purpose's "Default: …" (hub launcherDefault). False otherwise."""
     if not MODEL_DEFAULTS or not (p.startswith("/api/v1/machines/") and p.endswith("/launchers")):
@@ -13167,8 +13207,13 @@ def model_defaults_launchers(h, p, q):
         default = {"provider": b.get("provider", "").removeprefix("launcher."), "model": b.get("model", ""), "effort": b.get("effort", "")}
         if purpose.get("runtimes"):
             default["runtime"] = b.get("runtime") or "cli"
-    h.send_json({"launchers": launcher_health_list([{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
-                                                    {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}]), "default": default})
+    out = {"launchers": launcher_health_list([{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
+                                              {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}]), "default": default}
+    if pid == "agent.new":
+        # "New agent"'s presets (#2225): the tiers of the profile in use whose launcher this machine starts
+        out["tiers"] = [{"name": name, **tier} for name, tier in sorted(MOCK_PRESETS.items())]
+        out["tiers_profile"] = {"id": "performance", "name": "Performance"}
+    h.send_json(out)
     return True
 
 
@@ -13418,6 +13463,7 @@ class H(BaseHTTPRequestHandler):
         if plugins_route(self, p, None): return
         if voice_route(self, p, q): return
         if model_defaults_launchers(self, p, q): return  # area: model defaults
+        if model_defaults_profiles(self, p): return  # area: model defaults
         if pins_route(self, p): return
         if chat_pins_route(self, p, parse_qs(urlparse(self.path).query)): return
         if history_route(self, p, parse_qs(urlparse(self.path).query)): return

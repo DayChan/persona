@@ -106,6 +106,9 @@ func (s *Service) modelProfilesView(ctx context.Context) (ModelProfilesView, err
 	if err != nil {
 		return ModelProfilesView{}, err
 	}
+	if seeded {
+		state.seed()
+	}
 	stored, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return ModelProfilesView{}, err
@@ -139,7 +142,7 @@ func (s *Service) modelProfilesView(ctx context.Context) (ModelProfilesView, err
 		v.Events = append(v.Events, state.Events[i])
 	}
 	if seeded {
-		if err := s.putModelProfileSettings(ctx, map[string]any{modelProfilesKey: ps}); err != nil {
+		if err := s.putModelProfileSettings(ctx, map[string]any{modelProfilesKey: ps, modelProfileStateKey: state}); err != nil {
 			return ModelProfilesView{}, err
 		}
 	}

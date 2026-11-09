@@ -38,6 +38,8 @@ func listKeySized(list []proto.Session, size int) string {
 		w.quote(s.RootSessionID, '/')
 		w.str(strconv.FormatBool(s.IsSubagent), '/')
 		w.quote(s.RepoRoot, '/')
+		w.quote(s.Worktree, '/')
+		w.quote(s.Branch, '/')
 		w.quote(s.SpaceID, '/')
 		w.quote(s.SpaceKind, '\n')
 		writeUltracodeKey(&w, s)

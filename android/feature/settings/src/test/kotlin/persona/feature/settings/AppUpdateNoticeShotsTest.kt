@@ -123,14 +123,42 @@ class AppUpdateNoticeShotsTest {
         capture("available")
         val download = CompletableDeferred<Unit>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) {
-            controller.install { download.await(); throw IOException("connection lost") }
+            controller.install { download.await(); throw AppUpdateFailure(UpdateStage.Download, IOException("connection lost")) }
         }
         capture("downloading")
         download.complete(Unit)
         job.join()
         capture("failed")
-        rule.onNodeWithText(rule.activity.getString(R.string.settings_update_failed)).assertExists()
+        rule.onNodeWithText(rule.activity.getString(R.string.settings_update_download_failed)).assertExists()
+        for (stage in listOf(UpdateStage.Metadata, UpdateStage.Verification, UpdateStage.Install)) {
+            controller.install { throw AppUpdateFailure(stage, IOException("fixture")) }
+            capture(stage.name.lowercase())
+            rule.onNodeWithText(rule.activity.getString(stage.message)).assertExists()
+        }
         rule.onNodeWithContentDescription(rule.activity.getString(R.string.settings_update_later)).performClick()
         rule.runOnIdle { check(!controller.state.value.notice) }
     }
+    @Test fun returningFromInstallPermissionContinuesOnlyAfterGrant() {
+        var checks = 0
+        val update = AppUpdate(2_000_000_000, "test", "/apk", "a".repeat(64))
+        val controller = AppUpdateState(object : AppUpdates {
+            override suspend fun check(): AppUpdate { checks++; return update }
+        }, 1, initialLatest = update)
+        val pm = org.robolectric.Shadows.shadowOf(rule.activity.packageManager)
+        pm.setCanRequestPackageInstalls(false)
+        rule.setContent { PersonaTheme { AppUpdateInstallButton(controller) } }
+        val install = rule.activity.getString(R.string.settings_update_install)
+        rule.onNodeWithText(install).performClick()
+        val first = org.robolectric.Shadows.shadowOf(rule.activity).nextStartedActivityForResult
+        org.junit.Assert.assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, first.intent.action)
+        rule.runOnIdle { rule.activity.activityResultRegistry.dispatchResult(first.requestCode, android.app.Activity.RESULT_CANCELED, null) }
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals(0, checks)
+        rule.onNodeWithText(install).performClick()
+        val second = org.robolectric.Shadows.shadowOf(rule.activity).nextStartedActivityForResult
+        pm.setCanRequestPackageInstalls(true)
+        rule.runOnIdle { rule.activity.activityResultRegistry.dispatchResult(second.requestCode, android.app.Activity.RESULT_OK, null) }
+        rule.waitUntil(10_000) { checks == 1 }
+    }
+
 }

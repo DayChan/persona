@@ -32,16 +32,45 @@ struct PersonaLinkApp: App {
         }
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
+        // The Web Address window is AppKit's (WebAddressWindow): a clicked notification opens it too, from no view.
     }
 }
 
-/// The menu bar icon: a template symbol, so it reads on light and dark menu bars alike.
+/// The menu bar icon: a template symbol, so it reads on light and dark menu bars alike; while sessions need you, with
+/// their count beside it.
 struct MenuBarIcon: View {
     let model: LinkModel
 
     var body: some View {
-        Image(systemName: model.look.symbol)
-            .accessibilityLabel("Persona Link")
+        let needs = model.status?.attention?.needsYou ?? 0
+        if let count = LinkAttention.countText(needs) {
+            Image(nsImage: Self.counted(model.look.symbol, count: count))
+                .renderingMode(.template)
+                .accessibilityLabel(linkText("Persona Link · Needs You: \(needs)"))
+        } else {
+            Image(systemName: model.look.symbol)
+                .accessibilityLabel("Persona Link")
+        }
+    }
+
+    /// The symbol and the count drawn into one template image, in the menu bar's font (a menu bar label shows an image
+    /// or a text, not both); drawn when shown, so it is sharp at any display's scale.
+    static func counted(_ symbol: String, count: String) -> NSImage {
+        let size = NSFont.menuBarFont(ofSize: 0).pointSize
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+        let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) ?? NSImage()
+        let text = NSAttributedString(string: count, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size - 1, weight: .semibold), .foregroundColor: NSColor.black,
+        ])
+        let gap: CGFloat = 3
+        let box = NSSize(width: ceil(icon.size.width + gap + text.size().width), height: ceil(max(icon.size.height, text.size().height)))
+        let image = NSImage(size: box, flipped: false) { _ in
+            icon.draw(in: NSRect(x: 0, y: (box.height - icon.size.height) / 2, width: icon.size.width, height: icon.size.height))
+            text.draw(at: NSPoint(x: icon.size.width + gap, y: (box.height - text.size().height) / 2))
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
 
@@ -53,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { Snapshots.render(to: URL(fileURLWithPath: args[i + 1])) }
             exit(0)
         }
-        MainActor.assumeIsolated { LinkModel.shared.start() }
+        MainActor.assumeIsolated { LinkModel.shared.start() } // also LinkNotifier's delegate, before a click can arrive
     }
 
     func applicationWillTerminate(_ notification: Notification) {

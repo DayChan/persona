@@ -171,10 +171,10 @@ function AssistantSettingsForManager({ manager, owner, bare }: { manager: string
       </Group>
 
       <Group title={t("settings-nav.tab_model_config")}>
-        <a href={BASE + settingsHref("model-config", "agent.new", false, manager)} className="flex items-center justify-between px-4 py-3 text-[13px] text-ink hover:bg-hover">
+        <a href={BASE + settingsHref("models", "agent.new", false, manager, "model-config")} className="flex items-center justify-between px-4 py-3 text-[13px] text-ink hover:bg-hover">
           <span>{t("settings-assistantsettings.task_models")}</span><Icon name="chevronRight" size={12} className="text-ink-3" />
         </a>
-        <a href={BASE + settingsHref("model-config", "assistant", false, manager)} className="flex items-center justify-between px-4 py-3 text-[13px] text-ink hover:bg-hover">
+        <a href={BASE + settingsHref("models", "assistant", false, manager, "model-config")} className="flex items-center justify-between px-4 py-3 text-[13px] text-ink hover:bg-hover">
           <span>{t("settings-assistantsettings.main_chat_model")}</span><Icon name="chevronRight" size={12} className="text-ink-3" />
         </a>
       </Group>

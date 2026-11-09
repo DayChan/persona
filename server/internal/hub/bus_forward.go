@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -22,9 +23,10 @@ import (
 //	http.request {method, path, query, header, body} → {status, header, body}
 //	ws.broadcast {message}   (an event: message is a JSON object with a string "type": assistant_schedule…)
 //
-// header maps a name to its values; body is base64 (JSON []byte). X-Persona-Role carries the role of the device that
-// asked, as the hub's auth found it (any the app sent is replaced). forwardHTTP is the codec of the assistant's
-// Handler.ServeHTTP over the bus, relayBroadcast the hub's side of its Broadcast.
+// header maps a name to its values; body is base64 (JSON []byte); status 0 is 200, and one outside 200-599 reaches the
+// app as a 502. X-Persona-Role carries the role of the device that asked, as the hub's auth found it (any the app sent
+// is replaced). forwardHTTP is the codec of the assistant's Handler.ServeHTTP over the bus, relayBroadcast the hub's
+// side of its Broadcast.
 
 func init() { handleBusEvent(assistantwire.EventBroadcast, (*Hub).busBroadcast) }
 
@@ -106,13 +108,20 @@ func (h *Hub) relayHTTP(w http.ResponseWriter, r *http.Request, id string, send,
 		}
 		return
 	}
+	if res.Status == 0 {
+		res.Status = http.StatusOK
+	}
+	// A manager is third-party code: a status that is not a final HTTP status makes net/http panic (outside 100-999)
+	// or leaves the app's connection unusable (1xx). The app gets a 502, none of the manager's header or body.
+	if res.Status < http.StatusOK || res.Status > 599 {
+		h.logf("bus: [%s] http.request %s %s: answered HTTP status %d, the app gets 502", id, r.Method, r.URL.Path, res.Status)
+		writeErr(w, http.StatusBadGateway, fmt.Errorf("the manager answered HTTP status %d", res.Status))
+		return
+	}
 	for k, v := range res.Header {
 		if !hopHeaders[http.CanonicalHeaderKey(k)] {
 			w.Header()[http.CanonicalHeaderKey(k)] = v
 		}
-	}
-	if res.Status == 0 {
-		res.Status = http.StatusOK
 	}
 	if res.Status >= http.StatusBadRequest && strings.HasPrefix(r.URL.Path, "/api/v1/machines/") && strings.HasSuffix(r.URL.Path, "/deploy") {
 		res.Body = localizedDeploymentError(h.requestLang(r), res.Body)
@@ -149,17 +158,31 @@ const (
 	extensionOperationsFeature = "extension_operations"
 )
 
-// toWanting sends b to the apps that asked for feature (?features= or client_hello), outside the event log.
+// toWanting sends b to the apps that asked for feature (?features= or client_hello), outside the event log. An
+// extension operation is localized once per language, not once per app.
 func (h *Hub) toWanting(feature string, b []byte) {
+	forms := map[i18n.Lang][]byte{}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.clients {
 		if c.wants(feature) {
 			if feature == extensionOperationsFeature {
-				c.queue(i18n.ExtensionEvent(c.lang(), b))
+				c.queue(localizedOnce(forms, c.lang(), b, i18n.ExtensionEvent))
 			} else {
 				c.queue(b)
 			}
 		}
 	}
+}
+
+// localizedOnce is localize(l, b), built on the first call for l and reused from forms after: a broadcast's localized
+// form depends only on its language, so every app that reads that language is queued the same bytes (client.queue
+// does not change what it is given).
+func localizedOnce(forms map[i18n.Lang][]byte, l i18n.Lang, b []byte, localize func(i18n.Lang, []byte) []byte) []byte {
+	if form, ok := forms[l]; ok {
+		return form
+	}
+	form := localize(l, b)
+	forms[l] = form
+	return form
 }

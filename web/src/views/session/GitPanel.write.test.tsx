@@ -2,8 +2,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-vi.mock("../assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("../chat/SubagentPanel", () => ({ SubagentPanel: () => null }));
 vi.mock("../../lib/use-fs-live", () => ({ useFsLive: () => {} }));
 import type { GitStatus } from "../../lib/files";
 import { getQuotes, setQuotes } from "../../lib/drafts";

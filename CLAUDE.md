@@ -27,6 +27,7 @@ uses Persona. Registered app identities (bundle IDs, App Groups, keychain groups
 
 - **Every change goes issue → claim → branch → PR → merge after local verification passes** ("Development workflow" below). Code, docs and config alike;
   never commit or push to `main` directly.
+- **Old issue numbers**: `#N` in lines written up to 2026-11-07 (`git blame`) refers to the previous tracker; new text cites current numbers (`docs/operations/collaboration.md`, "Rules").
 - **TestFlight feedback**: issues from crash reports or testers' feedback get the `testflight` label (or a `[TestFlight]` title prefix),
   with a scrubbed body and a dedupe marker (`docs/operations/collaboration.md`, "TestFlight feedback").
 - **Write lessons down as you go**: pitfalls into `docs/lessons/<topic>.md` (index `docs/lessons/README.md`), design trade-offs into the

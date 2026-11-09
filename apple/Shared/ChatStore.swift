@@ -15,14 +15,16 @@ nonisolated struct ToolCall: Identifiable, Hashable, Sendable {
 }
 
 nonisolated extension ChatRow {
-    /// A message from the user, or a picture sent with one.
-    var isUserInput: Bool {
+    /// The item of a user input row, including image-only messages.
+    var userInput: Item? {
         switch self {
-        case .user: true
-        case .image(let i): i.role == "user" && i.toolUseID == nil
-        default: false
+        case .user(let i): i
+        case .image(let i) where i.role == "user" && i.toolUseID == nil: i
+        default: nil
         }
     }
+
+    var isUserInput: Bool { userInput != nil }
 }
 
 nonisolated enum ChatRow: Identifiable, Hashable, Sendable {
@@ -176,7 +178,7 @@ nonisolated struct Turn: Identifiable, Hashable, Sendable {
         guard let pick else { return }
         tail = all[(pick + 1)...].filter { !$0.isUserInput }
         ordered = Array(all[...pick]) + all[(pick + 1)...].filter(\.isUserInput)
-        process = ordered.filter { if case .user = $0 { false } else { true } }
+        process = ordered.filter { !$0.isUserInput }
     }
 }
 
@@ -282,17 +284,25 @@ nonisolated enum ChatBlock: Identifiable, Hashable, Sendable {
             current = nil
         }
 
-        var messageSeq: Int? // the last message's line: its pictures come after its text (`picturesAfterTheirText`)
+        var messageEntry: String?
+        // Persists across recap/continuation blocks until the next actual input, not merely until `close`.
+        var supervisionRound = false
         for row in rows {
-            switch row {
-            case .user(let item):
-                if item.queued == true, current != nil {
-                    current!.users.append(row) // queued input joins the turn it was sent during
+            if let item = row.userInput {
+                let sameMessage = current?.ordered.last?.isUserInput == true && item.entry == messageEntry
+                let supervision = Injected.of(item)?.isSupervision == true
+                if current != nil, sameMessage || (item.queued == true && !supervision && !supervisionRound) {
+                    current!.users.append(row)
                     current!.ordered.append(row)
                 } else {
                     close()
                     current = Turn(id: row.id, users: [row], ordered: [row])
                 }
+                if !sameMessage { supervisionRound = supervision }
+                messageEntry = item.entry
+                continue
+            }
+            switch row {
             case .recap:
                 close()
                 blocks.append(.row(row))
@@ -321,17 +331,11 @@ nonisolated enum ChatBlock: Identifiable, Hashable, Sendable {
                     current!.process.append(row)
                     current!.ordered.append(row)
                 }
-            case .image(let item) where item.role == "user" && item.toolUseID == nil && item.seq != messageSeq:
-                // A picture sent with no text (claude -p writes Persona such a message as image blocks alone): a
-                // message of its own, not the end of the exchange before it.
-                close()
-                current = Turn(id: row.id, ordered: [row])
             default:
                 if current == nil { current = Turn(id: row.id) }
                 current!.process.append(row)
                 current!.ordered.append(row)
             }
-            if case .user(let item) = row { messageSeq = item.seq }
         }
         close()
         return blocks
@@ -349,6 +353,11 @@ nonisolated struct ItemSpan: Sendable, Equatable {
 }
 
 nonisolated extension Item {
+    /// The transcript entry, shared by all of one input's text and image blocks.
+    var entry: String { String(id.prefix { $0 != "#" }) }
+
+    var isUserInput: Bool { role == "user" && (kind == .text || (kind == .image && toolUseID == nil)) }
+
     /// The block within its transcript line (ids end in "#<n>").
     var part: Int { Self.part(of: id) }
 
@@ -551,11 +560,51 @@ final class ChatStore {
 
     func merge(_ new: [Item], backlog: Bool = false, hasMore: Bool? = nil) {
         if backlog || !new.isEmpty { error = nil } // data arrived: a stale "machine is offline" no longer applies
-        let fresh = opened.isEmpty ? new : new.filter { !stillOpen($0) }
-        var changed = dropFolded(by: fresh)
+        // Promotion is monotone, including when overlapping real work takes a promoted fold's place. Retain it on
+        // the replacement items before either kind of overlap removes evidence. Opened folds count too: a repeated
+        // folded page can bring authoritative promotion while the UI keeps that work expanded.
+        let evidence = (items + Array(opened.values) + new).filter { $0.supervisionUser == true || $0.fold?.supervisionUser == true }
+        let promotedIDs = Set(evidence.filter { $0.supervisionUser == true }.map(\.id))
+        let promotedFolds = evidence.filter { $0.fold != nil }
+        let promotedWork = evidence.filter(\.isWork)
+        func retainingPromotion(_ list: [Item]) -> [Item] {
+            guard !evidence.isEmpty else { return list }
+            return list.map { it in
+                guard promotedIDs.contains(it.id) ||
+                    (it.isWork && promotedFolds.contains { $0.folds(it) }) ||
+                    (it.fold != nil && promotedWork.contains { it.folds($0) }) else { return it }
+                var it = it
+                it.supervisionUser = true
+                if it.fold != nil { it.fold?.supervisionUser = true }
+                return it
+            }
+        }
+        let retained = retainingPromotion(items)
+        var changed = retained != items
+        if changed { items = retained; settled = nil }
+        let promoted = retainingPromotion(new)
+        let batchWork = promoted.filter { $0.isWork && $0.kind != .fold }
+        let fresh = promoted.filter { it in
+            !stillOpen(it) && !(it.kind == .fold && batchWork.contains { it.folds($0) })
+        }
+        if dropFolded(by: fresh) { changed = true }
+        if dropOverlappingFolds(by: fresh) { changed = true }
+        // Pages can repeat an id with new metadata or a completed receipt. The new copy wins, but never erases the
+        // evidence above. Append-only pushes keep the fast path without building an index.
+        let indices = fresh.contains { ids.contains($0.id) } ? Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.id, $0.offset) }) : [:]
         var inOrder = true
         var added: [Item] = []
-        for it in Self.withImageRefs(fresh, key) where !ids.contains(it.id) {
+        for it in Self.withImageRefs(fresh, key) {
+            if let i = indices[it.id] {
+                if items[i] != it {
+                    if (items[i].seq, items[i].part) != (it.seq, it.part) { inOrder = false }
+                    items[i] = it
+                    settled = nil
+                    changed = true
+                }
+                continue
+            }
+            guard !ids.contains(it.id) else { continue }
             if let last = items.last, (it.seq, it.part) < (last.seq, last.part) { inOrder = false }
             ids.insert(it.id)
             items.append(it)
@@ -604,6 +653,19 @@ final class ChatStore {
         return true
     }
 
+    /// Real work from an overlapping page replaces the old fold, even when only part of its range has arrived.
+    /// `merge` has already transferred any authoritative promotion to that work.
+    private func dropOverlappingFolds(by new: [Item]) -> Bool {
+        let work = new.filter { $0.isWork && $0.kind != .fold }
+        guard !work.isEmpty, items.contains(where: { $0.kind == .fold }) else { return false }
+        let before = items.count
+        items.removeAll { it in it.kind == .fold && work.contains { it.folds($0) } }
+        guard items.count != before else { return false }
+        ids = Set(items.map(\.id))
+        settled = nil
+        return true
+    }
+
     /// A fold over work opened here that reaches no further than what was opened (`opened`).
     private func stillOpen(_ f: Item) -> Bool {
         guard f.kind == .fold, let was = opened[f.id]?.fold, let now = f.fold else { return false }
@@ -613,9 +675,9 @@ final class ChatStore {
     /// The work a fold stood for, fetched (`AppModel.unfold`): it takes the fold's place.
     func unfold(_ fold: Item, into work: [Item]) {
         guard let i = items.firstIndex(where: { $0.id == fold.id }) else { return }
-        items.remove(at: i)
+        let retained = items.remove(at: i)
         ids.remove(fold.id)
-        opened[fold.id] = fold
+        opened[fold.id] = retained // the caller may hold an older copy without the latest promotion
         settled = nil
         merge(work.filter { $0.kind != .fold })
         scheduleRebuild()
@@ -648,8 +710,10 @@ final class ChatStore {
             let rows = buildRows(items)
             return (rows, ChatBlock.build(rows), nil)
         }
-        guard let cut = items.lastIndex(where: { $0.role == "user" && $0.kind == .text && $0.queued != true }), cut > 0,
-              standsAlone(items[cut...]) else { return full() }
+        guard var cut = items.lastIndex(where: { $0.role == "user" && $0.kind == .text && $0.queued != true }) else { return full() }
+        // Several text blocks and images from one input must stay on the same side of the incremental cut.
+        while cut > 0, items[cut - 1].isUserInput, items[cut - 1].entry == items[cut].entry { cut -= 1 }
+        guard cut > 0, standsAlone(items[cut...]) else { return full() }
         var base = settled
         // Still the same items up to it: an older page or a sorted-in item moves them.
         if let b = base, !(b.count <= cut && items.first?.id == b.firstID && items[b.count - 1].id == b.lastID && standsAlone(items[b.count...])) {
@@ -705,7 +769,7 @@ final class ChatStore {
     /// `item` is the transcript line of the streamed `live` text: the reply (a text item), or the words written before a
     /// tool call, which Claude Code streams as text and records as a thinking block (#1966: their live copy never landed,
     /// and stayed at the end of the chat with its cursor). Written after line `since` (the newest when the text began):
-    /// an earlier line that starts the same way ("我…") is not it.
+    /// an earlier line that starts the same way (the same first word) is not it.
     nonisolated static func isLiveCopy(_ item: Item, of live: String, after since: Int = 0) -> Bool {
         !live.isEmpty && item.seq > since && item.role == "assistant" && (item.kind == .text || item.kind == .thinking)
             && (item.text ?? "").hasPrefix(live)
@@ -1327,10 +1391,11 @@ nonisolated enum ChatCache {
     /// lists their calls left (`Fold.tasks`), the chat's plan while its TodoWrite is folded (#5602).
     /// v12: relayed and automated assistant input retains additive source metadata.
     /// v13: cached tails count user questions, not automatic supervision; discard the old shallow tails.
+    /// v14: injected supervision levels and folded promotion are retained, including client evidence on replaced folds.
     /// Bump it whenever the item structure or the text the hub gives an item changes.
-    static let folder = "chats-v13"
+    static let folder = "chats-v14"
     /// The folder before, removed on the first launch with this one.
-    private static let previous = "chats-v12"
+    private static let previous = "chats-v13"
 
     /// Once per launch, before the first copy is read or written (a static let runs once, on whichever thread asks first).
     private static let dropOlder: Void = {

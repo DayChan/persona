@@ -710,6 +710,8 @@ targets:
       - path: PersonaTests/ExtensionStreamTreeTests.swift
       - path: PersonaTests/ExtensionPageStreamTests.swift
       - path: PersonaTests/DelegateTests.swift
+      - path: PersonaTests/ChatSupervisionLinesTests.swift
+      - path: PersonaTests/SupervisionTests.swift
       - path: PersonaTests/FakeHub.swift
     dependencies:
       - target: PersonaMac
@@ -726,6 +728,7 @@ targets:
     platform: macOS
     sources:
       - path: PersonaUITests/ExtensionStreamUITests.swift
+      - path: PersonaUITests/SupervisionRoundUITests.swift
       - path: PersonaUITests/UITestStyle.swift
     dependencies:
       - target: PersonaMac

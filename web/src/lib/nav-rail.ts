@@ -91,16 +91,23 @@ export function navRailExcerpt(raw: string): string {
     .slice(0, NAV_RAIL_EXCERPT_MAX);
 }
 
-/** Bell-shaped focus shoulders taper to short, faint tails; the viewport owner retains its independent emphasis. */
+/** Idle marks stay uniformly short; only an interactive preview creates bell-shaped focus shoulders. */
 export function navRailMark(index: number, count: number, current: number | null, preview: number | null) {
   const m = NAV_RAIL_METRICS;
-  const focus = preview ?? current;
-  const sigma = Math.min(m.spread, Math.max(m.minSpread, (count - 1) / 2));
-  const distance = focus === null ? Infinity : index - focus;
-  const bell = Math.exp(-(distance * distance) / (2 * sigma * sigma));
   const isCurrent = index === current;
+  if (preview === null) {
+    return {
+      state: isCurrent ? "current" : "idle",
+      width: m.tickWidth,
+      height: m.tickHeight,
+      opacity: isCurrent ? 1 : m.tailOpacity,
+    };
+  }
+  const sigma = Math.min(m.spread, Math.max(m.minSpread, (count - 1) / 2));
+  const distance = index - preview;
+  const bell = Math.exp(-(distance * distance) / (2 * sigma * sigma));
   const isPreview = index === preview;
-  const peak = preview === null ? m.currentWidth : preview === current ? m.currentHoverWidth : m.hoverWidth;
+  const peak = preview === current ? m.currentHoverWidth : m.hoverWidth;
   const width = m.tickWidth + (peak - m.tickWidth) * bell;
   return {
     state: isCurrent ? (isPreview ? "current-hover" : "current") : isPreview ? "hover" : "idle",

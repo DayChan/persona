@@ -686,6 +686,11 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
     /// The main checkout of the repository `cwd` belongs to, when its host knows it (`repo_root`, #2840: Paseo keeps its
     /// worktrees under its own folder, whose paths name no repository). Group by repository uses it (`RepoPlace`).
     var repoRoot: String? = nil
+    /// The top of the git working tree `cwd` is in (`repoRoot` for the main checkout) and the branch checked out there,
+    /// as the node reads them (`worktree`, `branch`, #1805); nil from an older node. By Repository lists machine →
+    /// project → branch → agents with them (`RepoPlace`).
+    var worktree: String? = nil
+    var branch: String? = nil
     var state: AgentState
     var seenAt: Date?
     /// When the hub saw it enter its current state (`state_since`).
@@ -900,7 +905,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
         case permissionMode = "permission_mode"
         case contextTokens = "context_tokens", contextWindow = "context_window"
         case ultracode, ultracodeNote = "ultracode_note", ultracodePending = "ultracode_pending", ultracodeLostAt = "ultracode_lost_at"
-        case repoRoot = "repo_root"
+        case repoRoot = "repo_root", worktree, branch
         case machineID = "machine_id", sessionID = "session_id", paneID = "pane_id", tabID = "tab_id",
              workspaceID = "workspace_id", agentName = "agent_name", startedByPersona = "started_by_persona", assistant, archived, state,
              assistantSpace = "space",
@@ -968,6 +973,8 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
         slotIndex = try c.decodeIfPresent(Int.self, forKey: .slotIndex)
         paneIndex = try c.decodeIfPresent(Int.self, forKey: .paneIndex)
         repoRoot = try c.decodeIfPresent(String.self, forKey: .repoRoot)
+        worktree = try c.decodeIfPresent(String.self, forKey: .worktree)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
         seenAt = try c.decodeIfPresent(Date.self, forKey: .seenAt)
         stateSince = try c.decodeIfPresent(Date.self, forKey: .stateSince)
         queued = try c.decodeIfPresent([String].self, forKey: .queued)
@@ -1564,9 +1571,12 @@ nonisolated struct Fold: Codable, Hashable, Sendable {
     /// The task lists the run's calls left (docs/protocol/protocol.md「折叠的工作」 `fold.tasks`), in order: the chat's plan
     /// while its TodoWrite is folded away (`ChatPlan.latest`, #5602).
     var tasks: [FoldTasks]? = nil
+    /// The hub proved this supervision round is user-visible, even while its visibility tools are folded away.
+    var supervisionUser: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case items, tools, thoughts, until, images, tasks
+        case supervisionUser = "supervision_user"
         case throughSeq = "through_seq", throughID = "through_id"
     }
 }
@@ -1727,11 +1737,14 @@ nonisolated struct Item: Codable, Identifiable, Hashable, Sendable {
     /// User text Persona typed in for the model (a task's notice, a scheduled run…; docs/protocol/protocol.md「Persona 注入的消息」):
     /// drawn as one line, not a bubble. Set by the hub; nil from older hubs, which `Injected.of` reads off the text.
     var injected: Injected? = nil
+    /// Client-retained evidence of user-visible supervision. Survives overlap replacing a promoted work fold and is
+    /// encoded in the chat cache, not a request to change the hub's visibility.
+    var supervisionUser: Bool? = nil
     /// Additive display provenance; kept as JSON so future kinds and malformed optional fields remain readable.
     var source: JSONValue? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, seq, ts, role, kind, text, image, queued, from, wake, fold, task, compact, injected, source
+        case id, seq, ts, role, kind, text, image, queued, from, wake, fold, task, compact, injected, supervisionUser, source
         case toolUseID = "tool_use_id", toolName = "tool_name", toolInput = "tool_input", isError = "is_error", fullSize = "full_size",
              clientMsgID = "client_msg_id"
     }
