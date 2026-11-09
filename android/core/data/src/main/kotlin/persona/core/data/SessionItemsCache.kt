@@ -6,7 +6,7 @@ import persona.core.contracts.Item
 import persona.core.contracts.JsonCodec
 import persona.core.contracts.SessionKey
 import persona.core.domain.ContinuityReducer
-import persona.core.domain.lines.chatLines
+import persona.core.domain.lines.chatTurns
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -88,7 +88,7 @@ class SessionItemsCache(
 
     override suspend fun save(session: SessionKey, snapshot: CachedChat) {
         val ordered = snapshot.items.distinctBy { it.id }.sortedWith(compareBy<Item> { it.seq }.thenBy { part(it) })
-        val turns = chatLines(ordered.map { it.lineItem() }).turns
+        val turns = chatTurns(ordered.map { it.lineItem() })
         val first = turns.takeLast(2).firstOrNull()?.users?.firstOrNull()?.item
         val start = first?.let { item -> ordered.indexOfFirst { it.id == item.id }.coerceAtLeast(0) } ?: 0
         val rows = ordered.drop(start).map { item ->

@@ -62,6 +62,8 @@ class LinesFixtureTest(private val name: String, private val fixture: FixtureRea
             }
         }
         val result = chatLines(items, options)
+        // The items cache finds its last two turns with chatTurns: the same turns, every fixture.
+        if (frozen == null) assertEquals("$name chatTurns", result.turns, chatTurns(items))
         val projection = Projection(result.tasks, input.stringsOrNulls("menu_queries"),
             Instant.parse(input.text("now") ?: "2026-01-01T00:01:00Z"))
         fun checkIds(lines: List<ChatLine>) {

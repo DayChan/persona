@@ -10,7 +10,7 @@ fun chatLines(items: List<LineItem>, options: LineOptions = LineOptions()): Chat
             positionCompare(it.seq, it.part, frozen.seq, frozen.part) <= 0
         }
     }
-    val blocks = buildBlocks(buildLineRows(foldCompactions(source)))
+    val blocks = lineBlocks(source)
     val live = liveTurnId(blocks, options)
     val builder = LineBuilder(live, options)
     val lines = blocks.flatMap {
@@ -25,9 +25,19 @@ fun chatLines(items: List<LineItem>, options: LineOptions = LineOptions()): Chat
         else it
     }
     // As iOS does: API errors become cards and recaps in a row one line, before open work lines unfold.
-    return ChatSnapshot(builder.unfold(foldRecaps(foldApiErrors(lines))), blocks.filterIsInstance<Block.Turn>().map { it.turn },
+    return ChatSnapshot(builder.unfold(foldRecaps(foldApiErrors(lines))), blocks.turns(),
         TaskIndex.build(source), options.pendingInteractionIds?.let(::ChatFooter), live)
 }
+
+/**
+ * [chatLines]' turns alone, built by the same code: for callers that need where turns begin (the items cache keeps the
+ * last two) and not the lines drawn from them, the task index or the folds.
+ */
+fun chatTurns(items: List<LineItem>): List<ChatTurn> = lineBlocks(items.sortedWith(itemOrder)).turns()
+
+private fun lineBlocks(source: List<LineItem>): List<Block> = buildBlocks(buildLineRows(foldCompactions(source)))
+
+private fun List<Block>.turns(): List<ChatTurn> = filterIsInstance<Block.Turn>().map { it.turn }
 
 /** Whether a work line is open: a running one by default where [LineOptions.openLive] says so, else only when opened. */
 fun workOpen(id: String, live: Boolean, options: LineOptions): Boolean =
