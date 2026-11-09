@@ -125,6 +125,61 @@ func (d *DB) AssistantViews(ctx context.Context, conversation string) ([]Assista
 	return out, rows.Err()
 }
 
+// AssistantViewKey names one stored state of a card without its contents.
+type AssistantViewKey struct {
+	ID      string
+	Version int64
+	// Xmin is the transaction that wrote this row version. Any rewrite of the row changes it, including one that keeps
+	// Version (a migration, a manual repair), so a cached copy is checked against both.
+	Xmin uint32
+}
+
+// AssistantViewKeyed is a card together with the key of the row version it was read from.
+type AssistantViewKeyed struct {
+	AssistantViewRow
+	Xmin uint32
+}
+
+// AssistantViewKeys lists the conversation's cards without reading view, so Postgres never detoasts their contents.
+func (d *DB) AssistantViewKeys(ctx context.Context, conversation string) ([]AssistantViewKey, error) {
+	rows, err := d.pool.Query(ctx, `SELECT id, version, xmin FROM assistant_views WHERE conversation = $1`, conversation)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AssistantViewKey{}
+	for rows.Next() {
+		var k AssistantViewKey
+		if err := rows.Scan(&k.ID, &k.Version, &k.Xmin); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// AssistantViewsByID reads the named cards of one conversation; an id of another conversation reads nothing.
+// Ids that no longer exist are left out.
+func (d *DB) AssistantViewsByID(ctx context.Context, conversation string, ids []string) ([]AssistantViewKeyed, error) {
+	out := []AssistantViewKeyed{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := d.pool.Query(ctx, `SELECT `+assistantViewColumns+`, xmin FROM assistant_views WHERE conversation = $1 AND id = ANY($2)`, conversation, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v AssistantViewKeyed
+		if err := rows.Scan(&v.ID, &v.Conversation, &v.MachineID, &v.View, &v.Version, &v.CreatedAt, &v.UpdatedAt, &v.Xmin); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // UpdateAssistantView changes only the contents and version, never its owner or feed position.
 // expected is required: callers can retry after reading the winner instead of overwriting an unseen update.
 func (d *DB) UpdateAssistantView(ctx context.Context, conversation, id string, expected int64, view json.RawMessage, at time.Time) (*AssistantViewRow, error) {

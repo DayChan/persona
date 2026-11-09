@@ -142,3 +142,51 @@ func TestAssistantViewConcurrentVersion(t *testing.T) {
 		t.Fatalf("updates with same expected version: %d", won.Load())
 	}
 }
+
+func TestAssistantViewKeysAndByID(t *testing.T) {
+	d, ctx := openViews(t), context.Background()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	for _, row := range []struct{ id, conversation string }{{"view_a1", "conversation-a"}, {"view_a2", "conversation-a"}, {"view_b1", "conversation-b"}} {
+		v, f := viewRows(row.id, row.conversation, at)
+		if err := d.CreateAssistantView(ctx, v, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys := func() map[string]AssistantViewKey {
+		t.Helper()
+		list, err := d.AssistantViewKeys(ctx, "conversation-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]AssistantViewKey{}
+		for _, k := range list {
+			out[k.ID] = k
+		}
+		return out
+	}
+	before := keys()
+	if len(before) != 2 || before["view_a1"].Version != 1 || before["view_a1"].Xmin == 0 {
+		t.Fatalf("keys %+v", before)
+	}
+	if _, err := d.UpdateAssistantView(ctx, "conversation-a", "view_a1", 1, json.RawMessage(`{"fallback":"Done","sections":[]}`), at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	updated := keys()
+	if updated["view_a1"].Version != 2 || updated["view_a1"].Xmin == before["view_a1"].Xmin || updated["view_a2"] != before["view_a2"] {
+		t.Fatalf("after update %+v, before %+v", updated, before)
+	}
+	// A rewrite that keeps the version (a migration, a manual repair) still shows in xmin.
+	if _, err := d.pool.Exec(ctx, `UPDATE assistant_views SET view = view WHERE id = 'view_a2'`); err != nil {
+		t.Fatal(err)
+	}
+	if rewritten := keys()["view_a2"]; rewritten.Version != 1 || rewritten.Xmin == before["view_a2"].Xmin {
+		t.Fatalf("rewrite %+v, before %+v", rewritten, before["view_a2"])
+	}
+	got, err := d.AssistantViewsByID(ctx, "conversation-a", []string{"view_a1", "view_b1", "view_missing"})
+	if err != nil || len(got) != 1 || got[0].ID != "view_a1" || got[0].Version != 2 || got[0].Xmin != keys()["view_a1"].Xmin || string(got[0].View) != `{"fallback": "Done", "sections": []}` {
+		t.Fatalf("by id %+v, %v", got, err)
+	}
+	if none, err := d.AssistantViewsByID(ctx, "conversation-a", nil); err != nil || len(none) != 0 {
+		t.Fatalf("no ids %+v, %v", none, err)
+	}
+}
