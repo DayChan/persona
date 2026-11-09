@@ -75,7 +75,10 @@ type Task struct {
 	limitWorkerStop  <-chan struct{}
 	limitOwnerDone   <-chan struct{}
 	// limitRetryRunID links the recorded send result to its durable claim.
-	limitRetryRunID string
+	limitRetryRunID  string
+	limitClaimToken  string
+	limitBeforeID    string
+	limitBeforeKnown bool
 	// The conversation it came from (on MachineID), runs go into it; empty = the task's own conversation.
 	MachineID string `json:"machine_id,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
@@ -1202,6 +1205,18 @@ func (s *Service) Run(ctx context.Context) {
 	s.scheduleLoop(ctx)
 }
 
+type scheduleWorkers struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func newScheduleWorkers(parent context.Context) *scheduleWorkers {
+	ctx, cancel := context.WithCancel(parent)
+	return &scheduleWorkers{ctx: ctx, cancel: cancel}
+}
+
+func (w *scheduleWorkers) stop() { w.cancel() }
+
 // scheduleLoop starts due tasks. It sleeps until the next one is due (at most scheduleIdle, so a time zone change is
 // picked up) and wakes early when the list changes; the old 20-second poll ran follow-ups up to 20 seconds late
 // (measured: 21 s on 2026-10-30).
@@ -1214,12 +1229,12 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 	var ownerDone <-chan struct{}
 	var releaseOwner func()
 	var cancelOwner context.CancelFunc
-	workerCtx, stopWorkers := context.WithCancel(ctx)
+	workers := newScheduleWorkers(ctx)
 	defer func() {
 		s.sched.mu.Lock()
 		s.sched.ownerHeld = false
 		s.sched.mu.Unlock()
-		stopWorkers()
+		workers.stop()
 		if s.sched.limitJoining != nil {
 			s.sched.limitJoining()
 		}
@@ -1246,7 +1261,7 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 						s.sched.mu.Lock()
 						s.sched.ownerHeld = false
 						s.sched.mu.Unlock()
-						stopWorkers()
+						workers.stop()
 						s.sched.limitInflight.Wait()
 						s.sched.inflight.Wait()
 						cancelOwner()
@@ -1272,14 +1287,14 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 							ownerDone, releaseOwner, cancelOwner = nil, nil, nil
 						} else {
 							// Another owner may have finished while this manager's schedule was cached.
-							if workerCtx.Err() != nil && ctx.Err() == nil {
-								workerCtx, stopWorkers = context.WithCancel(ctx)
+							if workers.ctx.Err() != nil && ctx.Err() == nil {
+								workers = newScheduleWorkers(ctx)
 							}
 							s.sched.mu.Lock()
 							s.sched.loaded = false
 							s.sched.ownerHeld = true
 							s.sched.ownerDone = ownerDone
-							s.sched.workerStop = workerCtx.Done()
+							s.sched.workerStop = workers.ctx.Done()
 							s.sched.mu.Unlock()
 						}
 					}
@@ -1291,10 +1306,11 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 				if owned && s.refreshLimitSchedule(ctx) && ctx.Err() == nil {
 					select {
 					case <-ownerDone:
-					case <-workerCtx.Done():
+					case <-workers.ctx.Done():
 					default:
+						s.flushSchedulePending(ctx)
 						s.runDue(ctx, now)
-						s.scanLimitRetries(ctx, now, ownerDone, workerCtx.Done())
+						s.scanLimitRetries(ctx, now, ownerDone, workers.ctx.Done())
 					}
 				}
 				nextLimitScan = time.Now().Add(time.Second)
@@ -1320,7 +1336,7 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 			s.sched.mu.Lock()
 			s.sched.ownerHeld = false
 			s.sched.mu.Unlock()
-			stopWorkers()
+			workers.stop()
 			s.sched.limitInflight.Wait()
 			s.sched.inflight.Wait()
 			cancelOwner()
@@ -1517,6 +1533,9 @@ func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 			s.sched.mu.Unlock()
 		}
 		s.logf("schedule run %s %s not recorded: %v", r.Kind, r.RefID, err)
+		if r.RetryOf != "" {
+			return r.ID // its pending outcome keeps this ID for the turn watcher
+		}
 		return ""
 	}
 	sc.runs = append(sc.runs, r)
@@ -1556,7 +1575,10 @@ func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 	}
 	sc.mu.Unlock()
 	if ctx.Err() != nil {
-		return "" // the owner stopped or recording timed out; its durable claim remains
+		if r.RetryOf != "" {
+			return r.ID // the pending run can still be followed while storage recovers
+		}
+		return ""
 	}
 	s.broadcastScheduleContext(ctx)
 	if streak && ctx.Err() == nil {
@@ -1570,14 +1592,33 @@ func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 // updateRun returns whether it pushed the streak notice (#4658), which then stands for the run's own failure push;
 // false when the notice was left out (a muted conversation, #4785), so that push still goes.
 func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
-	sc, err := s.lockedSchedule(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
+		if r.RetryOf != "" {
+			s.sched.mu.Lock()
+			if s.sched.pendingRuns == nil {
+				s.sched.pendingRuns = make(map[string]ScheduleRun)
+			}
+			if pending, ok := s.sched.pendingRuns[r.ID]; ok {
+				r = pending
+			}
+			r.Status, r.Error = status, errText
+			s.sched.pendingRuns[r.ID] = r
+			s.sched.mu.Unlock()
+		}
 		return false
 	}
 	i := slices.IndexFunc(sc.runs, func(x ScheduleRun) bool { return x.ID == r.ID })
 	if i < 0 {
-		sc.mu.Unlock()
-		return false
+		if pending, ok := sc.pendingRuns[r.ID]; ok {
+			sc.runs = append(sc.runs, pending)
+			i = len(sc.runs) - 1
+		} else {
+			sc.mu.Unlock()
+			return false
+		}
 	}
 	wasOK := sc.runs[i].Status == runOK
 	sc.runs[i].Status, sc.runs[i].Error = status, errText
@@ -1586,13 +1627,12 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	}
 	streakTask, streakN, streak := streakToldLocked(sc, i, wasOK) // a turn that ends in an error is a failed run too (schedule_streak.go)
 	streakRun := sc.runs[i]
-	_ = s.saveLocked(sc, sc.tasks)
+	_ = s.saveScheduleLocked(ctx, sc, sc.tasks)
 	if s.store() != nil {
 		if sc.pendingRuns == nil {
 			sc.pendingRuns = make(map[string]ScheduleRun)
 		}
 		sc.pendingRuns[streakRun.ID] = streakRun
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 			if j := slices.IndexFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }); j >= 0 {
 				runs[j].Status, runs[j].Error, runs[j].StreakTold = status, errText, streakRun.StreakTold
@@ -1603,11 +1643,12 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
-		cancel()
 	}
 	sc.mu.Unlock()
-	s.broadcastSchedule()
-	return streak && s.pushStreak(streakTask, streakN, streakRun)
+	if ctx.Err() == nil {
+		s.broadcastScheduleContext(ctx)
+	}
+	return streak && ctx.Err() == nil && s.pushStreak(streakTask, streakN, streakRun)
 }
 
 // errTaskBusy: the task's last run is still going; this one is skipped (and recorded) rather than queued behind it.
@@ -1659,6 +1700,12 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			err := s.sendModel(ctx, t.MachineID, t.SessionID, params)
 			if err != nil && (t.limitRetry || t.manualLimitRetry) {
 				return proto.Session{}, limitPreSendError{cause: err}
+			}
+			if err == nil && (t.limitRetry || t.manualLimitRetry) {
+				t.limitBeforeID, t.limitBeforeKnown = s.lastItemID(ctx, m.ID, t.SessionID)
+				if !t.limitBeforeKnown {
+					return proto.Session{}, errLimitRetryNotSent
+				}
 			}
 			if err == nil {
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
@@ -1713,6 +1760,12 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			if err != nil && t.manualLimitRetry {
 				return proto.Session{}, limitPreSendError{cause: err}
 			}
+			if err == nil && t.manualLimitRetry {
+				t.limitBeforeID, t.limitBeforeKnown = s.lastItemID(ctx, m.ID, t.RunSessionID)
+				if !t.limitBeforeKnown {
+					return proto.Session{}, errLimitRetryNotSent
+				}
+			}
 			if err == nil {
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
 			}
@@ -1731,6 +1784,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 	startCtx := ctx
 	if t.manualLimitRetry {
 		startCtx = context.WithValue(ctx, limitStartKey{}, true)
+		t.limitBeforeID, t.limitBeforeKnown = "", true // a new conversation has no earlier item
 	}
 	sess, err := s.startConversation(startCtx, startParams{Text: taskPrompt(t, due, now, loc, manual, kb, false), PermissionMode: t.PermissionMode,
 		Purpose: "task." + t.ID, Space: t.Space, Origin: OriginTask, OriginRef: t.ID})
@@ -1749,13 +1803,17 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 		run.Adopt, run.Launcher = true, sess.Launcher
 	}
 	s.logf("task %s ran %s after its time (new conversation %s, kept for the next runs)", t.ID, lateness(due, time.Now()), short(sess.SessionID))
-	if !t.manualLimitRetry {
-		s.adoptConversation(t.ID, sess.MachineID, sess.SessionID, sess.Launcher)
-	}
-	s.titleFixed(sess.MachineID, sess.SessionID, time.Now(), titleTask, t.label()) // "MMDD | scheduled | task name", the same for every run in it
 	var m *Device
-	if d, ok := s.device(ctx, sess.MachineID); ok {
-		m = &d
+	if t.manualLimitRetry {
+		// Title I/O must not block recording an already-sent retry or hold the owner during shutdown.
+		go s.titleLimitRetry(t, sess.MachineID, sess.SessionID)
+		m = &Device{ID: sess.MachineID}
+	} else {
+		s.adoptConversation(t.ID, sess.MachineID, sess.SessionID, sess.Launcher)
+		s.titleFixed(sess.MachineID, sess.SessionID, time.Now(), titleTask, t.label())
+		if d, ok := s.device(ctx, sess.MachineID); ok {
+			m = &d
+		}
 	}
 	s.startScheduledRun(run, t, m)
 	return sess, nil
@@ -1908,13 +1966,27 @@ func (s *Service) startScheduledRun(run ScheduleRun, t Task, m *Device) {
 	if m == nil || run.ID == "" {
 		return
 	}
+	if t.limitRetry || t.manualLimitRetry {
+		select {
+		case <-t.limitOwnerDone:
+			return
+		case <-t.limitWorkerStop:
+			return
+		default:
+		}
+	}
 	go s.watchScheduledRun(run, t, *m)
 }
 
 func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	ctx, cancel := context.WithTimeout(context.Background(), runWatchTimeout)
 	defer cancel()
-	ended, ran := s.waitTurnEnd(ctx, m.ID, run.SessionID)
+	var ended, ran bool
+	if t.limitBeforeKnown {
+		ended, ran = s.waitTurnEndFrom(ctx, m.ID, run.SessionID, t.limitBeforeID, true, t.Prompt)
+	} else {
+		ended, ran = s.waitTurnEnd(ctx, m.ID, run.SessionID)
+	}
 	if !ended {
 		return
 	}
@@ -2138,11 +2210,15 @@ const turnPollInterval = 2 * time.Second
 // it was seen working, a changed last item also means it ended: an immediate failure (a bad model) is idle before
 // the first poll sees it working.
 func (s *Service) waitTurnEnd(ctx context.Context, machine, sid string) (ended, ran bool) {
+	before, beforeOK := s.lastItemID(ctx, machine, sid)
+	return s.waitTurnEndFrom(ctx, machine, sid, before, beforeOK, "")
+}
+
+func (s *Service) waitTurnEndFrom(ctx context.Context, machine, sid, before string, beforeOK bool, retryPrompt string) (ended, ran bool) {
 	poll := turnPollInterval
 	if s.turnPoll > 0 {
 		poll = s.turnPoll
 	}
-	before, beforeOK := s.lastItemID(ctx, machine, sid)
 	idle := 0
 	for {
 		select {
@@ -2163,6 +2239,17 @@ func (s *Service) waitTurnEnd(ctx context.Context, machine, sid string) (ended, 
 		}
 		if !ran {
 			if id, ok := s.lastItemID(ctx, machine, sid); ok && beforeOK && id != before {
+				if retryPrompt != "" {
+					// A pre-send baseline also sees the new user prompt. It is not proof that the turn ended.
+					items, read := s.lastTurnItems(ctx, machine, sid)
+					ask, _ := turnExchange(items)
+					if !read || !runAsk(ask, retryPrompt) || !slices.ContainsFunc(items, func(it proto.Item) bool {
+						text := strings.TrimSpace(it.Text)
+						return it.TurnDuration != nil || it.Kind == "turn_duration" || (it.Role == "assistant" && (apiErrorText(text) || cutOff(text)))
+					}) {
+						continue
+					}
+				}
 				return true, false
 			}
 			continue
@@ -2704,11 +2791,11 @@ func (s *Service) runTaskRoute(w http.ResponseWriter, r *http.Request) {
 		defer s.sched.limitInflight.Done()
 		select {
 		case <-ownerDone:
-			s.forgetLimitActive(wait.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(*wait))
 			apierr.Write(w, http.StatusServiceUnavailable, errScheduleUnavailable)
 			return
 		case <-workerStop:
-			s.forgetLimitActive(wait.Failed.ID)
+			s.forgetLimitActive(limitClaimKey(*wait))
 			apierr.Write(w, http.StatusServiceUnavailable, errScheduleUnavailable)
 			return
 		default:

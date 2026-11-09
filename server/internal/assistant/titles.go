@@ -92,6 +92,10 @@ func (s *Service) titlesLocked(ctx context.Context) bool {
 }
 
 func (s *Service) saveTitlesLocked() {
+	s.saveTitlesLockedContext(context.Background())
+}
+
+func (s *Service) saveTitlesLockedContext(parent context.Context) {
 	st := s.store()
 	if st == nil {
 		return
@@ -102,7 +106,7 @@ func (s *Service) saveTitlesLocked() {
 			delete(s.titles.m, id)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	if err := st.PutSetting(ctx, titlesKey, s.titles.m); err != nil {
 		s.logf("save assistant titles: %v", err)
@@ -121,10 +125,13 @@ func (s *Service) titleFixed(machine, id string, started time.Time, kind, topic 
 }
 
 func (s *Service) noteTitle(machine, id string, started time.Time, kind, topic string) {
+	s.noteTitleContext(context.Background(), machine, id, started, kind, topic)
+}
+
+func (s *Service) noteTitleContext(ctx context.Context, machine, id string, started time.Time, kind, topic string) {
 	if id == "" {
 		return
 	}
-	ctx := context.Background()
 	t := &convTitle{MachineID: machine, By: titlePending, Started: started.UTC()}
 	if kind != "" {
 		if topic = titleTopic(topic); topic == "" {
@@ -143,10 +150,10 @@ func (s *Service) noteTitle(machine, id string, started time.Time, kind, topic s
 	}
 	if _, ok := b.m[id]; !ok {
 		b.m[id] = t
-		s.saveTitlesLocked()
+		s.saveTitlesLockedContext(ctx)
 	}
 	b.mu.Unlock()
-	if kind != "" {
+	if kind != "" && ctx.Err() == nil {
 		s.publish(ctx)
 	}
 }

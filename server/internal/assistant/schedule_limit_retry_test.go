@@ -53,14 +53,39 @@ type limitTestStore struct {
 	revision          int64
 	runsRevision      int64
 	failModelRead     atomic.Bool
+	blockTitleRead    atomic.Bool
+	titleReadStarted  chan struct{}
+	titleReadOnce     sync.Once
+	blockOriginRead   atomic.Bool
+	originReadStarted chan struct{}
+	originReadRelease chan struct{}
+	originReadOnce    sync.Once
 	blockScheduleRead atomic.Bool
+	failScheduleRead  atomic.Bool
+	failReadStarted   chan struct{}
+	failReadOnce      sync.Once
+	failNextTaskRead  atomic.Bool
 	readStarted       chan struct{}
 	readOnce          sync.Once
 	beforeTaskCompare func()
+	afterTaskWrite    func()
 	beforeRunsCompare func()
 }
 
 func (st *limitTestStore) Setting(ctx context.Context, key string, value any) (bool, error) {
+	if key == originsKey && st.blockOriginRead.Load() {
+		st.originReadOnce.Do(func() { close(st.originReadStarted) })
+		select {
+		case <-st.originReadRelease:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	if key == titlesKey && st.blockTitleRead.Load() {
+		st.titleReadOnce.Do(func() { close(st.titleReadStarted) })
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
 	if st.failModelRead.Load() && strings.HasPrefix(key, "model_config.") {
 		return false, errors.New("model configuration unavailable")
 	}
@@ -68,6 +93,15 @@ func (st *limitTestStore) Setting(ctx context.Context, key string, value any) (b
 }
 
 func (st *limitTestStore) ReadSchedule(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	if st.failNextTaskRead.Swap(false) {
+		return nil, 0, false, errors.New("task readback failed")
+	}
+	if st.failScheduleRead.Load() {
+		if st.failReadStarted != nil {
+			st.failReadOnce.Do(func() { close(st.failReadStarted) })
+		}
+		return nil, 0, false, context.DeadlineExceeded
+	}
 	if st.blockScheduleRead.Load() {
 		st.readOnce.Do(func() { close(st.readStarted) })
 		<-ctx.Done()
@@ -94,6 +128,10 @@ func (st *limitTestStore) CompareSchedule(ctx context.Context, revision int64, r
 		return false, err
 	}
 	st.revision++
+	if hook := st.afterTaskWrite; hook != nil {
+		st.afterTaskWrite = nil
+		hook()
+	}
 	return true, nil
 }
 
@@ -223,6 +261,17 @@ func TestLimitRetryArmStopsOnShutdownDuringStorageFailure(t *testing.T) {
 	s, _, st, now := limitRetryFixture(t)
 	task, _ := taskByID(s, "limit")
 	w := *task.LimitRetry
+	sc, err := s.lockedSchedule(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := slices.Clone(sc.tasks)
+	tasks[0].LimitRetry = nil
+	err = s.saveLocked(sc, tasks)
+	sc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 	st.failWrites(tasksKey)
 	attempted := make(chan struct{})
 	st.mu.Lock()
@@ -429,6 +478,41 @@ func TestLimitRetryLaterRunOutcomeControlsCancellation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLimitRetryStartKeepsAuthorizationUntilOriginRecorded(t *testing.T) {
+	_, f, st, _ := limitRetryFixture(t)
+	s := newServiceOn(t, f, st)
+	st.originReadStarted, st.originReadRelease = make(chan struct{}), make(chan struct{})
+	st.blockOriginRead.Store(true)
+	s.origins.mu.Lock()
+	s.origins.loaded = false
+	s.origins.mu.Unlock()
+	ctx := context.WithValue(t.Context(), limitStartKey{}, true)
+	sess, err := s.startConversationOn(ctx, StartParams{Origin: OriginTask, OriginRef: "limit"}, false)
+	if err != nil || sess.SessionID == "" {
+		t.Fatalf("start: %+v %v", sess, err)
+	}
+	awaitBusSignal(t, st.originReadStarted)
+	s.startingAssistants.mu.Lock()
+	active := s.startingAssistants.machines["server"]
+	s.startingAssistants.mu.Unlock()
+	if active != 1 {
+		t.Fatalf("startup authorization released before origin: %d", active)
+	}
+	close(st.originReadRelease)
+	waitFor(t, "origin and startup authorization", func() bool {
+		s.startingAssistants.mu.Lock()
+		n := s.startingAssistants.machines["server"]
+		s.startingAssistants.mu.Unlock()
+		if n != 0 {
+			return false
+		}
+		s.origins.mu.Lock()
+		origin := s.origins.m[sess.SessionID]
+		s.origins.mu.Unlock()
+		return origin != nil && origin.Origin == OriginTask
+	})
 }
 
 func TestLimitRetryStartPreSendClassification(t *testing.T) {
@@ -809,6 +893,181 @@ func TestLimitRetryModelReadFailureRearmsWithoutSend(t *testing.T) {
 	}
 }
 
+func TestLimitRetryTitleDoesNotBlockSentClaimOnShutdown(t *testing.T) {
+	s, f, st, _ := limitRetryFixture(t)
+	sc, err := s.lockedSchedule(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := slices.Clone(sc.tasks)
+	w := *tasks[0].LimitRetry
+	tasks[0].LimitRetry = nil
+	err = s.saveLocked(sc, tasks)
+	if err == nil {
+		tasks = slices.Clone(sc.tasks)
+		tasks[0].SessionID, tasks[0].RunSessionID, tasks[0].LimitRetry = "", "", &w
+		err = s.saveLocked(sc, tasks)
+	}
+	stop := make(chan struct{})
+	sc.ownerHeld, sc.workerStop = true, stop
+	sc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.titleReadStarted, st.readStarted = make(chan struct{}), make(chan struct{})
+	f.mu.Lock()
+	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
+		st.blockTitleRead.Store(true)
+		s.titles.mu.Lock()
+		s.titles.loaded = false
+		s.titles.mu.Unlock()
+		st.blockScheduleRead.Store(true)
+		s.sched.mu.Lock()
+		s.sched.loaded = false
+		s.sched.mu.Unlock()
+	}
+	f.mu.Unlock()
+	done := make(chan struct{})
+	go func() { scheduleRequest(s, "POST", "tasks/limit/run", ""); close(done) }()
+	awaitBusSignal(t, st.titleReadStarted)
+	awaitBusSignal(t, st.readStarted)
+	close(stop)
+	awaitBusSignal(t, done)
+	st.blockTitleRead.Store(false)
+	st.blockScheduleRead.Store(false)
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("sent %d times", got)
+	}
+	restarted := newServiceOn(t, f, st)
+	if task, ok := taskByID(restarted, "limit"); !ok || task.LimitRetry == nil || !task.LimitRetry.Claimed {
+		t.Fatal("shutdown lost the claimed send")
+	}
+}
+
+func TestLimitRetryWatcherDoesNotTreatPromptAsCompletedTurn(t *testing.T) {
+	s, f, _, _ := limitRetryFixture(t)
+	s.turnPoll = 10 * time.Millisecond
+	checked := make(chan struct{}, 2)
+	f.mu.Lock()
+	f.nodes = map[string]nodeAnswer{DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
+		var params map[string]any
+		_ = json.Unmarshal(raw, &params)
+		if params["turns"] != nil {
+			select {
+			case checked <- struct{}{}:
+			default:
+			}
+		}
+		return map[string]any{"items": []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}}}, nil
+	}}
+	f.mu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan bool, 1)
+	go func() { ended, _ := s.waitTurnEndFrom(ctx, "server", "s1", "before", true, "Example"); result <- ended }()
+	awaitBusSignal(t, checked)
+	select {
+	case ended := <-result:
+		t.Fatalf("prompt ended turn: %v", ended)
+	case <-checked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher did not continue polling")
+	}
+	cancel()
+	if ended := <-result; ended {
+		t.Fatal("canceled watcher reported completion")
+	}
+}
+
+func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	s.turnPoll = 10 * time.Millisecond
+	st.failReadStarted = make(chan struct{})
+	notified := make(chan struct{}, 1)
+	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	}}
+	f.mu.Lock()
+	f.items = []proto.Item{{ID: "before", Role: "assistant", Kind: "text", Text: "Earlier"}}
+	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
+		f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}, {ID: "after", Role: "assistant", Kind: "text", Text: "API Error: 503 upstream unavailable"}}
+		for i := range f.sessions["server"] {
+			f.sessions["server"][i].Status, f.sessions["server"][i].State = proto.StatusDone, proto.StateIdle
+			f.sessions["server"][i].TurnError = "API Error: 503 upstream unavailable"
+		}
+		st.failScheduleRead.Store(true)
+		s.sched.mu.Lock()
+		s.sched.loaded = false
+		s.sched.mu.Unlock()
+	}
+	f.mu.Unlock()
+	s.runLimitRetries(t.Context(), now.Add(2*time.Hour))
+	awaitBusSignal(t, st.failReadStarted)
+	st.failScheduleRead.Store(false)
+	awaitBusSignal(t, notified)
+	s.sched.inflight.Wait()
+	runs := scheduleRuns(newServiceOn(t, f, st))
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
+		return r.RetryOf == "failed" && r.Status == runFailed && strings.Contains(r.Error, "503")
+	}) {
+		t.Fatalf("fast failure was not recorded: %+v", runs)
+	}
+}
+
+func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	s.turnPoll = 10 * time.Millisecond
+	seenWorking := make(chan struct{}, 1)
+	notified := make(chan struct{}, 1)
+	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	}}
+	f.mu.Lock()
+	f.items = []proto.Item{{ID: "error", Role: "assistant", Kind: "text", Text: "API Error: 503 upstream unavailable"}}
+	f.nodes = map[string]nodeAnswer{DeviceSessionGet: func(machine string, _ json.RawMessage) (any, error) {
+		for _, c := range f.sessions[machine] {
+			if c.SessionID == "s1" {
+				if c.Status == proto.StatusWorking {
+					select {
+					case seenWorking <- struct{}{}:
+					default:
+					}
+				}
+				return map[string]any{"session": c, "ok": true}, nil
+			}
+		}
+		return map[string]any{"ok": false}, nil
+	}}
+	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
+		for i := range f.sessions["server"] {
+			f.sessions["server"][i].Status, f.sessions["server"][i].State = proto.StatusWorking, proto.StateWorking
+		}
+		st.failScheduleRead.Store(true)
+		s.sched.mu.Lock()
+		s.sched.loaded = false
+		s.sched.mu.Unlock()
+	}
+	f.mu.Unlock()
+	s.runLimitRetries(t.Context(), now.Add(2*time.Hour))
+	awaitBusSignal(t, seenWorking)
+	st.failScheduleRead.Store(false)
+	f.setSessions("server", proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now, TurnError: "API Error: 503 upstream unavailable"})
+	awaitBusSignal(t, notified)
+	s.sched.inflight.Wait()
+	runs := scheduleRuns(newServiceOn(t, f, st))
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
+		return r.RetryOf == "failed" && r.Status == runFailed && strings.Contains(r.Error, "503")
+	}) {
+		t.Fatalf("retry failure was not recorded after storage recovered: %+v", runs)
+	}
+}
+
 func TestLimitRetrySentRunRecordingStopsWithWorker(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	st.readStarted = make(chan struct{})
@@ -1085,6 +1344,70 @@ func TestLimitRetryPostgresManagersClaimOnce(t *testing.T) {
 	}
 }
 
+func TestLimitRetryClaimTokenFencesStaleOwnerAfterReadbackLoss(t *testing.T) {
+	first, f, st, now := limitRetryFixture(t)
+	task, _ := taskByID(first, "limit")
+	old := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	if _, ok := first.consumeLimitRetry(t.Context(), task.ID, old, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("first claim failed")
+	}
+	committed, resume := make(chan struct{}), make(chan struct{})
+	st.mu.Lock()
+	st.afterTaskWrite = func() {
+		close(committed)
+		<-resume
+		st.failNextTaskRead.Store(true)
+	}
+	st.mu.Unlock()
+	released := make(chan bool, 1)
+	go func() { released <- first.releaseUnsentLimitClaim(task.ID, old) }()
+	awaitBusSignal(t, committed) // the write committed, but its readback has not returned
+	close(resume)
+	if <-released {
+		t.Fatal("lost readback unexpectedly succeeded")
+	}
+	// The database lock is now lost, while the old owner's loss signal is still pending.
+	second := newServiceOn(t, f, st)
+	task, ok := taskByID(second, "limit")
+	if !ok || task.LimitRetry == nil || task.LimitRetry.Claimed {
+		t.Fatal("first release was not persisted")
+	}
+	next := *task.LimitRetry
+	if next.ClaimToken == "" || next.ClaimToken == old.ClaimToken {
+		t.Fatal("release reused the previous claim token")
+	}
+	if _, ok := second.consumeLimitRetry(t.Context(), task.ID, next, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("second claim failed")
+	}
+	if err := second.call(t.Context(), "server", DeviceAssistantSend, map[string]any{"session_id": "s1", "text": "Example"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The old owner continues before it notices its lock was lost.
+	if !first.releaseUnsentLimitClaim(task.ID, old) {
+		t.Fatal("stale release did not stop")
+	}
+	if !first.finishLimitClaim(task.ID, old) {
+		t.Fatal("stale finish did not stop")
+	}
+	first.recoverLimitClaim(t.Context(), task.ID, old, now.Add(3*time.Hour), "assistant-schedule.retry_restart_unknown")
+	current, ok := taskByID(newServiceOn(t, f, st), task.ID)
+	if !ok || current.LimitRetry == nil || !current.LimitRetry.Claimed || current.LimitRetry.ClaimToken != next.ClaimToken {
+		t.Fatalf("stale owner changed successor claim: %+v", current)
+	}
+	f.mu.Lock()
+	pushes := len(f.pushes)
+	f.mu.Unlock()
+	if pushes != 0 {
+		t.Fatal("stale owner reported successor claim")
+	}
+	restarted := newServiceOn(t, f, st)
+	restarted.runLimitRetries(t.Context(), now.Add(4*time.Hour))
+	if scheduleSendCount(f) != 1 {
+		t.Fatal("successor send was repeated after restart")
+	}
+}
+
 func TestLimitRetryOverlappingManagersClaimOnce(t *testing.T) {
 	first, f, st, now := limitRetryFixture(t)
 	second := newServiceOn(t, f, st)
@@ -1176,8 +1499,8 @@ func TestLimitRetryUnknownNotificationRetriedAfterClearFailure(t *testing.T) {
 	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
 		t.Fatal("claim failed")
 	}
-	st.failWrites(tasksKey)
 	firstRestart := newServiceOn(t, f, st)
+	firstRestart.hub = &limitNotifyHub{fakeHub: f, onNotify: func() { st.failWrites(tasksKey) }}
 	firstRestart.runLimitRetries(t.Context(), now.Add(3*time.Hour))
 	if task, ok := taskByID(firstRestart, "limit"); !ok || task.LimitRetry == nil {
 		t.Fatal("failed cleanup removed the claim")
