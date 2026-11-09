@@ -4,7 +4,7 @@ import { getSession, getState, upsertSession } from "./store";
 import type { Session } from "./types";
 import type { UsageAccount } from "./usage-windows";
 import {
-  askSpent, dismissUltracodeLost, isUltracodeQueued, lostShown, quotaText, quotaWarnShown, resetUltracodeAsks, setUltracode, shownOn, startBlocked,
+  askSpent, dismissUltracodeLost, isUltracodeQueued, lostShown, quotaAge, quotaText, quotaWarnShown, resetUltracodeAsks, setUltracode, shownOn, startBlocked,
   ultracodeErrorText, ultracodeOffered, ultracodeOn, ultracodeQueueDone, ultracodeQuota, ultracodeRefused, ultracodeStartOffered, ultracodeSwitch,
   useUltracodeAsk, versionTooOld, type UltracodeAsk,
 } from "./ultracode";
@@ -259,7 +259,8 @@ describe("quota under the switch", () => {
 
   it("the 5-hour and weekly use, and the warning past 80%", () => {
     const q = ultracodeQuota([account({ windows: [win("5h", 300, 42.4), win("7d", 10080, 61)] })], now)!;
-    expect(q).toEqual({ name: "Claude", windows: [{ kind: "5h", percent: 42.4 }, { kind: "week", percent: 61 }], warn: false });
+    expect(q).toEqual({ name: "Claude", windows: [{ kind: "5h", percent: 42.4 }, { kind: "week", percent: 61 }], warn: false, stale: false, sampled_at: iso(now - 60_000) });
+    expect(quotaAge(q, now)).toBe("");
     expect(quotaText(q)).toBe("5 小时 42% · 每周 61%");
     expect(ultracodeQuota([account({ windows: [win("5h", 300, 86), win("7d", 10080, 41)] })], now)!.warn).toBe(true);
   });
@@ -270,6 +271,17 @@ describe("quota under the switch", () => {
     expect(ultracodeQuota([gateway, local], now)!.name).toBe("work");
     const fuller = account({ id: "f", name: "fuller", local: true, windows: [win("5h", 300, 70)] });
     expect(ultracodeQuota([local, fuller], now)!.name).toBe("fuller");
+  });
+
+  it("says when its numbers are out of date, and puts any fresh account first (#1906)", () => {
+    const old = account({ id: "o", name: "work", local: true, stale: true, sampled_at: iso(now - 2 * 3600_000), windows: [win("7d", 10080, 62)] });
+    const q = ultracodeQuota([old], now)!;
+    expect(q.stale).toBe(true);
+    expect(quotaAge(q, now)).toBe("已过期 · 2小时前");
+    const pool = account({ id: "p", name: "pool", sources: ["Relay"], windows: [win("7d", 10080, 30)] }); // fresh, only a gateway has it
+    expect(ultracodeQuota([old, pool], now)!.name).toBe("pool");
+    const staleGateway = account({ id: "g", name: "stale pool", sources: ["Relay"], stale: true, windows: [win("7d", 10080, 90)] });
+    expect(ultracodeQuota([staleGateway, old], now)!.name).toBe("work"); // both old: the computer's still first
   });
 });
 

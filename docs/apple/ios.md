@@ -640,7 +640,7 @@ and what this device asked are `AppModel.setUltracode` / `dismissUltracodeLost`,
   moves on, and the notices from `ultra_effort_*` attachments are new ids that merge in; dropping every cached chat for that was not worth it.
 - **Menus**: a section under the thinking effort in the shell composer's model menu (`SessionModesMenu`) and in the shared effort chip (`SessionModeBar`) on Mac / Vision:
   a `Toggle` whose subtitle is the line (what it does, "Applies next turn" while a change this device asked waits, "A change is queued for the next turn"
-  for another device's, or the node's reason), and the Claude quota with its 80% warning as the section's header (`Ultracode.menuWords`). A menu
+  for another device's, or the node's reason), and the Claude quota with its 80% warning as the section's header (`Ultracode.menuWords`; numbers the hub marked out of date add "Outdated · 2 hr ago" right after the quota, `Ultracode.quotaAge`, and New Agent's toggle fades the quota and draws that age as its own line, #1906). A menu
   draws a subtitle only from a second `Text` directly in the label (a `Label`'s two-`Text` title loses it, on the Mac too: the effort levels' details
   are not drawn) and colors no words. An iOS menu cuts a subtitle after three lines but draws a header whole, line by line, so there the node's reason
   goes first in the header and the subtitle keeps what the switch does or that a change waits; a Mac menu wraps a subtitle (`NSMenuItem.subtitle`) and

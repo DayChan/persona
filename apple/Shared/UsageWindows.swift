@@ -168,8 +168,13 @@ nonisolated enum UsageWindows {
 
     /// The age as the account's header says it: "Outdated · 3 hr ago" when stale.
     static func ageLabel(_ a: UsageAccount, now: Date = .now) -> String {
-        let age = sampleAge(a.sampledAt, now: now)
-        return a.stale ? (age.isEmpty ? String(localized: "Outdated [Usage Windows 2fe0e3]") : String(localized: "Outdated · \(age)")) : age
+        a.stale ? staleLabel(a.sampledAt, now: now) : sampleAge(a.sampledAt, now: now)
+    }
+
+    /// "Outdated · 3 hr ago" (just "Outdated" without a time): numbers the hub marked out of date, wherever they are shown.
+    static func staleLabel(_ sampledAt: Date?, now: Date = .now) -> String {
+        let age = sampleAge(sampledAt, now: now)
+        return age.isEmpty ? String(localized: "Outdated [Usage Windows 2fe0e3]") : String(localized: "Outdated · \(age)")
     }
 
     /// The accounts worth showing: samples within three days, windows that have not reset, accounts that still have one.

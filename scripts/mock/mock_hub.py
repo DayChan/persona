@@ -11355,7 +11355,8 @@ if MOCK_COMPUTER:
 MOCK_BROWSER = os.environ.get("MOCK_BROWSER", "")
 
 def mock_usage_windows():
-    """GET /api/v1/usage/windows (#2432): two Codex / Claude accounts relative to now; MOCK_USAGE=none has none."""
+    """GET /api/v1/usage/windows (#2432): two Codex / Claude accounts relative to now; MOCK_USAGE=none has none,
+    MOCK_USAGE=stale has the Claude account read two hours ago and out of date (#1906: ultracode's quota line says so)."""
     if os.environ.get("MOCK_USAGE") == "none":
         return {"accounts": []}
     now = time.time()
@@ -11376,8 +11377,9 @@ def mock_usage_windows():
             {"id": "kimi-1", "provider": "kimi", "name": "kimi-spare", "sampled_at": iso(now - 20 * 60), "sources": ["Relay", "Team pool"],
              "windows": [win("7d", 10080, 5, 6 * 24 * 3600)]},
         ], "checked_at": iso(now)}
+    old = os.environ.get("MOCK_USAGE") == "stale"
     return {"accounts": [
-        {"id": "claude-1", "provider": "claude", "name": "Claude", "sampled_at": iso(now - 12),
+        {"id": "claude-1", "provider": "claude", "name": "Claude", "sampled_at": iso(now - (2 * 3600 if old else 12)), **({"stale": True} if old else {}),
          "windows": [win("5h", 300, 86, 55 * 60), win("7d", 10080, 41, (2 * 24 + 3) * 3600)]},
         {"id": "codex-1", "provider": "codex", "name": "Codex Pro", "plan": "pro", "sampled_at": iso(now - 190),
          "windows": [win("5h", 300, 22, 4 * 3600), win("7d", 10080, 63, (3 * 24 + 5) * 3600)]},

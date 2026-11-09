@@ -259,6 +259,20 @@ describe("New agent's switch", () => {
     await flush();
     expect(host.querySelector("[data-ultracode-quota-warn]")).not.toBeNull();
   });
+
+  it("an out-of-date quota fades and says how old it is, as the usage bars do (#1906)", async () => {
+    const at = new Date(Date.now() + 3 * 86400_000).toISOString();
+    answer = () => json({ accounts: [{ id: "c", provider: "claude", name: "Claude", sampled_at: new Date(Date.now() - 2 * 3600_000).toISOString(), local: true, stale: true,
+      windows: [{ label: "7d", window_minutes: 10080, used_percent: 62, resets_at: at }] }] });
+    render(<UltracodeStartRow on={false} onChange={() => {}} blocked="" />);
+    await flush();
+    const line = host.querySelector("[data-ultracode-quota]")!;
+    expect(line.textContent).toContain("每周 62%");
+    expect(line.firstElementChild!.className).toContain("opacity-70");
+    const stale = host.querySelector("[data-ultracode-quota-stale]")!;
+    expect(stale.textContent).toBe("已过期 · 2小时前"); // its own line: the age is never cut off with the numbers
+    expect(stale.className).toContain("opacity-70");
+  });
 });
 
 describe("the workflow mark", () => {

@@ -166,7 +166,12 @@ struct UltracodeStartRow: View {
                         .foregroundStyle(blocked == nil ? Color.secondary : Theme.cautionText)
                         .fixedSize(horizontal: false, vertical: true)
                     if let q = quota {
+                        // out of date: faded as on the usage bars, with its age on a line of its own (#1906)
                         Text(Ultracode.quotaLine(q)).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
+                            .opacity(q.stale ? 0.6 : 1)
+                        if let age = Ultracode.quotaAge(q) {
+                            Text(age).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1).opacity(0.6)
+                        }
                         if q.warn, blocked == nil {
                             Text(Ultracode.quotaWarning).font(Theme.Font.label).foregroundStyle(Theme.cautionText)
                                 .fixedSize(horizontal: false, vertical: true)

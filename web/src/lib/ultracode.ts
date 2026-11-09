@@ -11,7 +11,7 @@ import { flushPushes, getSession, hubHas, upsertSession } from "./store";
 import type { PlanTask } from "./feed";
 import type { SessionLookup, Todo } from "./todos";
 import type { Machine, Session } from "./types";
-import { isWarn, liveAccounts, windowMinutes, type UsageAccount } from "./usage-windows";
+import { isWarn, liveAccounts, sampleAge, windowMinutes, type UsageAccount } from "./usage-windows";
 
 /** The hub takes the switch (hello `features`): an older hub never shows it. */
 export const ULTRACODE_FEATURE = "ultracode";
@@ -272,15 +272,20 @@ export interface UltracodeQuota {
   windows: { kind: "5h" | "week"; percent: number }[];
   /** One of them is past the caution line (the sidebar's, 80%): the switch says it will run out sooner. */
   warn: boolean;
+  /** The numbers are out of date (the hub's mark, as on the usage bars): use only grows, so the real use may be higher
+   *  and the line says so, with when they were read (#1906). */
+  stale: boolean;
+  sampled_at: string;
 }
 
 const QUOTA_KINDS: [number, "5h" | "week"][] = [[300, "5h"], [10080, "week"]];
 
-/** The Claude subscription's 5-hour and weekly use (#2432's windows), for the line under the switch: an account read on
- *  the computers before one only a gateway reports, a fresh sample before a stale one, then the fullest. null without
+/** The Claude subscription's 5-hour and weekly use (#2432's windows), for the line under the switch: a fresh sample
+ *  before a stale one (a fresh account only a gateway reports says more about now than old numbers from a computer,
+ *  #1906), then an account read on the computers before one only a gateway reports, then the fullest. null without
  *  one: nothing is drawn. The hub merges accounts across computers, so this is the account, not one computer's share. */
 export function ultracodeQuota(accounts: UsageAccount[], now = Date.now()): UltracodeQuota | null {
-  const rank = (a: UsageAccount) => (a.local ? 0 : 2) + (a.stale ? 1 : 0);
+  const rank = (a: UsageAccount) => (a.stale ? 2 : 0) + (a.local ? 0 : 1);
   const claude = liveAccounts(accounts, now)
     .filter((a) => a.provider === "claude")
     .map((a) => ({ a, windows: QUOTA_KINDS.flatMap(([mins, kind]) => {
@@ -291,7 +296,12 @@ export function ultracodeQuota(accounts: UsageAccount[], now = Date.now()): Ultr
     .sort((x, y) => rank(x.a) - rank(y.a) || Math.max(...y.windows.map((w) => w.percent)) - Math.max(...x.windows.map((w) => w.percent)));
   const top = claude[0];
   if (!top) return null;
-  return { name: top.a.name, windows: top.windows, warn: top.windows.some((w) => isWarn(w.percent)) };
+  return { name: top.a.name, windows: top.windows, warn: top.windows.some((w) => isWarn(w.percent)), stale: Boolean(top.a.stale), sampled_at: top.a.sampled_at };
+}
+
+/** "Out of date · 2 hours ago" when the quota's numbers are, as the usage bars say it; "" while they are current. */
+export function quotaAge(q: UltracodeQuota, now = Date.now()): string {
+  return q.stale ? t("usage.stale_age", { age: sampleAge(q.sampled_at, now) }) : "";
 }
 
 /** "5h 86% · weekly 41%" */

@@ -312,6 +312,27 @@ struct UltracodeTests {
         #expect(Ultracode.quota([account("scoped", model: "Fable")]) == nil, "one model's allowance is not the plan's")
         let line = Ultracode.quotaLine(fullest)
         #expect(line.contains("b") && line.contains("86%") && line.contains("20%"))
+        #expect(!fullest.stale && Ultracode.quotaAge(fullest) == nil)
+    }
+
+    /// Numbers the hub marked out of date say so, with their age, as the usage bars do; any fresh account comes first,
+    /// even one only a gateway reports (#1906).
+    @Test func anOutOfDateQuotaSaysSo() throws {
+        let now = Date.now
+        var old = account("old", week: 62)
+        old.stale = true
+        old.sampledAt = now.addingTimeInterval(-2 * 3600)
+        let q = try #require(Ultracode.quota([old], now: now))
+        #expect(q.stale && q.sampledAt == old.sampledAt)
+        #expect(Ultracode.quotaAge(q, now: now) == UsageWindows.staleLabel(old.sampledAt, now: now))
+        #expect(Ultracode.quotaAge(q, now: now)?.contains("已过期") == true)
+        let words = Ultracode.menuWords(try session(), ask: nil, quota: q, headerWraps: true)
+        #expect(words.header?.hasPrefix(Ultracode.quotaLine(q) + "\n" + "已过期") == true, "the menu header says it too, right under the numbers")
+        let pool = account("pool", local: false, five: 30)
+        #expect(Ultracode.quota([old, pool], now: now)?.name == "pool", "a fresh gateway account before old numbers from a computer")
+        var oldPool = account("old pool", local: false, five: 90)
+        oldPool.stale = true
+        #expect(Ultracode.quota([oldPool, old], now: now)?.name == "old", "both old: the computer's first")
     }
 
     // MARK: The request through the app
