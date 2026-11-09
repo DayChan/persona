@@ -256,6 +256,10 @@ final class AppModel {
     /// Bumped whenever another page hands the user to a Persona conversation (`askPersona`): the Persona tab goes back
     /// to its conversation even when it is the one already shown (a pushed Knowledge page would otherwise stay on top).
     var assistantReveal = 0
+    /// How many times the Type to Persona control asked for the keyboard (`TypingRequest`): the named composer watches it and takes
+    /// the ask once (`takeTypingRequest`); the ask itself is not observed, so taking it redraws nothing.
+    private(set) var typingAsks = 0
+    @ObservationIgnored private var typingRequest = TypingRequest()
     /// Compact context asked here, and when: the chat says Compacting until the hub's word on it arrives (#1762).
     var compactionRequests: [SessionKey: Date] = [:]
     /// The failed compaction the user closed, per conversation (`MainConversationActions.key`).
@@ -915,6 +919,44 @@ final class AppModel {
         selectHub(key.group)
         assistantCurrent = key
         assistantReveal += 1
+    }
+
+    /// A new, empty assistant conversation on the Assistant page, as the drawer's New Chat: the shell takes the page back to its
+    /// root (a pushed inbox included), the old tabs only need the conversation gone. The home screen icon's New Chat comes here too.
+    func openNewAssistantConversation() {
+        shellSettings = false
+        selectedTab = .assistant
+        if let shell = tabRouter as? ShellState {
+            shell.show(.newConversation)
+            shell.drawer.close()
+        } else {
+            assistantCurrent = nil
+        }
+    }
+
+    /// The Type to Persona control: the main conversation with the keyboard up once its composer is in front and the app is
+    /// active. Without a main conversation yet, the new conversation page (its first message starts one) with its field focused.
+    func openTypingConversation() {
+        if let main = assistantMain {
+            openAssistantConversation(main)
+            typingRequest.ask(.conversation(main))
+        } else {
+            openNewAssistantConversation()
+            // A page pushed over the old layout's new conversation goes too, or the keyboard would come up under it.
+            assistantReveal += 1
+            typingRequest.ask(.newConversation)
+        }
+        typingAsks = typingRequest.serial
+    }
+
+    /// True once for each ask of the Type to Persona control, to the composer it names (`TypingRequest.take`).
+    func takeTypingRequest(for target: TypingRequest.Target, appActive: Bool) -> Bool {
+        typingRequest.take(for: target, appActive: appActive)
+    }
+
+    /// The composer that took the ask lost it before its field held focus (`TypingRequest.giveBack`).
+    func giveBackTypingRequest(_ serial: Int) {
+        typingRequest.giveBack(serial)
     }
 
     /// Sends text to Persona' main conversation (starting it when there is none) and opens the Persona tab: how other

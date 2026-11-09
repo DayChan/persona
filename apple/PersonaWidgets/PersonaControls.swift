@@ -33,11 +33,20 @@ struct PersonaAgentsControl: ControlWidget {
     }
 }
 
-/// Also retain kinds saved by interim canonical-identity builds, with the same drawing and action.
-struct CompatibleAssistantControl: ControlWidget {
-    var body: some ControlWidgetConfiguration { AskPersonaControl.configuration(kind: "persona.control.ask") }
+/// Control Center / Lock Screen / Action Button: the main conversation with the keyboard up, so you just type.
+struct TypeToPersonaControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "persona.control.type") {
+            ControlWidgetButton(action: StartPersonaTypingIntent()) {
+                // `Theme.Icon.keyboard`'s symbol: this extension does not build `Theme.Icon`.
+                Label("Type to Persona", systemImage: "keyboard")
+            }
+        }
+        .displayName("Type to Persona")
+        .description("Opens Persona's main chat with the keyboard up.")
+    }
 }
 
-struct CompatibleAgentsControl: ControlWidget {
-    var body: some ControlWidgetConfiguration { PersonaAgentsControl.configuration(kind: "persona.control.agents") }
-}
+// The interim kinds `persona.control.ask` / `persona.control.agents` are no longer registered: they listed a second "Ask Persona"
+// and "Persona Agents" in the control gallery, and WidgetKit cannot keep a kind working while leaving it out of the gallery. The
+// stable kinds above are the ones every TestFlight build had (docs/apple/siri.md, "Controls").

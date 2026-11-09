@@ -82,7 +82,7 @@ struct ShellHome: View {
                     ShellNeedsYou(maxHeight: room.needs(withError: shownError != nil, top: AssistantTopBar.room(railEdge)), openInbox: openInbox).shellScaled()
                 }
                 StarterComposer(disabled: pending != nil, shell: StarterComposer.ShellModes(launcher: $launcher, mode: $mode, effort: $effort),
-                                gate: model.readinessGate(route: $route), send: send)
+                                gate: model.readinessGate(route: $route), takesTypingRequest: true, send: send)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { room.composerAtRest($0, typeSize: typeSize) }
             }
             .padding(.horizontal, Theme.Space.m)

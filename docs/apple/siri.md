@@ -14,6 +14,7 @@ it reads `Keychain.serverConfig` afresh each time (the hub address + device toke
 | `AddTodoIntent` | New To-Do | `POST /api/v1/todos` (`{"title", "notes"?}`, see `docs/assistant/todos.md`), in the App's currently selected hub group (`hub.group`, the same as the To-dos page; falls back to the first group if it is missing). Reads "To-do saved: '…'" and returns the title for use in subsequent Shortcuts actions. If an old hub lacks the to-do endpoint (404), asks the user to update the hub first. | Background |
 | `OpenPersonalAgentIntent` | Open Personal Agent | Tapping a personal Agent session in Spotlight opens that conversation directly (Agents › Personal Agents › session; back goes to the personal Agents list; an open settings sheet is closed first). `AppModel.openPersonalAgent` is handed to `ChatsView`, which, as with `openChat`, pushes it once the list has appeared and the navigation stack is still. | Foreground |
 | `OpenPersonaAssistantIntent` / `OpenPersonaAgentsIntent` | Open Persona Assistant / Agents | Intents behind the controls for Control Center, the Lock Screen, and the Action Button. | Foreground |
+| `StartPersonaTypingIntent` | Type to Persona | Behind the Type to Persona control: opens the main chat (`AppModel.openTypingConversation`; with no main chat yet, the new conversation page) and leaves a one-shot request (`TypingRequest`) that the chat's composer takes once its page is in front and the App is active, focusing its field so the keyboard comes up. An ask no composer took within 30 seconds is dropped. | Foreground |
 
 `PersonalAgentEntity` is an `IndexedEntity`: whenever the Agents page finishes loading, it calls `CSSearchableIndex.default().indexAppEntities(...)`
 and `PersonaShortcuts.updateAppShortcutParameters()`, so Spotlight can find sessions and Siri phrases containing session names can match them.
@@ -31,8 +32,15 @@ and `PersonaShortcuts.updateAppShortcutParameters()`, so Spotlight can find sess
 ## Action Button and Control Center
 
 - Action Button: **Settings › Action Button › Shortcut**; select "Ask Persona", "Give an Agent a Task", or "New To-Do" directly (App Shortcuts appear automatically).
-- Control Center / Lock Screen: the `PersonaWidgets` extension adds two `ControlWidget`s (`AskPersonaControl`, `PersonaAgentsControl`) that open the App's assistant page / Agents page.
+- Control Center / Lock Screen: the `PersonaWidgets` extension adds three `ControlWidget`s: `AskPersonaControl` and `PersonaAgentsControl` open
+  the App's assistant page / Agents page, `TypeToPersonaControl` opens the main chat with the keyboard up (for when dictation is not accurate enough).
   Their intents live in `LiveActivity/PersonaControlIntents.swift` (compiled into both App and extension; `perform` changes `AppModel` only in the App).
+- Control kinds are the identity iOS saves with a placed control: a kind the extension stops registering leaves that control broken. Ask Persona and
+  Persona Agents keep the kinds every TestFlight build shipped (`LegacyNames.controlAskKind` / `controlAgentsKind`). The interim kinds
+  `persona.control.ask` / `persona.control.agents` were also registered for a while (builds from 2026-11-07), which listed each control twice
+  in the gallery; they are no longer registered. WidgetKit has no way to keep a kind working while leaving it out of the gallery
+  (`ControlWidgetConfiguration` only has `displayName`, `description`, `promptsForUserConfiguration` and `pushHandler`, and a widget bundle
+  can only leave widgets out by OS version), so a control placed from one of those entries has to be added again.
 
 ## Not implemented / deferred
 
@@ -49,7 +57,7 @@ and `PersonaShortcuts.updateAppShortcutParameters()`, so Spotlight can find sess
 3. Say "Have Persona agent do something", choose a session, and describe the task: it should reply "Sent to '…'"; that session in the Lark gateway should receive the message. The same task must not be duplicated (clientId).
 4. Say "Check Persona agents".
 5. Say "Add a to-do in Persona", then give a title: it should reply "To-do saved: '…'", and the App's To-dos page should contain the new entry.
-6. These actions should appear under **Shortcuts App › Persona** and be selectable for the Action Button; **Control Center › Add a Control › Persona** should contain two controls.
+6. These actions should appear under **Shortcuts App › Persona** and be selectable for the Action Button; **Control Center › Add a Control › Persona** should contain three controls, each once (Ask Persona, Persona Agents, Type to Persona); Type to Persona should open the main chat with the keyboard up.
 7. Searching for a personal Agent's session name in Spotlight should find it; tapping it opens that conversation directly, and back in the top-left returns to the personal Agents list. Try once each with the settings sheet open, with the App in the background, and with it not running.
 
 Unit tests: `PersonaTests/SiriIntentsTests.swift` (answer extraction, polling completion, spoken text, session selection, unread text), `PersonaTests/IntentsTests.swift` (new to-do text, old hubs, the hub group read).

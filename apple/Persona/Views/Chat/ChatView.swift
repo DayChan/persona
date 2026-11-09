@@ -4365,6 +4365,8 @@ struct Composer: View, Equatable {
             model.composerFocus = nil
             focused = true
         }
+        // Type to Persona (PersonaControls.swift): the main conversation opens with the keyboard up.
+        .takesTypingRequest(.conversation(key), focused: $focused)
         #if os(macOS)
         // ⌘I while no composer was there (a subagent shown): the request waits for it, and is not left set, which
         // would make the next ⌘I no change at all (#2736).

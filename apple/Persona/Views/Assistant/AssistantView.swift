@@ -481,7 +481,7 @@ struct AssistantHome: View {
                 if ChatComposerKind.padCard {
                     // The iPad: the iPhone's composer, the launcher, mode and effort in its model menu (#2779).
                     StarterComposer(disabled: pending != nil, shell: StarterComposer.ShellModes(launcher: $launcher, mode: $mode, effort: $effort),
-                                    gate: model.readinessGate(route: $route), send: send)
+                                    gate: model.readinessGate(route: $route), takesTypingRequest: true, send: send)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: Theme.Space.s) {
@@ -492,9 +492,10 @@ struct AssistantHome: View {
                         .padding(.horizontal, Theme.Space.xs)
                     }
                     if AppStyle.current.usesBeautifulUI {
-                        BeautifulStarterComposer(disabled: pending != nil, launcher: $launcher, gate: model.readinessGate(route: $route), send: send)
+                        BeautifulStarterComposer(disabled: pending != nil, launcher: $launcher, gate: model.readinessGate(route: $route),
+                                                 takesTypingRequest: true, send: send)
                     } else {
-                        StarterComposer(disabled: pending != nil, gate: model.readinessGate(route: $route), send: send)
+                        StarterComposer(disabled: pending != nil, gate: model.readinessGate(route: $route), takesTypingRequest: true, send: send)
                     }
                 }
             }
@@ -744,6 +745,9 @@ struct StarterComposer: View {
     var uploadDest: String? = nil
     /// The main conversation cannot answer yet (docs/assistant/onboarding.md 4.4): send goes to what is missing, the draft stays.
     var gate: SendGate? = nil
+    /// The new conversation page's composer: the Type to Persona control's ask (`AppModel.openTypingConversation`) focuses it when
+    /// there is no main conversation yet. Health's starter does not take it.
+    var takesTypingRequest = false
     var send: (String, [ImagePayload]) -> Void
 
     struct ShellModes {
@@ -857,6 +861,7 @@ struct StarterComposer: View {
                 picks = []
             }
         }
+        .takesTypingRequest(takesTypingRequest ? .newConversation : nil, focused: $focused)
     }
 }
 
@@ -872,6 +877,8 @@ struct BeautifulStarterComposer: View {
     var uploadDest: String? = nil
     /// The main conversation cannot answer yet: send goes to what is missing, the draft stays (the card says what).
     var gate: SendGate? = nil
+    /// The old layout's new conversation page: the Type to Persona control's ask focuses it (Health's does not take it).
+    var takesTypingRequest = false
     var send: (String, [ImagePayload]) -> Void
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
@@ -996,6 +1003,7 @@ struct BeautifulStarterComposer: View {
                 picks = []
             }
         }
+        .takesTypingRequest(takesTypingRequest ? .newConversation : nil, focused: $focused)
     }
 }
 

@@ -77046,6 +77046,29 @@
       },
       "extractionState" : "manual"
     },
+    "Opens Persona's main chat with the keyboard up." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens Persona's main chat with the keyboard up."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personaのメインチャットを開き、キーボードを表示します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 Persona 主对话，直接弹出键盘。"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Opens Persona's assistant page so you can talk or type." : {
       "localizations" : {
         "en" : {
@@ -118024,6 +118047,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "类型"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Type to Persona" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type to Persona"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personaに入力"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打字问 Persona"
           }
         }
       },

@@ -35,3 +35,20 @@ struct OpenPersonaAgentsIntent: AppIntent {
         return .result()
     }
 }
+
+/// Opens Persona on the main conversation with the keyboard up (`AppModel.openTypingConversation`), so you type right away; with no
+/// main conversation yet, the new conversation page. Apple has the device unlocked first for a control that opens an app.
+struct StartPersonaTypingIntent: AppIntent {
+    nonisolated static let title: LocalizedStringResource = "Type to Persona"
+    nonisolated static let description = IntentDescription("Opens Persona's main chat with the keyboard up.")
+    nonisolated static var supportedModes: IntentModes { .foreground(.immediate) }
+
+    nonisolated init() {}
+
+    nonisolated func perform() async throws -> some IntentResult {
+        #if !WIDGET_EXTENSION
+        await MainActor.run { AppModel.shared.openTypingConversation() }
+        #endif
+        return .result()
+    }
+}

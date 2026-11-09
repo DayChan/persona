@@ -14,7 +14,6 @@ struct PersonaWidgetsBundle: WidgetBundle {
         CompatibleFleetLiveActivity()
         AskPersonaControl()
         PersonaAgentsControl()
-        CompatibleAssistantControl()
-        CompatibleAgentsControl()
+        TypeToPersonaControl()
     }
 }

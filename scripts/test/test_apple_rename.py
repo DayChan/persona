@@ -89,8 +89,9 @@ class AppleRenameTests(unittest.TestCase):
             'Persona/Intents/AskPersonaIntent.swift': ['AskPersonaIntent'],
             'Persona/Intents/PersonaStatusIntent.swift': ['PersonaStatusIntent'],
             'Persona/Intents/PersonaShortcuts.swift': ['PersonaShortcuts'],
-            'PersonaWidgets/PersonaControls.swift': ['AskPersonaControl', 'PersonaAgentsControl'],
-            'LiveActivity/PersonaControlIntents.swift': ['OpenPersonaAssistantIntent', 'OpenPersonaAgentsIntent'],
+            'PersonaWidgets/PersonaControls.swift': ['AskPersonaControl', 'PersonaAgentsControl', 'TypeToPersonaControl'],
+            'LiveActivity/PersonaControlIntents.swift': ['OpenPersonaAssistantIntent', 'OpenPersonaAgentsIntent',
+                                                         'StartPersonaTypingIntent'],
             'LiveActivity/PersonaActivityAttributes.swift': ['PersonaActivityAttributes'],
         }
         for path, names in expected.items():
@@ -99,8 +100,10 @@ class AppleRenameTests(unittest.TestCase):
                 with self.subTest(path=path, name=name):
                     self.assertRegex(source, r'\bstruct ' + name + r'\s*:')
         controls = (APPLE / 'PersonaWidgets/PersonaControls.swift').read_text()
-        self.assertIn('kind: "persona.control.ask"', controls)
-        self.assertIn('kind: "persona.control.agents"', controls)
+        # Only the stable kinds (LegacyNames) for Ask Persona and Persona Agents: the interim ones listed them twice (#1996).
+        self.assertNotIn('kind: "persona.control.ask"', controls)
+        self.assertNotIn('kind: "persona.control.agents"', controls)
+        self.assertIn('kind: "persona.control.type"', controls)
         info = plistlib.loads((APPLE / 'PersonaNotify/Info.plist').read_bytes())
         self.assertEqual(info['NSExtension']['NSExtensionPrincipalClass'], '$(PRODUCT_MODULE_NAME).NotificationService')
         self.assertIn('PersonaPushKeychainGroup', info)

@@ -30,16 +30,7 @@ enum QuickAction: String, CaseIterable {
         let model = AppModel.shared
         model.shellSettings = false
         switch action {
-        case .newConversation:
-            model.selectedTab = .assistant
-            // As the drawer's New Chat: the shell takes Assistant back to its root (a pushed inbox included), the old tabs only
-            // need the conversation gone.
-            if let shell = model.tabRouter as? ShellState {
-                shell.show(.newConversation)
-                shell.drawer.close()
-            } else {
-                model.assistantCurrent = nil
-            }
+        case .newConversation: model.openNewAssistantConversation()
         case .agents: model.selectedTab = .chats
         case .inbox: model.selectedTab = .mail
         }

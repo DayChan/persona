@@ -58,16 +58,21 @@ class PersonaOnlyTests(unittest.TestCase):
         text = migration.read_text(encoding="utf-8")
         self.assertIn("Compatibility never deletes a previous store", text)
 
-    def test_native_controls_keep_stable_kinds_and_register_interim_kinds_once(self):
+    def test_native_controls_keep_stable_kinds_and_list_each_control_once(self):
         controls = source("PersonaWidgets/PersonaControls.swift")
         for stable in ["controlAskKind", "controlAgentsKind"]:
             self.assertEqual(controls.count(f"Self.configuration(kind: LegacyNames.{stable})"), 1)
+        # The interim kinds listed every control twice in the gallery (#1996): they are no longer registered.
         for interim in ["persona.control.ask", "persona.control.agents"]:
-            self.assertEqual(controls.count(f'configuration(kind: "{interim}")'), 1)
+            self.assertNotIn(f'kind: "{interim}"', controls)
+        # Type to Persona is new: a canonical kind of its own, with nothing older to retain.
+        self.assertEqual(controls.count('StaticControlConfiguration(kind: "persona.control.type")'), 1)
         bundle = source("PersonaWidgets/PersonaWidgetsBundle.swift")
-        for widget in ["AskPersonaControl", "PersonaAgentsControl", "CompatibleAssistantControl", "CompatibleAgentsControl",
+        for widget in ["AskPersonaControl", "PersonaAgentsControl", "TypeToPersonaControl",
                        "FleetLiveActivity", "CompatibleFleetLiveActivity"]:
             self.assertEqual(len(re.findall(rf"\b{widget}\(\)", bundle)), 1)
+        for retired in ["CompatibleAssistantControl", "CompatibleAgentsControl"]:
+            self.assertNotIn(retired, bundle)
 
     def test_duplicate_key_guards_reject_silent_overwrites(self):
         with self.assertRaises(ValueError):

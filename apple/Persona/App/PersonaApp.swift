@@ -189,6 +189,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             AppModel.shared.assistantCurrent = nil
         }
         AppModel.shared.debugShowNewChat = d.bool(forKey: "showNewChat")
+        // `-openTypeControl YES`: what a press on the Type to Persona control does, at launch (TypeControlUITests). `-openTypeControl
+        // <seconds>`: that long after the shell is up and Persona's settings loaded, the path of an app that is already running.
+        if let press = d.string(forKey: "openTypeControl") {
+            let seconds = Double(press) ?? 0
+            if seconds <= 0 {
+                AppModel.shared.openTypingConversation()
+            } else {
+                Task { @MainActor in
+                    for _ in 0..<300 where AppModel.shared.tabRouter == nil || AppModel.shared.assistantMain == nil {
+                        try? await Task.sleep(for: .milliseconds(200))
+                    }
+                    try? await Task.sleep(for: .seconds(seconds))
+                    AppModel.shared.openTypingConversation()
+                }
+            }
+        }
         // `-simulateTap <machine>/<session>`: what tapping a push does, 4 s after launch (on another screen by then).
         if let tap = d.string(forKey: "simulateTap"), let key = AppModel.shared.resolve(path: tap) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { AppDelegate.openFromNotification(key) }
