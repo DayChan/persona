@@ -116,6 +116,21 @@ func (d *DB) AppendFeed(ctx context.Context, f FeedRow) error {
 	return err
 }
 
+// AppendFeedOnce inserts a feed item only if its stable ID is not already present.
+func (d *DB) AppendFeedOnce(ctx context.Context, f FeedRow) (bool, error) {
+	body := []byte(f.Body)
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	tag, err := d.pool.Exec(ctx, `INSERT INTO assistant_feed (id, conversation, at, kind, ref, body, sent_at)
+		VALUES ($1, $2, $3, $4, $5, $6, ($6::jsonb->>'sent_at')::timestamptz)
+		ON CONFLICT (id) DO NOTHING`, f.ID, f.Conversation, f.At, f.Kind, f.Ref, body)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // Feed lists a conversation's items after since (zero: from the start), oldest first, at most limit, and the
 // message cards put in before since but sent after it (their body changed, not their time). Each half reads its own
 // index (assistant_feed_conversation, assistant_feed_sent): one OR over both read every row of the conversation.

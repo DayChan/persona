@@ -687,6 +687,33 @@ func (m *memStore) PutSetting(_ context.Context, key string, v any) error {
 	return nil
 }
 
+// CompareSetting applies a versioned setting only while its revision matches.
+func (m *memStore) CompareSetting(_ context.Context, key string, revision int64, value any) (bool, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var current struct {
+		Revision int64 `json:"revision"`
+	}
+	if b, ok := m.vals[key]; ok {
+		if err := json.Unmarshal(b, &current); err != nil {
+			return false, err
+		}
+	}
+	if current.Revision != revision {
+		return false, nil
+	}
+	if m.vals == nil {
+		m.vals = make(map[string][]byte)
+	}
+	m.vals[key] = raw
+	m.puts++
+	return true, nil
+}
+
 // PutSettings marshals every value before taking the lock and committing the complete batch.
 func (m *memStore) PutSettings(ctx context.Context, values map[string]any) error {
 	encoded := make(map[string][]byte, len(values))
