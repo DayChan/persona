@@ -35,6 +35,8 @@ const HOUR = 48;
 const BLOCK = 44;
 const BLOCK_MINUTES = (BLOCK / HOUR) * 60;
 const GUTTER = 56;
+/** Room the axis opens with above its first hour: that hour's label sits across its line and would be cut. */
+const LABEL_ROOM = HOUR / 4;
 /** Lines a day of the month shows: its entries, or one fewer and "N more". */
 const MONTH_LINES = 3;
 
@@ -168,7 +170,7 @@ function Axis({
   // Open where the day's to-dos and the moment are in sight; again whenever the days change.
   const start = firstHour(days, timed, now);
   useLayoutEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = start * HOUR;
+    if (scroller.current) scroller.current.scrollTop = Math.max(0, start * HOUR - LABEL_ROOM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days[0], days.length]);
   const cols = { gridTemplateColumns: `${GUTTER}px repeat(${days.length}, minmax(0, 1fr))` };
