@@ -19,7 +19,7 @@ import (
 // plugin for what the apps ask (the shapes of agents/wire.go), and the plugin's agentsrc.updated event re-pulls
 // sessions in the apps at once, so a plugin with a live connection to its agents needs no polling.
 
-// pluginAgentSource is one agent_sources contribution of a running plugin, as an agents.Source.
+// extensionAgentSource is one agent_sources contribution of a running plugin, as an agents.Source.
 type extensionAgentSource struct {
 	item extension.AgentSourceItem
 	proc *host.Proc

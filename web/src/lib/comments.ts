@@ -180,11 +180,6 @@ export function isCommentHead(line: string): boolean {
   return HEAD.test(line.trim());
 }
 
-/** `path:12-14` for a code comment, with the diff it is in when it is one. */
-export function spotLabel(s: CodeSpot): string {
-  return `${s.file}:${rangeLabel(s.from, s.to)}${s.diff ? ` · ${diffLabel(s.diff)}` : ""}`;
-}
-
 /** The comment as the block the agent reads (before the `> ` marks): its number, where, the words or code, the note. */
 export function commentBlock(q: DraftQuote, n: number): string {
   const c = q.comment;

@@ -114,7 +114,7 @@ const (
 	NotifyReply = "reply"
 )
 
-// FleetState is the Live Activity's ContentState, field for field (apple/LiveActivity/FleetActivity.swift). Times
+// FleetState is the Live Activity's ContentState, field for field (apple/Shared/FleetState.swift). Times
 // are Unix seconds: ActivityKit decodes pushed JSON with a default JSONDecoder, which would read a Date as seconds
 // since 2001. The manager works out what it shows; the hub fills in each device's part (Details, Left, Right, Stats,
 // Look) when it pushes.

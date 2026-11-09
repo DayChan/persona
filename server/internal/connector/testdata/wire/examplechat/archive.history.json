@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "id": "880000000003",
+      "position": "3",
+      "type": "IMAGE",
+      "text": "[图片]",
+      "at": "2026-11-04T08:23:00.000Z",
+      "sender_id": "user_example_a",
+      "sender_name": "Example A",
+      "media": ["examplechat:media/880000000003"]
+    },
+    {
+      "id": "880000000004",
+      "position": "4",
+      "mine": true,
+      "type": "TEXT",
+      "text": "Synthetic reply from the account owner",
+      "at": "2026-11-04T08:24:00.000Z"
+    }
+  ],
+  "older": "3",
+  "more": true
+}

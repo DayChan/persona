@@ -23,12 +23,14 @@ const (
 // Item is an adapter's immutable session projection. ID must be a globally
 // unique, opaque composite identifier, including any adapter/machine namespace.
 // Source is a filterable attribute, independent of Replace's batch owner key.
-// Full and Summary should be JSON-compatible values. Replace detaches exported
+// PaneSource is an adapter-supplied origin, independent of Source; this index
+// never derives it from transport metadata. Full and Summary should be
+// JSON-compatible values. Replace detaches exported
 // maps, slices, and pointers; hidden state in custom payload types must be
 // immutable. Callers must not mutate payloads concurrently with Replace.
 type Item struct {
-	ID                                               string
-	Machine, Project, Group, State, Source, Provider string
+	ID                                                           string
+	Machine, Project, Group, State, Source, Provider, PaneSource string
 	// BackgroundWaiting: a working row that only waits on background commands (#6045). It stays in State's count
 	// (older apps call it working) and is counted apart in Counts.BackgroundWaiting too.
 	BackgroundWaiting bool
@@ -43,9 +45,9 @@ type Item struct {
 // ID is an adapter-supplied exact composite identity, not a public query key;
 // it selects at most one row and cannot be combined with Cursor or Since.
 type Options struct {
-	Limit                                                                  int
-	ID, Cursor, Since, State, Machine, Project, Group, Source, Provider, Q string
-	Summary                                                                bool
+	Limit                                                                              int
+	ID, Cursor, Since, State, Machine, Project, Group, Source, Provider, Q, PaneSource string
+	Summary                                                                            bool
 }
 
 // Page contains transport values rather than adapter-specific session types.
@@ -61,13 +63,15 @@ type Page struct {
 }
 
 // Counts describes the complete filtered membership, ignoring page size.
-// Empty attribute values are counted under the empty string key.
+// Empty attribute values are counted under the empty string key. PaneSource
+// is omitted for adapters that do not supply an origin attribute.
 type Counts struct {
-	Total   int            `json:"total"`
-	Machine map[string]int `json:"machine"`
-	Project map[string]int `json:"project"`
-	Group   map[string]int `json:"group"`
-	State   map[string]int `json:"state"`
+	Total      int            `json:"total"`
+	Machine    map[string]int `json:"machine"`
+	Project    map[string]int `json:"project"`
+	Group      map[string]int `json:"group"`
+	State      map[string]int `json:"state"`
+	PaneSource map[string]int `json:"pane_source,omitempty"`
 	// BackgroundWaiting: how many of State["working"] only wait in the background (#6045): a client that shows them
 	// apart takes them out of its Working count.
 	BackgroundWaiting int    `json:"background_waiting,omitempty"`
@@ -97,7 +101,7 @@ type journalEntry struct {
 }
 
 type filters struct {
-	ID, State, Machine, Project, Group, Source, Provider, Q string
+	ID, State, Machine, Project, Group, Source, Provider, Q, PaneSource string
 }
 
 type binding struct {

@@ -127,3 +127,13 @@ func TestPersonalAgentHideRoutes(t *testing.T) {
 		t.Fatalf("listed after unhide: %d", n)
 	}
 }
+
+func TestPersonalAgentRejectsPaneSource(t *testing.T) {
+	_, hd, _ := agentsHub(t)
+	for _, query := range []string{"pane_source=terminal", "pane_source=unknown&counts=1", "pane_source=desktop&summary=1", "pane_source=", "pane_source=terminal&pane_source=feishu"} {
+		code, body := do(t, hd, "GET", "/api/v1/agents/sessions?"+query, "")
+		if code != 400 || body["code"] != "invalid_query" {
+			t.Fatalf("%s: %d %v", query, code, body)
+		}
+	}
+}

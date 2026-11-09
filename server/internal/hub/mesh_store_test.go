@@ -277,6 +277,19 @@ func (s *meshStore) RevokeDeviceToken(_ context.Context, id string) (bool, error
 	return false, nil
 }
 
+func (s *meshStore) RevokeMachineCredentials(_ context.Context, machine string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []string
+	for _, t := range s.tokens {
+		if t.MachineID == machine && t.Role == roleLink && !s.revoked[t.ID] {
+			s.revoked[t.ID] = true
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids, nil
+}
+
 func (s *meshStore) TouchDeviceToken(context.Context, string) error { return nil }
 
 func (s *meshStore) CreatePairToken(context.Context, string, time.Time, string) error { return nil }

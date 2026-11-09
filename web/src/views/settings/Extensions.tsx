@@ -142,7 +142,7 @@ function ExtensionPage({ id, ui, manager, onBack }: { id: string; ui: string; ma
         <span className="flex-1" />
         <IconButton icon="retry" label={t("settings-extensions.redraw")} onClick={() => setN((x) => x + 1)} />
       </div>
-      <ExtensionUI key={n} extension={id} ui={ui} title={title} />
+      <ExtensionUI key={n} extension={id} ui={ui} title={title} manager={manager} />
     </>
   );
 }

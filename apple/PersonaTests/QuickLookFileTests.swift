@@ -122,12 +122,66 @@ struct QuickLookFileTests {
         let launch2 = FileThumbnails(directory: dir)
         #expect(await launch2.thumbnail(ref, size: 0, modified: nil, side: 56, scale: 2, api: hub.client) != nil)
         #expect(asked == ["-", "\"t1\""])
-        // A listed file (size and time known) is never asked again once kept.
+        // A listed file is also checked once on the next launch: processing may change without a source change.
         let listed = FileRef(machineID: "box", path: "/w/listed.docx", cwd: "/w")
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(await launch2.thumbnail(listed, size: 9, modified: at, side: 56, scale: 2, api: hub.client) != nil)
         #expect(await FileThumbnails(directory: dir).thumbnail(listed, size: 9, modified: at, side: 56, scale: 2, api: hub.client) != nil)
-        #expect(asked.count == 3)
+        #expect(asked.count == 4)
+    }
+
+    @Test func listedThumbnailsRevalidatePreUpgradePixelsWithoutASourceChange() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-upgrade-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        func png(width: Int, height: Int) throws -> Data {
+            let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            let out = NSMutableData()
+            let dest = try #require(CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(dest, try #require(ctx.makeImage()), nil)
+            #expect(CGImageDestinationFinalize(dest))
+            return out as Data
+        }
+        let sideways = try png(width: 60, height: 30), upright = try png(width: 30, height: 60)
+        let ref = FileRef(machineID: "box", path: "/w/portrait.jpg", cwd: "/w")
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        // This is the unchanged pre-upgrade key and persisted bytes, including an opaque legacy validator.
+        let key = FileThumbnails.key(group: "", machine: "box", path: ref.path, size: 1234, modified: at)
+        let file = dir.appending(path: key), tagFile = dir.appending(path: key + ".etag")
+        try sideways.write(to: file)
+        try "\"legacy-opaque\"".write(to: tagFile, atomically: true, encoding: .utf8)
+        #expect(FileThumbnails.decode(try Data(contentsOf: file), document: false)?.size.width == 60)
+        let hub = FakeHub()
+        var nodeUpgraded = false
+        var asked: [String?] = []
+        hub.on("GET", "/api/v1/machines/box/file/thumb") { request in
+            let tag = request.query["If-None-Match"]
+            asked.append(tag)
+            if !nodeUpgraded || tag == "\"current-opaque\"" { throw APIError(status: 304, message: "") }
+            #expect(tag == "\"legacy-opaque\"")
+            return upright
+        }
+        // Updated app, old node: a legitimate 304 keeps the disk copy for this launch only.
+        let before = FileThumbnails(directory: dir)
+        #expect(await before.thumbnail(ref, size: 1234, modified: at, side: 56, scale: 2, api: hub.client)?.size.width == 60)
+        #expect(await before.thumbnail(ref, size: 1234, modified: at, side: 56, scale: 2, api: hub.client)?.size.width == 60)
+        #expect(asked == ["\"legacy-opaque\""])
+        // Node upgrades later. The source identity is identical; the next launch must still ask.
+        nodeUpgraded = true
+        let after = FileThumbnails(directory: dir)
+        let image = await after.thumbnail(ref, size: 1234, modified: at, side: 56, scale: 2, api: hub.client)
+        #expect(image?.size.width == 30 && image?.size.height == 60)
+        #expect(try Data(contentsOf: file) == upright)
+        #expect(asked == ["\"legacy-opaque\"", "\"legacy-opaque\""])
+        #expect(await after.thumbnail(ref, size: 1234, modified: at, side: 56, scale: 2, api: hub.client)?.size.width == 30)
+        #expect(asked.count == 2)
+        // The real transport stores this header. A current opaque validator keeps the corrected bytes on 304.
+        try "\"current-opaque\"".write(to: tagFile, atomically: true, encoding: .utf8)
+        #expect(await FileThumbnails(directory: dir).thumbnail(ref, size: 1234, modified: at, side: 56, scale: 2, api: hub.client)?.size.width == 30)
+        #expect(asked.last! == "\"current-opaque\"")
     }
 
     @Test func streamedImagesAndPDFsAreDownloadedWhole() async throws {

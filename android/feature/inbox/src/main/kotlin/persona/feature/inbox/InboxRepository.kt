@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import persona.core.contracts.SessionKey
 import persona.core.contracts.LarkReaction
 import persona.core.contracts.api.ConnectionState
 import persona.core.contracts.api.MailTransport
@@ -57,7 +58,7 @@ interface InboxRepository : persona.core.contracts.api.InboxRepository {
         error("建议尚未接入") // i18n-ignore: developer error for a repository without the hub
 
     /** "Hand to AI": the item as context with what to do, queued for Persona's main conversation or a running Agent. */
-    suspend fun handOff(request: InboxHandOffRequest): Unit = error("交给 AI 尚未接入") // i18n-ignore: developer error for a repository without the hub
+    suspend fun handOff(request: InboxHandOffRequest): SessionKey? = error("交给 AI 尚未接入") // i18n-ignore: developer error for a repository without the hub
     fun replyUpdates(target: ReplyTarget): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
     suspend fun replyStatus(target: ReplyTarget, clientId: String): ReplyDelivery = ReplyDelivery.Ready
     suspend fun verifyReply(target: ReplyTarget, clientId: String): ReplyDelivery = ReplyDelivery.Unknown

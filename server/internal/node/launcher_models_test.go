@@ -249,7 +249,7 @@ func TestLauncherModelsAnswersAnExpiredListAtOnce(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the background ask never replaced the list: %+v", res)
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond) // sleep-ok: the poll interval of a wait bounded by the deadline above
 	}
 
 	// Too old to show: the ask waits for the CLI, as it does with no list.

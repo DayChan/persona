@@ -17,7 +17,7 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// serveInboxUIPluginForTest has a connector (examplechat) and draws the page of its inbox items: it writes back what
+// serveInboxUIExtensionForTest has a connector (examplechat) and draws the page of its inbox items: it writes back what
 // the hub told it of the item, and its "Handled" says which item it was pressed on.
 func serveInboxUIExtensionForTest() {
 	_ = pserve.Serve(context.Background(), os.Stdin, os.Stdout, pserve.Program{ID: "example-chat", Version: "1.0.0",

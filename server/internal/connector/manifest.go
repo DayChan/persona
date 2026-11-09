@@ -39,6 +39,10 @@ const (
 	CapFallback Capability = "fallback" // (none: every inbox thing carries extra.rule_tier)
 	CapMachines Capability = "machines" // Machines
 	CapRecall   Capability = "recall"   // (none: a program's connector declares it; Recaller is found by RecallerOf)
+	// History import (docs/protocol/connector-protocol.md "History"): CapHistory needs CapArchive, CapHistoryAnchors
+	// needs CapHistory.
+	CapHistory        Capability = "history"         // History
+	CapHistoryAnchors Capability = "history_anchors" // HistoryAnchors
 )
 
 type capability struct {
@@ -68,6 +72,8 @@ var capabilities = []capability{
 	{CapFallback, nil, false},
 	{CapMachines, reflect.TypeFor[Machines](), false},
 	{CapRecall, nil, false},
+	{CapHistory, reflect.TypeFor[History](), true},
+	{CapHistoryAnchors, reflect.TypeFor[HistoryAnchors](), true},
 }
 
 // Manifest is what a connector says it is and does, in one place (docs/extensions/connectors.md "2 · 1"): read whenever the
@@ -194,6 +200,12 @@ func Check(c Connector) error {
 	}
 	if m.Has(CapFallback) && !m.Has(CapInbox) {
 		errs = append(errs, errors.New("declares fallback without an inbox"))
+	}
+	if m.Has(CapHistory) && !m.Has(CapArchive) {
+		errs = append(errs, errors.New("declares history without an archive"))
+	}
+	if m.Has(CapHistoryAnchors) && !m.Has(CapHistory) {
+		errs = append(errs, errors.New("declares history_anchors without history"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("connector %s: %w", c.ID(), err)

@@ -28,8 +28,12 @@ const (
 	// CodeModelPaused: the connection is held (quota used up or busy, ai.IsPaused); data ModelPause. Nothing was
 	// sent: try again after until.
 	CodeModelPaused = "model_paused"
-	// CodeModelFailed: the upstream refused or failed the request (its message says why).
+	// CodeModelFailed: the upstream failed the request (its message says why): an error status, a dropped
+	// connection. A declined request is CodeModelRefused instead.
 	CodeModelFailed = "model_failed"
+	// CodeModelRefused: the model declined to answer this input (a refusal, a content filter); data ModelRefusal.
+	// Sending it again unchanged gets the same answer: split it, drop a part or report it instead.
+	CodeModelRefused = "model_refused"
 	// CodeInvalidOutput: with json_schema, the reply was still not JSON matching it after one more try; data
 	// ModelInvalidOutput.
 	CodeInvalidOutput = "invalid_output"
@@ -120,4 +124,11 @@ type ModelInvalidOutput struct {
 	Problem string     `json:"problem"`
 	Text    string     `json:"text"`
 	Usage   ModelUsage `json:"usage"`
+}
+
+// ModelRefusal is the data of model_refused: what the upstream said and what the declined call spent.
+type ModelRefusal struct {
+	// StopReason is the upstream's reason: refusal or content_filter.
+	StopReason string     `json:"stop_reason,omitempty"`
+	Usage      ModelUsage `json:"usage"`
 }

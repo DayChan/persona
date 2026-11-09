@@ -121,6 +121,8 @@ func (b *todoBook) linkedNow(key [2]string) bool {
 // now, or that was ever on the todo (dismissed included). Memory first, so the report says it at once; the store
 // after, undone when it fails. True when any was linked.
 func (s *Service) autoLinkTodos(machine string, sessions []proto.Session) bool {
+	s.todos.writing.Lock()
+	defer s.todos.writing.Unlock()
 	now := time.Now().UTC()
 	var pending []pendingAutoLink
 	startErrors := s.startErrorsOf(machine, sessions)
@@ -205,9 +207,34 @@ func (s *Service) autoLinkTodos(machine string, sessions []proto.Session) bool {
 				defer cancel()
 				undone := false
 				for _, item := range pending {
+					s.todos.writing.Lock()
+					if item.source == "space" {
+						s.todos.mu.RLock()
+						current := false
+						if target := s.todos.todos[item.todoID]; target != nil {
+							for _, a := range target.Agents {
+								if a.MachineID == item.machineID && a.SessionID == item.sessionID && a.LinkedAt.Equal(item.linkedAt) && a.ReleasedAt == nil && a.DismissedAt == nil && a.Source == "space" && s.todos.spacesByKey[a.Via] == item.todoID {
+									item.via = a.Via // a workspace rename may have carried this pending link along
+									current = true
+									break
+								}
+							}
+						}
+						s.todos.mu.RUnlock()
+						if !current {
+							s.todos.mu.Lock()
+							if s.todos.undoAutoLink(item, time.Now().UTC()) {
+								undone = true
+							}
+							s.todos.mu.Unlock()
+							s.todos.writing.Unlock()
+							continue // the move/unlink removed this pending link before it reached the store
+						}
+					}
 					inserted, _, err := st.AutoLinkUnlinkedTodoAgent(ctx, item.todoID, item.machineID, item.sessionID, item.title, item.cwd,
 						item.agent, item.startError, item.source, item.via, item.linkedAt)
 					if err == nil && inserted {
+						s.todos.writing.Unlock()
 						continue
 					}
 					// The store has it otherwise (an error, a row memory did not know of: one just dismissed, or a link by hand since).
@@ -217,6 +244,7 @@ func (s *Service) autoLinkTodos(machine string, sessions []proto.Session) bool {
 						undone = true
 					}
 					s.todos.mu.Unlock()
+					s.todos.writing.Unlock()
 				}
 				if undone {
 					s.linksChanged(ctx)

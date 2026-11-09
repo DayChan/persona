@@ -24,14 +24,14 @@ const adminUploadPath = "/api/v1/admin/extensions/upload"
 // legacyAdminUploadPath is adminUploadPath before #1844, where the admin UI out there still uploads.
 const legacyAdminUploadPath = "/api/v1/admin/plugins/upload"
 
-// Previews stage packages of up to plugin.PackageMost bytes on disk for 10 minutes: one at a time, and at most
-// pluginPreviewsPer in pluginPreviewWindow, so a stolen session cannot fill the disk.
+// Previews stage packages of up to extension.PackageMost bytes on disk for 10 minutes: one at a time, and at most
+// extensionPreviewsPer in extensionPreviewWindow, so a stolen session cannot fill the disk.
 const (
 	extensionPreviewsPer   = 10
 	extensionPreviewWindow = 10 * time.Minute
 )
 
-// pluginGate holds previews to one at a time and pluginPreviewsPer a window.
+// extensionGate holds previews to one at a time and extensionPreviewsPer a window.
 type extensionGate struct {
 	mu     sync.Mutex
 	busy   bool
@@ -64,7 +64,7 @@ func (g *extensionGate) begin(now time.Time) (end func(), retry time.Duration, b
 	}, 0, false
 }
 
-// AdminPlugins is GET /api/v1/admin/plugins.
+// AdminExtensions is GET /api/v1/admin/plugins.
 type AdminExtensions struct {
 	Extensions []any `json:"extensions"`
 	CanInstall bool  `json:"can_install"`

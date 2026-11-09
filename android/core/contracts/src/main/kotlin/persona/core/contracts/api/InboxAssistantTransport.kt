@@ -39,6 +39,9 @@ interface InboxAssistantTransport {
     suspend fun bulk(items: List<InboxDoneTarget>, action: InboxBulkAction): JsonObject =
         setDone(items, action != InboxBulkAction.Reopen)
     suspend fun reply(itemId: String?, feedId: String?, text: String, clientId: String): JsonObject
+    /** Hands an item to its manager's main chat (`POST /api/v1/inbox/{id}/handoff`), answering `{item, session}`. */
+    suspend fun handOff(itemId: String, text: String, clientId: String): JsonObject =
+        throw UnsupportedOperationException("Inbox hand-off route unavailable")
     /**
      * Acts on an item's suggestion (`POST /api/v1/inbox/{id}/suggestion`, inbox phase 1): [action] is confirm, reject or
      * instruct, [version] the suggestion's as shown, [text] the edited text (confirm) or the words (instruct). Answers

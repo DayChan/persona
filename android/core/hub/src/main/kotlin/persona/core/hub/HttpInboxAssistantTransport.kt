@@ -118,6 +118,12 @@ class HttpInboxAssistantTransport private constructor(
             else url("api", "v1", "lark", "conversations", requireNotNull(feedId), "messages")
         return json(target, buildJsonObject { put("text", text); put("client_id", clientId) })
     }
+    override suspend fun handOff(itemId: String, text: String, clientId: String): JsonObject {
+        require(itemId.isNotBlank() && text.isNotBlank() && clientId.isNotBlank())
+        return json(url("api", "v1", "inbox", itemId, "handoff"), buildJsonObject {
+            put("text", text); put("client_id", clientId)
+        })
+    }
     override suspend fun suggestion(itemId: String, version: Long, action: String, text: String?, clientId: String): JsonObject {
         require(itemId.isNotBlank() && clientId.isNotBlank() && action in setOf("confirm", "reject", "instruct"))
         return try {

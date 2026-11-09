@@ -1,0 +1,30 @@
+{
+  "chats": [
+    {
+      "id": "primary.user_example_a",
+      "name": "Example A",
+      "kind": "dm",
+      "estimate": 4
+    },
+    {
+      "id": "primary.group_example_team",
+      "name": "Example team",
+      "kind": "group",
+      "muted": true,
+      "estimate": 1200
+    },
+    {
+      "id": "primary.group_example_gone",
+      "name": "Example group the account left",
+      "kind": "group",
+      "collapsed": true,
+      "done": true
+    },
+    {
+      "id": "primary.bot_example_notices",
+      "name": "Example notices",
+      "kind": "bot",
+      "bot": true
+    }
+  ]
+}

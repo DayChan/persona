@@ -20,5 +20,6 @@
   "git_token": "git トークンには認証情報を含まない HTTPS クローン URL が必要で、レジストリへのアクセスは許可しません。",
   "credential_move": "別のオリジンまたは GitHub 所有者へ移動する前にマーケットのトークンを削除してください。",
   "no_store": "この拡張機能マネージャーには設定ストアがありません。",
-  "http_status": "レジストリが HTTP {status} を返しました。"
+  "http_status": "レジストリが HTTP {status} を返しました。",
+  "credential_refused": "レジストリがこのマーケットのトークンを拒否し（HTTP {status}）、トークンなしでもパッケージを取得できません。非公開のパッケージなら、トークンにパッケージの読み取り権限（GitHub では read:packages）が必要です。"
 }

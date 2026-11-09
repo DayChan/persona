@@ -18,7 +18,7 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// serveAgentSourcePluginForTest is a plugin with one personal agents source: one session it can send to, the texts
+// serveAgentSourceExtensionForTest is a plugin with one personal agents source: one session it can send to, the texts
 // it was sent kept as messages, and agentsrc.updated after each send (as a plugin watching its agents would).
 func serveAgentSourceExtensionForTest() {
 	var mu sync.Mutex

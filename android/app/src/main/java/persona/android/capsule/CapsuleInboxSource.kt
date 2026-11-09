@@ -15,7 +15,7 @@ import persona.core.contracts.api.ChatSnapshot
 import persona.core.contracts.api.InboxDoneTarget
 import persona.feature.inbox.*
 import persona.platform.capsule.*
-import java.util.UUID
+import persona.core.contracts.SessionKey
 
 /** A projection of the app-owned inbox; it never substitutes task completion for a read receipt. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -32,6 +32,8 @@ internal class CapsuleInboxSource(
     private val requested = MutableStateFlow<SelectionRequest?>(null)
     private val expanded = MutableStateFlow(false)
     private val targets = MutableStateFlow<Map<InboxConversationKey, String>>(emptyMap())
+    private val handOffAttempts = mutableMapOf<InboxConversationKey, HandOffAttempt>()
+    private val handedOffSessions = MutableStateFlow<Map<InboxConversationKey, SessionKey>>(emptyMap())
     private val personaDrafts = MutableStateFlow<Map<InboxConversationKey, String>>(emptyMap())
     private val personaRequests = MutableStateFlow<Map<InboxConversationKey, Map<String, String>>>(emptyMap())
     private val context = MutableStateFlow<String?>(null)
@@ -69,9 +71,9 @@ internal class CapsuleInboxSource(
         if (target == null) flowOf(null to ReplyComposerState())
         else target.binding.composer.state.map { target to it }
     }.stateIn(scope, SharingStarted.Eagerly, null to ReplyComposerState())
-    private val privateChat = combine(session.assistant.assistant, selection, targets, expanded) { assistant, selected, targets, shown ->
+    private val privateChat = combine(session.assistant.assistant, selection, targets, expanded, handedOffSessions) { assistant, selected, targets, shown, handedOff ->
         val key = selected?.key
-        assistant.mainSession?.takeIf { shown && key != null && targets[key] == "persona" }
+        (handedOff[key] ?: assistant.mainSession)?.takeIf { shown && key != null && targets[key] == "persona" }
     }.distinctUntilChanged().flatMapLatest { key ->
         if (key == null) flowOf(ChatSnapshot(loading = false)) else session.chats.observe(key)
     }.stateIn(scope, SharingStarted.Eagerly, ChatSnapshot(loading = false))
@@ -238,13 +240,16 @@ internal class CapsuleInboxSource(
         check(entryId(key) == id && text.isNotBlank()) { AppText.get(R.string.app_capsule_changed) }
         val row = selected.controller.state.value.rows.firstOrNull { it.key == key } ?: error(AppText.get(R.string.app_capsule_closed))
         if (targets.value[key] == "persona") {
-            val operation = UUID.randomUUID().toString()
             val loaded = window.value.takeIf { it.first === selected }?.second
             check(loaded?.verified == true) { AppText.get(R.string.app_capsule_body_unsynced) }
             val quoted = loaded.messages.joinToString("\n") { "${it.senderName}: ${messageText(it)}" }
             val request = "<persona-context>\n${contextBody(row.title + "\n" + quoted)}\n</persona-context>\n$text"
+            val attempt = handOffAttempts.getOrPut(key) { HandOffAttempt() }
+            val operation = attempt.operationId(request, null)
             personaRequests.update { it + (key to (it[key].orEmpty() + (operation to text))) }
-            session.inbox.handOff(InboxHandOffRequest(row.itemId, request, operationId = operation))
+            val destination = session.inbox.handOff(InboxHandOffRequest(row.itemId, request, operationId = operation))
+            attempt.done()
+            handedOffSessions.update { if (destination == null) it - key else it + (key to destination) }
             personaDrafts.update { if (it[key] == text) it - key else it }
         } else {
             val composer = selected.binding.composer
@@ -312,7 +317,7 @@ internal class CapsuleInboxSource(
                 if (result.changedSince.isNotEmpty()) error(AppText.get(R.string.app_capsule_item_updated_check))
             }
             "context" -> {
-                if (targets.value[key] == "persona") session.assistant.assistant.value.mainSession?.let { session.chats.loadOlder(it) }
+                if (targets.value[key] == "persona") (handedOffSessions.value[key] ?: session.assistant.assistant.value.mainSession)?.let { session.chats.loadOlder(it) }
                 else session.inbox.loadOlder(key.thread)
                 currentCoroutineContext().ensureActive()
                 if (currentSelection() !== selected) return

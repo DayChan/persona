@@ -3039,11 +3039,12 @@ export const CONNECTOR_ERROR_CODES = ["rate_limited", "no_machine", "offline", "
 /**
  * What a connector declares (ConnectorItem.capabilities): the hub calls only the methods of declared ones. fallback
  * has no method: every inbox thing promises extra.rule_tier. recall is the program's word that it can take back what
- * it sent: the hub then calls connector.recall (only after the user agreed), and the install preview says so. An
+ * it sent: the hub then calls connector.recall (only after the user agreed), and the install preview says so. history
+ * (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. An
  * extension's connector with one this hub does not know loses only that capability.
  */
-export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | (string & {});
-export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall"] as const;
+export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | "history" | "history_anchors" | (string & {});
+export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors"] as const;
 
 /**
  * ConnectorStatus.state. disabled is the hub's own (the user switched it off); a program never answers it.
@@ -3633,12 +3634,26 @@ export interface ConnectorChatBatch {
   messages?: ConnectorArchiveMessage[];
 }
 
+/**
+ * A batch's conversation. The flags are what the owner set at the source (none: not set, or the program cannot tell);
+ * the knowledge base's selection matches its rules on them and on kind, and a flag a program never reports never
+ * matches its rule.
+ */
 export interface ConnectorArchiveChat {
   id: string;
   name: string;
-  /** dm, group or bot. */
+  /**
+   * The selection's kind rules match dm, group, bot, official (an official or service account) and system (the
+   * service's own notices); a source may report other kinds (mail, issue, pr…), which match no kind rule.
+   */
   kind: string;
   topic?: boolean;
+  /** The owner muted it (a source's automatic muting of large groups included). */
+  muted?: boolean;
+  /** The owner folded it away (a chat box, folded groups). */
+  collapsed?: boolean;
+  /** The owner marked it done. */
+  done?: boolean;
   updated_at?: string;
 }
 
@@ -3651,6 +3666,16 @@ export interface ConnectorArchiveMessage {
   sender_id?: string;
   sender_name?: string;
   mine?: boolean;
+  /**
+   * The owner is mentioned by name in it (an @-mention of the owner, or the owner's display names): the program
+   * decides, on archive.changes batches and history pages alike. An @all alone is mentioned_all.
+   */
+  mentioned?: boolean;
+  /**
+   * It mentions everyone in the chat (an @all / @everyone). Reported apart from mentioned: whether it counts as a
+   * mention is the knowledge base's selection (include_all).
+   */
+  mentioned_all?: boolean;
   /** TEXT, POST, IMAGE, FILE, CARD, SYSTEM… */
   type?: string;
   text?: string;
@@ -3659,6 +3684,111 @@ export interface ConnectorArchiveMessage {
   media?: string[];
   /** Raw identity clues; the hub keeps only their HMAC. */
   sender_handles?: KBHandle[];
+}
+
+/**
+ * history.chats: the conversations the connector can import the history of. Read-only.
+ */
+export interface ConnectorHistoryChats {
+  chats: ConnectorHistoryChat[];
+}
+
+/**
+ * One conversation to import: estimate is roughly how many messages it has (0 or none: unknown); source is the name
+ * it is filed under, as a batch's (none: the connector's id). id alone names it, unique across the connector's
+ * sources.
+ */
+export interface ConnectorHistoryChat {
+  id: string;
+  name: string;
+  kind: string;
+  /** As an archive chat's muted, collapsed and done. */
+  muted?: boolean;
+  collapsed?: boolean;
+  done?: boolean;
+  bot?: boolean;
+  estimate?: number;
+  source?: string;
+}
+
+/**
+ * archive.history: one page of a conversation, older than before, newer than after, or around a position (at most
+ * one; none: the newest page). Positions and cursors are the program's own strings. limit is a hint (the hub sends at
+ * most 200; 0 or none: the program's default) and a program may answer more.
+ */
+export interface ConnectorHistoryParams {
+  contribution: string;
+  chat: string;
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
+}
+
+/**
+ * archive.history's answer, messages oldest first. older is the cursor to go further back and more says there is
+ * older history. Read in this order, since a paced or unreadable page is empty with more false too: pace asks the hub
+ * to wait or stop and never means the start; unreadable: the account can no longer read the conversation (left,
+ * dissolved, not found), permanent, with no messages, not an error; otherwise more false (or no messages) is the
+ * start of the conversation.
+ */
+export interface ConnectorHistoryPage {
+  messages?: ConnectorArchiveMessage[];
+  older?: string;
+  newer?: string;
+  more?: boolean;
+  unreadable?: boolean;
+  pace?: ConnectorPace;
+}
+
+/**
+ * How fast the program may be read: retry_after_ms is ask again no sooner (a rate limit), stop is wait for a person
+ * (an expired sign-in, a refusal); reason is for people and never a secret. The hub never sends a read that timed out
+ * again.
+ */
+export interface ConnectorPace {
+  retry_after_ms?: number;
+  stop?: boolean;
+  reason?: string;
+}
+
+/**
+ * history.anchors: the messages the owner sent or was mentioned in between since and until, in one conversation
+ * (chat) or all of them (none); cursor is the next of the call before. limit is a hint, as archive.history's.
+ */
+export interface ConnectorHistoryAnchorsParams {
+  contribution: string;
+  chat?: string;
+  since?: string;
+  until?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/**
+ * history.anchors' answer: next is the cursor for the next call, more says there are more.
+ */
+export interface ConnectorHistoryAnchors {
+  anchors?: ConnectorHistoryAnchor[];
+  next?: string;
+  more?: boolean;
+  pace?: ConnectorPace;
+}
+
+/**
+ * One message the owner sent (mine) or was mentioned in (mention), at position in chat: the hub reads the page around
+ * it. message is the hit itself, the only way to keep one from a conversation that is unreadable now; a search hit
+ * may have no sender_id. source is the name the conversation is filed under, as a chat's source (a conversation the
+ * account left is often missing from history.chats).
+ */
+export interface ConnectorHistoryAnchor {
+  chat: string;
+  source?: string;
+  position: string;
+  at?: string;
+  mine?: boolean;
+  mention?: boolean;
+  message?: ConnectorArchiveMessage;
 }
 
 /**
@@ -3674,6 +3804,11 @@ export interface ConnectorItems {
  */
 export interface ConnectorKBItem {
   kind: string;
+  /**
+   * The connector the item belongs to. A program may leave it out: the knowledge base sets it to the calling
+   * connector's id, whatever the program sends.
+   */
+  source?: string;
   id: string;
   title: string;
   url?: string;
@@ -3683,6 +3818,12 @@ export interface ConnectorKBItem {
   projects?: string[];
   note?: string;
   seen?: string;
+  /**
+   * Why it concerns the owner, as far as the program can tell: mentions (the document mentions the owner),
+   * comment_mentions (a comment or reply on it does), authored (the owner owns it), viewed (the owner opened it
+   * recently). The knowledge base's selection keeps documents by them; leave out what the program cannot tell.
+   */
+  signals?: string[];
   importance?: string;
   relevance?: number;
   tags?: string[];
@@ -4514,12 +4655,14 @@ export interface TodoDecisionEvent {
  * error.code of model.complete besides permission_denied (data {scope: "models"}): invalid_params; assistant_offline
  * (the manager is away: try again); model_unavailable (nothing to call for this extension: the user picks a model for
  * it in Settings › Model configuration); model_paused (the connection is held for quota or load, nothing was sent;
- * data ModelPause: try again after until); model_failed (the upstream refused or failed the request); timeout (past
+ * data ModelPause: try again after until); model_failed (the upstream failed the request: an error status or a
+ * dropped connection); model_refused (the model declined to answer this input, a refusal or a content filter: sending
+ * it again unchanged gets the same answer, so split it, drop a part or report it; data ModelRefusal); timeout (past
  * timeout_seconds); invalid_output (with json_schema, the reply was still not JSON matching it after one more try;
  * data ModelInvalidOutput).
  */
-export type ModelErrorCode = "invalid_params" | "assistant_offline" | "model_unavailable" | "model_paused" | "model_failed" | "timeout" | "invalid_output" | (string & {});
-export const MODEL_ERROR_CODES = ["invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "timeout", "invalid_output"] as const;
+export type ModelErrorCode = "invalid_params" | "assistant_offline" | "model_unavailable" | "model_paused" | "model_failed" | "model_refused" | "timeout" | "invalid_output" | (string & {});
+export const MODEL_ERROR_CODES = ["invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "model_refused", "timeout", "invalid_output"] as const;
 
 /**
  * One turn of the conversation: the user's, or the model's earlier answer.
@@ -4594,6 +4737,15 @@ export interface ModelPause {
 export interface ModelInvalidOutput {
   problem: string;
   text: string;
+  usage: ModelUsage;
+}
+
+/**
+ * The data of model_refused: what the upstream said and what the declined call spent.
+ */
+export interface ModelRefusal {
+  /** The upstream's reason: refusal (a refusal stop or part) or content_filter. */
+  stop_reason?: string;
   usage: ModelUsage;
 }
 
@@ -5034,6 +5186,9 @@ export const CALLS: Record<string, Call> = {
   "connector.inbox.settle": { from: "hub", params: "ConnectorSettleParams", result: "ConnectorSettled" },
   "connector.archive.changes": { from: "hub", params: "ConnectorChangesParams", result: "ConnectorChangesResult" },
   "connector.archive.media": { from: "hub", params: "ConnectorMediaParams", result: "ConnectorMedia" },
+  "connector.history.chats": { from: "hub", params: "ConnectorParams", result: "ConnectorHistoryChats" },
+  "connector.archive.history": { from: "hub", params: "ConnectorHistoryParams", result: "ConnectorHistoryPage" },
+  "connector.history.anchors": { from: "hub", params: "ConnectorHistoryAnchorsParams", result: "ConnectorHistoryAnchors" },
   "connector.items.list": { from: "hub", params: "ConnectorParams", result: "ConnectorItems" },
   "connector.items.doc_title": { from: "hub", params: "ConnectorDocTitleParams", result: "ConnectorDocTitle" },
   "connector.snapshot.get": { from: "hub", params: "ConnectorSnapshotParams", result: "ConnectorSnapshot" },
