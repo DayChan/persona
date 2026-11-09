@@ -4,7 +4,7 @@ import { api, errorText, isAbort, sessionPath } from "../../lib/api";
 import { sessionLoadError } from "../../lib/session-link";
 import { getState, listenSession, send, type ItemsEvent } from "../../lib/store";
 import { afterPull, afterPush, FRESH_TALLY, newestItemAt, notLive as tallyNotLive, shouldPull, type StaleTally } from "../../lib/stale-page";
-import { mergeItems } from "../../lib/turns";
+import { mergeItems, withoutFolded } from "../../lib/turns";
 import { chosenManager } from "../../lib/manager-choice";
 import { discardFeedCache, discardMemoryPage, feedCacheScope, readFeedCache, readMemoryPage, writeFeedCache, writeMemoryPage, type FeedCache } from "../../lib/feed-cache";
 import type { Item, ItemsPage } from "../../lib/types";
@@ -104,9 +104,13 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
   useEffect(() => {
     let dead = false;
     const ctl = new AbortController();
-    generation.current++;
-    earlierInFlight.current = false;
-    setLoadingEarlier(false);
+    // Older pages and folds still on their way were asked for from what is shown now: they must not land on what replaces it.
+    const disownReads = () => {
+      generation.current++;
+      earlierInFlight.current = false;
+      setLoadingEarlier(false);
+    };
+    disownReads();
     const kept = snapshot.current;
     const cached = cacheScope && kept?.scope === cacheScope && kept.page.machineID === mid && kept.page.sessionID === sid && (kept.page.manager ?? "") === cacheManager
       ? kept.page : cachedPage(mid, sid, opts.cache);
@@ -149,10 +153,10 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       snapshot.current = { scope: cacheScope, page };
       writeFeedCache(cacheScope, page);
     };
-    const remember = (batch: Item[]) => {
+    const remember = (batch: Item[], gap = false) => {
       if (!ready) pendingItems = mergeItems(pendingItems, batch);
       latest = mergeItems(latest, batch);
-      if (ready) save();
+      if (ready && !gap) save(); // a page with a hole is not kept: the fill saves once it is closed
     };
     const rewritten = () => {
       dead = true; // invalidate in-flight reads before React runs the next effect
@@ -246,19 +250,21 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
         latestMore = e.has_more;
         setHasMore(latestMore);
         setError("");
-        if (skipsCached(e.items ?? [])) {
-          latest = [];
-          setItems([]);
-        }
+        const fresh = e.items ?? [];
+        const skips = skipsCached(fresh);
+        if (skips) disownReads();
+        latest = skips ? [] : withoutFolded(latest, fresh);
+        setItems((have) => (skips ? [] : withoutFolded(have, fresh)));
       }
-      remember(e.items ?? []);
+      const gap = e.from_seq !== undefined && covered.current > 0 && e.from_seq > covered.current;
+      remember(e.items ?? [], gap);
       showLive(e.items ?? []);
       lastArrival = Date.now();
       if (e.items?.length && tally !== FRESH_TALLY) {
         tally = afterPush(tally); // the stream works
         setNotLive(false);
       }
-      if (e.from_seq !== undefined && covered.current && e.from_seq > covered.current) {
+      if (gap) {
         apply(e.items ?? []);
         // Started once per gap: a busy turn pushes every second or so, and restarting it on each push put the fill
         // off until the agent paused (#5355). The fill reads everything after `covered`, so later pushes need no timer.
@@ -294,8 +300,10 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
         }
         const batch = p.items ?? [];
         const replace = !batch.length || skipsCached(batch) || Boolean(p.history && history.current && p.history !== history.current);
-        setItems((have) => mergeItems(mergeItems(replace ? [] : have, batch), pendingItems));
-        latest = mergeItems(mergeItems(replace ? [] : latest, batch), pendingItems);
+        if (replace) disownReads();
+        const refreshed = (have: Item[]) => mergeItems(mergeItems(replace ? [] : withoutFolded(have, batch), batch), withoutFolded(pendingItems, batch));
+        setItems(refreshed);
+        latest = refreshed(latest);
         latestMore = Boolean(p.has_more);
         setHasMore(latestMore);
         if (p.history) history.current = p.history;

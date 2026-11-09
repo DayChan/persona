@@ -258,6 +258,37 @@ describe("other chats' memory cache", () => {
     expect(shown.hasMore).toBe(true);
   });
 
+  it("lets a fold of the refreshed page stand for raw work the page held", async () => {
+    await readOnce();
+    const step: Item = { id: "tool", seq: 12, role: "assistant", kind: "tool_use", tool_use_id: "t1" };
+    push({ items: [step], history: "v1", to_seq: 12 }); // still running when the reader left
+    reopen();
+    expect(ids()).toEqual(["question", "answer", "tool"]);
+    const fold: Item = { id: "fold:tool", seq: 12, role: "assistant", kind: "fold", fold: { items: 9, tools: 4, thoughts: 1, through_seq: 20 } };
+    await answer({ items: [item("question", 10, "Question", "user"), item("answer", 11), fold, item("done", 21)], has_more: true, history: "v1", to_seq: 21 });
+    expect(ids()).toEqual(["question", "answer", "fold:tool", "done"]);
+  });
+
+  it("drops an older page still on its way when the refresh leaves a hole", async () => {
+    await readOnce();
+    reopen();
+    await act(async () => { void shown.loadEarlier(); await Promise.resolve(); });
+    expect(shown.loadingEarlier).toBe(true);
+    await answer({ items: [item("q2", 40, "Later question", "user"), item("a2", 41)], has_more: true, history: "v1", to_seq: 41 });
+    expect(shown.loadingEarlier).toBe(false);
+    await answer({ items: [item("older", 5, "Older", "user")], has_more: false });
+    expect(ids()).toEqual(["q2", "a2"]);
+    expect(shown.hasMore).toBe(true);
+  });
+
+  it("does not remember a push that lost the items before it", async () => {
+    await readOnce();
+    push({ items: [item("after-gap", 50)], history: "v1", from_seq: 30, to_seq: 50 });
+    expect(ids()).toContain("after-gap");
+    reopen();
+    expect(ids()).toEqual(["question", "answer"]);
+  });
+
   it("forgets a page whose transcript was rewritten", async () => {
     await readOnce();
     push({ items: [], history: "v2" });
