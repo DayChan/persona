@@ -155,64 +155,20 @@ func (s *Service) taskWorkingObserved(ctx context.Context, mid, sid string, init
 		s.logf("task %s: reopened: its agent works again", t.ID)
 	}
 	work, generation := time.Now(), randomHex(16)
-	known := true
-	if initial {
-		s.tasks.mu.Lock()
-		previous, alreadyWorking := s.tasks.working[t.ID]
-		previousID := s.tasks.workIDs[t.ID]
-		s.tasks.mu.Unlock()
-		if alreadyWorking {
-			work, generation = previous, previousID
-		} else {
-			s.tasks.receiptMu.Lock()
-			if err := s.receiptLooksLocked(ctx); err != nil {
-				s.logf("task %s: read receipt generation: %v", t.ID, err)
-				known = false
-			} else {
-				var pending *receiptLook
-				completed := false
-				for key, look := range s.tasks.receiptLooks {
-					if linked, ok := receiptLink(t, key.Ref); !ok || look.Todo != t.ID || !linked.Equal(look.Linked) {
-						continue
-					}
-					copy := look
-					if pending == nil || key.Ref == (SessionRef{MachineID: mid, SessionID: sid}) {
-						pending = &copy
-					}
-					if st := s.store(); st != nil {
-						row, err := st.FeedItem(ctx, look.ID)
-						if err != nil {
-							s.logf("task %s: read prior receipt: %v", t.ID, err)
-							known = false
-						} else if row != nil {
-							completed = true
-						}
-					}
-				}
-				if pending != nil && !completed {
-					work, generation = pending.Work, pending.Generation
-					if work.IsZero() {
-						work = t.CreatedAt
-					}
-				}
-			}
-			s.tasks.receiptMu.Unlock()
-		}
-	}
 	s.tasks.mu.Lock()
-	if s.tasks.workInitialUnknown == nil {
-		s.tasks.workInitialUnknown = make(map[string]bool)
+	ref := SessionRef{MachineID: mid, SessionID: sid}
+	if previous, alreadyWorking := s.tasks.working[t.ID]; initial && alreadyWorking && s.tasks.workRefs[t.ID] == ref {
+		work, generation = previous, s.tasks.workIDs[t.ID]
 	}
-	if known {
-		s.tasks.working[t.ID] = work
-		if s.tasks.workIDs == nil {
-			s.tasks.workIDs = make(map[string]string)
-		}
-		s.tasks.workIDs[t.ID] = generation
-		delete(s.tasks.workInitialUnknown, t.ID)
-	} else {
-		s.tasks.workInitialUnknown[t.ID] = true
+	s.tasks.working[t.ID] = work
+	if s.tasks.workIDs == nil {
+		s.tasks.workIDs = make(map[string]string)
 	}
+	if s.tasks.workRefs == nil {
+		s.tasks.workRefs = make(map[string]SessionRef)
+	}
+	s.tasks.workIDs[t.ID] = generation
+	s.tasks.workRefs[t.ID] = ref
 	s.tasks.mu.Unlock()
 	s.setTaskStage(ctx, t.ID, "develop", "")
 	if t.Supervision != nil {
@@ -254,14 +210,11 @@ func (s *Service) receiptTurnMatches(t Todo, machine, sid string, expected *rece
 	if !found || !ok || current.ID != expected.Todo || t.ID != expected.Todo || !linked.Equal(expected.Linked) {
 		return false
 	}
-	s.tasks.mu.Lock()
-	generation, observed := s.tasks.workIDs[t.ID]
-	s.tasks.mu.Unlock()
-	if observed && generation != expected.Generation {
-		return false
-	}
 	if expected.ID == "" {
-		return true
+		s.tasks.mu.Lock()
+		generation, observed := s.tasks.workIDs[t.ID]
+		s.tasks.mu.Unlock()
+		return !observed || generation == expected.Generation
 	}
 	s.tasks.receiptMu.Lock()
 	defer s.tasks.receiptMu.Unlock()
@@ -311,6 +264,90 @@ func (s *Service) retryTaskReceipt(ctx context.Context, t Todo, machine, sid str
 	s.retryTaskTurnEnded(ctx, machine, sid, expected)
 }
 
+// recoverTaskReceipt resumes follow-up from the committed feed, never from a later turn's transcript.
+func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptLook) (bool, error) {
+	if look == nil || look.ID == "" || s.store() == nil {
+		return false, nil
+	}
+	if _, ok := s.store().(interface {
+		AppendFeedOnce(context.Context, db.FeedRow) (bool, error)
+	}); !ok {
+		return false, nil
+	}
+	row, err := s.store().FeedItem(ctx, look.ID)
+	if err != nil {
+		return false, err
+	}
+	if row == nil {
+		return false, nil
+	}
+	if row.Kind != feedReceipt || row.Ref != t.ID || row.Conversation != t.Origin {
+		return true, errors.New("receipt feed identity changed")
+	}
+	valid, err := s.receiptLookLinked(ctx, *look)
+	if err != nil {
+		return true, err
+	}
+	if !valid {
+		return true, errors.New("receipt task association changed")
+	}
+	var body receiptBody
+	if err := json.Unmarshal(row.Body, &body); err != nil {
+		return true, err
+	}
+	if !s.taskReceiptActive(ctx, look.ID) {
+		return true, nil
+	}
+	where := [2]string{look.Machine, look.Session}
+	switch body.State {
+	case "interrupted":
+		s.taskNotice(ctx, t, body.Machine, "interrupted", "", body.Error)
+		s.taskReport(t, reportInterrupted, body.Machine, where, body.Error, nil)
+	case "done":
+		s.taskNotice(ctx, t, body.Machine, "done", "", body.Summary)
+		stage, pr := stageOf(body.Summary)
+		if body.PR != "" {
+			pr = body.PR
+		}
+		s.setTaskStage(ctx, t.ID, stage, pr)
+		s.taskReport(t, reportDone, body.Machine, where, body.Summary, nil)
+		s.tasks.mu.Lock()
+		current, observed := s.tasks.workIDs[t.ID]
+		work, worked := s.tasks.working[t.ID]
+		s.tasks.mu.Unlock()
+		if observed && current == look.Generation {
+			if !s.taskRuntimeSettled(ctx, t) {
+				return true, errors.New("receipt judgment awaits settled agents")
+			}
+			if !worked {
+				work = look.Work
+			}
+			if stageIndex(stage) >= stageIndex("deploy") {
+				go s.askAcceptance(t, look.Machine, look.Session, body.Summary)
+			}
+			s.autoFinishTask(t, work, worked)
+		} else {
+			s.logf("task %s: recovered receipt judgment skipped: current work generation is not confirmed", t.ID)
+		}
+	default:
+		return true, errors.New("unknown stored task receipt state")
+	}
+	if s.taskReceiptActive(ctx, look.ID) {
+		s.tasks.mu.Lock()
+		current, observed := s.tasks.workIDs[t.ID]
+		if observed && current == look.Generation {
+			s.tasks.receipted[t.ID] = time.Now()
+			if s.tasks.receiptWorkIDs == nil {
+				s.tasks.receiptWorkIDs = make(map[string]string)
+			}
+			s.tasks.receiptWorkIDs[t.ID] = look.Generation
+		}
+		s.tasks.mu.Unlock()
+		s.finishTaskReceipt(ctx, t.ID, look.ID)
+	}
+	return true, nil
+}
+
 // taskTurnEnded: one of the task's agents (sid on machine) ended a turn. Once none of them works or waits for the
 // user any more, the conversation gets a receipt (once per stretch of work), and the todo is closed if the judge
 // finds the work finished.
@@ -329,21 +366,24 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if !ok {
 		return
 	}
-	s.tasks.mu.Lock()
-	unknown := s.tasks.workInitialUnknown[t.ID]
-	s.tasks.mu.Unlock()
-	if unknown {
-		s.taskWorkingObserved(ctx, machine, sid, true)
-		s.tasks.mu.Lock()
-		unknown = s.tasks.workInitialUnknown[t.ID]
-		s.tasks.mu.Unlock()
-		if unknown {
-			s.retryTaskTurnEnded(ctx, machine, sid, expected)
-			return
-		}
-	}
 	if !s.receiptTurnMatches(t, machine, sid, expected) {
 		return
+	}
+	if handled, err := s.recoverTaskReceipt(ctx, t, expected); err != nil {
+		s.logf("task %s: recover receipt: %v", t.ID, err)
+		return
+	} else if handled {
+		return
+	}
+	if expected != nil && expected.ID != "" {
+		s.tasks.mu.Lock()
+		current, observed := s.tasks.workIDs[t.ID]
+		s.tasks.mu.Unlock()
+		if observed && current != expected.Generation {
+			// Without an old feed there is no proof that the current transcript
+			// belongs to this wait; keep it rather than attributing a new turn to it.
+			return
+		}
 	}
 	agents, reached := s.taskAgentsReached(ctx, t)
 	if !reached {
@@ -352,7 +392,13 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		}
 		return
 	}
-	if !taskAgentsSettled(t, agents) || !s.receiptTurnMatches(t, machine, sid, expected) {
+	if !taskAgentsSettled(t, agents) {
+		if expected != nil && expected.ID == "" {
+			s.retryTaskTurnEnded(ctx, machine, sid, expected)
+		}
+		return
+	}
+	if !s.receiptTurnMatches(t, machine, sid, expected) {
 		return
 	}
 	if expected != nil && expected.Todo == "" {
@@ -615,11 +661,18 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	generation := s.tasks.workIDs[t.ID]
 	s.tasks.mu.Unlock()
 	for _, candidate := range s.tasks.receiptLooks {
-		if candidate.Todo == t.ID && (!worked || candidate.Generation == generation) &&
-			(expected == nil || expected.ID == "" || candidate.ID == expected.ID) {
-			look = candidate
-			break
+		if candidate.Todo != t.ID {
+			continue
 		}
+		if expected != nil && expected.ID != "" {
+			if candidate.ID != expected.ID {
+				continue
+			}
+		} else if worked && candidate.Generation != generation {
+			continue
+		}
+		look = candidate
+		break
 	}
 	if expected != nil && expected.ID != "" && look.ID == "" {
 		return "", errors.New("receipt look was replaced")
@@ -1025,22 +1078,40 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 			time.AfterFunc(time.Minute, retry)
 			return
 		}
-		waiting := false
+		waiting, present, cancelled := false, false, false
 		for _, c := range sessions {
 			if c.SessionID != sid {
 				continue
 			}
+			present = true
 			now := time.Now()
 			if limitTakenUp(c, now) {
 				waiting = true
 				break
 			}
-			// The same limit can still be the latest turn after its deadline passed
-			// while storage was unavailable. Persist it due now, so it is checked.
-			if reset, ok := usageLimitReset(c); ok && !now.Before(at) && reset.Add(limitResumeGrace).Equal(at) {
-				waiting = true
-				break
+			// The same limit may have passed its deadline, or its automatic
+			// continuation may have been cancelled while storage was down.
+			if reset, ok := usageLimitReset(c); ok && reset.Add(limitResumeGrace).Equal(at) {
+				if !now.Before(at) {
+					waiting = true
+				} else {
+					cancelled = true
+				}
 			}
+			break
+		}
+		if !present {
+			time.AfterFunc(time.Minute, retry)
+			return
+		}
+		if cancelled {
+			bound := receiptLook{Machine: machine, Session: sid, Todo: t.ID, Linked: linked, Work: work, Generation: generation}
+			time.AfterFunc(0, func() {
+				if timerCtx.Err() == nil {
+					s.taskTurnEndedForLook(timerCtx, machine, sid, &bound)
+				}
+			})
+			return
 		}
 		if !waiting {
 			return

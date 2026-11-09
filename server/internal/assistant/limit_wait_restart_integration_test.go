@@ -18,6 +18,7 @@ type restartReceiptStore struct {
 	muFeed    sync.Mutex
 	rows      []db.FeedRow
 	writes    chan bool
+	reads     chan struct{}
 	blockOnce chan struct{}
 }
 
@@ -53,6 +54,21 @@ func (s *restartReceiptStore) AppendFeedOnce(_ context.Context, row db.FeedRow) 
 		return false, errors.New("process stopped after feed commit")
 	}
 	return inserted, nil
+}
+
+func (s *restartReceiptStore) FeedItem(_ context.Context, id string) (*db.FeedRow, error) {
+	s.muFeed.Lock()
+	defer s.muFeed.Unlock()
+	for _, row := range s.rows {
+		if row.ID == id {
+			if s.reads != nil {
+				s.reads <- struct{}{}
+			}
+			copy := row
+			return &copy, nil
+		}
+	}
+	return nil, nil
 }
 
 func (s *restartReceiptStore) receipts() int {
@@ -145,7 +161,7 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 		release := make(chan struct{})
 		var releaseOnce sync.Once
 		defer releaseOnce.Do(func() { close(release) })
-		store := &restartReceiptStore{writes: make(chan bool, 4), blockOnce: release}
+		store := &restartReceiptStore{writes: make(chan bool, 4), reads: make(chan struct{}, 4), blockOnce: release}
 		linked := time.Now().Add(-time.Hour)
 		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked,
 			Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
@@ -184,10 +200,7 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 		done := make(chan struct{})
 		go func() { defer close(done); restarted.Run(ctx) }()
 		select {
-		case inserted := <-store.writes:
-			if inserted {
-				t.Error("restart inserted a second receipt instead of reusing the committed row")
-			}
+		case <-store.reads:
 		case <-time.After(5 * time.Minute):
 			stop()
 			<-done
