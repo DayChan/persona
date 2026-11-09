@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 func TestRegistryScopeAndSubscriberSnapshots(t *testing.T) {
@@ -150,5 +153,39 @@ func TestFullHubGrantLeavesOutThePermissionMode(t *testing.T) {
 	}
 	if ids := r.EventSubscribers("agent.finished", ScopeAgentsControl); !reflect.DeepEqual(ids, []string{"legacy"}) {
 		t.Fatalf("agents.control subscribers: %v", ids)
+	}
+}
+
+// An installed hub_api extension whose upgrade names agents.permission_mode asks the user again, and the upgrade lists it
+// as added.
+func TestUpgradeAddingThePermissionModeNeedsConsent(t *testing.T) {
+	modeTitle, _ := ScopeTitleIn(i18n.Default, ScopeAgentsPermissionMode)
+	installed := func(x *Manifest) *Extension {
+		return &Extension{Record: Record{Granted: x.Permissions, GrantedDigest: Digest(x)}, Manifest: x, Full: x}
+	}
+	legacy := &Manifest{ID: "example", Version: "1.0.0", Permissions: Permissions{HubAPI: true}}
+	for _, c := range []struct {
+		what string
+		from *Manifest
+		to   Permissions
+		more bool
+	}{
+		{"hub_api to hub_api", legacy, Permissions{HubAPI: true}, false},
+		{"hub_api to a scope it already had", legacy, Permissions{HubAPI: true, Hub: []string{ScopeAgentsControl}}, false},
+		{"hub_api to the permission mode", legacy, Permissions{HubAPI: true, Hub: []string{ScopeAgentsPermissionMode}}, true},
+		{"hub_api to the permission mode alone", legacy, Permissions{Hub: []string{ScopeAgentsPermissionMode}}, true},
+		{"the permission mode kept", &Manifest{ID: "example", Version: "1.0.0",
+			Permissions: Permissions{Hub: []string{ScopeAgentsPermissionMode}}}, Permissions{Hub: []string{ScopeAgentsPermissionMode}}, false},
+	} {
+		to := &Manifest{ID: "example", Version: "1.1.0", Permissions: c.to}
+		if got := MorePermissions(installed(c.from), to); got != c.more {
+			t.Errorf("%s: MorePermissions = %v", c.what, got)
+		}
+		listed := slices.ContainsFunc(Added(c.from, to), func(l PermissionLine) bool {
+			return l.Key == "hub" && strings.Contains(l.Detail, modeTitle)
+		})
+		if listed != c.more {
+			t.Errorf("%s: the permission mode listed as added = %v: %+v", c.what, listed, Added(c.from, to))
+		}
 	}
 }

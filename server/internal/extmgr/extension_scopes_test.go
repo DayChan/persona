@@ -181,6 +181,7 @@ func TestHubScopesConsent(t *testing.T) {
 	scoped := extension.Permissions{Hub: []string{"kb.read"}}
 	full := extension.Permissions{HubAPI: true}
 	both := extension.Permissions{HubAPI: true, Hub: []string{"kb.read"}}
+	mode := extension.Permissions{Hub: []string{extension.ScopeAgentsPermissionMode}}
 	for _, c := range []struct {
 		name      string
 		have, ask extension.Permissions
@@ -193,6 +194,12 @@ func TestHubScopesConsent(t *testing.T) {
 		{"scopes do not cover the full token", scoped, full, false},
 		{"hub_api with scopes is the scopes", scoped, both, true},
 		{"from the full token to hub_api with scopes", full, both, true},
+		{"the full token covers itself", full, full, true},
+		{"the full token does not cover the permission mode", full, mode, false},
+		{"the full token does not cover the permission mode among others", full,
+			extension.Permissions{Hub: []string{"kb.read", extension.ScopeAgentsPermissionMode}}, false},
+		{"the permission mode covers itself", mode, mode, true},
+		{"other scopes do not cover the permission mode", extension.Permissions{Hub: extension.EveryScope()}, mode, false},
 	} {
 		if got := c.have.Covers(c.ask); got != c.covers {
 			t.Errorf("%s: Covers = %v", c.name, got)
