@@ -911,7 +911,7 @@ func TestReceiptLookInitialSnapshotDoesNotDependOnFeedRead(t *testing.T) {
 	st.feedMu.Lock()
 	st.failFeedRead = true
 	st.feedMu.Unlock()
-	restarted.taskWorkingObserved(ctx, "box", "s1", true)
+	restarted.taskWorking(ctx, "box", "s1")
 	restarted.tasks.mu.Lock()
 	generation := restarted.tasks.workIDs["task"]
 	restarted.tasks.mu.Unlock()
@@ -952,7 +952,7 @@ func TestReceiptLookInitialSnapshotKeepsAllCandidateGenerations(t *testing.T) {
 		t.Fatalf("candidate waits: %+v %v", before, err)
 	}
 	s := receiptTestService(t, f, st, linked)
-	s.taskWorkingObserved(ctx, "box", "s1", true)
+	s.taskWorking(ctx, "box", "s1")
 	s.tasks.mu.Lock()
 	id := s.tasks.workIDs["task"]
 	s.tasks.mu.Unlock()
@@ -978,18 +978,36 @@ func TestReceiptLookWithoutFeedDoesNotAttributeNewTurn(t *testing.T) {
 	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
 		t.Fatalf("old wait = %+v %v", state, err)
 	}
+	oldLook := state.Looks[0]
 	s := receiptTestService(t, f, st, linked)
-	s.taskWorkingObserved(ctx, "box", "s1", true)
-	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "new error"})
-	s.taskTurnEndedForLook(ctx, "box", "s1", &state.Looks[0])
-	st.faultMu.Lock()
-	n := len(st.feed)
-	st.faultMu.Unlock()
-	if n != 0 {
-		t.Fatalf("old generation wrote %d new-turn receipts", n)
+	s.taskWorking(ctx, "box", "s1")
+	newTask := todoNow(s, "task")
+	s.taskTurnEndedForTaskAfter(ctx, &newTask, "box", "s1", time.Now().Add(2*time.Hour))
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusWorking, State: proto.StateWorking})
+	f.mu.Lock()
+	before := len(f.calls)
+	f.mu.Unlock()
+	s.taskTurnEndedForLook(ctx, "box", "s1", &oldLook)
+	f.mu.Lock()
+	reads := len(f.calls) - before
+	f.mu.Unlock()
+	if reads == 0 {
+		t.Fatal("old wait did not recheck the working agent")
 	}
-	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
-		t.Fatalf("unresolved old wait lost: %+v %v", state, err)
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 2 {
+		t.Fatalf("working agent lost a wait: %+v %v", state, err)
+	}
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "new error"})
+	oldID := oldLook.ID
+	s.taskTurnEndedForLook(ctx, "box", "s1", &oldLook)
+	st.faultMu.Lock()
+	rows := append([]db.FeedRow(nil), st.feed...)
+	st.faultMu.Unlock()
+	if len(rows) != 1 || rows[0].ID == oldID || !strings.Contains(string(rows[0].Body), "new error") {
+		t.Fatalf("fresh recheck was attributed to old receipt: %+v", rows)
+	}
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID == oldID {
+		t.Fatalf("old cleanup lost the new wait: %+v %v", state, err)
 	}
 }
 
@@ -1061,7 +1079,7 @@ func TestReceiptLookRecoversOldFeedDuringNewWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := receiptTestService(t, f, st, linked)
-	s.taskWorkingObserved(ctx, "box", "s1", true)
+	s.taskWorking(ctx, "box", "s1")
 	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusWorking, State: proto.StateWorking, LastText: "new turn text"})
 	current := todoNow(s, "task")
 	s.taskTurnEndedForTaskAfter(ctx, &current, "box", "s1", time.Now().Add(2*time.Hour))
@@ -1265,13 +1283,6 @@ func TestReceiptLookInitialWorkingSnapshotKeepsIndependentGeneration(t *testing.
 	s.tasks.mu.Unlock()
 	if !started.After(observed) {
 		t.Fatal("actual new turn did not change generation")
-	}
-	s.taskWorkingObserved(context.Background(), "box", "s1", true)
-	s.tasks.mu.Lock()
-	afterSnapshot := s.tasks.working["task"]
-	s.tasks.mu.Unlock()
-	if !afterSnapshot.Equal(started) {
-		t.Fatal("late initial snapshot replaced an observed new turn")
 	}
 	newTask := receiptTestService(t, f, &memStore{}, linked)
 	newTask.setSessions("box", []proto.Session{working})

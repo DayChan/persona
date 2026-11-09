@@ -120,7 +120,6 @@ type tasksState struct {
 	// receipt is due when the task settles after working since the last one.
 	working        map[string]time.Time
 	workIDs        map[string]string
-	workRefs       map[string]SessionRef
 	receipted      map[string]time.Time
 	receiptWorkIDs map[string]string
 	// awaitingAnswer remembers a stopped status whose transcript still ends in a tool.
