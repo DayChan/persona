@@ -208,9 +208,9 @@ struct RecentScreenshotMenuItems: View {
             Button {
                 Task { await shots.take(attach) }
             } label: {
+                // A menu row's subtitle is a second Text beside the Label (inside the Label only its first line shows).
                 Label {
                     Text("Recent Screenshot")
-                    Text(offer.taken, format: .relative(presentation: .named))
                 } icon: {
                     if let thumb = offer.thumbnail {
                         Image(uiImage: thumb).renderingMode(.original)
@@ -218,21 +218,18 @@ struct RecentScreenshotMenuItems: View {
                         ThemedIcon(Theme.Icon.screenshot)
                     }
                 }
+                Text(offer.taken, format: .relative(presentation: .named))
             }
             .accessibilityIdentifier("composer-recent-screenshot")
         } else if shots.guide != .none {
             Button {
                 Task { await shots.runGuide() }
             } label: {
-                Label {
-                    Text("Suggest Recent Screenshots")
-                    if shots.guide == .ask {
-                        Text("Allow photo access to see the one you just took here")
-                    } else {
-                        Text("Allow full photo access in Settings")
-                    }
-                } icon: {
-                    ThemedIcon(Theme.Icon.screenshot)
+                Label { Text("Suggest Recent Screenshots") } icon: { ThemedIcon(Theme.Icon.screenshot) }
+                if shots.guide == .ask {
+                    Text("Allow photo access to see the one you just took here")
+                } else {
+                    Text("Allow full photo access in Settings")
                 }
             }
             .accessibilityIdentifier("composer-recent-screenshot-guide")
