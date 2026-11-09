@@ -57,6 +57,9 @@ type limitTestStore struct {
 	titleReadStarted  chan struct{}
 	titleReadOnce     sync.Once
 	blockOriginRead   atomic.Bool
+	failOriginRead    atomic.Bool
+	originFailStarted chan struct{}
+	originFailOnce    sync.Once
 	originReadStarted chan struct{}
 	originReadRelease chan struct{}
 	originReadOnce    sync.Once
@@ -70,9 +73,16 @@ type limitTestStore struct {
 	beforeTaskCompare func()
 	afterTaskWrite    func()
 	beforeRunsCompare func()
+	afterRunsWrite    func()
 }
 
 func (st *limitTestStore) Setting(ctx context.Context, key string, value any) (bool, error) {
+	if key == originsKey && st.failOriginRead.Load() {
+		if st.originFailStarted != nil {
+			st.originFailOnce.Do(func() { close(st.originFailStarted) })
+		}
+		return false, context.DeadlineExceeded
+	}
 	if key == originsKey && st.blockOriginRead.Load() {
 		st.originReadOnce.Do(func() { close(st.originReadStarted) })
 		select {
@@ -159,6 +169,10 @@ func (st *limitTestStore) CompareScheduleRuns(ctx context.Context, revision int6
 		return false, err
 	}
 	st.runsRevision++
+	if hook := st.afterRunsWrite; hook != nil {
+		st.afterRunsWrite = nil
+		hook()
+	}
 	return true, nil
 }
 
@@ -477,6 +491,90 @@ func TestLimitRetryLaterRunOutcomeControlsCancellation(t *testing.T) {
 				t.Fatalf("pending = %v, want %v", ok && task.LimitRetry != nil, tc.wantPending)
 			}
 		})
+	}
+}
+
+func TestLimitRetryOriginReadFailureRecoversWithoutGrantingPending(t *testing.T) {
+	_, f, st, _ := limitRetryFixture(t)
+	f.mu.Lock()
+	f.hello.Assistant.Machines = []string{"server", "other"}
+	f.mu.Unlock()
+	s := newServiceOn(t, f, st)
+	setSettings(t, s, func(v *Settings) { v.MachineID = "other" })
+	st.originFailStarted = make(chan struct{})
+	st.failOriginRead.Store(true)
+	s.origins.mu.Lock()
+	s.origins.loaded = false
+	s.origins.mu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { s.retryStartedOrigin(ctx, "server", "retry-session", OriginTask, "limit"); close(done) }()
+	awaitBusSignal(t, st.originFailStarted)
+	if s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("pending origin granted tool authorization")
+	}
+	st.failOriginRead.Store(false)
+	awaitBusSignal(t, done)
+	if !s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("recorded origin did not authorize its session")
+	}
+	if s.assistantCaller(t.Context(), "wrong-machine", "retry-session") {
+		t.Fatal("origin authorized a different machine")
+	}
+	restarted := newServiceOn(t, f, st)
+	setSettings(t, restarted, func(v *Settings) { v.MachineID = "other" })
+	if !restarted.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("stored origin did not survive restart")
+	}
+}
+
+func TestLimitRetryOriginWriteFailureDoesNotGrantAuthorization(t *testing.T) {
+	_, f, st, _ := limitRetryFixture(t)
+	f.mu.Lock()
+	f.hello.Assistant.Machines = []string{"server", "other"}
+	f.mu.Unlock()
+	s := newServiceOn(t, f, st)
+	setSettings(t, s, func(v *Settings) { v.MachineID = "other" })
+	st.failWrites(originsKey)
+	if err := s.recordRetryOrigin(t.Context(), "server", "retry-session", OriginTask, "limit"); err == nil {
+		t.Fatal("origin write unexpectedly succeeded")
+	}
+	if s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("failed origin write granted authorization")
+	}
+	st.failWrites("")
+	if err := s.recordRetryOrigin(t.Context(), "server", "retry-session", OriginTask, "limit"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("persisted origin did not authorize the session")
+	}
+}
+
+func TestLimitRetryOriginDoesNotReplaceEstablishedSource(t *testing.T) {
+	_, f, st, _ := limitRetryFixture(t)
+	f.mu.Lock()
+	f.hello.Assistant.Machines = []string{"server", "other"}
+	f.mu.Unlock()
+	old := &convOrigin{MachineID: "other", Origin: OriginUser, By: originByStart}
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{"retry-session": old}); err != nil {
+		t.Fatal(err)
+	}
+	s := newServiceOn(t, f, st)
+	setSettings(t, s, func(v *Settings) { v.MachineID = "other" })
+	if err := s.recordRetryOrigin(t.Context(), "server", "retry-session", OriginTask, "limit"); err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored["retry-session"]; got == nil || got.MachineID != "other" || got.Origin != OriginUser {
+		t.Fatalf("established origin overwritten: %+v", got)
+	}
+	if s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("conflicting origin granted authorization")
 	}
 }
 
@@ -944,6 +1042,82 @@ func TestLimitRetryTitleDoesNotBlockSentClaimOnShutdown(t *testing.T) {
 	}
 }
 
+func TestLimitRetrySessionErrorRequiresMatchingFinishedTurn(t *testing.T) {
+	for _, scenario := range []string{"different_prompt", "starting"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, f, _, now := limitRetryFixture(t)
+			s.turnPoll = 10 * time.Millisecond
+			text := "Example"
+			if scenario == "different_prompt" {
+				text = "Different"
+			}
+			f.setSessions("server", proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now,
+				TurnError: "stale error", Starting: scenario == "starting"})
+			checked := make(chan struct{}, 2)
+			f.mu.Lock()
+			f.nodes = map[string]nodeAnswer{DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
+				var params map[string]any
+				_ = json.Unmarshal(raw, &params)
+				if params["turns"] != nil {
+					select {
+					case checked <- struct{}{}:
+					default:
+					}
+				}
+				return map[string]any{"items": []proto.Item{{ID: "new", Role: "user", Kind: "text", Text: text}}}, nil
+			}}
+			f.mu.Unlock()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan bool, 1)
+			go func() { ended, _ := s.waitTurnEndFrom(ctx, "server", "s1", "old", true, "Example"); result <- ended }()
+			awaitBusSignal(t, checked)
+			select {
+			case ended := <-result:
+				t.Fatalf("unconfirmed turn ended: %v", ended)
+			case <-checked:
+			case <-time.After(5 * time.Second):
+				t.Fatal("watcher did not continue")
+			}
+			cancel()
+			if <-result {
+				t.Fatal("canceled watcher reported completion")
+			}
+		})
+	}
+}
+
+func TestLimitRetryFastSessionErrorWithOnlyPrompt(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	s.turnPoll = 10 * time.Millisecond
+	notified := make(chan struct{}, 1)
+	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	}}
+	f.mu.Lock()
+	f.items = []proto.Item{{ID: "before", Role: "assistant", Kind: "text", Text: "Earlier"}}
+	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
+		f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}}
+		for i := range f.sessions["server"] {
+			f.sessions["server"][i].Status, f.sessions["server"][i].State = proto.StatusDone, proto.StateIdle
+			f.sessions["server"][i].TurnError = "upstream failure from session"
+		}
+	}
+	f.mu.Unlock()
+	s.runLimitRetries(t.Context(), now.Add(2*time.Hour))
+	awaitBusSignal(t, notified)
+	s.sched.inflight.Wait()
+	runs := scheduleRuns(newServiceOn(t, f, st))
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
+		return r.RetryOf == "failed" && r.Status == runFailed && r.Error == "upstream failure from session"
+	}) {
+		t.Fatalf("session failure not recorded: %+v", runs)
+	}
+}
+
 func TestLimitRetryWatcherDoesNotTreatPromptAsCompletedTurn(t *testing.T) {
 	s, f, _, _ := limitRetryFixture(t)
 	s.turnPoll = 10 * time.Millisecond
@@ -1165,6 +1339,47 @@ func TestLimitRetryNodeUnavailableAfterClaimRearms(t *testing.T) {
 	restarted.sched.inflight.Wait()
 	if got := scheduleSendCount(f); got != 1 {
 		t.Fatalf("recovered node sends: %d", got)
+	}
+}
+
+func TestLimitRetryNonOwnerFlushesObservedFailure(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	r := ScheduleRun{RefID: "limit", At: now, Status: runOK, SessionID: "s1", Retried: true, RetryOf: "failed"}
+	r.ID = s.recordRun(r)
+	if r.ID == "" {
+		t.Fatal("run was not recorded")
+	}
+	st.failWrites(runsKey)
+	s.updateRun(r, runFailed, "model failed")
+	st.failWrites("")
+	s.sched.mu.Lock()
+	s.sched.ownerHeld = false
+	s.sched.mu.Unlock()
+	other := newServiceOn(t, f, st)
+	other.sched.mu.Lock()
+	other.sched.ownerHeld = true
+	other.sched.mu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	flushed := make(chan struct{})
+	st.mu.Lock()
+	st.afterRunsWrite = func() { close(flushed); cancel() }
+	st.mu.Unlock()
+	done := make(chan struct{})
+	go func() { s.scheduleLoop(ctx); close(done) }()
+	awaitBusSignal(t, flushed)
+	awaitBusSignal(t, done)
+	var runs []ScheduleRun
+	if _, err := st.Setting(t.Context(), runsKey, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(runs, func(got ScheduleRun) bool {
+		return got.ID == r.ID && got.Status == runFailed && got.Error == "model failed"
+	}) {
+		t.Fatalf("non-owner did not persist observed failure: %+v", runs)
+	}
+	if got := scheduleSendCount(f); got != 0 {
+		t.Fatalf("non-owner sent %d retries", got)
 	}
 }
 

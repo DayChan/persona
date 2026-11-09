@@ -1250,6 +1250,10 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 	for {
 		now := time.Now()
 		wait := scheduleIdle
+		if s.hasSchedulePending() {
+			s.flushSchedulePending(ctx) // CAS protects observed results even after this manager loses ownership
+			wait = time.Second
+		}
 		// A mesh member's tasks wait while the center runs the group's (docs/server/mesh.md). Nothing here moves a past
 		// one-off or interval task on, so its time stays past: a member only checks again at the idle wake-up (or
 		// when the list changes), not every 50 ms.
@@ -1308,7 +1312,6 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 					case <-ownerDone:
 					case <-workers.ctx.Done():
 					default:
-						s.flushSchedulePending(ctx)
 						s.runDue(ctx, now)
 						s.scanLimitRetries(ctx, now, ownerDone, workers.ctx.Done())
 					}
@@ -1531,6 +1534,7 @@ func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 			}
 			s.sched.pendingRuns[r.ID] = r
 			s.sched.mu.Unlock()
+			s.wakeSchedule()
 		}
 		s.logf("schedule run %s %s not recorded: %v", r.Kind, r.RefID, err)
 		if r.RetryOf != "" {
@@ -1575,6 +1579,7 @@ func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 	}
 	sc.mu.Unlock()
 	if ctx.Err() != nil {
+		s.wakeSchedule()
 		if r.RetryOf != "" {
 			return r.ID // the pending run can still be followed while storage recovers
 		}
@@ -1607,6 +1612,7 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 			r.Status, r.Error = status, errText
 			s.sched.pendingRuns[r.ID] = r
 			s.sched.mu.Unlock()
+			s.wakeSchedule()
 		}
 		return false
 	}
@@ -1647,6 +1653,8 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	sc.mu.Unlock()
 	if ctx.Err() == nil {
 		s.broadcastScheduleContext(ctx)
+	} else {
+		s.wakeSchedule()
 	}
 	return streak && ctx.Err() == nil && s.pushStreak(streakTask, streakN, streakRun)
 }
@@ -2243,11 +2251,23 @@ func (s *Service) waitTurnEndFrom(ctx context.Context, machine, sid, before stri
 					// A pre-send baseline also sees the new user prompt. It is not proof that the turn ended.
 					items, read := s.lastTurnItems(ctx, machine, sid)
 					ask, _ := turnExchange(items)
-					if !read || !runAsk(ask, retryPrompt) || !slices.ContainsFunc(items, func(it proto.Item) bool {
+					if !read || !runAsk(ask, retryPrompt) {
+						continue
+					}
+					ended := slices.ContainsFunc(items, func(it proto.Item) bool {
 						text := strings.TrimSpace(it.Text)
 						return it.TurnDuration != nil || it.Kind == "turn_duration" || (it.Role == "assistant" && (apiErrorText(text) || cutOff(text)))
-					}) {
-						continue
+					})
+					// Some runtimes report their latest turn's error only in the session, not as a transcript item.
+					// Require the new prompt to still be the latest idle turn before using that signal.
+					if !ended {
+						if strings.TrimSpace(c.TurnError) == "" || !s.stillEnded(ctx, machine, sid, items) {
+							continue
+						}
+						latest, ok := s.session(ctx, machine, sid)
+						if !ok || latest.TurnError != c.TurnError || !latest.UpdatedAt.Equal(c.UpdatedAt) || latest.Starting || latest.Status == proto.StatusWorking || latest.State == proto.StateWorking {
+							continue
+						}
 					}
 				}
 				return true, false
@@ -2439,11 +2459,15 @@ func (s *Service) broadcastSchedule() {
 	s.broadcastScheduleContext(context.Background())
 }
 
-func (s *Service) broadcastScheduleContext(ctx context.Context) {
-	select { // the scheduler re-reads the list
+func (s *Service) wakeSchedule() {
+	select {
 	case s.sched.wakeup() <- struct{}{}:
 	default:
 	}
+}
+
+func (s *Service) broadcastScheduleContext(ctx context.Context) {
+	s.wakeSchedule()
 	s.publish(ctx)
 	s.event(ctx, map[string]any{"type": "assistant_schedule"})
 }
