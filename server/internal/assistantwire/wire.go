@@ -218,6 +218,16 @@ type Notification struct {
 	// devices' "long turns only").
 	TookMS int64 `json:"took_ms,omitempty"`
 	LongMS int64 `json:"long_ms,omitempty"`
+	// Todo is a NotifyDecide push's to-do and the round of its decision.
+	Todo *NotifyTodo `json:"todo,omitempty"`
+}
+
+// NotifyTodo is the to-do a NotifyDecide push asks about: its id, when the decision now waiting was asked (what
+// POST /api/v1/todos/{id}/accept takes, so an OK from an earlier round takes nothing) and the option it recommends.
+type NotifyTodo struct {
+	ID        string    `json:"id"`
+	AskedAt   time.Time `json:"asked_at"`
+	Recommend string    `json:"recommend"`
 }
 
 // NotifyPush is the kind of the assistant's pushes.

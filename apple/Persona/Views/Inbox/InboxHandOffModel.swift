@@ -5,7 +5,8 @@ import Observation
 /// and the send. Persona's main conversation is the default: the item's hand-off (`POST /api/v1/inbox/{id}/handoff`)
 /// puts the item and the ask there and links the item to it, so that conversation may write back to the item. An older
 /// hub or manager answers 404 / 405, and the main chat gets the text as before. A new Persona conversation and a running
-/// Agent get it as a message. `InboxHandOffSheet` draws it.
+/// Agent get it as a message. Sending never moves the app: `open()` goes to where it went. The detail page's
+/// `InboxHandOffBar` queues a send behind an Undo window (`queue`); `InboxHandOffSheet` sends at once and opens.
 @MainActor @Observable
 final class InboxHandOffModel {
     enum Target: Hashable, Sendable {
@@ -14,22 +15,49 @@ final class InboxHandOffModel {
         /// A new Persona conversation.
         case newChat
         case agent(SessionKey)
+
+        /// How the last choice is remembered (`lastTargetKey`): "main", "new", or "agent:" + the session's path.
+        var stored: String {
+            switch self {
+            case .main: "main"
+            case .newChat: "new"
+            case .agent(let key): "agent:" + key.path
+            }
+        }
+
+        /// Reads `stored` back; anything else is the main chat.
+        init(stored: String) {
+            if stored == "new" {
+                self = .newChat
+            } else if stored.hasPrefix("agent:"), let key = SessionKey(path: String(stored.dropFirst("agent:".count))) {
+                self = .agent(key)
+            } else {
+                self = .main
+            }
+        }
     }
+
+    /// The user default holding the last target chosen in the detail page's bar.
+    static let lastTargetKey = "inbox.handOffTarget"
+    /// How long a queued send waits for Undo: as long as a toast with a button stays (`ToastCapsule.shown`).
+    static let undoWindow: Duration = .seconds(5)
 
     struct Deps {
         /// The item with its conversation text (`GET /api/v1/inbox/{id}`).
         var load: (String) async throws -> InboxItem
         /// The main chat's hand-off (item id, text, client id): the conversation it went to.
         var handOff: (String, String, UUID) async throws -> SessionKey
-        /// Opens that conversation on the message as sent under the client id, which its transcript copy carries.
-        var openMain: (SessionKey, String, UUID) -> Void
+        /// Shows the message as sent in that conversation under the client id, which its transcript copy carries.
+        var showMain: (SessionKey, String, UUID) -> Void
         /// An older hub's main chat: sends the text there as a plain message (starting the conversation when there is
-        /// none) and opens it.
-        var plainToMain: (String) async throws -> Void
-        /// Starts a new Persona conversation with the text and opens it.
-        var startNew: (String) async throws -> Void
-        /// Sends the text to an Agent and opens its chat.
+        /// none); the conversation it went to.
+        var plainToMain: (String) async throws -> SessionKey
+        /// Starts a new Persona conversation with the text: the conversation.
+        var startNew: (String) async throws -> SessionKey
+        /// Sends the text to an Agent.
         var sendToAgent: (SessionKey, String) -> Void
+        /// Opens a conversation it went to: Persona's (the first two targets) or an Agent's.
+        var open: (Target, SessionKey) -> Void
         /// Files the item.
         var markDone: () -> Void
     }
@@ -43,6 +71,14 @@ final class InboxHandOffModel {
     private(set) var sending = false
     /// Why the last send failed.
     private(set) var error: String?
+    /// Where the last send went, and to which target: what `open()` opens.
+    private(set) var sent: (target: Target, key: SessionKey)?
+    /// The ask waiting out the Undo window (`queue`).
+    private(set) var queued: String?
+    /// The last ask sent or tried, for Retry.
+    private(set) var lastAsk: String?
+
+    @ObservationIgnored private var timer: Task<Void, Never>?
 
     @ObservationIgnored private var doneChosen = false
     /// The main chat's hand-off being tried, by its ask: the same ask sent again sends the first text again under the same
@@ -84,9 +120,8 @@ final class InboxHandOffModel {
                 if let it = answer.item { InboxStore.shared.put(it) }
                 return answer.session
             },
-            openMain: { key, text, clientID in
+            showMain: { key, text, clientID in
                 model.showSent(key, text: text, images: [], id: clientID)
-                model.openAssistantConversation(key)
                 Task { await model.refreshAssistant() } // the hand-off may have started the main conversation
             },
             plainToMain: { text in
@@ -106,7 +141,7 @@ final class InboxHandOffModel {
                     key = s.key
                     Task { await model.refreshAssistant() }
                 }
-                model.openAssistantConversation(key)
+                return key
             },
             startNew: { text in
                 let client = try api()
@@ -114,13 +149,16 @@ final class InboxHandOffModel {
                     try await client.startConversation(prompt: text, opID: op)
                 }
                 model.began(s, text: text)
-                model.assistantCurrent = s.key
-                model.selectedTab = .assistant
+                return s.key
             },
-            sendToAgent: { key, text in
-                model.sendNow(key, text: text)
-                model.openChat = key
-                model.selectedTab = .chats
+            sendToAgent: { key, text in model.sendNow(key, text: text) },
+            open: { target, key in
+                if case .agent = target {
+                    model.openChat = key
+                    model.selectedTab = .chats
+                } else {
+                    model.openAssistantConversation(key)
+                }
             },
             markDone: { InboxStore.shared.setDone(item, true, haptic: false) }))
     }
@@ -132,11 +170,54 @@ final class InboxHandOffModel {
         doneChosen = true
     }
 
-    /// Sends `ask` after the item as context; true once it went, and the sheet closes.
+    /// Goes to the conversation the last send went to.
+    func open() {
+        guard let sent else { return }
+        deps.open(sent.target, sent.key)
+    }
+
+    /// Sends `ask` after `window`, unless `undo()` comes first. Leaving the page does not stop it: the task keeps the
+    /// model until it has sent.
+    func queue(ask: String, after window: Duration = undoWindow) {
+        timer?.cancel()
+        queued = ask
+        error = nil
+        timer = Task {
+            do { try await Task.sleep(for: window) } catch { return }
+            // Not `sendQueued()`: that cancels the timer, which is this task, and the send under it.
+            self.timer = nil
+            _ = await self.fire()
+        }
+    }
+
+    /// Takes the queued ask back before it went: the ask, or nil when nothing was waiting.
+    @discardableResult func undo() -> String? {
+        timer?.cancel()
+        timer = nil
+        defer { queued = nil }
+        return queued
+    }
+
+    /// Sends the queued ask now (View while it waits); true once it went.
+    func sendQueued() async -> Bool {
+        timer?.cancel()
+        timer = nil
+        return await fire()
+    }
+
+    private func fire() async -> Bool {
+        guard let ask = queued else { return false }
+        queued = nil
+        return await send(ask: ask)
+    }
+
+    /// Sends `ask` after the item as context; true once it went.
     func send(ask: String) async -> Bool {
         guard !sending else { return false }
         sending = true
         error = nil
+        sent = nil
+        lastAsk = ask
         defer { sending = false }
         let text: String
         if target == .main, let pending = attempt, pending.ask == ask {
@@ -156,9 +237,10 @@ final class InboxHandOffModel {
                 try await handOff(ask: ask, text: text)
                 return true
             case .newChat:
-                try await deps.startNew(text)
+                sent = (target, try await deps.startNew(text))
             case .agent(let key):
                 deps.sendToAgent(key, text)
+                sent = (target, key)
             }
             if markDone { deps.markDone() }
             return true
@@ -215,7 +297,7 @@ final class InboxHandOffModel {
             if tried.inDoubt { throw InDoubt() }
             // An older hub or manager: the text goes to the main chat as a plain message, with nothing to write back to.
             do {
-                try await deps.plainToMain(text)
+                sent = (.main, try await deps.plainToMain(text))
             } catch {
                 settle(tried, after: error)
                 throw error
@@ -235,7 +317,8 @@ final class InboxHandOffModel {
             throw answer
         }
         attempt = nil
-        deps.openMain(to, text, tried.id)
+        deps.showMain(to, text, tried.id)
+        sent = (.main, to)
         if markDone { deps.markDone() }
     }
 

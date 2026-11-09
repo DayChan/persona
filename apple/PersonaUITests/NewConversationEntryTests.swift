@@ -45,7 +45,7 @@ final class NewConversationEntryTests: XCTestCase {
             }
             return said(words).exists
         }
-        let send = app.buttons["发送"].firstMatch
+        let send = app.navigationBars["交给 AI"].buttons["发送"].firstMatch // not the event page's bar under the sheet
         XCTAssertTrue(send.waitForExistence(timeout: 20), "no 交给 AI sheet:\n\(app.debugDescription)")
         let field = instructions(app)
         XCTAssertTrue(field.waitForExistence(timeout: 5), "no instructions field:\n\(app.debugDescription)")
@@ -85,7 +85,7 @@ final class NewConversationEntryTests: XCTestCase {
         }
         let handedBefore = sentTo(hub).count
 
-        let send = app.buttons["发送"].firstMatch
+        let send = app.navigationBars["交给 AI"].buttons["发送"].firstMatch // not the event page's bar under the sheet
         XCTAssertTrue(send.waitForExistence(timeout: 20), "no 交给 AI sheet:\n\(app.debugDescription)")
         XCTAssertTrue(row("Persona（主对话）").exists, "no main chat target:\n\(app.debugDescription)")
         sleep(1)

@@ -31,7 +31,7 @@ hub ──(HPKE ciphertext + grant)──▶ relay ──(APNs key)──▶ APN
 - HPKE (RFC 9180) base mode: DHKEM(P-256, HKDF-SHA256) + HKDF-SHA256 + AES-256-GCM, `info = "persona push v1"`.
   Go uses the standard library `crypto/hpke`; iOS uses CryptoKit `HPKE` (`P256_SHA256_AES_GCM_256`). Ciphertext = `enc` (65 bytes) ‖ AEAD output, base64 in the push's `e` field.
 - The plaintext is exactly the JSON the hub would send when direct (`aps.alert` title / subtitle / body, `category`, `thread-id`, `interruption-level`,
-  `interaction_id` / `machine_id` / `session_id`, an optional question `ask`, the pairing receipt `pair`, `persona_wake`), plus an `iat` (Unix seconds).
+  `interaction_id` / `machine_id` / `session_id`, an optional question `ask`, the pairing receipt `pair`, a decision's `todo` (`../assistant/todos.md` "Waiting for the owner"), `persona_wake`), plus an `iat` (Unix seconds).
 - The phone's private key: a `P256.KeyAgreement.PrivateKey` stored in the keychain access group shared by the App and the Notification Service Extension, `AfterFirstUnlockThisDeviceOnly`
   (readable by the extension on the lock screen once the device has been unlocked after boot; not in iCloud backups, regenerated on a new phone). Generated the first time it's needed, then never changes.
 
