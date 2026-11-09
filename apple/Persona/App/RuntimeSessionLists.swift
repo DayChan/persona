@@ -40,6 +40,7 @@ import Observation
             if list.paged { model.landSessionSummaries(rows, group: group) }
             else { model.landCompleteSessionList(rows, group: group) }
         }
+        list.outside = { [weak model] rows in model?.landSessionSummaries(rows, group: group) }
         lists[group] = list
         return list
     }
@@ -149,6 +150,7 @@ import Observation
                 return try await link.api.sessionListCounts(query)
             })
         page.changed = { [weak model] rows in model?.landSessionSummaries(rows, group: scope.hub) }
+        page.outside = page.changed
         sections[scope] = page
         await page.select(scope.query)
     }

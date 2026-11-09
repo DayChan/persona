@@ -68,6 +68,58 @@ import Testing
         #expect(list.total == 7999)
     }
 
+    @Test func aDeltaHandsWhatIsOutsideTheWindowOnWithoutAddingRows() async throws {
+        let changed = try row(0, text: "changed")
+        let started = try row(9, text: "started after the window was read")
+        let gone = try row(8)
+        let list = model { _, _, since in
+            if since == "r1" { return SessionListPage(sessions: [], remove: [], hasMore: false, nextCursor: nil, revision: "r1", total: 2) }
+            if since != nil {
+                return SessionListPage(sessions: [changed, started, gone], remove: [#"["demo","s1"]"#, #"["demo","s8"]"#],
+                                       hasMore: false, nextCursor: nil, revision: "r1", total: 2)
+            }
+            return SessionListPage(sessions: [try row(0), try row(1)], remove: [], hasMore: false, nextCursor: nil, revision: "r0", total: 2)
+        }
+        var outside: [[Session]] = []
+        list.outside = { outside.append($0) }
+        await list.load()
+        await list.synchronize()
+        #expect(list.rows.map(\.sessionID) == ["s0"], "the window stays frozen: no row added")
+        #expect(list.rows.first?.lastText == "changed")
+        #expect(outside.map { $0.map(\.sessionID) } == [["s9"]], "only the new one, not a row in the window nor a removed one")
+        await list.synchronize()
+        #expect(outside.count == 1, "nothing changed: nothing handed on")
+    }
+
+    /// #2003: an agent a to-do started after the Agents list's window was read reached the app only through the list's
+    /// delta, which left it out of the session index: the to-do found no agent working and said Follow Up.
+    @Test func aToDosNewAgentFromADeltaIsFoundWorking() async throws {
+        let group = "test-outside-" + UUID().uuidString
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/sessions") { req in
+            if req.query["counts"] == "1" {
+                return Data(#"{"total":2,"machine":{},"project":{},"group":{},"state":{},"revision":"r1"}"#.utf8)
+            }
+            let json = req.query["since"] == nil
+                ? #"{"sessions":[{"machine_id":"demo","session_id":"old","state":"idle"}],"remove":[],"has_more":false,"revision":"r0","total":1}"#
+                : #"{"sessions":[{"machine_id":"demo","session_id":"new","state":"working"}],"remove":[],"has_more":false,"revision":"r1","total":2}"#
+            return Data(json.utf8)
+        }
+        let link = HubLink(group: group, config: ServerConfig(url: URL(string: "https://fake.invalid")!, token: "t"),
+                           pins: PinsStore(deps: .init(api: { nil }, report: { _ in }, suffix: group)))
+        link.transportForTests = hub.client.transport
+        let model = AppModel()
+        let list = model.sessionLists.list(link, model: model)
+        await list.load()
+        let todo = TodoItem(id: "t", title: "Task", agents: [TodoItem.Agent(machineID: "demo", sessionID: "new")])
+        let lookup = { TodosLogic.makeSessionLookup(model.allSessions.filter { $0.group == group }) }
+        #expect(TodosLogic.todoStatus(todo, lookup: lookup()) == .followup, "before the delta: not found, as the bug showed")
+        await list.synchronize()
+        #expect(list.rows.map(\.sessionID) == ["old"])
+        #expect(model.latest(SessionKey(group: group, machineID: "demo", sessionID: "new"))?.state == .working)
+        #expect(TodosLogic.todoStatus(todo, lookup: lookup()) == .working)
+    }
+
     @Test func incompleteDeltaDoesNotAdvanceOrPartiallyApply() async throws {
         var failing = true
         let list = model { _, cursor, since in
