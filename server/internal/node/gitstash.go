@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -194,7 +195,7 @@ func mutateStash(ctx context.Context, root, op string, index int, oid string) er
 	if op == "pop" {
 		out, errOut, err := gitExec(ctx, root, time.Minute, "stash", "apply", oid)
 		if err != nil {
-			return gitRefusal("stash", out, errOut, err, nil)
+			return stashApplyRefusal(ctx, root, out, errOut, err)
 		}
 	}
 	// Once apply succeeds, finish the bounded publication even if the caller disconnects.
@@ -224,6 +225,30 @@ func mutateStash(ctx context.Context, root, op string, index int, oid string) er
 		return &rpc.Error{Code: gitCodeFailed, Message: prefix + " " + err.Error()}
 	}
 	return nil
+}
+
+// stashApplyRefusal says why an apply (or a pop's apply) stopped. One that hit merge conflicts is not a refusal that
+// left the tree alone: git has put the stash's content in, the conflicting files unmerged with markers (and its
+// untracked files back), and kept the entry. That gets its own code and the unmerged files; a refusal before anything
+// was applied (local changes it would overwrite) stays git_conflict.
+func stashApplyRefusal(ctx context.Context, root, out, errOut string, err error) error {
+	if strings.Contains(out+"\n"+errOut, "CONFLICT") {
+		if o, uerr := git(ctx, root, "diff", "--name-only", "--diff-filter=U", "-z"); uerr == nil {
+			var files []string
+			for _, f := range strings.Split(o, "\x00") {
+				if f != "" {
+					files = append(files, f)
+				}
+			}
+			if len(files) > 0 {
+				words := clipGitOutput(strings.TrimSpace(strings.TrimSpace(errOut) + "\n" + strings.TrimSpace(out)))
+				e := &rpc.Error{Code: gitCodeStashConflicted, Message: "git stash: " + words}
+				e.Data, _ = json.Marshal(map[string]any{"files": files})
+				return e
+			}
+		}
+	}
+	return gitRefusal("stash", out, errOut, err, nil)
 }
 
 // stashRefBackend reads `git rev-parse --show-ref-format`. Git before 2.45 does not know the

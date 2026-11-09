@@ -73,5 +73,6 @@
   "stash_refresh": "Refresh",
   "stash_old_node": "Update Persona on this computer to apply, pop or drop stashes safely.",
   "refused_git_stash_stale": "The stash list changed. Refresh and select the stash again.",
+  "refused_git_stash_conflicted": "Applied with conflicts in these files: resolve them, then commit. The stash is kept.",
   "refused_git_stash_unsupported": "Safe stash removal is unavailable for this repository."
 }

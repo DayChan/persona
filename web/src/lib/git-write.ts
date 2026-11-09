@@ -67,6 +67,7 @@ const KNOWN = new Set([
   "git_no_stash",
   "git_stash_stale",
   "git_stash_unsupported",
+  "git_stash_conflicted",
   "git_not_pushed",
   "git_no_pr",
   "git_not_github",

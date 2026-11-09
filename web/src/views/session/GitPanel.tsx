@@ -70,14 +70,20 @@ export function GitPanel({ mid, sid, cwd, at, onClose }: { mid: string; sid: str
   // The writes (#6121), on a hub that has them: each answers the status as it is after it.
   const writable = useStore((s) => s.features.includes("git_write"));
   const reviews = useStore((s) => s.features.includes(REVIEW_FEATURE));
-  const writer = useGitWrite(base, cwd, (s) => {
-    if (head.current !== s.head?.hash) {
-      setOlder([]);
-      setNoMore(false);
-    }
-    head.current = s.head?.hash;
-    setStatus(s);
-  });
+  const writer = useGitWrite(
+    base,
+    cwd,
+    (s) => {
+      if (head.current !== s.head?.hash) {
+        setOlder([]);
+        setNoMore(false);
+      }
+      head.current = s.head?.hash;
+      setStatus(s);
+    },
+    // a refusal may have changed the tree (a stash apply that stopped on conflicts): read it again, quietly
+    () => setLive((n) => n + 1),
+  );
   // The branch's pull request (#6121), read through gh on that computer.
   const pr = useGitPR(base, cwd, status, writable);
 

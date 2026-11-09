@@ -55,6 +55,7 @@ let server: Entry[],
   fail: string | undefined;
 let root: Root, host: HTMLDivElement;
 const onStatus = vi.fn();
+const onRefused = vi.fn();
 const json = (x: unknown, code = 200) =>
   new Response(JSON.stringify(x), {
     status: code,
@@ -70,6 +71,7 @@ function Harness() {
     "/machines/computer/git",
     "/projects/demo",
     onStatus,
+    onRefused,
   );
   return (
     <>
@@ -97,6 +99,7 @@ beforeEach(async () => {
   requests = [];
   fail = undefined;
   onStatus.mockClear();
+  onRefused.mockClear();
   vi.mocked(toast).mockClear();
   vi.stubGlobal(
     "fetch",
@@ -104,7 +107,15 @@ beforeEach(async () => {
       const body = JSON.parse(String(init.body));
       requests.push(body);
       if (["drop", "pop", "apply"].includes(body.op)) {
-        if (fail) return json({ code: fail, error: "Synthetic refusal" }, 409);
+        if (fail)
+          return json(
+            {
+              code: fail,
+              error: "Synthetic refusal",
+              ...(fail === "git_stash_conflicted" ? { files: ["app.txt"] } : {}),
+            },
+            409,
+          );
         if (server[body.index]?.oid !== body.oid)
           return json(
             { code: "git_stash_stale", error: "Refresh and reselect" },
@@ -248,5 +259,24 @@ it.each(["git_conflict", "git_busy", "git_stash_unsupported"])(
     fail = undefined;
     await click(t("session-gitwrite.stash_pop"));
     expect(server).toHaveLength(0);
+  },
+);
+
+it.each(["apply", "pop"] as const)(
+  "a %s that stopped on conflicts says so, lists the files and has the status read again (#1885)",
+  async (op) => {
+    fail = "git_stash_conflicted";
+    await click(t(`session-gitwrite.stash_${op}`));
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain(
+      t("session-gitwrite.refused_git_stash_conflicted"),
+    );
+    expect(dialog.textContent).not.toContain(
+      t("session-gitwrite.refused_git_conflict"),
+    );
+    expect(dialog.textContent).toContain("app.txt");
+    expect(onRefused).toHaveBeenCalledTimes(1);
+    expect(server).toHaveLength(1); // the entry is kept
+    expect(toast).not.toHaveBeenCalled();
   },
 );

@@ -73,5 +73,6 @@
   "stash_refresh": "刷新",
   "stash_old_node": "请更新此电脑上的 Persona，以安全地应用、弹出或删除储藏。",
   "refused_git_stash_stale": "储藏列表已更改。请刷新后重新选择储藏。",
+  "refused_git_stash_conflicted": "已应用，但这些文件有冲突：解决后再提交。贮藏仍保留。",
   "refused_git_stash_unsupported": "此仓库不支持安全删除储藏。"
 }

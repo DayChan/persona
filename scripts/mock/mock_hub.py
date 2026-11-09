@@ -9723,7 +9723,8 @@ def personal_rows():
 def personal_listed(hidden):
     return [r for r in personal_rows() if (r["id"] in PERSONAL_HIDDEN) == hidden] if PERSONAL_AGENTS else []
 # MOCK_GIT_WRITE=1 (#6121): the Git panel's writes on a made-up repository that changes as they are made. GET
-# /mock/git-write?fail=<code>[&files=a,b] makes the next write refuse with that code (git_conflict lists the files);
+# /mock/git-write?fail=<code>[&files=a,b] makes the next write refuse with that code (git_conflict lists the files;
+# git_stash_conflicted also leaves them unmerged in the status, as a stash apply that stopped on conflicts does);
 # ?reset=1 starts over. The branch's pull request: ?pr=none|review|ready|auto sets it, ?pr_fail=no_gh|not_signed_in makes
 # reading it refuse; POST git/pr opens one, git/pr/merge merges it or sets it to merge when ready.
 def git_write_fresh():
@@ -9815,7 +9816,12 @@ def git_write(h, p, body):
         words = {"git_conflict": "error: Your local changes to the following files would be overwritten by checkout:\n\t" + "\n\t".join(files) +
                                  "\nPlease commit your changes or stash them before you switch branches.\nAborting",
                  "git_push_rejected": " ! [rejected]        widget-hourly -> widget-hourly (fetch first)\nerror: failed to push some refs",
-                 "git_hook_failed": "swiftlint: 2 violations in WeatherWidget/Provider.swift\n  12:5 Line Length Violation\n  30:1 Trailing Whitespace"}.get(code, code)
+                 "git_hook_failed": "swiftlint: 2 violations in WeatherWidget/Provider.swift\n  12:5 Line Length Violation\n  30:1 Trailing Whitespace",
+                 "git_stash_conflicted": "".join("Auto-merging %s\nCONFLICT (content): Merge conflict in %s\n" % (f, f) for f in files) +
+                                         "The stash entry is kept in case you need it again."}.get(code, code)
+        if code == "git_stash_conflicted":
+            w["files"] = [f for f in w["files"] if f["path"] not in files] + [
+                {"path": f, "index": "U", "worktree": "U", "added": 0, "deleted": 0, "binary": False} for f in files]
         return h.send_json({"error": "git %s: %s" % (op, words), "code": code, **({"files": files} if files else {})}, 409)
     out = {}
     if op == "stage":

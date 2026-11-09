@@ -609,6 +609,11 @@ keep conflicts retryable, preserve existing storage modes and honor repository s
 and require refresh/reselection after stale identities. Test the real JSON dispatcher
 against disposable Git with an independent writer at the last read before removal.
 
+A failed `git stash apply` is two different things (#1885). Local changes it would overwrite stop it before anything
+changes; a merge conflict has already put the content in (unmerged files with markers, the stash's untracked files
+back) and only keeps the entry. Tell them apart by git's `CONFLICT` lines plus `git diff --diff-filter=U`, never `-q`
+(which drops those lines), and have the client read the status again after any refusal.
+
 ## Cloudflare Tunnel push relay (2026-11-02)
 
 - `systemctl --user` reporting `active` means only cloudflared is running, not connected to the edge or loaded with remote ingress. Acceptance checks Tunnel connectivity,

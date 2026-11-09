@@ -454,7 +454,7 @@ func TestStashSHA256AndMergeConflict(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected merge conflict")
 				}
-				if code, files := gitCodeOf(t, err); code != "git_conflict" || !slices.Contains(files, "app.txt") {
+				if code, files := gitCodeOf(t, err); code != gitCodeStashConflicted || !slices.Equal(files, []string{"app.txt"}) {
 					t.Fatalf("conflict must report app.txt: %s %v (%v)", code, files, err)
 				}
 				if runPullGit(t, cwd, "rev-parse", "refs/stash") != selected["oid"] || runPullGit(t, cwd, "ls-files", "--unmerged") == "" {
@@ -580,5 +580,57 @@ func TestStashRefBackendOlderGit(t *testing.T) {
 		if got := stashRefBackend(out); got != want {
 			t.Errorf("stashRefBackend(%q) = %q, want %q", out, got, want)
 		}
+	}
+}
+
+// The issue's case (#1885): a stash of a changed file and a new one, applied (or popped) on a branch whose commit
+// changed the same line. git puts the content in with conflict markers, restores the new file and keeps the entry;
+// that is said as git_stash_conflicted with the unmerged file, not as a refusal that changed nothing. A refusal before
+// anything is applied (an uncommitted change it would overwrite) stays git_conflict.
+func TestStashApplyWithConflicts(t *testing.T) {
+	for _, op := range []string{"apply", "pop"} {
+		t.Run(op, func(t *testing.T) {
+			f := newPullFixture(t)
+			ctx := context.Background()
+			putFile(t, f.local, "app.txt", "mine\n")
+			putFile(t, f.local, "new.txt", "untracked\n")
+			res, err := f.node.gitStash(ctx, f.local, "push", 0, "", true, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := res.Stash[0]
+			runPullGit(t, f.local, "switch", "-q", "-c", "other")
+			f.commit(t, f.local, "app.txt", "theirs\n")
+			_, err = f.node.gitStash(ctx, f.local, op, 0, "", false, entry.OID)
+			if code, files := gitCodeOf(t, err); code != gitCodeStashConflicted || !slices.Equal(files, []string{"app.txt"}) {
+				t.Fatalf("%s %v: %v", code, files, err)
+			}
+			if !strings.Contains(err.Error(), "CONFLICT") {
+				t.Errorf("git's own words are lost: %v", err)
+			}
+			if got := runPullGit(t, f.local, "rev-parse", "stash@{0}"); got != entry.OID {
+				t.Fatal("the entry was not kept")
+			}
+			if _, err := os.Stat(filepath.Join(f.local, "new.txt")); err != nil {
+				t.Fatal("the stash's new file is not back")
+			}
+			if b, _ := os.ReadFile(filepath.Join(f.local, "app.txt")); !strings.Contains(string(b), "<<<<<<<") {
+				t.Fatalf("no conflict markers: %q", b)
+			}
+			assertStashLocksReleased(t, f.local)
+		})
+	}
+	// an uncommitted change it would overwrite: refused before anything is applied
+	f := newPullFixture(t)
+	ctx := context.Background()
+	putFile(t, f.local, "app.txt", "mine\n")
+	res, err := f.node.gitStash(ctx, f.local, "push", 0, "", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	putFile(t, f.local, "app.txt", "uncommitted\n")
+	_, err = f.node.gitStash(ctx, f.local, "apply", 0, "", false, res.Stash[0].OID)
+	if code, files := gitCodeOf(t, err); code != gitCodeConflict || !slices.Equal(files, []string{"app.txt"}) {
+		t.Fatalf("%s %v: %v", code, files, err)
 	}
 }

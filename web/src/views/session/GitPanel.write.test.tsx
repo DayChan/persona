@@ -131,6 +131,19 @@ describe("GitPanel writes", () => {
     expect(dialog.textContent).toContain("index.lock");
   });
 
+  it("reads the status again after a refusal, which may have changed the tree (#1885)", async () => {
+    mount(true);
+    await act(async () => last().answer(status()));
+    const reads = () => pending.filter((p) => p.path.includes("/git/status?")).length;
+    const before = reads();
+    act(() => button(t("session-gitwrite.stage_file", { name: "src/new.ts" }))!.click());
+    await act(async () => last().answer({ error: "git stash: CONFLICT (content): Merge conflict in src/login.ts", code: "git_stash_conflicted", files: ["src/login.ts"] }, 409));
+    expect(reads()).toBe(before + 1);
+    const dialog = document.querySelector("[role=dialog]")!;
+    expect(dialog.textContent).toContain(t("session-gitwrite.refused_git_stash_conflicted"));
+    expect(dialog.textContent).toContain("src/login.ts");
+  });
+
   it("hands a review thread to the agent and asks before merging", async () => {
     setQuotes("computer/session", []);
     mount(true);

@@ -36,6 +36,7 @@ const (
 	gitCodeNoBranch         = "git_no_branch"         // no such branch, or a new branch's name is taken or not valid
 	gitCodeStashStale       = "git_stash_stale"       // refresh and reselect: the index no longer names the selected object
 	gitCodeStashUnsupported = "git_stash_unsupported" // safe stash mutation is unavailable on this repository
+	gitCodeStashConflicted  = "git_stash_conflicted"  // an apply / pop stopped on conflicts: the content is in the tree with markers, the entry kept (Data.files)
 	gitCodeNoStash          = "git_no_stash"          // no such stash entry, or nothing to stash
 	gitCodeFailed           = "git_failed"            // anything else git refused; its words are the message
 )
@@ -528,7 +529,9 @@ func (n *Node) gitStash(ctx context.Context, cwd, op string, index int, message 
 		return nil, &rpc.Error{Code: gitCodeFailed, Message: "unknown stash op " + op}
 	}
 	out, errOut, err := gitExec(ctx, root, time.Minute, args...)
-	if err != nil {
+	if err != nil && op == "apply" {
+		return nil, stashApplyRefusal(ctx, root, out, errOut, err)
+	} else if err != nil {
 		return nil, gitRefusal("stash", out, errOut, err, nil)
 	}
 	if op == "push" && strings.Contains(out+errOut, "No local changes to save") {

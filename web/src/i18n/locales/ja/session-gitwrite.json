@@ -73,5 +73,6 @@
   "stash_refresh": "更新",
   "stash_old_node": "スタッシュを安全に適用・取り出し・削除するには、このコンピュータの Persona を更新してください。",
   "refused_git_stash_stale": "スタッシュ一覧が変更されました。更新して再度選択してください。",
+  "refused_git_stash_conflicted": "適用しましたが、これらのファイルで競合しています。解決してからコミットしてください。スタッシュは残してあります。",
   "refused_git_stash_unsupported": "このリポジトリではスタッシュを安全に削除できません。"
 }
