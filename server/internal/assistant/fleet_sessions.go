@@ -30,7 +30,8 @@ func (s *Service) setSessions(machine string, list []proto.Session) {
 	}
 	for _, sess := range list {
 		// Any agent (herdr or headless, started by Persona or not) finishing a turn may notify the phone.
-		was, key := before[sess.SessionID], machine+"/"+sess.SessionID
+		was, seen := before[sess.SessionID]
+		key := machine + "/" + sess.SessionID
 		prev := was.Status
 		// The turn stopped on background work and its report woke it again within one of the node's list ticks: the
 		// stop never showed, only the woken flag turning on. It is held work all the same (#4187, #4419). By the
@@ -45,7 +46,7 @@ func (s *Service) setSessions(machine string, list []proto.Session) {
 			s.turnsBook().working(key, now)
 			s.replyWorked(machine, sess.SessionID) // answered: a question it asks next is a new one (agents_reply.go)
 			ref := SessionRef{MachineID: machine, SessionID: sess.SessionID}
-			s.inOrder(func() { s.TurnStarted(context.Background(), ref) }) // after the items that came before it
+			s.inOrder(func() { s.turnStartedObserved(context.Background(), ref, !seen) }) // after the items that came before it
 		case prev == proto.StatusWorking && (sess.Status == proto.StatusDone || sess.Status == proto.StatusIdle):
 			go s.notifyFinished(machine, sess.SessionID, s.turnsBook().ended(key, now, backgroundRunning(sess)))
 			// A new assistant conversation is named after its first turn; a task from one may be done. After the
