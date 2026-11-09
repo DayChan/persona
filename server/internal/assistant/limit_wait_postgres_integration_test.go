@@ -12,6 +12,125 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+func TestOrdinaryReceiptWithoutWaitKeepsCompletionPostgres(t *testing.T) {
+	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated Postgres test database not configured")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || !strings.HasPrefix(u.Path, "/persona_test_") {
+		t.Fatal("test requires a disposable database")
+	}
+	ctx := context.Background()
+	st, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	id := "ordinary_receipt_" + randomHex(8)
+	conversation := "ordinary-receipt-" + id
+	sid := "ordinary_" + randomHex(8)
+	linked := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+	if err := st.CreateTodo(ctx, db.TodoRow{ID: id, Title: "Task", Origin: conversation, CreatedAt: linked, UpdatedAt: linked}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.DeleteTodo(context.Background(), id) })
+	if _, err := st.LinkTodoAgent(ctx, id, "box", sid, "", "", "", "", linked); err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeHub()
+	f.judge = `{"verdict":"done","reason":"Verified"}`
+	f.setItems(proto.Item{Role: "user", Kind: proto.KindText, Text: "Do the work"}, proto.Item{Role: "assistant", Kind: proto.KindText, Text: "Work verified"})
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: sid, Status: proto.StatusDone, State: proto.StateUnread, LastText: "Work verified", UpdatedAt: time.Now()})
+	s := newServiceOn(t, f, st)
+	s.taskWorking(ctx, "box", sid)
+	s.taskTurnEnded(ctx, "box", sid)
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	stored, err := st.GetTodo(ctx, id)
+	if err != nil || judged == 0 || stored.DoneAt == nil {
+		t.Fatalf("ordinary completion: judgments=%d todo=%+v error=%v", judged, stored, err)
+	}
+	s.reports.mu.Lock()
+	report := s.reports.pending[id]
+	s.reports.mu.Unlock()
+	if report == nil {
+		t.Fatal("ordinary completion did not queue its task report")
+	}
+}
+
+func TestOrdinaryReceiptRejectsUnlinkAfterOtherWaitRemovedPostgres(t *testing.T) {
+	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated Postgres test database not configured")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || !strings.HasPrefix(u.Path, "/persona_test_") {
+		t.Fatal("test requires a disposable database")
+	}
+	ctx := context.Background()
+	a, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
+	b, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	id := "cleared_wait_" + randomHex(8)
+	conversation := "cleared-wait-" + id
+	trigger, waiting := "trigger_"+randomHex(8), "waiting_"+randomHex(8)
+	linked := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+	if err := a.CreateTodo(ctx, db.TodoRow{ID: id, Title: "Task", Origin: conversation, CreatedAt: linked, UpdatedAt: linked}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.DeleteTodo(context.Background(), id) })
+	for _, sid := range []string{trigger, waiting} {
+		if _, err := a.LinkTodoAgent(ctx, id, "box", sid, "", "", "", "", linked); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := New(Options{Hub: newFakeHub(), Store: func() Store { return a }})
+	if err := first.ensureTodosLoaded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	todo, ok := first.taskOf(ctx, "box", trigger)
+	if !ok {
+		t.Fatal("manager A did not cache the original link")
+	}
+	first.taskTurnEndedAfter(ctx, "box", waiting, time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := a.Setting(ctx, receiptLooksSetting, &state); err != nil {
+		t.Fatal(err)
+	}
+	var look receiptLook
+	for _, candidate := range state.Looks {
+		if candidate.Todo == id && candidate.Session == waiting {
+			look = candidate
+			break
+		}
+	}
+	if look.ID == "" {
+		t.Fatal("other agent's wait was not registered")
+	}
+	second := New(Options{Hub: newFakeHub(), Store: func() Store { return b }})
+	second.clearReceiptLook(ctx, receiptKeyOf(look), look.ID)
+	if err := b.UnlinkTodoAgent(ctx, id, "box", trigger); err != nil {
+		t.Fatal(err)
+	}
+	_, err = first.appendTaskReceiptForLook(ctx, todo, SessionRef{MachineID: "box", SessionID: trigger}, receiptBody{State: "interrupted"}, time.Time{}, false, nil)
+	if err == nil {
+		t.Fatal("ordinary receipt ignored committed unlink after wait removal")
+	}
+	rows, err := a.Feed(ctx, conversation, time.Time{}, 20)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("feed after unlink = %+v, %v", rows, err)
+	}
+}
+
 func TestOtherAgentLookDoesNotAuthorizeUnlinkedTriggerPostgres(t *testing.T) {
 	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
 	if dsn == "" {

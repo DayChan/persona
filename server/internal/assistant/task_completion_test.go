@@ -1773,6 +1773,50 @@ func TestOldReceiptLookRegistersCurrentLimitGeneration(t *testing.T) {
 	}
 }
 
+func TestReceiptLookRegistersLimitWhileOtherMachineOffline(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	linked := time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].Agents = append(s.todos.todos["task"].Agents, TodoAgent{MachineID: "other", SessionID: "s2", LinkedAt: linked})
+	s.todos.activeBySession[[2]string{"other", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	f.sessions["other"] = nil
+	f.offline["other"] = true
+	synctest.Test(t, func(t *testing.T) {
+		reset := time.Now().Add(time.Hour)
+		limited := limitTurn("s1", reset, true)
+		limited.MachineID = "box"
+		f.setSessions("box", limited)
+		s.taskTurnEnded(context.Background(), "box", "s1")
+		var state receiptLookState
+		if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].Session != "s1" || !state.Looks[0].At.Equal(reset.Add(limitResumeGrace)) {
+			t.Fatalf("limited agent wait while other machine offline = %+v, %v", state, err)
+		}
+	})
+}
+
+func TestReceiptLookRegistersLimitWhileOtherAgentWorks(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].Agents = append(s.todos.todos["task"].Agents, TodoAgent{MachineID: "box", SessionID: "s2", LinkedAt: linked})
+	s.todos.activeBySession[[2]string{"box", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	reset := time.Now().Add(time.Hour)
+	limited := limitTurn("s1", reset, true)
+	limited.MachineID = "box"
+	f.setSessions("box", limited, proto.Session{MachineID: "box", SessionID: "s2", Status: proto.StatusWorking, State: proto.StateWorking})
+	s.taskTurnEnded(context.Background(), "box", "s1")
+	var state receiptLookState
+	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].Session != "s1" || !state.Looks[0].At.Equal(reset.Add(limitResumeGrace)) {
+		t.Fatalf("limited agent wait while other works = %+v, %v", state, err)
+	}
+}
+
 func TestReceiptLookKeepsEachLimitedAgent(t *testing.T) {
 	st := &memStore{}
 	f := newFakeHub()
