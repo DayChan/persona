@@ -208,7 +208,7 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 			// A usage limit stopped it until the reset, and its CLI or the manager goes on then (usage_limit.go): the
 			// receipt waits for how that ends. Looked at again once the wait is over, so a turn that did not go on after
 			// all (the continue cancelled) still gets its receipt.
-			s.taskTurnEndedAfter(ctx, machine, sid, limitLookAgain(c, now))
+			s.taskTurnEndedForTaskAfter(ctx, &t, machine, sid, limitLookAgain(c, now))
 			return
 		}
 		if c.UpdatedAt.After(last.UpdatedAt) {
@@ -652,9 +652,11 @@ func (s *Service) saveReceiptLooksLocked(ctx context.Context) error {
 }
 
 func (s *Service) taskTurnEndedAfter(ctx context.Context, machine, sid string, at time.Time) {
+	s.taskTurnEndedForTaskAfter(ctx, nil, machine, sid, at)
+}
+
+func (s *Service) taskTurnEndedForTaskAfter(ctx context.Context, expected *Todo, machine, sid string, at time.Time) {
 	ref := SessionRef{MachineID: machine, SessionID: sid}
-	t, found := s.taskOf(ctx, machine, sid)
-	linked, linkedOK := receiptLink(t, ref)
 	s.tasks.receiptMu.Lock()
 	defer s.tasks.receiptMu.Unlock()
 	timerCtx := s.tasks.receiptCtx
@@ -663,8 +665,37 @@ func (s *Service) taskTurnEndedAfter(ctx context.Context, machine, sid string, a
 	}
 	retry := func() {
 		if timerCtx.Err() == nil {
-			s.taskTurnEndedAfter(timerCtx, machine, sid, at)
+			s.taskTurnEndedForTaskAfter(timerCtx, expected, machine, sid, at)
 		}
+	}
+	if err := s.ensureTodosLoaded(ctx); err != nil {
+		s.logf("task receipt looks: load todos: %v", err)
+		time.AfterFunc(time.Minute, retry)
+		return
+	}
+	t, found := s.taskOf(ctx, machine, sid)
+	linked, linkedOK := receiptLink(t, ref)
+	if expected != nil {
+		expectedLink, ok := receiptLink(*expected, ref)
+		if !ok {
+			return
+		}
+		valid, err := s.receiptLookLinked(ctx, receiptLook{Machine: machine, Session: sid, Todo: expected.ID, Linked: expectedLink})
+		if err != nil {
+			s.logf("task %s: check receipt link: %v", expected.ID, err)
+			time.AfterFunc(time.Minute, retry)
+			return
+		}
+		if !valid {
+			return
+		}
+		if !found || t.ID != expected.ID || !linkedOK || !linked.Equal(expectedLink) {
+			t, found, linked, linkedOK = *expected, true, expectedLink, true
+		}
+	}
+	if (!found || !linkedOK) && s.store() != nil {
+		s.logf("task receipt look: no active task for %s/%s", machine, sid)
+		return
 	}
 	if err := s.receiptLooksLocked(ctx); err != nil {
 		s.logf("task receipt looks: read: %v", err)

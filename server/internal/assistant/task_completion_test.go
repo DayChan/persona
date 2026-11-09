@@ -13,6 +13,33 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+type receiptSettingFailureStore struct {
+	memStore
+	faultMu   sync.Mutex
+	failRead  bool
+	failWrite bool
+}
+
+func (st *receiptSettingFailureStore) Setting(ctx context.Context, key string, out any) (bool, error) {
+	st.faultMu.Lock()
+	fail := key == receiptLooksSetting && st.failRead
+	st.faultMu.Unlock()
+	if fail {
+		return false, errors.New("setting unavailable")
+	}
+	return st.memStore.Setting(ctx, key, out)
+}
+
+func (st *receiptSettingFailureStore) CompareSetting(ctx context.Context, key string, revision int64, value any) (bool, error) {
+	st.faultMu.Lock()
+	fail := key == receiptLooksSetting && st.failWrite
+	st.faultMu.Unlock()
+	if fail {
+		return false, errors.New("setting unavailable")
+	}
+	return st.memStore.CompareSetting(ctx, key, revision, value)
+}
+
 type receiptOnceStore struct {
 	memStore
 	feedMu       sync.Mutex
@@ -135,6 +162,53 @@ func TestReceiptLookRestoresAcrossRestart(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestReceiptLookRegistrationRetriesStoreFailures(t *testing.T) {
+	for _, write := range []bool{false, true} {
+		t.Run(map[bool]string{false: "read", true: "write"}[write], func(t *testing.T) {
+			st := &receiptSettingFailureStore{}
+			f := newFakeHub()
+			s := receiptTestService(t, f, st, time.Now().Add(-time.Hour))
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				s.restoreTaskReceiptLooks(ctx)
+				st.faultMu.Lock()
+				st.failRead, st.failWrite = !write, write
+				st.faultMu.Unlock()
+				s.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Hour))
+				s.tasks.mu.Lock()
+				n := len(s.tasks.limitLooks)
+				s.tasks.mu.Unlock()
+				if n != 0 {
+					t.Fatal("failed store write fell back to an in-memory wait")
+				}
+				st.faultMu.Lock()
+				st.failRead, st.failWrite = false, false
+				st.faultMu.Unlock()
+				<-time.After(time.Minute)
+				synctest.Wait()
+				var state receiptLookState
+				if ok, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || !ok || len(state.Looks) != 1 {
+					t.Fatalf("registration was not retried: %+v %v", state, err)
+				}
+			})
+		})
+	}
+}
+
+func TestReceiptLookRequiresTaskWithStore(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	s := newServiceOn(t, f, st)
+	s.taskTurnEndedAfter(context.Background(), "box", "missing", time.Now().Add(time.Hour))
+	s.tasks.mu.Lock()
+	n := len(s.tasks.limitLooks)
+	s.tasks.mu.Unlock()
+	if n != 0 {
+		t.Fatal("unassociated persistent request became an in-memory wait")
 	}
 }
 
