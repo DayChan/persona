@@ -1794,6 +1794,42 @@ func TestOldReceiptLookRegistersCurrentLimitGeneration(t *testing.T) {
 	}
 }
 
+func TestReceiptLookFindsOtherLimitBehindBlockedMachine(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	linked := time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	a := s.todos.todos["task"].Agents[0]
+	s.todos.todos["task"].Agents = []TodoAgent{
+		{MachineID: "other", SessionID: "s2", LinkedAt: linked},
+		{MachineID: "third", SessionID: "s3", LinkedAt: linked}, a,
+	}
+	s.todos.activeBySession[[2]string{"other", "s2"}] = "task"
+	s.todos.activeBySession[[2]string{"third", "s3"}] = "task"
+	s.todos.mu.Unlock()
+	hub := &deadlineBlockedSessionsHub{fakeHub: f, entered: make(chan struct{})}
+	s.hub = hub
+	synctest.Test(t, func(t *testing.T) {
+		reset := time.Now().Add(time.Hour)
+		limited := limitTurn("s3", reset, true)
+		limited.MachineID = "third"
+		f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone})
+		f.setSessions("third", limited)
+		s.taskTurnEnded(context.Background(), "box", "s1")
+		select {
+		case <-hub.entered:
+		default:
+			t.Fatal("other machine did not reach the deadline barrier")
+		}
+		var state receiptLookState
+		if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 ||
+			state.Looks[0].Session != "s3" || !state.Looks[0].At.Equal(reset.Add(limitResumeGrace)) {
+			t.Fatalf("third agent limit lost behind blocked machine: %+v, %v", state, err)
+		}
+	})
+}
+
 func TestReceiptLookPrioritizesTriggerBeforeBlockedMachine(t *testing.T) {
 	st := &memStore{}
 	f := newFakeHub()
