@@ -161,6 +161,18 @@ internal object ExtensionText {
     /** The auto-upgrade switch as shown: off while it is paused (the extension switched off), else the extension's own. */
     fun autoUpgradeShown(e: HubExtension): Boolean = e.autoUpgradePaused == null && (e.autoUpgrade ?: true)
 
+    /**
+     * The Auto-upgrade footer: why the switch does not apply now, by the hub's `auto_upgrade_paused` (docs/extensions/extensions.md);
+     * a reason this app does not know says only that it is paused, not that the extension is off (#1895).
+     */
+    @androidx.annotation.StringRes
+    fun upgradeFooter(e: HubExtension): Int = when (e.autoUpgradePaused) {
+        null -> R.string.settings_ext_upgrade_footer
+        "disabled" -> R.string.settings_ext_upgrade_paused_footer
+        "market_removed" -> R.string.settings_ext_upgrade_market_removed_footer
+        else -> R.string.settings_ext_upgrade_paused_other_footer
+    }
+
     /** When the line asks something of the user, what its button says (it opens the upgrade in the market); null otherwise. */
     fun upgradeAction(res: Resources, u: ExtensionUpgrade): String? = when (u.state) {
         "needs_permission" -> res.getString(R.string.settings_ext_upgrade_review)
