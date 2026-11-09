@@ -124,3 +124,31 @@ func TestEveryScopeLeavesOutThePermissionMode(t *testing.T) {
 		t.Fatal("EveryScope hands out HubScopes itself")
 	}
 }
+
+// The legacy full-hub grant covers agents.control but not agents.permission_mode, which only a named grant gives.
+func TestFullHubGrantLeavesOutThePermissionMode(t *testing.T) {
+	r := NewRegistry(t.TempDir(), nil, nil, 1)
+	for id, grant := range map[string]Permissions{
+		"legacy": {HubAPI: true},
+		"named":  {Hub: []string{ScopeAgentsPermissionMode}},
+	} {
+		m := &Manifest{ID: id, Version: "1.0.0", Permissions: grant,
+			Contributes: map[string]json.RawMessage{"events": json.RawMessage(`[{"id":"example","subscribe":["agent.finished"]}]`)}}
+		if err := r.AddBuiltin(m, t.TempDir(), true); err != nil {
+			t.Fatal(err)
+		}
+		r.mu.Lock()
+		r.extensions[id].Record.Granted = grant
+		r.mu.Unlock()
+	}
+	if r.HubScopeAllowed("legacy", ScopeAgentsPermissionMode) || !r.HubScopeAllowed("legacy", ScopeAgentsControl) ||
+		!r.HubScopeAllowed("named", ScopeAgentsPermissionMode) {
+		t.Fatal("the full-hub grant and the permission mode")
+	}
+	if ids := r.EventSubscribers("agent.finished", ScopeAgentsPermissionMode); !reflect.DeepEqual(ids, []string{"named"}) {
+		t.Fatalf("permission mode subscribers: %v", ids)
+	}
+	if ids := r.EventSubscribers("agent.finished", ScopeAgentsControl); !reflect.DeepEqual(ids, []string{"legacy"}) {
+		t.Fatalf("agents.control subscribers: %v", ids)
+	}
+}

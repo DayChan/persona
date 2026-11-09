@@ -403,13 +403,14 @@ func snapshotExtension(p *Extension) *Extension {
 }
 
 // HubScopeAllowed checks the live permission record while holding the registry lock. Callers must not read the
-// pointer returned by Get to authorize a request: SetEnabled can change its record concurrently.
+// pointer returned by Get to authorize a request: SetEnabled can change its record concurrently. The legacy full-hub
+// grant covers every scope but the ones only granted by name (InEveryScope).
 func (r *Registry) HubScopeAllowed(id, scope string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	p := r.extensions[id]
 	return p != nil && p.Record.Enabled && p.Problem == "" &&
-		(p.Record.Granted.FullHub() || slices.Contains(p.Record.Granted.Hub, scope))
+		((p.Record.Granted.FullHub() && InEveryScope(scope)) || slices.Contains(p.Record.Granted.Hub, scope))
 }
 
 // HubScopeGranted is HubScopeAllowed without the legacy full-hub grant: the user granted scope itself. For what
@@ -437,7 +438,8 @@ func (r *Registry) SendsAsUser(id, contribution string) bool {
 }
 
 // EventSubscribers snapshots the enabled, compatible extensions subscribed to topic. A nonempty scope additionally
-// requires that actual grant (or the legacy full-hub grant); an empty scope preserves the other event topics' rules.
+// requires that actual grant (or the legacy full-hub grant, where InEveryScope); an empty scope preserves the other
+// event topics' rules.
 func (r *Registry) EventSubscribers(topic, scope string) []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -446,7 +448,7 @@ func (r *Registry) EventSubscribers(topic, scope string) []string {
 		if !p.Record.Enabled || p.Problem != "" || p.Manifest == nil {
 			continue
 		}
-		if scope != "" && !p.Record.Granted.FullHub() && !slices.Contains(p.Record.Granted.Hub, scope) {
+		if scope != "" && !(p.Record.Granted.FullHub() && InEveryScope(scope)) && !slices.Contains(p.Record.Granted.Hub, scope) {
 			continue
 		}
 		if slices.Contains(p.Manifest.Topics(), topic) {
