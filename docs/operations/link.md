@@ -465,6 +465,9 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 - `./scripts/app/mac-link.sh build|install|snapshot <directory>`.
 - A standalone SwiftPM package (not in `apple/project.yml`, no shared code with the Persona App), built with `xcodebuild`: on this development machine, `swift build`'s default build system reports "Developer directory not found".
 - persona-link and persona-node are built into `Contents/Helpers/` (persona-node is for the resident node; see "The device's program").
+- The App's newer text is in `Resources/Localizable.xcstrings` (en / zh-Hans / ja); the build copies its resource bundle into `Contents/Resources/`.
+  `scripts/i18n/apple_l10n.py check` checks that catalog apart from the apps' and keeps the older hard-coded Chinese from growing (`LINK_CJK`, counts per file that may only go down).
+- Unit tests: `xcrun swift test --package-path apple/PersonaLink`; the Apple CI packages lane runs them (`scripts/ci/apple.sh`).
 - Local ad-hoc signing (Sign to Run Locally), no hard-coded team.
 - Default bundle id is the placeholder `com.example.persona.link`, overrideable by `mac.link_bundle_id` in `~/.config/persona/config.json` or environment variable
   `PERSONA_LINK_BUNDLE_ID` (old name `PERSONA_LINK_BUNDLE_ID`).
@@ -511,7 +514,22 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 - The first line describes the state plainly: unpaired is "Not connected to hub yet" (menu action "Paste pairing link…"); "Connected to hub"; awaiting confirmation is "Waiting for confirmation on your phone" plus "Tap ‘This is my computer’ in the phone App";
   if the resident node is not running, "Persona's background service on this computer is not running", with **Reinstall** in the menu (`persona-link node uninstall` then `node install`, preserving the node program in `~/.persona/bin`); "Connecting" or "Offline".
   "Waiting for confirmation" uses status-line `pending`: the hub does not yet send this field (#4655), so this period currently shows "Connected".
-- **Reconnect now** (not in passive mode, where the hub initiates), **Pair / Change connection…**, **Install local node service** (only when absent), **Launch at login**, **Quit**.
+- **Reconnect now** (not in passive mode, where the hub initiates), **Pair / Change connection…**, **Install local node service** (only when absent), **Set Web Address…** (while the hub sends a "Needs you" summary, or once an address is set), **Launch at login**, **Quit**.
+
+**Needs you** (the status line's `attention`: the hub's summary of the sessions waiting on you; without it the menu and the icon are as above)
+- The icon: the count (`needs_you`, muted sessions included) beside the symbol, `99+` above 99; nothing at 0.
+- The menu: a **Needs You** section under the status block with the first 5 sessions in the hub's order (latest `since` first): title, the card's kind and detail ("Permission: Bash: npm test"), place.
+  A muted session (`muted`) is listed dimmed, with a muted bell; `muted` changes only how it looks. **And N More…** counts the rest (the ones the hub left out included) and opens the web app's root. An empty summary says "Nothing needs you right now".
+- Notifications (`UNUserNotificationCenter`): one per session, identifier `<machine_id>/<session_id>#needs` (the web app's tag), only for items with `notify: true`
+  (the manager applies the phone's push rule: not for a muted session, nor for a question the assistant is still deciding on; a missing `notify` counts as false).
+  A card notifies once per connection, the first time it has `notify: true`, also when it was listed before without it (the assistant handed you its question); a card whose notification is still shown does not notify again.
+  The cards already notifying in a connection's first summary make none (the web app's baseline rule). A newer card of a session replaces the older notification once its own goes out; when it does not notify, or its post is dropped, the older one is taken back. A session that leaves the summary, or no longer waits on the card its notification shows, takes the notification back, including one left from an earlier run of the App (a notification remembers its card).
+  The summary goes away with the connection, so the next connection's first summary is a baseline again; a summary that does not decode changes nothing. A notification counts as shown only once it went out; one still waiting (behind the permission prompt) is dropped once its card is answered or replaced, it stops notifying, or the connection is gone.
+  While the list is capped (`more` above 0, the oldest cut), a session missing from it may still wait: its notification stays (also one found at launch), and it does not notify again when it comes back; a post still waiting for it is dropped.
+- Permission to notify is asked when the first summary arrives, not at launch (an older hub never sends one). Denied: the section says so, with **Turn On Notifications…** (System Settings › Notifications).
+- A row or a notification opens `<web address> + route` in the default browser. The web address is **Set Web Address…** if set, else the summary's `web_url`
+  (the hub's https public URL; in active mode without one, the hub address the link went to, which may have a self-signed certificate and is another origin than the one you signed in to).
+  Set the web address when the hub has no https public URL. Without either (passive mode, no public URL), the section says so, and a row or a notification opens the **Web Address** window; saving an address there opens what was clicked, unless a later click already opened it. A typed address without a scheme is saved as https.
 
 **Pairing window**
 - Select **Connect to hub (active)** or **Let hub connect (passive)** at the top, defaulting to the current mode; viewing doesn't switch. Switching happens when pairing (active: paste and pair; passive: generate link),
@@ -526,9 +544,9 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 
 **Screenshots**
 - `./scripts/app/mac-link.sh snapshot <directory>` renders the App's own views offscreen, a light and dark set each:
-  - Every menu state;
-  - Pairing window;
-  - Every icon.
+  - Every menu state, including "Needs you" with none, one, five (all four kinds, one muted), an item that does not notify without being muted, more than the menu lists, the longest text the hub sends, notifications off, and no web address;
+  - Pairing window and the web address window;
+  - Every icon, and the icon with a count.
 - No screen-recording permission needed, and no unrelated content captured.
 
 ## Status line (helper → App)

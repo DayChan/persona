@@ -44,6 +44,9 @@ struct LinkStatus: Decodable, Equatable {
     /// The hub still waits for someone to confirm this computer in the phone App or on the web (「是我的电脑」,
     /// docs/assistant/onboarding.md 4.2). Helpers and hubs that do not say yet send nothing: shown as connected.
     var pending: Bool?
+    /// The hub's "Needs you" summary (Attention.swift); helpers and hubs that do not send one leave it out. Decoded
+    /// apart from the rest (`decode`), so a summary that does not decode loses only itself.
+    var attention: LinkAttention? = nil
 
     var passive: Bool { mode == "passive" }
     var systemTrust: Bool { trust == "system" }
@@ -61,6 +64,39 @@ struct LinkStatus: Decodable, Equatable {
         case machineName = "machine_name"
         case lastSeen = "last_seen"
         case codeExpires = "code_expires"
+    }
+}
+
+extension LinkStatus {
+    /// One status line from the helper. `attention` is decoded apart, and one that does not decode keeps `previous`: it
+    /// says nothing about the connection, while a missing summary starts the notifications' baseline anew.
+    @MainActor static func decode(_ line: Data, previous: LinkAttention? = nil) throws -> LinkStatus {
+        let decoded = try LinkModel.decoder.decode(StatusLine.self, from: line)
+        var s = decoded.status
+        s.attention = decoded.present && decoded.summary == nil ? previous : decoded.summary
+        return s
+    }
+}
+
+/// A status line in one pass: the status, and its `attention` told apart: missing (or null), a summary, or one that
+/// does not decode.
+private struct StatusLine: Decodable {
+    var status: LinkStatus
+    var present = false
+    var summary: LinkAttention?
+
+    enum CodingKeys: String, CodingKey { case attention }
+
+    init(from decoder: Decoder) throws {
+        status = try LinkStatus(from: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard c.contains(.attention), try !c.decodeNil(forKey: .attention) else { return }
+        present = true
+        do {
+            summary = try c.decode(LinkAttention.self, forKey: .attention)
+        } catch {
+            NSLog("Persona Link: a Needs you summary that does not decode: %@", String(describing: error))
+        }
     }
 }
 
@@ -207,6 +243,18 @@ enum LinkText {
     private(set) var incomingNotice: String?
     /// How many times pairing ran (`persona-link pair`): only the 「配对」 (Pair) button does it.
     private(set) var pairRuns = 0
+    /// The "Web address" setting: where rows and notifications open the web app, over the hub's `web_url`; "" for the
+    /// hub's. Read in `start()`, so snapshots never show this Mac's own.
+    private(set) var webAddress = ""
+    /// The user turned this app's notifications off (System Settings › Notifications); LinkNotifier keeps it current.
+    var notificationsOff = false
+    /// How the model opens a URL, asks for the web address and keeps it; tests replace them.
+    @ObservationIgnored var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    @ObservationIgnored var askForWebAddress: (() -> Void)? // nil: the Web Address window
+    @ObservationIgnored var defaults = UserDefaults.standard
+    /// A route a row or a notification could not open for want of a web address: opened once one is saved, dropped when
+    /// the Web Address window closes without one.
+    @ObservationIgnored private(set) var pendingRoute: (route: String, webURL: String?)?
 
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var keepStdin: Pipe?
@@ -237,6 +285,7 @@ enum LinkText {
         environment[LegacyNames.product.uppercased() + "_HOME"] = stateURL.path
         return environment
     }
+    static let webAddressKey = "webAddress"
     nonisolated static let configURL = stateURL.appendingPathComponent("link.json")
     nonisolated static let logURL = stateURL.appendingPathComponent("link.log")
 
@@ -257,6 +306,9 @@ enum LinkText {
     var passive: Bool { status?.mode.map { $0 == "passive" } ?? (configMode == "passive") }
 
     func start() {
+        webAddress = defaults.string(forKey: Self.webAddressKey) ?? ""
+        LinkNotifier.shared.start(open: { [weak self] route, webURL in self?.open(route: route, webURL: webURL) },
+                                  allowed: { [weak self] in self?.notificationsOff = !$0 })
         readConfig()
         startHelper()
         Task { await setUpNodeOnce() }
@@ -268,8 +320,11 @@ enum LinkText {
 
     /// Used by the snapshots: a status without a helper.
     func show(_ status: LinkStatus?, helperDown: String? = nil, endpoints: [LinkEndpoint] = [], machine: String? = nil,
-              mode: String? = nil, passive: PassivePairing? = nil, node: NodeService? = nil) {
+              mode: String? = nil, passive: PassivePairing? = nil, node: NodeService? = nil, webAddress: String = "",
+              notificationsOff: Bool = false) {
         self.status = status
+        self.webAddress = webAddress
+        self.notificationsOff = notificationsOff
         self.helperDown = helperDown
         self.endpoints = endpoints
         self.pairedMachine = machine
@@ -328,10 +383,10 @@ enum LinkText {
         while let nl = lines.firstIndex(of: 0x0A) {
             let line = lines[lines.startIndex..<nl]
             lines.removeSubrange(lines.startIndex...nl)
-            if let s = try? Self.decoder.decode(LinkStatus.self, from: line) {
+            if let s = try? LinkStatus.decode(line, previous: status?.attention) {
                 if s.endpoints != status?.endpoints || s.machine != status?.machine || s.mode != status?.mode
                     || s.hubName != status?.hubName || s.state != status?.state { readConfig() }
-                status = s
+                setStatus(s)
             }
         }
     }
@@ -339,10 +394,19 @@ enum LinkText {
     private func helperExited(_ code: Int32) {
         process = nil
         keepStdin = nil
+        var s = status
+        s?.attention = nil // the summary belonged to the helper's connection
+        setStatus(s)
         guard !quitting else { return }
         helperDown = "后台程序退出了（\(code)），正在重启"
         if Date().timeIntervalSince(startedAt) > 60 { restartDelay = 1 }
         scheduleRestart()
+    }
+
+    /// The helper's status changed: the notifications follow its summary.
+    private func setStatus(_ s: LinkStatus?) {
+        if s?.attention != status?.attention { LinkNotifier.shared.apply(s?.attention) }
+        status = s
     }
 
     private func scheduleRestart() {
@@ -362,6 +426,57 @@ enum LinkText {
     }
 
     func reconnect() { signal(SIGUSR2) }
+
+    // MARK: the web app
+
+    /// Where the web app is: the setting, else the hub's `web_url`, else `hubWebURL` (the one a notification carries,
+    /// for when there is no summary now).
+    func webBase(hubWebURL: String? = nil) -> String? {
+        AttentionURL.base(setting: webAddress, webURL: status?.attention?.webURL, hubWebURL)
+    }
+
+    /// Opens `route` of the web app in the default browser; without a web address, asks for one and opens it then.
+    /// `webURL`: the hub's web address a notification carries.
+    /// The latest click wins: one that opens drops a route still waiting for an address.
+    func open(route: String, webURL: String? = nil) {
+        if openWeb(route: route, webURL: webURL) {
+            pendingRoute = nil
+        } else {
+            pendingRoute = (route, webURL)
+            requestWebAddress()
+        }
+    }
+
+    func requestWebAddress() {
+        if let askForWebAddress { askForWebAddress() } else { WebAddressWindow.show(model: self) }
+    }
+
+    func forgetPendingRoute() { pendingRoute = nil }
+
+    private func openWeb(route: String, webURL: String?) -> Bool {
+        guard let url = AttentionURL.web(base: webBase(hubWebURL: webURL), route: route) else { return false }
+        openURL(url)
+        return true
+    }
+
+    /// `value`: as `AttentionURL.setting` made it ("" for the hub's). A route waiting for it opens now.
+    func setWebAddress(_ value: String) {
+        webAddress = value
+        if webAddress.isEmpty {
+            defaults.removeObject(forKey: Self.webAddressKey)
+        } else {
+            defaults.set(webAddress, forKey: Self.webAddressKey)
+        }
+        if let p = pendingRoute, openWeb(route: p.route, webURL: p.webURL) { pendingRoute = nil }
+    }
+
+    /// System Settings › Notifications at this app.
+    func openNotificationSettings() {
+        let id = Bundle.main.bundleIdentifier ?? ""
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            openURL(url)
+        }
+    }
 
     func setLaunchAtLogin(_ on: Bool) {
         do {
@@ -591,7 +706,7 @@ enum LinkText {
 
     /// GUI apps launched from the Finder already run with SIGPIPE ignored; a CLI launch (debugger, xctest) does
     /// not, where a broken-pipe helper write would kill the process. Install the GUI disposition once.
-    private static let installIgnoredSigpipe: Void = {
+    nonisolated private static let installIgnoredSigpipe: Void = {
         Darwin.signal(SIGPIPE, SIG_IGN)
     }()
 

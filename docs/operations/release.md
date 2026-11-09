@@ -378,18 +378,20 @@ curl -fsSL <publish.site_url>/install.sh | sh   # install to ~/.persona/bin/pers
 - Not yet available (others can install, but it's still awkward; see `docs/operations/config.md`):
   Developer ID notarization of the macOS binary (browser downloads get blocked by Gatekeeper; `curl` doesn't).
 
-## Publishing the hub image (`.github/workflows/hub-image.yml`, 2026-11-01)
+## Publishing a release (`.github/workflows/release.yml`)
 
-Docker hubs (`docs/operations/docker.md`) use the ghcr image, linux/amd64 + linux/arm64:
+A `v*` tag publishes the hub container image and creates a GitHub Release. Docker hubs (`docs/operations/docker.md`) use the ghcr image, linux/amd64 + linux/arm64:
 
 ```sh
-git tag v1.2.0 && git push origin v1.2.0   # -> ghcr.io/<owner>/<repo>:1.2.0 and :latest
+git tag v1.2.0 && git push origin v1.2.0
+# -> ghcr.io/<owner>/<repo>:1.2.0 and :latest
+# -> GitHub Release v1.2.0 with generated notes
 ```
 
-- Smoke-test first (amd64 + compose), then build and push both architectures only after it passes. Prerelease tags containing `-` (`v1.3.0-rc1`) only push the version tag, without touching `latest`.
-
-- To get an image of the current branch without a tag: manually run hub image in Actions (`edge`, `sha-<commit>`).
-- Image smoke tests run through an explicit workflow dispatch; only the documented `v*` release-tag event starts image publication automatically (`packages: write` is granted only to the publish job). This exception supplies the version and `latest` images used by Docker installations; no branch push or PR starts it.
+- Smoke-test first (amd64 + compose), then build and push both architectures only after it passes. Once image publication succeeds, the same job creates a GitHub Release named for the full tag with automatically generated notes. Prerelease tags containing `-` (`v1.3.0-rc1`) only push the version image, without touching `latest`, and mark the GitHub Release as a prerelease. Creating the Release does not push another tag.
+- To get an image of the current branch without a tag or GitHub Release: manually run release in Actions (`edge`, `sha-<commit>`).
+- Image smoke tests run through an explicit workflow dispatch; only the documented `v*` release-tag event starts image and GitHub Release publication automatically (`packages: write` and `contents: write` are granted only to the publish job). This exception supplies the version and `latest` images used by Docker installations; no branch push or PR starts it. A manual dispatch never creates a GitHub Release.
+- If Release creation fails after the images were pushed, rerun the failed job for the same tag. Rebuilding and pushing the same immutable image tags does not advance `latest` to another source revision; fix any reported tag or Release conflict rather than creating a replacement tag.
 - The image's personad uses the tag minus `v` as its version (`personad version`); when node differs, the App prompts to redeploy, using the image's own builds or the release's (`docs/operations/docker.md` ("Node builds")).
 - The image's personad is on the `docker` channel: no skills (like all binaries), no self-update; a new image prompts you to pull it (`docs/operations/hub-update.md`).
 - When the repository is private, the package is private too; NAS installs need `docker login ghcr.io` (`docs/operations/docker.md` ("Image")).

@@ -63,11 +63,11 @@ It shares the hub's data folder (mounted at both of the hub container's paths) a
 
 ## Image
 
-`ghcr.io/<owner>/persona` (the image name follows the repo: `<owner>` is the account or organization that owns the repo, `persona` is the repo name; put it in `PERSONA_IMAGE` in `.env`), linux/amd64 and linux/arm64, built by `.github/workflows/hub-image.yml`:
+`ghcr.io/<owner>/persona` (the image name follows the repo: `<owner>` is the account or organization that owns the repo, `persona` is the repo name; put it in `PERSONA_IMAGE` in `.env`), linux/amd64 and linux/arm64, built by `.github/workflows/release.yml`:
 
 | Tag | When it exists |
 | --- | --- |
-| `<version>` | Push a `v*` tag (`v1.2.0` → `1.2.0`); see `docs/operations/release.md` ("Publishing the hub image") |
+| `<version>` | Push a `v*` tag (`v1.2.0` → `1.2.0`), which also creates the tag's GitHub Release; see `docs/operations/release.md` ("Publishing a release") |
 | `latest` | Same, but prerelease tags (containing `-`, e.g. `v1.3.0-rc1`) don't move it |
 | `edge`, `sha-<commit>` | Run this workflow manually in Actions (current branch) |
 
@@ -342,9 +342,9 @@ When LAN clients need access, you can bind `PERSONA_PORT` to an explicit LAN add
 
 ## Verification
 
-`.github/workflows/hub-image.yml` builds and smoke-tests the image on explicit workflow dispatch: health check, pairing,
+`.github/workflows/release.yml` builds and smoke-tests the image on explicit workflow dispatch: health check, pairing,
 tailcat key, web app, owner of `hub.json`. The workflow passes no `UPDATE_URL`, so the image carries personad for every platform (for the smoke test, `linux/amd64` only); one built with `UPDATE_URL` carries its own platform's and fetches the others ("Node builds").
-The only automatic trigger is a `v*` release tag, which publishes the version image and, for stable releases, `latest`. Docker installations use those images, so this release publication exception is retained. PRs and branch pushes do not start the workflow.
+The only automatic trigger is a `v*` release tag, which publishes the version image and, for stable releases, `latest`, then creates a GitHub Release for the tag. Manual dispatch publishes only `edge`/`sha-*` images and does not create a GitHub Release. Docker installations use the versioned images, so this release publication exception is retained. PRs and branch pushes do not start the workflow.
 You can do the same locally (OrbStack / Docker Desktop):
 
 ```sh

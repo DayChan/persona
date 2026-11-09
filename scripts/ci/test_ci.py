@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paths
 import required
@@ -83,6 +85,8 @@ class PathTests(unittest.TestCase):
 
     def test_deleted_and_renamed_old_paths_are_relevant(self):
         self.assertTrue(paths.select(["apple/Old.swift", "docs/archive/new.md"])["apple"])
+        self.assertTrue(paths.select([".github/workflows/release.yml"])["image"])
+        self.assertTrue(paths.select([".github/workflows/hub-image.yml"])["image"])
 
 
 class PullRequestBaseTests(unittest.TestCase):
@@ -180,7 +184,7 @@ class ManualWorkflowTests(unittest.TestCase):
             trigger = text.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
             self.assertNotIn('    branches:', trigger, workflow.name)
             self.assertNotIn('    branch:', trigger, workflow.name)
-            if workflow.name == 'hub-image.yml':
+            if workflow.name == 'release.yml':
                 self.assertIn("    tags: ['v*']", trigger)
                 self.assertIn('  push:', trigger, workflow.name)
             else:
@@ -209,6 +213,30 @@ class ManualWorkflowTests(unittest.TestCase):
         self.assertIn('run: python3 scripts/ci/required.py', gate)
         self.assertNotIn('continue-on-error:', ci)
         self.assertNotIn('pull_request', ci)
+
+    def test_version_tag_publishes_a_release_after_the_image(self):
+        root = Path(__file__).resolve().parents[2]
+        path = root / '.github/workflows/release.yml'
+        release = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        self.assertEqual(release['name'], 'release')
+        self.assertEqual(set(release['on']), {'push', 'workflow_dispatch'})
+        self.assertEqual(release['permissions'], {'contents': 'read'})
+        self.assertNotIn('permissions', release['jobs']['smoke'])
+        self.assertEqual(release['jobs']['publish']['needs'], 'smoke')
+        self.assertEqual(release['jobs']['publish']['permissions'], {'contents': 'write', 'packages': 'write'})
+        steps = release['jobs']['publish']['steps']
+        create = steps[-1]
+        self.assertEqual(create['name'], 'Create GitHub Release')
+        self.assertEqual(create['if'], "github.event_name == 'push' && github.ref_type == 'tag'")
+        self.assertEqual(create['env']['GH_TOKEN'], '${{ secrets.GITHUB_TOKEN }}')
+        self.assertEqual(create['env']['RELEASE_TAG'], '${{ github.ref_name }}')
+        script = create['run']
+        for argument in ('--verify-tag', '--title "$RELEASE_TAG"', '--generate-notes'):
+            self.assertIn(argument, script)
+        self.assertIn('if [[ "$RELEASE_TAG" == *-* ]]; then', script)
+        self.assertIn('args+=(--prerelease)', script)
+        self.assertIn('gh release create "$RELEASE_TAG" "${args[@]}"', script)
+        self.assertNotIn('--target', script)
 
 
 class RequiredTests(unittest.TestCase):

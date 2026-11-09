@@ -71,6 +71,23 @@ func TestCheckModelTiers(t *testing.T) {
 	}
 }
 
+// awaitCard polls for the one card on the phone for up to 5 seconds; safe to call from a goroutine (it never stops the test).
+func awaitCard(s *Service) (proto.Interaction, bool) {
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(5 * time.Second)
+	for {
+		if qs := s.pendingQuestions(); len(qs) == 1 {
+			return qs[0], true
+		}
+		select {
+		case <-tick.C:
+		case <-deadline:
+			return proto.Interaction{}, false
+		}
+	}
+}
+
 // persona_settings model_profiles.tiers: a set is checked before the card, shown on it for every profile it changes,
 // and saved at the revision of the card once the user approves; a conflict saves nothing.
 func TestModelTiersSetting(t *testing.T) {
@@ -89,24 +106,23 @@ func TestModelTiersSetting(t *testing.T) {
 	// answer approves (or not) the one card, after before() ran
 	answer := func(allow bool, says []string, before func()) {
 		go func() {
-			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-				if qs := s.pendingQuestions(); len(qs) == 1 {
-					for _, w := range says {
-						if !strings.Contains(qs[0].Summary, w) {
-							t.Errorf("card %q lacks %q", qs[0].Summary, w)
-						}
-					}
-					if before != nil {
-						before()
-					}
-					raw, _ := json.Marshal(proto.Resolution{Allow: &allow})
-					if _, err := s.Action(ctx, Action{Op: "answer", InteractionID: qs[0].ID, Answer: raw}); err != nil {
-						t.Error(err)
-					}
-					return
+			q, ok := awaitCard(s)
+			if !ok {
+				t.Error("no card on the phone")
+				return
+			}
+			for _, w := range says {
+				if !strings.Contains(q.Summary, w) {
+					t.Errorf("card %q lacks %q", q.Summary, w)
 				}
 			}
-			t.Error("no card on the phone")
+			if before != nil {
+				before()
+			}
+			raw, _ := json.Marshal(proto.Resolution{Allow: &allow})
+			if _, err := s.Action(ctx, Action{Op: "answer", InteractionID: q.ID, Answer: raw}); err != nil {
+				t.Error(err)
+			}
 		}()
 	}
 
@@ -381,18 +397,17 @@ func TestTierCardOnUnsavedTemplates(t *testing.T) {
 	}
 	record("model-a")
 	go func() {
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-			if qs := s.pendingQuestions(); len(qs) == 1 {
-				record("model-b")
-				allow := true
-				raw, _ := json.Marshal(proto.Resolution{Allow: &allow})
-				if _, err := s.Action(ctx, Action{Op: "answer", InteractionID: qs[0].ID, Answer: raw}); err != nil {
-					t.Error(err)
-				}
-				return
-			}
+		q, ok := awaitCard(s)
+		if !ok {
+			t.Error("no card on the phone")
+			return
 		}
-		t.Error("no card on the phone")
+		record("model-b")
+		allow := true
+		raw, _ := json.Marshal(proto.Resolution{Allow: &allow})
+		if _, err := s.Action(ctx, Action{Op: "answer", InteractionID: q.ID, Answer: raw}); err != nil {
+			t.Error(err)
+		}
 	}()
 	r := s.Tool(ctx, ToolCall{Name: "persona_settings", MachineID: "server", SessionID: "c1",
 		Arguments: json.RawMessage(`{"action":"set","key":"model_profiles.tiers","value":{"tier":"standard","description":"Everyday"}}`)})
