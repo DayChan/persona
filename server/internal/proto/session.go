@@ -312,6 +312,9 @@ const (
 	CodeMachinePending  = "machine_pending"  // the machine has not been confirmed as the user's yet
 	CodeClaudeMissing   = "claude_missing"   // Claude Code is not installed (or not on the launcher's PATH) there
 	CodeLauncherMissing = "launcher_missing" // the launcher (a ~/.zshrc function or alias) is not there
+	// CodeTerminalNotReady: the new tab's terminal would not take the start command (herdr's pane_send_failed); nothing
+	// ran, the tab is closed, a retry may work (node/typedstart.go). 503, retryable.
+	CodeTerminalNotReady = "terminal_not_ready"
 )
 
 // TodoRef is a session's link to an active todo (docs/assistant/todos.md).

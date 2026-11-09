@@ -98,7 +98,7 @@ The prototype is the UI and interaction standard; compare screen by screen durin
 
 ### Routing
 
-- By default, messages go to Persona, which decides whether to answer, start a task, or forward to an existing task with `agent_send`. When the input contains text, a gray label above it says "Persona decides who handles this."
+- By default, messages go to Persona, which decides whether to answer, start a task, or forward to an existing task with `agent_send`. A follow-up that only asks about work a task has already done (how far it got, its conclusion, a PR link, why it stopped) is answered from the snapshot and `agent_read`, not sent to the agent: a send queues behind its turn or resumes a closed agent, and the user waits for that extra turn (#2124). When the input contains text, a gray label above it says "Persona decides who handles this."
 - To speak directly to a task, type `@` for a list (tasks, computers, projects, people) and select a task, or tap Message on its card. A purple routing label appears above the input,
   "To ‘xx’ ×." The App sends directly to that Agent, bypassing Persona. The chat bubble carries the same label (`routed` chat-activity entry).
 

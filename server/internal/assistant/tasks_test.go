@@ -123,6 +123,7 @@ func TestTransientStartErr(t *testing.T) {
 		{fmt.Errorf("box: %w", apierr.ErrOffline), true},
 		{fmt.Errorf("wrapped: %w", rpc.ErrClosed), true},
 		{&rpc.Error{Message: "rpc: connection closed"}, true}, // a link further on dropped
+		{&rpc.Error{Code: proto.CodeTerminalNotReady, Message: "pane_send_failed: …"}, true},
 		{&rpc.Error{Message: "session.start: no such launcher"}, false},
 		{errors.New("launcher not found"), false},
 	} {

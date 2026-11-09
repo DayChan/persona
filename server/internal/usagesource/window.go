@@ -75,12 +75,23 @@ func splitKind(kind string) (minutes int, rest string, ok bool) {
 	return minutes, strings.Join(left, " "), true
 }
 
-// percent turns a ratio in [0,1] into a percentage, clamped; ok is false for a value that is not a number.
+// clampPercent keeps a value that is already a percentage as it is, clamped to [0,100]; ok is false for a value that
+// is not a number. No arithmetic, so a gateway's 29 stays 29 and a hub feeding another hub hands on its own numbers.
+func clampPercent(p float64) (float64, bool) {
+	if math.IsNaN(p) || math.IsInf(p, 0) {
+		return 0, false
+	}
+	return math.Min(100, math.Max(0, p)), true
+}
+
+// percent turns a ratio in [0,1] into a percentage, clamped; ok is false for a value that is not a number. The
+// product is rounded to 1e-9 to drop binary noise (0.29*100 is 28.999999999999996), far below display precision.
 func percent(ratio float64) (float64, bool) {
 	if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 		return 0, false
 	}
-	return math.Min(100, math.Max(0, ratio*100)), true
+	p := math.Min(100, math.Max(0, ratio*100))
+	return math.Round(p*1e9) / 1e9, true
 }
 
 // addWindow puts w into list, replacing a window of the same length and model that was checked earlier.

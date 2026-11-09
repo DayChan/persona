@@ -66,7 +66,8 @@ func translateKey(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// translateFingerprint names the translation model now (models.go): a changed model does not answer from the cache.
+// translateFingerprint names the translation model now (models_resolve.go): a changed model does not answer from
+// the cache.
 func (s *Service) translateFingerprint(ctx context.Context) (string, error) {
 	return s.modelFingerprint(ctx, purposeTranslate)
 }
