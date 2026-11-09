@@ -1,9 +1,13 @@
 {
   "title": "Model profiles",
-  "footer": "Profiles apply on the next call or Agent start. Edit or add profiles through the hub API or ask Persona to switch.",
+  "footer": "Profiles apply on the next call or Agent start. Ask Persona to switch profiles or edit their Agent presets; edit the rest through the hub API.",
   "active": "Active",
   "rollback": "Roll back",
   "custom": "Previous custom configuration",
   "apply": "Apply profile",
-  "changes": "Model fields that will change: {count}"
+  "changes": "Model fields that will change: {count}",
+  "none_active": "No profile is in use, so Agent presets are off until you apply one.",
+  "tiers": "Agent presets",
+  "no_tiers": "No Agent presets in this profile. Ask Persona to add one.",
+  "details": "Model settings it applies"
 }

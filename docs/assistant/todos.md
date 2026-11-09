@@ -16,6 +16,35 @@ To-dos belong to the assistant (`todos.go`, `todo_decisions.go`, `todo_sessions.
   `POST /api/v1/sessions` and `POST /api/v1/sessions/{mid}/{sid}/messages` with `todo_id` first ask the assistant (`assistant.todo_handoff`): does the to-do exist, is it done (if handoff is disallowed, it supplies 404/409 and the message, echoed by hub), prepend decisions to the Agent's message and project context for new Agents, all in one call. After handoff, ask assistant to link it (`assistant.todo_link`; assistant determines both linked title and to-do title); workspace renames through hub notify assistant (`todos.space_renamed`). Protocol in `docs/protocol/protocol.md`, "Bus".
 - **When assistant is disconnected** (hub just started, assistant process restarting): to-do APIs return `503 assistant_offline`, "The assistant is temporarily unavailable. Try again later"; create/send with `todo_id` also return 503 (to-do existence unknown). Session-list to-do/quiet markers keep hub's last report (absent in the first second or two after hub starts before assistant reports). Hub emits no events during this period, so automatic linking, marker reconciliation and decision records wait for the next session list or answer after reconnection; workspaces renamed through hub are not migrated.
 
+## Read-only planned tasks
+
+`task_plan` treats `readonly: true` as a launch constraint. The assistant saves `permission: plan`, overriding an
+omitted mode, `default`, or an explicit writable mode. It reapplies this constraint after plan-card edits and at
+dispatch, including old saved plans and retries. Tasks without `readonly` keep their requested permissions.
+This preserves automatic dispatch for read-only work without inheriting a writable launcher default; waiting for
+Start alone would not make an unsafe permission mode read-only.
+
+The node must honor `plan` or refuse the start. Claude Code terminal starts through herdr or Orca pass
+`--permission-mode plan`. Codex terminal starts and supported terminal resumes use `--sandbox read-only
+--ask-for-approval never`: no approval can escalate past the sandbox. The node retains that constraint for later
+resumes, including a message that reopens the session. The terminal policy uses `never` because Codex 0.167 no
+longer accepts `untrusted` on its CLI; the separate thread API policy is unchanged.
+
+A Codex launcher with its own `-s` / `--sandbox`, `-a` / `--ask-for-approval`, `--full-auto`, dangerous bypass
+(including `--yolo`), or `--approve-for-me` is refused with `readonly_unsupported` and `delivered: none` instead
+of guessing which permission wins. Managed launcher arguments are checked too. A launcher argument separator
+that would turn the added flags into prompt text is also refused. Non-plan launches retain their original arguments.
+An already running Codex cannot receive new CLI flags, so it cannot be adopted by a read-only start.
+External runtime starts (including Paseo) still fail closed: their start protocol does not guarantee enforcement,
+and a runtime may ignore the mode or fall back to a different provider at dispatch.
+Update both the assistant and nodes for this behavior. This is the runtime's plan restriction on task work, not a
+promise that the runtime writes no session metadata or plan files, and it does not prevent a later explicit mode
+change by the user.
+
+Health-space plans and mixed plans still wait for Start. Existing clients show the Read-only label on a waiting
+plan, and collapse a started plan to "Started N tasks"; the saved task's `permission` is `plan`. Displaying both
+labels on the clients is separate client work.
+
 ## Data model
 
 Server state is stored in the hub's Postgres database (read/written by the assistant, above):
@@ -100,11 +129,11 @@ Link/release semantics:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/api/v1/todos` | All to-dos (`created_at` descending; the apps sort them themselves), each with `due_at` / `due_date`, `remind_at`, `reminded_at`, `priority` when set, and `spaces` and `agents` lists (removed rows filtered out; active first by `linked_at` descending, previously involved after by `released_at` descending) |
+| GET | `/api/v1/todos` | All to-dos (`created_at` descending; the apps sort them themselves), each with `due_at` / `due_date`, `remind_at`, `reminded_at`, `priority` when set, and `spaces` and `agents` lists (removed rows filtered out; active first by `linked_at` descending, previously involved after by `released_at` descending); a to-do waiting for the owner also has `ask` ("Waiting for the owner") |
 | POST | `/api/v1/todos` | Create `{"title", "notes"?, "due_at"? \| "due_date"?, "remind_at"?, "priority"?}` → `{"todo": Todo}`; nonempty `title` required (400); `due_at` / `remind_at` RFC 3339, `due_date` `YYYY-MM-DD`, `priority` `high` / `normal` / `low` / `""`, anything else (or both due fields) 400; read-only role (watch) 403 |
 | PATCH | `/api/v1/todos/{id}` | Edit `{"title"?, "notes"?, "done"?, "due_at"? \| "due_date"?, "remind_at"?, "priority"?}` → `{"todo": Todo}`; only supplied fields change, `null` (or `""`) clears a due date or reminder; either due field replaces the other; a new `remind_at` is pushed again; user completion-state changes clear `done_by` / `done_reason`, and reopening records `reopened_at`; missing 404; read-only role 403 |
 | POST | `/api/v1/todos/retitle` | Give short titles to task to-dos previously named from the prompt's first line ("To-do titles") → `{"dry_run", "todos": [{"id", "old_title", "new_title"}]}`; `?dry_run=1` lists without changes; read-only role 403 |
-| POST | `/api/v1/todos/{id}/accept` | Verify a to-do from a briefing's Accept button `{"asked_at"}` (the `brief` feed item's `accept[].asked_at`, `docs/protocol/protocol.md`) → `{"ok":true}`; no `asked_at` 400; not the round that waits now (the to-do was reopened or asked again since), already verified or never asked 409; the stored asks could not be read or the acceptance could not be saved 503 (nothing verified, the button works again); the ask may have no Lark card (the bot is not set up, or its task reports are off); read-only role 403 |
+| POST | `/api/v1/todos/{id}/accept` | Verify a to-do from a briefing's Accept button `{"asked_at"}` (the `brief` feed item's `accept[].asked_at`, `docs/protocol/protocol.md`) → `{"ok":true}`; no `asked_at` 400; not the round that waits now (the to-do was reopened or asked again since), already verified or never asked 409; a decision whose recommendation could not reach the task's Agent 502, in the request's language with the reason (nothing taken or recorded, the button works again); the stored asks could not be read or the acceptance could not be saved 503 (nothing verified, the button works again); the ask may have no Lark card (the bot is not set up, or its task reports are off); read-only role 403 |
 | POST | `/api/v1/todos/{id}/done-check` | Run an "Automatic completion" judgment read-only → `{"verdict", "reason", "would_close", "skip", "replies", "signals"}`, no database write ("Automatic completion"); missing 404; read-only role 403 |
 | DELETE | `/api/v1/todos/{id}` | Delete to-do and associations → `{"ok": true}`; Agent sessions untouched; missing 404; read-only role 403 |
 | PUT | `/api/v1/todos/{id}/spaces/{mid}/{space...}` | Link an entire workspace project → `{"ok": true, "linked": N}`; `space` is URL-encoded project name (wildcard path); completed to-do cannot be linked (409); missing 404; read-only role 403 |
@@ -115,6 +144,7 @@ Link/release semantics:
 | DELETE | `/api/v1/todos/{id}/thread` | Unbind it → `{"todo": Todo}`; a to-do with no thread stays as it is; missing 404; read-only role 403 |
 | GET | `/api/v1/todos/{id}/decisions` | Decision list → `{"decisions": [...]}`, chronological; effective only by default, `?all=1` includes superseded decisions (with `superseded_by`); `[]` when none; missing 404 |
 | POST | `/api/v1/todos/{id}/decisions` | Record manually `{"question", "choice", "reason"?, "supersedes_id"?}` → `{"decision": Decision}`; empty question/choice 400, `supersedes_id` not an earlier decision in this to-do 400; read-only role 403 |
+| POST | `/api/v1/todos/{id}/decisions` (extension, `todos.write`) | An extension's outcome `{"question", "choice", "reason"?, "ref"?}` (e.g. a scheduler's acceptance evidence) → `{"decision": Decision, "inserted"}`; `source` is always `outcome` (`manual` or another source 400), `source_machine` is `extension:<id>`; `ref` (at most 200 characters, no `#`) becomes `source_message` `ext:<id>:<ref>`, so a replay with the same ref and question writes nothing and answers `inserted: false`; `supersedes_id` 400. A full device may also pass `"source": "outcome"`; `ref` is the extension's only |
 | PATCH | `/api/v1/todos/{id}/decisions/{did}` | Mark supersession after the fact `{"supersedes_id"}` (empty string undoes) → `{"decision": Decision}`; same rules; missing 404; read-only role 403 |
 | POST | `/api/v1/sessions` | Create session, optional `todo_id`: after successful creation, automatically link within the same request; missing to-do 404, completed 409, read-only role 403 |
 | POST | `/api/v1/sessions/{mid}/{sid}/messages` | Send message, optional `todo_id`: automatically link after success; missing to-do 404, completed 409, read-only role 403 |
@@ -131,7 +161,7 @@ Only present when the session is currently associated (`released_at` and `dismis
 The internal `spawn_from` field carried in session reports is stripped before hub pushes to clients.
 
 ### Live WebSocket pushes
-- `{"type":"todos"}`: broadcast on to-do creation, edit, deletion, whole-project link/unlink, Agent association changes or a change of its chat thread; clients refetch `GET /api/v1/todos`.
+- `{"type":"todos"}`: broadcast on to-do creation, edit, deletion, whole-project link/unlink, Agent association changes, a change of its chat thread, or when its `ask` comes up, is taken or ends ("Waiting for the owner"); clients refetch `GET /api/v1/todos`.
 - Session-change push: when to-do/association changes affect sessions, assistant reports a new snapshot; hub compares which computer's sessions changed and re-pushes that computer's `sessions` event.
 
 ### Status codes and roles
@@ -354,6 +384,25 @@ Not yet: the Android decision list.
 - **Closed without a decision**: closing it (`PATCH done: true`) or deleting it tells the asking conversation once that the question was dropped (the same prompt, its "dropped" form). Reopening and closing it again says nothing more; a decision recorded after a reopen still goes back once.
 - **The Lark card** of the expired question closes saying "Moved to to-dos" instead of "Ended".
 - **Restart**: an `ask_user` waiting while the manager restarts is still cancelled (it lives in memory, #26): it makes no to-do.
+
+## Waiting for the owner
+
+(#2056, `assistant/todo_ask.go`.) A to-do whose result waits for the owner carries that ask on itself, so the apps can show it in the to-do list and take it with one tap, not only the briefing and the Lark card.
+
+- **`ask` on `GET /api/v1/todos`**: `{"outcome"?, "verdict", "recommend"?, "asked_at"}`, the same rows and words as a `brief` item's `accept[]` (`docs/protocol/protocol.md`, "Conversation feed"), read from the same acceptance book: a deployed to-do's "Please verify" (no `outcome`), or a supervised task's conclusion (#1226: `outcome` `done`, `cannot` or `decide`). `verdict` is the verdict line as its Lark card says it, in the request's language (the reason is as the review wrote it); `recommend` only on a decision (`decide`) that recommends an option; `asked_at` the round, which `POST /api/v1/todos/{id}/accept` takes. A to-do with nothing waiting has no `ask`: never asked, verified, taken, acknowledged, asked before its latest reopen, or a decision the review moved on from (rework, cancelled) or whose task closed. A client that does not know the field ignores it.
+- **Taking it**: `POST /api/v1/todos/{id}/accept {"asked_at"}` stays the one way, as the briefing's Accept button: a decision's recommendation goes to the task's Agent and is recorded in its decisions (the same path as the Lark card's "Take the recommendation"), a conclusion that only tells is acknowledged, a deployed to-do is verified. An `asked_at` from an earlier round is 409 "already handled" and takes nothing; 502 when the recommendation could not reach the Agent (nothing taken).
+- **The push**: a review's `needs_user` with a `recommend` (`task_review`) is pushed to the owner's devices once, besides its Lark card and whether or not the bot is on: a `decide` notification (`notify.request` kind `decide`, `docs/protocol/protocol.md` "Bus") to the devices that take "needs you" pushes (quiet hours make it silent, like a card's), opening the conversation the task came from. Its APNs payload:
+
+  ```jsonc
+  {"aps": {"alert": {"title": "Conclusion: <task>", "subtitle": "Persona", "body": "🤔 Needs your decision: <reason>\nRecommended: <option>"},
+           "sound": "default", "thread-id": "<origin conversation>", "category": "TODO_DECIDE", "interruption-level": "time-sensitive"},
+   "machine_id": "<the assistant's machine>", "session_id": "<origin conversation>",
+   "todo": {"id": "<to-do id>", "asked_at": "<RFC 3339, the round>", "recommend": "<option>", "manager": "<manager id>"}}
+  ```
+
+  `todo.manager` is the manager whose to-do it is (`assistant` for the assistant the hub starts), as the merged list stamps each item's `manager`; OK names it in `X-Persona-Manager`, so it reaches that manager whichever one is the default. All rounds of one to-do share an `apns-collapse-id`, so a later round's push takes the earlier one's place. Through the push relay `category` and `todo` are sealed with the rest (`docs/operations/push-relay.md` "Encryption"). On the WebSocket (`ws_notify`) it is a `notify` of kind `assistant` with the same `todo`, so a client that does not know decisions shows a plain notification. The app's OK action on `TODO_DECIDE` calls the accept route with `todo.asked_at`. No push for a decision without a recommendation (nothing for OK to take), for a task from a health conversation (the lock screen says nothing of those) or a muted conversation; a deployed to-do's "Please verify" and conclusions that only tell are not pushed either.
+- **The supervisor** is told what went out. With a Lark card, as before (don't ask again), plus that a push with OK went too. With the bot off it still asks the owner as before (the hub taking a push says neither that a device got it nor that its app shows OK), and is told that OK on the push may take the recommendation first.
+- Not done here: the push is not withdrawn when the decision is taken elsewhere (an OK on it then answers 409, "already handled"); the watch's answer-only credential can neither read `/api/v1/todos` nor call the accept route.
 
 ## Chat thread
 

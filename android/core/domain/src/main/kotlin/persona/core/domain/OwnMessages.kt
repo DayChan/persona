@@ -14,7 +14,9 @@ fun isRelayed(text: String): Boolean =
  * ([injectedOf]), another session's (`from`, `<cross-session-message>`) and another conversation's are not.
  */
 fun isOwnMessage(item: Item): Boolean {
-    if (item.role != "user" || injectedOf(item) != null || !item.from.isNullOrBlank()) return false
+    if (item.role != "user" || sourceOf(item) != null || injectedOf(item) != null || !item.from.isNullOrBlank()) return false
     val text = item.text.orEmpty()
+    val metadata = sourceMetadata(text)
+    if (item.clientMsgId != null || (metadata.found && metadata.source == null)) return true
     return !text.contains("<cross-session-message") && !isRelayed(text)
 }

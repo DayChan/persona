@@ -45,10 +45,11 @@ internal fun remoteOf(upstream: String?) = upstream?.substringBefore('/')?.takeI
 
 internal val SessionGitCommit.shortHash: String get() = short.ifEmpty { hash.take(7) }
 
-/** How the branch stands against its upstream: "In sync", or ↑ ahead ↓ behind; the stash when there is one. */
+/** How the branch stands against its upstream: "In sync", deleted on the remote, or ↑ ahead ↓ behind; the stash when there is one. */
 internal fun gitSync(resources: Resources, git: SessionGitStatus): String? {
     val sync = when {
         git.upstream == null -> null
+        git.gone -> resources.getString(R.string.files_git_upstream_gone)
         git.ahead == 0 && git.behind == 0 -> resources.getString(R.string.files_git_synced)
         else -> listOfNotNull(git.ahead.takeIf { it > 0 }?.let { "↑$it" }, git.behind.takeIf { it > 0 }?.let { "↓$it" }).joinToString("  ")
     }

@@ -109,6 +109,24 @@ describe("main conversation feed cache", () => {
     expect(stored.get("persona.language")).toBe("en");
   });
 
+  it("does not let supervision or compaction evict the last two user questions", () => {
+    const items: Item[] = [];
+    for (let question = 1; question <= 3; question++) {
+      items.push(item(question * 10, "user", { text: `Question ${question}`, client_msg_id: `client-${question}` }));
+      items.push(item(question * 10 + 1));
+      if (question < 3) items.push(item(question * 10 + 2, "system", { kind: "notice", text: "Context compacted", compact: { trigger: "auto" } }));
+      for (let n = 0; n < 3; n++) items.push(item(question * 10 + 3 + n, "user", {
+        injected: { kind: "system", state: "supervise", line: "Review a synthetic task" }, text: "Automatic task supervision",
+      }));
+    }
+    cache.writeFeedCache(cache.feedCacheScope(), page({ items }));
+    const read = cache.readFeedCache()!;
+    expect(read.items.filter((i) => i.client_msg_id).map((i) => i.text)).toEqual(["Question 2", "Question 3"]);
+    expect(read.items.filter((i) => i.injected)).toHaveLength(6);
+    expect(read.items.filter((i) => i.compact)).toHaveLength(1);
+    expect(read.hasMore).toBe(true);
+  });
+
   it("keeps only the newest two complete turns and their same-line image siblings", () => {
     const items = [item(1, "user"), item(2), item(3, "user", { id: "image-3", kind: "image", image: { mime: "image/png", lazy: true } }),
       item(3, "user"), item(4), item(5, "user"), item(6), item(7, "user", { queued: true })];

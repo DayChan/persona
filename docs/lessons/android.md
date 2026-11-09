@@ -1,5 +1,14 @@
 # Lessons: Android
 
+## Register new native wire examples, not just generated models (#1187)
+
+A generated permission DTO can compile while `ExtensionWireTest.examplesRoundTrip` cannot select its serializer.
+Go's generated definition registry does not prove the Kotlin test's explicit registry covers the same new fixture.
+Register each new app-visible definition, retain the shared example and original round-trip assertion, and test
+sparse permissions with the production codec so absent storage and explicit false queue/blob flags stay distinct.
+Plugin-only storage RPC examples remain under `schema/extension/examples/plugin/`; do not expose those methods to clients or move
+an app-visible permission fixture there just to avoid the failure.
+
 ## Negotiated capabilities are not queued-event completion (#1669)
 
 The connection stores its authenticated hello before catch-up, but a separate queued event consumer can still be

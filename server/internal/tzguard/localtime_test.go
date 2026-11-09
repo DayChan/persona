@@ -5,9 +5,11 @@ package tzguard
 import (
 	"bufio"
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,7 +21,6 @@ var allowed = map[string]string{
 	"internal/extmgr/usertz.go":   "userLocation: the hub's zone only while the user's is unknown (as hub/usertz.go)",
 	"internal/assistant/zone.go":  "location: the hub's zone only while the user's is unknown (as userLocation)",
 	"internal/kb/zone.go":         "the archive's zone before it is set, and files written before zones were recorded",
-	"internal/quota/quota.go":     "a gateway's report while the user's zone is unknown",
 	"internal/devices/metrics.go": "Usage: the machine's zone only without Options.Location (the manager passes the user's, assistant/main.go)",
 }
 
@@ -29,16 +30,13 @@ var (
 )
 
 func TestNoMachineTimeZone(t *testing.T) {
-	root, err := filepath.Abs("../..") // server/
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := serverRoot(t)
 	checked := 0
-	err = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		if d.IsDir() || !isSource(p) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)
@@ -48,22 +46,14 @@ func TestNoMachineTimeZone(t *testing.T) {
 				return nil
 			}
 		}
-		source, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
 		checked++
-		sc := bufio.NewScanner(bytes.NewReader(maskBooleanLocalCalls(source)))
-		sc.Buffer(make([]byte, 1<<20), 1<<20)
-		for n := 1; sc.Scan(); n++ {
-			code, _, _ := strings.Cut(sc.Text(), "//") // comments may name it
-			if localZone.MatchString(code) {
-				t.Errorf("%s:%d: the machine's time zone (the hub runs in UTC): read times in the user's, "+
-					"hub.userLocation() / kb Store.Zone(), or add the file to `allowed` with the reason:\n\t%s",
-					rel, n, strings.TrimSpace(sc.Text()))
-			}
+		hits, err := machineZoneLines(p)
+		for _, h := range hits {
+			t.Errorf("%s:%d: the machine's time zone (the hub runs in UTC): read times in the user's, "+
+				"hub.userLocation() / kb Store.Zone(), or add the file to `allowed` with the reason:\n\t%s",
+				rel, h.line, h.text)
 		}
-		return sc.Err()
+		return err
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,4 +61,69 @@ func TestNoMachineTimeZone(t *testing.T) {
 	if checked < 50 {
 		t.Fatalf("only %d files checked: is the walk at server/?", checked)
 	}
+}
+
+// TestAllowedStillNeeded keeps `allowed` honest: an entry that no longer reads the machine's zone only hides its files
+// from TestNoMachineTimeZone, so a new time.Local there would pass unnoticed.
+func TestAllowedStillNeeded(t *testing.T) {
+	root := serverRoot(t)
+	for _, entry := range slices.Sorted(maps.Keys(allowed)) {
+		hits := 0
+		path := filepath.Join(root, filepath.FromSlash(entry))
+		err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !isSource(p) {
+				return err
+			}
+			found, err := machineZoneLines(p)
+			hits += len(found)
+			return err
+		})
+		switch {
+		case err != nil:
+			t.Errorf("allowed[%q]: %v: delete the entry if its code is gone", entry, err)
+		case hits == 0:
+			t.Errorf("allowed[%q] no longer reads the machine's time zone: "+
+				"delete the stale entry so its files are scanned again", entry)
+		}
+	}
+}
+
+// serverRoot is the server/ directory the guard walks.
+func serverRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// isSource reports whether the guard reads p: Go code that is not a test.
+func isSource(p string) bool {
+	return strings.HasSuffix(p, ".go") && !strings.HasSuffix(p, "_test.go")
+}
+
+// zoneHit is one line that reads the machine's time zone.
+type zoneHit struct {
+	line int
+	text string
+}
+
+// machineZoneLines returns the lines of a Go file that read the machine's time zone, skipping comments and calls known
+// to return bool.
+func machineZoneLines(path string) ([]zoneHit, error) {
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var hits []zoneHit
+	sc := bufio.NewScanner(bytes.NewReader(maskBooleanLocalCalls(source)))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for n := 1; sc.Scan(); n++ {
+		code, _, _ := strings.Cut(sc.Text(), "//") // comments may name it
+		if localZone.MatchString(code) {
+			hits = append(hits, zoneHit{n, strings.TrimSpace(sc.Text())})
+		}
+	}
+	return hits, sc.Err()
 }

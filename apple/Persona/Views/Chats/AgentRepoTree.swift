@@ -54,6 +54,25 @@ nonisolated struct RepoPlace: Equatable, Sendable {
         self.init(repo: String(path), name: Self.baseName(String(path)), worktree: String(path), main: true)
     }
 
+    /// Where the node placed it in git (#1805): its project (`repo_root`, else the working tree itself) and working
+    /// tree; nil from an older node, which leaves the inference above.
+    static func git(_ s: Session) -> RepoPlace? {
+        let worktree = trimmed(s.worktree)
+        guard !worktree.isEmpty else { return nil }
+        let root = trimmed(s.repoRoot)
+        let repo = root.isEmpty ? worktree : root
+        return RepoPlace(repo: repo, name: baseName(repo), worktree: worktree, main: worktree == repo)
+    }
+
+    /// A session's place: the node's when it says, else from its working directory.
+    static func of(_ s: Session) -> RepoPlace { git(s) ?? RepoPlace(cwd: s.cwd, repoRoot: s.repoRoot) }
+
+    private static func trimmed(_ path: String?) -> String {
+        var path = Substring(path ?? "")
+        while path.hasSuffix("/") { path = path.dropLast() }
+        return String(path)
+    }
+
     private static func baseName(_ path: String) -> String {
         path.split(separator: "/" as Character).last.map(String.init) ?? ""
     }
@@ -66,10 +85,13 @@ nonisolated struct RepoTree {
     struct Worktree: Identifiable, Sendable {
         /// Its fold id.
         var id: String
+        /// Its branch when the node says (#1805), else its folder's name (the main checkout: the repository's).
         var name: String
         var path: String
         var main: Bool
         var sessions: [Session]
+        /// The branch checked out there, when the node says (#1805).
+        var branch: String? = nil
         /// The spaces its host directly nests under it (Orca's `parent_space_id`); each keeps its own children and
         /// its own「N 个子项」fold, so deeper levels remain under their actual parent.
         var children: [Worktree] = []
@@ -111,8 +133,11 @@ nonisolated struct RepoTree {
         /// The main checkout first, then by name.
         var worktrees: [Worktree]
         var sessions: [Session] { worktrees.flatMap(\.treeSessions) }
-        /// Only its main checkout, nothing nested under it: its agents sit right under it, with no working-tree level.
-        var flat: Bool { worktrees.count == 1 && worktrees[0].main && worktrees[0].children.isEmpty && !worktrees[0].catalog }
+        /// Only its main checkout, nothing nested under it and no branch the node named: its agents sit right under it,
+        /// with no working-tree level. A named branch keeps its level (#1805: machine → project → branch → agents).
+        var flat: Bool {
+            worktrees.count == 1 && worktrees[0].main && worktrees[0].children.isEmpty && !worktrees[0].catalog && worktrees[0].branch == nil
+        }
         var structured: Bool { worktrees.contains { $0.catalog || !$0.children.isEmpty } }
     }
 
@@ -224,7 +249,8 @@ nonisolated struct RepoTree {
         for key in nodes.keys.filter({ parentOf[$0] == nil }).sorted(by: beforeNode) {
             let n = nodes[key]!
             guard var w = tree(key) else { continue }
-            let place = RepoPlace(cwd: n.path, repoRoot: n.sessions.first?.repoRoot)
+            // The node's git place when it sends one (#1805), else the path inference.
+            let place = n.sessions.first.flatMap(RepoPlace.git) ?? RepoPlace(cwd: n.path, repoRoot: n.sessions.first?.repoRoot)
             let metadata = n.workspace
             let addressProject = metadata?.sourceID.components(separatedBy: "::")
             let projectID = metadata?.projectID.flatMap { $0.isEmpty ? nil : $0 }
@@ -239,8 +265,11 @@ nonisolated struct RepoTree {
             if let path = metadata?.projectPath, !path.isEmpty { repo.path = path }
             w.main = metadata?.isMain ?? place.main
             if !n.catalog {
+                // Orca's sidebar and git name a working tree by its branch.
+                let branch = n.sessions.first?.branch.flatMap { $0.isEmpty ? nil : $0 }
                 w.id = "tree/" + n.machine.path + "/" + place.worktree
-                w.name = place.worktree == place.repo ? repo.name : place.worktree.split(separator: "/").last.map(String.init) ?? ""
+                w.name = branch ?? (place.worktree == place.repo ? repo.name : place.worktree.split(separator: "/").last.map(String.init) ?? "")
+                w.branch = branch
                 w.path = place.worktree
             }
             if let i = repo.worktrees.firstIndex(where: { $0.id == w.id }) {
@@ -254,19 +283,26 @@ nonisolated struct RepoTree {
             Dictionary(repo.worktrees.enumerated().map { ($0.element.path, $0.offset) }, uniquingKeysWith: { a, _ in a })
         }
         for s in loose {
-            let place = RepoPlace(cwd: s.cwd, repoRoot: s.repoRoot)
+            let place = RepoPlace.of(s)
             let key = s.machineRef.path + "/" + place.repo
             if repos[key] == nil {
                 repos[key] = Repo(id: "repo/" + key, machine: s.machineRef,
                                   name: place.name.isEmpty ? unnamed : place.name, path: place.repo, worktrees: [])
             }
             // Preserve the projection's linear accumulation for large inventories.
-            if let i = worktreeIndices[key]?[place.worktree] { repos[key]!.worktrees[i].sessions.append(s) }
-            else {
-                let name = place.worktree == place.repo ? repos[key]!.name : place.worktree.split(separator: "/").last.map(String.init) ?? ""
+            let branch = s.branch.flatMap { $0.isEmpty ? nil : $0 }
+            if let i = worktreeIndices[key]?[place.worktree] {
+                repos[key]!.worktrees[i].sessions.append(s)
+                // Orca's sidebar and git name a working tree by its branch.
+                if repos[key]!.worktrees[i].branch == nil, !repos[key]!.worktrees[i].catalog, let branch {
+                    repos[key]!.worktrees[i].branch = branch
+                    repos[key]!.worktrees[i].name = branch
+                }
+            } else {
+                let folder = place.worktree == place.repo ? repos[key]!.name : place.worktree.split(separator: "/").last.map(String.init) ?? ""
                 let index = repos[key]!.worktrees.count
-                repos[key]!.worktrees.append(Worktree(id: "tree/" + s.machineRef.path + "/" + place.worktree, name: name,
-                                                    path: place.worktree, main: place.main, sessions: [s]))
+                repos[key]!.worktrees.append(Worktree(id: "tree/" + s.machineRef.path + "/" + place.worktree, name: branch ?? folder,
+                                                    path: place.worktree, main: place.main, sessions: [s], branch: branch))
                 worktreeIndices[key, default: [:]][place.worktree] = index
             }
         }

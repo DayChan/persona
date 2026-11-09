@@ -84,12 +84,15 @@ func matcher(query string) func(string) bool {
 
 // searchable reports whether a file of the data dir (path relative to it) holds text a search may return. Bookkeeping
 // is not: a person's hashed identity hints (handles.json, handles.go), a connector's cursor (cursors/<source>.json),
-// history imports' progress (history/, history.go) and the Moments verdicts of a project (moments-judged.json,
-// moments_link.go), and recording undo snapshots mean nothing to a model, and the hints are kept out of every tool and prompt.
+// history imports' progress (history/, history.go), the selection's bookkeeping (select/, a chat's retention.json),
+// the Moments verdicts of a project (moments-judged.json, moments_link.go) and recording undo snapshots mean nothing
+// to a model, and the hints are kept out of every tool and prompt.
 func searchable(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch {
-	case parts[0] == "cursors" || parts[0] == "history":
+	case parts[0] == "cursors" || parts[0] == "history" || parts[0] == selectDir:
+		return false
+	case len(parts) == 3 && parts[0] == KindChat && parts[2] == retentionFile:
 		return false
 	case len(parts) == 3 && parts[0] == KindRecording && parts[2] == recordingJournal:
 		return false
@@ -312,8 +315,8 @@ func (e *Engine) walkLocked() *dirWalk {
 		for i := range ents {
 			switch d := &ents[i]; {
 			case d.dir:
-				// Attachments hold no text; history/ is bookkeeping, not searched (see searchable).
-				if d.name != "attachments" && d.rel != "history" {
+				// Attachments hold no text; history/ and select/ are bookkeeping, not searched (see searchable).
+				if d.name != "attachments" && d.rel != "history" && d.rel != selectDir {
 					walk(d.path, d.rel)
 				}
 			case d.day:

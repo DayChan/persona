@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: android-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-android
+  group: android-${{ github.repository }}-${{ github.ref_name }}-android
   cancel-in-progress: true
 jobs:
   android:

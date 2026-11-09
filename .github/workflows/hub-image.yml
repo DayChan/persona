@@ -1,12 +1,14 @@
 name: hub image
 on:
+  # Release publication only: Docker installs use the version/latest images.
+  # No branch push, pull request, merge group, or schedule starts this workflow.
   push:
     tags: ['v*']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: hub-image-${{ github.event.pull_request.number || github.ref }}
+  group: hub-image-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   smoke:
@@ -34,9 +36,9 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             IMAGE=${{ steps.version.outputs.image }}
-            ${{ github.event_name == 'pull_request' && 'NODE_PLATFORMS=linux/amd64' || '' }}
+            NODE_PLATFORMS=linux/amd64
           cache-from: type=gha,scope=hub
-          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,scope=hub,mode=max,timeout=2m,ignore-error=true' || '' }}
+          cache-to: type=gha,scope=hub,mode=max,timeout=2m,ignore-error=true
       - name: Isolated Compose smoke
         env:
           CI_IMAGE_VERSION: ${{ steps.version.outputs.version }}
@@ -44,7 +46,6 @@ jobs:
         run: scripts/ci/hub-image.sh
   publish:
     needs: smoke
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

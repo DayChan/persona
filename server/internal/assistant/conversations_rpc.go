@@ -276,7 +276,7 @@ func extensionMessage(it proto.Item) (assistantwire.AssistantMessage, bool) {
 	msg := assistantwire.AssistantMessage{Seq: it.Seq, At: it.TS, Truncated: it.FullSize > 0}
 	switch it.Role {
 	case "user":
-		if it.From != "" || it.Injected != nil || it.ClientMsgID == "" && prompts.ParseInjected(it.Text) != nil {
+		if it.From != "" || it.Injected != nil || prompts.ItemSource(it) != nil || it.ClientMsgID == "" && !prompts.UserAuthoredContext(it.Text) && prompts.ParseInjected(it.Text) != nil {
 			return msg, false
 		}
 		text := transcript.StripInjected(it.Text)

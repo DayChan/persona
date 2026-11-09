@@ -7,9 +7,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// SidePanel's task and subagent panels pull in the whole chat view; nothing here opens them.
-vi.mock("../views/assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("../views/chat/SubagentPanel", () => ({ SubagentPanel: () => null }));
 vi.hoisted(() => {
   const kept = new Map<string, string>();
   const g = globalThis as unknown as { localStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> };

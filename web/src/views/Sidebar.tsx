@@ -1,7 +1,6 @@
 import { removeStoredValue, storedValue, storeValue } from "../lib/compatibility";
 // Beautiful UI's Sidebar Nav: workspace row, quick search, sections, one gliding highlight. Persona's main conversation
 // is the first entry (the app opens on the assistant); a new conversation and a new agent are the "+" of their sections (#1239).
-import { BASE } from "../lib/base";
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../i18n";
 import { NARROW, useMedia } from "../lib/viewport";
@@ -12,8 +11,6 @@ import { buildRepoMachineTree, showsWorktreeLevel, type RepoMachine, type RepoTr
 import { keyedRefs } from "../lib/keyed-refs";
 import { buildMachineTree, paneRoute, resolveTab, tabRowKeys, type ChildStates, type HerdrMachine, type HerdrSpace, type HerdrTab } from "../lib/herdr-tree";
 import { addSection, arrangeSessions, assignSection, GROUP_LABEL, isDefaultView, providerLabel, refreshAgentSessions, removeSection, resetView, setView, SHOW_LABEL, SORT_LABEL, toggleProvider, togglePin, totalUnread, updateAgentPrefs, useAgentList, useAgentPrefs, viewOf, type AgentPrefs, type AgentSession, type GroupBy, type ShowMode, type SortBy } from "../lib/agents";
-import { api, handleUnauthorized, setToken } from "../lib/api";
-import { TOKEN_ID_KEY } from "../lib/auth";
 import { useInboxBadge } from "../lib/inbox";
 import { useLarkHome } from "../lib/lark-chats";
 import { machineWithHub } from "../lib/mesh";
@@ -25,24 +22,26 @@ import { arrangePages, useSidebarPrefs } from "../lib/sidebar-pages";
 import { sidebarConversations, usePinnedConversations } from "../lib/conversation-pins";
 import { autoConversations, autoOrigin, isAutoConversation, originLabel, type AutoOrigin, type OriginTally } from "../lib/conversation-origins";
 import { ConversationRowMenu, pinnedSectionItems } from "./ConversationMenu";
+import { useDisconnect } from "./DisconnectBrowser";
 import { useExtensionSlot } from "../lib/extension-slots";
 import { toneOf } from "../lib/extension-ui";
 import { BADGE_TONE, navIcon, pageRoute } from "./extensions/ExtensionSlots";
 import { href, navigate, routePath, useRoute, type Route } from "../lib/router";
 import { useAgentSessions, useCounts, useFullAgentSessions } from "../lib/sessions";
 import { terminalTarget } from "../lib/session-view";
-import { refresh, reset, rememberSessionRow, useLarkOn, useStore } from "../lib/store";
+import { refresh, rememberSessionRow, useLarkOn, useStore } from "../lib/store";
 import { draftLine, rowLine } from "../lib/row-line";
 import { usageLimitLabel } from "../lib/usage-limit";
 import { useLeftDraft } from "../lib/drafts";
 import { planInRow, planLabel, planLine } from "../lib/plan";
 import { answeredSession, answerPending, lastAnsweredAt } from "./assistant/answered-lookup";
+import { conversationTitle } from "./assistant/conversations";
 import { BREATHING, connPhase, connStatus, phaseTone, type ConnPhase } from "../lib/connection";
 import { useWorkspaceBoardSetting } from "../lib/workspace-board-setting";
 import { buildTodoTree, treeStateLabel, type TodoTree, type TreeAgent, type TreeState, type TreeTodo } from "../lib/todo-tree";
 import { findTodoForSpace, openTodoFromTag, TODO_STATUS_INFO, type TodoStatus } from "../lib/todos";
 import type { AgentState, Machine, Session } from "../lib/types";
-import { Collapse, cx, EASE, Kbd, Menu, useMenu, useNow, type MenuItem } from "../ui/atoms";
+import { Collapse, cx, EASE, Kbd, Menu, Spinner, useMenu, useNow, type MenuItem } from "../ui/atoms";
 import { StatusMark, StateTally } from "../ui/StatusMark";
 import { foldedCounts, hasFoldedCounts } from "../lib/folded-counts";
 import { runningWorkflows, workflowLine, workflowShortLine } from "../lib/workflows";
@@ -414,7 +413,7 @@ export function Sidebar({ route, onSearch, onNewAgent, onNavigate }: { route: Ro
           >
             {pinnedConvs.length > 0 && <PinnedHeading onMenu={(at) => setChatsMenu(at)} />}
             {convs.map((c) => (
-              <SessionRow key={c.session_id} s={c} k={`j:${c.session_id}`} reg={reg} hover={hover} active={activeKey === `j:${c.session_id}`} to={{ name: "persona", sid: c.session_id }} go={go} showState={false} icon={pinnedIds.includes(c.session_id) ? "pin" : undefined} onMenu={onConvMenu} menuLabel={t("conversation-menu.actions")} />
+              <SessionRow key={c.session_id} s={c} k={`j:${c.session_id}`} reg={reg} hover={hover} active={activeKey === `j:${c.session_id}`} to={{ name: "persona", sid: c.session_id }} go={go} label={conversationTitle(c)} showState={false} icon={pinnedIds.includes(c.session_id) ? "pin" : undefined} onMenu={onConvMenu} menuLabel={t("conversation-menu.actions")} />
             ))}
             {assistant && <AutoConversations conversations={assistant.conversations} main={assistant.main} shown={convs} activeKey={activeKey} holds={autoHolds} reg={reg} hover={hover} go={go} />}
             {assistant && <NavRow k="history" reg={reg} hover={hover} active={activeKey === "history"} to={{ name: "history" }} go={go} icon="list" label={t("sidebar.all_chats")} hint={assistant.conversations.length > convs.length ? String(assistant.conversations.length) : undefined} />}
@@ -979,16 +978,7 @@ function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number
     { k: "light", label: t("sidebar.theme_light"), icon: "sun" },
     { k: "dark", label: t("sidebar.theme_dark"), icon: "moon" },
   ];
-  const logout = async () => {
-    // signing out on purpose: a request that gets a 401 meanwhile must not show "this browser was signed out"
-    handleUnauthorized(() => {});
-    const id = localStorage.getItem(TOKEN_ID_KEY);
-    if (id) await api(`/auth/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
-    localStorage.removeItem(TOKEN_ID_KEY);
-    setToken("");
-    reset();
-    location.href = BASE + "/";
-  };
+  const disconnect = useDisconnect();
   return (
     <>
       <button type="button" onClick={menu.open} className="flex w-full items-center gap-2.5 rounded-control p-1.5 text-left transition-[background-color,transform] duration-100 hover:bg-hover active:scale-[0.98]">
@@ -1000,7 +990,8 @@ function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number
             {connStatus(phase, online, total)}
           </span>
         </span>
-        <Icon name="chevron" size={12} stroke={2} className="text-ink-3" />
+        {/* the menu is gone while the hub revokes this browser's token: the row it opened from says it is busy */}
+        {disconnect.busy ? <Spinner size={12} /> : <Icon name="chevron" size={12} stroke={2} className="text-ink-3" />}
       </button>
       {menu.anchor && (
         <Menu
@@ -1013,10 +1004,11 @@ function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number
             // the other hubs in this browser's list (#1014); none, and the menu is as before
             ...otherHubs,
             { key: "settings", label: t("sidebar.nav_settings"), icon: "gear", divider: otherHubs.length > 0, onSelect: () => navigate({ name: "settings" }) },
-            { key: "logout", label: t("sidebar.disconnect"), icon: "logout", danger: true, onSelect: () => void logout() },
+            { key: "logout", label: t("sidebar.disconnect"), icon: "logout", danger: true, onSelect: disconnect.start },
           ]}
         />
       )}
+      {disconnect.dialog}
     </>
   );
 }

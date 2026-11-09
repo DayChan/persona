@@ -32,6 +32,7 @@
   "accept_question": "Review feedback",
   "accept_to_agent": "What the user said when checking it (a reply in Lark):\n{feedback}\n\nChange it so, deploy again, and in your last reply say what changed, where to look and how to check.",
   "accept_not_sent": "Kept in the todo, but it could not go to the agent: {error}",
+  "accept_not_taken": "Not taken: the recommendation could not reach its agent ({error}). Nothing was changed; you can try again",
   "accept_sent": "Kept in the todo's decisions and sent to its agent",
   "accept_media_dropped": "Feedback on a check takes words only for now: the pictures and files did not go to the agent. Say in words what is wrong, or send the picture to it from the app",
   "verdict_done": "✅ Done",

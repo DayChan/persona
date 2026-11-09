@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -26,9 +27,11 @@ type Collector interface {
 type cpuTimes struct{ busy, total uint64 }
 
 // cpuPercent is the busy share between two readings; nil when there is nothing to compare (the first reading,
-// a counter that went backwards).
+// a counter that went backwards). Busy grows by more than total when idle + iowait went backwards (Linux iowait
+// may decrease, proc(5)): that is also a counter going backwards, so one sample is lost rather than a CPU above
+// 100% drawn.
 func cpuPercent(prev, cur cpuTimes) *float64 {
-	if prev.total == 0 || cur.total <= prev.total || cur.busy < prev.busy {
+	if prev.total == 0 || cur.total <= prev.total || cur.busy < prev.busy || cur.busy-prev.busy > cur.total-prev.total {
 		return nil
 	}
 	v := round1(100 * float64(cur.busy-prev.busy) / float64(cur.total-prev.total))
@@ -51,6 +54,10 @@ func netRates(prev, cur netCounters) (rx, tx *float64) {
 	r, t := round1(float64(cur.rx-prev.rx)/dt), round1(float64(cur.tx-prev.tx)/dt)
 	return &r, &t
 }
+
+// listEvery: how often a collector checks again which network interfaces (and on Windows, drives) count; one plugged
+// in or renamed shows within a minute.
+const listEvery = time.Minute
 
 func round1(v float64) float64 { return float64(int64(v*10+0.5)) / 10 }
 
@@ -105,12 +112,18 @@ func linuxSystem(osr map[string]string) proto.System {
 	return s
 }
 
-// parseProcStat reads /proc/stat: all CPUs, each core, and the boot time.
+// parseProcStat reads /proc/stat: all CPUs, each core, and the boot time. Other lines are skipped before they are
+// split: intr and softirq hold a counter per interrupt, thousands on a big host.
 func parseProcStat(b []byte) (all cpuTimes, cores []cpuTimes, boot int64) {
-	sc := bufio.NewScanner(bytes.NewReader(b))
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
+	cores = make([]cpuTimes, 0, bytes.Count(b, []byte("\ncpu")))
+	for len(b) > 0 {
+		var line []byte
+		line, b, _ = bytes.Cut(b, []byte("\n"))
+		line = bytes.TrimLeftFunc(line, unicode.IsSpace)
+		if !bytes.HasPrefix(line, []byte("cpu")) && !bytes.HasPrefix(line, []byte("btime")) {
+			continue
+		}
+		f := strings.Fields(string(line))
 		if len(f) < 2 {
 			continue
 		}
@@ -302,7 +315,11 @@ func parseVMStatHeader(line string) (uint64, bool) {
 	if !ok {
 		return 0, false
 	}
-	n, err := strconv.ParseUint(strings.Fields(rest)[0], 10, 64)
+	f := strings.Fields(rest)
+	if len(f) == 0 {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(f[0], 10, 64)
 	return n, err == nil && n > 0
 }
 

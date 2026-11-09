@@ -1,9 +1,14 @@
 package node
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/nwverse/persona/server/internal/identity"
+	"github.com/nwverse/persona/server/internal/proto"
 )
 
 func TestCodexNonDefaultHeadlessSourceIsNotAnAgent(t *testing.T) {
@@ -139,4 +144,74 @@ func TestCodexSubagentOnAnAppServerIsListed(t *testing.T) {
 		}
 	}
 	t.Fatal("an app-server's subagent thread was hidden")
+}
+
+// #2126: a Codex-run assistant conversation stays listed, and sendable, once its idle process is let go.
+func TestCodexAssistantAtRestIsListed(t *testing.T) {
+	n := remoteTestNode(t)
+	dir := filepath.Join(n.codexHome(), "sessions", "2026", "11", "09")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cwd := identity.AssistantDir(n.home)
+	long := time.Now().Add(-2 * offlineWindow)
+	ids := map[string]struct {
+		cwd   string
+		at    time.Time
+		kept  bool
+		shown bool
+	}{
+		"0e000000-0000-4000-8000-0000000000d1": {cwd, time.Now(), false, true},
+		"0e000000-0000-4000-8000-0000000000d2": {cwd, long, true, true},
+		"0e000000-0000-4000-8000-0000000000d3": {cwd, long, false, false},
+		"0e000000-0000-4000-8000-0000000000d4": {"/work/mine", time.Now(), false, false},
+	}
+	var kept []string
+	n.state.mu.Lock()
+	for id, c := range ids {
+		p := filepath.Join(dir, "rollout-2026-11-09T01-00-00-"+id+".jsonl")
+		if err := os.WriteFile(p, []byte(`{"type":"session_meta","payload":{"originator":"codex_sdk_ts","cwd":"`+c.cwd+`"}}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, c.at, c.at); err != nil {
+			t.Fatal(err)
+		}
+		n.state.Sessions[id] = sessionState{Cwd: c.cwd, Launcher: "codex", StartedAt: time.Now()}
+		if c.kept {
+			kept = append(kept, id)
+		}
+	}
+	n.state.mu.Unlock()
+	n.setKept(kept)
+
+	count := 0
+	for _, s := range n.sessionList(context.Background(), false) {
+		if s.SessionID == "0e000000-0000-4000-8000-0000000000d1" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("resting conversation is on the list %d times", count)
+	}
+
+	rows := n.codexAssistantsAtRest(map[string]bool{})
+	got := map[string]proto.Session{}
+	for _, s := range rows {
+		got[s.SessionID] = s
+	}
+	if len(got) != len(rows) {
+		t.Fatalf("a conversation listed twice: %+v", rows)
+	}
+	for id, c := range ids {
+		s, shown := got[id]
+		if shown != c.shown {
+			t.Errorf("%s listed=%v, want %v", id, shown, c.shown)
+		}
+		if shown && (s.SourceKind != "" || s.Agent != "codex" || s.Status != proto.StatusOffline) {
+			t.Errorf("%s is not a sendable resting row: %+v", id, s)
+		}
+	}
+	if rows = n.codexAssistantsAtRest(map[string]bool{"0e000000-0000-4000-8000-0000000000d1": true}); len(rows) != 1 {
+		t.Fatalf("a row already listed came again: %+v", rows)
+	}
 }

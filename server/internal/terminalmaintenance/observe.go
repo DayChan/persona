@@ -97,7 +97,18 @@ func observeWait(ctx context.Context, p Prepared, wait time.Duration, read func(
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	for {
-		out, err := observeOnce(ctx, p, read)
+		var readErr error
+		out, err := observeOnce(ctx, p, func(ctx context.Context, pid int) (Process, error) {
+			current, err := read(ctx, pid)
+			readErr = err
+			return current, err
+		})
+		// A deadline that interrupts the census (the real reader's ps child is
+		// killed) is the wait running out, not an unreadable process table.
+		if readErr != nil && ctx.Err() != nil {
+			out.State = "timeout"
+			return out, fmt.Errorf("process departure not observed: %w", ctx.Err())
+		}
 		if err != nil || out.ProcessAbsent {
 			return out, err
 		}

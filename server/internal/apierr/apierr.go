@@ -148,6 +148,8 @@ func Call(w http.ResponseWriter, err error) {
 		switch code {
 		case "internal", "node_unreachable", "timeout":
 			status = http.StatusBadGateway
+		case proto.CodeTerminalNotReady: // the node's new tab would not take the start command; nothing ran
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusConflict
 		}
@@ -199,15 +201,17 @@ func LocalizedBody(status int, code string, err error, l i18n.Lang) map[string]a
 }
 
 var rpcFailureKeys = map[string]string{
-	"timeout":            "rpc-errors.timeout",
-	"node_unreachable":   "rpc-errors.unreachable",
-	"internal":           "rpc-errors.failed",
-	"input_draft":        "rpc-errors.input_draft",
-	"dialog_open":        "rpc-errors.dialog_open",
-	"prompt_changed":     "rpc-errors.prompt_changed",
-	"attach_busy":        "rpc-errors.attach_busy",
-	"node_outdated":      "rpc-errors.node_outdated",
-	"assistant_in_doubt": "rpc-errors.in_doubt",
+	"timeout":                  "rpc-errors.timeout",
+	"node_unreachable":         "rpc-errors.unreachable",
+	"internal":                 "rpc-errors.failed",
+	"input_draft":              "rpc-errors.input_draft",
+	"dialog_open":              "rpc-errors.dialog_open",
+	"prompt_changed":           "rpc-errors.prompt_changed",
+	"attach_busy":              "rpc-errors.attach_busy",
+	proto.CodeTerminalNotReady: "rpc-errors.terminal_not_ready",
+	"node_outdated":            "rpc-errors.node_outdated",
+	"readonly_unsupported":     "rpc-errors.readonly_unsupported",
+	"assistant_in_doubt":       "rpc-errors.in_doubt",
 	// queued messages sent now (#6088)
 	"nothing_queued":       "rpc-errors.nothing_queued",
 	"send_now_unsupported": "rpc-errors.send_now_unsupported",
@@ -329,6 +333,9 @@ func explain(body map[string]any, code, message string, l i18n.Lang) {
 // (where "terminal", node/shellmiss.go) what it could not run (missing, kind), that shell (pane_shell) and the shell
 // and rc file the launchers are listed in (launcher_shell, rc_file). What a 409 says, and a session's start_error.
 func Sentence(l i18n.Lang, code string, data map[string]any) string {
+	if code == "readonly_unsupported" {
+		return i18n.T(l, "rpc-errors.readonly_unsupported")
+	}
 	if _, ok := codeActions[code]; !ok {
 		return ""
 	}

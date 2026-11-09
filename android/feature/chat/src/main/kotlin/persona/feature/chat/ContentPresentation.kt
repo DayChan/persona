@@ -22,10 +22,12 @@ data class ChatRenderStyle(
     /** The work line stays one sentence (Persona's own chat): no live steps under it, the plan as a plain step. */
     val compactToolSummary: Boolean = false,
     val hideThoughts: Boolean = false,
+    /** A running work line is open, its steps listed as they arrive, and folds when the turn ends (#1614, [WorkOpenState]). */
+    val openLiveWork: Boolean = false,
 ) {
     companion object {
         val Agent = ChatRenderStyle()
-        val Assistant = ChatRenderStyle(collapseThoughts = true, compactToolSummary = true, hideThoughts = true)
+        val Assistant = ChatRenderStyle(collapseThoughts = true, compactToolSummary = true, hideThoughts = true, openLiveWork = true)
     }
 }
 

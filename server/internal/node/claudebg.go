@@ -172,6 +172,7 @@ func (n *Node) claudeSessions(procs []claudeProc, seen map[string]bool) []proto.
 		}
 		untitled(&s, m)
 		setContext(&s, m)
+		s.ModelFallback = m.modelFallback
 		s.Activity, s.ActivityAt = m.activityOf()
 		s.PermissionMode, s.Effort = n.currentModes(id, m)
 		m.turnErr.set(&s)

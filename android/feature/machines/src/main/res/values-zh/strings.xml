@@ -79,6 +79,11 @@
     <string name="machines_deploying">正在把 hub 这一版的 Persona 装到这台电脑…</string>
     <string name="machines_deploy_failed_last">上次部署没成：%1$s</string>
     <string name="machines_redeploy">重新部署</string>
+    <string name="machines_deploy_waiting_idle">等这台电脑上的 Agent 空闲后再更新 Persona…</string>
+    <string name="machines_deploy_transferring">正在把 hub 这一版的 Persona 传到这台电脑…</string>
+    <string name="machines_deploy_restarting">正在重启这台电脑上的 Persona…</string>
+    <string name="machines_deploy_confirming">正在等这台电脑上的 Persona 重新连上，并确认和 hub 是同一版…</string>
+    <string name="machines_deploy_unsupported">这台电脑还不能远程更新，先在它上面手动更新 Persona。</string>
     <string name="machines_controls_title">引擎与连接</string>
     <string name="machines_engine">引擎</string>
     <string name="machines_reconnecting">正在重新连接…</string>

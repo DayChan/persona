@@ -81,6 +81,8 @@
     <string name="chat_interaction_resolved_elsewhere">已在电脑上处理</string>
     <string name="chat_interaction_prompt_changed">屏幕内容已变化，本次未提交。请查看新问题后重新选择</string>
     <string name="chat_interaction_unknown">还不知道你的回答送到没有，先看一下这个请求</string>
+    <string name="chat_interaction_refused">hub 没有接受这个回答，可以再答一次</string>
+    <string name="chat_interaction_refused_reason">hub 没有接受这个回答：%1$s</string>
     <string name="chat_interaction_already">已经回答过了</string>
     <string name="chat_interaction_already_with">已经回答过了：%1$s</string>
     <string name="chat_interaction_ended_expired">这个请求已经过期，回答没有送到</string>

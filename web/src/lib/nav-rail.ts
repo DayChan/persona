@@ -2,7 +2,7 @@
 // the independent index without coupling the rail's gestures to transcript loading.
 
 import { NAV_RAIL_METRICS } from "../ui/nav-rail-metrics";
-import { isLoopTick, isOwnMessage, type ChatLine, type UserMessage } from "./turns";
+import { isLoopTick, isOwnMessage, type ChatLine, type Segment, type UserMessage } from "./turns";
 
 /** One of your questions in the loaded conversation: what a tick knows. */
 export interface NavRailTick {
@@ -12,7 +12,7 @@ export interface NavRailTick {
   preview: string;
   /** A question with no words of its own (only pictures, files or picked contexts): how many, for a fallback label. */
   attachmentsOnly?: number;
-  /** The start of this turn's answer (Markdown noise stripped, one line, capped); absent while it has none yet. */
+  /** A bounded answer excerpt, or visible follow-up text in this exchange while the answer is not available. */
   answerExcerpt?: string;
 }
 
@@ -21,7 +21,7 @@ export const NAV_RAIL_MIN_TICKS = 1;
 export const NAV_RAIL_TICK_PITCH = NAV_RAIL_METRICS.tickPitch;
 export const NAV_RAIL_TICK_MIN_PITCH = NAV_RAIL_METRICS.minTickPitch;
 export const NAV_RAIL_MIN_HEIGHT = NAV_RAIL_METRICS.minHeight;
-/** The answer excerpt's cap: the preview card clamps to three lines anyway; this keeps the string itself bounded. */
+/** The card renders at most two excerpt lines; this also bounds the underlying accessible description. */
 export const NAV_RAIL_EXCERPT_MAX = 200;
 /** The question line's cap for the label; the card truncates to one line, the label carries the whole preview. */
 export const NAV_RAIL_PREVIEW_MAX = 120;
@@ -39,10 +39,25 @@ export function navRailTicks(lines: ChatLine[]): NavRailTick[] {
     const preview = navRailPreview(wordsOf(msg));
     const attachments = msg.images.length + (msg.files?.length ?? 0) + (msg.photos?.length ?? 0) + msg.contexts.length;
     if (!preview && !attachments) continue;
-    const answer = navRailExcerpt(line.seg.answer?.text ?? "");
+    const answer = responseExcerpt(line.seg);
     out.push({ id: line.id, preview, ...(preview ? {} : { attachmentsOnly: attachments }), ...(answer ? { answerExcerpt: answer } : {}) });
   }
   return out;
+}
+
+/** Prefer the answer, then visible text from this exchange only. Never inspect tool payloads, private reasoning,
+ *  injected wake text or another session to manufacture a hover summary. */
+function responseExcerpt(seg: Segment): string {
+  const answer = navRailExcerpt(seg.answer?.text ?? "");
+  if (answer) return answer;
+  for (const step of seg.steps) {
+    if (step.kind !== "text" && step.kind !== "notice") continue;
+    const item = step.item;
+    if (item.role !== "assistant" || item.from || item.injected || item.wake || item.supervisionUser) continue;
+    const text = navRailExcerpt(item.text ?? "");
+    if (text) return text;
+  }
+  return "";
 }
 
 /** A merged bubble (several queued messages in one turn) previews its parts in order; the first line of the first
@@ -74,6 +89,32 @@ export function navRailExcerpt(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, NAV_RAIL_EXCERPT_MAX);
+}
+
+/** Idle marks stay uniformly short; only an interactive preview creates bell-shaped focus shoulders. */
+export function navRailMark(index: number, count: number, current: number | null, preview: number | null) {
+  const m = NAV_RAIL_METRICS;
+  const isCurrent = index === current;
+  if (preview === null) {
+    return {
+      state: isCurrent ? "current" : "idle",
+      width: m.tickWidth,
+      height: m.tickHeight,
+      opacity: isCurrent ? 1 : m.tailOpacity,
+    };
+  }
+  const sigma = Math.min(m.spread, Math.max(m.minSpread, (count - 1) / 2));
+  const distance = index - preview;
+  const bell = Math.exp(-(distance * distance) / (2 * sigma * sigma));
+  const isPreview = index === preview;
+  const peak = preview === current ? m.currentHoverWidth : m.hoverWidth;
+  const width = m.tickWidth + (peak - m.tickWidth) * bell;
+  return {
+    state: isCurrent ? (isPreview ? "current-hover" : "current") : isPreview ? "hover" : "idle",
+    width: isCurrent ? Math.max(width, m.currentWidth) : width,
+    height: isCurrent ? (isPreview ? m.currentHoverHeight : m.currentHeight) : isPreview ? m.hoverHeight : m.tickHeight,
+    opacity: isCurrent || isPreview ? 1 : m.tailOpacity + m.shoulderOpacity * bell,
+  };
 }
 
 export interface NavRailPlan {

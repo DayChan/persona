@@ -1698,6 +1698,12 @@ final class AppModel {
             if !store.liveIsAgents, store.landed(items, pending: deltas.pendingText(key)) {
                 deltas.drop(key)
                 ChatTrace.shared.note(key, "landed live=\(store.liveText.count)")
+            } else if backlog, !store.liveIsAgents, !store.liveText.isEmpty {
+                // A page of the subscription's catch-up is in: the assistant's live text the hub does not send again
+                // after the last one is stale (#1966). Every page: a capped catch-up says more_after and the rest comes
+                // another way, and the re-send or any delta cancels the fallback.
+                ChatTrace.shared.note(key, "backlog live=\(store.liveText.count)")
+                store.backlogArrived()
             }
         case .screen(let key, let text, let status):
             let c = chat(key)
@@ -2985,11 +2991,14 @@ struct Toast: Identifiable, Equatable {
     let message: String
     let style: Style
     let action: Action?
+    /// A second button before `action` (Undo beside View).
+    let secondary: Action?
 
-    init(_ message: String, style: Style = .info, action: Action? = nil) {
+    init(_ message: String, style: Style = .info, action: Action? = nil, secondary: Action? = nil) {
         self.message = message
         self.style = style
         self.action = action
+        self.secondary = secondary
     }
 
     static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }

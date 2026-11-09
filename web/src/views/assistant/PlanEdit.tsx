@@ -22,9 +22,10 @@ export function permissionLabel(mode: string): string {
 }
 
 /** The hub keeps the plan's model when the field is sent empty (applyPlanEdit): say so rather than "use the default". */
-export function modelPlaceholder(planned?: string): string {
+export function modelPlaceholder(planned?: string, tier?: string): string {
   const m = planned?.trim();
-  return m ? t("assistant-tasks.plan_edit_model_placeholder_kept", { model: m }) : t("assistant-tasks.plan_edit_model_placeholder");
+  if (m) return t("assistant-tasks.plan_edit_model_placeholder_kept", { model: m });
+  return tier ? t("assistant-tasks.plan_edit_model_placeholder_tier", { tier }) : t("assistant-tasks.plan_edit_model_placeholder");
 }
 
 /** `ultracode`: each task's choice on the card, where "Edit" starts from: kept while its computer can't (the switch is
@@ -96,7 +97,7 @@ export function PlanEditDialog({ plan, ultracode, onClose, onStart }: { plan: Ta
               </div>
               <div>
                 <label htmlFor={`${id}-model`} className={LABEL}>{t("assistant-tasks.plan_edit_model")}</label>
-                <input id={`${id}-model`} value={task.model ?? ""} spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder={modelPlaceholder(plan.tasks[i]?.model)} onChange={(e) => set(i, { model: e.target.value })} className={FIELD} />
+                <input id={`${id}-model`} value={task.model ?? ""} spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder={modelPlaceholder(plan.tasks[i]?.model, plan.tasks[i]?.tier)} onChange={(e) => set(i, { model: e.target.value })} className={FIELD} />
               </div>
               {ultracodeOffered && (
                 <div data-testid="plan-edit-ultracode">

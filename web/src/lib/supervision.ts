@@ -15,6 +15,8 @@ export interface ReviewCheck {
 export interface TaskReview {
   at: string;
   verdict: "accepted" | "rework" | "needs_user" | "cancelled";
+  /** "reviewer": a rework the independent reviewer's findings started (#2173); absent: the supervisor's. */
+  by?: string;
   round?: number;
   checks?: ReviewCheck[];
   note?: string;
@@ -30,6 +32,39 @@ export interface Supervision {
   updated_at?: string;
   /** What its agent last reported to Persona (report_to_supervisor); kept by the hub while it runs. */
   progress?: TaskProgress;
+  /** The latest independent review of its change (#2173); absent when none ran (or on an older hub). */
+  auto_review?: AutoReview;
+}
+
+/** An independent reviewer's run over a supervised task's change: its state, counts and report. */
+export interface AutoReview {
+  id: string;
+  state: "running" | "clean" | "blocking" | "failed" | "cancelled";
+  round?: number;
+  count?: number;
+  blocking?: number;
+  findings?: string;
+  started_at?: string;
+  ended_at?: string;
+}
+
+/** The independent review in a line for the task's page ("Nothing blocking · 2 findings"); undefined when there is
+ *  none to show (none ran, or it was cancelled because the work went on). */
+export function autoReviewLine(sup: Supervision | undefined): string | undefined {
+  const a = sup?.auto_review;
+  if (!a) return undefined;
+  const findings = a.count ? t("assistant-tasks.auto_review_findings", { count: a.count }) : "";
+  switch (a.state) {
+    case "running":
+      return t("assistant-tasks.auto_review_running");
+    case "clean":
+      return [t("assistant-tasks.auto_review_clean"), findings].filter(Boolean).join(" · ");
+    case "blocking":
+      return [t("assistant-tasks.auto_review_blocking", { count: a.blocking ?? 1 }), findings].filter(Boolean).join(" · ");
+    case "failed":
+      return t("assistant-tasks.auto_review_failed");
+  }
+  return undefined;
 }
 
 export type ReportKind = "progress" | "question" | "blocked" | "done";

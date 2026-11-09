@@ -203,6 +203,12 @@ data class LineOptions(
     val pendingInteractionIds: List<String>? = null,
     /** The agent is at work (working or blocked on you): the last turn is the running one, see [chatLines]. */
     val live: Boolean = false,
+    /**
+     * A running work line is open unless its id is in [liveFolded] (Persona's own chat, #1614): every step shows as it
+     * arrives. Off (the Agents chat), a running line is open only when its id is in [openWork], like any other.
+     */
+    val openLive: Boolean = false,
+    val liveFolded: Set<String> = emptySet(),
 )
 data class ChatFooter(val interactionIds: List<String>) {
     val placement get() = "above_composer"

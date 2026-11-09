@@ -107,7 +107,7 @@ class PersonaOnlyTests(unittest.TestCase):
             self.assertTrue(set(scheme["build"]["targets"]).issubset(targets))
         modules = {
             "Persona": "Persona", "PersonaMac": "Persona", "PersonaVision": "Persona", "PersonaWatch": "Persona",
-            "PersonaWidgets": "PersonaWidgets", "PersonaNotify": "PersonaNotify", "PersonaMacNotify": "PersonaNotify",
+            "PersonaWidgets": "PersonaWidgets", "PersonaNotify": "PersonaNotify", "PersonaMacNotify": "PersonaNotify", "PersonaVisionNotify": "PersonaNotify",
             "PersonaShare": "PersonaShare", "PersonaVisionShare": "PersonaShare",
             "PersonaWatchWidgets": "PersonaWatchWidgets",
         }

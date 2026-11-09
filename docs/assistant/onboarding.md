@@ -47,9 +47,9 @@ Terminology rules (enforced by the copy guard tests in section 8.1):
 
 Facts that determine the design:
 
-- **Main chat requires an online computer with Claude Code installed and logged in.** Even a direct-API provider used for main chat runs claude on a computer against its gateway (`assistant/models.go:950-982`: `finishModel` accepts only `launcher.<name>`). The Docker image has neither claude nor a local computer (`Dockerfile:79-81`, `PERSONA_LOCAL_NODE=0`), so main chat cannot initially run for NAS / Docker users.
+- **Main chat requires an online computer with Claude Code installed and logged in.** Even a direct-API provider used for main chat runs claude on a computer against its gateway (`assistant/models_apply.go:72-107`: `finishModel` accepts only `launcher.<name>`). The Docker image has neither claude nor a local computer (`Dockerfile:79-81`, `PERSONA_LOCAL_NODE=0`), so main chat cannot initially run for NAS / Docker users.
 - **No endpoint currently answers "Can main chat work now, and what is missing?"** `POST /api/v1/assistant/warm` returns `{ok:true}` whether it succeeds or fails (`assistant/profile.go:283-289`). Launcher health checks default to off (`assistant/launcher_health.go:136`), so they cannot assess readiness for new users.
-- **Most parts already exist**: one-time pairing codes and hub-rendered QR codes (`hub/pairing.go:97`, 10 minutes, single-use), "Connect new device" on web and iOS, `/admin`'s add-computer flow (takes effect live, `hub/devices_handover.go:202`, `addMachineLive`), self-signed TLS, one-word launcher tests (`assistant/models_launchers_routes.go:242`), connection tests before saving (`assistant/models_probe.go:358`), adding from presets (`presetFill`), changing purposes (`assistant/models.go:821`), and Android's readiness checklist (`ReadinessRecords.kt`). What is missing is connecting them, making them available to logged-in apps, and providing machine-readable error codes.
+- **Most parts already exist**: one-time pairing codes and hub-rendered QR codes (`hub/pairing.go:97`, 10 minutes, single-use), "Connect new device" on web and iOS, `/admin`'s add-computer flow (takes effect live, `hub/devices_handover.go:202`, `addMachineLive`), self-signed TLS, one-word launcher tests (`assistant/models_launchers_routes.go:242`), connection tests before saving (`assistant/models_probe.go:358`), adding from presets (`presetFill`), changing purposes (`assistant/models_routes.go:167`), and Android's readiness checklist (`ReadinessRecords.kt`). What is missing is connecting them, making them available to logged-in apps, and providing machine-readable error codes.
 - **The iOS `"ccc"` fallback** (`AssistantView.swift:738,921`) appears only when reading `GET /api/v1/assistant` fails. It is not a normal blocker; fix it alongside the work.
 - **The official extension marketplace is inaccessible**: the research-time 403 was probably caused by the development machine's network. Fix graceful degradation when it cannot be read, rather than treating failure as the default.
 
@@ -215,7 +215,7 @@ Implementation (#4482, `assistant/models_probe.go`): distinguish Anthropic regio
 Web implementation (#4037, `views/settings/ProviderWizard.tsx`): "Working Claude Code already exists" requires `ok` for all three readiness steps: computer, Claude Code, and model (an untested `unknown` model does not count; a new key still defaults to assignment). Hide the switch until the first result arrives; saving also waits for it before deciding whether to include `assign`.
 For the step 4 notice, check readiness both before saving and after refetching: show it if Claude Code was `claude_missing` in either result and is not `ok` after saving. Checking only after saving is insufficient: once main chat switches to a Persona-managed provider, hub returns `unknown` for this step (`readiness.go` asserts absence only for the default `claude` launcher).
 
-**C. Has neither**: one screen, "Where to get a model." Sort built-in presets by request language (Chinese lists providers available directly in China first; other languages list Anthropic first). Give each a one-sentence explanation and "Sign up" (open `signup_url` in the in-app browser); on return, proceed to B. Beside it, offer "Try demo first." No affiliate links; recommendations and order are decision 11.
+**C. Has neither**: one screen, "Where to get a model." Sort built-in presets by request language (Chinese lists providers available directly in China first; other languages list Anthropic first). Give each a one-sentence explanation and "Sign up" (open `signup_url` in the in-app browser); on return, proceed to B. Leave out direct-API presets (Grok): signing up there gives no main chat (iOS still lists them until #2223). Beside it, offer "Try demo first." No affiliate links; recommendations and order are decision 11.
 
 Android implementation (#4297; details in `docs/android/android.md`, "Onboarding: models, devices, computers"): when hub has `builtin_presets`, use the same three steps as web. Differences: "Where to get a key" opens `signup_url` in the system browser (Settings has no in-app browser); while readiness is pending, the switch area says "Checking…" and saving waits for the result. Old hubs retain "Enter manually / Add from extension"; connection tests and fetching model lists exist only in the custom-gateway form.
 
@@ -224,6 +224,7 @@ Android implementation (#4297; details in `docs/android/android.md`, "Onboarding
 - Add an embedded presets_builtin.json under `server/internal/assistant/`, using `assistantwire.LauncherPreset` (`assistantwire/models.go:61-75`), `plugin: "builtin"`, and IDs `builtin/<vendor>`. Add two optional fields: `signup_url`, `name_zh` (or an i18n key).
 - `launcherPresets()` (`models_presets.go:20`) returns "built-in + plugins"; a plugin overrides a built-in with the same ID. Leave `presetFill` unchanged.
 - Initial candidates: official Anthropic, DeepSeek, Kimi (Moonshot), Zhipu GLM, Alibaba Bailian, and MiniMax's Anthropic-compatible endpoints. **Addresses and model names were not verified while drafting**. Before adding any provider, check its official documentation and pass a one-word request test, with sources in the PR. Include only vendors' public addresses, not relay services or company gateways. Tests ensure every entry has all required fields.
+  Grok was added later (#2204) as the first direct-API built-in: xAI deprecated its Anthropic-compatible endpoint, so it is on Responses and serves only direct-API categories (`docs/integrations/launchers.md`, "Built-in presets").
 - The first wizard step on all three clients lists presets directly, with "Custom compatible gateway" last. Base URL and authentication method appear only in the custom flow. Replace hardcoded "Official Anthropic" in client wizards (`web/src/lib/providers.ts`, `ProviderWizardModel.swift`) with preset data. Add "Test connection" and "Get model list" on Android (currently does not call `/launchers/test` or `/discover`).
 
 ### 4.4 Main-chat readiness and degradation
@@ -264,7 +265,7 @@ Android implementation (#4032; details in `docs/android/android.md`, "What main 
 
 For people with only an API key and no computer (Docker / NAS / work computers that prohibit installation), main chat is permanently empty today. This round provides a guidance card rather than a blank dead end; P1 adds a limited mode:
 
-- Build on hub's existing direct-model client (`server/internal/ai/ai.go:110`, `Complete`, used for information processing / filtering). Select a provider using `fallbackAPIProvider` rules (`assistant/models.go:370`); support only the Messages protocol.
+- Build on hub's existing direct-model client (`server/internal/ai/ai.go:110`, `Complete`, used for information processing / filtering). Select a provider using `fallbackAPIProvider` rules (`assistant/models_resolve.go:122`); support only the Messages protocol.
 - Plain-text chat, with read-only context hub can answer locally (connection status, knowledge base summaries, Inbox counts). No computer tools, phone writes, or tool-call loop.
 - Store chats in a dedicated Postgres table (check all worktrees for migration numbers during implementation), separate from main chat on node. Show a persistent "Chat only for now" notice. After connecting a computer, switch back to normal main chat and include a summary of this segment in the new process's first context message.
 - Put prompts in a new assistant/chat_only directory under `server/internal/prompts/`, with golden tests. When asked to act, answer "I can do that once you connect a computer."
@@ -300,7 +301,7 @@ Extend Android's readiness checklist (`ReadinessScreen` / `ReadinessRecords.kt`,
 1. **Computer**: ✓ for a confirmed online computer; automatically ✓ if hub itself is a computer. If none, show "Add computer"; if pending, "Confirm this is my computer."
 2. **Claude Code**: installed or not.
 3. **Model**: logged in / key works (detection and three routes in 4.3).
-4. **Try a message**: run a real main-chat turn (send "Hello" through normal main-chat creation), and display its reply; on failure, show the reason and fix.
+4. **Try a message**: run a check (`?probe=1`) or a main-chat turn; on success, `first_message` is marked ok and recorded in `AnsweredAt`; on failure, show the reason and fix.
 5. Phone-side items (notifications, background activity, local network, cellular-network test…; already exist).
 
 The checklist does not block entry: users can enter the main UI at any time, and the main-chat guidance card is a compact version of it. "Later" persists in Postgres (dismiss in 5.1); the full-page checklist then stops appearing, but the card still returns if readiness worsens.
@@ -422,7 +423,7 @@ Lives under the assistant service, which already knows machine, launcher, and mo
 | `mode` | `full` / `setup` / `chat_only` (only appears in P1) |
 | `ready` | `mode == "full"` |
 | `next` | ID of the first step not `ok` / `skipped`; `null` if all ready |
-| `machine` | Computer main chat will use; `null` if none. Pending computers never appear here |
+| `machine` | Computer main chat will use, or the pending computer to confirm when none is available; `null` if neither exists |
 | `launcher` | Effective launcher name (after `effective()`, overridden by main-chat purpose in model configuration) |
 | `steps[].id` | Fixed order: `computer`, `claude`, `model`, `first_message` |
 | `steps[].state` | `ok` / `todo` / `problem` / `checking` / `unknown` / `skipped` |
@@ -437,7 +438,7 @@ Evaluation order and data sources (all existing, plus one new node RPC):
 1. `computer`: device list, online status, trust state (5.3). Later steps are `unknown` until the computer is `ok`.
 2. `claude`: `claude-version` from node self-check (`node/doctor.go:454`), cached by the assistant service for 10 minutes.
 3. `model`: new node RPC `claude.auth_status` (4.3, runs `claude auth status --json` in the launcher's actual environment, cached 10 minutes; a signed-out answer is asked again after a minute and waited for, an answer that said nothing — timeout, unreadable output — is asked again after a minute in the background while the last one is used); the most recent `?probe=1` or "Try a message" result; `turn_error_kind` of main chat's last turn. **No proactive token spending** by default. If never verified, use `unknown` + `model_unverified`, not `problem`; `mode` can still be `full`.
-4. `first_message`: whether main chat has ever had a successful reply. `todo` does not affect `mode`.
+4. `first_message`: whether main chat has ever had a successful reply or a successful probe check (`?probe=1`). `todo` does not affect `mode`.
 
 Storage: the latest check result and `dismissed` live in Postgres settings (one key, `assistant.readiness`), not files.
 
@@ -459,10 +460,11 @@ Implementation (#3710, `server/internal/assistant/readiness.go`; endpoint detail
 - `claude` also reads two things: the code from the last rejected chat creation (`claude_missing` / `launcher_missing`, cleared after one successful open, a post-rejection self-check finds the version, or the launcher reappears—`setup` prevents sending, so clearing cannot depend only on success), and whether the launcher still exists on this computer. Codex or runtime launchers use `skipped` for this step. If node self-check does not finish in time, use `checking`.
 - `node_outdated` checks only whether node understands model configuration: every main-chat creation includes `model_fingerprint` (`finishModel`), which old nodes cannot open.
 - Warm computes readiness for at most 2.5 seconds; on timeout, return the last recorded result (omit `readiness` if none), and finish / persist in the background. Opening the tab does not slow down for this.
-- `machine_pending` appears after "Confirm computer" (5.3, item 9 in 7.2) merges; `node_outdated` (node does not understand model configuration) has no button.
+- With no confirmed computer selected, readiness names a pending computer owned by this manager (the smallest ID when several wait): `computer` is `todo` + `machine_pending`, with `confirm_computer` and that computer's ID. The top-level `machine` carries its ID and display name. Main-chat creation returns 409 `machine_pending` with `confirm_computer` and `delivered: "none"`; it does not prepare or start a conversation on the pending computer. A selected confirmed computer, including one that is offline, keeps its existing readiness state. `node_outdated` has no button.
 - `?probe=1` does not run unless computer is `ok`, and the response omits `probe`. A probe with no computer reply (offline, timeout) returns only `error`, is not recorded, and is not evidence.
 - `dismiss` accepts `{"dismissed": false}` to undo; an empty body means `true`.
 - Once `first_message` succeeds, it stays `ok` (stored in `assistant.readiness`, even after main chat changes).
+- Model problems `auth_failed` and `model_route` also offer `test_assistant` as an alternative to editing or connecting the provider, so a repaired model can be verified without replacing the current chat after its first answer (#1894).
 
 ### 5.2 Structured main-chat errors
 
@@ -476,6 +478,7 @@ On failure from `POST /api/v1/assistant/conversations` or a session-send endpoin
 - `no_machine`, `claude_missing`, `launcher_missing`, and `machine_pending` return 409; `node_unreachable` is unchanged (coded 502, `ErrOffline` 503); `assistant_offline` is unchanged (503).
 - `detail` contains the original text; clients show it only in "Details."
 - For turns with `turn_error_kind: "user"`, sessions also carry `turn_error_code` (`not_logged_in` / `auth_failed` / `model_route` / `rate_limited`), which clients use to render cards.
+- `model_fallback_unavailable` identifies a model-route failure after Claude Code switched the session following an upstream refusal (#2203). Readiness explains the chain and recommends a new conversation or `/model` in the terminal, with no model-settings or test-message action. This session-only failure does not put readiness into setup mode or prevent creating a new conversation. Existing client error cards still need to adopt this code and hide their old Retry/Continue actions; the ordinary refusal notice already carries localized recovery guidance.
 - `errNoAssistantMachine` (`start.go:29`) and `memory()` (`profile.go:465`) use the same code; do not let them drift apart. Update voice-prompt goldens (`server/internal/voice/testdata/prompts/refused.failed.*.golden`, all three languages) too.
 - Old clients still display `error`, now localized rather than raw English. Check that iOS `isQuiet` does not treat 409 as a silent error.
 
@@ -661,6 +664,7 @@ Separate P1 issues: "Chat only" mode (after decision 9), node `claude.install`, 
 ### 7.3 iOS / macOS work assigned to a Mac
 
 Each issue references the protocol in section 5 and states "The Linux development machine cannot compile Swift; note in the PR if Xcode 26.0 was not verified." UI uses only the design system (`.surface`, `EmptyStateView(action:)`, `Theme.*`); do not raise the `TokenRatchetTests` baseline. Single-line buttons; light and dark screenshots.
+The native Mac app is frozen ([mac.md](../apple/mac.md)): in M1–M4 and M6, the Mac gets only what the shared iOS code brings, with no Mac-only work and no Mac screenshots or acceptance beyond keeping an existing Mac flow working (M2's paste-link pairing). M5 is Persona Link, which is not frozen.
 
 | # | Title | Changes | Acceptance |
 | --- | --- | --- | --- |
@@ -686,7 +690,7 @@ Each issue references the protocol in section 5 and states "The Linux developmen
 - **Failure scenarios**: add seven readiness states (zero computers, offline, pending, missing Claude Code, not logged in, wrong key, all ready) and every code in 4.6 to `mock_hub.py` / `mock_scenarios.py`. Web Playwright, Android `android.sh shots`, and iOS screenshots share them.
 - Implementation (#4033; usage in `docs/operations/testing.md`, "Onboarding copy guard" and "Readiness scenarios") differs from or adds to the design:
   - Alongside the whitelist (`ALLOW`, with reasons), the copy guard has `PENDING` for existing issues being fixed (Android first screen / empty states in #4032; iOS / Mac in M2–M4 of 7.3). Remove entries once fixed; never add new ones. iOS has no catalogs yet, so scan Chinese literals in a few Swift files.
-  - The pending scenario's readiness is `no_machine`, not `machine_pending`: hub does not expose pending computers to the assistant (`devices.list` excludes them), matching 5.1's implementation notes. `machine_pending` appears when starting an Agent on one, and with `MOCK_START_ERROR=machine_pending`.
+  - The pending scenario reports `machine_pending` with `confirm_computer` and the pending computer's ID and display name. Main-chat creation returns the same code, and `?probe=1` sends nothing to that computer. After confirmation, the next readiness request evaluates the confirmed computer normally. Pending computers remain excluded from runnable `devices.list` entries and the assistant placement.
   - Additional scenarios: `demo`, `unverified`, `launcher_missing`, `model_route`, `rate_limited`, `node_outdated`, `assistant_offline`. `server/internal/assistant/readiness_scenarios_test.go` generates goldens for readiness and chat-creation rejection from real code; mock tests compare each rather than copying by hand.
 - **Fresh-user end-to-end** (Linux development machine): on an isolated test hub (own port, data directory, database, `PERSONA_LOCAL_NODE=0`), Playwright follows web login → guidance card → add a preset provider through a fake gateway → `assign` takes effect → readiness `model` changes. Assert the first screen and onboarding contain no prohibited copy-guard terms.
 - **Upgrade regression**: upgrade using a handwritten hub.json, `~/.zshrc` launchers, and a database with Persona-managed providers. Keys still distribute, all machines are confirmed, main chat works as before; `./scripts/test/test-server.sh` passes completely.

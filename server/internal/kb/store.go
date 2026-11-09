@@ -68,6 +68,9 @@ type Chat struct {
 	// HistoryMode: how its older history was imported (WriteHistory): HistoryFull, every message; HistoryAnchor, only
 	// windows around the owner's messages, the gaps marked by an omission line. "": none imported.
 	HistoryMode string `json:"history_mode,omitempty"`
+	// Rule is the selection rule that decides a plain message of the chat (Selection.UsualRule), as last written; the
+	// retention ledger records only lines another rule decided (retention.go). "": none yet, or outside the selection.
+	Rule string `json:"rule,omitempty"`
 	// Oldest and BackfillDone were an earlier backfill's progress; kept so files that have them still read the same.
 	// History imports keep theirs under history/state/ (HistoryState).
 	Oldest       string `json:"oldest,omitempty"`

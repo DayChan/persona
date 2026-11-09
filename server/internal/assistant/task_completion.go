@@ -37,6 +37,9 @@ func taskTurnSource(t Todo, items []proto.Item) (from, source string) {
 				return f, "peer"
 			}
 		}
+		if source := prompts.ItemSource(it); source != nil && source.Kind == proto.SourceConversation {
+			return source.ConversationID, "side-conversation"
+		}
 		text := strings.TrimSpace(it.Text)
 		if it.Role == "user" && it.Kind == proto.KindText && loopInspectionRequest.MatchString(text) {
 			return from, "inspection"

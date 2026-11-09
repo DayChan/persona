@@ -23,9 +23,11 @@ export function ModelProfiles({ manager, onChanged }: { manager?: string; onChan
     finally { setBusy(false); }
   };
   const profile = data?.profiles.find((p) => p.id === selected);
+  const tiers = Object.entries(profile?.tiers ?? {}).sort(([a], [b]) => a.localeCompare(b));
   if (!data && !error) return null; // old hubs do not expose profiles
   return <>
-    <Group title={t("settings-modelprofiles.title")} footer={t("settings-modelprofiles.footer")}>
+    <Group title={t("settings-modelprofiles.title")}
+      footer={data && !data.active ? `${t("settings-modelprofiles.footer")} ${t("settings-modelprofiles.none_active")}` : t("settings-modelprofiles.footer")}>
       {data?.profiles.map((p) => <Row key={p.id} label={p.name} hint={p.description} onClick={() => { setSelected(p.id); setError(""); }}>
         {p.active && <Pill>{t("settings-modelprofiles.active")}</Pill>}
       </Row>)}
@@ -40,7 +42,24 @@ export function ModelProfiles({ manager, onChanged }: { manager?: string; onChan
     </>}>
       <p className="mb-4 text-[12px] text-ink-3">{profile?.description}</p>
       <p className="mb-4 text-[12px] text-ink-3">{t("settings-modelprofiles.changes", { count: profile?.changes.length ?? 0 })}</p>
-      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-control bg-field p-3 text-[12px] text-ink">{JSON.stringify({ purposes: profile?.purposes, launchers: profile?.launchers, tiers: profile?.tiers }, null, 2)}</pre>
+      <p className="mb-1.5 text-[12px] font-semibold text-ink-2">{t("settings-modelprofiles.tiers")}</p>
+      {tiers.length ? (
+        <ul data-testid="model-profile-tiers" className="mb-4 flex flex-col gap-1.5">
+          {tiers.map(([name, x]) => (
+            <li key={name} className="rounded-control bg-field px-3 py-2 text-[12px]">
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="shrink-0 font-mono text-ink">{name}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere] text-ink-3">{[x.launcher, x.model, x.effort].filter(Boolean).join(" · ")}</span>
+              </div>
+              {x.description && <p className="mt-0.5 text-ink-2">{x.description}</p>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mb-4 text-[12px] text-ink-3">{t("settings-modelprofiles.no_tiers")}</p>}
+      <details>
+        <summary className="cursor-pointer text-[12px] text-ink-3">{t("settings-modelprofiles.details")}</summary>
+        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-control bg-field p-3 text-[12px] text-ink">{JSON.stringify({ purposes: profile?.purposes, launchers: profile?.launchers }, null, 2)}</pre>
+      </details>
       {error && <p role="alert" className="mt-3 text-[12px] text-red">{error}</p>}
     </Dialog>
   </>;

@@ -5,6 +5,9 @@ It bundles the persona-link connector and persona-node (the device's own program
 
 There is no published installer yet. Build from source for now; it takes a few minutes.
 
+On a computer you use Persona through the web app; this app is the part that runs on the Mac ([link.md](link.md), "On computers: the web app and Persona Link").
+If this Mac already runs the command-line Link (`persona-link run`), follow [link.md](link.md), "Move a Mac from the command-line Link to the menu bar App", instead: it stops that Link first and keeps its pairing and data directory.
+
 ## Prerequisites
 
 | Requirement | Details |

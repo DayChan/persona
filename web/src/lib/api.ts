@@ -65,8 +65,11 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized: () => void = () => {};
-export function handleUnauthorized(fn: () => void) {
+/** What a 401 does from now on; returns what it did before, for a caller that sets it only for a while. */
+export function handleUnauthorized(fn: () => void): () => void {
+  const before = onUnauthorized;
   onUnauthorized = fn;
+  return before;
 }
 
 /**
@@ -160,7 +163,8 @@ async function request<T>(path: string, init: ApiOptions): Promise<T> {
     data = text ? JSON.parse(text) : {};
     isJson = typeof data === "object" && data !== null && !Array.isArray(data);
   } catch {
-    data = { error: text };
+    // a proxy's HTML error page says nothing a person can use: the status stands in for it
+    data = { error: /^\s*</.test(text) ? "" : text };
     isJson = false;
   }
   if (!res.ok) {

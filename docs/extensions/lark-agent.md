@@ -12,12 +12,26 @@ The code lives in the Lark extension (formerly the hub's lark_agent.go); configu
 
 ## What counts as a request
 
-- My own message (`isMine`: sent by a person, not a bot, not recalled) that, after stripping leading @mentions, starts with the prefix (default `/agent`, case-insensitive),
-  followed by a space, newline, colon or nothing (`/agents` does not count). The text after the prefix is the request and may be empty (the Agent works out what to do from the context and the quoted message).
-- **Only my own messages**: someone else sending `/agent` does not trigger anything (the Agent runs with all my permissions: Lark, mail, all my computers).
+When the Lark extension's Agent feature is enabled, either of these triggers can make a chat message a request:
+
+- **Prefix**: after stripping leading @mentions, my message starts with the configured prefix (`agent_prefix`, default `/agent`, case-insensitive),
+  followed by a space, newline, colon or nothing (`/agents` does not count). The text after the prefix is the request and may be empty;
+  the Agent works out what to do from the context and the quoted message.
+- **Self-mention**: I @mention myself in my own chat message. The mention's user ID must match the signed-in account's user ID;
+  a display name or plain text that looks like an @mention is not proof of identity. The self-mention is removed from the request text,
+  which may be empty so the Agent can use the conversation and quoted message as context.
+- **Independent switches**: `agent_trigger_prefix` and `agent_trigger_self_mention` both default to `true`. Turning either off leaves the other available;
+  turning both off prevents new chat requests through either trigger. Changing `agent_prefix` changes only the prefix, not the self-mention trigger.
+- **Only my own messages** (`isMine`: sent by a person, not a bot, not recalled): someone else sending `/agent` or @mentioning me does not trigger anything,
+  even if their display name matches mine. The Agent runs with all my permissions: Lark, mail, all my computers.
+- A message containing both the prefix and a self-mention is handled **once**, not as two requests. The self-mention and any matched prefix are removed from the request text.
+- A request from either enabled trigger in the same topic continues the same Agent conversation; the existing `/stop` behavior is unchanged.
 - Only live events are used (the Lark gateway's `message.upserted` on `/agent/v1/events`, which carries the whole message); messages from before the hub started, or older than 10 minutes, are ignored,
   so restarts and redelivery do not answer old messages again. Each message is handled once (the Lark gateway resends the same message when it is edited or its topic gets a new reply).
-- Messages ending with the current suffix, the default suffix "🤖 AI 代答，仅供参考" or the old "🤖" are skipped (they are Agent replies, which also do not start with the prefix); a request that merely quotes these words is handled normally.
+- Messages ending with the current suffix, the default suffix "🤖 AI 代答，仅供参考" or the old "🤖" are skipped as Agent replies, even if they contain either trigger;
+  a request that merely quotes these words is handled normally.
+
+Document comments still use the prefix trigger, controlled by `agent_trigger_prefix`; self-mentions trigger requests only in chat messages.
 
 ## Context handed to the Agent (`larkAgentContext`)
 

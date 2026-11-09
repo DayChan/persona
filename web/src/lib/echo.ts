@@ -46,6 +46,9 @@ export interface Seen {
   id?: string;
   /** The message it came from, as the hub tied it (Item.client_msg_id). */
   client_msg_id?: string;
+  source?: Item["source"];
+  injected?: Item["injected"];
+  from?: string;
   text: string;
   images: unknown[];
   /** Photos it carries as `<attached_images>` paths (the node saved what was sent and wrote where): they count as its
@@ -59,6 +62,7 @@ export interface Seen {
  *  one, its start. An older message with the same words (a second "Continue") is not it. */
 export function isEcho(sent: Sent, user: Seen): boolean {
   if (user.client_msg_id && sent.id) return user.client_msg_id === sent.id;
+  if (user.source || user.injected || user.from) return false;
   const at = user.ts ? Date.parse(user.ts) : NaN;
   if (!Number.isNaN(at) && at < sent.at - CLOCK_SLACK_MS) return false;
   if (user.images.length + (user.photos?.length ?? 0) < sent.images.length) return false;

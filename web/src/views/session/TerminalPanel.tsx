@@ -32,7 +32,7 @@ import {
 import { Button, cx, Dialog, IconButton, Loading, Menu, Spinner, toast, type MenuItem } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { prefersReducedMotion } from "../../ui/stream/motion";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { DrawnRows, rowsStyle } from "./terminal/DrawnRows";
 import { TerminalFeed, type FeedView } from "./terminal/feed";
 import { FindBar } from "./terminal/FindBar";

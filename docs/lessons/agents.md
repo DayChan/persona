@@ -199,6 +199,12 @@ After each turn, Claude Code puts a suggested next message in dim text (SGR 2), 
 The pre-effort-change check read only plain text, mistook suggestions for drafts, and kept reporting "The terminal input box has unsent text". To detect actual user text, always use
 `readPaneANSI` + `screen.ClaudeInput` (`Draft` already excludes suggestions, new-chat `Try "…"` hints, and the cursor); fall back to plain text only when the host can't read colors (`plainScreen`).
 
+## A typed start must fit macOS's canonical line (2026-11-09, #2022)
+
+A new herdr tab's tty is in canonical mode until zsh's line editor takes it, and macOS limits a canonical line to 1024 bytes (`getconf MAX_CANON /`). herdr 0.9.5 refuses a longer `pane run` up front with `pane_send_failed`. The node types its start about 300 ms after creating the tab, so the shell is rarely at its prompt yet. After #1055 added the `unset` of the assistant's environment (about 460 bytes), every managed-launcher start or resume was over the limit and failed every time. Before that, it only failed when the shell happened to be slow. A retry that seemed to work had a shorter line.
+
+In a herdr pane whose shell sources a file (sh family, fish), a start now writes its whole command to a 0600 `agent-start-*.sh` in the node's directory and types only `. '<file>'`. The shell sources the file, so aliases and functions used as launchers still work, and the file deletes itself first. When the pane refuses the line, the start closes the tab it made and returns `terminal_not_ready` (503, `retryable: true`, `delivered: none`). `TestHerdrStartTypesAShortLine` checks the worst case. Not covered: Orca panes and herdr's restore (`claudeResumeArgv`) still type the full command.
+
 ## Allowing one command for an Agent (2026-11-04, #1300)
 
 - **A skill's `allowed-tools` makes launching the skill itself an approval** (immediately denied under `-p`), so it doesn't save a card, and a fixed SKILL.md can't carry per-computer paths.
@@ -604,3 +610,7 @@ A purpose-level model override does not change the managed launcher's default. L
   A new variable the node gives only the assistant goes into `assistantOnlyEnv`.
 - To see what an Agent really got, read its process environment (`ps -E -ww -o command= -p <pid>` on a Mac). Print the
   names only. Its Bash tool's `env` also shows what its own Claude added for its children.
+
+## A Codex assistant conversation needs its own "process gone" row (2026-11-09, #2126)
+
+`scanOffline` reads only Claude's projects and `codexSessions` leaves the assistant's conversations out of Agents, so a Codex main conversation had no row once its idle process was reaped. A client with no row can't send, so the composer turned off and the message that would resume it could not go. `codexAssistantsAtRest` in `server/internal/node/sessions_offline.go` lists them now.

@@ -1,9 +1,13 @@
 {
   "title": "モデルプロファイル",
-  "footer": "次のモデル呼び出しまたは Agent 起動時に適用されます。hub API で編集・追加するか、Persona に切り替えを依頼できます。",
+  "footer": "次のモデル呼び出しまたは Agent 起動時に適用されます。プロファイルの切り替えや Agent プリセットの編集は Persona に頼めます。それ以外は hub API で編集します。",
   "active": "使用中",
   "rollback": "元に戻す",
   "custom": "以前のカスタム設定",
   "apply": "適用",
-  "changes": "変更されるモデル項目：{count}"
+  "changes": "変更されるモデル項目：{count}",
+  "none_active": "使用中のプロファイルがないため、適用するまで Agent プリセットは使えません。",
+  "tiers": "Agent プリセット",
+  "no_tiers": "このプロファイルには Agent プリセットがありません。Persona に追加を頼めます。",
+  "details": "適用されるモデル設定"
 }

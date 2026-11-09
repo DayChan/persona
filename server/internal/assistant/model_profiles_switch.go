@@ -54,6 +54,9 @@ func (s *Service) applyModelProfileLocked(ctx context.Context, id string, by Pro
 	if err != nil {
 		return modelProfileSwitch{}, false, err
 	}
+	if seeded {
+		state.seed()
+	}
 	now := time.Now().UTC()
 	image := &modelProfileImage{Profile: state.Active, At: now, Purposes: map[string]ModelBinding{}, Launchers: map[string]LauncherModels{}}
 	writes := map[string]any{}
@@ -129,7 +132,11 @@ func (s *Service) applyModelProfileLocked(ctx context.Context, id string, by Pro
 		}
 	}
 	if len(sw.Changed) == 0 && state.Active == id {
-		return sw, false, nil // already in use, nothing to do: the rollback stays the one of the switch that got here
+		// already in use, nothing to do: the rollback stays the one of the switch that got here (or none, just made)
+		if seeded {
+			return sw, false, s.putModelProfileSettings(ctx, map[string]any{modelProfilesKey: ps, modelProfileStateKey: state})
+		}
+		return sw, false, nil
 	}
 	if changedLaunchers {
 		writes[launchersManagedKey] = stored
@@ -254,5 +261,10 @@ func (s *Service) modelProfileSwitched(ctx context.Context, sw modelProfileSwitc
 		s.pushManaged(context.WithoutCancel(ctx), "")
 	}
 	s.ProfileChanged(ctx)
-	s.event(ctx, map[string]any{"type": "model_profile", "active": sw.To})
+	s.profileEvent(ctx, sw.To)
+}
+
+// profileEvent tells the apps the profiles changed (a switch, a rollback, an edit): they read them again.
+func (s *Service) profileEvent(ctx context.Context, active string) {
+	s.event(ctx, map[string]any{"type": "model_profile", "active": active})
 }

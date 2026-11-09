@@ -5,6 +5,10 @@ import { exchangeSteps, segments } from "./turns";
 import type { Item } from "./types";
 import {
   foldsHoldingCalls,
+  nestedLineDefault,
+  togglesLiveOverride,
+  workLineOpen,
+  workLineStyle,
   groupsHolding,
   explorationSummary,
   groupOpens,
@@ -410,5 +414,39 @@ describe("workflow calls", () => {
     const holding = mk("assistant", "fold", 3000, { id: "fold:d", fold: { items: 4, tools: 2, thoughts: 0, until: iso(3800), through_seq: 99, through_id: "d" } });
     const both = exchangeSteps(segments([u4, tie, mid2, holding, say("ans4", "Started.", 4000)])[0]);
     expect(foldsHoldingCalls(both, new Map([["tu-wf", T0 + 3000]])).map((f) => f.id)).toEqual(["fold:c#0", "fold:d#0"]);
+  });
+});
+
+describe("workLineOpen (#1614)", () => {
+  it("assistant: open while the exchange runs, unless the reader folded it during the run", () => {
+    expect(workLineOpen({ style: "assistant", turnLive: true, remembered: false })).toBe(true);
+    expect(workLineOpen({ style: "assistant", turnLive: true, remembered: false, liveOverride: false })).toBe(false);
+    expect(workLineOpen({ style: "assistant", turnLive: true, remembered: true, liveOverride: true })).toBe(true);
+  });
+
+  it("assistant: once the exchange ends, the run's toggle is dropped and what is remembered (folded by default) shows", () => {
+    expect(workLineOpen({ style: "assistant", turnLive: false, remembered: false, liveOverride: true })).toBe(false);
+    expect(workLineOpen({ style: "assistant", turnLive: false, remembered: true })).toBe(true);
+    expect(togglesLiveOverride("assistant", true)).toBe(true);
+    expect(togglesLiveOverride("assistant", false)).toBe(false);
+  });
+
+  it("agents: what the reader left it at, running or not", () => {
+    expect(workLineOpen({ style: "agents", turnLive: true, remembered: false })).toBe(false);
+    expect(workLineOpen({ style: "agents", turnLive: true, remembered: true })).toBe(true);
+    expect(workLineOpen({ style: "agents", turnLive: false, remembered: false, liveOverride: true })).toBe(false);
+    expect(togglesLiveOverride("agents", true)).toBe(false);
+    expect(nestedLineDefault("agents")).toBe(false);
+    expect(nestedLineDefault("assistant")).toBe(true);
+  });
+});
+
+describe("workLineStyle (#1614)", () => {
+  it("a Persona conversation is assistant style on the assistant page and when opened from the Agents page", () => {
+    expect(workLineStyle(true, undefined)).toBe("assistant");
+    expect(workLineStyle(false, true)).toBe("assistant");
+    expect(workLineStyle(undefined, true)).toBe("assistant");
+    expect(workLineStyle(false, false)).toBe("agents");
+    expect(workLineStyle(undefined, undefined)).toBe("agents");
   });
 });

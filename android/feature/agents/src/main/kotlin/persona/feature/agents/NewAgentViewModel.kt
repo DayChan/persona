@@ -371,8 +371,13 @@ internal class NewAgentViewModel(
                     }
                 }
                 // A tab in an existing space must not replace the machine's remembered directory.
-                if (request.workspaceId == null && request.resumeSessionId == null) store.saveDefaults(service.scope, request.machineId, AgentDefaults(request.cwd,
-                    request.launcher, request.permissionMode.orEmpty(), request.effort.orEmpty()))
+                if (request.workspaceId == null && request.resumeSessionId == null) {
+                    // A Codex (or any non-Claude) start sends no mode or effort: the machine keeps the ones its next
+                    // Claude Code starts with, as on iOS and the web (#1898).
+                    val kept = if (request.agentType != null) store.defaults(service.scope, request.machineId) else null
+                    store.saveDefaults(service.scope, request.machineId, AgentDefaults(request.cwd, request.launcher,
+                        kept?.mode ?: request.permissionMode.orEmpty(), kept?.effort ?: request.effort.orEmpty()))
+                }
                 // Keep the receipt until navigation is acknowledged, including across process death.
                 mutable.update { it.copy(created = session) }
             }

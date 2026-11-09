@@ -138,6 +138,8 @@ interface SessionFiles {
     val stashes: Int = 0,
     val files: List<SessionGitFile> = emptyList(),
     val commits: List<SessionGitCommit> = emptyList(),
+    /** The upstream was deleted on the remote (a merged pull request's branch): ahead and behind are 0 and mean nothing. */
+    val gone: Boolean = false,
 )
 
 @Serializable data class SessionGitDiff(val path: String = "", val diff: String = "", val truncated: Boolean = false)

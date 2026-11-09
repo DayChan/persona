@@ -83,6 +83,8 @@
     <string name="chat_interaction_resolved_elsewhere">Handled on the computer</string>
     <string name="chat_interaction_prompt_changed">The screen changed, so nothing was submitted. Check the new question and choose again.</string>
     <string name="chat_interaction_unknown">Not sure your answer got through. Check the request first.</string>
+    <string name="chat_interaction_refused">The hub didn\'t take this answer. You can answer again.</string>
+    <string name="chat_interaction_refused_reason">The hub didn\'t take this answer: %1$s</string>
     <string name="chat_interaction_already">Answered already</string>
     <string name="chat_interaction_already_with">Answered already: %1$s</string>
     <string name="chat_interaction_ended_expired">This request expired, so the answer wasn\'t delivered</string>

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   customModel, defaultDetail, defaultLabel, effortChoices, fitEffort, followedBinding, forgetCustomModel, launcherAgent, launcherModels, modelDetail, modelName, modelRows,
-  pickerLauncher, machineLaunchers, oneOff, providerModels, startPicks, takesTypedModel, typedModelOffered, withoutCustom, type AgentModel, type LauncherModels,
+  pickerLauncher, machineLaunchers, oneOff, providerModels, startPicks, takesTypedModel, tierLeftOut, typedModelOffered, withoutCustom, type AgentModel, type LauncherModels,
 } from "./launcher-models";
 
 const all = ["low", "medium", "high", "xhigh", "max"];
@@ -270,5 +270,29 @@ describe("手动输入的模型 ID（#1644）", () => {
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.method).toBe("DELETE");
     expect(url).toContain("/api/v1/machines/mac/launchers/cc%20gw/models/custom?model=~vendor%2Fmodel-latest%5B1m%5D");
+  });
+});
+
+describe("Agent presets: what a launcher can't take (#2225)", () => {
+  const review = { name: "review", launcher: "gw", model: "gateway/glm-5.3", effort: "high" };
+  it("takes a listed model and an effort it supports", () => {
+    expect(tierLeftOut(review, { agent: "claude", list: claude })).toEqual([]);
+  });
+  it("takes a typed model on Claude Code, and the list's default as running anyway", () => {
+    expect(tierLeftOut({ ...review, model: "vendor/other" }, { agent: "claude", list: claude })).toEqual([]);
+    expect(tierLeftOut({ ...review, model: "default", effort: "" }, { agent: "claude", list: claude })).toEqual([]);
+  });
+  it("names the model a launcher fixing its own --model drops, and an effort the model doesn't take", () => {
+    expect(tierLeftOut(review, { agent: "claude", list: { ...claude, locked: "fixed" } })).toContain("gateway/glm-5.3");
+    expect(tierLeftOut({ ...review, effort: "max" }, { agent: "claude", list: claude })).toEqual(["max"]);
+  });
+  it("sends the list's default entry a preset names when the model settings would run another model", () => {
+    const followed = { provider: "launcher.gw", model: "opus" };
+    expect(startPicks({ agent: "claude", list: claude, model: "default", effort: "", followed }).model).toBe("default");
+    expect(startPicks({ agent: "claude", list: claude, model: "default", effort: "" }).model).toBeUndefined();
+    expect(tierLeftOut({ name: "d", launcher: "gw", model: "default" }, { agent: "claude", list: claude, followed })).toEqual([]);
+  });
+  it("names the effort an agent that starts without one drops", () => {
+    expect(tierLeftOut({ name: "c", launcher: "codex", effort: "high" }, { agent: "codex", list: { agent: "codex", models: [] } })).toEqual(["high"]);
   });
 });

@@ -23,6 +23,19 @@ type langWriter struct {
 
 func (w langWriter) Lang() i18n.Lang { return w.lang }
 
+func TestReadonlyStartRefusalLocalization(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+		want := i18n.T(lang, "rpc-errors.readonly_unsupported")
+		if got := Sentence(lang, "readonly_unsupported", nil); got != want || got == "" {
+			t.Fatalf("%s task refusal = %q, want %q", lang, got, want)
+		}
+		body := LocalizedBody(http.StatusConflict, "readonly_unsupported", errors.New("node diagnostic"), lang)
+		if body["error"] != want {
+			t.Fatalf("%s HTTP refusal = %v, want %q", lang, body, want)
+		}
+	}
+}
+
 func call(t *testing.T, w http.ResponseWriter, rec *httptest.ResponseRecorder, err error) map[string]any {
 	t.Helper()
 	Call(w, err)
@@ -68,6 +81,17 @@ func TestCallExplainsCodedRefusals(t *testing.T) {
 	body = call(t, rec, rec, &rpc.Error{Code: proto.CodeNoMachine, Message: "assistant machine is not configured"})
 	if rec.Code != http.StatusConflict || body["error"] != "Persona 要在你的一台电脑上干活，现在还没接上电脑。" || body["action"] != "add_computer" {
 		t.Errorf("no_machine: %d %v", rec.Code, body)
+	}
+}
+
+// A start whose new tab would not take its command (node/typedstart.go, #2022) is 503 and retryable, with nothing
+// delivered, not the generic 502.
+func TestCallTerminalNotReadyIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	body := call(t, rec, rec, &rpc.Error{Code: "terminal_not_ready", Message: "pane_send_failed: example",
+		Data: json.RawMessage(`{"delivered":"none","retryable":true}`)})
+	if rec.Code != http.StatusServiceUnavailable || body["code"] != "terminal_not_ready" || body["retryable"] != true || body["delivered"] != "none" {
+		t.Errorf("%d %v", rec.Code, body)
 	}
 }
 
@@ -210,6 +234,7 @@ func TestRPCFailureLocalePreservesOutcomeAndDiagnostics(t *testing.T) {
 		{"unknown delivery", &rpc.Error{Code: "timeout", Message: "original diagnostic", Data: json.RawMessage(`{"delivered":"unknown","retryable":false}`)}, "rpc-errors.timeout"},
 		{"partial delivery", &rpc.Error{Code: "internal", Message: "original diagnostic", Data: json.RawMessage(`{"delivered":"yes","retryable":false}`)}, "rpc-errors.failed"},
 		{"busy", &rpc.Error{Code: "attach_busy", Message: "original diagnostic"}, "rpc-errors.attach_busy"},
+		{"terminal not ready", &rpc.Error{Code: "terminal_not_ready", Message: "original diagnostic", Data: json.RawMessage(`{"delivered":"none","retryable":true}`)}, "rpc-errors.terminal_not_ready"},
 		{"old node", &rpc.Error{Code: "node_outdated", Message: "original diagnostic"}, "rpc-errors.node_outdated"},
 		// a Claude session outside Persona's terminals: refused before anything reached it, or handed over unconfirmed
 		{"peer refused", &rpc.Error{Code: "peer_unsupported", Message: "node's own words", Data: json.RawMessage(`{"delivered":"none","pid":42}`)}, "rpc-errors.peer_unsupported"},

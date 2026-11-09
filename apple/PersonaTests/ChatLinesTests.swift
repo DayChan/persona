@@ -168,6 +168,39 @@ struct ChatLinesTests {
         #expect(kinds(ChatLines(openWork: []).build(b, live: nil, streaming: true)) == ["user", "work", "answer"])
     }
 
+    /// The assistant's running work line starts open: each tool call is a line as it comes (#1614). Ended, the line
+    /// is folded again and opens to every call; the Agents chat (no `opensLive`) folds it while it runs, as before.
+    @Test func theAssistantListsARunningTurnsToolCallsThenFoldsThem() {
+        let running = [item(1, .text, role: "user", text: "查一下"), item(2, .toolUse, tool: "Bash", id: "a"),
+                       item(3, .toolResult, role: "user", text: "ok", id: "a"), item(4, .toolUse, tool: "Read", id: "b")]
+        let b = blocks(running)
+        guard case .turn(let t) = b.last else { Issue.record("expected a turn"); return }
+        var lines = ChatLines(openWork: [])
+        #expect(kinds(lines.build(b, live: t.id)) == ["user", "work"], "the Agents chat folds a running line")
+        lines.opensLive = true
+        let live = lines.build(b, live: t.id)
+        #expect(kinds(live) == ["user", "work", "step", "step", "end"], "both calls listed, the second still running")
+        // The next call joins the open list as it starts.
+        let more = blocks(running + [item(5, .toolResult, role: "user", text: "ok", id: "b"), item(6, .toolUse, tool: "Grep", id: "c")])
+        #expect(kinds(lines.build(more, live: t.id)) == ["user", "work", "step", "step", "step", "end"])
+        // Ended: one folded line, and opened it holds all three calls.
+        let done = blocks(running + [item(5, .toolResult, role: "user", text: "ok", id: "b"), item(6, .toolUse, tool: "Grep", id: "c"),
+                                     item(7, .toolResult, role: "user", text: "ok", id: "c"), item(8, .text, text: "查好了")])
+        let folded = lines.build(done, live: nil)
+        #expect(kinds(folded) == ["user", "work", "answer"])
+        lines.openWork = [folded[1].id]
+        #expect(kinds(lines.build(done, live: nil)) == ["user", "work", "step", "step", "step", "end", "answer"])
+        // Folded by the user while it runs (the chat flips it in `openWork`), it stays folded until the turn ends.
+        lines.openWork = [live[1].id]
+        #expect(kinds(lines.build(b, live: t.id)) == ["user", "work"])
+        // The wake drawer's running work line keeps folding, as it always has; a tap still opens it.
+        lines.openWork = []
+        let drawer = ChatLines.drawerWork + t.id
+        #expect(!lines.isOpen(drawer, live: true))
+        lines.openWork = [drawer]
+        #expect(lines.isOpen(drawer, live: true))
+    }
+
     @Test func theRunningTurnShowsEachMessage() {
         var queued = item(3, .text, role: "user", text: "b")
         queued.queued = true

@@ -1,5 +1,7 @@
 {
   "this_computer": "这台电脑",
+  "machine_pending_title": "确认你的电脑",
+  "machine_pending_detail": "先确认{machine}是你的电脑，Persona 才能在上面干活。",
   "no_machine_title": "添加你的电脑",
   "no_machine_detail": "Persona 要在你的一台电脑上干活，现在还没接上电脑。",
   "node_unreachable_title": "{machine} 不在线",
@@ -14,6 +16,8 @@
   "not_logged_in_detail": "在 {machine} 上登录一次，或者改用 API Key。",
   "auth_failed_title": "模型的 Key 不对",
   "auth_failed_detail": "模型的 Key 不对或过期了，换一个能用的。",
+  "model_fallback_unavailable_title": "拒绝后切换的备用模型不可用",
+  "model_fallback_unavailable_detail": "上游拒绝了请求，Claude Code 随后把此会话切换到了服务不支持的备用模型。请新开对话，或在 Claude Code 终端中用 /model 选择原模型。不会自动重发内容；原请求仍可能再次被拒绝。",
   "model_route_title": "这个模型现在用不了",
   "model_route_detail": "模型名不对，或者这个模型现在用不了。换一个模型试试。",
   "rate_limited_title": "模型用得太快了",

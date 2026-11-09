@@ -97,6 +97,16 @@ type WorktreeAdded struct {
 	Root   string `json:"root"`
 }
 
+// WorktreeSnapshot is what worktree.snapshot made (#2173): a detached checkout of Root's HEAD at Path with Root's
+// uncommitted change in it, for a reviewer to read without touching Root. Skipped counts the untracked files left
+// out (over the copy's limits).
+type WorktreeSnapshot struct {
+	Path    string `json:"path"`
+	Root    string `json:"root"`
+	Head    string `json:"head"`
+	Skipped int    `json:"skipped,omitempty"`
+}
+
 // WorktreeStatus is what worktree.status says of a directory (#6115): whether it is a linked Git worktree, whether
 // Persona made it (it lies under the directory the computer puts this repository's checkouts in), and what removing
 // it would lose: changed files, and commits not on the branch the repository's main checkout is on. Checkouts is the

@@ -189,6 +189,45 @@ class ExtensionOperationStateTest {
         }
     }
 
+    @Test fun anOperationTheManagerLostLetsThePageGo() {
+        // #1832: operations live only in the manager's memory; one that restarted lost them and pushes nothing more.
+        var refuse: Exception? = null
+        val api = object : FakeOperations() {
+            override suspend fun cancelOperation(id: String) { calls += "cancel $id"; refuse?.let { throw it } }
+        }
+        val downloading = op("running", "download", 1, "download" to "running", "verify" to "pending")
+        api.listed = listOf(downloading)
+        watching(api) { model, notices ->
+            until { model.state.value.operation != null }
+            assertTrue(model.state.value.busy)
+            // The manager came back without it (the managers push lists them again): Install can start over.
+            api.listed = listOf(op("running", "download", 1, id = "other").copy(extension = "someone-else"))
+            api.pushes.emit(null)
+            until { model.state.value.operation == null }
+            assertFalse(model.state.value.busy)
+
+            // Cancel on one the manager answers 404 for puts it away instead of saying why it could not.
+            api.listed = listOf(downloading)
+            api.pushes.emit(null)
+            until { model.state.value.operation != null }
+            refuse = object : Exception("No such install, upgrade or uninstall"), HubCodedFailure {
+                override val status = 404
+                override val code = "not_found"
+            }
+            model.closeOperation()
+            assertNull(model.state.value.operation)
+            assertNull(model.state.value.actionError)
+            // Any other failure still keeps it and says why.
+            api.pushes.emit(null)
+            until { model.state.value.operation != null }
+            refuse = IllegalStateException("hub offline")
+            model.closeOperation()
+            assertNotNull(model.state.value.operation)
+            assertNotNull(model.state.value.actionError)
+            assertTrue(notices.isEmpty())
+        }
+    }
+
     @Test fun removingInSteps() {
         val api = FakeOperations()
         watching(api) { model, notices ->

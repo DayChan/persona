@@ -73,6 +73,8 @@ fun injectedOf(item: Item): Injected? {
     if (item.role != "user" || item.kind != "text") return null
     item.injected?.let { return it }
     if (item.clientMsgId != null || item.from != null) return null
+    val metadata = sourceMetadata(item.text.orEmpty())
+    if (metadata.found) return null
     return parseInjected(item.text.orEmpty())
 }
 

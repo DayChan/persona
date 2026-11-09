@@ -58,7 +58,9 @@ struct WorkspaceSidebarCard<AgentContent: View, Actions: View>: View {
     var folded: (String) -> Bool
     var toggle: (String) -> Void
     var open: (HostWorkspace) -> Void
-    var openAgent: (SessionKey) -> Void = { _ in }
+    /// Opens an agent of the card. Not `openAgent`: a stored property's name is a string in the Release binary (reflection
+    /// metadata), and that one is a DEBUG launch switch, which release.sh refuses (#2179, docs/lessons/ios.md).
+    var selectAgent: (SessionKey) -> Void = { _ in }
     var appeared: (Session) -> Void = { _ in }
     var agentIdentifier = "agents.row"
     var ordered: ([Session]) -> [Session]
@@ -127,7 +129,7 @@ struct WorkspaceSidebarCard<AgentContent: View, Actions: View>: View {
                         WorkspaceSidebarCard(workspace: child, project: workspace.workspace?.projectName.flatMap { $0.isEmpty ? nil : $0 } ?? project,
                                              parentWorkspace: workspace.workspace ?? parentWorkspace, selectedSession: selectedSession,
                                              selectedWorkspace: selectedWorkspace, folded: folded, toggle: toggle,
-                                             open: open, openAgent: openAgent, appeared: appeared, agentIdentifier: agentIdentifier,
+                                             open: open, selectAgent: selectAgent, appeared: appeared, agentIdentifier: agentIdentifier,
                                              ordered: ordered, agent: agent, actions: actions)
                     }
                 }.padding(.leading, Theme.WorkspaceSidebar.childInset)
@@ -146,13 +148,13 @@ struct WorkspaceSidebarCard<AgentContent: View, Actions: View>: View {
     }
 
     private func openWorktree() {
-        if let first = ordered(workspace.sessions).first { openAgent(first.key) }
+        if let first = ordered(workspace.sessions).first { selectAgent(first.key) }
         else if let target = workspace.workspace { open(target) }
     }
 
     /// The Agent row and the title/branch control receive their worktree actions from the same factory.
     private func agentRow(_ session: Session) -> some View {
-        WorkspaceSidebarControl(open: { openAgent(session.key) }) {
+        WorkspaceSidebarControl(open: { selectAgent(session.key) }) {
             agent(session)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 #if os(macOS)

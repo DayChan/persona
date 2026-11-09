@@ -189,10 +189,25 @@ type SnapshotWorkflow struct {
 	For                     string // how long it has run ("12 minutes"), "" under a minute
 }
 
+// SnapshotProfile is the model profile in use (docs/assistant/model-profiles.md) with its tiers, the Agent presets
+// agent_start and task_plan take; Unreadable when the profiles could not be read, Gone when the one in use was deleted
+// (a rollback to it).
+type SnapshotProfile struct {
+	ID, Name         string
+	Tiers            []SnapshotTier // by name
+	Unreadable, Gone bool
+}
+
+// SnapshotTier is one tier of the profile in use: what an Agent started on it runs on ("" model or effort: the
+// launcher's), and when to use it.
+type SnapshotTier struct {
+	Name, Launcher, Model, Effort, Description string
+}
+
 // Snapshot is the live context a starting assistant gets in its system prompt.
 type Snapshot struct {
-	ModelProfile  string    // always refreshed outside the cached sources
-	Now           time.Time // in the user's zone
+	ModelProfile  *SnapshotProfile // nil: none in use; always refreshed outside the cached sources
+	Now           time.Time        // in the user's zone
 	Zone          string
 	Machines      []SnapshotMachine
 	Needs, Unread []SnapshotAgent
@@ -410,17 +425,18 @@ type Supervise struct {
 // SuperviseEntry is one task in it, with what happened (Kind: review, idle, needs_you, stalled, interrupted, failed).
 type SuperviseEntry struct {
 	ID, Title, Kind string
-	Detail          string   // why: the judge's reason, the step it is stuck on, the model service's error, why it did not start
-	Minutes         int      // how long it has waited (needs_you) or not moved (stalled)
-	Ask             string   // needs_you: what it asks
-	DoneWhen        []string // what done means
-	Round           int      // reworks so far
-	Machine         string   // where its agent runs (a name)
-	Session         string   // its agent's session id (short)
-	AgentID         string   // full id for durable deduplication; not rendered
-	Last            string   // what its agent said last
-	Link            string   // the task's page ("" when the hub has no public_url)
-	Quiet           bool     // the user was not pushed about it
+	Detail          string             // why: the judge's reason, the step it is stuck on, the model service's error, why it did not start
+	Minutes         int                // how long it has waited (needs_you) or not moved (stalled)
+	Ask             string             // needs_you: what it asks
+	DoneWhen        []string           // what done means
+	Round           int                // reworks so far
+	Machine         string             // where its agent runs (a name)
+	Session         string             // its agent's session id (short)
+	AgentID         string             // full id for durable deduplication; not rendered
+	Last            string             // what its agent said last
+	Link            string             // the task's page ("" when the hub has no public_url)
+	Quiet           bool               // the user was not pushed about it
+	Review          *SuperviseReviewed // review: what the independent reviewer found (#2173), nil when none ran
 	// report: what its agent reported (progress, question, blocked, done), its words, evidence and step.
 	Report      string
 	Said        string
@@ -429,6 +445,14 @@ type SuperviseEntry struct {
 }
 
 func RenderSupervise(s Supervise) string { return render("assistant/supervise", s) }
+
+// SuperviseReviewed is the independent review of a task waiting for review: State clean (nothing blocking), blocking
+// (blocking findings left once the rework rounds ran out) or failed (Error says why), its counts and report.
+type SuperviseReviewed struct {
+	State           string
+	Count, Blocking int
+	Findings, Error string
+}
 
 // SuperviseRework is what a task's agent is sent when its supervisor sends the work back.
 type SuperviseRework struct {
@@ -443,6 +467,18 @@ type SuperviseCheck struct {
 }
 
 func RenderSuperviseRework(r SuperviseRework) string { return render("assistant/supervise_rework", r) }
+
+// SuperviseReviewRework is what a task's agent is sent when the independent reviewer found blocking problems in its
+// change (#2173): the round, and the reviewer's report as it wrote it.
+type SuperviseReviewRework struct {
+	Round, Max      int
+	Count, Blocking int
+	Findings        string
+}
+
+func RenderSuperviseReviewRework(r SuperviseReviewRework) string {
+	return render("assistant/supervise_review_rework", r)
+}
 
 // RenderTaskDoneWhen is what follows a supervised task's prompt: what done means, and that the agent shows it.
 func RenderTaskDoneWhen(criteria []string) string {

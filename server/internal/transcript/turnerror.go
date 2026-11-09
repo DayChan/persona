@@ -19,6 +19,9 @@ import (
 // fails again at once with no new notice, but not a message: typing into the session cancels its continuation without
 // a word. The node calls it for a prompt line too big to parse.
 func (m *Meta) ClaudeTurnStarted(wake bool) {
+	if m.ModelFallback != nil && m.ModelFallback.Scope != "session" {
+		m.clearModelFallback()
+	}
 	resumes := m.TurnErrorResumes && wake
 	m.clearTurnError()
 	m.TurnErrorResumes, m.turnWorked = resumes, false
@@ -36,6 +39,7 @@ func (m *Meta) ReadingTail() { m.resumesSaid = false }
 
 func (m *Meta) clearTurnError() {
 	m.TurnError, m.TurnErrorKind, m.TurnErrorResetsAt = "", "", time.Time{}
+	m.TurnErrorCode = ""
 	m.TurnErrorResumes, m.TurnErrorAfterWork, m.turnErrorLine = false, false, ""
 }
 
@@ -66,11 +70,23 @@ func (m *Meta) claudeReply(e *entry, blocks []block, shown bool) {
 		return
 	}
 	kind, reset := claudeErrorKind(code, e)
+	m.TurnErrorCode = ""
+	if m.ModelFallback != nil && (code == "model_not_found" || e.APIErrorStatus == 404 && fallbackModelError(text, m.ModelFallback.FallbackModel)) {
+		m.TurnErrorCode, kind = proto.TurnErrorModelFallbackUnavailable, proto.TurnErrorUser
+	}
 	if kind != proto.TurnErrorUsageLimit {
 		m.TurnErrorResumes, m.resumesSaid = false, true // only a limit's wait ends in Claude Code's own continuation
 	}
 	m.TurnError, m.TurnErrorKind, m.TurnErrorResetsAt = text, kind, reset
 	m.TurnErrorAfterWork, m.turnErrorLine = m.turnWorked, e.UUID
+}
+
+// A 404 alone can be an endpoint error. Without the runtime's model_not_found code, require the error to name the
+// fallback model or explicitly describe a missing model before attributing it to the refusal's switch.
+func fallbackModelError(text, model string) bool {
+	t := strings.ToLower(text)
+	return model != "" && strings.Contains(t, strings.ToLower(model)) || strings.Contains(t, "model_not_found") ||
+		strings.Contains(t, "model not found") || strings.Contains(t, "model does not exist") || strings.Contains(t, "selected model")
 }
 
 // claudeErrorKind sorts Claude Code's error field (2.1.2xx+): a subscription's limit (rate_limit with the account's

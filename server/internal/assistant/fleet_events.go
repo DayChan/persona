@@ -59,7 +59,7 @@ func (s *Service) NodeEvent(machine, event string, params json.RawMessage) bool 
 			s.finishInteraction(p.ID)
 		}
 		return false
-	case "codex.interactions": // the Codex questions and approvals open on this machine (fleet_ix.go)
+	case "codex.interactions": // the Codex questions and approvals open on this machine (fleet_ix_codex.go)
 		s.syncCodexInteractions(machine, params)
 		return false
 	case "hook.event":

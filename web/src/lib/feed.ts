@@ -23,6 +23,8 @@ export interface PlanTask {
   cwd: string;
   launcher?: string;
   model?: string;
+  /** An Agent preset (#2225): a tier of the model profile in use, resolved when the task starts. */
+  tier?: string;
   permission?: string;
   /** The agent starts with Claude Code's ultracode on (#12). On start, `true` / `false` overrides it; left out, the hub keeps the assistant's choice. */
   ultracode?: boolean;
@@ -704,6 +706,12 @@ export function displayLines(lines: ChatLine[], all: FeedItem[]): DisplayLine[] 
   }
   for (; next < feed.length; next++) out.push({ kind: "feed", id: "feed-" + feed[next].id, item: feed[next] });
   return withDays(out);
+}
+
+/** The local day of a time, as a day line takes it (`withDays`). */
+export function startOfDay(t: number): Date {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 /** A day line over the first line of each later day. The lines keep their order, which is not always the order of their

@@ -1669,7 +1669,7 @@ private struct AgentsList: View {
                         WorkspaceSidebarCard(workspace: w, project: r.name, selectedSession: openedWorkspace == nil ? model.visibleSession : nil,
                                              selectedWorkspace: openedWorkspace, folded: { isFolded($0) }, toggle: { toggleFold($0) },
                                              open: { openWorktree($0) },
-                                             openAgent: { openFromList($0) },
+                                             selectAgent: { openFromList($0) },
                                              appeared: { s in if paginationArmed { Task { await model.sessionLists.appeared(s) } } },
                                              agentIdentifier: compact ? "agents.compactRow" : "agents.row", ordered: { ordered($0) }) { s in
                             slotRowContent(s, context: false, inStateSection: false)

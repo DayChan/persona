@@ -57,6 +57,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1018280a, 0 2px 6px #10182808;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #0000000b;
   --shadow-overlay: 0 0 0 1px var(--line), 0 8px 28px #0001;
+  --shadow-nav-preview: 0 12px 40px #00000014;
   --shadow-inset-field: inset 0 1px 2px #0000001f;
 }
 
@@ -99,7 +100,38 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #0003, 0 2px 6px #0003;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #00000038;
   --shadow-overlay: 0 0 0 1px var(--line-strong), 0 8px 28px #00000057;
+  --shadow-nav-preview: 0 12px 40px #00000060;
   --shadow-inset-field: inset 0 1px 2px #0006;
+}
+
+/* Source messages share the chat's typography and neutral surfaces in every theme. */
+@layer components {
+  .chat-source {
+    @apply flex min-w-0 flex-col items-start gap-1.5 rounded-card bg-inset p-3 text-ink-2;
+  }
+  .chat-source-label {
+    @apply max-w-full truncate font-medium text-accent-ink;
+    font-size: var(--chat-secondary);
+  }
+  .chat-source-body {
+    @apply min-w-0 w-full;
+    font-size: var(--chat-secondary);
+    line-height: 1.6;
+  }
+  .chat-source-body .prose-j {
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+  .chat-source-body .prose-j > :first-child { margin-top: 0; }
+  .chat-source-body .prose-j > :last-child { margin-bottom: 0; }
+  .chat-source-folded {
+    max-height: 3lh;
+    overflow: hidden;
+  }
+  .chat-source-toggle {
+    @apply rounded-control font-medium whitespace-nowrap text-ink-3 hover:text-ink-2;
+    font-size: var(--chat-secondary);
+  }
 }
 
 /* Expose the tokens as Tailwind utilities. */
@@ -146,11 +178,13 @@
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-nav-preview: var(--shadow-nav-preview);
   --shadow-inset-field: var(--shadow-inset-field);
 
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
+  --radius-nav-preview: 16px;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);

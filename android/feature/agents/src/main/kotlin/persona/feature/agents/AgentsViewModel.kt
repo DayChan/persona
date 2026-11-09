@@ -88,6 +88,8 @@ internal class AgentsViewModel(
     private val messageIds = mutableMapOf<String, String>()
     private var changing = false
     private val settings = MutableStateFlow(AgentListSettings())
+    // Editors need the latest settings before the background list projection catches up.
+    val listSettings = settings.asStateFlow()
     private val groupListCounts = MutableStateFlow<Map<String, GroupListCounts>>(emptyMap())
     private val countingGroups = mutableSetOf<Triple<String, String, SessionListFilter>>()
     private val groupFilter = MutableStateFlow<GroupFilter?>(null)

@@ -49,5 +49,8 @@
   "add_provider": "モデルプロバイダーを追加",
   "try_anyway": "それでも使う",
   "close_help": "閉じる",
-  "forget_failed": "「{id}」を削除できませんでした：{error}"
+  "forget_failed": "「{id}」を削除できませんでした：{error}",
+  "preset": "プリセット",
+  "preset_hint": "{profile} から：ランチャー、モデル、思考の強さをまとめて入力します。あとから変更できます。",
+  "preset_left_out": "ここでは使えません：{what}。ランチャーやモデル自身の設定で動きます。"
 }

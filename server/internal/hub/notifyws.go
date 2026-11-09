@@ -1,9 +1,12 @@
 package hub
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"maps"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -45,6 +48,21 @@ func (h *Hub) notifyReply(owner, machineID, machine, sessionID, title, text stri
 	wants := pushWants{Kind: "input"}
 	h.push.sendFrom(owner, build, "", wants.fn(), wants.quiet(), nil)
 	h.notifyWSFrom(owner, "reply", build, wants.fn(), wants.quiet())
+}
+
+// notifyDecide pushes a to-do whose conclusion waits for the owner's decision and recommends an option (#2056) to the
+// devices that take "needs you" pushes: category TODO_DECIDE, whose OK takes the recommendation (decidePayloadIn). On
+// the WebSocket it is an "assistant" notify carrying the same `todo`: a client that does not know it shows a plain
+// notification. Nothing finished: the extensions hear no agent.finished. One collapse id a to-do: a later round's push
+// takes the place of the earlier one, whose OK could only answer "already handled".
+func (h *Hub) notifyDecide(owner, machineID, machine, sessionID, title, text string, todo assistantwire.NotifyTodo) {
+	build := func(i18n.Lang) map[string]any {
+		return decidePayloadIn(owner, machineID, machine, sessionID, title, text, todo)
+	}
+	wants := pushWants{Kind: "input"}
+	sum := sha256.Sum256([]byte("todo_decide\x00" + todo.ID))
+	h.push.sendFrom(owner, build, "td_"+hex.EncodeToString(sum[:12]), wants.fn(), wants.quiet(), nil)
+	h.notifyWSFrom(owner, "assistant", build, wants.fn(), wants.quiet())
 }
 
 func (h *Hub) notifyInteraction(owner string, ix proto.Interaction, machine string) {
@@ -134,6 +152,9 @@ func notifyMessage(kind string, payload map[string]any) map[string]any {
 	}
 	if en, ok := payload["extension_notification"]; ok {
 		msg["extension_notification"] = en
+	}
+	if td, ok := payload["todo"]; ok { // a decision's push (decidePayloadIn)
+		msg["todo"] = td
 	}
 	return msg
 }

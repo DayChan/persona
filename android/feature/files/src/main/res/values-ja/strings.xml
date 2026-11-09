@@ -90,6 +90,7 @@
     <string name="files_git_change_options">変更のオプション</string>
     <string name="files_git_part_cut">変更が大きすぎて取得できませんでした</string>
     <string name="files_git_part_cut_message">コミット全体のdiffが512 KBを超えており、このファイルは切り捨て位置より後にあります。</string>
+    <string name="files_git_upstream_gone">リモートで削除済み</string>
     <string name="files_git_synced">同期済み</string>
     <string name="files_git_pull">プル</string>
     <string name="files_git_pull_behind">プル %1$d</string>
