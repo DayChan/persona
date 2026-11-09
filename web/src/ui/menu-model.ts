@@ -9,6 +9,11 @@ export interface MenuRename {
   placeholder?: string;
   /** Enter on a changed, non-empty name. A rejection is shown inline and the input stays. */
   commit: (name: string) => void | Promise<unknown>;
+  /** Why what is typed can't be committed, "" when it can: said under the input as it is typed, and Enter waits for
+   *  a good one (a model ID, #1644). */
+  validate?: (text: string) => string;
+  /** Under the input while nothing is wrong (what it takes). */
+  hint?: string;
 }
 
 export interface MenuItem {
@@ -51,9 +56,13 @@ export interface MenuItem {
   /** A line to read, not a choice (#4054): plain text that wraps at word breaks, with the hint after it; the keys and
    *  the pointer pass over it. A menu of notes only is a popover that explains something. */
   note?: boolean;
+  /** A group's small title over the rows after it ("Typed before"), not a choice: the keys and the pointer pass over it. */
+  heading?: boolean;
+  /** The label is a value typed by hand (a model ID): drawn monospaced, as the field it came from. */
+  mono?: boolean;
 }
 
-export const enabled = (it: MenuItem | undefined): it is MenuItem => Boolean(it) && !it!.disabled && !it!.note;
+export const enabled = (it: MenuItem | undefined): it is MenuItem => Boolean(it) && !it!.disabled && !it!.note && !it!.heading;
 
 /** The next row that can be chosen when moving `dir` (1 down, -1 up) from `from` (-1: none yet), wrapping round; `from`
  *  when nothing can. Moving up from nothing lands on the last row. */

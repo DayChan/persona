@@ -1,6 +1,7 @@
 import { t } from "../i18n";
 import { MANAGER_HEADER } from "./manager-choice";
 import { api, enc } from "./api";
+import type { ProviderAPI } from "./providers";
 
 export interface ModelBinding {
   provider?: string;
@@ -15,7 +16,7 @@ export interface ModelProvider {
   name: string;
   kind: "api" | "launcher" | "plugin";
   agent?: string;
-  api?: "messages" | "responses";
+  api?: ProviderAPI;
   model?: string;
   machines?: string[];
   hidden?: boolean;

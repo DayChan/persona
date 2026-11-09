@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   taskConversations,
   blankTask, clockLabel, dayLabel, everyLabel, fromLocalInput, fromTemplate, lastRunText, momentLabel, nextHour, nextText, normalizeDays,
-  parseTime, repeatsLabel, ruleText, runDays, runDetail, runsWith, sameTask, splitTasks, taskBody, taskTitle, TEMPLATES, toLocalInput, untilLabel, withPush,
+  parseTime, repeatsLabel, ruleText, runDays, runDetail, runsWith, sameTask, splitTasks, taskBody, taskTitle, TEMPLATES, toLocalInput, untilLabel, untilText, withPush,
   upcoming, validateTask, withRepeat, type Run, type Task,
 } from "./routines";
 
@@ -104,6 +104,14 @@ describe("the editor", () => {
     expect(validateTask(task({ repeat: "once", at: undefined }), now)).toBe("要选一个运行时间");
     expect(validateTask(task({ repeat: "once", at: iso(at(2, 9)) }), now)).toBe("这个时间已经过了，选一个以后的时间");
     expect(validateTask(task({ repeat: "once", at: iso(at(2, 9)), enabled: false }), now)).toBeNull();
+    const passed = "截止时间已经过了。请改晚一点，或清掉。";
+    expect(validateTask(task({ repeat: "daily", until: iso(at(2, 9)) }), now)).toBe(passed);
+    expect(validateTask(task({ repeat: "interval", every_minutes: 30, until: iso(new Date(now.getTime() - 61_000)) }), now)).toBe(passed);
+    expect(validateTask(task({ repeat: "daily", until: iso(new Date(now.getTime() - 60_000)) }), now)).toBeNull();
+    expect(validateTask(task({ repeat: "daily", until: iso(at(2, 9)), enabled: false }), now)).toBeNull();
+    expect(validateTask(task({ repeat: "daily", until: iso(at(2, 18)) }), now)).toBeNull();
+    expect(validateTask(task({ repeat: "daily" }), now)).toBeNull();
+    expect(validateTask(task({ repeat: "once", at: iso(at(2, 15)), until: iso(at(2, 9)) }), now)).toBeNull();
   });
 
   it("sees what changed", () => {
@@ -116,6 +124,12 @@ describe("the editor", () => {
     expect(sameTask(t, { ...t, permission_mode: "auto" })).toBe(false);
     expect(sameTask(t, { ...t, title: "早报 " })).toBe(true);
     expect(sameTask(t, { ...t, launcher: "legacy", effort: "high" })).toBe(true); // models are configured by category
+    const end = iso(at(5, 18));
+    expect(sameTask(t, { ...t, until: end })).toBe(false);
+    expect(sameTask({ ...t, until: end }, { ...t, until: end })).toBe(true);
+    expect(sameTask({ ...t, until: end }, { ...t, until: undefined })).toBe(false);
+    const once = task({ repeat: "once", at: iso(at(2, 15)), until: end });
+    expect(sameTask(once, { ...once, until: undefined })).toBe(true); // a one-off ignores its end time
   });
 
   it("saves editable fields without task model overrides", () => {
@@ -129,6 +143,22 @@ describe("the editor", () => {
     expect(once).not.toHaveProperty("effort");
     expect(taskBody(task({ repeat: "interval", every_minutes: 45 }))).toMatchObject({ every_minutes: 45, time: "" });
     expect("at" in taskBody(task({ repeat: "interval", every_minutes: 45 }))).toBe(false);
+    const end = at(5, 18);
+    expect(taskBody(task({ repeat: "daily", until: iso(end) })).until).toBe(iso(end));
+    expect(taskBody(task({ repeat: "interval", every_minutes: 30, until: iso(end) })).until).toBe(iso(end));
+    expect("until" in taskBody(task({ repeat: "daily" }))).toBe(false);
+    expect("until" in taskBody(task({ repeat: "once", at: iso(at(2, 15)), until: iso(end) }))).toBe(false);
+    const ended = task({ repeat: "daily", until: iso(end) });
+    expect("until" in taskBody(ended, ended)).toBe(false);
+    expect(taskBody({ ...ended, until: undefined }, ended).until).toBeNull();
+    expect(taskBody({ ...ended, until: iso(at(6, 9)) }, ended).until).toBe(iso(at(6, 9)));
+    expect(taskBody({ ...ended, repeat: "once", at: iso(at(2, 15)) }, ended).until).toBeNull();
+    expect("until" in taskBody(task({ repeat: "once", at: iso(at(2, 15)) }), task({ repeat: "daily" }))).toBe(false);
+    expect(untilText(task({ repeat: "daily", until: iso(at(2, 18)) }), now)).toBe("截止 今天 18:00");
+    expect(untilText(task({ repeat: "interval", every_minutes: 30, until: iso(at(3, 9, 5)) }), now)).toBe("截止 明天 09:05");
+    expect(untilText(task({ repeat: "once", until: iso(at(2, 18)) }), now)).toBe("");
+    expect(untilText(task({ repeat: "daily" }), now)).toBe("");
+    expect(untilText(task({ repeat: "daily", until: "0001-01-01T00:00:00Z" }), now)).toBe("");
   });
 
   it("跑完推送: compared, saved only when changed, and an asked task leaves the conversation it came from", () => {

@@ -10,6 +10,8 @@
   "interval_range": "間隔は{min}分から7日の間で指定してください",
   "pick_time": "実行する時刻を選んでください",
   "time_passed": "その時刻はすでに過ぎています。これより後の時刻を選んでください。",
+  "until": "終了時刻を過ぎたため、自動で停止しました",
+  "until_passed": "終了時刻を過ぎています。先の時刻にするか、解除してください。",
   "bad_launcher": "ランチャー名{launcher}が正しくありません",
   "bad_permission_mode": "不明な権限モード{mode}",
   "bad_effort": "不明な思考レベル{effort}",

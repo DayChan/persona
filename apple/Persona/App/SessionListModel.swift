@@ -25,6 +25,10 @@ import Observation
     @ObservationIgnored private var recoveries = 0
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var taskID: UUID?
+    @ObservationIgnored private let refreshes = CoalescedRefresh()
+    @ObservationIgnored private var hintTask: Task<Void, Never>?
+    @ObservationIgnored private let waitForHints: @MainActor () async throws -> Void
     @ObservationIgnored private var id: (Row) -> String
     @ObservationIgnored private var removalID: (String) -> String?
     @ObservationIgnored private var fetch: Fetch
@@ -32,11 +36,13 @@ import Observation
     @ObservationIgnored var changed: (([Row]) -> Void)?
 
     init(id: @escaping (Row) -> String, removalID: @escaping (String) -> String?,
-         fetch: @escaping Fetch, counts: @escaping @MainActor (SessionListQuery) async throws -> SessionListCounts) {
+         fetch: @escaping Fetch, counts: @escaping @MainActor (SessionListQuery) async throws -> SessionListCounts,
+         waitForHints: @escaping @MainActor () async throws -> Void = { try await Task.sleep(for: .milliseconds(150)) }) {
         self.id = id
         self.removalID = removalID
         self.fetch = fetch
         self.fetchCounts = counts
+        self.waitForHints = waitForHints
     }
 
     func select(_ query: SessionListQuery) async {
@@ -49,8 +55,12 @@ import Observation
     private func reset(_ query: SessionListQuery) {
         recoveries = 0
         generation += 1
+        refreshes.reset()
+        hintTask?.cancel()
+        hintTask = nil
         task?.cancel()
         task = nil
+        taskID = nil
         self.query = query
         rows = []
         counts = nil
@@ -69,13 +79,22 @@ import Observation
     }
 
     func load() async {
-        if let task { await task.value; return }
-        guard !loaded else { return }
-        await run(first: true)
+        guard !loaded || task != nil else { return }
+        let gen = generation
+        await refreshes.refresh { [weak self] in
+            await self?.read(generation: gen, refresh: false)
+        }
     }
 
+    /// Manual refresh absorbs the queued hint and shares the serialized read without discarding the paging window.
     func refresh() async {
-        if loaded && !paged { await reload() } else { await load() }
+        let gen = generation
+        let hadHint = hintTask != nil
+        hintTask?.cancel()
+        hintTask = nil
+        await refreshes.refresh(afterCurrent: hadHint) { [weak self] in
+            await self?.read(generation: gen, refresh: true)
+        }
     }
 
     func reload() async {
@@ -88,21 +107,43 @@ import Observation
         await run(first: false)
     }
 
-    /// Coalesce hints, including hints received while the baseline or a frozen delta is in flight.
+    /// Preserve the short hint-merging window, then single-flight with one dirty follow-up. Later hints do not
+    /// move the pending deadline; there is no refresh cooldown or maximum request rate.
     func invalidate() {
-        dirty = true
-        guard task == nil else { return }
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard let self, self.dirty else { return }
-            if !self.loaded { await self.load() }
-            else if self.paged { await self.synchronize() }
-            else { await self.reload() }
+        guard hintTask == nil else { return }
+        let gen = generation
+        hintTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await self.waitForHints() } catch { return }
+            guard self.generation == gen, !Task.isCancelled else { return }
+            self.hintTask = nil
+            self.refreshes.invalidate { [weak self] in
+                await self?.read(generation: gen, refresh: true)
+            }
+        }
+    }
+
+    private func read(generation gen: Int, refresh: Bool) async {
+        // Loading another frozen page is serialized with the refresh, but is not itself an invalidation.
+        while let task {
+            await task.value
+            guard generation == gen, !Task.isCancelled else { return }
+            // Let the operation's owner finish cleanup and any 409 recovery before joining its next work.
+            // Clearing its task ID here can make that owner skip the recovery tail.
+            await Task.yield()
+        }
+        guard generation == gen, !Task.isCancelled else { return }
+        if !loaded { await run(first: true) }
+        else if refresh {
+            if paged { await synchronizeRead() }
+            else { await run(first: true) } // Legacy hubs still return their complete list.
         }
     }
 
     private func run(first: Bool) async {
         let gen = generation
+        let readID = UUID()
+        dirty = false
         loading = true
         let work = Task { [weak self] in
             guard let self else { return }
@@ -113,6 +154,7 @@ import Observation
                 if first {
                     self.rows = self.unique(page.sessions)
                     self.paged = page.isPaged
+                    if !self.paged { self.counts = nil }
                     self.snapshotRevision = page.revision
                     self.revision = page.revision
                 } else {
@@ -154,20 +196,28 @@ import Observation
             }
         }
         task = work
+        taskID = readID
         await work.value
-        guard generation == gen else { return }
+        guard generation == gen, taskID == readID else { return }
         task = nil
+        taskID = nil
         loading = false
         if dirty {
-            if !loaded { await load() }
-            else if paged { await synchronize() }
-            else { dirty = false }
+            dirty = false
+            if !loaded { await run(first: true) }
+            else if paged { await synchronizeRead() }
         }
     }
 
     func synchronize() async {
+        guard paged else { return }
+        await refresh()
+    }
+
+    private func synchronizeRead() async {
         guard paged, let since = revision, task == nil else { return }
         let gen = generation
+        let readID = UUID()
         dirty = false
         let work = Task { [weak self] in
             guard let self else { return }
@@ -221,11 +271,14 @@ import Observation
             }
         }
         task = work
+        taskID = readID
         await work.value
-        guard generation == gen else { return }
+        guard generation == gen, taskID == readID else { return }
         task = nil
+        taskID = nil
         if dirty {
-            if !loaded { await load() } else { await synchronize() }
+            dirty = false
+            if !loaded { await run(first: true) } else { await synchronizeRead() }
         }
     }
 

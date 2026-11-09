@@ -304,6 +304,7 @@ Errors are JSON: `{"error":"<code>","message":"<human-readable Chinese>"}`.
 - Failed authentication (wrong code, missing / wrong credential) is counted per source: one IPv4 address or one IPv6 /64. **LAN and loopback count too** (the hub is usually on the LAN, which must not exempt it).
   10 failures within 60 seconds block the source for 15 minutes; blocked sources are rejected before authentication, returning `429 {"error":"rate_limited"}` and `Retry-After` (seconds) even with correct credentials. At most 4096 sources are tracked;
   when full, unblocked ones are evicted first. These are configured values, not measured results.
+- A request must arrive whole within 30 seconds, body included (headers within 10): when the body stalls, the helper answers (`400` on pairing) and closes the connection, so a peer that never authenticates cannot hold one longer. An upgraded stream is not bound by this.
 - Logs: at most one line per 30 seconds for authentication and TLS handshake failures (with the number omitted); sources are recorded only as /24 or /64.
 
 ### Recommendations for hub implementers

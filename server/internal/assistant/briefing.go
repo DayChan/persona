@@ -294,13 +294,17 @@ func (s *Service) acceptedFromBrief(ctx context.Context, id, askedAt string) boo
 	return ok
 }
 
-// acceptTryFromBrief is acceptedFromBrief with acceptTry's error: a decision whose recommendation did not reach the agent.
+// acceptTryFromBrief is acceptedFromBrief with acceptTry's errors: a decision whose recommendation did not reach the agent,
+// or errAcceptStore (the asks cannot be read or the acceptance saved), which is not "another round".
 func (s *Service) acceptTryFromBrief(ctx context.Context, id, askedAt string) (bool, error) {
 	at, err := time.Parse(timeKeyLayout, askedAt)
 	if err != nil {
 		return false, nil
 	}
-	a := s.acceptAskLocked(id)
+	a, err := s.acceptAskLocked(id)
+	if err != nil {
+		return false, err
+	}
 	if a == nil || !a.AskedAt.Equal(at) {
 		return false, nil
 	}

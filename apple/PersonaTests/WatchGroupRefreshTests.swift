@@ -136,6 +136,9 @@ struct WatchGroupRefreshTests {
         model.registry = HubRegistry(hubs: [PairedHub(id: "watchsummarybox",
                                                       config: ServerConfig(url: URL(string: "http://hub.example.com")!, token: "t"))])
         model.buildLinks()
+        // AppModel restores paired snapshots; only this fixture belongs in the summary under test.
+        model.applySessions(Dictionary(grouping: model.allSessions, by: \.machineRef).mapValues { _ in [Session]() })
+        #expect(model.allSessions.isEmpty)
         try (0..<25).forEach { model.adopt(try session("idle\($0)", "idle", updated: 1000 + Double($0))) }
         model.adopt(try session("old", "working", updated: 1))
         let titles = model.watchSummary().sessions.map(\.title)

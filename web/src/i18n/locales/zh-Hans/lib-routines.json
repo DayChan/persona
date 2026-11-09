@@ -46,6 +46,7 @@
   "error_interval": "间隔要在 5 分钟到 7 天之间",
   "error_at": "要选一个运行时间",
   "error_past": "这个时间已经过了，选一个以后的时间",
+  "error_until": "截止时间已经过了。请改晚一点，或清掉。",
   "error_repeat": "不认识的重复方式",
   "follow_up_same_chat": "跟进 · 接着原来的对话",
   "follow_up_new_chat": "跟进 · 新对话",

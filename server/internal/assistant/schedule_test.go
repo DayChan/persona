@@ -65,6 +65,28 @@ func TestParseWhen(t *testing.T) {
 	}
 }
 
+// A day count whose duration does not fit is refused: 213504d wrapped around to about 25 minutes, so at=213504d ran
+// soon instead of never. A negative one is refused too.
+func TestRelativeRejectsOverflow(t *testing.T) {
+	cases := map[string]bool{
+		"213504d":      false,
+		"106752d":      false, // the first day count past the largest duration
+		"99999999999d": false,
+		"-1d":          false,
+		"106751d":      true,
+		"1d":           true,
+		"30m":          true,
+	}
+	for in, want := range cases {
+		if d, ok := relative(in); ok != want || (ok && d <= 0) {
+			t.Errorf("relative(%q) = %v, %v; want ok %v", in, d, ok, want)
+		}
+	}
+	if _, err := parseWhen("213504d", time.Now(), time.UTC); err == nil {
+		t.Error("at=213504d is refused, not scheduled about 25 minutes from now")
+	}
+}
+
 // readyHub is a fake hub whose main conversation is ready (the computer "server" with Claude Code on it), so
 // scheduled runs are not skipped for want of one (schedule_ready.go).
 func readyHub() *fakeHub {
@@ -344,6 +366,58 @@ func TestScheduleFollowupEvery(t *testing.T) {
 	}
 	if _, err := h.toolScheduleFollowup(context.Background(), m, "s1", json.RawMessage(`{"every":"1m","prompt":"x"}`)); err == nil {
 		t.Fatal("more often than every 5 minutes is refused")
+	}
+}
+
+// every is held to the range checkTask holds the app to: a task saved every 8 days could not be saved again from the
+// app (not even switched off), so the tool refuses it too, and saves nothing.
+func TestScheduleFollowupRejectsIntervalOverAWeek(t *testing.T) {
+	h := newStorelessService(t, newFakeHub())
+	setTasks(h)
+	for _, every := range []string{"8d", "169h", "213504d"} {
+		args, _ := json.Marshal(map[string]any{"every": every, "prompt": "Check the deploy", "title": "Deploy check"})
+		if out, err := h.toolScheduleFollowup(context.Background(), "server", "s1", args); err == nil || !strings.Contains(err.Error(), "7d") {
+			t.Fatalf("every=%s is refused with the range: %q, %v", every, out, err)
+		}
+		if tasks := h.tasksView(context.Background(), nil); len(tasks) != 0 {
+			t.Fatalf("every=%s saves nothing: %+v", every, tasks)
+		}
+	}
+	if _, err := h.toolScheduleFollowup(context.Background(), "server", "s1", json.RawMessage(`{"every":"7d","prompt":"x"}`)); err != nil {
+		t.Fatalf("every 7 days is the longest allowed: %v", err)
+	}
+	tasks := h.tasksView(context.Background(), nil)
+	if len(tasks) != 1 || tasks[0].EveryMinutes != maxEvery {
+		t.Fatalf("one task every 7 days: %+v", tasks)
+	}
+	if err := checkTask(&tasks[0], time.Now()); err != nil {
+		t.Fatalf("the app can save it again: %v", err)
+	}
+}
+
+// A run rescheduling its one-off task more than 7 days out keeps it a one-off: promoted into an interval it would be
+// one the app refuses to save again.
+func TestScheduleOwnKeepsLongRelativeAOneOff(t *testing.T) {
+	f := newFakeHub()
+	f.settings = &Settings{Timezone: "Asia/Shanghai"}
+	h := newStorelessService(t, f)
+	prompt := "Check the renewal, then use schedule_followup (at=30d, the same prompt) to schedule the next one."
+	setTasks(h, Task{ID: "fu_1", Title: "Renewal", Prompt: prompt, Repeat: repeatOnce, At: time.Now().Add(-time.Minute),
+		LastRun: time.Now(), MachineID: "server"})
+	h.recordRun(ScheduleRun{Kind: "followup", RefID: "fu_1", Status: runOK, MachineID: "server", SessionID: "run-1"})
+
+	args, _ := json.Marshal(map[string]any{"at": "30d", "prompt": prompt, "title": "Renewal"})
+	out, err := h.toolScheduleFollowup(context.Background(), "server", "run-1", args)
+	if err != nil || !strings.Contains(out, "Rescheduled fu_1") {
+		t.Fatalf("rescheduled: %q, %v", out, err)
+	}
+	tasks := h.tasksView(context.Background(), nil)
+	if len(tasks) != 1 || tasks[0].ID != "fu_1" || tasks[0].Repeat != repeatOnce || tasks[0].EveryMinutes != 0 || !tasks[0].Enabled ||
+		time.Until(tasks[0].At) < 29*24*time.Hour {
+		t.Fatalf("the same one-off, 30 days out: %+v", tasks)
+	}
+	if err := checkTask(&tasks[0], time.Now()); err != nil {
+		t.Fatalf("the app can save it again: %v", err)
 	}
 }
 

@@ -2803,7 +2803,7 @@ struct SpaceHeader: View {
         #if DEBUG || PERF_SIGNPOST
         let _ = PerfTrace.body("SpaceHeader")
         #endif
-        HStack(spacing: Theme.Space.s) {
+        CountsHeading {
             // Compact List's titles are big enough to tell a repository from a space: no mark (it cut a short name, "weat…").
             if let symbol, !compact {
                 ThemedIcon(symbol).font(Theme.Font.label).foregroundStyle(Color.secondary)
@@ -2820,8 +2820,9 @@ struct SpaceHeader: View {
             if showMachine, let machine {
                 Text(machine.title).font(small).foregroundStyle(Color.secondary).textCase(nil).lineLimit(1)
             }
-            Spacer(minLength: 4)
+        } counts: {
             StateCounts(group: group).opacity(muted ? 0.6 : 1)
+        } trailing: {
             FoldChevron(folded: folded)
         }
         .contentShape(.rect)
@@ -2892,6 +2893,66 @@ struct StateCounts: View {
         }
         .lineLimit(1)
         .fixedSize()
+    }
+}
+
+/// A heading's name and its agents' state counts: side by side; at the accessibility text sizes the counts on a line of
+/// their own under the name. `StateCounts` never gives up width, and beside them a narrow phone left the name none at all
+/// (#1658). `trailing` (the fold chevron) stays on the name's line.
+struct CountsHeading<Name: View, Counts: View, Trailing: View>: View {
+    var spacing: CGFloat = Theme.Space.s
+    @ViewBuilder var name: Name
+    @ViewBuilder var counts: Counts
+    @ViewBuilder var trailing: Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                HStack(spacing: spacing) {
+                    name
+                    Spacer(minLength: Theme.Space.xs)
+                    trailing
+                }
+                counts
+            }
+        } else {
+            HStack(spacing: spacing) {
+                name
+                Spacer(minLength: Theme.Space.xs)
+                counts
+                trailing
+            }
+        }
+    }
+}
+
+extension CountsHeading where Trailing == EmptyView {
+    init(spacing: CGFloat = Theme.Space.s, @ViewBuilder name: () -> Name, @ViewBuilder counts: () -> Counts) {
+        self.init(spacing: spacing, name: name, counts: counts, trailing: { EmptyView() })
+    }
+}
+
+/// An agent row's words and its time (with the source under it): the time at the row's end; at the accessibility text
+/// sizes under the words, where beside them it left the title a character or two (#1658). Outside `SlotRow`, whose
+/// equality is its stored values.
+struct TimeBesideOrUnder<Words: View, Time: View>: View {
+    @ViewBuilder var words: Words
+    @ViewBuilder var time: Time
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                words
+                time
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                words
+                time
+            }
+        }
     }
 }
 
@@ -3027,8 +3088,9 @@ nonisolated struct SlotRow: View, Equatable {
                         .padding(.top, Theme.Space.xs)
                     }
                     // The words on the left, the time with its source under it on the right (#3043): the title
-                    // starts at the row's edge, and the tag takes no room from it nor pushes the preview down.
-                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                    // starts at the row's edge, and the tag takes no room from it nor pushes the preview down. At the
+                    // accessibility text sizes the time goes under the words (`TimeBesideOrUnder`, #1658).
+                    TimeBesideOrUnder {
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             // Ultracode's mark right after the title's last word while it is on (#1307).
                             UltracodeMark.after(session.displayTitle, on: ultracodeMark)
@@ -3061,6 +3123,7 @@ nonisolated struct SlotRow: View, Equatable {
                             .foregroundStyle(.secondary)
                             .padding(.top, 1)
                         }
+                    } time: {
                         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
                                 AgentTimeText(time: time, fallback: session.updatedAt, font: Theme.Font.label)
@@ -3173,8 +3236,8 @@ struct AgentTimeText: View {
         let at = time?.updatedAt ?? fallback
         // No time: nothing, not an empty line the source label under it would sit below (#3043).
         if let at, at.isMeaningful {
-            TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                Text(Fmt.relative(at, now: ctx.date)).font(font).foregroundStyle(.secondary).lineLimit(1)
+            VisibleTimelineView(interval: 30) { now in
+                Text(Fmt.relative(at, now: now)).font(font).foregroundStyle(.secondary).lineLimit(1)
             }
             .fixedSize()
         }
@@ -3571,7 +3634,7 @@ struct MachineSectionHeader: View {
     @Environment(\.compactList) private var compact
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
+        CountsHeading {
             ThemedIcon(machine.symbol).foregroundStyle(machine.online ? Theme.accent : .secondary)
             if compact {
                 Text(machine.title).font(CompactList.sectionTitle).foregroundStyle(Color.primary).textCase(nil).lineLimit(1)
@@ -3581,7 +3644,7 @@ struct MachineSectionHeader: View {
             if !machine.online {
                 Text("Offline [Machine Entity be1b4f]").font(Theme.Font.labelStrong).foregroundStyle(.secondary).textCase(nil)
             }
-            Spacer(minLength: 4)
+        } counts: {
             StateCounts(group: group)
         }
     }

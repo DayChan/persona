@@ -69,5 +69,8 @@
   "minutes_other": "{count} 分钟",
   "days_other": "{count} 天",
   "hours_other": "{count} 小时",
-  "model_config_assistant": "模型统一跟随「模型配置 › 主对话」"
+  "model_config_assistant": "模型统一跟随「模型配置 › 主对话」",
+  "until_label": "截止时间",
+  "until_hint": "可选。到了这个时间，任务会自己关掉，并记一笔已跳过。留空则一直重复。",
+  "until_clear": "清除"
 }

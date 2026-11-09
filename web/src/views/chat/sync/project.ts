@@ -21,7 +21,7 @@ export function project(root: HTMLElement, sent: string[]): Required<Pick<View, 
     messages.push({ from: "user", text: words ? text(words) : "", state: state === "failed" ? "failed" : state ? "pending" : "shown" });
   }
   // the words of a send back in the box (a send that never went puts them back; ChatView keeps a failed one in the chat)
-  const box = root.querySelector<HTMLTextAreaElement>("[data-chat-dock] textarea")?.value ?? "";
+  const box = root.querySelector<HTMLTextAreaElement>("[data-chat-dock] textarea, [data-new-conversation] textarea")?.value ?? "";
   for (const words of sent) if (box.includes(words)) messages.push({ from: "user", text: words, state: "failed" });
   const cards: Record<string, "open" | "answering" | "answered"> = {};
   for (const el of root.querySelectorAll<HTMLElement>("[data-answered]")) cards[el.dataset.answered!] = "answered";

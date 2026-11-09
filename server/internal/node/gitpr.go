@@ -69,20 +69,22 @@ func ghRun(ctx context.Context, dir string, timeout time.Duration, args ...strin
 
 // GitPR is the branch's pull request as the panel shows it.
 type GitPR struct {
-	Number      int           `json:"number"`
-	URL         string        `json:"url"`
-	Title       string        `json:"title"`
-	State       string        `json:"state"` // OPEN, CLOSED, MERGED
-	Draft       bool          `json:"draft,omitempty"`
-	Base        string        `json:"base"`
-	Head        string        `json:"head"`
-	Mergeable   string        `json:"mergeable,omitempty"`    // MERGEABLE, CONFLICTING, UNKNOWN
-	MergeState  string        `json:"merge_state,omitempty"`  // gh's mergeStateStatus: CLEAN, BLOCKED, BEHIND, DIRTY…
-	Review      string        `json:"review,omitempty"`       // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
-	AutoMerge   bool          `json:"auto_merge,omitempty"`   // set to merge when ready
-	Checks      []GitCheck    `json:"checks"`                 // the head commit's checks
-	ChecksState string        `json:"checks_state,omitempty"` // passing, failing, pending ("" when there are none)
-	Threads     []GitPRThread `json:"threads"`                // the open (unresolved) review threads
+	Number         int           `json:"number"`
+	URL            string        `json:"url"`
+	Title          string        `json:"title"`
+	State          string        `json:"state"` // OPEN, CLOSED, MERGED
+	Draft          bool          `json:"draft,omitempty"`
+	Base           string        `json:"base"`
+	Head           string        `json:"head"`
+	HeadOID        string        `json:"head_oid,omitempty"`
+	Mergeable      string        `json:"mergeable,omitempty"`       // MERGEABLE, CONFLICTING, UNKNOWN
+	MergeState     string        `json:"merge_state,omitempty"`     // gh's mergeStateStatus: CLEAN, BLOCKED, BEHIND, DIRTY…
+	Review         string        `json:"review,omitempty"`          // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
+	AutoMerge      bool          `json:"auto_merge,omitempty"`      // set to merge when ready
+	Checks         []GitCheck    `json:"checks"`                    // the head commit's checks
+	ChecksState    string        `json:"checks_state,omitempty"`    // passing, failing, pending ("" when there are none)
+	ChecksComplete bool          `json:"checks_complete,omitempty"` // every rollup context was returned and its status was checked
+	Threads        []GitPRThread `json:"threads"`                   // the open (unresolved) review threads
 }
 
 type GitCheck struct {
@@ -118,7 +120,7 @@ func (n *Node) gitPR(ctx context.Context, cwd string) (map[string]any, error) {
 	}
 	branch = strings.TrimSpace(branch)
 	out, err := ghRun(ctx, dir, 30*time.Second, "pr", "view", branch, "--json",
-		"number,url,title,state,isDraft,baseRefName,headRefName,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,statusCheckRollup")
+		"number,url,title,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,statusCheckRollup")
 	if e, ok := err.(*rpc.Error); ok && e.Code == gitCodeNoPR {
 		return map[string]any{"pr": nil, "branch": branch}, nil
 	}
@@ -133,6 +135,7 @@ func (n *Node) gitPR(ctx context.Context, cwd string) (map[string]any, error) {
 		IsDraft          bool            `json:"isDraft"`
 		BaseRefName      string          `json:"baseRefName"`
 		HeadRefName      string          `json:"headRefName"`
+		HeadRefOID       string          `json:"headRefOid"`
 		Mergeable        string          `json:"mergeable"`
 		MergeStateStatus string          `json:"mergeStateStatus"`
 		ReviewDecision   string          `json:"reviewDecision"`
@@ -151,21 +154,34 @@ func (n *Node) gitPR(ctx context.Context, cwd string) (map[string]any, error) {
 		return nil, &rpc.Error{Code: gitCodeFailed, Message: "gh pr view: " + err.Error()}
 	}
 	pr := GitPR{Number: v.Number, URL: v.URL, Title: v.Title, State: v.State, Draft: v.IsDraft, Base: v.BaseRefName,
-		Head: v.HeadRefName, Mergeable: v.Mergeable, MergeState: v.MergeStateStatus, Review: v.ReviewDecision,
+		Head: v.HeadRefName, HeadOID: v.HeadRefOID, Mergeable: v.Mergeable, MergeState: v.MergeStateStatus, Review: v.ReviewDecision,
 		AutoMerge: len(v.AutoMergeRequest) > 0 && string(v.AutoMergeRequest) != "null", Checks: []GitCheck{}, Threads: []GitPRThread{}}
 	for _, c := range v.Checks {
 		check := GitCheck{Name: cmpOr(c.Name, c.Context), URL: cmpOr(c.DetailsURL, c.TargetURL)}
-		switch strings.ToUpper(cmpOr(c.Conclusion, c.State)) {
-		case "SUCCESS":
-			check.State = "pass"
-		case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
-			check.State = "fail"
-		case "SKIPPED", "NEUTRAL", "STALE":
-			check.State = "skipped"
-		default:
+		switch {
+		case c.Status != "" && !strings.EqualFold(c.Status, "COMPLETED"):
 			check.State = "pending"
+		default:
+			switch strings.ToUpper(cmpOr(c.Conclusion, c.State)) {
+			case "SUCCESS":
+				check.State = "pass"
+			case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+				check.State = "fail"
+			case "SKIPPED", "NEUTRAL":
+				check.State = "skipped"
+			default:
+				check.State = "pending"
+			}
 		}
 		pr.Checks = append(pr.Checks, check)
+	}
+	// gh's rollup has a 100-context page; at that boundary it cannot prove
+	// that there are no more checks. Older nodes omit this capability marker.
+	pr.ChecksComplete = v.HeadRefOID != "" && len(v.Checks) < 100
+	for _, check := range v.Checks {
+		if check.Name != "" && check.Status == "" || check.Context != "" && check.State == "" || check.Name == "" && check.Context == "" {
+			pr.ChecksComplete = false
+		}
 	}
 	pr.ChecksState = checksState(pr.Checks)
 	if threads, err := prThreads(ctx, dir, pr.URL); err == nil {

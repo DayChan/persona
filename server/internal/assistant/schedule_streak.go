@@ -24,7 +24,13 @@ func counted(r ScheduleRun) bool {
 func runStreak(runs []ScheduleRun, ref, id string) (n, newer int, told, in bool) {
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
-		if r.RefID != ref || !counted(r) {
+		if r.RefID != ref {
+			continue
+		}
+		if r.Ended {
+			break // the task was turned off on purpose: the misses before that are a finished story
+		}
+		if !counted(r) {
 			continue
 		}
 		if r.Status == runOK {
@@ -53,7 +59,7 @@ func runStreak(runs []ScheduleRun, ref, id string) (n, newer int, told, in bool)
 // newer than it, which its ok had cut off from the older ones.
 func streakToldLocked(sc *schedule, i int, wasOK bool) (t Task, n int, tell bool) {
 	r := sc.runs[i]
-	if r.Status == runOK || !counted(r) {
+	if r.Ended || r.Status == runOK || !counted(r) {
 		return Task{}, 0, false
 	}
 	j := sc.indexLocked(r.RefID)

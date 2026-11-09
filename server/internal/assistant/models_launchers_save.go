@@ -252,8 +252,11 @@ func (in launcherInput) check() error {
 	if in.Agent != "" && in.Agent != "claude" && in.Agent != "codex" && in.Agent != "agy" && in.Agent != "omp" {
 		return i18n.Err("assistant-models_launchers.err_kind")
 	}
-	if in.API != "" && in.API != "messages" && in.API != "responses" {
+	if in.API != "" && in.API != "messages" && in.API != "responses" && in.API != "chat" {
 		return i18n.Err("assistant-models_launchers.err_api")
+	}
+	if in.Kind != "api" && in.API == "chat" {
+		return i18n.Err("assistant-models_launchers.err_chat_launcher")
 	}
 	if in.Kind != "api" && (in.Agent == "" || in.Agent == "claude") && in.API == "responses" {
 		return i18n.Err("assistant-models_launchers.err_claude_messages")
@@ -299,6 +302,12 @@ func (in launcherInput) check() error {
 	return nil
 }
 
+var (
+	errChatProtocolChange = i18n.Err("assistant-models_launchers.err_chat_protocol_change")
+	errChatTransport      = i18n.Err("assistant-models_launchers.err_chat_transport")
+	errChatLaunchSettings = i18n.Err("assistant-models_launchers.err_chat_launch_settings")
+)
+
 // saveLauncher stores in (over old on an update) and tells the nodes.
 func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *storedLauncher) (storedLauncher, error) {
 	s.models.mu.Lock()
@@ -317,6 +326,28 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 			return storedLauncher{}, i18n.Err("assistant-models_launchers.err_not_managed")
 		}
 		old = &list[i]
+		if old.API == "chat" && in.API != "chat" {
+			return storedLauncher{}, errChatProtocolChange
+		}
+	}
+	if in.API == "chat" {
+		var proxy, noProxy string
+		hasHeaders := false
+		if old != nil {
+			proxy, noProxy, hasHeaders = old.Proxy, old.NoProxy, old.HeadersSealed != ""
+		}
+		if in.Proxy != nil {
+			proxy = *in.Proxy
+		}
+		if in.NoProxy != nil {
+			noProxy = *in.NoProxy
+		}
+		if in.Headers != nil {
+			hasHeaders = strings.TrimSpace(*in.Headers) != ""
+		}
+		if hasHeaders || strings.TrimSpace(proxy) != "" || strings.TrimSpace(noProxy) != "" {
+			return storedLauncher{}, errChatTransport
+		}
 	}
 	now := time.Now().UTC()
 	l := storedLauncher{Created: now, Updated: now}
@@ -343,7 +374,7 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 		l.DisplayName = strings.TrimSpace(*in.DisplayName)
 	}
 	switch {
-	case in.API == "responses": // always goes as Bearer: nothing to keep
+	case in.API == "responses" || in.API == "chat": // always goes as Bearer: nothing to keep
 		l.Auth = ""
 	case in.Auth == "bearer":
 		l.Auth = in.Auth
@@ -382,6 +413,10 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 			}
 			l.EnvSealed = sealed
 		}
+	}
+	if l.API == "chat" && (l.EnvSealed != "" || l.TimeoutMS != 0 || l.CompactWindow != 0 || l.MaxContext != 0 ||
+		l.Effort != "" || l.OpusModel != "" || l.SonnetModel != "" || l.HaikuModel != "" || l.FableModel != "" || l.SubagentForce) {
+		return storedLauncher{}, errChatLaunchSettings
 	}
 	l.APIKey, l.Headers, l.HasHeaders, l.Env, l.HasEnv = "", "", false, "", false // only ever stored sealed
 	if i := slices.IndexFunc(list, func(x storedLauncher) bool { return x.Name == l.Name }); i >= 0 {

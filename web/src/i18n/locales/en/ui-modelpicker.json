@@ -15,5 +15,11 @@
   "use_custom": "Use “{id}”",
   "use_custom_note": "Not in the list; saves this ID as is",
   "loading_slow": "Asking the launcher for its models; the first time takes a few seconds…",
-  "no_match": "No models match “{query}”"
+  "no_match": "No models match “{query}”",
+  "typed": "Typed model ID",
+  "typed_before": "Typed before",
+  "forget": "Forget “{id}”",
+  "other": "Other model…",
+  "enter_id": "Enter model ID…",
+  "typed_note": "Used for this start only; once it runs, it's listed under Typed before."
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  customModel, defaultDetail, defaultLabel, effortChoices, fitEffort, followedBinding, launcherAgent, launcherModels, modelDetail, modelName, modelRows, pickerLauncher,
-  machineLaunchers, oneOff, providerModels, startPicks, type AgentModel, type LauncherModels,
+  customModel, defaultDetail, defaultLabel, effortChoices, fitEffort, followedBinding, forgetCustomModel, launcherAgent, launcherModels, modelDetail, modelName, modelRows,
+  pickerLauncher, machineLaunchers, oneOff, providerModels, startPicks, takesTypedModel, typedModelOffered, withoutCustom, type AgentModel, type LauncherModels,
 } from "./launcher-models";
 
 const all = ["low", "medium", "high", "xhigh", "max"];
@@ -211,5 +211,64 @@ describe("启动器的默认值 (#2455)", () => {
     expect((await machineLaunchers("m1", { purpose: "assistant" })).default).toEqual(body.default);
     await machineLaunchers("m1");
     expect(fetcher.mock.calls.map((c) => c[0])).toEqual(["/api/v1/machines/m1/launchers?purpose=assistant", "/api/v1/machines/m1/launchers"]);
+  });
+});
+
+describe("手动输入的模型 ID（#1644）", () => {
+  const typed: LauncherModels = { agent: "claude", models: [
+    ...claude.models,
+    { id: "vendor/model-x", name: "vendor/model-x", description: "之前用过的模型 ID", custom: true },
+    { id: "~vendor/model-latest", name: "~vendor/model-latest", custom: true },
+  ] };
+
+  it("offers a typed ID only the hub would take", () => {
+    expect(customModel(claude.models, "~vendor/model-latest[1m]")).toBe("~vendor/model-latest[1m]");
+    expect(customModel(claude.models, "-x")).toBe("");
+    expect(customModel(claude.models, "a$b")).toBe("");
+    expect(customModel(claude.models, "模型")).toBe("");
+  });
+
+  it("Claude Code and Codex take one, unless the launcher fixes its own --model", () => {
+    expect(takesTypedModel("claude") && takesTypedModel("codex")).toBe(true);
+    expect(takesTypedModel("traex") || takesTypedModel("agy")).toBe(false);
+    expect(typedModelOffered("claude", claude)).toBe(true);
+    expect(typedModelOffered("claude", undefined)).toBe(true); // the list couldn't be read
+    expect(typedModelOffered("claude", { ...claude, locked: "固定了模型" })).toBe(false);
+  });
+
+  it("keeps an unlisted pick in the start; never a bad one, a locked launcher's, or with an older hub", () => {
+    expect(startPicks({ agent: "claude", list: claude, model: "acme/coder-9", effort: "high" })).toEqual({ model: "acme/coder-9", effort: "high" });
+    expect(startPicks({ agent: "codex", list: codex, model: "gpt-next-preview", effort: "" })).toEqual({ model: "gpt-next-preview" });
+    expect(startPicks({ agent: "claude", list: undefined, model: "acme/coder-9", effort: "" })).toEqual({ model: "acme/coder-9" });
+    expect(startPicks({ agent: "claude", list: { agent: "claude", models: [] }, model: "acme/coder-9", effort: "" })).toEqual({ model: "acme/coder-9" });
+    expect(startPicks({ agent: "claude", list: claude, model: "two words", effort: "" })).toEqual({});
+    expect(startPicks({ agent: "claude", list: { ...claude, locked: "固定了模型" }, model: "acme/coder-9", effort: "" })).toEqual({});
+    expect(startPicks({ agent: "claude", list: null, model: "acme/coder-9", effort: "" })).toEqual({});
+    expect(startPicks({ agent: "traex", list: undefined, model: "acme/coder-9", effort: "" })).toEqual({});
+    expect(startPicks({ agent: "claude", list: typed, model: "vendor/model-x", effort: "" })).toEqual({ model: "vendor/model-x" });
+  });
+
+  it("a typed ID's efforts aren't known: all of them", () => {
+    expect(effortChoices(typed, "vendor/model-x")).toEqual(all);
+    expect(effortChoices(typed, "acme/coder-9")).toEqual(all);
+    expect(effortChoices(typed, "haiku")).toEqual([]);
+  });
+
+  it("forgets one off the list, and puts it back where it was", () => {
+    const { list, restore } = withoutCustom(typed, "vendor/model-x");
+    expect(ids(list.models)).toEqual(["default", "opus", "haiku", "gateway/glm-5.3", "~vendor/model-latest"]);
+    expect(ids(restore(list).models)).toEqual(ids(typed.models));
+    expect(withoutCustom(typed, "opus").list).toBe(typed); // only typed IDs
+    expect(restore(typed)).toBe(typed); // already back
+  });
+
+  it("DELETE …/models/custom?model=", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => "mock" });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) });
+    vi.stubGlobal("fetch", fetch);
+    await forgetCustomModel("mac", "cc gw", "~vendor/model-latest[1m]");
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe("DELETE");
+    expect(url).toContain("/api/v1/machines/mac/launchers/cc%20gw/models/custom?model=~vendor%2Fmodel-latest%5B1m%5D");
   });
 });

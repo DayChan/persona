@@ -49,7 +49,13 @@ struct PersonaDot: View {
         let still = reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
         Group {
             if !p.isBuiltin, let frames = model.personas.frames(p, state) {
+                #if os(iOS) || os(visionOS)
+                VisibleWork { eligible in
+                    PersonaFramesView(frames: frames, animating: !still, eligible: eligible)
+                }
+                #else
                 PersonaFramesView(frames: frames, animating: !still)
+                #endif
             } else {
                 AssistantAvatar(size: size, design: p.avatarDesign, state: state, still: still)
             }
@@ -69,40 +75,69 @@ extension Persona {
 struct PersonaFramesView: UIViewRepresentable {
     var frames: PersonaFrames
     var animating: Bool
+    var eligible: Bool
 
-    final class Coordinator {
-        var shown: PersonaFrames?
-        var animating = false
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> UIImageView {
-        let v = UIImageView()
+    func makeUIView(context: Context) -> PersonaFramesImageView {
+        let v = PersonaFramesImageView()
         v.contentMode = .scaleAspectFit
         v.clipsToBounds = true
         return v
     }
 
-    func updateUIView(_ v: UIImageView, context: Context) {
-        let c = context.coordinator
-        guard c.shown !== frames || c.animating != animating else { return }
-        c.shown = frames
-        c.animating = animating
-        v.stopAnimating()
-        v.image = frames.images[0]
-        if animating, frames.images.count > 1 {
-            v.animationImages = frames.images
-            v.animationDuration = frames.duration
-            v.animationRepeatCount = 0
-            v.startAnimating()
-        } else {
-            v.animationImages = nil
-        }
+    func updateUIView(_ v: PersonaFramesImageView, context: Context) {
+        v.configure(frames: frames, animating: animating, eligible: eligible)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIImageView, context: Context) -> CGSize? {
+    static func dismantleUIView(_ v: PersonaFramesImageView, coordinator: ()) {
+        v.clearFrames()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PersonaFramesImageView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 44, height: proposal.height ?? 44)
+    }
+}
+
+/// Window attachment and eligibility both own playback; removing a representable also releases its decoded frames.
+final class PersonaFramesImageView: UIImageView {
+    private var frames: PersonaFrames?
+    private var animationRequested = false
+    private var eligible = false
+
+    func configure(frames: PersonaFrames, animating: Bool, eligible: Bool) {
+        guard self.frames !== frames || animationRequested != animating || self.eligible != eligible else { return }
+        self.frames = frames
+        animationRequested = animating
+        self.eligible = eligible
+        stopAnimating()
+        image = frames.images.first
+        updatePlayback()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updatePlayback()
+    }
+
+    private func updatePlayback() {
+        guard window != nil, eligible, animationRequested, let frames, frames.images.count > 1 else {
+            stopAnimating()
+            animationImages = nil
+            return
+        }
+        guard !isAnimating else { return }
+        animationImages = frames.images
+        animationDuration = frames.duration
+        animationRepeatCount = 0
+        startAnimating()
+    }
+
+    func clearFrames() {
+        stopAnimating()
+        animationImages = nil
+        image = nil
+        frames = nil
+        eligible = false
+        animationRequested = false
     }
 }
 #endif

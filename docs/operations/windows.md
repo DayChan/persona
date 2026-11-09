@@ -209,7 +209,7 @@ The desktop app's Code page and a `claude` in an ordinary terminal (Windows Term
 
 - **The inbox is a named pipe**, `\\.\pipe\LOCAL\cc-msg-<32 hex>`, dialed with `tailscale/go-winio`. On Windows it requires an auth line first: the token is in the key file next to `sessions/<pid>.json` (`<pid>.<sha256 of the pipe path, lower-cased>.key`), readable only by the user, as Persona's node is. Without it the session lists read-only, saying why.
 - **The desktop app's entrypoint** is `claude-desktop`, or in some builds `claude-desktop-3p`: both are the desktop app (also in the "open elsewhere" refusal's words).
-- **A terminal Persona drives is told apart by the claude process's environment**: a pane variable (`HERDR_PANE_ID`, `ORCA_PANE_KEY`…) read from its PEB means the engine lists it, so it is not listed twice.
+- **A terminal Persona drives is told apart by the claude process's environment**: a pane variable (`HERDR_PANE_ID`, `ORCA_PANE_KEY`…) read from its PEB, naming a pane an engine in use lists with a claude in it, means the engine lists it, so it is not listed twice.
 - **Pid reuse**: Claude Code writes `procStart` as the process's creation time (a FILETIME); the node compares it with the running process's (`procinfo.StartMark`), so a reused pid is not taken for the claude.
 - **Held messages**: the desktop app often runs sessions in bypass permissions mode, which holds a message from another sender until the person at the computer approves it in the session; the phone says the message is waiting there. `"crossSessionInbound": "accept"` in that Claude Code's settings delivers without asking.
 

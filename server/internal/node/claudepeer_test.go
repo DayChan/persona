@@ -71,8 +71,9 @@ func TestOutsideClaudeListedLive(t *testing.T) {
 	}
 }
 
-// A claude in a terminal of Persona's engines that its engine has not listed (a nested tmux, a pane not reported yet)
-// is not taken for one outside: its environment names a pane.
+// A claude in a pane its engine lists with a claude in it is that engine's, not one outside. A claude whose pane
+// variable names a pane no engine in use lists as a claude (Orca's terminals on a node that enables herdr alone, a
+// claude the engine's process scan missed) is listed live as a terminal claude, never left to the offline list.
 func TestClaudeInEnginePaneNotOutside(t *testing.T) {
 	n, f, home := herdrNode(t)
 	old := paneEnvOfPID
@@ -80,9 +81,29 @@ func TestClaudeInEnginePaneNotOutside(t *testing.T) {
 	t.Cleanup(func() { paneEnvOfPID = old })
 	p := bgTranscript(t, home, home, sidA, "inside")
 	writeOutsideClaude(t, home, sidA, "cli", "busy", newFakeInbox(t, p), nil)
-	f.reply("session.snapshot", snapshot(nil, nil, nil, nil))
+	f.reply("session.snapshot", snapshot(nil, nil, []any{claudeAgent("", proto.StatusWorking, "w9:p9", "w9:t9", "w9", home, "")}, nil))
 	if s, ok := byID(listSessions(t, n))[sidA]; ok && s.SourceKind != "" {
 		t.Errorf("a claude in an engine pane listed as outside: %+v", s)
+	}
+
+	// An Orca pane on a node that does not enable Orca: nothing lists it. Just seen, it is left to its engine for a
+	// moment (an engine reports a claude typed into its pane a little after it starts); then it is a live terminal claude.
+	paneEnvOfPID = func(int) map[string]string { return map[string]string{orcaPaneEnv: "tab-1:leaf-1"} }
+	f.reply("session.snapshot", snapshot(nil, nil, nil, nil))
+	if s, ok := byID(listSessions(t, n))[sidA]; ok && s.SourceKind != "" {
+		t.Errorf("a claude just seen in an engine pane listed as outside: %+v", s)
+	}
+	oldGrace := outsidePaneGrace
+	outsidePaneGrace = 0
+	t.Cleanup(func() { outsidePaneGrace = oldGrace })
+	if s := byID(listSessions(t, n))[sidA]; s.SourceKind != proto.SourceClaudeTerminal || s.Status != proto.StatusWorking {
+		t.Errorf("a claude in a pane no engine lists: %+v", s)
+	}
+	// The pane is listed but its engine saw no claude there (its scan missed it): still live.
+	paneEnvOfPID = func(int) map[string]string { return map[string]string{herdrPaneEnv: "w9:p9"} }
+	f.reply("session.snapshot", snapshot(nil, nil, []any{agentOf("", "", "", "w9:p9", "w9:t9", "w9", home, "")}, nil))
+	if s := byID(listSessions(t, n))[sidA]; s.SourceKind != proto.SourceClaudeTerminal || s.Status != proto.StatusWorking {
+		t.Errorf("a claude in a pane whose engine saw no claude: %+v", s)
 	}
 	// The desktop app's claude has no pane variable to look for: always outside.
 	writeOutsideClaude(t, home, sidA, "claude-desktop", "idle", newFakeInbox(t, p), nil)

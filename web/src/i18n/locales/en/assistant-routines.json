@@ -36,5 +36,6 @@
   "menu_delete_confirm": "Confirm delete",
   "chat_at": "Chat · {when} {time}",
   "chat_n": "Chat {n}",
-  "chats_label": "Chats from “{title}”"
+  "chats_label": "Chats from “{title}”",
+  "until": "Until {when}"
 }

@@ -73,5 +73,8 @@
   "days_other": "{count} days",
   "hours_one": "{count} hr",
   "hours_other": "{count} hr",
-  "model_config_assistant": "Models follow Model settings › Main chat"
+  "model_config_assistant": "Models follow Model settings › Main chat",
+  "until_label": "End time",
+  "until_hint": "Optional. After this moment the task turns off by itself and a skipped run is recorded. Leave it empty to keep going.",
+  "until_clear": "Clear"
 }

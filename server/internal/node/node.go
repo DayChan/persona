@@ -194,6 +194,9 @@ type Node struct {
 
 	// hostAgents: each host's agents in its last answer (refreshHosts), kept for a host that does not answer.
 	hostAgents map[string][]host.Agent
+	// paneClaudes: when the outside-claude list first saw each claude whose environment names an engine pane, by pid
+	// (claudeInPane's grace while its engine has not reported it yet).
+	paneClaudes map[int]paneClaudeSeen
 	// workspaceDirs avoids resolving every listed session directory every second.
 	workspaceDirs workspaceDirectoryCache
 

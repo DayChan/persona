@@ -34,5 +34,20 @@
   "worktree_hint": "A branch and a checkout of its own: the agent changes code there, and this folder stays as it is.",
   "worktree_branch": "Branch",
   "worktree_path": "Checks out to {path}",
-  "worktree_failed": "Couldn’t create the worktree: {error}"
+  "worktree_failed": "Couldn’t create the worktree: {error}",
+  "how_to_fix": "How to fix",
+  "how_to_fix_named": "How to fix {name}",
+  "runs_this_time": "Used this time",
+  "blocked_terminal_body": "Persona found “{name}” in this computer's login shell, but the shell new terminal tabs run doesn't have it: another shell, a container, or a startup file that stops early. New agents start in those tabs.",
+  "blocked_terminal_fix_rc": "Define it in a startup file the terminal's shell reads (for bash, ~/.bashrc), then start again.",
+  "blocked_terminal_fix_provider": "Or add it to Persona as a model provider: those work in any terminal.",
+  "blocked_terminal_clears": "A start with it that works clears this; otherwise it clears by itself after 6 hours.",
+  "blocked_other_body": "Its latest check on this computer failed, and automatic repair didn't fix it.",
+  "blocked_other_fix": "Fix its key, gateway or CLI on that computer, or pick another launcher.",
+  "blocked_other_clears": "A check or start with it that works clears this.",
+  "details": "Details",
+  "add_provider": "Add model provider",
+  "try_anyway": "Try anyway",
+  "close_help": "Close",
+  "forget_failed": "Couldn't forget “{id}”: {error}"
 }

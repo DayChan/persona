@@ -745,3 +745,8 @@ Two more from the same harness:
 - A test that saves and reads back (a relaunch, the outbox) makes its models with `AppModel(stateFolder:)` on a folder of its own, and again on the same folder for the relaunch (`SyncDevice`, `OutboxRestoreTests`). Nothing it writes reaches the app's files.
 
 To check that a failure is this, move `dev.json` aside in the app's data container and run the test again.
+
+## Playwright's "visible" counts a drawer parked off the screen (2026-11-09, #1643)
+
+- At phone width the web sidebar is a drawer moved off the screen with a transform, not hidden: `getByRole(…).filter({ visible: true })` and `isVisible()` still count its buttons, and a click on one waits out its timeout. Reach a control at that width from the page that shows it (the Agents page's New agent, `web/e2e/launcher-health.mjs`), or scope the locator to `main`.
+- `?token=mock` pairs asynchronously: wait for something only a paired page has (`main textarea`) before setting `localStorage` and reloading, or the reload lands on the sign-in page.

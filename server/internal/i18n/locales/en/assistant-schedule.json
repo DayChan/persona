@@ -10,6 +10,8 @@
   "interval_range": "The interval must be between {min} minutes and 7 days",
   "pick_time": "Pick a time to run",
   "time_passed": "That time has passed. Pick a later one.",
+  "until": "Stopped at its end time",
+  "until_passed": "That end time has passed. Pick a later one, or clear it.",
   "bad_launcher": "The launcher name {launcher} isn’t valid",
   "bad_permission_mode": "Unknown permission mode {mode}",
   "bad_effort": "Unknown thinking effort {effort}",

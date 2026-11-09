@@ -33,6 +33,8 @@ export interface Task {
   /** "Push when done" (hubs with the task_push feature): "" every run's answer, "asked" only what a run sends with notify_user.
    *  An "asked" task always runs in its own conversation (docs/assistant/assistant.md "Push when done"). */
   push?: Push;
+  /** Optional end time (RFC 3339). After it, a daily or interval task turns itself off. Ignored for once; omitted when unset. */
+  until?: string;
   created_by?: string;
   created_at?: string;
   last_run?: string;
@@ -236,6 +238,15 @@ export function runsWith(task: Pick<Task, "launcher" | "permission_mode" | "effo
 
 // ── the editor ──────────────────────────────────────────
 
+/** An enabled daily or interval task whose end time is more than a minute ago (the same grace as a one-off's `at`).
+ *  Empty is fine, a disabled task may keep a past end time, and a one-off is not checked. */
+function pastUntil(d: Task, now: Date): string | null {
+  if (!d.enabled || d.repeat === "once") return null;
+  const at = parseTime(d.until);
+  if (!at || at.getTime() >= now.getTime() - 60_000) return null;
+  return t("lib-routines.error_until");
+}
+
 /** What the editor checks before saving (the hub checks the same and says why in Chinese): null = fine. */
 export function validateTask(d: Task, now: Date): string | null {
   if (d.repeat !== "once" && !d.title.trim()) return t("lib-routines.error_title");
@@ -243,11 +254,11 @@ export function validateTask(d: Task, now: Date): string | null {
   switch (d.repeat) {
     case "daily":
       if (!HHMM.test(d.time ?? "")) return t("lib-routines.error_time");
-      return null;
+      return pastUntil(d, now);
     case "interval": {
       const m = d.every_minutes ?? 0;
       if (!Number.isInteger(m) || m < MIN_EVERY || m > MAX_EVERY) return t("lib-routines.error_interval");
-      return null;
+      return pastUntil(d, now);
     }
     case "once": {
       const at = parseTime(d.at);
@@ -267,6 +278,7 @@ export function sameTask(a: Task, b: Task): boolean {
   if ((a.session_id ?? "") !== (b.session_id ?? "")) return false;
   if ((a.permission_mode ?? "") !== (b.permission_mode ?? "")) return false;
   if ((a.push ?? "") !== (b.push ?? "")) return false;
+  if (a.repeat !== "once" && !sameInstant(a.until, b.until)) return false;
   switch (a.repeat) {
     case "once":
       return parseTime(a.at)?.getTime() === parseTime(b.at)?.getTime();
@@ -277,8 +289,25 @@ export function sameTask(a: Task, b: Task): boolean {
   }
 }
 
+/** The same instant, with both missing (empty, unparsable, or Go's zero time) counting as the same. */
+function sameInstant(a?: string | null, b?: string | null): boolean {
+  return (parseTime(a)?.getTime() ?? null) === (parseTime(b)?.getTime() ?? null);
+}
+
+/** The `until` value for a save, or `undefined` when the key stays out of the body.
+ *  A new daily or interval task sends an ISO time only when one is set. An update leaves the key out when the instant
+ *  is unchanged; clearing a repeating task sends null; switching to once clears a stored end time and otherwise omits it. */
+function untilBody(d: Task, saved?: Task | null): string | null | undefined {
+  const draft = parseTime(d.until);
+  if (!saved) return d.repeat === "once" || !draft ? undefined : draft.toISOString();
+  if (d.repeat === "once") return parseTime(saved.until) ? null : undefined;
+  if (sameInstant(d.until, saved.until)) return undefined;
+  return draft ? draft.toISOString() : null;
+}
+
 /** The JSON for POST (no `saved`) or PUT. Models follow Models › Main chat; tasks only configure permissions.
- *  `push` goes only when changed from `saved`. `session_id` "" makes runs use the task's own conversation; `at` is left out when there is none (Go can't read ""). */
+ *  `push` goes only when changed from `saved`. `session_id` "" makes runs use the task's own conversation; `at` is left out when there is none (Go can't read "").
+ *  `until` follows untilBody: omit to keep, null to clear. */
 export function taskBody(d: Task, saved?: Task | null): Record<string, unknown> {
   const body: Record<string, unknown> = {
     title: d.title.trim(),
@@ -293,9 +322,18 @@ export function taskBody(d: Task, saved?: Task | null): Record<string, unknown> 
   };
   const at = d.repeat === "daily" ? null : parseTime(d.at);
   if (at) body.at = at.toISOString();
+  const until = untilBody(d, saved);
+  if (until !== undefined) body.until = until;
   // Only when changed: a hub keeps it when left out, and one that does not know it never gets it.
   if ((d.push ?? "") !== (saved?.push ?? "")) body.push = d.push ?? "";
   return body;
+}
+
+/** "Until Today 18:00" for a repeating task that has an end time; "" for a one-off or when none is set (the row renders nothing). */
+export function untilText(task: Pick<Task, "repeat" | "until">, now: Date): string {
+  if (task.repeat === "once") return "";
+  const d = parseTime(task.until);
+  return d ? t("assistant-routines.until", { when: momentLabel(d, now) }) : "";
 }
 
 /** The draft with "Push when done" set. "asked" runs in the task's own conversation: "Continue the original chat" goes (the hub clears it too). */

@@ -31,5 +31,10 @@
   "new_main": "New main chat",
   "new_main_body": "The current main chat will be archived as \"{title}\" and you can find it under Archived. The new main chat starts with your next message.",
   "carry_summary": "Bring a summary of the old chat",
-  "carry_summary_hint": "Without compacting, only the last few messages come along. For a full summary, compact the context first."
+  "carry_summary_hint": "Without compacting, only the last few messages come along. For a full summary, compact the context first.",
+  "typed_before": "Typed before",
+  "other_model": "Other model…",
+  "model_id_placeholder": "Model ID, e.g. vendor/model-name",
+  "forget_typed": "Forget a typed model",
+  "forget_failed": "Couldn't forget “{id}”: {error}"
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"io"
 	"net"
 	"os"
@@ -345,7 +346,20 @@ func TestKeyFileMadePrivate(t *testing.T) {
 	}
 }
 
-// A second upload while one is going is turned away at once, not queued without a deadline.
+// bigBinary is size bytes gzip cannot shrink: far more than the socket buffers hold, like a real personad.
+func bigBinary(t *testing.T, size int) string {
+	t.Helper()
+	b := make([]byte, size)
+	_, _ = rand.Read(b)
+	p := filepath.Join(t.TempDir(), "personad-big")
+	if err := os.WriteFile(p, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A second upload while one is going is turned away at once, not queued without a deadline, and the hub hears why even
+// when the binary is too big to fit in the socket buffers (not the broken pipe of the node closing mid-send).
 func TestUploadOneAtATime(t *testing.T) {
 	exe := fakeBinary(t, t.TempDir(), "v1")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -365,10 +379,62 @@ func TestUploadOneAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := Upload(ctx, c, fakeBinary(t, t.TempDir(), "v2")); err == nil || !strings.Contains(err.Error(), "in progress") {
+	if err := Upload(ctx, c, bigBinary(t, 16<<20)); err == nil || !strings.Contains(err.Error(), "in progress") {
 		t.Fatalf("second upload: %v, want turned away", err)
+	}
+}
+
+// A node that turns an upload away reads what the hub is still sending before it closes: closing with unread data
+// answers with a reset, which can destroy the answer before the hub reads it.
+func TestRefusedUploadIsDrained(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go ServeUpload(ln, fakeBinary(t, t.TempDir(), "v1"), nil)
+	c, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	body, _ := os.ReadFile(bigBinary(t, 16<<20))
+	if _, err := c.Write(append([]byte(`{"size":-1,"sha256":""}`+"\n"), body...)); err != nil {
+		t.Fatalf("send after the refusal: %v, want read and dropped", err)
+	}
+	if line, _ := bufio.NewReader(c).ReadString('\n'); !strings.Contains(line, "out of range") {
+		t.Fatalf("answer %q, want the size refused", line)
+	}
+}
+
+// The hub reads the answer while it sends: a node that refuses and closes at once (an older one) still says why.
+func TestUploadHearsAnEarlyRefusal(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_, _ = bufio.NewReader(c).ReadString('\n')
+		_, _ = io.WriteString(c, `{"error":"size 1 out of range"}`+"\n")
+		c.Close() // with the binary unread: a reset
+	}()
+	c, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := Upload(ctx, c, bigBinary(t, 16<<20)); err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("upload: %v, want the node's reason", err)
 	}
 }
 

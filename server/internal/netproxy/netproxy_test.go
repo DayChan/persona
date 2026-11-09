@@ -11,7 +11,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	for _, ok := range []string{"http://127.0.0.1:8080", " http://user:pass@proxy.example:3128 ", "http://[::1]:8080/"} {
+	for _, ok := range []string{"http://127.0.0.1:8080", " http://user:pass@proxy.example:3128 ", "http://[::1]:8080/", "http://proxy.example"} {
 		if u, err := Parse(ok); err != nil || u == nil {
 			t.Errorf("%q: %v %v", ok, u, err)
 		}
@@ -19,15 +19,36 @@ func TestParse(t *testing.T) {
 	if u, err := Parse("  "); u != nil || err != nil {
 		t.Errorf("blank: %v %v", u, err)
 	}
-	for _, bad := range []string{"socks5://127.0.0.1:1080", "127.0.0.1:8080", "http://", "http://h:1/x", "http://h:1?a=b", "https://h:1"} {
+	// A left-out port is 80 in the URL itself, not only in net/http: mail dials u.Host for its CONNECT tunnels.
+	for raw, host := range map[string]string{"http://proxy.example": "proxy.example:80", "http://user:pass@proxy.example/": "proxy.example:80",
+		"http://[::1]": "[::1]:80", "http://proxy.example:3128": "proxy.example:3128"} {
+		if u, err := Parse(raw); err != nil || u.Host != host || (u.User != nil) != strings.Contains(raw, "@") {
+			t.Errorf("%q: %v %v, want host %q", raw, u, err, host)
+		}
+	}
+	for _, bad := range []string{"socks5://127.0.0.1:1080", "127.0.0.1:8080", "http://", "http://h:1/x", "http://h:1?a=b", "https://h:1",
+		"http://:8080", "http://proxy.example:", "http://proxy.example:0", "http://proxy.example:99999", "http://[::1]:", "http://h:1#x"} {
 		if _, err := Parse(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	// A password never shows in the error.
-	for _, bad := range []string{"socks5://user:s3cret@h:1", "http://user:s3cret@h:1/x", "http://user:s3cret@h:%zz"} {
-		if _, err := Parse(bad); err == nil || strings.Contains(err.Error(), "s3cret") {
-			t.Errorf("%q: %v", bad, err)
+	// No part of a password shows in the error, also when a '/', '?', '#' or bad escape in it makes url.Parse read part of it as
+	// the port, path, query or fragment; the error still names the proxy.
+	for _, c := range []struct{ raw, secret string }{
+		{"socks5://user:s3cret@proxy.example:1", "s3cret"},
+		{"http://user:s3cret@proxy.example:1/x", "s3cret"},
+		{"http://user:s3cret@proxy.example:%zz", "s3cret"},
+		{"user:s3cret@proxy.example:8080", "s3cret"},
+		{"http://user:4242/ss@proxy.example:8080", "4242"},
+		{"http://user:4242?ss@proxy.example:8080", "4242"},
+		{"http://user:4242#ss@proxy.example:8080", "4242"},
+		{"http://user:s3cr?t@proxy.example:8080", "s3cr"},
+		{"http://user:s3cr#t@proxy.example:8080", "s3cr"},
+		{"http://user:s3cr/t@proxy.example:8080", "s3cr"},
+		{"http://user:ab%zz@proxy.example:8080", "%zz"},
+	} {
+		if _, err := Parse(c.raw); err == nil || strings.Contains(err.Error(), c.secret) || !strings.Contains(err.Error(), "proxy.example") {
+			t.Errorf("%q: %v", c.raw, err)
 		}
 	}
 }

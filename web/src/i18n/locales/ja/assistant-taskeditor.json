@@ -69,5 +69,8 @@
   "minutes_other": "{count}分",
   "days_other": "{count}日",
   "hours_other": "{count}時間",
-  "model_config_assistant": "モデルは「モデル設定 › メインチャット」に従います"
+  "model_config_assistant": "モデルは「モデル設定 › メインチャット」に従います",
+  "until_label": "終了時刻",
+  "until_hint": "任意です。この時刻を過ぎるとタスクは自ら停止し、スキップした記録が残ります。空なら繰り返し続けます。",
+  "until_clear": "解除"
 }

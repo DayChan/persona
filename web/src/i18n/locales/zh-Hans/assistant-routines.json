@@ -34,5 +34,6 @@
   "menu_delete_confirm": "确认删除",
   "chat_at": "{when} {time} 的对话",
   "chat_n": "对话 {n}",
-  "chats_label": "「{title}」跑出来的对话"
+  "chats_label": "「{title}」跑出来的对话",
+  "until": "截止 {when}"
 }

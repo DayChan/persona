@@ -41,8 +41,10 @@ import Testing
         #expect(c.detail == "opus → claude-opus-5-5")
         c.picked = "default" // the default entry picked by id is still no model
         #expect(c.sent == nil)
-        c.picked = "gone" // a pick that is no longer listed
-        #expect(c.sent == nil && c.title == "默认")
+        c.picked = "gone" // a pick the list doesn't have: typed (#1644), it goes as it is
+        #expect(c.sent == "gone" && c.typed == "gone" && c.title == "gone" && c.detail == "手动输入的模型 ID")
+        c.picked = "two words" // not a model ID: never sent
+        #expect(c.sent == nil && c.typed == nil && c.title == "默认")
     }
 
     @Test func aLockedLauncherSendsNothing() throws {
@@ -85,8 +87,12 @@ import Testing
         #expect(c.customModelID("  my-gateway/model-x ") == "my-gateway/model-x")
         #expect(c.customModelID("opus") == nil) // listed: pick its row
         #expect(c.customModelID("two words") == nil && c.customModelID("") == nil)
+        // The hub's rule (#1644): what it would refuse isn't offered, and says why.
+        #expect(c.customModelID("-x") == nil && c.customModelID("a$b") == nil && c.customModelID("~vendor/model-latest") == "~vendor/model-latest")
+        #expect(c.customProblem("a$b") == ModelID.Problem.character("$").text)
+        #expect(c.customProblem("opus") == nil && c.customProblem("  ") == nil && c.customProblem("ok-id") == nil)
         c.picked = "my-gateway/model-x"
-        #expect(c.unlisted == "my-gateway/model-x" && c.title == "默认")
+        #expect(c.unlisted == "my-gateway/model-x" && c.typed == "my-gateway/model-x")
         c.picked = "opus"
         #expect(c.unlisted == nil)
         let decoded = try list(#"{"agent":"claude","machine":"desk","models":[]}"#)
@@ -121,8 +127,8 @@ import Testing
         #expect(c.title == "默认" && c.sent == nil && c.defaultDetail == "6.1")
         c.configured = raw
         #expect(c.defaultDetail == "模型配置：6.1 Sol" && c.configured == raw)
-        c.picked = "not-listed"
-        #expect(c.title == "默认" && c.unlisted == "not-listed" && c.sent == nil)
+        c.picked = "not-listed" // typed for Codex (#1644)
+        #expect(c.title == "not-listed" && c.unlisted == "not-listed" && c.sent == "not-listed")
         let request = APIClient.StartRequest(machineID: "example-box", cwd: "/code", launcher: "codex", model: raw)
         let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
         #expect(body?["model"] as? String == raw)
@@ -130,6 +136,47 @@ import Testing
         let entries = encoded?["models"] as? [[String: Any]]
         #expect(entries?[1]["id"] as? String == raw)
         #expect(entries?[1]["name"] as? String == "GPT-6.1-Sol")
+    }
+
+    /// #1644: Claude Code and Codex take any model ID, so an empty list still lets one be typed; the IDs typed before
+    /// come after the agent's own, with no efforts known (every level stays offered); a locked launcher sends none.
+    @Test func typedModelIDs() throws {
+        let l = try list("""
+        {"agent":"claude","models":[
+          {"id":"default","name":"Default","default":true,"efforts":["low","high"]},
+          {"id":"opus","name":"Opus 5.5","efforts":["low","high"]},
+          {"id":"vendor/model-x","name":"vendor/model-x","description":"A model ID you used before","custom":true},
+          {"id":"~vendor/model-latest","name":"~vendor/model-latest","custom":true}
+        ]}
+        """)
+        var c = LauncherModelChoice(list: l)
+        #expect(c.takesTyped && c.canPick)
+        #expect(c.remembered.map(\.id) == ["vendor/model-x", "~vendor/model-latest"])
+        #expect(c.choices.map(\.id) == ["opus", "vendor/model-x", "~vendor/model-latest"])
+        c.picked = "vendor/model-x"
+        #expect(c.sent == "vendor/model-x" && c.typed == nil && c.efforts == nil && c.detail == "手动输入的模型 ID")
+        c.picked = "glm-5" // typed, unlisted
+        #expect(c.sent == "glm-5" && c.efforts == nil)
+        c.picked = "opus"
+        #expect(c.efforts == ["low", "high"])
+
+        let empty = LauncherModelChoice(list: LauncherModels(agent: "claude", models: []), picked: "glm-5")
+        #expect(empty.canPick && empty.sent == "glm-5" && empty.remembered.isEmpty)
+        #expect(LauncherModelChoice(list: LauncherModels(agent: "codex", models: [])).canPick)
+        // Another agent (TRAEX, a runtime) takes no model: no row, nothing sent.
+        let traex = LauncherModelChoice(list: LauncherModels(agent: "traex", models: []), picked: "glm-5")
+        #expect(!traex.canPick && !traex.takesTyped && traex.sent == nil)
+        var locked = l
+        locked.locked = "启动器固定了模型参数"
+        let lc = LauncherModelChoice(list: locked, picked: "glm-5")
+        #expect(!lc.canPick && !lc.takesTyped && lc.sent == nil)
+        #expect(!LauncherModelChoice(list: LauncherModels(agent: "claude", models: [], locked: "fixed")).canPick)
+        // The locked row stays where a model could otherwise be picked or typed, an empty list too.
+        #expect(lc.showsLocked)
+        #expect(LauncherModelChoice(list: LauncherModels(agent: "claude", models: [], locked: "fixed")).showsLocked)
+        #expect(LauncherModelChoice(list: LauncherModels(agent: "codex", models: [], locked: "fixed")).showsLocked)
+        #expect(!LauncherModelChoice(list: LauncherModels(agent: "traex", models: [], locked: "fixed")).showsLocked)
+        #expect(!LauncherModelChoice(list: LauncherModels(agent: "claude", models: [])).showsLocked)
     }
 
     @Test func aStartCarriesThePick() throws {

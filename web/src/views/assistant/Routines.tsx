@@ -9,7 +9,7 @@ import { isAutoConversation } from "../../lib/conversation-origins";
 import {
   taskConversations, parseTime,
   fromTemplate, hm, blankTask, dayLabel, lastRunText, nextText, ruleText, runDays, runsWith, splitTasks, taskBody, taskTitle, TEMPLATES,
-  untilLabel, upcoming, type Run, type Task,
+  untilLabel, untilText, upcoming, type Run, type Task,
 } from "../../lib/routines";
 import { isResumed } from "../../lib/reconnect";
 import { onHubEvent, useStore } from "../../lib/store";
@@ -297,6 +297,7 @@ function TaskRow({ task, now, chats, onOpen, onMenu, onToggle }: { task: Task; n
   const with_ = runsWith(task);
   const last = lastRunText(task, now);
   const next = nextText(task, now);
+  const until = untilText(task, now);
   const menu = contextMenuProps(onMenu);
   return (
     <div>
@@ -329,6 +330,7 @@ function TaskRow({ task, now, chats, onOpen, onMenu, onToggle }: { task: Task; n
           {/* "Push when done" on the rule's line, not as a pill: two pills squeezed the title away on a phone */}
           {task.push === "asked" && ` · ${t("assistant-routines.push_asked")}`}
         </div>
+        {until ? <div className="mt-0.5 truncate text-[11.5px] text-ink-3 tabular-nums">{until}</div> : null}
         {next && <div className="mt-0.5 truncate text-[11.5px] text-ink-3 tabular-nums">{next}</div>}
         {with_ && (
           <div className={cx("mt-0.5 flex items-center gap-1 truncate text-[11.5px]", with_.danger ? "font-medium text-red" : "text-ink-3")}>

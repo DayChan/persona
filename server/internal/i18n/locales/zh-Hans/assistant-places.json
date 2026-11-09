@@ -1,0 +1,10 @@
+{
+  "err_store": "常用地点暂时不可用：助手没有数据库。",
+  "err_read_only": "这台设备只能查看常用地点。",
+  "err_not_found": "这个常用地点已经不在了。",
+  "err_coordinates": "地点需要纬度（-90 到 90）和经度（-180 到 180）。",
+  "err_name": "地点名称不能为空，最多 {max} 个字，只能一行。",
+  "err_address": "地址最多 {max} 个字，只能一行。",
+  "err_too_many": "最多只能保存 {max} 个常用地点。",
+  "err_name_taken": "已经有叫「{name}」的地点了。"
+}
