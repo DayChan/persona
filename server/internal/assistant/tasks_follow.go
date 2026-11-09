@@ -345,9 +345,11 @@ func (s *Service) taskTurnEndedAfter(ctx context.Context, machine, sid string, a
 	s.tasks.mu.Unlock()
 	time.AfterFunc(time.Until(at), func() {
 		s.tasks.mu.Lock()
-		if s.tasks.limitLooks[ref].Equal(at) {
-			delete(s.tasks.limitLooks, ref)
+		if !s.tasks.limitLooks[ref].Equal(at) {
+			s.tasks.mu.Unlock()
+			return
 		}
+		delete(s.tasks.limitLooks, ref)
 		s.tasks.mu.Unlock()
 		s.taskTurnEnded(ctx, machine, sid)
 	})
