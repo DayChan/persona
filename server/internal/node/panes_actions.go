@@ -232,7 +232,7 @@ func (n *Node) runAgentInPane(ctx context.Context, pane, launcher string) (*prot
 	if err != nil {
 		return nil, err
 	}
-	launch, err := hostCap[host.Launcher](n)
+	launch, err := n.launcherFor(n.defaultKind())
 	if err != nil {
 		return nil, err
 	}

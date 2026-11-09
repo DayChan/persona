@@ -121,6 +121,25 @@ func TestSessionStartRefusesAHostNotEnabled(t *testing.T) {
 	}
 }
 
+// A start on a default host that cannot start sessions (Herdr App) gets the same refusal as one naming it, with the
+// engines that can, not "unsupported: herdr-core cannot do this".
+func TestStartOnHerdrCoreDefaultIsRefused(t *testing.T) {
+	n, hh, oh := startNode(t)
+	c := proto.EngineChoice{Hosts: []string{"herdr", "herdr-core", "orca"}, Default: "herdr-core"}
+	n.eng.name, n.eng.set = proto.LegacyEngine(c), &c
+	_, err := n.start(context.Background(), t.TempDir(), "", "hi", "", "", "", "", "", "", "")
+	if code, _ := refusalOf(t, err); code != engineMissing {
+		t.Fatalf("code %q: %v", code, err)
+	}
+	if errors.Is(err, host.ErrUnsupported) || !strings.Contains(err.Error(), "Herdr App 不支持从手机新开会话") ||
+		!strings.Contains(err.Error(), "herdr + Herdr App") {
+		t.Errorf("refusal: %v", err)
+	}
+	if hh.asked()+oh.asked() != 0 {
+		t.Errorf("a host was asked: herdr %d orca %d", hh.asked(), oh.asked())
+	}
+}
+
 // Rows say which host they live in.
 func TestSessionRowsCarryTheirHost(t *testing.T) {
 	n, _, _, _ := setNode(t)

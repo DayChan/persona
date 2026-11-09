@@ -103,7 +103,7 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 	}
 
 	// New sessions start in the host the start named, else the default host (herdr-core cannot start them).
-	launch, err := hostCapFor[host.Launcher](n, n.startKind(ctx))
+	launch, err := n.launcherFor(n.startKind(ctx))
 	if err != nil {
 		return nil, err
 	}

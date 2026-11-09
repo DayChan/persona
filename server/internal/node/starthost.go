@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/nwverse/persona/server/internal/host"
@@ -46,9 +47,29 @@ func (n *Node) checkStartHost(kind string) error {
 		return nil // its runtime starts sessions (runtimecontrol.go)
 	}
 	if _, ok := n.hosts.Get(kind).(host.Launcher); !ok {
-		return refusal(engineMissing, fmt.Sprintf("%s 不支持从手机新开会话，这次没有发送。", name), nil)
+		return cannotStartRefusal(kind)
 	}
 	return nil
+}
+
+// launcherFor is the host of kind as a Launcher. One that cannot start sessions (herdr-core) gets checkStartHost's
+// refusal, so a start on the machine's default host does not show "unsupported: herdr-core cannot do this".
+func (n *Node) launcherFor(kind string) (host.Launcher, error) {
+	launch, err := hostCapFor[host.Launcher](n, kind)
+	if errors.Is(err, host.ErrUnsupported) {
+		return nil, cannotStartRefusal(kind)
+	}
+	return launch, err
+}
+
+// cannotStartRefusal refuses a start in host kind, which cannot start sessions; nothing is sent. Herdr App's says
+// which engines can.
+func cannotStartRefusal(kind string) error {
+	msg := fmt.Sprintf("%s 不支持从手机新开会话，这次没有发送。", proto.EngineNames[kind])
+	if kind == proto.EngineHerdrCore {
+		msg += "要从手机新开，在 设置 › 机器 › 这台电脑 › 引擎 里改用 herdr 或 herdr + Herdr App。"
+	}
+	return refusal(engineMissing, msg, nil)
 }
 
 // hostCapFor is the host of kind as capability C (hostCap for a start that named its host).
