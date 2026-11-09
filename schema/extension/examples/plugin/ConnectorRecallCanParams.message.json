@@ -1,0 +1,5 @@
+{
+  "contribution": "examplechat",
+  "action": "POST /conversations/chat_example_1/messages",
+  "age_seconds": 120
+}

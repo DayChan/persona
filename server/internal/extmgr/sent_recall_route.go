@@ -34,10 +34,6 @@ func byUsersOwnHand(ctx context.Context) bool {
 // errRecallNotConfirmed is a recall request that did not say the user agreed.
 var errRecallNotConfirmed = errors.New(`the user has not agreed: send {"confirm": true} once they have`)
 
-// errRecallBusy is a recall request that came while another recall of the row was on its way, which has ended without
-// taking the message back.
-var errRecallBusy = errors.New("another recall of this message was on its way and was not seen to take it back: ask again")
-
 // recallStatus is the status each reason a recall did not happen is answered with (docs/connectors.md "Sent as the
 // user", Failures); the body carries the reason's code. An error that is not a RecallError is a plain 500.
 var recallStatus = map[string]int{
@@ -51,41 +47,47 @@ var recallStatus = map[string]int{
 	RecallNoDatabase:      http.StatusServiceUnavailable,
 }
 
-// recallLocks keeps two recalls of one row from running at once (RecallSent leaves that to its caller: each would
-// call the connector, and only one of them marks the row). A request that finds one on its way waits for it to end, and
-// only that: it never calls the connector itself, so the most any request waits is one recall's time, however many come
-// at once. The zero value is ready.
+// recallLocks shares one recall of a ledger row (RecallSent leaves that to its caller). Every confirmed request that
+// finds the flight on its way waits for its actual row and error, never calling the connector itself; the most any
+// request waits is one recall's time, however many come at once. The zero value is ready.
 type recallLocks struct {
 	mu   sync.Mutex
-	busy map[int64]chan struct{} // the rows being taken back; each channel is closed when its recall ends
+	busy map[int64]*recallFlight
 }
 
-// enter says where a recall of row id stands. first: nothing was on its way, so the recall is this request's to run, and
-// release ends it. Not first: another recall of the row was on its way and has ended (or ctx is done, and err says so);
-// this request holds nothing and must not call the connector, release does nothing.
-func (l *recallLocks) enter(ctx context.Context, id int64) (first bool, release func(), err error) {
+type recallFlight struct {
+	done chan struct{}
+	row  db.SentAsUser
+	err  error
+}
+
+// do runs run once for row id, or shares the flight already running. first is true only for the caller that ran it,
+// which uses that to write one audit record. A waiter's own cancellation ends only its wait, not the shared recall.
+func (l *recallLocks) do(ctx context.Context, id int64, run func() (db.SentAsUser, error)) (row db.SentAsUser, first bool, err error) {
 	l.mu.Lock()
-	if wait, busy := l.busy[id]; busy {
+	if f := l.busy[id]; f != nil {
 		l.mu.Unlock()
 		select {
-		case <-wait:
-			return false, func() {}, nil
+		case <-f.done:
+			return f.row, false, f.err
 		case <-ctx.Done():
-			return false, nil, ctx.Err()
+			return db.SentAsUser{}, false, ctx.Err()
 		}
 	}
 	if l.busy == nil {
-		l.busy = map[int64]chan struct{}{}
+		l.busy = map[int64]*recallFlight{}
 	}
-	done := make(chan struct{})
-	l.busy[id] = done
+	f := &recallFlight{done: make(chan struct{}), err: errors.New("recall ended without a result")}
+	l.busy[id] = f
 	l.mu.Unlock()
-	return true, func() {
+	defer func() {
 		l.mu.Lock()
 		delete(l.busy, id)
+		close(f.done)
 		l.mu.Unlock()
-		close(done)
-	}, nil
+	}()
+	f.row, f.err = run()
+	return f.row, true, f.err
 }
 
 // sentRecallRoutes: POST /api/v1/connectors/sent/{id}/recall with {"confirm": true}.
@@ -117,26 +119,11 @@ func (h *Manager) sentRecallRoutes(api *http.ServeMux) {
 			writeErrCode(w, http.StatusBadRequest, "confirm_required", errRecallNotConfirmed)
 			return
 		}
-		first, release, err := h.recalls.enter(r.Context(), id)
-		if err != nil { // the client went away while another recall of this row was on its way
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		defer release()
-		// RecallSent checks the row first (a recall that has since taken the message back is already_recalled, with the
-		// row), then asks this: only the request that was first calls the connector.
-		confirm := func(context.Context, db.SentAsUser) error {
-			if !first {
-				return errRecallBusy
-			}
-			return nil
-		}
-		row, err := h.RecallSent(r.Context(), id, confirm)
+		row, first, err := h.recalls.do(r.Context(), id, func() (db.SentAsUser, error) {
+			// confirm:true on the user's own full device is the user's agreement, already checked above.
+			return h.RecallSent(r.Context(), id, func(context.Context, db.SentAsUser) error { return nil })
+		})
 		if err != nil {
-			if errors.Is(err, errRecallBusy) {
-				writeErrCode(w, http.StatusConflict, "recall_busy", err)
-				return
-			}
 			var re *RecallError
 			if errors.As(err, &re) {
 				if status, ok := recallStatus[re.Code]; ok {
@@ -152,8 +139,11 @@ func (h *Manager) sentRecallRoutes(api *http.ServeMux) {
 			return
 		}
 		// Who took it back, like a sign-in or a switch is recorded: the connector in the plugin column, and which row and
-		// kind of message; never its text. Only what took a message back: the rest left everything as it was.
-		h.auditConnector(r.Context(), row.Connector, auditConnectorRecall, map[string]any{"row": row.ID, "action": row.Action})
+		// kind of message; never its text. Only the caller that ran the shared recall records it; waiters get the same
+		// answer without making a second audit row. The rest left everything as it was.
+		if first {
+			h.auditConnector(r.Context(), row.Connector, auditConnectorRecall, map[string]any{"row": row.ID, "action": row.Action})
+		}
 		writeJSON(w, map[string]any{"ok": true, "item": h.sentItems(r.Context(), []db.SentAsUser{row})[0]})
 	})
 }

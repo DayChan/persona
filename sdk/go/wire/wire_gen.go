@@ -3003,10 +3003,11 @@ var ConnectorErrorCodes = []string{"rate_limited", "no_machine", "offline", "nod
 
 // ConnectorCapability: what a connector declares (ConnectorItem.capabilities): the hub calls only the methods of
 // declared ones. fallback has no method: every inbox thing promises extra.rule_tier. recall is the program's word
-// that it can take back what it sent: the hub then calls connector.recall (only after the user agreed), and the
-// install preview says so. history (needs archive) is history.chats and archive.history, history_anchors (needs
-// history) is history.anchors. catalog lists subscribable read-only sources and calls their short tool names. An
-// extension's connector with one this hub does not know loses only that capability.
+// that it can take back what it sent: the hub calls recall.can / recall.do after the user agreed, or legacy
+// connector.recall for a program without those methods, and the install preview says so. history (needs archive) is
+// history.chats and archive.history, history_anchors (needs history) is history.anchors. catalog lists subscribable
+// read-only sources and calls their short tool names. An extension's connector with one this hub does not know loses
+// only that capability.
 const (
 	ConnectorCapabilityStatus         = "status"
 	ConnectorCapabilityTools          = "tools"
@@ -3254,11 +3255,60 @@ type ConnectorRecallParams struct {
 	At time.Time `json:"at,omitzero"`
 }
 
-// ConnectorRecallResult: recall's answer: recalled true is the program's word that the service confirmed the message
-// is no longer there. Anything else (no recalled, false) is not taken for a yes: the hub then knows nothing, writes
-// nothing and lets the user ask again.
+// ConnectorRecallResult: legacy recall's answer: recalled true is the program's word that the service confirmed the
+// message is no longer there. Anything else (no recalled, false) is not taken for a yes: the hub then knows nothing,
+// writes nothing and lets the user ask again.
 type ConnectorRecallResult struct {
 	Recalled bool `json:"recalled"`
+}
+
+// ConnectorRecallCanParams: recall.can's read-only, memory-only preflight. The hub asks it immediately before
+// recall.do, not for every row of a ledger page. age_seconds is the sent row's age, clamped at zero for a future
+// timestamp.
+type ConnectorRecallCanParams struct {
+	Contribution string `json:"contribution"`
+	Action       string `json:"action"`
+	AgeSeconds   int    `json:"age_seconds"`
+}
+
+// ConnectorRecallCanResult: recall.can's answer. can false stops before any write and means not_recallable.
+type ConnectorRecallCanResult struct {
+	Can bool `json:"can"`
+}
+
+// ConnectorRecallDoParams: recall.do takes back one message after the user agreed on their own full device.
+// request_id is stable for this connector and external message: concurrent duplicates share one operation, and a
+// confirmed success can be replayed after a lost answer. A failure or unknown outcome may be tried again explicitly.
+// at is retained for connectors whose own recall window counts from the send. No message text, origin, approval
+// record, account or credential is included.
+type ConnectorRecallDoParams struct {
+	Contribution string                     `json:"contribution"`
+	RequestID    string                     `json:"request_id"`
+	Action       string                     `json:"action"`
+	MessageRef   string                     `json:"message_ref"`
+	Target       map[string]json.RawMessage `json:"target,omitempty"`
+	At           time.Time                  `json:"at,omitzero"`
+}
+
+// ConnectorRecallOutcome: recall.do's outcome. Only done and already_recalled say the message is known to be gone.
+// unknown may have taken effect and is never success.
+const (
+	ConnectorRecallOutcomeDone            = "done"
+	ConnectorRecallOutcomeAlreadyRecalled = "already_recalled"
+	ConnectorRecallOutcomeNotRecallable   = "not_recallable"
+	ConnectorRecallOutcomeUnavailable     = "unavailable"
+	ConnectorRecallOutcomeRefused         = "refused"
+	ConnectorRecallOutcomeUnknown         = "unknown"
+)
+
+// ConnectorRecallOutcomes are the values of ConnectorRecallOutcome, in order.
+var ConnectorRecallOutcomes = []string{"done", "already_recalled", "not_recallable", "unavailable", "refused", "unknown"}
+
+// ConnectorRecallDoResult: recall.do's result. error is one human-readable sentence for a non-success status, never a
+// secret or the message's text. An empty or unrecognized status is treated as unknown by the hub.
+type ConnectorRecallDoResult struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
 }
 
 // ConnectorThreadParams: thread.page: one page of an inbox thread, oldest first; no before is the newest page.
@@ -5550,6 +5600,10 @@ var newDef = map[string]func() any{
 	"ConnectorDoParams":             func() any { return new(ConnectorDoParams) },
 	"ConnectorRecallParams":         func() any { return new(ConnectorRecallParams) },
 	"ConnectorRecallResult":         func() any { return new(ConnectorRecallResult) },
+	"ConnectorRecallCanParams":      func() any { return new(ConnectorRecallCanParams) },
+	"ConnectorRecallCanResult":      func() any { return new(ConnectorRecallCanResult) },
+	"ConnectorRecallDoParams":       func() any { return new(ConnectorRecallDoParams) },
+	"ConnectorRecallDoResult":       func() any { return new(ConnectorRecallDoResult) },
 	"ConnectorThreadParams":         func() any { return new(ConnectorThreadParams) },
 	"ConnectorThreadPage":           func() any { return new(ConnectorThreadPage) },
 	"ConnectorThreadChat":           func() any { return new(ConnectorThreadChat) },
@@ -5719,6 +5773,8 @@ var Calls = map[string]Call{
 	"connector.actions.describe":     {Name: "connector.actions.describe", From: "hub", Params: "ConnectorCallParams", Result: "ConnectorDescribeResult"},
 	"connector.actions.do":           {Name: "connector.actions.do", From: "hub", Params: "ConnectorDoParams", Result: "ConnectorCallResult"},
 	"connector.recall":               {Name: "connector.recall", From: "hub", Params: "ConnectorRecallParams", Result: "ConnectorRecallResult"},
+	"connector.recall.can":           {Name: "connector.recall.can", From: "hub", Params: "ConnectorRecallCanParams", Result: "ConnectorRecallCanResult"},
+	"connector.recall.do":            {Name: "connector.recall.do", From: "hub", Params: "ConnectorRecallDoParams", Result: "ConnectorRecallDoResult"},
 	"connector.thread.page":          {Name: "connector.thread.page", From: "hub", Params: "ConnectorThreadParams", Result: "ConnectorThreadPage"},
 	"connector.thread.media":         {Name: "connector.thread.media", From: "hub", Params: "ConnectorMediaParams", Result: "ConnectorMedia"},
 	"connector.inbox.collect":        {Name: "connector.inbox.collect", From: "hub", Params: "ConnectorParams", Result: "ConnectorCollectResult"},

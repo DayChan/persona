@@ -31,6 +31,55 @@ func serveRawRecall() {
 			switch method {
 			case "status":
 				return map[string]string{"state": "ok"}, nil
+			case "recall.can":
+				if os.Getenv("PERSONA_PROC_RECALL_V2") == "" {
+					return nil, pserve.UnknownMethod(method)
+				}
+				var p struct {
+					Action string `json:"action"`
+				}
+				_ = json.Unmarshal(params, &p)
+				return map[string]bool{"can": p.Action != "cannot"}, nil
+			case "recall.do":
+				if os.Getenv("PERSONA_PROC_RECALL_V2") != "1" {
+					return nil, pserve.UnknownMethod(method)
+				}
+				if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+					_, _ = f.Write(append(append([]byte{}, params...), '\n'))
+					f.Close()
+				}
+				var p struct {
+					MessageRef string `json:"message_ref"`
+				}
+				_ = json.Unmarshal(params, &p)
+				switch p.MessageRef {
+				case "ok":
+					return map[string]string{"status": "done"}, nil
+				case "already":
+					return map[string]string{"status": "already_recalled"}, nil
+				case "empty":
+					return map[string]string{}, nil
+				case "bogus":
+					return map[string]string{"status": "something_new"}, nil
+				case "cannot":
+					return map[string]string{"status": "not_recallable", "error": "older than the service allows"}, nil
+				case "signed-out":
+					return map[string]string{"status": "unavailable", "error": "the account is logged out"}, nil
+				case "limited":
+					return map[string]string{"status": "unavailable", "error": "slow down"}, nil
+				case "offline":
+					return map[string]string{"status": "unavailable", "error": "the computer is not connected"}, nil
+				case "unknown":
+					return map[string]string{"status": "unknown", "error": "the service did not answer"}, nil
+				case "refused":
+					return map[string]string{"status": "refused", "error": strings.Repeat("字", 300) + "\nthe second line says what the message said"}, nil
+				case "slow":
+					<-ctx.Done()
+					return nil, ctx.Err()
+				case "die":
+					os.Exit(1)
+				}
+				return nil, errors.New("unexpected message ref " + p.MessageRef)
 			case "recall":
 				if os.Getenv("PERSONA_PROC_RECALL") == "missing" {
 					return nil, pserve.UnknownMethod(method)

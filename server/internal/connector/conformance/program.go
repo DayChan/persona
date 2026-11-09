@@ -35,8 +35,8 @@ const (
 
 // programCaps are the capabilities the hub can reach in a program: connector/proc.Conn implements their interfaces, and a
 // manifest declaring another one does not pass connector.Check there. CapFallback has none: it is a promise about the
-// inbox things (checkCollect holds them to it). CapRecall has none either: it is a program's word that connector.recall
-// is there, which CheckProgram never calls (a recall deletes a message).
+// inbox things (checkCollect holds them to it). CapRecall has none either: it is a program's word that recall is there.
+// CheckProgram never calls recall, recall.do (a recall deletes a message) or recall.can (execution-time preflight only).
 var programCaps = []connector.Capability{connector.CapStatus, connector.CapTools, connector.CapActions, connector.CapEvents,
 	connector.CapInbox, connector.CapArchive, connector.CapItems, connector.CapLogin, connector.CapThreads, connector.CapFallback,
 	connector.CapRecall, connector.CapHistory, connector.CapHistoryAnchors, connector.CapCatalog}
@@ -72,7 +72,7 @@ func RequireData() ProgramOption { return func(o *programOptions) { o.data = tru
 // (to the end of its cursor, and once more), history.chats and archive.history (a few pages back in a few
 // conversations), history.anchors (and the page around one), items.list, and listens to the changed events it sends.
 //
-// It never calls actions.do or inbox.reply (a write only ever runs after the hub's gate, and a reply is the user's),
+// It never calls actions.do, inbox.reply, recall or recall.do (writes only ever run after the user's explicit action),
 // sends actions.describe empty arguments (a program refuses them or answers well), and calls logout only after
 // WithLogin signed in. How the program starts, and stops with the hub, is plugin/conformance.Check's.
 func CheckProgram(t testing.TB, m *extension.Manifest, run progconf.Run, init extension.InitializeParams, opts ...ProgramOption) {

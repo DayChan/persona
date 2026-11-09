@@ -372,9 +372,8 @@ func bodyOf(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return out
 }
 
-// Two requests to take one message back at once are one recall: the second waits for the first, and then finds the
-// message taken back (409 already_recalled with the row) instead of asking the connector too. The core leaves this
-// to its caller.
+// Two requests to take one message back at once share one recall and its successful answer: both get 200 with the
+// same recalled row instead of asking the connector twice. The core leaves this to its caller.
 func TestRecallRouteTwiceAtOnceTakesBackOnce(t *testing.T) {
 	e := newRecallEnv(t)
 	e.h.routes()
@@ -400,7 +399,7 @@ func TestRecallRouteTwiceAtOnceTakesBackOnce(t *testing.T) {
 	}
 	release()
 	wg.Wait()
-	if recs[0].Code != 200 || recs[1].Code != 409 || bodyOf(t, recs[1])["code"] != RecallAlreadyRecalled {
+	if recs[0].Code != 200 || recs[1].Code != 200 || bodyOf(t, recs[1])["ok"] != true {
 		t.Fatalf("first %d %s, second %d %s", recs[0].Code, recs[0].Body, recs[1].Code, recs[1].Body)
 	}
 	if item, _ := bodyOf(t, recs[1])["item"].(map[string]any); item["recalled_at"] != bodyOf(t, recs[0])["item"].(map[string]any)["recalled_at"] {
@@ -412,7 +411,7 @@ func TestRecallRouteTwiceAtOnceTakesBackOnce(t *testing.T) {
 }
 
 // Three requests for one row at once, the first taking the message back: the connector is asked once, by the first;
-// the other two wait for it, and only for it, and then find the message taken back (409 already_recalled, with the row).
+// all three get the same 200 and recalled row. A request after the flight still finds it already taken back.
 func TestRecallRouteThreeAtOnceFirstSucceeds(t *testing.T) {
 	e := newRecallEnv(t)
 	e.h.routes()
@@ -435,7 +434,7 @@ func TestRecallRouteThreeAtOnceFirstSucceeds(t *testing.T) {
 		select {
 		case rec := <-c:
 			item, _ := bodyOf(t, rec)["item"].(map[string]any)
-			if rec.Code != 409 || bodyOf(t, rec)["code"] != RecallAlreadyRecalled || item["recalled_at"] == nil {
+			if rec.Code != 200 || bodyOf(t, rec)["ok"] != true || item["recalled_at"] == nil {
 				t.Errorf("waiter %d: %d %s", i, rec.Code, rec.Body)
 			}
 		case <-time.After(2 * time.Second):
@@ -447,10 +446,9 @@ func TestRecallRouteThreeAtOnceFirstSucceeds(t *testing.T) {
 	}
 }
 
-// Three requests for one row at once, the first failing: the other two wait for it and only for it, then are told a
-// recall of the row was on its way and did not take the message back (409 recall_busy): they do not ask the connector
-// themselves, so it is asked once, never two at a time, and nobody waits longer than the first recall. The user's next
-// tap is a new recall and goes through.
+// Three requests for one row at once, the first failing: the other two wait for it and get the same real refusal
+// (502 recall_refused), not a generic busy answer. They do not ask the connector themselves, so it is asked once,
+// never two at a time. The user's next tap is a new recall and goes through.
 func TestRecallRouteThreeAtOnceFirstFails(t *testing.T) {
 	e := newRecallEnv(t)
 	e.h.routes()
@@ -471,11 +469,41 @@ func TestRecallRouteThreeAtOnceFirstFails(t *testing.T) {
 	for i, c := range []<-chan *httptest.ResponseRecorder{second, third} {
 		select {
 		case rec := <-c:
-			if rec.Code != 409 || bodyOf(t, rec)["code"] != "recall_busy" || bodyOf(t, rec)["item"] != nil {
+			if rec.Code != 502 || bodyOf(t, rec)["code"] != RecallRefused || bodyOf(t, rec)["item"] != nil {
 				t.Errorf("waiter %d: %d %s", i, rec.Code, rec.Body)
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatalf("waiter %d is still waiting after the first recall ended", i)
+		}
+	}
+	if e.c.askedCount() != 1 || maxInside() != 1 || e.recalledAt(id) != nil {
+		t.Fatalf("the connector was asked %d times, %d at once, marked %v", e.c.askedCount(), maxInside(), e.recalledAt(id))
+	}
+	if rec := e.post(context.Background(), id); rec.Code != 200 || e.c.askedCount() != 2 || e.recalledAt(id) == nil {
+		t.Fatalf("the next tap: %d %s, asked %d, marked %v", rec.Code, rec.Body, e.c.askedCount(), e.recalledAt(id))
+	}
+}
+
+// An unknown outcome is shared as unknown, never as success and never hidden behind a generic busy response. The row
+// stays unmarked, and a later explicit request can reconcile it with the connector.
+func TestRecallRouteConcurrentUnknownStaysUnknown(t *testing.T) {
+	e := newRecallEnv(t)
+	e.h.routes()
+	release, maxInside := e.holdFirst(fmt.Errorf("%w: the answer was lost", connector.ErrRecallUnknown))
+	defer release()
+	id := e.send(0)
+	first := e.postAsync(context.Background(), id)
+	eventually(t, 5*time.Second, "the first recall to reach the connector", func() bool { return e.c.askedCount() == 1 })
+	second := e.postAsync(context.Background(), id)
+	if n := e.settle(); n != 1 || answered(second) {
+		release()
+		t.Fatalf("while the first recall was on its way: asked %d, waiter answered %v", n, answered(second))
+	}
+	release()
+	for name, answer := range map[string]<-chan *httptest.ResponseRecorder{"first": first, "waiter": second} {
+		rec := <-answer
+		if rec.Code != 504 || bodyOf(t, rec)["code"] != RecallUnknown || bodyOf(t, rec)["ok"] == true {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
 		}
 	}
 	if e.c.askedCount() != 1 || maxInside() != 1 || e.recalledAt(id) != nil {

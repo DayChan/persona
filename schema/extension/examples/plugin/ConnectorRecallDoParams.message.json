@@ -1,0 +1,8 @@
+{
+  "contribution": "examplechat",
+  "request_id": "recall_0123456789abcdef0123456789abcdef",
+  "action": "POST /conversations/chat_example_1/messages",
+  "message_ref": "msg_example_9",
+  "target": {"method": "POST", "path": "/conversations/chat_example_1/messages", "command": "examplecli", "conversation": "chat_example_1"},
+  "at": "2026-11-06T09:12:00Z"
+}

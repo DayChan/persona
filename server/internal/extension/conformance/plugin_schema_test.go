@@ -45,6 +45,10 @@ var goTypes = map[string]any{
 	"ConnectorDoParams":             serve.DoParams{},
 	"ConnectorRecallParams":         serve.RecallParams{},
 	"ConnectorRecallResult":         serve.RecallResult{},
+	"ConnectorRecallCanParams":      serve.RecallCanParams{},
+	"ConnectorRecallCanResult":      serve.RecallCanResult{},
+	"ConnectorRecallDoParams":       serve.RecallDoParams{},
+	"ConnectorRecallDoResult":       serve.RecallDoResult{},
 	"ConnectorThreadParams":         serve.ThreadParams{},
 	"ConnectorThreadPage":           connector.ThreadPage{},
 	"ConnectorMediaParams":          serve.MediaParams{},
@@ -135,7 +139,8 @@ var goTypes = map[string]any{
 // events.
 var serverCalls = []string{
 	serve.MManifest, serve.MStatus, serve.MLoginStep, serve.MLogout, serve.MChanges, serve.MCollect, serve.MReply,
-	serve.MCatalog, serve.MCatalogCall, serve.MTools, serve.MCall, serve.MActions, serve.MDescribe, serve.MDo, serve.MRecall, serve.MThread, serve.MMedia, serve.MItems,
+	serve.MCatalog, serve.MCatalogCall, serve.MTools, serve.MCall, serve.MActions, serve.MDescribe, serve.MDo,
+	serve.MRecall, serve.MRecallCan, serve.MRecallDo, serve.MThread, serve.MMedia, serve.MItems,
 	serve.MDocTitle, serve.MArchiveMedia, serve.MSnapshot, serve.MGroupTool, serve.MGroupAppend, serve.MGroupFallback,
 	serve.MOptionsGet, serve.MOptionsSet, serve.MSettle, serve.MMachineOnline, serve.MAuthGet, serve.MAuthSet,
 	serve.MSecretsLoad, serve.MSecretsSave, serve.MSecretsDelete, serve.MPostsPut, serve.MPostsComments,

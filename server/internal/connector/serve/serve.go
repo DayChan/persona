@@ -49,7 +49,9 @@ const (
 	MActions     = "actions.list"
 	MDescribe    = "actions.describe"
 	MDo          = "actions.do" // only once the hub's gate let it through
-	MRecall      = "recall"     // take a sent message back: only once the user agreed, and only for a connector that declares recall
+	MRecall      = "recall"     // legacy recall: kept for programs and hubs before recall.can / recall.do
+	MRecallCan   = "recall.can"
+	MRecallDo    = "recall.do" // only once the user agreed on their own full device
 	MThread      = "thread.page"
 	MMedia       = "thread.media"
 	// The knowledge base's items (connector.Items) and an archived message's attachment (connector.ArchiveMedia).
@@ -139,6 +141,16 @@ func InPlugin(method string) string { return Namespace + "." + method }
 // Protocol is the version of this protocol (docs/protocol/connector-protocol.md): the hub sends it with init, the program
 // answers with its own in the manifest, and the hub refuses a program of another version.
 const Protocol = 2
+
+// Outcomes recall.do reports. Only done and already_recalled mean the message is known to be gone.
+const (
+	RecallDone            = "done"
+	RecallAlreadyRecalled = "already_recalled"
+	RecallNotRecallable   = "not_recallable"
+	RecallUnavailable     = "unavailable"
+	RecallRefused         = "refused"
+	RecallUnknown         = "unknown"
+)
 
 // Manifest is who the connector is and its connector.Manifest, on the wire.
 type Manifest struct {
@@ -239,9 +251,30 @@ type (
 		Target     map[string]any `json:"target,omitempty"`
 		At         time.Time      `json:"at,omitzero"`
 	}
-	// RecallResult: Recalled true is the program's word that the service confirmed the message is no longer there.
+	// RecallResult: Recalled true is the legacy program's word that the service confirmed the message is no longer there.
 	RecallResult struct {
 		Recalled bool `json:"recalled"`
+	}
+	// RecallCanParams is a read-only, memory-only question about one kind of sent message.
+	RecallCanParams struct {
+		Action     string `json:"action"`
+		AgeSeconds int64  `json:"age_seconds"`
+	}
+	RecallCanResult struct {
+		Can bool `json:"can"`
+	}
+	// RecallDoParams adds a stable operation id to the legacy fields. At stays because a connector's own recall window
+	// counts from the send; the program still gets none of the message's text or the rest of the ledger.
+	RecallDoParams struct {
+		RequestID  string         `json:"request_id"`
+		Action     string         `json:"action"`
+		MessageRef string         `json:"message_ref"`
+		Target     map[string]any `json:"target,omitempty"`
+		At         time.Time      `json:"at,omitzero"`
+	}
+	RecallDoResult struct {
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
 	}
 	SecretData struct {
 		Data []byte `json:"data,omitempty"` // nil: nothing stored
@@ -375,6 +408,8 @@ type server struct {
 	cid atomic.Pointer[string]
 	// once runs each actions.do once by its request id.
 	once writes
+	// recalls shares recall.do by request id and remembers its successes.
+	recalls recallRuns
 	// chid is the channel the connector is (the plugin protocol's active channel; its own id when none).
 	chid string
 	// sent are the refs of the latest channel.send done (or still running), and what each answered: the hub sends
@@ -803,6 +838,35 @@ func (s *server) handle(ctx context.Context, method string, params json.RawMessa
 			done, err := connector.Write(ctx, a, p.Name, p.Args)
 			return CallResult{Text: done.Text, MessageRef: done.MessageRef}, err
 		})
+	case MRecallCan:
+		r, ok := connector.RecallerOf(c)
+		if !ok || !c.Manifest().Has(connector.CapRecall) {
+			return nil, noCapability(c, "recall")
+		}
+		var p RecallCanParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Action == "" || p.AgeSeconds < 0 || p.AgeSeconds > int64((100*365*24*time.Hour)/time.Second) {
+			return nil, errors.New("recall.can needs an action and an age from 0 to 100 years")
+		}
+		return RecallCanResult{Can: r.CanRecall(p.Action, time.Duration(p.AgeSeconds)*time.Second)}, nil
+	case MRecallDo:
+		r, ok := connector.RecallerOf(c)
+		if !ok || !c.Manifest().Has(connector.CapRecall) {
+			return nil, noCapability(c, "recall")
+		}
+		var p RecallDoParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.RequestID == "" || p.Action == "" || p.MessageRef == "" {
+			return nil, errors.New("recall.do needs request_id, action and message_ref")
+		}
+		res := s.recalls.do(p.RequestID, func() RecallDoResult {
+			return recallDoResult(r.Recall(ctx, sentRecallMessage(p.Action, p.MessageRef, p.Target, p.At)))
+		})
+		return res, nil
 	case MRecall:
 		r, ok := connector.RecallerOf(c)
 		if !ok || !c.Manifest().Has(connector.CapRecall) {
@@ -815,11 +879,7 @@ func (s *server) handle(ctx context.Context, method string, params json.RawMessa
 		if p.MessageRef == "" {
 			return nil, errors.New("recall without a message_ref")
 		}
-		target := json.RawMessage(`{}`)
-		if len(p.Target) > 0 {
-			target, _ = json.Marshal(p.Target)
-		}
-		if err := r.Recall(ctx, connector.SentMessage{Action: p.Action, Ref: p.MessageRef, Target: target, At: p.At}); err != nil {
+		if err := r.Recall(ctx, sentRecallMessage(p.Action, p.MessageRef, p.Target, p.At)); err != nil {
 			return nil, recallError(err)
 		}
 		return RecallResult{Recalled: true}, nil
@@ -864,6 +924,34 @@ func historyCall(ctx context.Context, c connector.Connector, method string, para
 		return nil, err
 	}
 	return a.HistoryAnchors(ctx, q.Clamped())
+}
+
+// sentRecallMessage is the core message of either the legacy or the current recall call. A missing target is an empty
+// object, so the connector always receives valid JSON.
+func sentRecallMessage(action, ref string, target map[string]any, at time.Time) connector.SentMessage {
+	raw := json.RawMessage(`{}`)
+	if len(target) > 0 {
+		raw, _ = json.Marshal(target)
+	}
+	return connector.SentMessage{Action: action, Ref: ref, Target: raw, At: at}
+}
+
+// recallDoResult is the current protocol's honest outcome. The core interface treats an already-gone message as
+// success, so a Go connector reports done; a program written in another language may report already_recalled itself.
+func recallDoResult(err error) RecallDoResult {
+	if err == nil {
+		return RecallDoResult{Status: RecallDone}
+	}
+	res := RecallDoResult{Status: RecallRefused, Error: err.Error()}
+	switch {
+	case errors.Is(err, connector.ErrRecallUnknown):
+		res.Status = RecallUnknown
+	case errors.Is(err, connector.ErrCannotRecall):
+		res.Status = RecallNotRecallable
+	case errors.Is(err, connector.ErrRecallUnavailable):
+		res.Status = RecallUnavailable
+	}
+	return res
 }
 
 // recallError is a connector's failed Recall as the wire says it: the code of the connector.Err* it wraps (one it
@@ -995,6 +1083,56 @@ func (s *server) watch(e connector.Events) {
 		}
 		wait = min(wait*2, watchLast)
 	}
+}
+
+// recallRuns shares one recall.do by request id. Successes are remembered (bounded by doneMost), so a repeat after a
+// lost answer or a failed ledger mark confirms the same deletion. A failure is shared only with callers already waiting:
+// after it ends the id may be used for the user's explicit retry, as connector.Recaller permits.
+type recallRuns struct {
+	mu    sync.Mutex
+	runs  map[string]*recallRun
+	order []string // successful request ids, oldest first
+}
+
+type recallRun struct {
+	done    chan struct{}
+	waiters int // callers that joined and have not left yet
+	res     RecallDoResult
+}
+
+func (w *recallRuns) do(id string, run func() RecallDoResult) RecallDoResult {
+	w.mu.Lock()
+	if prev, ok := w.runs[id]; ok {
+		prev.waiters++
+		w.mu.Unlock()
+		defer func() {
+			w.mu.Lock()
+			prev.waiters--
+			w.mu.Unlock()
+		}()
+		<-prev.done
+		return prev.res
+	}
+	if w.runs == nil {
+		w.runs = map[string]*recallRun{}
+	}
+	cur := &recallRun{done: make(chan struct{})}
+	w.runs[id] = cur
+	w.mu.Unlock()
+	cur.res = run()
+	w.mu.Lock()
+	if cur.res.Status == RecallDone || cur.res.Status == RecallAlreadyRecalled {
+		w.order = append(w.order, id)
+		if len(w.order) > doneMost {
+			delete(w.runs, w.order[0])
+			w.order = w.order[1:]
+		}
+	} else {
+		delete(w.runs, id)
+	}
+	w.mu.Unlock()
+	close(cur.done)
+	return cur.res
 }
 
 // doneMost is how many writes the program remembers by request id.

@@ -15,6 +15,8 @@
     "connector.actions.describe": {"from": "hub", "params": "ConnectorCallParams", "result": "ConnectorDescribeResult"},
     "connector.actions.do": {"from": "hub", "params": "ConnectorDoParams", "result": "ConnectorCallResult"},
     "connector.recall": {"from": "hub", "params": "ConnectorRecallParams", "result": "ConnectorRecallResult"},
+    "connector.recall.can": {"from": "hub", "params": "ConnectorRecallCanParams", "result": "ConnectorRecallCanResult"},
+    "connector.recall.do": {"from": "hub", "params": "ConnectorRecallDoParams", "result": "ConnectorRecallDoResult"},
     "connector.thread.page": {"from": "hub", "params": "ConnectorThreadParams", "result": "ConnectorThreadPage"},
     "connector.thread.media": {"from": "hub", "params": "ConnectorMediaParams", "result": "ConnectorMedia"},
     "connector.inbox.collect": {"from": "hub", "params": "ConnectorParams", "result": "ConnectorCollectResult"},
@@ -283,7 +285,7 @@
       "enum": ["rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown", "not_read_only"]
     },
     "ConnectorCapability": {
-      "description": "What a connector declares (ConnectorItem.capabilities): the hub calls only the methods of declared ones. fallback has no method: every inbox thing promises extra.rule_tier. recall is the program's word that it can take back what it sent: the hub then calls connector.recall (only after the user agreed), and the install preview says so. history (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. catalog lists subscribable read-only sources and calls their short tool names. An extension's connector with one this hub does not know loses only that capability.",
+      "description": "What a connector declares (ConnectorItem.capabilities): the hub calls only the methods of declared ones. fallback has no method: every inbox thing promises extra.rule_tier. recall is the program's word that it can take back what it sent: the hub calls recall.can / recall.do after the user agreed, or legacy connector.recall for a program without those methods, and the install preview says so. history (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. catalog lists subscribable read-only sources and calls their short tool names. An extension's connector with one this hub does not know loses only that capability.",
       "type": "string",
       "enum": ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login",
                "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history",
@@ -464,12 +466,57 @@
       "required": ["contribution", "action", "message_ref"]
     },
     "ConnectorRecallResult": {
-      "description": "recall's answer: recalled true is the program's word that the service confirmed the message is no longer there. Anything else (no recalled, false) is not taken for a yes: the hub then knows nothing, writes nothing and lets the user ask again.",
+      "description": "Legacy recall's answer: recalled true is the program's word that the service confirmed the message is no longer there. Anything else (no recalled, false) is not taken for a yes: the hub then knows nothing, writes nothing and lets the user ask again.",
       "type": "object",
       "properties": {
         "recalled": {"type": "boolean"}
       },
       "required": ["recalled"]
+    },
+    "ConnectorRecallCanParams": {
+      "description": "recall.can's read-only, memory-only preflight. The hub asks it immediately before recall.do, not for every row of a ledger page. age_seconds is the sent row's age, clamped at zero for a future timestamp.",
+      "type": "object",
+      "properties": {
+        "contribution": {"type": "string"},
+        "action": {"type": "string", "minLength": 1},
+        "age_seconds": {"type": "integer", "minimum": 0, "maximum": 3153600000}
+      },
+      "required": ["contribution", "action", "age_seconds"]
+    },
+    "ConnectorRecallCanResult": {
+      "description": "recall.can's answer. can false stops before any write and means not_recallable.",
+      "type": "object",
+      "properties": {
+        "can": {"type": "boolean"}
+      },
+      "required": ["can"]
+    },
+    "ConnectorRecallDoParams": {
+      "description": "recall.do takes back one message after the user agreed on their own full device. request_id is stable for this connector and external message: concurrent duplicates share one operation, and a confirmed success can be replayed after a lost answer. A failure or unknown outcome may be tried again explicitly. at is retained for connectors whose own recall window counts from the send. No message text, origin, approval record, account or credential is included.",
+      "type": "object",
+      "properties": {
+        "contribution": {"type": "string"},
+        "request_id": {"type": "string", "minLength": 1},
+        "action": {"type": "string", "minLength": 1},
+        "message_ref": {"type": "string", "minLength": 1},
+        "target": {"type": "object"},
+        "at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["contribution", "request_id", "action", "message_ref"]
+    },
+    "ConnectorRecallOutcome": {
+      "description": "recall.do's outcome. Only done and already_recalled say the message is known to be gone. unknown may have taken effect and is never success.",
+      "type": "string",
+      "enum": ["done", "already_recalled", "not_recallable", "unavailable", "refused", "unknown"]
+    },
+    "ConnectorRecallDoResult": {
+      "description": "recall.do's result. error is one human-readable sentence for a non-success status, never a secret or the message's text. An empty or unrecognized status is treated as unknown by the hub.",
+      "type": "object",
+      "properties": {
+        "status": {"$ref": "#/$defs/ConnectorRecallOutcome"},
+        "error": {"type": "string"}
+      },
+      "required": ["status"]
     },
 
     "ConnectorThreadParams": {
