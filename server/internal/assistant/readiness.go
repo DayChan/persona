@@ -552,7 +552,9 @@ func (s *Service) readinessModel(ctx context.Context, lang i18n.Lang, d Device, 
 			case proto.TurnErrorNotLoggedIn:
 				alt = "login_claude"
 			case proto.TurnErrorAuthFailed:
-				action = "edit_provider"
+				action, alt = "edit_provider", "test_assistant"
+			case proto.TurnErrorModelRoute:
+				alt = "test_assistant"
 			}
 			st := s.readinessStep(lang, StepModel, StepProblem, code, d.Name, launcher, action)
 			st.Machine = d.ID

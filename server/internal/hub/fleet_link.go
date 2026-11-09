@@ -602,7 +602,7 @@ func (h *Hub) deliverPushFrom(from string, n assistantwire.Notification) error {
 		}
 		h.notifyInteraction(from, ix, n.Subtitle)
 		return nil
-	case assistantwire.NotifyPush, assistantwire.NotifyDone, assistantwire.NotifyReply:
+	case assistantwire.NotifyPush, assistantwire.NotifyDone, assistantwire.NotifyReply, assistantwire.NotifyDecide:
 		if !h.ownsRef(from, n.DeviceID, n.SessionID) {
 			return &rpc.Error{Code: devicewire.CodeNoDevice, Message: fmt.Sprintf("a push about machine %q, session %q: another manager's",
 				clip(n.DeviceID, 64), clip(n.SessionID, 64))}
@@ -616,6 +616,11 @@ func (h *Hub) deliverPushFrom(from string, n assistantwire.Notification) error {
 			pushWants{Kind: "done", Took: time.Duration(n.TookMS) * time.Millisecond, Long: time.Duration(n.LongMS) * time.Millisecond})
 	case assistantwire.NotifyReply:
 		h.notifyReply(from, n.DeviceID, n.Subtitle, n.SessionID, n.Title, n.Body)
+	case assistantwire.NotifyDecide:
+		if n.Todo == nil || n.Todo.ID == "" || n.Todo.AskedAt.IsZero() || n.Todo.Recommend == "" {
+			return errors.New("a decision's push needs its to-do, when it was asked and the option its OK takes")
+		}
+		h.notifyDecide(from, n.DeviceID, n.Subtitle, n.SessionID, n.Title, n.Body, *n.Todo)
 	default:
 		return fmt.Errorf("unknown notification kind %q", n.Kind)
 	}

@@ -1,8 +1,8 @@
 import XCTest
 
 /// Settings › Extensions › Messages (iMessage) (#1830 step 6) against scripts/mock/mock_hub.py with MOCK_EXTENSIONS=1
-/// (TEST_RUNNER_PERSONA_EXTENSIONS_HUB): a switch per Mac, MacBook on; turning on another is refused with the one on named,
-/// and nothing changes until that one is off. PERSONA_SHOTS keeps the screenshots, named by PERSONA_EXTENSIONS_APPEARANCE.
+/// (TEST_RUNNER_PERSONA_EXTENSIONS_HUB): a switch per Mac, MacBook on; turning on another replaces it in one save, and
+/// its connector settings are reachable from the extension. PERSONA_SHOTS keeps screenshots, named by PERSONA_EXTENSIONS_APPEARANCE.
 final class IMessageExtensionTests: XCTestCase {
     @MainActor func testOneMacOnly() throws {
         let env = ProcessInfo.processInfo.environment
@@ -22,17 +22,14 @@ final class IMessageExtensionTests: XCTestCase {
         XCTAssertEqual(studio.value as? String, "0")
         XCTAssertFalse(row("服务器").exists, "a Linux machine offered for Messages")
         shot(app, "imessage-ext-\(look)")
+        XCTAssertTrue(app.buttons["extension-connector-open-imessage"].waitForExistence(timeout: 10), "no connector status and permission guide")
         studio.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        let refused = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '只能读一台 Mac，先关掉「MacBook」'")).firstMatch
-        XCTAssertTrue(refused.waitForExistence(timeout: 10), "a second Mac was not refused:\n\(app.debugDescription)")
-        XCTAssertTrue(waitFor(studio, value: "0"), "the refused Mac shows on")
-        XCTAssertEqual(macbook.value as? String, "1")
-        shot(app, "imessage-ext-refused-\(look)")
-        // MacBook off, then Mac Studio on: allowed.
-        macbook.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        XCTAssertTrue(waitFor(macbook, value: "0"), "MacBook off")
-        studio.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        XCTAssertTrue(waitFor(studio, value: "1"), "Mac Studio on once MacBook is off")
+        XCTAssertTrue(waitFor(studio, value: "1"), "the replacement Mac shows on")
+        XCTAssertTrue(waitFor(macbook, value: "0"), "the old Mac goes off in the same save")
+        shot(app, "imessage-ext-switched-\(look)")
+        app.buttons["extension-connector-open-imessage"].tap()
+        XCTAssertTrue(app.staticTexts["信息"].waitForExistence(timeout: 10), "connector settings did not open")
+        XCTAssertTrue(app.switches["messages-ai"].waitForExistence(timeout: 10), "Messages' own Hand to Persona setting")
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
