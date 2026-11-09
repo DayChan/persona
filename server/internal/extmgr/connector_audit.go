@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/connector"
 )
 
@@ -78,17 +81,36 @@ func (h *Manager) connectorLoginStep(ctx context.Context, id string, l connector
 			detail = map[string]any{"account": p.Account}
 		}
 		h.auditConnector(ctx, id, auditConnectorSignedIn, detail)
+		// A plugin may have revoked its own binding while cleanup failed. Completing a new binding must not
+		// leave those old questions behind, even when the same account signs in again.
+		return p, h.connectorChannelsUnbound(ctx, id)
 	}
 	return p, nil
 }
 
-// connectorLogout signs out of connector id and records it.
+// connectorLogout signs out of connector id, records it and clears what its channels waited on.
 func (h *Manager) connectorLogout(ctx context.Context, id string, l connector.Login) error {
 	if err := l.Logout(ctx); err != nil {
 		return err
 	}
 	h.auditConnector(ctx, id, auditConnectorLogout, nil)
-	return nil
+	return h.connectorChannelsUnbound(ctx, id)
+}
+
+// connectorChannelsUnbound waits for the assistant to forget every channel backed by this connector. An event
+// queued for later could let the first message after rebinding answer a question from the previous binding.
+func (h *Manager) connectorChannelsUnbound(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	var errs []error
+	for _, pc := range h.extensionChannels() {
+		if pc.item.Connector == id {
+			if err := h.callAssistant(ctx, assistantwire.MethodChannelUnbound, assistantwire.ChannelUnbound{Channel: pc.item.ID}, nil); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // optionsOf is connector id's own settings as they are now (connector.Options), nil when it has none.

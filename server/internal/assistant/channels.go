@@ -80,6 +80,8 @@ type channelsBook struct {
 	// lastEnded: channel -> the latest text ask there that ended without being answered there (answered in the app,
 	// in a terminal, withdrawn), by when: a late reply to it is told so instead of going into the conversation.
 	lastEnded map[string]endedAsk
+	// generation changes on unbind so an in-flight message or question cannot restore the old binding's state.
+	generation map[string]uint64
 	// list is the hub's list of the channels, kept a moment (the runs look at it every second).
 	list   []channel.View
 	listAt time.Time
@@ -202,16 +204,18 @@ func keepLive[T any](stored, live []*T, id func(*T) string) (out []*T, n int) {
 }
 
 // saveChannelStateLocked writes the runs, asks and seen messages, once they were read (the same as the settings).
-func (s *Service) saveChannelStateLocked() {
+func (s *Service) saveChannelStateLocked() error {
 	st := s.store()
 	if st == nil || !s.chans.stLoaded {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := st.PutSetting(ctx, channelsStateKey, s.chans.st); err != nil {
 		s.logf("channels: save state: %v", err)
+		return err
 	}
+	return nil
 }
 
 // noteChannelConversation remembers that channel id's message went to a conversation (the detail's recent list, the
@@ -647,6 +651,14 @@ func (s *Service) testChannel(ctx context.Context, v channel.View) error {
 }
 
 // ---- what the hub hands the channels (Handler) ----
+
+// ChannelUnbound synchronously clears pending state before the connector's lifecycle request reports success.
+func (s *Service) ChannelUnbound(_ context.Context, p ChannelUnbound) error {
+	if p.Channel == "" {
+		return badRequest(errors.New("a channel without an id"))
+	}
+	return s.forgetChannelTurns(p.Channel)
+}
 
 // ChannelReceive is channels.receive: the owner's message from a plugin's channel, taken once (the chat apps deliver
 // some again) and handled in the background.

@@ -341,7 +341,10 @@ awaiting response → Working; failure → Needs you; otherwise `tier` (FYI / Ne
 
 The AI twin becomes a **handling chat**. With `inbox.agent.enabled` on, every Needs you item goes to the manager (no longer filtered by model 2), **one chat per item**,
 bound to that item (`handling` on the item; chat source `inbox`, `origin_ref` = item ID). It runs in the manager background. Code: `assistant/inbox_agent.go` (promotion, chat creation, reconciliation),
-`inbox_handle.go` (chat notifications, suggestion tool, confirmation API). Actions visible to others **produce suggestions only**; code executes them verbatim after your confirmation. With the switch off: no promotion, Working state, or suggestions; chain recording continues.
+`inbox_handle.go` (chat notifications, suggestion tool, confirmation API). Actions visible to others **produce suggestions only**; code executes them verbatim after your confirmation. With the switch off, the manager stops automatic promotion, new handling chats, and chat notifications; chain recording continues.
+
+- **Turning the twin off releases unfinished work**: the next handling pass (including collection after a restart) returns open `looking` / `agent` items, queued or running, to Needs you with `handling.state = failed` and the localized reason "The AI twin is off". Queued messages and start retries are discarded, so later messages can be triaged normally. The release is saved and announced through the normal item-change path; a failed save is retried on the next pass.
+- Existing completed suggestions remain available. Rejecting, adding instructions, or confirming a handback while the twin is off returns the item to Needs you immediately with the same reason, without waking or starting its handling chat. Confirmed replies already `waiting` on the other side retain that state. Explicitly handed-off conversations keep their separate workflow. Turning off the twin does not terminate processes already running on a computer.
 
 | Step | Who | Purpose |
 | --- | --- | --- |
@@ -545,7 +548,7 @@ which users saw as one action: clear this batch they do not need to handle now. 
   Targets: **Persona (main chat)**, the default (#1194, every client): the item's own manager's main conversation (another manager's item goes to that manager's,
   found by asking it; with none yet, the message starts it), which then opens; **Persona (new chat)** starts a new conversation with the item's manager (iOS / Mac switch to the
   Persona tab); an Agent (latest 8) receives it in its session (navigate there). Marked done by default once the message got there, except for the main chat (below).
-  **Write-back to the item** (#1194, web, iOS and Mac): the main-chat target calls `POST /api/v1/inbox/{id}/handoff` `{text, client_id}` on the item's manager (`assistant/inbox_handoff.go`),
+  **Write-back to the item** (#1194, web, iOS, Mac and Android): the main-chat target calls `POST /api/v1/inbox/{id}/handoff` `{text, client_id}` on the item's manager (`assistant/inbox_handoff.go`),
   which sends the text after a block naming the item (`prompts/inbox/handoff.md`) to its main conversation through `session.send_once` (the client id is the message id, so the same
   request again sends nothing more), or starts the main conversation with it, and answers `{item, session}`; a work machine is refused, and a failed send records nothing (`apierr.Call`'s status, as for a new conversation).
   The item keeps the hand-off (`handoffs`: `machine_id`, `session_id`, `at`, the latest 5) and its chain gets one `handling` entry per conversation ("Handed to Persona's main chat",
@@ -573,7 +576,9 @@ which users saw as one action: clear this batch they do not need to handle now. 
   the manager lost); another ask or a reopened sheet is a new hand-off, and so is the first ask again after another one went to the main chat. Once it went, they open the main
   conversation on the message as sent under that id (its transcript copy carries it and takes the bubble's place; no bubble when the copy is there already) and read the assistant
   settings again, since the hand-off may have started the main conversation. Like every other inbox request from iOS and Mac, it names no manager, so it goes to the default manager.
-  Android still sends plain chat text without write-back (#1384); the web, iOS and Mac fall back to that when the hub or manager answers 404 / 405. On iOS and Mac the fallback goes
+  Android (#1384, `RealInboxRepository.handOff`) sends it to the item's manager, refuses it while offline, keeps the operation id of a failed attempt so a retry is the
+  same hand-off, and takes an answer without `session` as an error rather than sending again; it then opens the session the answer names.
+  Every client falls back to plain chat text when the hub or manager answers 404 / 405. On iOS and Mac the fallback goes
   through the main conversation's outbox when it is listed (a failure shows there with Retry); otherwise it is sent or the conversation started from the sheet, which stays open
   with the error when that fails.
 - **Done**: row swipe-left, top-right ✓ in details, or alongside Send / Hand to AI.

@@ -352,6 +352,28 @@ func TestCodexAnswerOverlayBusy(t *testing.T) {
 }
 
 func TestCodexSend(t *testing.T) {
+	compactFooter := "  GPT-6.1-Sol xhigh · ~/project · Main [default]    Goal achieved (30m)\n" +
+		"  ← for agents · ? for shortcuts\n"
+	t.Run("compact empty composer", func(t *testing.T) {
+		n, f, path := codexNode(t, proto.StatusBlocked)
+		f.setScreen(cxPane, "• Done.\n\n› Ask Codex to do anything\n"+compactFooter)
+		f.reply("agent.prompt", herdrFail{Code: "agent_blocked", Message: "agent is blocked and requires interactive input"})
+		sent := codexTUI(t, f, path)
+		if _, err := request(t, n, "session.send", map[string]any{"session_id": cxID, "text": "check the current status"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(*sent) != 1 || (*sent)[0] != "check the current status" {
+			t.Errorf("sent %q", *sent)
+		}
+	})
+	t.Run("compact genuine draft", func(t *testing.T) {
+		n, f, _ := codexNode(t, proto.StatusIdle)
+		f.setScreen(cxPane, "• Done.\n\n› half typed\n  keep this line too\n"+compactFooter)
+		_, err := request(t, n, "session.send", map[string]any{"session_id": cxID, "text": "hello"})
+		if refusalCode(err) != screen.InputDraft || len(f.trace("agent.prompt", "pane.send_text", "pane.send_keys")) != 0 {
+			t.Errorf("err %v, calls %v", err, f.trace("agent.prompt", "pane.send_text", "pane.send_keys"))
+		}
+	})
 	t.Run("draft", func(t *testing.T) {
 		n, f, _ := codexNode(t, proto.StatusIdle)
 		f.setScreen(cxPane, cxBox("half typed"))

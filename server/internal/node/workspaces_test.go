@@ -67,6 +67,58 @@ func TestWorkspacesListOrcaKeepsWorktreesWithoutTerminals(t *testing.T) {
 	}
 }
 
+func TestWorkspacesCatalogPreservesOrcaHierarchyWithoutAgents(t *testing.T) {
+	n, _, o, procs, _ := orcaNode(t)
+	root := orcarttest.Worktree("root", "/tmp/root", "")
+	root["displayName"] = "Workspace collection"
+	child := orcarttest.Worktree("child", "/tmp/elsewhere", "refs/heads/feature")
+	child["parentWorktreeId"] = "root"
+	grandchild := orcarttest.Worktree("grandchild", "/tmp/third", "")
+	grandchild["parentWorktreeId"] = "child"
+	o.SetWorktrees(root, child, grandchild)
+	w := workspaceList(t, n)
+	if len(w) != 3 || w[0].Title != "Workspace collection" || w[0].ParentSourceID != "" ||
+		w[1].ParentSourceID != "root" || w[2].ParentSourceID != "child" || w[2].Index != 3 {
+		t.Fatalf("hierarchy = %+v", w)
+	}
+	if procs.scans != 0 || len(o.Trace("terminal.list", "terminal.send", "terminal.close")) != 0 {
+		t.Fatal("reading workspace containers inspected or changed agents")
+	}
+}
+
+func TestWorkspacesCatalogKeepsProjectSeparateFromWorkspaceParents(t *testing.T) {
+	n, _, o, procs, _ := orcaNode(t)
+	main := orcarttest.Worktree("app::/code/app", "/code/app", "")
+	main["repoId"], main["repo"], main["isMainWorktree"] = "app", "App", true
+	main["unread"], main["sidebarStatus"], main["workspaceKind"] = true, "working", "git"
+	o.Handle("worktree.list", func(map[string]any) any {
+		return map[string]any{"worktrees": []any{map[string]any{"id": "app::/code/app", "head": "abcdef1234567890"}}}
+	})
+	a := orcarttest.Worktree("app::/external/a", "/external/a", "a")
+	a["repoId"], a["repo"], a["isMainWorktree"] = "app", "App", false
+	b := orcarttest.Worktree("app::/external/b", "/external/b", "b")
+	b["repo"], b["isMainWorktree"], b["parentWorktreeId"] = "App", false, "foreign::/folder"
+	o.SetWorktrees(main, a, b)
+	ws := workspaceList(t, n)
+	if len(ws) != 3 {
+		t.Fatalf("workspaces = %+v", ws)
+	}
+	for _, w := range ws {
+		if w.ProjectID != "app" || w.ProjectName != "App" || w.ProjectPath != "/code/app" || w.IsMain == nil {
+			t.Fatalf("project metadata = %+v", w)
+		}
+	}
+	if !*ws[0].IsMain || *ws[1].IsMain || ws[1].ParentSourceID != "" || ws[2].ParentSourceID != "foreign::/folder" {
+		t.Fatalf("project changed workspace lineage: %+v", ws)
+	}
+	if ws[0].Unread == nil || !*ws[0].Unread || ws[0].SidebarStatus != "working" || ws[0].WorkspaceKind != "git" || ws[0].Head != "abcdef1234567890" {
+		t.Fatal("workspace presentation metadata was lost")
+	}
+	if procs.scans != 0 || len(o.Trace("terminal.list", "terminal.send", "terminal.close")) != 0 {
+		t.Fatal("project inventory touched agent processes or terminals")
+	}
+}
+
 func TestWorkspacesListHerdrCoreEmptySpaces(t *testing.T) {
 	n, f, hc, _ := hcNode(t)
 	hc.doc = map[string]any{"spaces": []any{

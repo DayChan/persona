@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api, credentialOwner, enc, errorText, getToken, isAbort, subscribeCredentialOwner } from "../../lib/api";
 import { defaultManager, MANAGER_HEADER, useKnownDefault } from "../../lib/manager-choice";
 import { ConfirmedFacts } from "./ConfirmedFacts";
+import { Relationships } from "./Relationships";
 import { ago, sessionPreview, sessionTitle, shortPath, stateOf, tabLabel } from "../../lib/format";
 import {
   agentPreset,
@@ -15,10 +16,8 @@ import {
   factsOf,
   formatAt,
   hitView,
-  importanceTone,
   isKind,
   kindTitle,
-  linkGroups,
   parseMessageLine,
   parseRecent,
   profile,
@@ -47,7 +46,7 @@ import { askPersona } from "../../lib/outbox";
 import { openNewAgent } from "../../lib/new-agent";
 import { DayDialog, MessageView, MomentDialog, TagEditor } from "./KBDialogs";
 import { ErrorBox } from "./KBList";
-import { Badges, Card, importanceLabel, KBIcon, Marked, MoreRow, onPlainClick, SectionTitle, Tile, TonePill } from "./KBParts";
+import { Badges, Card, KBIcon, Marked, MoreRow, onPlainClick, SectionTitle, Tile, TonePill } from "./KBParts";
 import { t } from "../../i18n";
 
 /** Timeline lines shown before "Show all". */
@@ -101,7 +100,6 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
   const [allLog, setAllLog] = useState(false);
   const [allMatches, setAllMatches] = useState(false);
   const [allMoments, setAllMoments] = useState(false);
-  const [openKinds, setOpenKinds] = useState<Set<string>>(new Set());
   const [showRecent, setShowRecent] = useState(false);
   const [day, setDay] = useState<{ day: string; focus?: number; query?: string } | null>(null);
   const [moment, setMoment] = useState<KBMomentRef | null>(null);
@@ -156,7 +154,6 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
   const rec = d ? recordingView(d.kind, d.meta, d.segments) : null;
   const log = timeline(d?.log);
   const prof = profile(d?.summary, e.one_line, e.name);
-  const links = linkGroups(d?.links);
   const dirs = dirsOf(d?.meta);
   const recent = d?.kind === "chats" ? parseRecent(d.recent) : [];
   const into = typeof d?.meta?.merged_into === "string" ? d.meta.merged_into : "";
@@ -358,50 +355,21 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
                 </section>
               )}
 
-              {links.map((g) => {
-                const open = openKinds.has(g.kind);
-                return (
-                  <section key={g.kind}>
-                    <SectionTitle title={g.title} count={g.items.length} />
-                    <Card>
-                      {(open ? g.items : g.items.slice(0, LINKS_SHOWN)).map((x) => (
-                        <a
-                          key={`${x.kind}/${x.id}`}
-                          href={href({ name: "kb", kind: x.kind, id: x.id })}
-                          onClick={(ev) => onPlainClick(ev, () => onOpen(x))}
-                          className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-hover"
-                        >
-                          <Tile entry={x} size={30} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-medium text-ink">{x.name}</span>
-                            {x.one_line && <span className="block truncate text-[12px] text-ink-3">{x.one_line}</span>}
-                          </span>
-                          {x.importance && (
-                            <TonePill tone={importanceTone(x.importance)} strong>
-                              {importanceLabel(x.importance)}
-                            </TonePill>
-                          )}
-                          <Icon name="chevronRight" size={12} stroke={2.2} className="shrink-0 text-ink-3" />
-                        </a>
-                      ))}
-                      {g.items.length > LINKS_SHOWN && (
-                        <MoreRow
-                          open={open}
-                          label={t("knowledge-kbdetail.all_items", { count: g.items.length })}
-                          onClick={() =>
-                            setOpenKinds((s) => {
-                              const n = new Set(s);
-                              if (n.has(g.kind)) n.delete(g.kind);
-                              else n.add(g.kind);
-                              return n;
-                            })
-                          }
-                        />
-                      )}
-                    </Card>
-                  </section>
-                );
-              })}
+              <Relationships
+                detail={d}
+                name={e.name}
+                auth={{ token, tokenOwner: owner, headers: { [MANAGER_HEADER]: manager } }}
+                current={current}
+                onOpen={onOpen}
+                onRefreshed={(r) => {
+                  if (!current()) return;
+                  request.current++;
+                  remember(r.detail.links ?? []);
+                  setResp(r);
+                  setError("");
+                }}
+                onSaved={onSaved}
+              />
 
               {dirs.length > 0 && <Dirs dirs={dirs} />}
 

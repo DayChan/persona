@@ -4256,21 +4256,24 @@ type TodoDecisionEvent struct {
 // ModelErrorCode: error.code of model.complete besides permission_denied (data {scope: "models"}): invalid_params;
 // assistant_offline (the manager is away: try again); model_unavailable (nothing to call for this extension: the user
 // picks a model for it in Settings › Model configuration); model_paused (the connection is held for quota or load,
-// nothing was sent; data ModelPause: try again after until); model_failed (the upstream refused or failed the
-// request); timeout (past timeout_seconds); invalid_output (with json_schema, the reply was still not JSON matching
-// it after one more try; data ModelInvalidOutput).
+// nothing was sent; data ModelPause: try again after until); model_failed (the upstream failed the request: an error
+// status or a dropped connection); model_refused (the model declined to answer this input, a refusal or a content
+// filter: sending it again unchanged gets the same answer, so split it, drop a part or report it; data ModelRefusal);
+// timeout (past timeout_seconds); invalid_output (with json_schema, the reply was still not JSON matching it after
+// one more try; data ModelInvalidOutput).
 const (
 	ModelErrorCodeInvalidParams    = "invalid_params"
 	ModelErrorCodeAssistantOffline = "assistant_offline"
 	ModelErrorCodeModelUnavailable = "model_unavailable"
 	ModelErrorCodeModelPaused      = "model_paused"
 	ModelErrorCodeModelFailed      = "model_failed"
+	ModelErrorCodeModelRefused     = "model_refused"
 	ModelErrorCodeTimeout          = "timeout"
 	ModelErrorCodeInvalidOutput    = "invalid_output"
 )
 
 // ModelErrorCodes are the values of ModelErrorCode, in order.
-var ModelErrorCodes = []string{"invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "timeout", "invalid_output"}
+var ModelErrorCodes = []string{"invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "model_refused", "timeout", "invalid_output"}
 
 // ModelMessage: one turn of the conversation: the user's, or the model's earlier answer.
 type ModelMessage struct {
@@ -4341,6 +4344,13 @@ type ModelInvalidOutput struct {
 	Problem string     `json:"problem"`
 	Text    string     `json:"text"`
 	Usage   ModelUsage `json:"usage"`
+}
+
+// ModelRefusal: the data of model_refused: what the upstream said and what the declined call spent.
+type ModelRefusal struct {
+	// The upstream's reason: refusal (a refusal stop or part) or content_filter.
+	StopReason string     `json:"stop_reason,omitempty"`
+	Usage      ModelUsage `json:"usage"`
 }
 
 // AssistantErrorCode: error.code of the assistant calls besides permission_denied (data {scope: "assistant.read"}):
@@ -5429,6 +5439,7 @@ var newDef = map[string]func() any{
 	"ModelCompleteResult":          func() any { return new(ModelCompleteResult) },
 	"ModelPause":                   func() any { return new(ModelPause) },
 	"ModelInvalidOutput":           func() any { return new(ModelInvalidOutput) },
+	"ModelRefusal":                 func() any { return new(ModelRefusal) },
 	"AssistantConversationsParams": func() any { return new(AssistantConversationsParams) },
 	"AssistantConversation":        func() any { return new(AssistantConversation) },
 	"AssistantConversationsResult": func() any { return new(AssistantConversationsResult) },

@@ -61,10 +61,14 @@ struct AgentListRows {
     }
 
     /// A repository with nothing going on: in Idle Repositories (`ChatsView.isQuiet`).
-    func isQuiet(_ r: RepoTree.Repo) -> Bool { all && r.sessions.allSatisfy { !order.stays($0) } }
+    func isQuiet(_ r: RepoTree.Repo) -> Bool { !r.structured && all && r.sessions.allSatisfy { !order.stays($0) } }
 
     /// A working tree's agents, then its nested spaces' while its「N 个子项」is open (`ChatsView.childWorktreeRows`).
     private func worktree(_ w: RepoTree.Worktree) -> [Session] {
+        if w.catalog {
+            let own = w.sessions.count > 1 && folded(w.agentsFoldID) ? [] : order.ordered(w.sessions)
+            return own + (folded(w.childrenFoldID) ? [] : w.children.flatMap(worktree))
+        }
         let quiet = all && w.treeSessions.allSatisfy { !order.stays($0) }
         let open = searching || (quiet ? expandedQuiet.contains(w.id) : !isFolded(w.id))
         guard open else { return [] }

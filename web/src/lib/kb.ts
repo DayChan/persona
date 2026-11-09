@@ -120,6 +120,9 @@ export interface KBDay {
 
 /** `PUT /kb/{kind}/{id}` (the hub's kb.Update); tagging set here is locked against the automatic one. */
 export interface KBUpdate {
+  remove_people?: string[];
+  remove_chats?: string[];
+  remove_projects?: string[];
   /** Omitted preserves confirmed facts; an explicit empty string clears them. */
   pinned?: string;
   importance?: string;

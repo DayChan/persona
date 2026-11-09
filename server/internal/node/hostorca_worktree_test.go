@@ -46,6 +46,9 @@ func orcaWorktreeNode(t *testing.T) *orcaWorktreeFixture {
 	o.SetWorktrees(src)
 	o.Handle("worktree.create", func(p map[string]any) any {
 		name, branch, base := str(p["name"]), str(p["branchNameOverride"]), str(p["baseBranch"])
+		if p["nameWasGenerated"] == true && branch == "" {
+			branch = "devuser/" + name
+		}
 		path := filepath.Join(w.dir, name)
 		at, _ := branchCheckedOutAt(t.Context(), repo, branch)
 		if _, err := os.Lstat(path); err == nil || at != "" {
@@ -71,6 +74,48 @@ func orcaWorktreeNode(t *testing.T) *orcaWorktreeFixture {
 	return w
 }
 
+func TestOrcaAutomaticWorktreeUsesHostNamingAndKeepsItsSourceAndParent(t *testing.T) {
+	w := orcaWorktreeNode(t)
+	parent := "folder-project::" + mkdir(t, filepath.Join(w.home, "collection"))
+	w.o.SetWorktrees(orcarttest.Worktree(w.src, w.repo, "refs/heads/dev"),
+		orcarttest.Worktree(parent, filepath.Join(w.home, "collection"), ""))
+	prep, err := request(t, w.n, "worktree.prepare", map[string]any{"workspace_id": w.src})
+	if err != nil || prep["automatic_name"] != true {
+		t.Fatalf("automatic naming capability: %v, %v", prep, err)
+	}
+	res, err := request(t, w.n, "worktree.create", map[string]any{"workspace_id": w.src, "parent_workspace_id": parent, "auto_name": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := w.o.Params("worktree.create")
+	if len(got) != 1 || got[0]["nameWasGenerated"] != true || got[0]["branchNameOverride"] != nil || got[0]["baseBranch"] != "dev" ||
+		got[0]["parentWorktree"] != "id:"+parent || got[0]["activate"] != false {
+		t.Fatalf("automatic create params: %v", got)
+	}
+	if res["parent_workspace_id"] != parent || res["branch"] != "devuser/"+str(got[0]["name"]) ||
+		res["path"] != filepath.Join(w.dir, str(got[0]["name"])) {
+		t.Fatalf("must return Orca's actual identities: %v", res)
+	}
+	if head := runPullGit(t, str(res["path"]), "rev-parse", "HEAD"); head != w.devHead {
+		t.Fatal("automatic checkout did not start at the source HEAD")
+	}
+}
+
+func TestOrcaAutomaticWorktreeRefusesMissingParentsAndExplicitOverrides(t *testing.T) {
+	w := orcaWorktreeNode(t)
+	for _, fields := range []map[string]any{
+		{"parent_workspace_id": "gone"}, {"branch": "feature/x"}, {"path": filepath.Join(w.home, "custom")},
+	} {
+		fields["workspace_id"], fields["auto_name"] = w.src, true
+		if _, err := request(t, w.n, "worktree.create", fields); err == nil {
+			t.Fatalf("automatic create accepted invalid fields: %v", fields)
+		}
+	}
+	if w.o.Count("worktree.create") != 0 {
+		t.Fatal("refused requests reached Orca")
+	}
+}
+
 func (w *orcaWorktreeFixture) create(t *testing.T, branch string) (map[string]any, error) {
 	t.Helper()
 	return request(t, w.n, "worktree.create", map[string]any{"workspace_id": w.src, "branch": branch,
@@ -85,7 +130,7 @@ func TestOrcaWorktreeCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prep["path"] != w.dir || prep["repoName"] != "proj" || prep["branch"] != "dev" {
+	if prep["path"] != w.dir || prep["repoName"] != "proj" || prep["branch"] != "dev" || prep["choose_parent"] != true {
 		t.Errorf("prepare = %v", prep)
 	}
 	res, err := w.create(t, "feat/x")
@@ -108,6 +153,31 @@ func TestOrcaWorktreeCreate(t *testing.T) {
 	}
 	if bad := w.o.Invalid(); len(bad) != 0 {
 		t.Errorf("Orca's schema refused %v", bad)
+	}
+}
+
+func TestOrcaWorktreeParentCanBeAnEmptyFolderInAnotherProject(t *testing.T) {
+	w := orcaWorktreeNode(t)
+	parent := "folder-project::" + mkdir(t, filepath.Join(w.home, "collection"))
+	w.o.SetWorktrees(orcarttest.Worktree(w.src, w.repo, "refs/heads/dev"),
+		orcarttest.Worktree(parent, filepath.Join(w.home, "collection"), ""))
+	_, err := request(t, w.n, "worktree.create", map[string]any{"workspace_id": w.src, "parent_workspace_id": parent,
+		"branch": "nested", "path": filepath.Join(w.dir, "nested")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := w.o.Params("worktree.create")
+	if len(got) != 1 || got[0]["repo"] != "id:repo1" || got[0]["parentWorktree"] != "id:"+parent || got[0]["baseBranch"] != "dev" {
+		t.Fatalf("source and parent were conflated: %v", got)
+	}
+}
+
+func TestOrcaWorktreeMissingParentIsRefusedBeforeCreation(t *testing.T) {
+	w := orcaWorktreeNode(t)
+	_, err := request(t, w.n, "worktree.create", map[string]any{"workspace_id": w.src, "parent_workspace_id": "gone",
+		"branch": "nested", "path": filepath.Join(w.dir, "nested")})
+	if err == nil || w.o.Count("worktree.create") != 0 {
+		t.Fatalf("missing parent created a checkout: %v", err)
 	}
 }
 

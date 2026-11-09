@@ -2,12 +2,23 @@ import PersonaKit
 import SwiftUI
 
 /// Start a session inside an existing space (a new herdr tab next to the other agents).
-struct SpacePreset {
+nonisolated struct SpacePreset {
     /// The machine id, or "group|id" for another group of hubs (`MachineRef.path`).
     var machineID: String
     var cwd: String
     var workspaceID: String
     var spaceName: String
+    /// Workspace IDs belong to their host; nil keeps directory-only and legacy starts on the machine's default.
+    var host: String? = nil
+
+    static func destination(preset: Self?, workspace: HostWorkspace?) -> Self? {
+        preset ?? workspace?.preset
+    }
+
+    /// The same directory can switch between joining a host workspace and offering an independent Git worktree.
+    static func repositoryLookupKey(machineID: String, cwd: String, online: Bool, destination: Self?) -> [String] {
+        [machineID, cwd, String(online)] + (destination.map { ["workspace", $0.workspaceID, $0.host ?? ""] } ?? ["directory"])
+    }
 }
 
 /// Pick a machine, a project directory and a launcher (model), optionally with a first message.
@@ -56,6 +67,9 @@ struct NewChatView: View {
     @State private var purposeGroup: String?
     @State private var starting = false
     @State private var error: String?
+    @State private var workspaceCatalog = WorkspaceCatalog()
+    @State private var pickedWorkspace: HostWorkspace?
+    @State private var childSource: HostWorkspace?
     /// The picked folder's repository, as its computer says (#6115); nil: not in one, or it cannot say.
     @State private var repo: WorktreeStatus?
     /// Start the agent in a new worktree of `repo`; off each time the sheet opens.
@@ -70,6 +84,10 @@ struct NewChatView: View {
     /// `machineID` is what is remembered: the machine id, "group|id" for another group of hubs (`MachineRef.path`).
     private var ref: MachineRef { MachineRef(path: machineID) }
     private var machine: Machine? { model.machine(ref) }
+    private var targetPreset: SpacePreset? { SpacePreset.destination(preset: preset, workspace: pickedWorkspace) }
+    private var workspaceChoices: [HostWorkspace] {
+        workspaceCatalog.workspaces.filter { $0.machineRef == ref && $0.source == "orca" }
+    }
 
     /// The launcher that will run: the one picked, or Model Settings'.
     private var runLauncher: String { launcher.isEmpty && unifiedModels ? defaultLauncher : launcher }
@@ -179,7 +197,7 @@ struct NewChatView: View {
                         Label(preset.spaceName, systemImage: Theme.Icon.spaceFilled)
                         Text(Fmt.path(preset.cwd, home: machine?.home)).font(Theme.Font.code).foregroundStyle(.secondary)
                     } header: { Text("Join Space") } footer: {
-                        Text("Opens a new tab in this herdr workspace on \(machine?.name ?? "").")
+                        Text(String(localized: "workspace.joinHelp", defaultValue: "Opens a new tab in the selected workspace."))
                     }
                 } else {
                 Section {
@@ -192,6 +210,27 @@ struct NewChatView: View {
                     .listRowInsets(EdgeInsets(top: Theme.Space.s, leading: Theme.Space.page, bottom: Theme.Space.s, trailing: Theme.Space.page))
                 } header: { Text("Machines") }
 
+                if !workspaceChoices.isEmpty {
+                    Section {
+                        NavigationLink {
+                            WorkspacePicker(workspaces: workspaceChoices, selectedID: pickedWorkspace?.sourceID, allowDirectory: true) { picked in
+                                pickedWorkspace = picked
+                                if let picked { cwd = picked.cwd }
+                            }
+                        } label: {
+                            LabeledContent(String(localized: "workspace.target", defaultValue: "Worktree"),
+                                           value: pickedWorkspace?.title ?? String(localized: "workspace.useDirectory", defaultValue: "Choose by Folder"))
+                        }
+                        .accessibilityIdentifier("newChat.workspace")
+                        if let pickedWorkspace {
+                            Button { childSource = pickedWorkspace } label: {
+                                Label(String(localized: "workspace.newChild", defaultValue: "New Child Worktree…"), systemImage: Theme.Icon.newWorktree)
+                            }
+                            .accessibilityIdentifier("newChat.newChild")
+                        }
+                    }
+                }
+                if pickedWorkspace == nil {
                 Section {
                     NavigationLink {
                         DirectoryBrowser(ref: ref, start: cwd.isEmpty ? "" : cwd) { picked in cwd = picked }
@@ -231,6 +270,7 @@ struct NewChatView: View {
                 if let repo, !repo.path.isEmpty {
                     NewAgentWorktreeSection(repo: repo, on: $inWorktree, branch: $worktreeBranch,
                                             suggested: AgentWorktree.branch(nameHint: worktreeNameHint), home: machine?.home)
+                }
                 }
                 }
 
@@ -301,7 +341,7 @@ struct NewChatView: View {
                         .submitLabel(.done)
                         .accessibilityIdentifier("newChat.tabName")
                 } header: { Text("Tab Name (Optional)") } footer: {
-                    Text("The tab's name in herdr. If left empty, a short English name is made from the first message (like fix-login); with no first message it's agent-1, agent-2…")
+                    Text(String(localized: "workspace.tabNameHelp", defaultValue: "Optional name for the new session tab. If empty, it is named from the first message."))
                 }
 
             }
@@ -357,6 +397,7 @@ struct NewChatView: View {
                 .padding(.bottom, Theme.Space.s)
             }
             .task(id: machineID) { await loadMachine() }
+            .task(id: machineID) { await workspaceCatalog.refresh([ref.group]) { model.api($0) } }
             // A provider added from a grayed-out launcher's help (Add Provider): this computer's list again.
             .onChange(of: model.launchersRevision) { _, _ in Task { await loadMachine() } }
             #if DEBUG
@@ -369,7 +410,8 @@ struct NewChatView: View {
             // The Claude quota under ultracode's row (#1307).
             .task(id: ultracodeShown) { if ultracodeShown { await UsageWindowsStore.shared.loadIfOld(model) } }
             .task(id: "\(machineID)|\(runLauncher)|\(machine?.online == true)|\(defaultsFor)") { await loadModels() }
-            .task(id: "\(machineID)|\(cwd)|\(machine?.online == true)") { await loadRepo() }
+            .task(id: SpacePreset.repositoryLookupKey(machineID: machineID, cwd: cwd, online: machine?.online == true,
+                                                      destination: targetPreset)) { await loadRepo() }
             .sheet(isPresented: $typingModel) {
                 TypedModelSheet(initial: pickedModel, note: String(localized: "Used for this start only. Once it runs, it's listed under Typed Before.")) { id in
                     pickedModel = id
@@ -384,6 +426,15 @@ struct NewChatView: View {
             }
             .onChange(of: model.machines) { _, _ in if preset == nil { pickDefaultMachine() } }
             .interactiveDismissDisabled(starting)
+        }
+        .sheet(item: $childSource) { source in
+            NewWorktreeSheet(group: SpaceGroup(id: source.key, machineID: source.machineID, spaceID: source.sourceID, group: source.group,
+                                              name: source.title, index: source.index ?? 0, sessions: []), workspace: source) { made in
+                pickedWorkspace = HostWorkspace(machineID: source.machineID, source: source.source, sourceID: made.workspaceID,
+                                                title: made.branch, cwd: made.path, parentSourceID: made.parentWorkspaceID, group: source.group)
+                cwd = made.path
+                childSource = nil
+            }
         }
         #if os(macOS)
         // On the stack, not its root: with the minimum size on the form, pushing Launcher / Folder shrank a sheet opened
@@ -505,7 +556,7 @@ struct NewChatView: View {
                 effort = UserDefaults.standard.string(forKey: "effort.\(machineID)") ?? ""
                 if unifiedModels { launcher = ""; effort = "" }
                 else { launcher = LauncherChoices.initial(saved: saved, in: ls) }
-                if let preset { cwd = preset.cwd } else {
+                if let preset = targetPreset { cwd = preset.cwd } else {
                     cwd = UserDefaults.standard.string(forKey: "cwd.\(machineID)") ?? recent.first?.path ?? ""
                 }
             }
@@ -523,6 +574,7 @@ struct NewChatView: View {
     /// saved defaults (applied again for the next machine), and its hub's New Agent model when the new machine is in
     /// another group of hubs.
     private func forgetLastMachine() {
+        pickedWorkspace = nil
         recent = []
         launchers = []
         launcher = ""
@@ -632,11 +684,11 @@ struct NewChatView: View {
     private func loadRepo() async {
         repo = nil
         let dir = cwd
-        guard preset == nil, !dir.isEmpty, machine?.online == true, let api = model.api(ref.group) else { return }
+        guard targetPreset == nil, !dir.isEmpty, machine?.online == true, let api = model.api(ref.group) else { return }
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled else { return }
         let st = await api.worktreeStatus(machine: ref.id, cwd: dir)
-        guard !Task.isCancelled, dir == cwd else { return }
+        guard !Task.isCancelled, targetPreset == nil, dir == cwd else { return }
         repo = st
     }
 
@@ -650,7 +702,7 @@ struct NewChatView: View {
         defer { starting = false }
         // In a worktree of its own (#6115): made first; a failure says why, and nothing starts.
         var dir = cwd
-        if inWorktree, preset == nil, repo?.path.isEmpty == false {
+        if inWorktree, targetPreset == nil, repo?.path.isEmpty == false {
             do {
                 dir = try await api.addAgentWorktree(machine: ref.id, cwd: cwd, nameHint: worktreeNameHint, branch: worktreeBranch).path
             } catch {
@@ -668,7 +720,7 @@ struct NewChatView: View {
                 // Codex picks its thread's id once it has the first message: it goes with the start, which answers
                 // with that thread (one session, already working on it).
                 let s = try await api.start(.init(machineID: ref.id, cwd: dir, launcher: launcher, prompt: contextBlock == nil ? prompt : outgoing,
-                                                  workspaceID: preset?.workspaceID, model: sentModel, tabName: name.isEmpty ? nil : name,
+                                                  workspaceID: targetPreset?.workspaceID, host: targetPreset?.host, model: sentModel, tabName: name.isEmpty ? nil : name,
                                                   nameHint: nameHint ?? (p.isEmpty ? nil : p), todoID: todoID))
                 UserDefaults.standard.set(launcher, forKey: "launcher.\(machineID)")
                 UserDefaults.standard.set(cwd, forKey: "cwd.\(machineID)")
@@ -680,7 +732,7 @@ struct NewChatView: View {
             // The hub answers at once and starts claude in the background; the first message goes out as an ordinary
             // message (on screen right away, typed in once claude is ready).
             let s = try await api.start(.init(machineID: ref.id, cwd: dir, launcher: launcher, prompt: nil,
-                                              workspaceID: preset?.workspaceID, permissionMode: mode.isEmpty ? nil : mode,
+                                              workspaceID: targetPreset?.workspaceID, host: targetPreset?.host, permissionMode: mode.isEmpty ? nil : mode,
                                               effort: effort.isEmpty ? nil : effort, model: sentModel, tabName: name.isEmpty ? nil : name,
                                               async: true, nameHint: nameHint ?? (p.isEmpty ? nil : p), todoID: todoID,
                                               ultracode: sendsUltracode ? true : nil))

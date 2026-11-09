@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/prompts"
 )
@@ -133,6 +134,7 @@ func TestInboxAgentMachineTrust(t *testing.T) {
 
 func TestInboxDoesNotResumeOnWorkMachine(t *testing.T) {
 	h := agentHub(t)
+	h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 	ctx := context.Background()
 	delegationMachineTrust(t, h.Service, "work", "work")
 	it := actionItem("event", time.Now())

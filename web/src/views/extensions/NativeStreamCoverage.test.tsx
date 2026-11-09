@@ -4,7 +4,8 @@ import { t } from "../../i18n";
 const exampleSources = import.meta.glob<string>("../../../../schema/extension/examples/View.*.json", { query: "?raw", import: "default", eager: true });
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../../lib/lazy-page";
 import { ExtensionUIStreamSession, NATIVE_STREAM_COMPONENTS, nativeStreamSlots } from "../../lib/extension-ui-stream";
 import type { Component, UIStreamRequest, UIStreamSnapshot, View } from "../../lib/extension-wire";
 import { ExtensionStreamSections, type ExtensionStreamSectionsProps } from "./ExtensionStreamSections";
@@ -17,6 +18,8 @@ vi.hoisted(() => {
 const identity = { owner: "demo-owner", hubGroup: "demo-group", extension: "example", contribution: "native", navigation: "root" };
 let root: Root, host: HTMLDivElement, session: ExtensionUIStreamSession;
 const options: ExtensionStreamSectionsProps = { identity, fallback: <p>Legacy fallback</p> };
+// the code views are their own chunk (lib/lazy-page.ts, #1794): in before anything is drawn
+beforeAll(() => loadPages(), 60_000);
 afterEach(async () => { vi.useRealTimers(); if (root) await act(async () => root.unmount()); session?.close(); host?.remove(); vi.unstubAllGlobals(); });
 function tree(items: Component[], view: Partial<View> = {}): UIStreamSnapshot {
   return { protocol: 1, session: "demo-session", epoch: "demo-epoch", version: 1, root_key: "root", view: { sections: [{ key: "main", items }, { key: "other", items: [] }], ...view } };

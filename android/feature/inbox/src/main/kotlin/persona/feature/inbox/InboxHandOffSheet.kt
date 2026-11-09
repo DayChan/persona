@@ -1,7 +1,6 @@
 package persona.feature.inbox
 
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.layout.*
@@ -22,8 +21,8 @@ import kotlinx.coroutines.launch
 /**
  * "Hand to AI" (iOS `InboxHandOffSheet`, the old app's sheet): what to do with the item (three presets or the user's own
  * words), who does it — Persona's main conversation (2026-11-02: hand-offs go there) or one of the live Agents — and
- * whether to file the item as done. The message is the item as `<persona-context>` plus the request; once it is queued
- * the sheet closes and the conversation it went to opens.
+ * whether to file the item as done. Persona receives the item through its hand-off route; older hubs and Agent
+ * targets use the chat outbox. Once accepted, the sheet closes and the conversation it went to opens.
  *
  * [context] replaces the hub's text of the item (the mail page has the whole message); [onHandedOff] hears where it
  * went (null: Persona).
@@ -44,7 +43,8 @@ internal fun InboxHandOffSheet(
     val itemId = record.item.id
     var instruction by rememberSaveable(itemId) { mutableStateOf("") }
     var targetKey by rememberSaveable(itemId) { mutableStateOf<String?>(null) }
-    var markDone by rememberSaveable(itemId) { mutableStateOf(true) }
+    var markDone by rememberSaveable(itemId) { mutableStateOf(false) }
+    var doneChosen by rememberSaveable(itemId) { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val attempt = remember(itemId) { HandOffAttempt() }
@@ -53,6 +53,11 @@ internal fun InboxHandOffSheet(
     val palette = PersonaTheme.palette
     val res = LocalResources.current
     val presets = handoffPresets(res)
+    fun selectTarget(next: HandOffTarget?) {
+        if (busy) return
+        targetKey = next?.key
+        if (!doneChosen) markDone = next != null
+    }
     fun send() {
         if (busy) return
         busy = true
@@ -61,7 +66,7 @@ internal fun InboxHandOffSheet(
             try {
                 val text = handoffPrompt(res, handOffItem(record, context ?: repository.personaContext(itemId)), instruction)
                 val operation = attempt.operationId(text, target)
-                repository.handOff(InboxHandOffRequest(itemId, text, target?.machineId, target?.sessionId, operation))
+                val session = repository.handOff(InboxHandOffRequest(itemId, text, target?.machineId, target?.sessionId, operation))
                 attempt.done()
                 if (markDone && !record.item.isDone) {
                     try { repository.setDone(itemId, true) }
@@ -70,8 +75,10 @@ internal fun InboxHandOffSheet(
                 }
                 onDismiss()
                 onHandedOff(target)
-                if (target == null) navigator?.selectTab(AppTab.Persona)
-                else navigator?.navigate(ChatRoute(target.machineId, target.sessionId, ConversationKind.Agent))
+                if (target == null) {
+                    if (session != null) navigator?.navigate(ChatRoute(session.machineId, session.sessionId, ConversationKind.Assistant))
+                    else navigator?.selectTab(AppTab.Persona)
+                } else navigator?.navigate(ChatRoute(target.machineId, target.sessionId, ConversationKind.Agent))
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = res.getString(R.string.inbox_handoff_failed, failureReason(e).resolve(res)) }
             finally { busy = false }
@@ -90,12 +97,12 @@ internal fun InboxHandOffSheet(
             JSectionHeader(stringResource(R.string.inbox_handoff_who))
             val rows = targets.size + 1
             JGroupItem(GroupPosition.of(0, rows)) {
-                JRow("Persona", subtitle = stringResource(R.string.inbox_handoff_main_chat), leadingIcon = PhIcons.Sparkle, onClick = { if (!busy) targetKey = null }, chevron = false,
+                JRow("Persona", subtitle = stringResource(R.string.inbox_handoff_main_chat), leadingIcon = PhIcons.Sparkle, onClick = { selectTarget(null) }, chevron = false,
                     trailing = { JRadio(target == null, null) })
             }
             targets.forEachIndexed { index, agent ->
                 JGroupItem(GroupPosition.of(index + 1, rows)) {
-                    JRow(agent.title, subtitle = agent.machine, leadingIcon = PhIcons.Robot, onClick = { if (!busy) targetKey = agent.key },
+                    JRow(agent.title, subtitle = agent.machine, leadingIcon = PhIcons.Robot, onClick = { selectTarget(agent) },
                         chevron = false, trailing = { JRadio(target == agent, null) })
                 }
             }
@@ -105,7 +112,7 @@ internal fun InboxHandOffSheet(
             }
             if (!record.item.isDone) {
                 Spacer(Modifier.height(Tokens.Space.l))
-                JGroupItem(GroupPosition.Single) { JSwitchRow(stringResource(R.string.inbox_handoff_mark_done), markDone, { if (!busy) markDone = it }) }
+                JGroupItem(GroupPosition.Single) { JSwitchRow(stringResource(R.string.inbox_handoff_mark_done), markDone, { if (!busy) { markDone = it; doneChosen = true } }) }
             }
             error?.let {
                 Spacer(Modifier.height(Tokens.Space.m))

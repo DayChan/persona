@@ -31,13 +31,13 @@ type channelsHub struct {
 	call func(ctx context.Context, id, method string, params, out any) error
 }
 
-// pluginChannel is a channel a plugin contributes, as the registry has it now.
+// extensionChannel is a channel a plugin contributes, as the registry has it now.
 type extensionChannel struct {
 	item      channel.Item
 	extension *extension.Extension
 }
 
-// pluginChannels are the channels the installed plugins contribute (switched off ones too), by id.
+// extensionChannels are the channels the installed plugins contribute (switched off ones too), by id.
 func (h *Manager) extensionChannels() []extensionChannel {
 	if h.extensions == nil {
 		return nil

@@ -42,7 +42,7 @@ func (ps *extensions) apiRoute(path string) (*hubExtension, extension.APIItem) {
 	return nil, extension.APIItem{}
 }
 
-// pluginAPIs serves the requests for a plugin's part of the API; the rest goes to next (the hub's own routes, mux).
+// extensionAPIs serves the requests for a plugin's part of the API; the rest goes to next (the hub's own routes, mux).
 func (h *Manager) extensionAPIs(next http.Handler, mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hp, item := h.extensions.apiRoute(r.URL.Path)

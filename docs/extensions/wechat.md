@@ -38,6 +38,7 @@ You can't scan your own screen on the same phone: tap **Save QR Code** to save i
 - WeChat sometimes asks for a verification code (the phone shows a string of digits); the login page then turns into an input box. An expired QR code is replaced automatically (up to 3 times); if scanning still isn't done 5 minutes after starting, the next poll gets a fresh one.
 - Signing out: tells iLink to go offline and deletes the token. The last 10 old tokens are kept and sent on the next authorization so iLink recognizes it as the same bot.
 - Bound again elsewhere (iLink returns `errcode -14`): unbinds automatically, and the status says "WeChat's authorization is no longer valid (bound again elsewhere, or revoked). Scan the code again to bind".
+- **Sign out** under Settings › Connectors, **Unbind** under Settings › Channels, and automatic unbinding all clear the channel's pending turns and text questions. After binding again, an ordinary message such as "ok" cannot answer a card left from the previous binding; the card itself remains in the App (#1837). The extension manager detects automatic unbinding when the program saves its state without credentials, rather than comparing the localized account label.
 
 ## How a message flows
 

@@ -391,6 +391,7 @@ agents.control       POST /api/v1/interactions/{id}/resolve
 -                    POST /api/v1/machines/{mid}/worktree/create
 -                    POST /api/v1/machines/{mid}/worktree/prepare
 -                    POST /api/v1/machines/{mid}/worktree/remove
+-                    POST /api/v1/machines/{mid}/worktree/rename
 -                    POST /api/v1/machines/{mid}/worktree/status
 -                    POST /api/v1/managers
 -                    POST /api/v1/managers/{id}/code

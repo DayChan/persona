@@ -120,3 +120,22 @@ func TestRenameUnknownSession(t *testing.T) {
 		t.Fatalf("%d title(s) kept for an unknown session", k)
 	}
 }
+
+// Codex keeps its own title: never append Claude's custom-title record to a Codex rollout.
+func TestRenameCodexUsesItsAppServer(t *testing.T) {
+	n, f, _ := effortPane(t)
+	title := "  Review  the build "
+	if err := n.renameSession(context.Background(), remoteRaw, nil, &title); err != nil {
+		t.Fatal(err)
+	}
+	got := f.sent("thread/name/set")
+	if len(got) != 1 || got[0]["threadId"] != remoteRaw || got[0]["name"] != "Review the build" || len(got[0]) != 2 {
+		t.Fatalf("rename params %v", got)
+	}
+	f.mu.Lock()
+	f.reject = "thread/name/set"
+	f.mu.Unlock()
+	if err := n.renameSession(context.Background(), remoteRaw, nil, &title); err == nil {
+		t.Fatal("a refused rename reported success")
+	}
+}

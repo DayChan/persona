@@ -131,6 +131,8 @@ type fakeHub struct {
 	// questions it got.
 	auth      map[string]proto.ClaudeAuthStatus
 	authAsked []string
+	// authHold, when set, holds claude.auth_status's answer until it is closed (a node running a slow launcher).
+	authHold chan struct{}
 	// nodes answer node methods on any machine, by method, before the answers below (answerNode).
 	nodes map[string]nodeAnswer
 }
@@ -305,6 +307,14 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 	case assistantwire.DeviceClaudeAuthStatus:
 		name, _ := a["name"].(string)
 		f.authAsked = append(f.authAsked, p.Device+"/"+name)
+		if hold := f.authHold; hold != nil {
+			f.mu.Unlock()
+			select {
+			case <-hold:
+			case <-ctx.Done():
+			}
+			f.mu.Lock()
+		}
 		if f.auth == nil {
 			return nil, errors.New("unknown method claude.auth_status")
 		}

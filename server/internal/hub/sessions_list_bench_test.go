@@ -100,6 +100,9 @@ func TestAgents8000Measurement(t *testing.T) {
 // an answer allocates bounded by the write buffer rather than the answer's size: 67,450 B for this 403 KB answer
 // measured, 2,445,645 B (6.07x the answer) when it was copied and encoded whole.
 func TestLegacyListStreams(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
 	h := newTestHub(t)
 	for _, mid := range []string{"ma", "mb"} {
 		m := newMachine(h, MachineConfig{ID: mid, Kind: "local"})
