@@ -155,6 +155,35 @@ func TestNavigationBriefAnswerDoesNotCrossAnInjectedTurn(t *testing.T) {
 	}
 }
 
+func TestNavigationRejectsARealTranscriptRewrite(t *testing.T) {
+	f := navigationFixture(t, 3)
+	before, err := f.Navigation(0, 40, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := f.Path + ".replacement"
+	line := `{"type":"user","uuid":"replacement-user","message":{"role":"user","content":"A different conversation history"}}` + "\n"
+	if err := os.WriteFile(replacement, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, f.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Navigation(before.NextBeforeSeq, 40, before.History); !errors.Is(err, ErrNavigationHistory) {
+		t.Fatalf("old cursor accepted after rewrite: %v", err)
+	}
+	if _, _, _, _, err := f.Around(before.Messages[0].Seq, 80, before.History); !errors.Is(err, ErrNavigationHistory) {
+		t.Fatalf("old target accepted after rewrite: %v", err)
+	}
+	after, err := f.Navigation(0, 40, "")
+	if err != nil || after.History == before.History || len(after.Messages) != 1 || after.Messages[0].ID == before.Messages[0].ID {
+		t.Fatalf("fresh index after rewrite=%+v err=%v", after, err)
+	}
+}
+
 func TestAroundLoadsOnlyTheSelectedWindowAndDetectsStaleTargets(t *testing.T) {
 	f := navigationFixture(t, 80)
 	index, err := f.Navigation(0, 100, "")
