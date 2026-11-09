@@ -1195,6 +1195,134 @@ func TestReceiptLookWithoutFeedDoesNotAttributeNewTurn(t *testing.T) {
 	}
 }
 
+func TestDifferentAgentsEachRecheckTheirOwnWait(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].Agents = append(s.todos.todos["task"].Agents, TodoAgent{MachineID: "box", SessionID: "s2", LinkedAt: linked})
+	s.todos.activeBySession[[2]string{"box", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	s.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Hour))
+	s.taskTurnEndedAfter(ctx, "box", "s2", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 2 {
+		t.Fatalf("waits = %+v, %v", state, err)
+	}
+	var a, b receiptLook
+	for _, look := range state.Looks {
+		if look.Session == "s1" {
+			a = look
+		} else if look.Session == "s2" {
+			b = look
+		}
+	}
+	if a.ID == "" || b.ID == "" || a.ID == b.ID {
+		t.Fatalf("agent waits do not have distinct IDs: %+v %+v", a, b)
+	}
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "first"},
+		proto.Session{MachineID: "box", SessionID: "s2", Status: proto.StatusDone, State: proto.StateUnread})
+	s.taskTurnEndedForLook(ctx, "box", "s1", &a)
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID != b.ID {
+		t.Fatalf("agent B wait changed: %+v, %v", state, err)
+	}
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread},
+		proto.Session{MachineID: "box", SessionID: "s2", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "second"})
+	f.mu.Lock()
+	before := len(f.calls)
+	f.mu.Unlock()
+	s.taskTurnEndedForLook(ctx, "box", "s2", &b)
+	f.mu.Lock()
+	calls := len(f.calls) - before
+	f.mu.Unlock()
+	if calls == 0 {
+		t.Fatal("agent B did not recheck the node")
+	}
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
+		t.Fatalf("agent B did not finish its wait: %+v, %v", state, err)
+	}
+	st.faultMu.Lock()
+	rows := append([]db.FeedRow(nil), st.feed...)
+	st.faultMu.Unlock()
+	if len(rows) != 2 || rows[0].ID == rows[1].ID || !strings.Contains(string(rows[1].Body), "second") {
+		t.Fatalf("agent B did not record its own recheck: %+v", rows)
+	}
+}
+
+func TestOtherAgentWaitRemainsAfterTriggerReceipt(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].Agents = append(s.todos.todos["task"].Agents, TodoAgent{MachineID: "box", SessionID: "s2", LinkedAt: linked})
+	s.todos.activeBySession[[2]string{"box", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	s.taskTurnEndedAfter(ctx, "box", "s2", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("wait = %+v, %v", state, err)
+	}
+	look := state.Looks[0]
+	id, err := s.appendTaskReceiptForLook(ctx, todoNow(s, "task"), SessionRef{MachineID: "box", SessionID: "s1"}, receiptBody{State: "interrupted"}, time.Time{}, false, nil)
+	if err != nil || id == "" || id == look.ID {
+		t.Fatalf("trigger receipt = %q, %v", id, err)
+	}
+	s.finishTaskReceipt(ctx, "task", id)
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID != look.ID {
+		t.Fatalf("other agent wait changed = %+v, %v", state, err)
+	}
+}
+
+func TestBoundRetryDoesNotMutateOtherManagerWork(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	f.judge = `{"verdict":"done","reason":"Verified"}`
+	linked := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	a := receiptTestService(t, f, st, linked)
+	b := receiptTestService(t, f, st, linked)
+	a.taskWorking(ctx, "box", "s1")
+	todo := todoNow(a, "task")
+	a.tasks.mu.Lock()
+	work, generation := a.tasks.working[todo.ID], a.tasks.workIDs[todo.ID]
+	a.tasks.mu.Unlock()
+	expected := &receiptLook{Todo: todo.ID, Machine: "box", Session: "s1", Linked: linked, Work: work, Generation: generation, RetryID: "bound-retry"}
+	b.taskWorking(ctx, "box", "s1")
+	f.setItems(proto.Item{Role: "user", Kind: proto.KindText, Text: "task"}, proto.Item{Role: "assistant", Kind: proto.KindText, Text: "deployed new work"})
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, LastText: "deployed new work"})
+	b.taskTurnEnded(ctx, "box", "s1")
+	f.mu.Lock()
+	before := f.judged
+	f.mu.Unlock()
+	if before == 0 {
+		t.Fatal("manager B did not complete the new work")
+	}
+	a.taskTurnEndedForLook(ctx, "box", "s1", expected)
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	current := todoNow(a, "task")
+	if judged != before || current.DoneAt != nil || current.Stage == "deploy" {
+		t.Fatalf("bound retry mutated new work: judgments=%d before=%d todo=%+v", judged, before, current)
+	}
+	a.reports.mu.Lock()
+	report := a.reports.pending["task"]
+	a.reports.mu.Unlock()
+	if report != nil {
+		t.Fatalf("bound retry replaced the current report: %+v", report)
+	}
+	st.feedMu.Lock()
+	_, exists := st.feed[expected.RetryID]
+	st.feedMu.Unlock()
+	if !exists {
+		t.Fatal("bound retry did not write its receipt")
+	}
+}
+
 func TestFirstDurableLookDoesNotMutateOtherManagerWork(t *testing.T) {
 	ctx := context.Background()
 	st := &receiptOnceStore{}
