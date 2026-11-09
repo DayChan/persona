@@ -44,7 +44,8 @@ export type Route =
   | { name: "agent-list" }
   // the agents archived from the Agents list (lib/agent-archives.ts), to find and restore
   | { name: "agent-archives" }
-  | { name: "todos"; id?: string }
+  // view=calendar: the to-dos' calendar (#2029), its mode and the day it shows ("YYYY-MM-DD"), with the open to-do beside it
+  | { name: "todos"; id?: string; view?: "calendar"; mode?: "day" | "week" | "month"; date?: string }
   | { name: "extension"; extension: string; ui: string };
 
 /** `?view=term|chat` of an agent page's address; anything else is no choice. */
@@ -82,8 +83,19 @@ export function parse(path: string, search = ""): Route {
   // /plugin/<id>/<ui>: the same page under its name before #1845 (bookmarks)
   if ((p[0] === "extension" || p[0] === "plugin") && p[1] && p[2]) return { name: "extension", extension: p[1], ui: p[2] };
   if (p[0] === "todos") {
-    const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("id") : null;
-    return { name: "todos", id: p[1] || q || undefined };
+    const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const r: Route = { name: "todos", id: p[1] || q.get("id") || undefined };
+    if (q.get("view") === "calendar") {
+      const mode = q.get("mode");
+      const date = q.get("date");
+      return {
+        ...r,
+        view: "calendar",
+        ...(mode === "day" || mode === "week" || mode === "month" ? { mode } : {}),
+        ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
+      };
+    }
+    return r;
   }
   return { name: "home" };
 }
@@ -136,8 +148,17 @@ export function routePath(r: Route): string {
       return "/agents";
     case "agent-archives":
       return "/agents/archived";
-    case "todos":
-      return r.id ? `/todos?id=${encodeURIComponent(r.id)}` : "/todos";
+    case "todos": {
+      const q = new URLSearchParams();
+      if (r.view === "calendar") {
+        q.set("view", "calendar");
+        if (r.mode) q.set("mode", r.mode);
+        if (r.date) q.set("date", r.date);
+      }
+      if (r.id) q.set("id", r.id);
+      const s = q.toString();
+      return s ? `/todos?${s}` : "/todos";
+    }
     case "extension":
       return `/extension/${encodeURIComponent(r.extension)}/${encodeURIComponent(r.ui)}`;
     default:

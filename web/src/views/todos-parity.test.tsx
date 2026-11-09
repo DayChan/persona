@@ -44,7 +44,8 @@ describe("the todos page", () => {
     const html = renderToStaticMarkup(<TodosView />);
     expect(html).toContain("没有待办");
     expect(html).toContain("记下一件要做的事，交给 Agent 执行并跟踪进度。");
-    expect(html.match(/新建待办/g)?.length).toBe(2); // the header's and the empty state's
+    // the header's (wider screens' button; a phone's plus, its label and its tooltip, #2029) and the empty state's
+    expect(html.match(/新建待办/g)?.length).toBe(4);
   });
 
   it("dates a row by its last update", () => {

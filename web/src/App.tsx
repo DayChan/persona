@@ -349,7 +349,7 @@ function Shell() {
       main = <WorkspaceBoard onToggleSidebar={toggle} />;
       break;
     case "todos":
-      main = <TodosView selectedId={route.id} onToggleSidebar={toggle} />;
+      main = <TodosView selectedId={route.id} view={route.view} mode={route.mode} date={route.date} onToggleSidebar={toggle} />;
       break;
     case "agents":
       main = <AgentsView key={route.id ?? ""} id={route.id} onToggleSidebar={toggle} />;

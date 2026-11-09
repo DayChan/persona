@@ -560,10 +560,11 @@ export async function setDecisionSupersedes(todoId: string, id: string, supersed
 
 // ── API helpers ──────────────────────────────────────────────
 
-export async function createTodo(title: string, notes?: string): Promise<Todo> {
+/** A new to-do; `due` makes it due at a moment or on a day (one made on the calendar, #2029). */
+export async function createTodo(title: string, notes?: string, due?: { due_at?: string; due_date?: string }): Promise<Todo> {
   const r = await api<{ todo: Todo }>("/todos", {
     method: "POST",
-    json: { title: title.trim(), notes: notes?.trim() || undefined },
+    json: { title: title.trim(), notes: notes?.trim() || undefined, ...due },
   });
   return r.todo;
 }
