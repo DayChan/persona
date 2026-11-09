@@ -16,10 +16,10 @@ import (
 // neither.
 
 // assistantOnlyEnv is what an Agent never takes over from its pane: what the node gives the assistant's processes alone
-// (assistant_start.go, assistant_codex_spawn.go, assistant_mcp.go, assistant_guest.go, larkgate.go), and what a running
-// Claude Code sets for every program it runs, marking it as that Claude's. The older spelling of each Persona variable
-// goes too (assistantOnlyEnvNames). An Agent that wants CLAUDE_CODE_AUTO_COMPACT_WINDOW or ENABLE_TOOL_SEARCH gets them
-// from its launcher or Claude Code's settings, not from the pane.
+// (assistant_start.go, assistant_codex_spawn.go, assistant_mcp.go, assistant_guest.go, larkgate_env.go), and what a
+// running Claude Code sets for every program it runs, marking it as that Claude's. The older spelling of each Persona
+// variable goes too (assistantOnlyEnvNames). An Agent that wants CLAUDE_CODE_AUTO_COMPACT_WINDOW or ENABLE_TOOL_SEARCH
+// gets them from its launcher or Claude Code's settings, not from the pane.
 var assistantOnlyEnv = []string{
 	"PERSONA_ASSISTANT", "PERSONA_ASSISTANT_BIN", "PERSONA_SESSION_ID", "PERSONA_SPACE", "PERSONA_GUEST",
 	"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "ENABLE_TOOL_SEARCH",

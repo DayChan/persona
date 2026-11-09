@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_extension_enabled_note">关闭后，此扩展提供的能力不可用，配置会保留。</string>
+    <string name="settings_extension_configured">配置文件（manager.json）</string>
+    <string name="settings_extension_configuration">扩展配置</string>
+    <string name="settings_extension_empty">无需配置</string>
+    <string name="settings_extension_information">信息</string>
+    <string name="settings_extension_updates">更新</string>
+    <string name="settings_extension_danger">危险操作</string>
+    <string name="settings_extension_missing">未提供</string>
+    <string name="settings_extension_id">扩展 ID</string>
+    <string name="settings_extension_runtime">运行时</string>
+    <string name="settings_extension_installed_from">安装来源</string>
+    <string name="settings_extension_attached">已附加</string>
+    <string name="settings_extension_development">开发模式</string>
+    <string name="settings_extension_local_source">本地安装</string>
+    <string name="settings_extension_check">检查更新</string>
+    <string name="settings_extension_check_hint">从扩展市场检查是否有新版本。</string>
+    <string name="settings_extension_current">已是最新版本</string>
+    <string name="settings_extension_builtin_updates">内置扩展随 Persona 一起更新。</string>
+    <string name="settings_extension_builtin_uninstall">内置扩展不能卸载。</string>
+    <string name="settings_extension_external_updates">此扩展不由扩展市场管理，请在其来源处更新。</string>
+    <string name="settings_extension_external_uninstall">此扩展由应用外部管理，请在其来源处移除。</string>
+    <string name="settings_extension_external_enabled">此扩展的启用状态由其来源管理。</string>
+    <string name="settings_extension_unknown">此管理器未提供这项操作。</string>
+    <string name="settings_extension_market_unavailable">扩展市场不可用，请恢复市场后重试。</string>
+    <string name="settings_extension_market_missing">此扩展已不在其市场中。</string>
+    <string name="settings_extension_market_removed">扩展市场已移除，自动升级已暂停，已保存的偏好会保留。</string>
+    <string name="settings_extension_global_off">此管理器的自动升级已关闭，扩展已保存的偏好会保留。</string>
+    <string name="settings_extension_global_unknown">无法读取此管理器的全局自动升级设置。</string>
+    <string name="settings_extension_rollback">回滚</string>
+    <string name="settings_extension_rollback_unavailable">此管理器未提供回滚确认预览，此页面不会发送回滚请求。</string>
+    <string name="settings_extension_remove_version">已安装版本：%1$s</string>
+</resources>

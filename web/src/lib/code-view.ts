@@ -29,7 +29,7 @@ export interface Hunk {
 export interface Comment {
   id?: string;
   author: string;
-  avatar?: { url?: string; text?: string };
+  avatar?: { url?: string; text?: string; ref?: string; path?: string };
   at?: string;
   body?: string;
   badge?: { text: string; tone?: string };

@@ -1,5 +1,19 @@
 {
   "loading": "正在加载…",
   "load_more": "加载更多",
-  "side_pane": "目录"
+  "side_pane": "目录",
+  "decrease": "减小{name}",
+  "increase": "增大{name}",
+  "more_actions": "更多操作",
+  "view_image": "查看{alt}",
+  "scroll_back": "向前滚动",
+  "scroll_on": "向后滚动",
+  "tile_on": "已开启",
+  "read_sep": "，",
+  "list_sep": "、",
+  "none_chosen": "未选择",
+  "chosen_count_other": "已选 {count} 项",
+  "done": "完成",
+  "search_choices": "搜索",
+  "no_match": "没有匹配的选项"
 }

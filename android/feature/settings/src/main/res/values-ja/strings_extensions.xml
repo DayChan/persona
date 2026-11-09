@@ -338,4 +338,9 @@
     <string name="settings_ext_program_outdated">このコンピューターのpersonadが古すぎます。更新すると実行できます</string>
     <string name="settings_ext_program_error">プログラムエラー</string>
     <string name="settings_ext_program_error_detail">プログラムエラー：%1$s</string>
+    <string name="settings_ext_more_actions">その他の操作</string>
+    <string name="settings_ext_tile_on">オン</string>
+    <string name="settings_ext_open_image">画像を表示</string>
+    <string name="settings_ext_chosen_count">%1$d 件選択</string>
+    <string name="settings_ext_pick_time">時刻</string>
 </resources>

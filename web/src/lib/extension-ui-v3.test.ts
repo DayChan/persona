@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { initials, MAX_STACK, outcome, pushPage, readAction, readView, rowIcon, tableRows, UI_VERSION, uiContext } from "./extension-ui";
 
 describe("UI 版本 3：新组件", () => {
-  it("asks for version 4", () => {
-    expect(UI_VERSION).toBe(5);
-    expect(uiContext().ui_version).toBe(5);
+  it("asks for version 6", () => {
+    expect(UI_VERSION).toBe(6);
+    expect(uiContext().ui_version).toBe(6);
   });
 
   it("reads markdown, table, empty and loading, and leaves out what cannot be drawn", () => {

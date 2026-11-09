@@ -1,0 +1,167 @@
+{
+  "title": "控件",
+  "sections": [
+    {
+      "title": "开关",
+      "items": [
+        {
+          "type": "row",
+          "key": "sw-on",
+          "title": "主灯",
+          "icon": "light",
+          "icon_color": "amber",
+          "control": {
+            "kind": "switch",
+            "name": "light.main",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw-off",
+          "title": "落地灯",
+          "icon": "light",
+          "control": {
+            "kind": "switch",
+            "name": "light.floor",
+            "on": false,
+            "action": {
+              "id": "toggle"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw-dis",
+          "title": "台灯",
+          "subtitle": "离线",
+          "icon": "plug",
+          "control": {
+            "kind": "switch",
+            "name": "light.desk",
+            "disabled": true,
+            "action": {
+              "id": "toggle"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw-fail",
+          "title": "按了会失败的开关",
+          "subtitle": "看回滚：失败后回到原来的值",
+          "control": {
+            "kind": "switch",
+            "name": "fails",
+            "on": false,
+            "action": {
+              "id": "fail"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw-open",
+          "title": "空气净化器",
+          "subtitle": "点行进详情，拨开关是另一件事",
+          "icon": "fan",
+          "icon_color": "teal",
+          "control": {
+            "kind": "switch",
+            "name": "purifier",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "title": "空气净化器"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "滑块",
+      "items": [
+        {
+          "type": "row",
+          "key": "sl-bri",
+          "title": "亮度",
+          "control": {
+            "kind": "slider",
+            "name": "brightness",
+            "value": 60,
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit": "%",
+            "action": {
+              "id": "set"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sl-k",
+          "title": "色温",
+          "control": {
+            "kind": "slider",
+            "name": "kelvin",
+            "value": 4000,
+            "min": 2700,
+            "max": 6500,
+            "step": 100,
+            "display": "4000 K",
+            "action": {
+              "id": "set"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "步进",
+      "items": [
+        {
+          "type": "row",
+          "key": "st-temp",
+          "title": "空调温度",
+          "icon": "thermometer",
+          "control": {
+            "kind": "stepper",
+            "name": "temperature",
+            "value": 22.5,
+            "min": 16,
+            "max": 30,
+            "step": 0.5,
+            "unit": "°C",
+            "action": {
+              "id": "set"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "st-vol",
+          "title": "音量",
+          "icon": "speaker",
+          "control": {
+            "kind": "stepper",
+            "name": "volume",
+            "value": 3,
+            "step": 1,
+            "action": {
+              "id": "set"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

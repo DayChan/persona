@@ -241,7 +241,10 @@ internal data class CatalogExtensionState(
 internal class CatalogExtensionModel(
     private val api: ExtensionMarkets, private val market: String, private val id: String, private val res: Resources,
     private val now: () -> Instant = Instant::now,
+    manager: String? = null,
 ) {
+    /** The owner captured when the page opens, even if the roster's default changes later. */
+    val owner = ExtensionOwners.of(manager)
     private val mutable = MutableStateFlow(CatalogExtensionState())
     val state = mutable.asStateFlow()
     /** Says an operation ended well (set by [watch]). */
@@ -272,7 +275,7 @@ internal class CatalogExtensionModel(
         // The manager keeps operations only in memory: one it no longer lists was lost with a restart of it (#1832), and
         // no push will end it. The page lets go of it, so Install / Upgrade can start again.
         state.value.operation?.let { held -> if (list.none { it.id == held.id }) gone(held) }
-        list.filter(::mine).maxByOrNull { OperationText.instant(it.startedAt) }?.let { track(it) }
+        list.filter { mine(it, requestOwned = true) }.maxByOrNull { OperationText.instant(it.startedAt) }?.let { track(it, requestOwned = true) }
     }
 
     /** An operation the manager does not know (any more): nothing to wait for, cancel or retry. */
@@ -285,13 +288,13 @@ internal class CatalogExtensionModel(
         }
     }
 
-    /** This extension's, from this market, and the default manager's, whose catalog this is (another's copy: #1834). */
-    private fun mine(op: ExtensionOperation) = op.extension == id && (op.market.isNullOrEmpty() || op.market == market) &&
-        ExtensionOwners.of(op.manager) == ExtensionOwners.default
+    /** HTTP receipts are scoped by the request; unlike broadcasts, older receipts omit manager metadata. */
+    private fun mine(op: ExtensionOperation, requestOwned: Boolean = false) = op.extension == id && (op.market.isNullOrEmpty() || op.market == market) &&
+        (requestOwned && op.manager.isNullOrBlank() || ExtensionOwners.of(op.manager) == owner)
 
     /** Keeps op when it is this extension's and newer than what the page has; what it waits for or how it ended follows. */
-    private suspend fun track(op: ExtensionOperation) {
-        if (!mine(op)) return
+    private suspend fun track(op: ExtensionOperation, requestOwned: Boolean = false) {
+        if (!mine(op, requestOwned)) return
         val was = state.value.operation
         if (was != null && was.id == op.id && !OperationText.newer(op, was)) return
         // One that ended before the page knew it is not news; a failed one still shows where it stopped.
@@ -347,7 +350,7 @@ internal class CatalogExtensionModel(
             return false
         }
         mutable.update { it.copy(acting = true, actionError = null) }
-        return try { track(api.retryOperation(op.id)); true }
+        return try { track(api.retryOperation(op.id), requestOwned = true); true }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             mutable.update { it.copy(actionError = res.getString(R.string.settings_ext_op_not_retried, failureReasonText(error).resolve(res))) }
@@ -390,7 +393,7 @@ internal class CatalogExtensionModel(
         if (state.value.busy) return false
         mutable.update { it.copy(previewing = true, actionError = null) }
         return try {
-            if (stepped()) track(api.startFromMarket(market, id))
+            if (stepped()) track(api.startFromMarket(market, id), requestOwned = true)
             else mutable.update { it.copy(preview = api.previewFromMarket(market, id)) }
             true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -428,7 +431,7 @@ internal class CatalogExtensionModel(
         if (state.value.consentFor != null) return try {
             val op = api.agree(preview, if (preview.upgrade) id else null)
             mutable.update { it.copy(preview = null) }
-            track(op)
+            track(op, requestOwned = true)
             null
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
@@ -456,7 +459,7 @@ internal class CatalogExtensionModel(
                 removing = null
                 val op = api.startUninstall(id, keepData, cascade)
                 if (!cascade) removing = op.id to keepData
-                track(op)
+                track(op, requestOwned = true)
                 return false
             }
             api.uninstall(id, keepData, cascade)

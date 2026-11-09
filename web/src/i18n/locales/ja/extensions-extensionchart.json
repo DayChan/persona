@@ -6,5 +6,14 @@
   "summary_series_other": "{kind}、{count}点、{series}",
   "series_sep": "、",
   "label": "ラベル",
-  "value": "値"
+  "value": "値",
+  "kind_area": "面グラフ",
+  "kind_candlestick": "ローソク足チャート",
+  "kind_donut": "ドーナツグラフ",
+  "kind_pie": "円グラフ",
+  "open": "始値",
+  "high": "高値",
+  "low": "安値",
+  "close": "終値",
+  "volume": "出来高"
 }
