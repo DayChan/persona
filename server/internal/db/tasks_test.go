@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+func TestAppendFeedOnce(t *testing.T) {
+	d, ctx := open(t), context.Background()
+	row := FeedRow{ID: "receipt_once", Conversation: "c1", At: time.Now(), Kind: "receipt", Ref: "task", Body: json.RawMessage(`{"state":"done"}`)}
+	inserted, err := d.AppendFeedOnce(ctx, row)
+	if err != nil || !inserted {
+		t.Fatalf("first insert = %v, %v", inserted, err)
+	}
+	row.Body = json.RawMessage(`{"state":"interrupted"}`)
+	inserted, err = d.AppendFeedOnce(ctx, row)
+	if err != nil || inserted {
+		t.Fatalf("repeat insert = %v, %v", inserted, err)
+	}
+	got, err := d.FeedItem(ctx, row.ID)
+	if err != nil || got == nil || !strings.Contains(string(got.Body), "done") {
+		t.Fatalf("stored receipt = %+v, %v", got, err)
+	}
+}
+
 // A message card's sent mark: set once on the cards about the item put in by then, kept, and listed again to a
 // client that asks for what came since (its time does not change, its body does).
 func TestFeedMarkSent(t *testing.T) {

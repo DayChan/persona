@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
@@ -448,6 +449,40 @@ func TestGoldenAgentLimitContinue(t *testing.T) {
 
 // The wait's wakes end a turn each: a task agent's usage-limit wait is looked at again once, not once per turn; an
 // earlier look takes over.
+func TestUsageLimitSupersededLookDoesNotRun(t *testing.T) {
+	s, f := newTaskService(t)
+	ctx := context.Background()
+	if err := s.ensureTodosLoaded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s.todos.mu.Lock()
+	s.todos.todos["task"] = &Todo{ID: "task", Origin: "conversation", Agents: []TodoAgent{{MachineID: "box", SessionID: "s1"}}}
+	s.todos.activeBySession[[2]string{"box", "s1"}] = "task"
+	s.todos.mu.Unlock()
+	f.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "s1", State: proto.StateWorking}}
+	synctest.Test(t, func(t *testing.T) {
+		at := time.Now().Add(2 * time.Minute)
+		s.taskTurnEndedAfter(ctx, "box", "s1", at)
+		s.taskTurnEndedAfter(ctx, "box", "s1", at.Add(-time.Minute))
+		time.Sleep(time.Minute) // sleep-ok: advances the synctest clock to the earlier look
+		synctest.Wait()
+		f.mu.Lock()
+		first := len(f.calls)
+		f.mu.Unlock()
+		if first == 0 {
+			t.Fatal("earlier look did not check the session")
+		}
+		time.Sleep(time.Minute) // sleep-ok: advances the synctest clock to the superseded look
+		synctest.Wait()
+		f.mu.Lock()
+		second := len(f.calls)
+		f.mu.Unlock()
+		if second != first {
+			t.Fatalf("superseded look made %d calls", second-first)
+		}
+	})
+}
+
 func TestUsageLimitLooksOncePerAgent(t *testing.T) {
 	s, _ := newTaskService(t)
 	ctx := context.Background()
