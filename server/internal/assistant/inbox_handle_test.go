@@ -350,7 +350,7 @@ func TestInboxConversationResumes(t *testing.T) {
 	it := actionItem("lark:f1:11", time.Now())
 	it.Agent = &InboxAgent{State: AgentRunning, StartedAt: &old, Task: "看看"}
 	h.inbox.items[it.ID] = it
-	h.originSet(context.Background(), "server", "s-found", OriginInbox, it.ID)
+	h.originSet(context.Background(), "server", "s-found", OriginInbox, it.ID, "")
 	h.f.setSessions("server", proto.Session{SessionID: "s-found", Status: proto.StatusIdle})
 	h.sweepInboxAgents(context.Background(), cfg, time.Now())
 	if it.Agent.State != AgentQueued {

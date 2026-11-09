@@ -131,6 +131,9 @@ type Session struct {
 	// the assistant's snapshot (internal/assistant/fleet.go).
 	Origin    string `json:"origin,omitempty"`
 	OriginRef string `json:"origin_ref,omitempty"`
+	// OpenedBy is the extension whose token opened an assistant conversation, by id (docs/protocol/protocol.md "Origin of
+	// assistant chats"): noted when it opens, never backfilled; "" for any other. Set like Origin.
+	OpenedBy string `json:"opened_by,omitempty"`
 	// Compaction is the last compaction the user asked for in an assistant conversation (POST …/compact), kept by the
 	// node until the next one: running, then done or failed (docs/assistant/assistant.md "Manual compaction").
 	Compaction *Compaction `json:"compaction,omitempty"`

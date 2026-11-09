@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/extension"
 	pserve "github.com/nwverse/persona/server/internal/extension/serve"
 	"github.com/nwverse/persona/server/internal/extwire"
@@ -84,8 +85,10 @@ func startAttached(t *testing.T, dir string, manifest []byte, version string) (r
 }
 
 // An installed package attached to its program running on its own keeps its package (its skills still reach the
-// assistant), and that program is told no path of this machine and gets a token of every scope, never the hub's own;
-// detached, the package's program runs here again and the attached one's token opens nothing. Only from this machine.
+// assistant), and that program is told no path of this machine and gets a token of every scope, never the hub's own:
+// not the permission mode's, which its manifest does not name, and no route open to full credentials only, such as
+// attaching or detaching any extension, its own included. Detached, the package's program runs here again and the
+// attached one's token opens nothing. Only from this machine, with the hub's own token.
 func TestAttachedPackageKeepsItsPackageAndGetsAScopedToken(t *testing.T) {
 	shortHostTimings(t)
 	h, store := extensionTestHub(t)
@@ -135,7 +138,7 @@ func TestAttachedPackageKeepsItsPackageAndGetsAScopedToken(t *testing.T) {
 	if ip.Extension.Dir != "" || ip.Extension.DataDir != "" || ip.Extension.Version != "1.0.0" {
 		t.Fatalf("paths of the manager's machine: %+v", ip.Extension)
 	}
-	if !slices.Contains(ip.Hub.Scopes, extension.ScopeAgentsPermissionMode) || !slices.Contains(ip.Hub.Scopes, extension.ScopeAgentsControl) ||
+	if slices.Contains(ip.Hub.Scopes, extension.ScopeAgentsPermissionMode) || !slices.Contains(ip.Hub.Scopes, extension.ScopeAgentsControl) ||
 		slices.Contains(ip.Hub.Scopes, extension.ScopeModels) {
 		t.Fatalf("scopes: %v", ip.Hub.Scopes)
 	}
@@ -148,14 +151,36 @@ func TestAttachedPackageKeepsItsPackageAndGetsAScopedToken(t *testing.T) {
 		method, _, _ := strings.Cut(pattern, " ")
 		return h.authorize(extwire.Authorize{Hash: hashToken(tok), Pattern: pattern, Method: method, Path: path})
 	}
-	if a := authorize(tok, "POST /api/v1/sessions/{mid}/{sid}/modes", "/api/v1/sessions/m/s/modes"); !a.OK || a.Extension != "scoped" || a.Scope != extension.ScopeAgentsPermissionMode {
-		t.Fatalf("the permission mode's scope: %+v", a)
+	if a := authorize(tok, "POST /api/v1/sessions/{mid}/{sid}/modes", "/api/v1/sessions/m/s/modes"); a.OK || a.Extension != "scoped" ||
+		a.Scope != extension.ScopeAgentsPermissionMode || slices.Contains(a.Scopes, extension.ScopeAgentsPermissionMode) {
+		t.Fatalf("a token of every scope changes permission modes: %+v", a)
+	}
+	if e, ok := h.extTokens.lookupHash(hashToken(tok)); !ok || !e.all || slices.Contains(e.principal().Scopes, extension.ScopeAgentsPermissionMode) {
+		t.Fatalf("the attached token's principal: %+v", e.principal())
 	}
 	if a := authorize(tok, "POST /api/v1/sessions/{mid}/{sid}/rename", "/api/v1/sessions/m/s/rename"); !a.OK || a.Scope != extension.ScopeAgentsControl {
 		t.Fatalf("rename is agents.control: %+v", a)
 	}
 	if a := authorize(tok, "POST /api/v1/auth/tokens", "/api/v1/auth/tokens"); a.OK {
 		t.Fatalf("a route open to full credentials only: %+v", a)
+	}
+	// Attaching and detaching are the hub's own token's: neither the attached token nor one of every scope named
+	// outright, with the call scope of the extension itself, gets past the auth; nor an extension's principal past
+	// the routes.
+	named := h.extTokens.issue("other", "Other", append(extension.EveryScope(), extension.ScopeAgentsPermissionMode, extension.ScopeCallPrefix+"scoped"))
+	t.Cleanup(func() { h.extTokens.revoke("other", db.ExtensionTokenStopped) })
+	for _, path := range []string{"/api/v1/extensions/scoped/-/attach", "/api/v1/extensions/scoped/-/detach", "/api/v1/extensions/other/-/attach"} {
+		for _, tk := range []string{tok, named} {
+			if code, out := call(t, mux, "POST", path, tk, source); code != 403 || out["code"] != "permission_denied" || out["scope"] != nil {
+				t.Fatalf("%s with an extension's token: %d %v", path, code, out)
+			}
+		}
+		if code, out := call(t, mux, "POST", path, deviceToken("extension:scoped", roleExtension), source); code != 403 {
+			t.Fatalf("%s as an extension: %d %v", path, code, out)
+		}
+	}
+	if p := h.extensions.reg.Get("scoped"); !p.Record.AttachedPackage() || p.Record.Remote.RPCSocket != rpcSock {
+		t.Fatalf("a refused attach or detach changed it: %+v", p.Record.Remote)
 	}
 	if !skills() {
 		t.Fatal("attached, its skill no longer reaches the assistant")

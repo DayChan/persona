@@ -18,12 +18,14 @@ import (
 // An extension's token changes the permission mode of a conversation its extension opened on its manager's machine,
 // and only that: another extension's conversation, one nobody opened, more than the permission mode, or a token
 // without agents.permission_mode is refused before the machine hears of it, and its manager records the refusal in
-// that extension's audit. Resuming a session with a permission mode, and approving a plan (which sets its session's
-// mode), are held to the same.
+// that extension's audit with the mode asked for. A token of every scope (an attached or relayed extension granted
+// hub_api) has no agents.permission_mode: its manager does not open the route to it, and that refusal is audited too.
+// Resuming a session with a permission mode, and approving a plan (which sets its session's mode), are held to the
+// same.
 func TestAnExtensionChangesThePermissionModeOfItsOwnConversationsOnly(t *testing.T) {
 	h, srv, _ := newBusHub(t)
 	h.cfg.Machines = []MachineConfig{{ID: "ma", Name: "ma", Kind: "local"}, {ID: "mb", Name: "mb", Kind: "local"}}
-	scoped, unscoped := extTokenPrefix+"bx-token", extTokenPrefix+"bx-unscoped"
+	scoped, unscoped, every := extTokenPrefix+"bx-token", extTokenPrefix+"bx-unscoped", extTokenPrefix+"bx-every"
 	answer := func(method string, params json.RawMessage) (any, error) {
 		if method == extwire.MethodAuthorize {
 			var a extwire.Authorize
@@ -34,6 +36,10 @@ func TestAnExtensionChangesThePermissionModeOfItsOwnConversationsOnly(t *testing
 					Scopes: []string{extension.ScopeAgentsControl, extension.ScopeAgentsPermissionMode}}, nil
 			case hashToken(unscoped):
 				return extwire.Authorized{OK: true, Extension: "bx", Name: "BX", Scopes: []string{extension.ScopeAgentsControl}}, nil
+			case hashToken(every): // as a manager answers for a token of every scope (extmgr extToken.opens)
+				scope := extwire.RouteScopes[a.Pattern]
+				return extwire.Authorized{OK: scope != "" && extension.InEveryScope(scope), Extension: "bx", Name: "BX",
+					Scopes: extension.EveryScope(), Scope: scope}, nil
 			}
 			return extwire.Authorized{}, nil
 		}
@@ -99,29 +105,56 @@ func TestAnExtensionChangesThePermissionModeOfItsOwnConversationsOnly(t *testing
 		return n
 	}
 
+	lastAudit := func() string {
+		lines := strings.Split(b.log(), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.Contains(lines[i], `"method":"audit"`) {
+				return lines[i]
+			}
+		}
+		return ""
+	}
+
 	refusals := 0
-	for _, c := range []struct{ name, tok, path, body, reason string }{
-		{"another extension's conversation", scoped, "/api/v1/sessions/mb/b2/modes", `{"permission_mode":"bypassPermissions"}`, "not_opened"},
-		{"one the user opened", scoped, "/api/v1/sessions/mb/b3/modes", `{"permission_mode":"bypassPermissions"}`, "not_opened"},
-		{"one the hub does not know", scoped, "/api/v1/sessions/mb/b9/modes", `{"permission_mode":"plan"}`, "not_opened"},
-		{"more than the permission mode", scoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan","model":"opus"}`, "fields"},
-		{"ultracode", scoped, "/api/v1/sessions/mb/b1/modes", `{"ultracode":true}`, "fields"},
-		{"no permission mode", scoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":""}`, "fields"},
-		{"without the scope", unscoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan"}`, "scope"},
-		{"resuming another's with a mode", scoped, "/api/v1/sessions", `{"machine_id":"mb","resume_session_id":"b2","permission_mode":"bypassPermissions"}`, "not_opened"},
-		{"resuming its own without the scope", unscoped, "/api/v1/sessions", `{"machine_id":"mb","resume_session_id":"b1","permission_mode":"plan"}`, "scope"},
-		{"approving another's plan", scoped, "/api/v1/interactions/plan_other/resolve", `{"approve":true}`, "not_opened"},
-		{"approving another's plan with a mode", scoped, "/api/v1/interactions/plan_other/resolve", `{"approve":true,"mode":"acceptEdits"}`, "not_opened"},
-		{"approving its own plan without the scope", unscoped, "/api/v1/interactions/plan_own/resolve", `{"approve":true}`, "scope"},
-		{"approving a card the hub does not hold", scoped, "/api/v1/interactions/no_such_card/resolve", `{"approve":true}`, "not_opened"},
+	for _, c := range []struct{ name, tok, path, body, reason, mode string }{
+		{"another extension's conversation", scoped, "/api/v1/sessions/mb/b2/modes", `{"permission_mode":"bypassPermissions"}`, "not_opened", "bypassPermissions"},
+		{"one the user opened", scoped, "/api/v1/sessions/mb/b3/modes", `{"permission_mode":"bypassPermissions"}`, "not_opened", "bypassPermissions"},
+		{"one the hub does not know", scoped, "/api/v1/sessions/mb/b9/modes", `{"permission_mode":"plan"}`, "not_opened", "plan"},
+		{"more than the permission mode", scoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan","model":"opus"}`, "fields", "plan"},
+		{"ultracode", scoped, "/api/v1/sessions/mb/b1/modes", `{"ultracode":true}`, "fields", ""},
+		{"no permission mode", scoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":""}`, "fields", ""},
+		{"without the scope", unscoped, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan"}`, "scope", "plan"},
+		{"a token of every scope", every, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan"}`, "scope", "plan"},
+		{"resuming another's with a mode", scoped, "/api/v1/sessions", `{"machine_id":"mb","resume_session_id":"b2","permission_mode":"bypassPermissions"}`, "not_opened", "bypassPermissions"},
+		{"resuming its own without the scope", unscoped, "/api/v1/sessions", `{"machine_id":"mb","resume_session_id":"b1","permission_mode":"plan"}`, "scope", "plan"},
+		{"resuming its own with a token of every scope", every, "/api/v1/sessions", `{"machine_id":"mb","resume_session_id":"b1","permission_mode":"plan"}`, "scope", "plan"},
+		{"approving another's plan", scoped, "/api/v1/interactions/plan_other/resolve", `{"approve":true}`, "not_opened", "bypassPermissions"},
+		{"approving another's plan with a mode", scoped, "/api/v1/interactions/plan_other/resolve", `{"approve":true,"mode":"acceptEdits"}`, "not_opened", "acceptEdits"},
+		{"approving its own plan without the scope", unscoped, "/api/v1/interactions/plan_own/resolve", `{"approve":true}`, "scope", "bypassPermissions"},
+		{"approving its own plan with a token of every scope", every, "/api/v1/interactions/plan_own/resolve", `{"approve":true}`, "scope", "bypassPermissions"},
+		{"approving a card the hub does not hold", scoped, "/api/v1/interactions/no_such_card/resolve", `{"approve":true}`, "not_opened", "bypassPermissions"},
 	} {
 		code, out := do(c.tok, c.path, c.body)
 		if code != http.StatusForbidden || out["code"] != codeModeRefused || out["reason"] != c.reason {
 			t.Fatalf("%s: %d %v, want 403 %s (%s)", c.name, code, out, codeModeRefused, c.reason)
 		}
 		refusals++
-		if n := count(`"method":"audit"`); n != refusals || !strings.Contains(b.log(), `"reason":"`+c.reason+`"`) {
-			t.Fatalf("%s: %d audits for %d refusals:\n%s", c.name, n, refusals, b.log())
+		if n, l := count(`"method":"audit"`), lastAudit(); n != refusals || !strings.Contains(l, `"reason":"`+c.reason+`"`) ||
+			!strings.Contains(l, `"mode":"`+c.mode+`"`) || !strings.Contains(l, `"extension":"bx"`) {
+			t.Fatalf("%s: %d audits for %d refusals, the last %s", c.name, n, refusals, l)
+		}
+	}
+	if l := lastAudit(); !strings.Contains(l, `"machine_id":"","mode":"bypassPermissions","reason":"not_opened","session_id":""`) {
+		t.Fatalf("a card the hub does not hold names no session: %s", l)
+	}
+	do(every, "/api/v1/sessions/mb/b1/modes", `{"permission_mode":"plan"}`)
+	refusals++
+	if l := lastAudit(); !strings.Contains(l, `"machine_id":"mb","mode":"plan","reason":"scope","session_id":"b1"`) {
+		t.Fatalf("the auth's refusal names the machine and session of the path: %s", l)
+	}
+	for _, tok := range []string{scoped, unscoped, every} {
+		if strings.Contains(b.log(), strings.TrimPrefix(tok, extTokenPrefix)) {
+			t.Fatalf("a token reached the manager:\n%s", b.log())
 		}
 	}
 	if count("session.modes") != 0 || count("session.start") != 0 || resolves() != 0 {

@@ -261,6 +261,10 @@ func (h *Hub) auth(next http.Handler) http.Handler {
 				}
 			}
 			if ok, scope := p.extOpens, p.extScope; !ok {
+				if scope == extwire.ScopeAgentsPermissionMode { // audited like every refused mode (extension_modes.go)
+					h.refuseModeScope(w, r, p)
+					return
+				}
 				body := errorBody(http.StatusForbidden, "permission_denied", errors.New("this extension was not granted this part of the hub's API"))
 				if scope != "" {
 					body["scope"] = scope
@@ -711,7 +715,7 @@ func (h *Hub) startSession(w http.ResponseWriter, r *http.Request) {
 	// extension opened (extension_modes.go).
 	if pr := principalOf(r.Context()); pr.Role == roleExtension && p.ResumeSessionID != "" && p.PermissionMode != "" {
 		if why := h.extensionModeRefused(pr, p.MachineID, p.ResumeSessionID, map[string]any{"permission_mode": p.PermissionMode}); why != "" {
-			h.refuseExtensionMode(w, r, pr, p.MachineID, p.ResumeSessionID, why)
+			h.refuseExtensionMode(w, r, pr, p.MachineID, p.ResumeSessionID, p.PermissionMode, why)
 			return
 		}
 	}

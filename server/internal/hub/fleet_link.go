@@ -515,7 +515,7 @@ func (h *Hub) fleetRoutesRelayed(api *http.ServeMux) {
 		}
 		if pr := principalOf(r.Context()); pr.Role == roleExtension && res.Approve != nil && *res.Approve {
 			if why, mid, sid := h.extensionPlanRefused(pr, r.PathValue("id"), res.Mode); why != "" { // extension_modes.go
-				h.refuseExtensionMode(w, r, pr, mid, sid, why)
+				h.refuseExtensionMode(w, r, pr, mid, sid, cmp.Or(res.Mode, planApproveMode), why)
 				return
 			}
 		}

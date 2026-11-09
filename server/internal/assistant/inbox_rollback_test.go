@@ -76,7 +76,7 @@ func TestInboxSaveFailureRollback(t *testing.T) {
 		it.Agent = &InboxAgent{State: AgentQueued, Task: "t"}
 		h.inbox.items["a"] = it
 		before := stateOf(h, it)
-		h.originSet(ctx, "server", "s-found", OriginInbox, it.ID)
+		h.originSet(ctx, "server", "s-found", OriginInbox, it.ID, "")
 		h.f.setSessions("server", proto.Session{SessionID: "s-found", Status: proto.StatusIdle})
 		st.failAll = true
 		h.startInboxAgents(ctx, InboxAgentConfig{Enabled: true})

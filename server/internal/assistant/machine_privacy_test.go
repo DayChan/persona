@@ -188,7 +188,7 @@ func TestExplicitAssistantStartAuthority(t *testing.T) {
 	if !s.assistantCaller(ctx, "other", "") {
 		t.Fatal("explicit start cannot bootstrap")
 	}
-	s.originSet(ctx, "other", "started", OriginUser, "")
+	s.originSet(ctx, "other", "started", OriginUser, "", "")
 	finish()
 	if s.assistantCaller(ctx, "other", "") || !s.assistantCaller(ctx, "other", "started") {
 		t.Fatal("start authority not scoped to the recorded session")

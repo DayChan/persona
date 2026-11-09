@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/nwverse/persona/server/internal/extension"
 	"github.com/nwverse/persona/server/internal/extwire"
 )
 
@@ -320,7 +322,7 @@ func TestAnotherManagersExtensionReachesTheHubThroughIt(t *testing.T) {
 }
 
 // A token of every scope opens every route the hub lists with a scope (testdata/route_scopes.txt, kept by the hub's
-// TestRouteScopes) and none of those open to full credentials only.
+// TestRouteScopes) but agents.permission_mode's, and none of those open to full credentials only.
 func TestAllScopesOpenNoFullOnlyRoute(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "hub", "testdata", "route_scopes.txt"))
 	if err != nil {
@@ -345,7 +347,7 @@ func TestAllScopesOpenNoFullOnlyRoute(t *testing.T) {
 			path += "x"
 		}
 		ok, got := all.opens(pattern, path)
-		if want := scope != "-"; ok != want {
+		if want := scope != "-" && scope != extension.ScopeAgentsPermissionMode; ok != want {
 			t.Errorf("%s (%s): opens %v (scope %q), want %v", pattern, path, ok, got, want)
 		}
 		n++
@@ -356,7 +358,8 @@ func TestAllScopesOpenNoFullOnlyRoute(t *testing.T) {
 }
 
 // Granted the hub's full token the old way, another manager's extension gets a token of every scope instead: every
-// route an extension may be granted, none open to full credentials only; and none of it in initialize, as before.
+// route an extension may be granted but the permission mode's, none open to full credentials only; and none of it in
+// initialize, as before.
 func TestAnotherManagersFullHubExtension(t *testing.T) {
 	f := newFakeHub(t)
 	h := otherManager(t, f, nil)
@@ -383,12 +386,14 @@ func TestAnotherManagersFullHubExtension(t *testing.T) {
 		{"POST /api/v1/sessions/{mid}/{sid}/messages", "/api/v1/sessions/m/s/messages", true},
 		{"GET /api/v1/machines", "/api/v1/machines", true},
 		{"/api/v1/extensions/{id}/", "/api/v1/extensions/third/x", true},
+		{"POST /api/v1/sessions/{mid}/{sid}/modes", "/api/v1/sessions/m/s/modes", false},
 		{"GET /api/v1/ws", "/api/v1/ws", false},
 		{"POST /api/v1/auth/tokens", "/api/v1/auth/tokens", false},
 		{"/api/v1/extensions/{id}/", "/api/v1/extensions/third/-/", false},
 		{"/api/v1/extensions/", "/api/v1/extensions/", false},
 	} {
-		if a := opens(c.pattern, c.path); a.OK != c.ok || a.Extension != "scoped" {
+		if a := opens(c.pattern, c.path); a.OK != c.ok || a.Extension != "scoped" ||
+			slices.Contains(a.Scopes, extension.ScopeAgentsPermissionMode) || !slices.Contains(a.Scopes, extension.ScopeAgentsControl) {
 			t.Fatalf("%s %s: %+v, want ok %v", c.pattern, c.path, a, c.ok)
 		}
 	}

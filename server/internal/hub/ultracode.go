@@ -33,7 +33,8 @@ func (h *Hub) sessionModes(w http.ResponseWriter, r *http.Request, m *Machine) {
 	}
 	if pr := principalOf(r.Context()); pr.Role == roleExtension { // extension_modes.go
 		if why := h.extensionModeRefused(pr, m.cfg.ID, r.PathValue("sid"), p); why != "" {
-			h.refuseExtensionMode(w, r, pr, m.cfg.ID, r.PathValue("sid"), why)
+			mode, _ := p["permission_mode"].(string)
+			h.refuseExtensionMode(w, r, pr, m.cfg.ID, r.PathValue("sid"), mode, why)
 			return
 		}
 	}

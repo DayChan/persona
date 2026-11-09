@@ -2,6 +2,7 @@ package extension
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 
 // The SDK schema (wire.Validate on schema/extension/manifest.schema.json) and the hub's Parse agree on the strings an
 // author writes by hand: the top-level name, secret titles, homepage and the version ranges ParseRange and
-// ParseVersionRange read, and a connector's cli. A value the schema and catalog CI pass but the hub refuses fails only
+// ParseVersionRange read, a connector's cli, and the hub's scopes. A value the schema and catalog CI pass but the hub refuses fails only
 // at install; one the hub reads but the schema refuses fails catalog CI for a manifest that installs.
 //
 // Known gaps, where the schema still passes what the hub refuses: names and titles of only non-ASCII spaces or \v
@@ -57,6 +58,12 @@ func TestManifestSchemaAgreesOnMetadata(t *testing.T) {
 				"id": "exampleagree", "name": "Example", "capabilities": []any{"status"}, "cli": v}}}
 		}, []string{"", "notes", "example-notes2", "a" + strings.Repeat("b", 31)},
 			[]string{"Notes", "1notes", "-notes", "notes_cli", " notes", "a" + strings.Repeat("b", 32), "git", "personad"}},
+		{"permissions.hub[]", func(m map[string]any, v string) {
+			m["engines"] = map[string]any{"extension_protocol": 1}
+			m["runtime"] = map[string]any{"command": "bin/example-agree"}
+			m["permissions"] = map[string]any{"hub": []any{v}}
+		}, append(slices.Clone(HubScopes), ScopeCallPrefix+"example-other"),
+			[]string{"agents", "agents.everything", " kb.read", "KB.read", ScopeCallPrefix, ScopeCallPrefix + "Example"}},
 	}
 	for _, c := range cases {
 		check := func(v string, want bool) {

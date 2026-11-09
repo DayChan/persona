@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/nwverse/persona/server/internal/extwire"
@@ -28,6 +29,16 @@ const (
 // HubScopes are the scopes, in the order the install screen lists them.
 var HubScopes = []string{ScopeKBRead, ScopeKBWrite, ScopeInboxRead, ScopeInboxWrite, ScopeAgentsRead, ScopeAgentsControl,
 	ScopeAgentsPermissionMode, ScopeMachinesRead, ScopeNotify, ScopeAssistantAsk, ScopeTodosRead, ScopeTodosWrite, ScopeModels}
+
+// InEveryScope says whether a token of every scope (an extension granted the hub's full token the old way, hub_api,
+// that gets one of every scope instead) has scope s: all but agents.permission_mode, which an extension gets only when
+// its manifest names it.
+func InEveryScope(s string) bool { return s != ScopeAgentsPermissionMode }
+
+// EveryScope is the scopes of a token of every scope (InEveryScope), in HubScopes' order.
+func EveryScope() []string {
+	return slices.DeleteFunc(slices.Clone(HubScopes), func(s string) bool { return !InEveryScope(s) })
+}
 
 var scopeTitles = map[string]string{
 	ScopeKBRead:               "scope_kb_read",

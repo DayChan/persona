@@ -32,9 +32,9 @@ type extToken struct {
 	extension string
 	name      string
 	scopes    []string
-	// all: every scope (an extension of a manager other than the built-in granted the hub's full token the old way,
-	// hub_api or manager.json's extensions: it gets this instead, hub_relay.go). Never a route open to full
-	// credentials only.
+	// all: every scope (an extension of a manager other than the built-in, or an attached one, granted the hub's full
+	// token the old way, hub_api or manager.json's extensions: it gets this instead, hub_relay.go), as
+	// extension.EveryScope has them. Never a route open to full credentials only.
 	all bool
 }
 
@@ -42,19 +42,19 @@ type extToken struct {
 func (e extToken) opens(pattern, path string) (bool, string) {
 	if e.all {
 		_, scope := scopeOpens(nil, pattern, path)
-		return scope != "", scope
+		return scope != "" && extension.InEveryScope(scope), scope
 	}
 	return scopeOpens(e.scopes, pattern, path)
 }
 
 // principal is who the token is.
 func (e extToken) principal() principal {
-	scopes := e.scopes
+	scopes := slices.Clone(e.scopes)
 	if e.all {
-		scopes = extension.HubScopes
+		scopes = extension.EveryScope()
 	}
 	return principal{ID: "extension:" + e.extension, Name: e.name, Role: roleExtension, Extension: e.extension,
-		Scopes: slices.Clone(scopes)}
+		Scopes: scopes}
 }
 
 // extTokens are the extensions' live tokens.

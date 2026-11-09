@@ -39,15 +39,6 @@ const (
 	OriginExtension = "extension"
 )
 
-// openedBy is the extension that opened a conversation of origin and ref, "" for none: requestOrigin notes the
-// extension as the ref of these two origins (and a backfill notes no ref for them).
-func openedBy(origin, ref string) string {
-	if origin == OriginExtension || origin == OriginLarkAgent {
-		return ref
-	}
-	return ""
-}
-
 // purposeLarkAgent is the model purpose the Feishu plugin's /agent conversations run under.
 const purposeLarkAgent = "lark.agent"
 
@@ -63,6 +54,9 @@ type convOrigin struct {
 	Ref       string    `json:"ref,omitempty"`
 	By        string    `json:"by"`
 	At        time.Time `json:"at"`
+	// Ext is the extension whose token opened it (SessionView.OpenedBy): noted by the start only, never backfilled, so
+	// one opened before it was noted has none.
+	Ext string `json:"ext,omitempty"`
 }
 
 type originBook struct {
@@ -108,9 +102,9 @@ func (s *Service) saveOriginsLocked(ctx context.Context) error {
 	return st.PutSetting(ctx, originsKey, s.origins.m)
 }
 
-// originSet notes where a conversation the hub just started comes from: it replaces whatever the backfill may have
-// guessed from the list in between.
-func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string) {
+// originSet notes where a conversation the hub just started comes from, and the extension that opened it (ext, "" for
+// none): it replaces whatever the backfill may have guessed from the list in between.
+func (s *Service) originSet(ctx context.Context, machine, id, origin, ref, ext string) {
 	if id == "" {
 		return
 	}
@@ -123,11 +117,11 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string
 		b.mu.Unlock()
 		return
 	}
-	if o := b.m[id]; o != nil && o.By == originByStart && o.Origin == origin && o.Ref == ref {
+	if o := b.m[id]; o != nil && o.By == originByStart && o.Origin == origin && o.Ref == ref && o.Ext == ext {
 		b.mu.Unlock()
 		return
 	}
-	b.m[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
+	b.m[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, Ext: ext, By: originByStart, At: time.Now().UTC()}
 	err := s.saveOriginsLocked(ctx)
 	b.mu.Unlock()
 	if err != nil {
@@ -136,7 +130,7 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string
 	s.publish(ctx)
 }
 
-type shownOrigin struct{ origin, ref, machine string }
+type shownOrigin struct{ origin, ref, machine, ext string }
 
 // conversationOrigins are the origins to show, by session id; false while they could not be read.
 func (s *Service) conversationOrigins() (map[string]shownOrigin, bool) {
@@ -148,7 +142,7 @@ func (s *Service) conversationOrigins() (map[string]shownOrigin, bool) {
 	}
 	out := make(map[string]shownOrigin, len(b.m))
 	for id, o := range b.m {
-		out[id] = shownOrigin{o.Origin, o.Ref, o.MachineID}
+		out[id] = shownOrigin{o.Origin, o.Ref, o.MachineID, o.Ext}
 	}
 	return out, true
 }

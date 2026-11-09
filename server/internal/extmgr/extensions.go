@@ -991,7 +991,7 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 			}
 			scopes := slices.Clone(g.Hub)
 			if attachedFull { // the routes' scopes: model calls are granted by name only (extension_model_calls.go)
-				scopes = slices.DeleteFunc(slices.Clone(extension.HubScopes), func(s string) bool { return s == extension.ScopeModels })
+				scopes = slices.DeleteFunc(extension.EveryScope(), func(s string) bool { return s == extension.ScopeModels })
 			}
 			params.Hub.URL, params.Hub.Token, params.Hub.Scopes = url, tok, scopes
 		}

@@ -195,7 +195,8 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 		}
 		if list[i].Assistant {
 			list[i].Archived = shown[list[i].SessionID].Archived
-			list[i].Origin, list[i].OriginRef = shown[list[i].SessionID].Origin, shown[list[i].SessionID].OriginRef // origins.go
+			v := shown[list[i].SessionID]
+			list[i].Origin, list[i].OriginRef, list[i].OpenedBy = v.Origin, v.OriginRef, v.OpenedBy // origins.go
 			// Messages from other conversations wait in the assistant while it runs: shown like typed-ahead input.
 			if q := shown[list[i].SessionID].Queued; len(q) > 0 {
 				list[i].Queued = append(slices.Clip(list[i].Queued), q...) // the node's slice is shared: never write into it

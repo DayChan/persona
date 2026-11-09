@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -108,5 +109,18 @@ func TestRegistrySnapshotKeepsProcessState(t *testing.T) {
 	snapshot.Record.Granted.Hub[0] = ScopeKBWrite
 	if r.Snapshot("example").Record.Granted.Hub[0] != ScopeKBRead {
 		t.Fatal("the snapshot shares the mutable permission slice")
+	}
+}
+
+// A token of every scope has every scope but agents.permission_mode, which the install screen still lists.
+func TestEveryScopeLeavesOutThePermissionMode(t *testing.T) {
+	every := EveryScope()
+	if slices.Contains(every, ScopeAgentsPermissionMode) || !slices.Contains(HubScopes, ScopeAgentsPermissionMode) ||
+		len(every) != len(HubScopes)-1 || InEveryScope(ScopeAgentsPermissionMode) || !InEveryScope(ScopeAgentsControl) {
+		t.Fatalf("every scope: %v", every)
+	}
+	every[0] = "x"
+	if HubScopes[0] == "x" {
+		t.Fatal("EveryScope hands out HubScopes itself")
 	}
 }

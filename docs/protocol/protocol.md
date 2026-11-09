@@ -473,6 +473,7 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
  "launcher":"cc_ds","model":"deepseek/v4.1-flash-chain","started_by_persona":true,"assistant":false,
  "ultracode":false,"ultracode_note":"…","ultracode_pending":true,"ultracode_lost_at":"...", // Optional; see "Claude Code ultracode". Omitted ultracode means unknown
  "origin":"inbox","origin_ref":"<Inbox item id>",   // only on assistant chats (assistant: true): who opened this chat, see "Origin of assistant chats" below; absent = user
+ "opened_by":"<extension id>",   // only on assistant chats an extension's token opened, see "Origin of assistant chats" below; absent for any other
  "updated_at":"...","last_text":"first 200 characters of the last assistant text",
      "turn_error":"API Error: Connection lost mid-response… (only when stopped and this turn was interrupted by a model API error, otherwise absent; its task counts as \"interrupted\", #1516. Claude Code: the hub recognizes it from the start of the last line; Codex: the node reports it from task_complete.error / a failed turn/completed, #2185)",
      "turn_error_kind":"transient (optional: only when the agent itself states the error kind, Codex's codex_error_info: transient is worth a \"continue\", user needs the user to act; otherwise judged from the turn_error text, docs/assistant/agent-work.md \"Triage\"; for Claude Code's \"Not logged in\", a wrong Key or a wrong model the hub fills in user)",
@@ -808,6 +809,9 @@ Once recorded, the origin never changes; Agent sessions (`assistant: false`) don
 | `lark_agent` | Sending `/agent …` in Lark (the extension via `POST /api/v1/assistant/conversations`, `purpose: "lark.agent"`, `docs/extensions/lark-agent.md`) | Extension id | Auto · Lark /agent |
 | `extension` | Opened by another extension via `POST /api/v1/assistant/conversations` | Extension id | Auto · Extensions |
 
+- **`opened_by`** (`SessionView.opened_by`, the session's `opened_by`): the extension whose token opened the chat (`POST /api/v1/assistant/conversations` with an extension's token, whatever its `purpose`), by id.
+  The assistant notes it when the chat opens, from the extension the hub's auth found for the request (a client's own `X-Persona-*` headers are dropped on the way) and nothing else: not from `origin` or `origin_ref`, and never over the bus (`assistant.start` cannot set it).
+  It is absent for every other chat, for the main chat even when an extension opened it, and for chats opened before it was noted: the backfill never sets it. Only that extension's token may change the chat's permission mode (`agents.permission_mode`, `docs/extensions/extensions.md` "Hub API: scopes"); a chat without it is refused.
 - Sending into an existing chat doesn't open a new one and isn't an origin: a task continuing in its own chat, quiet-task notifications (`task_notice`) going into the main chat, channel messages to the main chat, `conversation_send`.
 - **How clients use it**: absent, empty, `user` and `channel` count as the user's own; everything else counts as an auto chat, including values added later that the client doesn't know (shown as **Other**). Old clients don't know the field and list everything as before.
 - **Titles**: an auto chat's title is set from the start (no waiting for the first turn, no model call), following "MMDD | kind | topic": Inbox `MMDD | 收件箱 | <the item's title>`, scheduled tasks `MMDD | 定时 | <task name>` (the kind words are emitted in Chinese: 收件箱 = Inbox, 定时 = scheduled).

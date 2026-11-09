@@ -77,6 +77,9 @@ type StartParams struct {
 	// Origin and OriginRef: who opens it (SessionView.Origin); "" is the user's.
 	Origin    string `json:"origin,omitempty"`
 	OriginRef string `json:"origin_ref,omitempty"`
+	// OpenedBy: the extension whose token opened it (SessionView.OpenedBy). Only POST /api/v1/assistant/conversations
+	// sets it, from the hub's headers; never over the bus.
+	OpenedBy string `json:"-"`
 	// GuestTools: a guest conversation (assistant/guest.go) that may use only these connector tools; nil is an
 	// ordinary one.
 	GuestTools []string `json:"guest_tools,omitempty"`

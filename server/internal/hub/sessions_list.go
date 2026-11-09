@@ -131,7 +131,7 @@ func runtimeSummary(s proto.Session) runtimeRowSummary {
 		Assistant: s.Assistant, Archived: s.Archived, ArchiveChangedAt: s.ArchiveChangedAt, Space: s.Space,
 		Starting: s.Starting, StartError: rowText(s.StartError, startErrorRow(s)), StartedByPersona: s.StartedByPersona,
 		StartErrorCode: s.StartErrorCode, StartErrorArgs: s.StartErrorArgs,
-		ReadOnlyReason: rowText(s.ReadOnlyReason, 180), Origin: s.Origin, OriginRef: s.OriginRef,
+		ReadOnlyReason: rowText(s.ReadOnlyReason, 180), Origin: s.Origin, OriginRef: s.OriginRef, OpenedBy: s.OpenedBy,
 		TurnError: rowText(s.TurnError, 180), TurnErrorKind: s.TurnErrorKind, TurnErrorCode: s.TurnErrorCode,
 		TurnErrorResetsAt: s.TurnErrorResetsAt, TurnErrorResumes: s.TurnErrorResumes,
 		PendingInteractions: s.PendingInteractions, Rev: s.Rev, Quiet: s.Quiet,
