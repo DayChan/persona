@@ -65,6 +65,8 @@ struct WorkflowSection: View {
     var runs: [WorkflowRun]
     /// The most it may take; nil: as tall as it is.
     var maxHeight: CGFloat?
+    /// The running cards are their heads until tapped (`WorkflowCard.compact`).
+    var compact = false
     /// Opens one of a workflow's agents in the chat (its transcript, read as a subagent).
     var open: (WorkflowAgent) -> Void
     @State private var contentHeight: CGFloat = 0
@@ -91,7 +93,7 @@ struct WorkflowSection: View {
         let ended = runs.filter { !$0.isRunning }
         return VStack(alignment: .leading, spacing: Theme.Space.xs) {
             ForEach(live) { run in
-                WorkflowCard(run: run, open: open)
+                WorkflowCard(run: run, compact: compact, open: open)
             }
             if !ended.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
@@ -111,12 +113,18 @@ struct WorkflowSection: View {
 /// their agents (the same blocks as its card in the chat, `WorkflowRunBody`).
 struct WorkflowCard: View {
     var run: WorkflowRun
+    /// Only its head until tapped, then all of it: a header that never folds (iPhone Duo's side bars) on a short screen,
+    /// where two full cards left the chat a third of it (#2161).
+    var compact = false
     var open: (WorkflowAgent) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
 
+    /// Shows where it is now and its progress bar.
+    private var showsBody: Bool { !compact || expanded }
+
     var body: some View {
-        let opens = !run.phaseBlocks.isEmpty
+        let opens = !run.phaseBlocks.isEmpty || (compact && (run.now != nil || run.tally.started > 0))
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             if opens {
                 Button {
@@ -131,8 +139,10 @@ struct WorkflowCard: View {
                 top(opens: false)
             }
             // Under the name, as in its card in the chat.
-            WorkflowRunBody(run: run, open: open, scope: "header-" + run.id, phases: expanded)
-                .padding(.leading, WorkflowMark.textLeading - Theme.Space.s)
+            if showsBody {
+                WorkflowRunBody(run: run, open: open, scope: "header-" + run.id, phases: expanded)
+                    .padding(.leading, WorkflowMark.textLeading - Theme.Space.s)
+            }
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, Theme.Space.s)
@@ -153,8 +163,10 @@ struct WorkflowCard: View {
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
             }
-            WorkflowSubline(run: run, whole: expanded)
-                .padding(.leading, WorkflowMark.textLeading)
+            if showsBody {
+                WorkflowSubline(run: run, whole: expanded)
+                    .padding(.leading, WorkflowMark.textLeading)
+            }
         }
     }
 }

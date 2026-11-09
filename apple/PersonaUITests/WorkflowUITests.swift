@@ -204,6 +204,48 @@ final class WorkflowUITests: XCTestCase {
         try step(hub, 0)
     }
 
+    /// Under iPhone Duo's side bars the header never folds (#2161): a running card is its head until tapped, so the header
+    /// leaves the chat most of a short screen; a tap opens where it is now, its progress and its phases.
+    @MainActor func testSideBarsHeaderKeepsRunningWorkflowsToTheirHeads() throws {
+        guard let hub = ProcessInfo.processInfo.environment["PERSONA_MOCK_HUB"] else {
+            throw XCTSkip("needs scripts/mock/mock_hub.py with MOCK_WORKFLOW=1 (PERSONA_MOCK_HUB)")
+        }
+        try step(hub, 0)
+        app = XCUIApplication()
+        let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
+        app.launchArguments = ["-pairURL", pair, "-tab", "dev", "-dev.openChat", "", "-openAgentsFresh", "YES", "-dev.grouping", "state",
+                               "-sideBars", "YES"]
+        app.launchPinned()
+
+        let working = app.buttons["agents.filter.working"]
+        XCTAssertTrue(working.waitForExistence(timeout: 30), "no Agents list")
+        working.tap()
+        let row = app.buttons.matching(identifier: "agents.row").matching(NSPredicate(format: "label CONTAINS %@", "检查 PR #42")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the review agent is not among the working ones")
+        row.tap()
+        let section = app.descendants(matching: .any)["workflow.section"]
+        let card = section.buttons.matching(identifier: "workflow.agents").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "no running workflow in the header")
+        XCTAssertTrue(card.label.hasPrefix("后台 workflow parity-audit，在跑"), card.label)
+        XCTAssertTrue(section.staticTexts.matching(NSPredicate(format: "identifier == 'workflow.counts' AND label == %@", "169/185+")).firstMatch.exists,
+                      "the head lost its done / started")
+        XCTAssertFalse(section.descendants(matching: .any)["workflow.now"].exists, "the folded card says where it is now")
+        XCTAssertFalse(section.descendants(matching: .any)["workflow.progress"].exists, "the folded card has its progress bar")
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThan(section.frame.height, window.height * 0.2, "the header's workflows still take a big share of the screen")
+        sleep(1)
+        shot("side-bars-header")
+
+        card.tap()
+        XCTAssertTrue(section.descendants(matching: .any)["workflow.now"].waitForExistence(timeout: 5), "the opened card does not say where it is now")
+        XCTAssertTrue(section.descendants(matching: .any)["workflow.progress"].exists, "the opened card has no progress bar")
+        XCTAssertTrue(section.buttons.matching(identifier: "workflow.phase").firstMatch.exists, "the opened card has no phases")
+        sleep(1)
+        shot("side-bars-header-open")
+        card.tap()
+        XCTAssertTrue(section.descendants(matching: .any)["workflow.progress"].waitForNonExistence(timeout: 3), "the card did not fold again")
+    }
+
     /// Three workflows (#4532, `MOCK_WORKFLOW=crowded`): the running one in full, the ended ones a line each (the stopped
     /// one's error kept); the section stays in the top part of the screen, its phases and ten agents scroll inside it.
     @MainActor func testCrowdedWorkflowsLeaveRoomForTheChat() throws {

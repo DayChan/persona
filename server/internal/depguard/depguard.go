@@ -18,7 +18,8 @@ var Platforms = []string{"linux/amd64", "linux/arm64", "darwin/arm64", "darwin/a
 
 // HubOwn are the hub's own packages: persona-manager links none of them.
 var HubOwn = []string{"cmd/persona-hub", "internal/hub", "internal/hubcli", "internal/hubedge", "internal/apns",
-	"internal/mdns", "internal/proxyproto", "internal/pushcrypto", "internal/relay", "internal/relayproto"}
+	"internal/mdns", "internal/proxyproto", "internal/pushcrypto", "internal/relay", "internal/relayproto",
+	"internal/webasset"}
 
 // Shared are the packages both programs link (the wire types, the database, the configuration, identity, the update
 // code): the hub links these and its own, nothing else; a new package the hub needs is put in one of the two lists on

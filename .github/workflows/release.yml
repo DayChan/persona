@@ -1,14 +1,15 @@
-name: hub image
+name: release
 on:
-  # Release publication only: Docker installs use the version/latest images.
-  # No branch push, pull request, merge group, or schedule starts this workflow.
+  # Version tags publish Docker images and a GitHub Release.
+  # Manual runs publish only edge/sha images; no branch push, pull request,
+  # merge group, or schedule starts this workflow.
   push:
     tags: ['v*']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: hub-image-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   smoke:
@@ -49,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -84,3 +85,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=hub
           cache-to: type=gha,scope=hub,mode=max,timeout=2m,ignore-error=true
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          args=(--verify-tag --title "$RELEASE_TAG" --generate-notes)
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "${args[@]}"

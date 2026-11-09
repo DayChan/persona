@@ -550,7 +550,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         return false;
       }
       if (!sessionCan(getSession(mid, sid), "send")) {
-        toast(sourceSubtitle(session) || t("chat-chatview.session_loading"), "error");
+        toast(sourceSubtitle(session) || t("chat-chatview.session_unavailable"), "error");
         return false;
       }
       // a sending bubble shows picked contexts as quote cards, like the transcript will (not the raw tags)
@@ -1670,6 +1670,8 @@ export const Header = memo(function Header({
           {view === "term" && viewDot && <span aria-hidden className="pointer-events-none absolute top-0.5 right-0.5 size-1.5 rounded-full bg-attention" />}
         </span>
       )}
+      {/* wide screens have New chat at the top of the sidebar; a phone's sidebar is a drawer */}
+      {assistant && !chrome && session?.space !== "health" && <IconButton icon="compose" label={t("chat-chatview.new_chat")} onClick={() => navigate({ name: "persona-new" })} className="lg:hidden" />}
       {items.length > 0 && (
         <span className="relative flex shrink-0">
           <IconButton icon="more" label={t("chat-chatview.more")} onClick={menu.open} active={Boolean(menu.anchor)} />

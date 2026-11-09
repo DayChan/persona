@@ -38,6 +38,8 @@ After launch, an icon appears at the top right in the menu bar, with no Dock ico
 
 - When the `com.persona.node` LaunchAgent is not installed yet, it copies the bundled persona-node to `~/.persona/bin/persona-node` and installs the agent to keep the local node running on it (on a Mac that runs a hub or a manager, the agent runs their personad). An agent that is already there stays as it is: one that runs personad moves over with `persona-link node switch`, [link.md](link.md) "The device's program". **Reinstall** in the menu (offered when the agent is installed but not running) removes the agent and installs it again, so it comes back on persona-node, without the switch's wait for an answer.
 - On the first connection to a LAN address, the system asks whether to allow Persona Link to find devices on the local network. Choose Allow. If you denied it, enable it in **System Settings › Privacy & Security › Local Network**.
+- When the hub first sends the "Needs you" summary, the system asks whether Persona Link may send notifications. Choose Allow: Persona Link then notifies you when a session needs you, even with the web app closed. If you denied it, the menu offers **Turn On Notifications…**.
+  On a Mac with Persona Link, leave the web app's "Show system notifications" off, or both notify.
 
 ## Pairing
 
@@ -80,6 +82,8 @@ If the web client says "Secure connection isn't enabled on the hub yet", the old
 | Link connected, but the hub cannot reach the local node | The persistent node is not running; see "Troubleshooting" below |
 | Disconnected · Retry in N seconds | One line per candidate address explaining why it failed; retries automatically, or click **Reconnect now** |
 | Hub rejected this computer's credentials | The computer was removed from the hub or its credentials were revoked: pair again |
+| **Needs You** and a count beside the icon | Sessions waiting on you (newer hubs only). Click one to open it in the web app; **And N More…** opens the web app |
+| **Set Web Address…** | Where the web app opens. Needed when the hub has no https public URL, or when you use the web app at another address |
 
 See [link.md](link.md), "Menu-bar app", for the icon states.
 

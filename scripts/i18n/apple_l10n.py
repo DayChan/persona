@@ -5,8 +5,8 @@
                                       numbered format arguments, and no Chinese or Japanese keys; Chinese source
                                       literals require `// i18n-ignore`, explicit localized literals require their
                                       own table's key, BeautifulUI's LocalizedStringKey literals have app-catalog keys
-                                      (the library looks them up in the main bundle, #5574), and InfoPlist catalogs'
-                                      en matches Info.plist
+                                      (the library looks them up in the main bundle, #5574), InfoPlist catalogs'
+                                      en matches Info.plist, and Persona Link's own catalog (`link_problems`)
                                       (fast, no build; run by scripts/test/test_apple_l10n.py)
   apple_l10n.py strict <DerivedData>  after a build with SWIFT_EMIT_LOC_STRINGS=YES: every Chinese literal the
                                       compiler did not extract as localizable is marked `// i18n-ignore`, and no
@@ -51,6 +51,14 @@ CATALOGS = [
     "Vision/Resources/InfoPlist.xcstrings",
     "PersonaWatch/InfoPlist.xcstrings",
 ]
+# Persona Link (apple/PersonaLink, docs/operations/link.md "Menu bar App") is its own SwiftPM package: its text is looked
+# up in its own catalog through `linkText`, so its keys are checked apart and never satisfy the apps' source keys. Its
+# older UI text is hard-coded Chinese; LINK_CJK is each file's count of such literals, which may only go down: new text
+# goes through the catalog. Keys are paths under LINK_SOURCES.
+LINK_SOURCES = "PersonaLink/Sources/PersonaLink"
+LINK_CATALOG = LINK_SOURCES + "/Resources/Localizable.xcstrings"
+LINK_CJK = {"LinkModel.swift": 28, "MenuView.swift": 48, "PairLink.swift": 2, "PairView.swift": 36, "PersonaLinkApp.swift": 2,
+            "RenameView.swift": 5, "Snapshots.swift": 28}
 # The targets whose extracted strings go into the catalogs (sync / strict).
 TARGETS = ["Persona", "PersonaMac", "PersonaVision", "PersonaWatch", "PersonaWidgets", "PersonaNotify", "PersonaShare"]
 
@@ -640,6 +648,37 @@ def beautifului_problems(src, keys, rel="source"):
     return problems
 
 
+def link_problems(apple=APPLE, allowed=LINK_CJK):
+    """Persona Link's catalog is complete, every `linkText` literal is one of its keys, and no file gains Chinese text."""
+    problems = []
+    catalog_path = os.path.join(apple, LINK_CATALOG)
+    if not os.path.exists(catalog_path):
+        return [f"apple/{LINK_CATALOG}: missing"]
+    data = check_catalog(catalog_path, problems)
+    keys = {normalize(key) for key in data.get("strings", {})}
+    sources = os.path.join(apple, LINK_SOURCES)
+    for path in sorted(glob.glob(os.path.join(sources, "**", "*.swift"), recursive=True)):
+        rel, name = os.path.relpath(path, ROOT), os.path.relpath(path, sources)
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        for tokens in _swift_tokens(src):
+            for i, token in enumerate(tokens):
+                if token[1] != "(" or i == 0 or tokens[i - 1][1] != "linkText":
+                    continue
+                args = _arguments(tokens, i)
+                if len(args) != 1 or len(args[0]) != 1 or args[0][0][0] != "literal":
+                    continue  # the helper's own declaration, or a key that is not a literal
+                lit, start = args[0][0][1], args[0][0][2]
+                hashes = len(src[start:]) - len(src[start:].lstrip("#"))
+                if normalize(lit.text, literal=True, raw_hashes=hashes, formats=False) not in keys:
+                    problems.append(f"{rel}:{lit.line}: linkText key not in apple/{LINK_CATALOG}: {lit.text[:70]}")
+        count = len(cjk_literals(path))
+        if count > allowed.get(name, 0):
+            problems.append(f"{rel}: {count} Chinese/Japanese literals, at most {allowed.get(name, 0)}: new text goes through "
+                            f"linkText and apple/{LINK_CATALOG}")
+    return problems
+
+
 def check():
     problems, catalog_keys = [], {}
     for c in CATALOGS:
@@ -660,7 +699,7 @@ def check():
     for path in sorted(glob.glob(os.path.join(APPLE, BEAUTIFULUI, "**", "*.swift"), recursive=True)):
         with open(path, encoding="utf-8") as f:
             problems.extend(beautifului_problems(f.read(), catalog_keys.get("Localizable", set()), os.path.relpath(path, ROOT)))
-    return problems
+    return problems + link_problems()
 
 
 def stringsdata(derived, targets=TARGETS):

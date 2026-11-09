@@ -1,14 +1,21 @@
 package hub
 
 import (
+	"bytes"
+	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/nwverse/persona/server/internal/webasset"
 )
 
 func TestWebAppServesFilesAndFallsBackToIndex(t *testing.T) {
@@ -164,5 +171,115 @@ func TestWebAppWritesTheProxyPrefixIntoBase(t *testing.T) {
 		}
 	} else {
 		t.Error("no Last-Modified on index.html")
+	}
+}
+
+// precompressedSite is site as a published personad embeds it: written out, run through webasset.Precompress (what
+// the build does), read back with no modification times (like embed.FS).
+func precompressedSite(t testing.TB, site fstest.MapFS) fstest.MapFS {
+	t.Helper()
+	dir := t.TempDir()
+	for name, f := range site {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, f.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := webasset.Precompress(dir); err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(dir, p)
+		out[filepath.ToSlash(rel)] = &fstest.MapFile{Data: data}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// The built-in copy's precompressed assets answer every request as the plain files did: the oracle is the same site
+// not precompressed, behind the same gzipResponses. Only a gzipped answer may differ, by having a Content-Length;
+// it is then exactly the stored bytes, not compressed again.
+func TestWebAppServesPrecompressedAssetsAsThePlainFiles(t *testing.T) {
+	js := strings.Repeat("export const answer = 42; // a hashed chunk\n", 100)
+	plain := fstest.MapFS{
+		"index.html":              {Data: []byte("<html>" + strings.Repeat("<p>app</p>", 200) + "</html>")},
+		"sw.js":                   {Data: []byte(js)},
+		"assets/App-1.js":         {Data: []byte(strings.Repeat(js, 25))}, // past io.Copy's 32 KB buffer
+		"assets/styles-2.css":     {Data: []byte(strings.Repeat("a{color:red}\n", 200))},
+		"assets/icon-3.png":       {Data: append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0, 1, 2, 3}, 600)...)},
+		"assets/small-4.js":       {Data: []byte("export {};")},
+		"admin/index.html":        {Data: []byte("<html>admin</html>")},
+		"admin/assets/admin-5.js": {Data: []byte(js)},
+	}
+	stored := precompressedSite(t, plain)
+	if _, ok := stored["assets/App-1.js"]; ok || stored["assets/App-1.js.gz"] == nil || stored["sw.js"] == nil {
+		t.Fatalf("not precompressed as the build does: %v", slices.Sorted(maps.Keys(stored)))
+	}
+	oracle := gzipResponses(t.Logf, webFrom(t.TempDir(), plain))
+	h := gzipResponses(t.Logf, webFrom(t.TempDir(), stored))
+	browser := "gzip, deflate, br, zstd"
+	requests := []struct {
+		name, method string
+		header       map[string]string
+	}{
+		{"gzip", "GET", map[string]string{"Accept-Encoding": browser}},
+		{"identity", "GET", nil},
+		{"gzip;q=0", "GET", map[string]string{"Accept-Encoding": "gzip;q=0, br"}},
+		{"HEAD", "HEAD", map[string]string{"Accept-Encoding": browser}},
+		{"Range", "GET", map[string]string{"Accept-Encoding": browser, "Range": "bytes=10-99"}},
+		{"suffix Range", "GET", map[string]string{"Range": "bytes=-50"}},
+		{"If-Modified-Since", "GET", map[string]string{"Accept-Encoding": browser, "If-Modified-Since": "Mon, 02 Jan 2006 15:04:05 GMT"}},
+	}
+	paths := []string{"/assets/App-1.js", "/assets/styles-2.css", "/assets/icon-3.png", "/assets/small-4.js", "/",
+		"/s/laptop/abc", "/sw.js", "/admin/assets/admin-5.js", "/assets/gone-6.js", "/assets/App-1.js.gz"}
+	decoded := func(w *httptest.ResponseRecorder) string {
+		if w.Header().Get("Content-Encoding") == "gzip" {
+			return gunzip(t, w.Body.Bytes())
+		}
+		return w.Body.String()
+	}
+	for _, p := range paths {
+		for _, rq := range requests {
+			serve := func(h http.Handler) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(rq.method, p, nil)
+				for k, v := range rq.header {
+					r.Header.Set(k, v)
+				}
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, r)
+				return w
+			}
+			want, got := serve(oracle), serve(h)
+			wantH, gotH := want.Header().Clone(), got.Header().Clone()
+			if wantH.Get("Content-Encoding") == "gzip" { // compressed as it went: no length to compare
+				gotH.Del("Content-Length")
+			}
+			if got.Code != want.Code || !reflect.DeepEqual(gotH, wantH) || decoded(got) != decoded(want) {
+				t.Errorf("%s %s: got %d %v (%d body bytes), want %d %v (%d)", rq.name, p, got.Code, gotH, got.Body.Len(),
+					want.Code, wantH, want.Body.Len())
+			}
+			if gz := stored[strings.TrimPrefix(p, "/")+webasset.Suffix]; gz != nil && got.Header().Get("Content-Encoding") == "gzip" &&
+				!bytes.Equal(got.Body.Bytes(), gz.Data) {
+				t.Errorf("%s %s: compressed again instead of sent as stored", rq.name, p)
+			}
+		}
+	}
+	// A stored copy that does not decompress is the build's fault: an error, not one a cache keeps for a year.
+	stored["assets/broken-7.js.gz"] = &fstest.MapFile{Data: []byte("not gzip")}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/assets/broken-7.js", nil))
+	if w.Code != http.StatusInternalServerError || w.Header().Get("Cache-Control") != "" {
+		t.Fatalf("broken stored asset: %d, Cache-Control %q", w.Code, w.Header().Get("Cache-Control"))
 	}
 }

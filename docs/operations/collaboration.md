@@ -10,6 +10,7 @@ Several people work in this repository, each alongside their own Agents. Two peo
 3. **No issue? Create one**. When you start, post a claim comment on the issue: what you're doing, how you plan to change it, how long you expect it to take. If an Agent is doing the work, say so.
 4. **24 hours with no update counts as abandoned**: someone else can post a comment taking it over (with the reason). If you're still working on it, post a progress comment to renew.
 5. **Every PR must link an issue**: write `Fixes #N` / `Closes #N` / `Refs #N` in the description. PRs with no linked issue get a comment from the explicitly dispatched metadata Action and are closed by it.
+6. **Old issue numbers**: `#N` in lines written up to 2026-11-07 (check `git blame`) refers to the previous tracker. Here the same numbers belong to unrelated issues, and issues carried over from it have new numbers. Leave those references as they are; new text cites current numbers.
 
 Don't use GitHub's assign (many people don't have triage permission, and it isn't needed), don't use commands like `/claim`, and expiry isn't handled automatically: the comments in the issue are the only source of truth.
 

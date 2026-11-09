@@ -121,6 +121,16 @@ class ManagerPackageScopeTests(unittest.TestCase):
         self.assertTrue(any(args[:3] == ['go', 'test', '-count=1'] for args, _ in calls))
         self.assertTrue(any('scripts/release/check_bundle_privacy.py' in args for args, _ in calls))
 
+    def test_web_client_is_scanned_as_built_then_precompressed_before_go_build(self):
+        out, calls, _ = self.build()
+        args = [args for args, _ in calls]
+        webdist = str(out.parent / 'server/internal/hub/webdist')
+        scan = args.index(['python3', 'scripts/release/check_bundle_privacy.py', '--whole-short', webdist])
+        precompress = args.index(['go', 'run', './internal/webasset/precompress', 'internal/hub/webdist'])
+        build = next(i for i, a in enumerate(args) if a[:2] == ['go', 'build'])
+        self.assertLess(scan, precompress)
+        self.assertLess(precompress, build)
+
     def test_default_hub_build_retains_single_platform(self):
         out, calls, platforms = self.build()
         self.assertEqual(platforms, ['linux-amd64'])

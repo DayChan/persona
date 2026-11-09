@@ -285,6 +285,17 @@ This branch's `personad voice` (live, `tools`, `key_file`) against the tested se
 - Protocol 1 (the extra run): frames as before, no `before`, the caption ends the open line.
 - iOS: the tail's follow keyed on the caption count and the last id. Once 40 are kept an insertion changes neither, so it now keys on the shown rows' ids (`VoiceTailFollow`).
 
+## Nudging a silent model (#2297, 2026-11-09)
+
+Same service (default model). This branch's `personad voice` (live dialect, no tools, `key_file`) + a local fake hub, protocol 1; the App side is a script sending all-zero frames (a quiet room) in real-time 20 ms chunks.
+To get a silence on purpose, the owner's notes told the model to say nothing and call no tool when the user types one exact line.
+
+- **It stays silent when told to** (3/3): no caption, audio or call after the typed line. The extension logged `nudge: answer owed for 15.08–15.09s after a typed line`, and the model's audio began 1.5–1.7 s after the nudge's `say`.
+  It said "I did not quite catch that, could you say it again?" (3/3): the nudge's own fallback, since it had been told to ignore the line. One nudge each (`nudges 1`).
+- **No false nudge when it answers**: a typed question answered 0.75 s later; three spoken questions (macOS `say`) answered with the user's caption arriving with or after the model's text, 1.1–1.4 s after the user stopped; 40–79 s calls with long silences after each answer: `nudges 0`.
+  The caption's final line came after the model's first caption every time, which is why an answer is owed for a caption only when the model did nothing after the user stopped speaking (`userLineDone`), not by when the caption came.
+- A spoken "check my calendar for tomorrow" on a session without tools got "OK, I'll check it and tell you" and nothing else (the known "claims a handoff and nothing arrives", "Other behavior"): no nudge, since the model spoke. A nudge only covers silence, not a promise it cannot keep.
+
 ## Recommended constants (`docs/assistant/voice.md` 4.5 / 4.9)
 
 | Constant | Design | Recommendation | Basis |

@@ -346,18 +346,12 @@ func (s *Service) getWorkspaces(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, 503, err)
 		return
 	}
+	// Keep the newest raw snapshot per effective machine. Decode and qualify it only when discovery needs a fallback.
 	byMachine := map[string]db.WorkspaceSnapshotRow{}
 	for _, row := range cached {
 		machine := s.effectiveBoardMachine(row.MachineID)
 		if previous, ok := byMachine[machine]; ok && !row.UpdatedAt.After(previous.UpdatedAt) {
 			continue
-		}
-		var entries []proto.Workspace
-		if json.Unmarshal(row.Data, &entries) == nil {
-			for i := range entries {
-				entries[i] = qualifyWorkspace(machine, entries[i])
-			}
-			row.Data, _ = json.Marshal(entries)
 		}
 		byMachine[machine] = row
 	}
@@ -435,6 +429,10 @@ func (s *Service) getWorkspaces(w http.ResponseWriter, r *http.Request) {
 			if old, ok := byMachine[m.ID]; ok {
 				if err := json.Unmarshal(old.Data, &entries); err != nil {
 					errs = append(errs, workspaceDiscoveryError{m.ID, i18n.T(l, "hub-workspace_board.err_snapshot_read")})
+				} else {
+					for i := range entries {
+						entries[i] = qualifyWorkspace(m.ID, entries[i])
+					}
 				}
 			}
 		}
@@ -452,6 +450,7 @@ func (s *Service) getWorkspaces(w http.ResponseWriter, r *http.Request) {
 				var previous []proto.Workspace
 				if json.Unmarshal(old.Data, &previous) == nil {
 					for _, item := range previous {
+						item = qualifyWorkspace(m.ID, item)
 						if failed[item.Source] && !present[item.ID] {
 							item.Available = false
 							entries = append(entries, item)

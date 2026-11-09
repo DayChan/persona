@@ -81,6 +81,8 @@ func autoDoneSkip(t Todo, work time.Time, worked bool) string {
 	switch {
 	case t.Origin == "":
 		return "not_a_task" // a todo the user made by hand: only they close it
+	case t.Cancelled():
+		return "cancelled"
 	case t.DoneAt != nil:
 		return "done"
 	case t.ReopenedAt != nil && !(worked && work.After(*t.ReopenedAt)):

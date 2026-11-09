@@ -62,7 +62,10 @@ type Todo struct {
 	DoneBy     string      `json:"done_by,omitempty"`
 	DoneReason string      `json:"done_reason,omitempty"`
 	ReopenedAt *time.Time  `json:"reopened_at,omitempty"`
-	Spaces     []TodoSpace `json:"spaces"`
+	// CancelledAt: when the task was cancelled; CancelledReason: why it was cancelled (#2272).
+	CancelledAt     *time.Time `json:"cancelled_at,omitempty"`
+	CancelledReason string     `json:"cancelled_reason,omitempty"`
+	Spaces          []TodoSpace `json:"spaces"`
 	Agents     []TodoAgent `json:"agents"`
 	// Quiet: a task from the main conversation while assistant.main_tasks_quiet was on (#1731,
 	// docs/assistant/unified-entry.md "Quiet tasks"): no pushes, Live Activity or task badges for its agents; the main
@@ -469,6 +472,10 @@ func copyTodoLocked(t *Todo) Todo {
 		ra := *t.ReopenedAt
 		out.ReopenedAt = &ra
 	}
+	if t.CancelledAt != nil {
+		ca := *t.CancelledAt
+		out.CancelledAt = &ca
+	}
 	out.Spaces = make([]TodoSpace, len(t.Spaces))
 	copy(out.Spaces, t.Spaces)
 	out.Agents = make([]TodoAgent, len(t.Agents))
@@ -589,6 +596,30 @@ func (s *Service) todoView(ctx context.Context, id string) (json.RawMessage, err
 }
 
 // taskOf is the task (a todo opened from an assistant conversation, still open) the agent mid/sid works for.
+// Cancelled reports whether the task is cancelled (by review, cancellation marker, or interaction).
+func (t Todo) Cancelled() bool {
+	if t.CancelledAt != nil {
+		return true
+	}
+	if t.DoneBy == db.DoneByCancelled {
+		return true
+	}
+	if t.Supervision != nil && t.Supervision.state(t) == reviewCancelled {
+		return true
+	}
+	return false
+}
+
+// AgentAborted reports whether the agent (machineID, sessionID) was let go, replaced or reassigned.
+func (t Todo) AgentAborted(machineID, sessionID string) bool {
+	for _, a := range t.Agents {
+		if a.MachineID == machineID && a.SessionID == sessionID {
+			return a.ReleasedAt != nil || a.DismissedAt != nil
+		}
+	}
+	return false
+}
+
 func (s *Service) taskOf(ctx context.Context, mid, sid string) (Todo, bool) {
 	if s.ensureTodosLoaded(ctx) != nil {
 		return Todo{}, false
