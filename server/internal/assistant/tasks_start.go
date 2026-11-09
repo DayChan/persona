@@ -344,8 +344,12 @@ func (s *Service) retryTask(ctx context.Context, todoID string) (json.RawMessage
 	if !ok { // another assistant sharing the store reopened it first
 		return view, nil
 	}
-	// Read again under the plan's lock: what the plan's other tasks recorded since p was read stays.
-	if err := s.patchPlanTask(ctx, p.ID, i, func(pt *PlanTask) { pt.Error, pt.ErrorCode, pt.ErrorArgs = "", "", nil }); err != nil {
+	// Task i is kept as this retry starts it (t), its error cleared. The plan is read again under its lock, so what its
+	// other tasks recorded since p was read stays.
+	if err := s.patchPlanTask(ctx, p.ID, i, func(pt *PlanTask) {
+		*pt = t
+		pt.Error, pt.ErrorCode, pt.ErrorArgs = "", "", nil
+	}); err != nil {
 		s.logf("plan %s: %v", p.ID, err)
 	}
 	s.logf("task %s: retrying its start on %s", todoID, m.ID)
