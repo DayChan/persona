@@ -34,6 +34,23 @@ func (h *deadlineBlockedSessionsHub) DeviceCall(ctx context.Context, call Device
 	return h.fakeHub.DeviceCall(ctx, call)
 }
 
+type contextIgnoringSessionsHub struct {
+	*fakeHub
+	entered chan struct{}
+	release chan struct{}
+	exited  chan struct{}
+}
+
+func (h *contextIgnoringSessionsHub) DeviceCall(ctx context.Context, call DeviceCall) (json.RawMessage, error) {
+	if call.Method == DeviceSessionsList && call.Device == "other" {
+		close(h.entered)
+		<-h.release // Deliberately ignores ctx until the test releases the RPC.
+		close(h.exited)
+		return nil, ctx.Err()
+	}
+	return h.fakeHub.DeviceCall(ctx, call)
+}
+
 type blockedReceiptStore struct {
 	restartReceiptStore
 	entered chan struct{}
@@ -1791,6 +1808,52 @@ func TestOldReceiptLookRegistersCurrentLimitGeneration(t *testing.T) {
 	if !found {
 		t.Fatal("new limited generation was not registered")
 	}
+}
+
+func TestReceiptLookReturnsWhenPeerIgnoresContext(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	linked := time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := receiptTestService(t, f, st, linked)
+	s.todos.mu.Lock()
+	a := s.todos.todos["task"].Agents[0]
+	s.todos.todos["task"].Agents = []TodoAgent{
+		{MachineID: "other", SessionID: "s2", LinkedAt: linked},
+		{MachineID: "third", SessionID: "s3", LinkedAt: linked}, a,
+	}
+	s.todos.activeBySession[[2]string{"other", "s2"}] = "task"
+	s.todos.activeBySession[[2]string{"third", "s3"}] = "task"
+	s.todos.mu.Unlock()
+	hub := &contextIgnoringSessionsHub{fakeHub: f}
+	s.hub = hub
+	synctest.Test(t, func(t *testing.T) {
+		hub.entered, hub.release, hub.exited = make(chan struct{}), make(chan struct{}), make(chan struct{})
+		var release sync.Once
+		defer release.Do(func() { close(hub.release) })
+		reset := time.Now().Add(time.Hour)
+		limited := limitTurn("s3", reset, true)
+		limited.MachineID = "third"
+		f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone})
+		f.setSessions("third", limited)
+		done := make(chan struct{})
+		go func() { defer close(done); s.taskTurnEnded(context.Background(), "box", "s1") }()
+		<-hub.entered
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			release.Do(func() { close(hub.release) })
+			<-done
+			t.Fatal("a context-ignoring peer blocked the completed results")
+		}
+		var state receiptLookState
+		if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 ||
+			state.Looks[0].Session != "s3" || !state.Looks[0].At.Equal(reset.Add(limitResumeGrace)) {
+			t.Fatalf("completed agent result not retained: %+v, %v", state, err)
+		}
+		release.Do(func() { close(hub.release) })
+		<-hub.exited
+		synctest.Wait() // the late worker can send to the buffered result channel and exit
+	})
 }
 
 func TestReceiptLookFindsOtherLimitBehindBlockedMachine(t *testing.T) {
