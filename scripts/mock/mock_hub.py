@@ -31,7 +31,7 @@ def features():
     return ["error_codes", "client_hello", "heartbeat", "app_ping", "client_msg_id", "send_refusals",
             "screen_dialog", "resumable_interactions", "secret_prompts", "request_id", "file_upload",
             "tls", "endpoints", "connectors", "lark_attachments", "file_stream", "file_thumb", "git_blob", "task_push",
-            "machine_rename"] + (["git_write"] if os.environ.get("MOCK_GIT_WRITE") else []) + (["git_review"] if os.environ.get("MOCK_REVIEW") else []) + (["terminal_stream"] if TERMINAL_STREAM else []) + (
+            "machine_rename"] + (["git_write"] if os.environ.get("MOCK_GIT_WRITE") else []) + (["git_review"] if os.environ.get("MOCK_REVIEW") else []) + (["agent_review"] if os.environ.get("MOCK_AGENT_REVIEW") else []) + (["terminal_stream"] if TERMINAL_STREAM else []) + (
                 ["terminal_control", "terminal_scroll", "terminal_click", "terminal_mouse"] if TERMINAL_CONTROL else []) + (
                 ["terminal_panes"] if os.environ.get("MOCK_TERMINAL_PANES") else []) + (["herdr_client"] + ([] if os.environ.get("MOCK_TERMINAL_FULL_NOFOCUS") else ["herdr_focus"]) if TERMINAL_FULL else []) + (
                 ["assistant_compact", "assistant_main_new"] if os.environ.get("MOCK_MAIN_ACTIONS") == "1" else []) + (
@@ -3919,6 +3919,8 @@ def mock_interactions():
         if MOCK_TASKS:  # a task's agent asking: the hub names the task (task_title)
             titles = {a["session_id"]: t["title"] for t in TODOS if t.get("origin") and not t.get("done_at") for a in t.get("agents", [])}
             out = [dict(x, task_title=titles[x["session_id"]]) if x.get("session_id") in titles else x for x in out]
+        if AGENT_REVIEW and (ix := mock_agent_review.card()) is not None and not any(x["id"] == ix["id"] for x in out):
+            out.append(ix)
         return out
 
 
@@ -9394,6 +9396,13 @@ if GIT_REVIEW:
                    "/docs/hourly.md": mock_review.HOURLY_MD, "/Package.resolved": mock_review.RESOLVED,
                    "/deploy/": None, "/deploy/id_ed25519": "made-up key\n", "/Resources/": None}.items():
         MOCK_TREE[MOCK_REPO + _k] = _v
+# MOCK_AGENT_REVIEW=1 (#1808): an independent review of a session's work — the routes the web's menu entry calls and
+# the findings card it leaves on the session (mock_agent_review.py; its /mock/agent-review switches what the hub says).
+AGENT_REVIEW = bool(os.environ.get("MOCK_AGENT_REVIEW"))
+if AGENT_REVIEW:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mock_agent_review
+
 # MOCK_FILES_LIVE=1 (#2439, the Files tree and its auto refresh): a deeper tree, folders Git ignores (the list marks them
 # `ignored`), a socket that remembers what each browser asked to watch (fs_watch, GET /mock/fs-watch) and a hook that
 # changes a folder and pushes fs_changed to the browsers watching it (GET /mock/fs-change?dir=…&add=…&git=1).
@@ -13141,6 +13150,14 @@ class H(BaseHTTPRequestHandler):
             if not t: return self.send_json({"error": "待办不存在"}, 404)
             return self.send_json({"todo": format_todo(t)})
         if p == "/api/v1/interactions": return self.send_json({"interactions": out_by_machine(mock_interactions())})
+        if AGENT_REVIEW and p.startswith("/api/v1/machines/") and "/sessions/" in p and p.endswith("/review") and p.count("/") == 7:
+            # GET …/sessions/{sid}/review (#1808): whether a review runs, and the card waiting on the session.
+            mid, sid = p.split("/")[4], p.split("/")[6]
+            if not any(m["id"] == mid for m in MACHINES):
+                return self.send_json({"error": "no such machine"}, 404)
+            return self.send_json(mock_agent_review.state())
+        if p == "/mock/agent-review" and AGENT_REVIEW:
+            return self.send_json(mock_agent_review.control(q))
         if p == "/api/v1/fleet":
             return self.send_json({"fleet": mock_fleet() if MOCK_FLEET else {"phase": "", "needsYou": 0, "working": 0, "unread": 0, "items": []}})
         if p == "/api/v1/interactions/history":
@@ -14943,8 +14960,21 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/v1/bots/feishu/test": return self.send_json({"ok": True})
         if p.startswith("/api/v1/interactions/") and p.endswith("/reanswer") and p.count("/") == 5:
             return self.send_json(*mock_reanswer(p.split("/")[4], json.loads(self.last_body or b"{}")))
+        if AGENT_REVIEW and p.startswith("/api/v1/machines/") and "/sessions/" in p and p.endswith("/review") and p.count("/") == 7:
+            # POST …/sessions/{sid}/review (#1808): start an independent review of the session's work; ?refuse on the
+            # control switches what the hub answers instead.
+            mid, sid = p.split("/")[4], p.split("/")[6]
+            if not any(m["id"] == mid for m in MACHINES):
+                return self.send_json({"error": "no such machine"}, 404)
+            mock_agent_review.note_start(mid, sid)
+            st = mock_agent_review.control({})
+            if st["state"]["refuse"]:
+                return self.send_json(*mock_agent_review.refused(st["state"]["refuse"]))
+            return self.send_json(mock_agent_review.start())
         if p.startswith("/api/v1/interactions/") and p.endswith("/resolve"):  # notification buttons (UI test reads it back)
             RESOLVED.append({"id": p.split("/")[4], "resolution": json.loads(self.last_body or b"{}")})
+            if AGENT_REVIEW and p.split("/")[4].startswith("review_"):
+                mock_agent_review.note_answer(json.loads(self.last_body or b"{}"))
             if os.environ.get("MOCK_CODEX") and p.split("/")[4] == "cxa_orders_curl" and \
                     sum(r["id"] == "cxa_orders_curl" for r in RESOLVED) == 1:
                 return self.send_json({"error": "电脑上 Codex 的输入框里有没发出去的内容：「先看下慢查询日志」。这次什么都没输入，免得和它拼在一起：在电脑上发出去或清空后再答。",
