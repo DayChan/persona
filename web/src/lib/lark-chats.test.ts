@@ -151,4 +151,52 @@ describe("LarkChatsStore", () => {
     expect(s.state.rows).toEqual([]);
     expect(s.state.problem?.kind).toBe("not_logged_in");
   });
+
+  it("keeps the rows and the lists as they were when a refresh reads the same chats again", async () => {
+    // Every read answers with fresh copies, as the hub's JSON does.
+    const fresh = () => ({ account_id: "acc", conversations: [c("a", { tags: ["x"] }), c("b")] });
+    const s = new LarkChatsStore({ page: async () => fresh(), pinned: async () => ({ account_id: "acc", conversations: [c("p")] }) });
+    await s.refresh();
+    const { rows, pinned } = s.state;
+    await s.refresh();
+    expect(s.state.rows).toBe(rows);
+    expect(s.state.pinned).toBe(pinned);
+  });
+
+  it("replaces only the chat that changed, and drops one that left", async () => {
+    let list = [c("a"), c("b"), c("c", { tags: ["x"] })];
+    let shelf = [c("p"), c("q")];
+    const copy = (l: LarkConversation[]) => l.map((x) => ({ ...x, tags: x.tags && [...x.tags] }));
+    const s = new LarkChatsStore({ page: async () => ({ account_id: "acc", conversations: copy(list) }), pinned: async () => ({ account_id: "acc", conversations: copy(shelf) }) });
+    await s.refresh();
+    const [a, b, cc] = s.state.rows;
+    const [p] = s.state.pinned;
+    list = [c("a"), c("b", { unread: 2, preview: "new" }), c("c", { tags: ["x", "y"] })];
+    shelf = [c("p")];
+    await s.refresh();
+    expect(s.state.rows[0]).toBe(a);
+    expect(s.state.rows[1]).not.toBe(b);
+    expect(s.state.rows[1]).toMatchObject({ id: "b", unread: 2, preview: "new" });
+    expect(s.state.rows[2]).not.toBe(cc);
+    expect(s.state.rows[2].tags).toEqual(["x", "y"]);
+    expect(s.state.pinned).toEqual([p]);
+    expect(s.state.pinned[0]).toBe(p);
+    list = [c("b", { unread: 2, preview: "new" }), c("a")];
+    const kept = s.state.rows;
+    await s.refresh();
+    expect(s.state.rows.map((x) => x.id)).toEqual(["b", "a"]);
+    expect(s.state.rows[0]).toBe(kept[1]);
+    expect(s.state.rows[1]).toBe(kept[0]);
+  });
+
+  it("tells a field that went away from one that stayed", async () => {
+    let list = [c("a", { at_all: true })];
+    const s = new LarkChatsStore({ page: async () => ({ account_id: "acc", conversations: list.map((x) => ({ ...x })) }), pinned: async () => ({ account_id: "acc", conversations: [] }) });
+    await s.refresh();
+    const before = s.state.rows[0];
+    list = [c("a")];
+    await s.refresh();
+    expect(s.state.rows[0]).not.toBe(before);
+    expect(s.state.rows[0].at_all).toBeUndefined();
+  });
 });
