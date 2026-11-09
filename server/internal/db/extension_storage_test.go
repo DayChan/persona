@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +37,18 @@ func fixtureStorageUpdate(value string) StorageUpdate {
 		out, _ := json.Marshal(map[string]string{"value": value})
 		return out, value, true, nil
 	}
+}
+func fixtureStorageIncrement(data json.RawMessage, _ string) (json.RawMessage, any, bool, error) {
+	var value map[string]string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, nil, false, err
+	}
+	var n int
+	if _, err := fmt.Sscan(value["value"], &n); err != nil {
+		return nil, nil, false, err
+	}
+	next, _ := json.Marshal(map[string]string{"value": fmt.Sprint(n + 1)})
+	return next, n + 1, true, nil
 }
 func cleanupStorageFixture(t *testing.T, d *DB, ids ...string) {
 	t.Helper()
@@ -210,18 +224,7 @@ func TestStorageConcurrentTransformsSerializeAcrossPools(t *testing.T) {
 			pool = other
 		}
 		go func() {
-			_, err := pool.ExtensionStorage(t.Context(), scope, fixtureInitial(), func(data json.RawMessage, _ string) (json.RawMessage, any, bool, error) {
-				var value map[string]string
-				if err := json.Unmarshal(data, &value); err != nil {
-					return nil, nil, false, err
-				}
-				var n int
-				if _, err := fmt.Sscan(value["value"], &n); err != nil {
-					return nil, nil, false, err
-				}
-				next, _ := json.Marshal(map[string]string{"value": fmt.Sprint(n + 1)})
-				return next, n + 1, true, nil
-			})
+			_, err := pool.ExtensionStorage(t.Context(), scope, fixtureInitial(), fixtureStorageIncrement)
 			result <- err
 		}()
 	}
@@ -232,6 +235,143 @@ func TestStorageConcurrentTransformsSerializeAcrossPools(t *testing.T) {
 	}
 	if value, err := d.ExtensionStorage(t.Context(), scope, fixtureInitial(), fixtureStorageUpdate("read")); err != nil || value != "12" {
 		t.Fatal("concurrent durable updates were lost", value, err)
+	}
+}
+
+// A read changes nothing, so it must not queue on the global budget lock behind
+// another installation's write. Every write, including the first insert and a
+// run rebind, still waits for it. Each write uses its own installation: a
+// timed-out call's server backend keeps its plugins row locked until the budget
+// lock frees, and the next write must time out on the budget lock, not that row.
+func TestStorageReadDoesNotWaitForBudgetLock(t *testing.T) {
+	d := open(t)
+	row, scope := storageFixture(t, d, "fixture-budget-read")
+	bound, rebind := storageFixture(t, d, "fixture-budget-rebind")
+	fresh, insert := storageFixture(t, d, "fixture-budget-insert")
+	cleanupStorageFixture(t, d, row.ID, bound.ID, fresh.ID)
+	ctx := t.Context()
+	for _, s := range []extension.StorageScope{scope, rebind} {
+		if _, err := d.ExtensionStorage(ctx, s, fixtureInitial(), fixtureStorageUpdate("before")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	holder, err := d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storageRollback(holder)
+	if err := storageBudget(ctx, holder); err != nil {
+		t.Fatal(err)
+	}
+	scope.Start = false
+	read, cancel := context.WithTimeout(ctx, time.Second)
+	started := time.Now()
+	value, err := d.ExtensionStorage(read, scope, fixtureInitial(), fixtureStorageUpdate("read"))
+	cancel()
+	if err != nil || value != "before" {
+		t.Fatal("read waited for the budget lock", time.Since(started), value, err)
+	}
+	rebind.Run = "fixture-rebound-run"
+	for _, write := range []struct {
+		name   string
+		scope  extension.StorageScope
+		update StorageUpdate
+	}{{"update", scope, fixtureStorageUpdate("blocked")}, {"rebind", rebind, fixtureStorageUpdate("read")}, {"insert", insert, fixtureStorageUpdate("read")}} {
+		call, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		_, err := d.ExtensionStorage(call, write.scope, fixtureInitial(), write.update)
+		waited := errors.Is(call.Err(), context.DeadlineExceeded)
+		cancel()
+		if err == nil || !waited {
+			t.Fatal(write.name, "did not wait for the budget lock", err)
+		}
+	}
+	if err := holder.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if value, err := d.ExtensionStorage(ctx, scope, fixtureInitial(), fixtureStorageUpdate("after")); err != nil || value != "after" {
+		t.Fatal("write after the budget lock was released", value, err)
+	}
+}
+
+// One installation's calls lock its space row before the budget lock, while
+// another's restore and uninstall take the budget lock first. Across two pools
+// the two orders must never deadlock (40P01) or lose an update.
+func TestStorageLockOrderAcrossInstallations(t *testing.T) {
+	d := open(t)
+	rowA, scopeA := storageFixture(t, d, "fixture-lock-order-a")
+	rowB, scopeB := storageFixture(t, d, "fixture-lock-order-b")
+	cleanupStorageFixture(t, d, rowA.ID, rowB.ID)
+	ctx := t.Context()
+	for _, scope := range []extension.StorageScope{scopeA, scopeB} {
+		if _, err := d.ExtensionStorage(ctx, scope, fixtureInitial(), fixtureStorageUpdate("0")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Worst case for restore: A's active row under B's extension key. Restoring it
+	// as B must fail without locking it while B holds the budget lock.
+	var activeA string
+	if err := d.pool.QueryRow(ctx, `UPDATE extension_storage_spaces SET extension_key=$2 WHERE plugin=$1 RETURNING id`, rowA.ID, rowB.ID).Scan(&activeA); err != nil {
+		t.Fatal(err)
+	}
+	other, err := Open(ctx, os.Getenv("PERSONA_TEST_DATABASE_URL"), AllSets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	pools := []*DB{d, other}
+	scopeA.Start = false
+	stop, errs := make(chan struct{}), make(chan error, 8)
+	var wrote atomic.Int64
+	var wg sync.WaitGroup
+	for i := range 8 {
+		pool, update := pools[i%2], fixtureStorageUpdate("read")
+		if i < 4 {
+			update = fixtureStorageIncrement
+		}
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := pool.ExtensionStorage(ctx, scopeA, fixtureInitial(), update); err != nil {
+					errs <- err
+					return
+				}
+				if i < 4 {
+					wrote.Add(1)
+				}
+			}
+		})
+	}
+	finish := sync.OnceFunc(func() { close(stop); wg.Wait() })
+	defer finish()
+	for i := range 8 {
+		pool := pools[i%2]
+		if err := pool.DeleteExtensionRecordRetainingData(ctx, rowB, true); err != nil {
+			t.Fatal("uninstall keeping data", i, err)
+		}
+		var retained string
+		if err := d.pool.QueryRow(ctx, `SELECT id FROM extension_storage_spaces WHERE retained AND extension_key=$1`, rowB.ID).Scan(&retained); err != nil {
+			t.Fatal(err)
+		}
+		rowB, scopeB = storageFixture(t, d, rowB.ID)
+		scopeB.Owner = true
+		if err := pool.RestoreExtensionStorage(ctx, scopeB, activeA, "fixture-steal", "fixture-fingerprint", fixtureInitial(), fixtureStorageUpdate("read")); !errors.Is(err, extension.ErrStorageScope) {
+			t.Fatal("restore reached another installation's active space", i, err)
+		}
+		if err := pool.RestoreExtensionStorage(ctx, scopeB, retained, fmt.Sprint("fixture-request-", i), "fixture-fingerprint", fixtureInitial(), fixtureStorageUpdate("read")); err != nil {
+			t.Fatal("restore", i, err)
+		}
+	}
+	finish()
+	close(errs)
+	for err := range errs {
+		t.Fatal("storage call failed while another installation churned", err)
+	}
+	if value, err := d.ExtensionStorage(ctx, scopeA, fixtureInitial(), fixtureStorageUpdate("read")); err != nil || value != fmt.Sprint(wrote.Load()) {
+		t.Fatal("lost updates", value, wrote.Load(), err)
 	}
 }
 

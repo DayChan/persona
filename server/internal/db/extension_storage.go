@@ -18,7 +18,11 @@ const (
 )
 
 // One fixed transaction lock protects aggregate quotas across manager processes.
-// It is acquired after the installation row by every storage mutation/lifecycle.
+// Every caller first holds its installation's plugins row. ExtensionStorage then
+// locks its own active space and takes this lock only right before its first
+// write, so read-only calls never wait for it. Restore and uninstall take it
+// before their space rows, but those are retained rows or the same installation's
+// active row, which another installation's ExtensionStorage never locks.
 func storageBudget(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(1187, 1)`)
 	return err
@@ -95,15 +99,15 @@ func (d *DB) ExtensionStorage(ctx context.Context, scope extension.StorageScope,
 	if err := storageOwner(ctx, tx, scope); err != nil {
 		return nil, err
 	}
-	if err := storageBudget(ctx, tx); err != nil {
-		return nil, err
-	}
 	var id, previousRun string
 	var data json.RawMessage
+	wrote := false
 	err = tx.QueryRow(ctx, `SELECT id, runtime, state FROM extension_storage_spaces WHERE plugin=$1 AND installed_at=$2 AND NOT retained FOR UPDATE`, scope.Plugin, scope.InstalledAt).Scan(&id, &previousRun, &data)
 	if errors.Is(err, pgx.ErrNoRows) {
-		id, data = rand.Text(), initial
-		_, err = tx.Exec(ctx, `INSERT INTO extension_storage_spaces(id,plugin,extension_key,installed_at,state) VALUES($1,$2,$3,$4,$5)`, id, scope.Plugin, scope.PublicID, scope.InstalledAt, []byte(data))
+		id, data, wrote = rand.Text(), initial, true
+		if err = storageBudget(ctx, tx); err == nil {
+			_, err = tx.Exec(ctx, `INSERT INTO extension_storage_spaces(id,plugin,extension_key,installed_at,state) VALUES($1,$2,$3,$4,$5)`, id, scope.Plugin, scope.PublicID, scope.InstalledAt, []byte(data))
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -119,12 +123,21 @@ func (d *DB) ExtensionStorage(ctx context.Context, scope extension.StorageScope,
 		if len(next) > extensionStorageDocumentMost || !json.Valid(next) {
 			return nil, extension.ErrStorageQuota
 		}
+		if !wrote {
+			if err := storageBudget(ctx, tx); err != nil {
+				return nil, err
+			}
+			wrote = true
+		}
 		if _, err := tx.Exec(ctx, `UPDATE extension_storage_spaces SET state=$1,runtime=$2,revision=revision+1 WHERE id=$3`, []byte(next), scope.Run, id); err != nil {
 			return nil, err
 		}
 	}
-	if err := checkStorageBudget(ctx, tx); err != nil {
-		return nil, err
+	// A read-only call changed nothing, so it cannot have moved the totals.
+	if wrote {
+		if err := checkStorageBudget(ctx, tx); err != nil {
+			return nil, err
+		}
 	}
 	if err := extensionCommitResult(tx.Commit(ctx)); err != nil {
 		return nil, err
@@ -199,7 +212,9 @@ func (d *DB) RestoreExtensionStorage(ctx context.Context, scope extension.Storag
 	var installed *time.Time
 	var retained bool
 	var data json.RawMessage
-	err = tx.QueryRow(ctx, `SELECT coalesce(plugin,''),installed_at,retained,runtime,state,restore_request,restore_fingerprint FROM extension_storage_spaces WHERE id=$1 AND extension_key=$2 FOR UPDATE`, source, scope.PublicID).Scan(&plugin, &installed, &retained, &run, &data, &previousRequest, &previousFingerprint)
+	// Only a retained row or this installation's own (replayed) row is locked, never
+	// another installation's active space: see the lock order at storageBudget.
+	err = tx.QueryRow(ctx, `SELECT coalesce(plugin,''),installed_at,retained,runtime,state,restore_request,restore_fingerprint FROM extension_storage_spaces WHERE id=$1 AND extension_key=$2 AND (retained OR plugin=$3) FOR UPDATE`, source, scope.PublicID, scope.Plugin).Scan(&plugin, &installed, &retained, &run, &data, &previousRequest, &previousFingerprint)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return extension.ErrStorageScope
 	}
