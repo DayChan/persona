@@ -141,6 +141,9 @@ type tasksState struct {
 	// waited on, as a card's). The tasks are one blob that movePlan writes whole, so two tasks changing at once (their
 	// starts failing together) would each write back the other's old fields.
 	planEdits cardLocks
+	// trustMu serializes the read-modify-writes of tasks.trust (trustKinds, forgetTrust), so that two plans
+	// remembered at once, or a forget racing a remember, do not drop each other's kinds.
+	trustMu sync.Mutex
 }
 
 func newTasksState() tasksState {
@@ -360,27 +363,52 @@ func trustKey(t PlanTask) string {
 	return t.Machine + "|" + t.Cwd + "|" + kind
 }
 
+// trustedKinds is the kinds the user lets start without asking; none when they cannot be read, so that a plan asks.
+// What writes tasks.trust reads it with trustedKindsErr instead.
 func (s *Service) trustedKinds(ctx context.Context) map[string]bool {
+	have, err := s.trustedKindsErr(ctx)
+	if err != nil {
+		s.logf("tasks: trust: read: %v", err)
+		return map[string]bool{}
+	}
+	return have
+}
+
+// trustedKindsErr is trustedKinds with the read's error: a write built on a failed read would replace every kind
+// remembered before.
+func (s *Service) trustedKindsErr(ctx context.Context) (map[string]bool, error) {
 	out := map[string]bool{}
 	st := s.store()
 	if st == nil {
-		return out
+		return out, nil
 	}
 	var keys []string
-	if ok, err := st.Setting(ctx, trustSetting, &keys); err == nil && ok {
+	ok, err := st.Setting(ctx, trustSetting, &keys)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		for _, k := range keys {
 			out[k] = true
 		}
 	}
-	return out
+	return out, nil
 }
 
+// trustKinds remembers the kinds of tasks so that similar plans start without asking. When the kinds remembered
+// before cannot be read it remembers nothing: the next similar plan asks again, and no kind is lost.
 func (s *Service) trustKinds(ctx context.Context, tasks []PlanTask) {
 	st := s.store()
 	if st == nil {
 		return
 	}
-	have := s.trustedKinds(ctx)
+	s.tasks.trustMu.Lock()
+	defer s.tasks.trustMu.Unlock()
+	have, err := s.trustedKindsErr(ctx)
+	if err != nil {
+		s.logf("tasks: trust: not remembering %d tasks' kinds: read: %v", len(tasks), err)
+		return
+	}
 	for _, t := range tasks {
 		have[trustKey(t)] = true
 	}

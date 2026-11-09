@@ -373,6 +373,104 @@ func TestTaskTrust(t *testing.T) {
 	}
 }
 
+// storedTrust is tasks.trust as st keeps it.
+func storedTrust(t *testing.T, st *memStore) []string {
+	t.Helper()
+	var keys []string
+	if _, err := st.Setting(context.Background(), trustSetting, &keys); err != nil {
+		t.Fatal(err)
+	}
+	return keys
+}
+
+// Remembering a kind while tasks.trust cannot be read remembers nothing rather than replacing the kinds remembered
+// before with the new plan's; once the read works again the kind is added to them.
+func TestTrustFailedReadKeepsRememberedKinds(t *testing.T) {
+	ctx := context.Background()
+	st := &memStore{}
+	s := newServiceOn(t, newFakeHub(), st)
+	s.trustKinds(ctx, []PlanTask{{Machine: "m1", Cwd: "/a"}, {Machine: "m1", Cwd: "/b", Readonly: true}})
+
+	st.failKey(trustSetting, errors.New("db blip"))
+	s.trustKinds(ctx, []PlanTask{{Machine: "m2", Cwd: "/c"}})
+	if s.planStartsAtOnce(ctx, []PlanTask{{Machine: "m1", Cwd: "/a"}}) {
+		t.Fatal("a plan started at once on a trust list that could not be read")
+	}
+	st.failKey(trustSetting, nil)
+
+	want := []string{"m1|/a|edit", "m1|/b|read"}
+	if got := storedTrust(t, st); !reflect.DeepEqual(got, want) {
+		t.Fatalf("after a failed read: %q, want %q", got, want)
+	}
+	s.trustKinds(ctx, []PlanTask{{Machine: "m2", Cwd: "/c"}})
+	want = append(want, "m2|/c|edit")
+	if got := storedTrust(t, st); !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the read works again: %q, want %q", got, want)
+	}
+}
+
+// Plans remembered at the same time, and a forget racing them, keep every kind the others remembered.
+func TestTrustConcurrentChangesKeepEveryKind(t *testing.T) {
+	ctx := context.Background()
+	st := &memStore{}
+	s := newServiceOn(t, newFakeHub(), st)
+	s.trustKinds(ctx, []PlanTask{{Machine: "box", Cwd: "/gone"}})
+
+	const n = 16
+	done := make(chan error, n+1)
+	for i := range n {
+		go func() {
+			s.trustKinds(ctx, []PlanTask{{Machine: "box", Cwd: fmt.Sprintf("/p%02d", i)}})
+			done <- nil
+		}()
+	}
+	go func() {
+		ok, err := s.forgetTrust(ctx, "box|/gone|edit")
+		if err == nil && !ok {
+			err = errors.New("not remembered")
+		}
+		done <- err
+	}()
+	for range n + 1 {
+		if err := <-done; err != nil {
+			t.Fatalf("forget: %v", err)
+		}
+	}
+
+	want := make([]string, n)
+	for i := range want {
+		want[i] = fmt.Sprintf("box|/p%02d|edit", i)
+	}
+	if got := storedTrust(t, st); !reflect.DeepEqual(got, want) {
+		t.Fatalf("kept %d kinds: %q, want %q", len(got), got, want)
+	}
+}
+
+// Forgetting a kind while tasks.trust cannot be read is an error (the route answers 503) and keeps every kind.
+func TestTrustForgetWithFailedReadKeepsTheList(t *testing.T) {
+	ctx := context.Background()
+	st := &memStore{}
+	s := newServiceOn(t, newFakeHub(), st)
+	s.trustKinds(ctx, []PlanTask{{Machine: "box", Cwd: "/a"}, {Machine: "box", Cwd: "/b"}})
+
+	st.failKey(trustSetting, errors.New("db blip"))
+	if ok, err := s.forgetTrust(ctx, "box|/a|edit"); err == nil || ok {
+		t.Fatalf("forget on a failed read: %v %v, want an error", ok, err)
+	}
+	st.failKey(trustSetting, nil)
+
+	want := []string{"box|/a|edit", "box|/b|edit"}
+	if got := storedTrust(t, st); !reflect.DeepEqual(got, want) {
+		t.Fatalf("after a failed forget: %q, want %q", got, want)
+	}
+	if ok, err := s.forgetTrust(ctx, "box|/a|edit"); !ok || err != nil {
+		t.Fatalf("forget: %v %v", ok, err)
+	}
+	if got, want := storedTrust(t, st), []string{"box|/b|edit"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the forget: %q, want %q", got, want)
+	}
+}
+
 // A todo the user reopened is not closed again by the work before it, nor when that is not known (a receipt lost to
 // a restart); a todo made by hand is never closed by the judge: in neither is the model asked.
 func TestAutoFinishLeavesAReopenedTask(t *testing.T) {

@@ -247,13 +247,19 @@ func (s *Service) trustList(ctx context.Context) []trustKind {
 	return out
 }
 
-// forgetTrust stops a kind from starting without asking; false when it was not remembered.
+// forgetTrust stops a kind from starting without asking; false when it was not remembered. A failed read is an
+// error, never an empty list written back.
 func (s *Service) forgetTrust(ctx context.Context, key string) (bool, error) {
 	st := s.store()
 	if st == nil {
 		return false, errors.New("no store")
 	}
-	have := s.trustedKinds(ctx)
+	s.tasks.trustMu.Lock()
+	defer s.tasks.trustMu.Unlock()
+	have, err := s.trustedKindsErr(ctx)
+	if err != nil {
+		return false, err
+	}
 	if !have[key] {
 		return false, nil
 	}
