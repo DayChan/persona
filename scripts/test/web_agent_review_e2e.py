@@ -5,10 +5,10 @@ review's findings arrive as one card on the session's chat — "N 条发现", th
 the card with action send and the card goes, Dismiss with dismiss and the card goes; a review without a count line says
 审查完成.
 
-Needs a running web page against the fake hub with MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 (scripts/mock/mock_agent_review.py: its GET
+Needs a running web page against the fake hub with MOCK_FILES=1 MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 (scripts/mock/mock_agent_review.py: its GET
 /mock/agent-review switches the state and reads back what the page asked) and Playwright for Python:
 
-    PORT=18873 MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 python3 scripts/mock/mock_hub.py &
+    PORT=18873 MOCK_FILES=1 MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 python3 scripts/mock/mock_hub.py &
     (cd web && PERSONA_HUB_URL=http://127.0.0.1:18873 npx vite --port 5193 --strictPort &)
     python3 scripts/test/web_agent_review_e2e.py http://127.0.0.1:5193 --hub http://127.0.0.1:18873 [--shots <dir>]
 
