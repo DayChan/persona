@@ -24,9 +24,13 @@ func storageBudget(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
+// storageBudgetSQL sums the stored state_bytes column (0452), the encoded size Postgres keeps per write, so the check
+// under the global lock never turns the stored documents back into text.
+const storageBudgetSQL = `SELECT coalesce(sum(state_bytes),0),count(*) FROM extension_storage_spaces`
+
 func checkStorageBudget(ctx context.Context, tx pgx.Tx) error {
 	var bytes, count int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(sum(octet_length(state::text)),0),count(*) FROM extension_storage_spaces`).Scan(&bytes, &count); err != nil {
+	if err := tx.QueryRow(ctx, storageBudgetSQL).Scan(&bytes, &count); err != nil {
 		return err
 	}
 	if bytes > extensionStorageAggregateMost || count > extensionStorageSpacesMost {
@@ -148,7 +152,7 @@ func (d *DB) RetainedExtensionStorage(ctx context.Context, scope extension.Stora
 	if err := storageOwner(ctx, tx, scope); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT id,retired_at,octet_length(state::text) FROM extension_storage_spaces WHERE retained AND extension_key=$1 ORDER BY retired_at DESC,id LIMIT 32`, scope.PublicID)
+	rows, err := tx.Query(ctx, `SELECT id,retired_at,state_bytes FROM extension_storage_spaces WHERE retained AND extension_key=$1 ORDER BY retired_at DESC,id LIMIT 32`, scope.PublicID)
 	if err != nil {
 		return nil, err
 	}
