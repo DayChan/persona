@@ -5,6 +5,7 @@ package sessionlist
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"reflect"
 	"sync"
 	"time"
@@ -218,7 +219,7 @@ func (i *Index) Replace(source string, items []Item) {
 		// Strip monotonic clock data and normalize zones before comparison.
 		item.UpdatedAt = item.UpdatedAt.Round(0).UTC()
 		previous := old[item.ID]
-		if previous != nil && reflect.DeepEqual(previous.item, item) {
+		if previous != nil && sameItem(&previous.item, &item) {
 			next[item.ID] = previous
 			continue
 		}
@@ -268,6 +269,27 @@ func (i *Index) Replace(source string, items []Item) {
 	}
 	// Do not retain historical views except bounded cursor snapshots.
 	i.cache = make(map[cacheKey]*cacheEntry)
+}
+
+// sameItem is reflect.DeepEqual(*a, *b) without walking what is plainly the same: the attributes compared as values,
+// a payload that is the very bytes stored (an item Items returned, handed back) by its slice. Anything else, such as
+// a payload built again, is left to reflect.DeepEqual.
+func sameItem(a, b *Item) bool {
+	if !samePayload(a.Full, b.Full) || !samePayload(a.Summary, b.Summary) {
+		return false
+	}
+	x, y := *a, *b
+	x.Full, x.Summary, y.Full, y.Summary = nil, nil, nil, nil
+	return x == y || reflect.DeepEqual(x, y)
+}
+
+func samePayload(a, b any) bool {
+	if x, ok := a.(json.RawMessage); ok {
+		if y, ok := b.(json.RawMessage); ok && len(x) > 0 && len(x) == len(y) && &x[0] == &y[0] {
+			return true
+		}
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 // RemoveSource removes an owner's entire batch in one revision.
