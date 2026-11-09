@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -47,16 +49,43 @@ const (
 	RolledMetricStep = 60
 )
 
+const insertMetricSQL = `INSERT INTO machine_metrics (machine_id, ts, step, cpu, load, mem_used, mem_total,
+		swap_used, swap_total, net_rx, net_tx, disk_used, disk_total)
+	VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	ON CONFLICT (machine_id, ts, step) DO UPDATE SET cpu = $4, load = $5, mem_used = $6, mem_total = $7,
+		swap_used = $8, swap_total = $9, net_rx = $10, net_tx = $11, disk_used = $12, disk_total = $13`
+
+func insertMetricArgs(machine string, s proto.MetricSample) []any {
+	return []any{machine, s.T, RawMetricStep, s.CPU, s.Load, s.MemUsed, s.MemTotal, s.SwapUsed, s.SwapTotal, s.NetRx, s.NetTx,
+		s.DiskUsed, s.DiskTotal}
+}
+
 // InsertMetric stores a node's sample as a raw row (a repeat of the same second replaces it).
 func (d *DB) InsertMetric(ctx context.Context, machine string, s proto.MetricSample) error {
-	_, err := d.pool.Exec(ctx, `INSERT INTO machine_metrics (machine_id, ts, step, cpu, load, mem_used, mem_total,
-			swap_used, swap_total, net_rx, net_tx, disk_used, disk_total)
-		VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		ON CONFLICT (machine_id, ts, step) DO UPDATE SET cpu = $4, load = $5, mem_used = $6, mem_total = $7,
-			swap_used = $8, swap_total = $9, net_rx = $10, net_tx = $11, disk_used = $12, disk_total = $13`,
-		machine, s.T, RawMetricStep, s.CPU, s.Load, s.MemUsed, s.MemTotal, s.SwapUsed, s.SwapTotal, s.NetRx, s.NetTx,
-		s.DiskUsed, s.DiskTotal)
+	_, err := d.pool.Exec(ctx, insertMetricSQL, insertMetricArgs(machine, s)...)
 	return err
+}
+
+// MachineSample is one machine's sample, for InsertMetrics.
+type MachineSample struct {
+	Machine string
+	Sample  proto.MetricSample
+}
+
+// InsertMetrics stores samples of several machines (the nodes sample on the same tick) as InsertMetric does, in one
+// transaction: one commit, so one WAL flush, instead of one per machine. All or none are stored: when one sample is
+// rejected, the caller writes them one at a time (devices/metrics.go) so only that one is lost.
+func (d *DB) InsertMetrics(ctx context.Context, samples []MachineSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
+		batch := &pgx.Batch{}
+		for _, s := range samples {
+			batch.Queue(insertMetricSQL, insertMetricArgs(s.Machine, s.Sample)...)
+		}
+		return tx.SendBatch(ctx, batch).Close()
+	})
 }
 
 // rollupMetricsSQL moves the raw rows before $1 (Unix seconds) into one row a machine and minute of step $2. The raw
