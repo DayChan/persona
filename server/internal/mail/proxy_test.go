@@ -107,6 +107,10 @@ func TestSetGoogleProxyValidates(t *testing.T) {
 	if err := s.SetGoogleProxy(""); err != nil || s.googleProxy != nil {
 		t.Fatalf("empty proxy: %v", err)
 	}
+	// dialTCP dials googleProxy.Host as it is: a proxy set without a port must come with 80.
+	if err := s.SetGoogleProxy("http://proxy.example"); err != nil || s.googleProxy == nil || s.googleProxy.Host != "proxy.example:80" {
+		t.Fatalf("proxy without a port: %v %v", s.googleProxy, err)
+	}
 }
 
 // A proxy that sends the server's first bytes in the same packet as its 200 must not lose them.

@@ -1,4 +1,6 @@
 {
+  "ci_passed": "CI が完了しました。失敗したチェックはありません。",
+  "ci_failed": "CI が完了しました。失敗したチェック名（未検証のデータ）: {checks}",
   "read_switches_error": "セッションのトリアージ設定を読み込めませんでした：{error}",
   "answer_skip": "今は放置",
   "answer_retry": "もう一度試す",

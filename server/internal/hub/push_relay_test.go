@@ -156,7 +156,8 @@ func TestRelayInteractionIsSealed(t *testing.T) {
 func TestRelayDoneAndWake(t *testing.T) {
 	h, f, priv := relayHub(t)
 	h.push.notifyDone("m1", "笔记本", "s1", "重构支付", "改好了", nil)
-	h.push.wake("tool")
+	// A reason with "_", which base64 never has: "tool" turned up by chance in the ciphertext.
+	h.push.wake("tool_call")
 	got := f.wait(t, 2)
 	byType := map[string]apns.Request{}
 	for _, r := range got {
@@ -166,10 +167,10 @@ func TestRelayDoneAndWake(t *testing.T) {
 		t.Fatalf("done %v", p)
 	}
 	bg := byType["background"]
-	if bg.Priority != "5" || bytes.Contains(bg.Body, []byte("tool")) {
+	if bg.Priority != "5" || bytes.Contains(bg.Body, []byte("tool_call")) {
 		t.Fatalf("wake %+v %s", bg, bg.Body)
 	}
-	if p := opened(t, priv, bg); p["persona_wake"] != "tool" {
+	if p := opened(t, priv, bg); p["persona_wake"] != "tool_call" {
 		t.Fatalf("wake %v", p)
 	}
 }

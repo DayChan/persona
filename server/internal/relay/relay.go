@@ -402,9 +402,24 @@ func Run(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("relay listen: %w", err)
 	}
-	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	hs := newHTTPServer(srv.Handler())
 	log.Printf("relay on %s (key %s, topics %v)", cfg.Listen, cfg.APNs.KeyID, cfg.Topics)
 	return serve(ctx, ln, hs)
+}
+
+// Connection limits of the relay's listener, which may face the internet directly (proxy_secret unset). A request body
+// is at most maxBody, so readTimeout (headers and body) cuts off a client that stalls its body; idleTimeout closes
+// keep-alive connections that go quiet. There is no WriteTimeout: the answers are small JSON, and push bounds its APNs
+// send to 15 s itself. Variables so tests can shrink them.
+var (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 30 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
+
+// newHTTPServer is the relay's http.Server around h, with the connection limits above.
+func newHTTPServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout}
 }
 
 // shutdownGrace is how long serve lets in-flight requests (an APNs send can take up to 15 s) finish after ctx ends.

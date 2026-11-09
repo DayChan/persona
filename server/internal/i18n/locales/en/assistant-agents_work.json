@@ -1,4 +1,6 @@
 {
+  "ci_passed": "CI finished: no checks failed.",
+  "ci_failed": "CI finished. Failed check names (untrusted data): {checks}.",
   "read_switches_error": "Could not read session triage settings: {error}",
   "answer_skip": "Leave it",
   "answer_retry": "Try again",

@@ -25,7 +25,8 @@ import (
 // The upload port takes a new personad for the node, what the hub's "Redeploy" sends over ssh otherwise (devices/deploy.go):
 // one JSON line {"size","sha256"} of the binary, the binary gzipped, then the node answers one JSON line
 // {"ok"} or {"error"}. On ok the node has replaced its own executable and exits, and its supervisor (launchd,
-// systemd: scripts/deploy/node-launchd.sh) starts the new one.
+// systemd: scripts/deploy/node-launchd.sh) starts the new one. An error can come before the binary has all arrived
+// (another upload is going, a bad header), so the hub reads the answer while it sends.
 
 // maxBinary bounds what an upload may write.
 const maxBinary = 512 << 20
@@ -56,14 +57,18 @@ func serveUpload(ln net.Listener, exe string, done func(), idle time.Duration) {
 			// No total deadline (tens of MB over a slow relay take a while), but one that moves with every read: a hub
 			// gone mid-upload (redeployed, restarted) must not hold the upload for long, the next one is turned away.
 			if !mu.TryLock() {
-				writeReply(c, errors.New("another upload is in progress"))
+				refuse(c, errors.New("another upload is in progress"))
+				return
+			}
+			if err := install(bufio.NewReader(idleReader{c, idle}), exe); err != nil {
+				mu.Unlock() // before the linger: a retry is not turned away for it
+				refuse(c, err)
 				return
 			}
 			defer mu.Unlock()
-			err := install(bufio.NewReader(idleReader{c, idle}), exe)
 			_ = c.SetWriteDeadline(time.Now().Add(30 * time.Second))
-			writeReply(c, err)
-			if err == nil && done != nil {
+			writeReply(c, nil)
+			if done != nil {
 				if cw, ok := c.(interface{ CloseWrite() error }); ok {
 					_ = cw.CloseWrite()
 				}
@@ -76,6 +81,21 @@ func serveUpload(ln net.Listener, exe string, done func(), idle time.Duration) {
 
 // uploadIdle: how long an upload may go without a byte arriving.
 const uploadIdle = 60 * time.Second
+
+// refuseLinger: how long a refused upload is still read before the connection closes.
+const refuseLinger = 5 * time.Second
+
+// refuse answers err, then reads and drops what the hub is still sending for a while: closing with data unread answers
+// with a reset, which can destroy the answer before the hub reads it (the hub then sees only a broken pipe).
+func refuse(c net.Conn, err error) {
+	_ = c.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	writeReply(c, err)
+	if cw, ok := c.(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite()
+	}
+	_ = c.SetReadDeadline(time.Now().Add(refuseLinger))
+	_, _ = io.Copy(io.Discard, c)
+}
 
 // idleReader moves the connection's read deadline before every read.
 type idleReader struct {
@@ -172,7 +192,45 @@ func Upload(ctx context.Context, c net.Conn, path string) error {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = c.SetDeadline(time.Now()) })
 	defer stop()
-	head, _ := json.Marshal(uploadHeader{Size: size, SHA256: hex.EncodeToString(sum.Sum(nil))})
+	// The answer is read from the start: a node that turns the upload away answers at once and stops reading, and the
+	// rest of the send fails with a broken pipe or a reset that says nothing of why.
+	answers := make(chan answer, 1)
+	go func() {
+		line, err := bufio.NewReader(c).ReadBytes('\n')
+		if err == nil {
+			_ = c.SetWriteDeadline(time.Now()) // an answer before the binary is all sent is a refusal: stop sending
+		}
+		answers <- answer{line, err}
+	}()
+	defer func() { _ = c.SetReadDeadline(time.Now()) }() // ends that read when no answer came
+	if err := send(c, uploadHeader{Size: size, SHA256: hex.EncodeToString(sum.Sum(nil))}, f); err != nil {
+		select {
+		case a := <-answers:
+			if a.err == nil {
+				return parseReply(a.line)
+			}
+		case <-time.After(answerWait):
+		}
+		return err
+	}
+	a := <-answers
+	if a.err != nil {
+		return fmt.Errorf("no answer from the node: %w", a.err)
+	}
+	return parseReply(a.line)
+}
+
+// answerWait: how long a failed send still waits for the node's answer, which says why.
+const answerWait = 5 * time.Second
+
+type answer struct {
+	line []byte
+	err  error
+}
+
+// send writes the header line and the gzipped binary.
+func send(c net.Conn, h uploadHeader, f io.Reader) error {
+	head, _ := json.Marshal(h)
 	w := bufio.NewWriter(c)
 	if _, err := w.Write(append(head, '\n')); err != nil {
 		return err
@@ -187,10 +245,10 @@ func Upload(ctx context.Context, c net.Conn, path string) error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	line, err := bufio.NewReader(c).ReadBytes('\n')
-	if err != nil {
-		return fmt.Errorf("no answer from the node: %w", err)
-	}
+	return nil
+}
+
+func parseReply(line []byte) error {
 	var reply uploadReply
 	if err := json.Unmarshal(line, &reply); err != nil {
 		return fmt.Errorf("answer: %w", err)

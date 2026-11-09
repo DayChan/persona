@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -483,6 +484,60 @@ func TestPassiveStreamFollowsTheHubsHeartbeat(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A request whose body stalls is closed after passiveReadTimeout, whatever the path (pairing reads the body before any
+// code is checked; net/http drains a small unread body before it answers), while a stream outlives that deadline.
+func TestPassiveClosesARequestWhoseBodyStalls(t *testing.T) {
+	was := passiveReadTimeout
+	passiveReadTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { passiveReadTimeout = was }) // after the connector's cleanup has stopped it
+	node := newFakeNode(t)
+	c := startConnector(t, node.path, Options{})
+
+	// The stream is opened first: the stalled requests below each take passiveReadTimeout to be closed, so once they
+	// are, the stream's own request deadline has passed too.
+	fp, code := c.invite(t)
+	h := hubFor(t, c.addr, fp)
+	if r := h.pair(code, tokenA); r.status != http.StatusOK {
+		t.Fatalf("pair: %+v", r)
+	}
+	ws, resp, err := h.stream(tokenA)
+	if err != nil {
+		t.Fatalf("stream: %v %v", err, resp)
+	}
+	nc := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
+	defer nc.Close()
+	hello := make([]byte, len(nodeHello))
+	if _, err := io.ReadFull(nc, hello); err != nil {
+		t.Fatalf("node hello: %v", err)
+	}
+
+	for _, head := range []string{"POST " + ConnectorPairPath, "GET /elsewhere"} {
+		conn, err := tls.Dial("tcp", c.addr, &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"http/1.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.WriteString(conn, head+" HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 4000\r\n\r\n{\"code\":")
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		got, err := io.ReadAll(conn)
+		conn.Close()
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			t.Fatalf("%s: the listener kept the connection of a stalled body open (read %q)", head, got)
+		}
+		if len(got) > 0 && !strings.HasPrefix(string(got), "HTTP/1.1 4") { // 400 from pairing, 404 elsewhere, or just closed
+			t.Fatalf("%s: %q", head, got)
+		}
+	}
+
+	if _, err := nc.Write([]byte("still here")); err != nil {
+		t.Fatalf("write after the deadline: %v", err)
+	}
+	back := make([]byte, len("still here"))
+	if _, err := io.ReadFull(nc, back); err != nil || string(back) != "still here" {
+		t.Fatalf("echo after the deadline: %q %v", back, err)
+	}
 }
 
 func TestModeSwitchesBothWays(t *testing.T) {

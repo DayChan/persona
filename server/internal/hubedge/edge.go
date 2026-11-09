@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -166,10 +167,17 @@ func (e *edge) relay(c net.Conn, port string) {
 // headers and a small body; past it, the connection is not replayed.
 const replayLimit = 64 << 10
 
+// halfCloseLinger is how long a client may go on sending once the slot half-closed the connection. net/http does that
+// after an early answer to a request whose body it did not read (413, a 401 on an upload), then reads on for a moment
+// so that the client's last bytes do not reset the connection and throw the answer away (its rstAvoidanceDelay). Past
+// it the edge closes both ways: a client cannot hold the relay open.
+const halfCloseLinger = 5 * time.Second
+
 // relay is one relayed connection. Until the slot answers its first byte, what the client sends is kept, so that a
 // connection the slot never took (it stopped with it still queued) goes to the next slot instead of failing.
 type relay struct {
 	client net.Conn
+	linger time.Duration // after the slot's half-close (zero: halfCloseLinger)
 
 	mu        sync.Mutex
 	up        net.Conn
@@ -178,6 +186,7 @@ type relay struct {
 	overflow  bool // more than replayLimit was sent before it: no replay
 	clientEOF bool
 	once      sync.Once
+	ended     atomic.Int32 // directions done: the second one closes both
 }
 
 func (r *relay) fromClient() {
@@ -209,13 +218,15 @@ func (r *relay) fromClient() {
 			up := r.up
 			r.mu.Unlock()
 			halfClose(up)
+			r.end()
 			return
 		}
 	}
 }
 
 // toClient copies the slot's bytes to the client. When the slot ends before its first byte, next is asked for
-// another upstream (nil: none) and gets what the client sent so far.
+// another upstream (nil: none) and gets what the client sent so far. When it half-closes after that, the client's side
+// is half-closed too, and what the client still sends goes on to the slot for up to halfCloseLinger.
 func (r *relay) toClient(next func() net.Conn) {
 	buf := make([]byte, 32<<10)
 	first := true
@@ -238,6 +249,17 @@ func (r *relay) toClient(next func() net.Conn) {
 		}
 		if err == nil {
 			continue
+		}
+		if !first && errors.Is(err, io.EOF) {
+			linger := r.linger
+			if linger <= 0 {
+				linger = halfCloseLinger
+			}
+			halfClose(r.client)
+			_ = r.client.SetReadDeadline(time.Now().Add(linger)) // fromClient ends then
+			_ = up.SetWriteDeadline(time.Now().Add(linger))      // also when the slot stopped reading
+			r.end()
+			return
 		}
 		if first {
 			r.mu.Lock()
@@ -279,6 +301,13 @@ func replayable(sent []byte) bool {
 		}
 	}
 	return false
+}
+
+// end is one direction done: once both are, the connection closes both ways.
+func (r *relay) end() {
+	if r.ended.Add(1) == 2 {
+		r.closeAll()
+	}
 }
 
 func (r *relay) closeAll() {

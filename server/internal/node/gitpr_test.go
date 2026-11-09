@@ -2,6 +2,8 @@ package node
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,16 +15,20 @@ import (
 // fakePRGh points ghLookPath at a script that answers as gh would: pr view (a PR, or none for branch "lonely"), the
 // review threads, create and merge, each call's arguments written down. auth: "out" answers every call as gh does
 // when not signed in.
-func fakePRGh(t *testing.T, auth string) (calls func() []string) {
+func fakePRGh(t *testing.T, auth string, views ...string) (calls func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
 	view := `{"number":42,"url":"https://github.com/acme/web/pull/42","title":"Fix login","state":"OPEN","isDraft":false,
-"baseRefName":"main","headRefName":"fix/login","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED",
+"baseRefName":"main","headRefName":"fix/login","headRefOid":"0123456789abcdef0123456789abcdef01234567","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED",
 "autoMergeRequest":null,"statusCheckRollup":[
  {"name":"test","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://ci.example.com/1"},
  {"name":"lint","status":"COMPLETED","conclusion":"SUCCESS"},
- {"context":"deploy/preview","state":"PENDING","targetUrl":"https://ci.example.com/2"}]}`
+ {"context":"deploy/preview","state":"PENDING","targetUrl":"https://ci.example.com/2"},
+ {"name":"rerun","status":"IN_PROGRESS","conclusion":"SUCCESS"}]}`
+	if len(views) > 0 {
+		view = views[0]
+	}
 	threads := `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
  {"isResolved":false,"isOutdated":false,"path":"src/login.ts","line":12,"originalLine":10,
   "comments":{"nodes":[{"author":{"login":"reviewer"},"body":"Handle the empty password.","url":"https://github.com/acme/web/pull/42#r1","createdAt":"2026-11-01T10:00:00Z"}]}},
@@ -70,11 +76,11 @@ func TestGitPRView(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr, ok := out["pr"].(GitPR)
-	if !ok || pr.Number != 42 || pr.Review != "CHANGES_REQUESTED" || pr.AutoMerge {
+	if !ok || pr.Number != 42 || pr.HeadOID != "0123456789abcdef0123456789abcdef01234567" || pr.Review != "CHANGES_REQUESTED" || pr.AutoMerge {
 		t.Fatalf("pr %+v", out["pr"])
 	}
-	if pr.ChecksState != "failing" || len(pr.Checks) != 3 || pr.Checks[0].State != "fail" || pr.Checks[1].State != "pass" ||
-		pr.Checks[2].Name != "deploy/preview" || pr.Checks[2].State != "pending" || pr.Checks[2].URL == "" {
+	if pr.ChecksState != "failing" || !pr.ChecksComplete || len(pr.Checks) != 4 || pr.Checks[0].State != "fail" || pr.Checks[1].State != "pass" ||
+		pr.Checks[2].Name != "deploy/preview" || pr.Checks[2].State != "pending" || pr.Checks[2].URL == "" || pr.Checks[3].State != "pending" {
 		t.Fatalf("checks %s %+v", pr.ChecksState, pr.Checks)
 	}
 	if len(pr.Threads) != 1 || pr.Threads[0].Path != "src/login.ts" || pr.Threads[0].Line != 12 ||
@@ -140,5 +146,50 @@ func TestGitPRCreateAndMerge(t *testing.T) {
 		"pr merge 42 --disable-auto"}
 	if strings.Join(made, "|") != strings.Join(want, "|") {
 		t.Fatalf("gh calls\n%s\nwant\n%s", strings.Join(made, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestGitPRCheckCompleteness(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		count    int
+		bad      map[string]any
+		head     bool
+		complete bool
+	}{
+		{"99 checks", 99, nil, true, true},
+		{"100 checks", 100, nil, true, false},
+		{"missing check status", 0, map[string]any{"name": "test", "conclusion": "SUCCESS"}, true, false},
+		{"missing status context", 0, map[string]any{"state": "SUCCESS"}, true, false},
+		{"missing context state", 0, map[string]any{"context": "ci"}, true, false},
+		{"missing head", 0, nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checks := make([]map[string]any, 0, tc.count+1)
+			for i := 0; i < tc.count; i++ {
+				checks = append(checks, map[string]any{"name": fmt.Sprintf("job-%d", i), "status": "COMPLETED", "conclusion": "SUCCESS"})
+			}
+			if tc.bad != nil {
+				checks = append(checks, tc.bad)
+			}
+			head := ""
+			if tc.head {
+				head = "0123456789abcdef0123456789abcdef01234567"
+			}
+			raw, err := json.Marshal(map[string]any{"number": 42, "url": "https://github.com/example/repo/pull/42", "headRefOid": head, "statusCheckRollup": checks})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := newPullFixture(t)
+			fakePRGh(t, "", string(raw))
+			out, err := f.node.gitPR(context.Background(), f.local)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pr, ok := out["pr"].(GitPR)
+			if !ok || pr.ChecksComplete != tc.complete || pr.HeadOID != head {
+				t.Fatalf("pr %+v", out["pr"])
+			}
+		})
 	}
 }

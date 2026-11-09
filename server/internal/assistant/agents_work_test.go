@@ -718,7 +718,7 @@ func (m *workMemStore) SessionWorks(_ context.Context, since time.Time) ([]db.Se
 	defer m.wmu.Unlock()
 	var out []db.SessionWork
 	for _, w := range m.rows {
-		if w.TurnAt.After(since) {
+		if w.TurnAt.After(since) || w.WakeAt != nil && w.Work.CI != nil || w.Work.RetiredAt != nil && w.UpdatedAt.After(since) {
 			out = append(out, w)
 		}
 	}
