@@ -140,6 +140,22 @@ export function CommitBox({ s, writer }: { s: GitStatus; writer: GitWriter }) {
   );
 }
 
+/** Pull in the summary (#1887, as on iOS and Android): whenever the branch has an upstream, on any host and without
+ *  `git_write`. One click: it only fast-forwards, and the node refuses it over uncommitted changes or a branch that has
+ *  moved apart, saying why in the refusal dialog. */
+export function PullButton({ s, writer }: { s: GitStatus; writer: GitWriter }) {
+  if (!s.branch || !s.upstream) return null;
+  const pull = async () => {
+    const r = await writer.run("pull", "pull", {});
+    if (r) toast(r.updated ? t("session-gitwrite.pulled") : t("session-gitwrite.pull_current"), "ok");
+  };
+  return (
+    <Button tone="secondary" icon="download" busy={writer.busy === "pull"} disabled={writer.busy !== null} title={t("session-gitwrite.pull_hint")} onClick={() => void pull()}>
+      {writer.busy === "pull" ? t("session-gitwrite.pulling") : t("session-gitwrite.pull")}
+    </Button>
+  );
+}
+
 /** Push in the summary: only with commits to send or a branch the remote does not have; confirmed first. */
 export function PushButton({ s, writer }: { s: GitStatus; writer: GitWriter }) {
   const [asking, setAsking] = useState(false);

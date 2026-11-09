@@ -28,9 +28,12 @@ export interface GitWriteResult {
   commit?: GitCommit;
   output?: string;
   stashes?: GitStashEntry[];
+  /** A pull moved the branch (false: it was already up to date). */
+  updated?: boolean;
 }
 
-export type GitWriteOp = "stage" | "commit" | "push" | "switch" | "stash";
+/** `pull` is the fast-forward pull every client has (`git/pull`, #1887); the rest are the `git_write` feature's. */
+export type GitWriteOp = "stage" | "commit" | "push" | "switch" | "stash" | "pull";
 
 export function hasStashIdentity(e: GitStashEntry): boolean {
   return typeof e.oid === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(e.oid);

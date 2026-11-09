@@ -120,6 +120,39 @@ describe("GitPanel writes", () => {
     expect(last().body).toEqual({ cwd: "/projects/demo", set_upstream: true });
   });
 
+  it("pulls on any hub, without git_write too, and shows the status it answers (#1887)", async () => {
+    mount(false);
+    await act(async () => last().answer(status({ ahead: 1, behind: 2 })));
+    expect(button(t("session-gitwrite.push"))).toBeUndefined();
+    act(() => button(t("session-gitwrite.pull"))!.click());
+    expect(last().path).toContain("/machines/computer/git/pull");
+    expect(last().body).toEqual({ cwd: "/projects/demo" });
+    expect(button(t("session-gitwrite.pulling"))).toBeDefined();
+    await act(async () => last().answer({ status: status({ ahead: 1, behind: 0, head: { hash: "b2", short: "b2", subject: "Theirs", author: "Author" } }), updated: true }));
+    expect(button(t("session-gitwrite.pull"))).toBeDefined();
+    expect(document.querySelector(`[title="${t("session-gitpanel.behind", { count: 2 })}"]`)).toBeNull();
+  });
+
+  it("offers Pull beside Push when the branch is both ahead and behind, and none without an upstream", async () => {
+    mount(true);
+    await act(async () => last().answer(status({ ahead: 1, behind: 2 })));
+    expect(button(t("session-gitwrite.pull"))).toBeDefined();
+    expect(button(t("session-gitwrite.push"))).toBeDefined();
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount(true);
+    await act(async () => last().answer(status({ upstream: undefined })));
+    expect(button(t("session-gitwrite.pull"))).toBeUndefined();
+  });
+
+  it("a refused pull says why in the refusal dialog", async () => {
+    mount(true);
+    await act(async () => last().answer(status({ behind: 2 })));
+    act(() => button(t("session-gitwrite.pull"))!.click());
+    await act(async () => last().answer({ error: "git pull: Not possible to fast-forward, aborting.", code: "git_failed" }, 409));
+    expect(document.querySelector("[role=dialog]")!.textContent).toContain("Not possible to fast-forward");
+  });
+
   it("says a refusal with git's words and the files it lists", async () => {
     mount(true);
     await act(async () => last().answer(status()));
