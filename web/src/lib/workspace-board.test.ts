@@ -115,3 +115,42 @@ describe("workspace board HTTP contract", () => {
     expect(model.snapshot().board?.revision).toBe(4);
   });
 });
+
+describe("workspace board polling", () => {
+  const discovery = () => ({ workspaces: [{ id: "w", machine_id: "computer", source: "directory", source_id: "w", title: "w", cwd: "/projects/w" }] });
+  /** Every read returns freshly parsed JSON, as the network does. */
+  const polled = (board: () => BoardState) => new BoardModel((async (path: string) => path === "/workspaces" ? discovery() : board()) as never);
+  const counted = (model: BoardModel) => { let n = 0; model.subscribe(() => { n++; }); return () => n; };
+  it("an unchanged poll notifies no one and keeps every object", async () => {
+    const model = polled(initial); await model.refresh();
+    const before = model.snapshot(), notified = counted(model);
+    await model.refresh();
+    expect(notified()).toBe(0);
+    expect(model.snapshot()).toBe(before); expect(model.snapshot().board).toBe(before.board); expect(model.snapshot().discovery).toBe(before.discovery);
+  });
+  it("a card edit on the same revision notifies once and replaces only the board", async () => {
+    let title = "a";
+    const model = polled(() => { const b = initial(); b.cards[0].title = title; return b; }); await model.refresh();
+    const before = model.snapshot(), notified = counted(model);
+    title = "renamed"; await model.refresh();
+    expect(notified()).toBe(1);
+    expect(model.snapshot().board).not.toBe(before.board); expect(model.snapshot().board?.cards[0].title).toBe("renamed");
+    expect(model.snapshot().discovery).toBe(before.discovery);
+  });
+  it("a can_write flip on the same revision updates readonly in one notification", async () => {
+    let canWrite = true;
+    const model = polled(() => ({ ...initial(), can_write: canWrite })); await model.refresh();
+    const notified = counted(model);
+    canWrite = false; await model.refresh();
+    expect(notified()).toBe(1); expect(model.snapshot().readonly).toBe(true); expect(model.snapshot().board?.can_write).toBe(false);
+  });
+  it("a repeated error stays quiet and a recovered read clears it", async () => {
+    let fail = true;
+    const model = polled(() => { if (fail) throw new ApiError(500, "storage failed", {}); return initial(); }); await model.refresh();
+    const error = model.snapshot().error, notified = counted(model);
+    expect(error).not.toBe("");
+    await model.refresh(); expect(notified()).toBe(0); expect(model.snapshot().error).toBe(error);
+    fail = false; await model.refresh();
+    expect(notified()).toBe(1); expect(model.snapshot().error).toBe(""); expect(model.snapshot().board).toEqual(initial());
+  });
+});
