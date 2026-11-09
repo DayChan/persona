@@ -250,6 +250,9 @@ func TestCodexStartTrustsTheFolder(t *testing.T) {
 			if keys := f.trace("pane.send_keys"); len(keys) != 1 || !strings.Contains(keys[0], `["enter"]`) {
 				t.Errorf("keys %v", keys)
 			}
+			if closed := f.trace("tab.close", "pane.close"); len(closed) != 0 {
+				t.Fatalf("closed a start whose thread appeared after trusting the folder: %v", closed)
+			}
 		})
 	}
 }

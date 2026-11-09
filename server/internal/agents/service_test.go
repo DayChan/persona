@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -188,6 +189,107 @@ func TestPollReportsChangedSessionsOnly(t *testing.T) {
 	s.PollOnce(ctx)
 	if len(*changes) != 1 || strings.Join((*changes)[0], ",") != "lark-bridge:b,lark-bridge:c" {
 		t.Fatalf("changes %v", *changes)
+	}
+}
+
+// lateSvc is a service with no sources, as the manager builds it (every source comes later through Add), and the
+// session ids of each change it reports.
+func lateSvc() (*Service, func() [][]string) {
+	var mu sync.Mutex
+	var changes [][]string
+	s := NewService(nil, func(ids []string) { mu.Lock(); changes = append(changes, ids); mu.Unlock() }, nil)
+	return s, func() [][]string { mu.Lock(); defer mu.Unlock(); return slices.Clone(changes) }
+}
+
+// A source added after the first poll gets a baseline of its own: what it lists on its first poll is not reported
+// (Add already told the apps), what moves after that is. One whose first list fails is baselined when it answers.
+func TestPollBaselinesASourceAddedLater(t *testing.T) {
+	s, changes := lateSvc()
+	ctx := context.Background()
+	s.PollOnce(ctx)
+	ext := &memSource{name: "ext", sessions: []AgentSession{{SessionKey: "a", RankTimeMs: 1}, {SessionKey: "b", RankTimeMs: 1}}}
+	s.Add(ext)
+	s.PollOnce(ctx)
+	if got := changes(); len(got) != 0 {
+		t.Fatalf("a late source's first poll reported %v", got)
+	}
+	ext.sessions[1].UnreadCount = 2
+	s.PollOnce(ctx)
+	if got := changes(); len(got) != 1 || strings.Join(got[0], ",") != "ext:b" {
+		t.Fatalf("changes %v", got)
+	}
+
+	down := &memSource{name: "down", fail: errors.New("not running"), sessions: []AgentSession{{SessionKey: "x"}}}
+	s.Add(down)
+	s.PollOnce(ctx)
+	down.fail = nil
+	s.PollOnce(ctx)
+	if got := changes(); len(got) != 1 {
+		t.Fatalf("a source's first answer after a failed list reported %v", got[1:])
+	}
+}
+
+// A source removed and added again (its plugin restarted) starts over: no burst of every session it lists.
+func TestPollReaddedSourceStartsOver(t *testing.T) {
+	s, changes := lateSvc()
+	ctx := context.Background()
+	s.Add(&memSource{name: "ext", sessions: []AgentSession{{SessionKey: "a", RankTimeMs: 1}}})
+	s.PollOnce(ctx)
+	s.Remove("ext")
+	n := len(changes()) // Remove tells the apps itself
+	again := &memSource{name: "ext", sessions: []AgentSession{{SessionKey: "a", RankTimeMs: 5}, {SessionKey: "b", RankTimeMs: 1}}}
+	s.Add(again)
+	s.PollOnce(ctx)
+	if got := changes(); len(got) != n {
+		t.Fatalf("the source added again reported %v", got[n:])
+	}
+	again.sessions = append(again.sessions, AgentSession{SessionKey: "c"})
+	s.PollOnce(ctx)
+	if got := changes(); len(got) != n+1 || strings.Join(got[n], ",") != "ext:c" {
+		t.Fatalf("changes %v", got[n:])
+	}
+
+	// Restarted while the poll lists it: the old one's late answer is neither reported nor the new one's baseline.
+	fresh := &memSource{name: "ext", sessions: []AgentSession{{SessionKey: "a", RankTimeMs: 9}}}
+	again.sessions[0].RankTimeMs = 6
+	again.during = func() { s.Remove("ext"); s.Add(fresh) }
+	s.PollOnce(ctx)
+	s.PollOnce(ctx)
+	for _, ids := range changes()[n+1:] {
+		if len(ids) != 0 {
+			t.Fatalf("a source restarted mid-list reported %v", ids)
+		}
+	}
+}
+
+// Polls racing sources being added and removed never report a session: none of them ever changes.
+func TestPollRacingAddAndRemove(t *testing.T) {
+	s, changes := lateSvc()
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for g := range 4 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				s.PollOnce(ctx)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			name := fmt.Sprintf("ext%d", g%2)
+			for range 50 {
+				s.Add(&memSource{name: name, sessions: []AgentSession{{SessionKey: "a", RankTimeMs: 1}, {SessionKey: "b", UnreadCount: 1}}})
+				s.PollOnce(ctx)
+				s.Remove(name)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, ids := range changes() {
+		if len(ids) != 0 {
+			t.Fatalf("an unchanged session was reported: %v", ids)
+		}
 	}
 }
 

@@ -1,77 +1,44 @@
 import SwiftUI
 
-// The new conversation layout of Persona's main conversation (#1666, docs/apple/ios.md "New conversation layout"):
-// Settings › Appearance › Conversation. On (the default), who talks to whom reads at a glance: Persona's messages to a
-// task read "Persona → @task", an agent's reports "task → @Persona", supervision and scheduled runs "Persona → @Persona";
-// every message sits in a box; what Persona and its agents say to each other folds; a slide along the right edge goes to
-// any message the user typed. Off, the conversation looks as it did. Only Persona's conversations on iPhone and iPad:
-// the Agents chat, the Mac and Vision Pro keep their look. Reopening where it was left is not part of it (every chat).
+// Persona's main conversations on iPhone and iPad always use the new conversation layout (#2477).
+// Task exchanges initially show three lines; individual messages can still be expanded. Agent conversations,
+// the Mac and Vision Pro keep their platform-specific presentation (docs/apple/ios.md "New conversation layout").
 
-/// How much of what Persona and a task's agent say to each other shows before Expand.
-nonisolated enum ChatFold: String, CaseIterable, Identifiable, Sendable {
-    /// Only who talks to whom; the words open with a tap.
-    case folded
-    /// The first lines (`ChatLayout.lines`).
+nonisolated enum ChatFold: Sendable {
     case lines
-    /// All of it.
-    case expanded
-
-    var id: String { rawValue }
 }
 
-/// What a chat draws with (the environment's `chatLayout`): off everywhere but Persona's conversations on iPhone / iPad.
+/// Platform-specific presentation, not a user preference.
 nonisolated struct ChatLayout: Equatable, Sendable {
-    var on: Bool
-    var fold: ChatFold = .lines
-    var lines: Int = ChatLayoutSettings.defaultLines
+    let on: Bool
+    let fold: ChatFold = .lines
+    let lines: Int = ChatLayoutSettings.defaultLines
 
     static let off = ChatLayout(on: false)
 
-    /// The lines an exchange shows folded: nil for all of it, 0 for none.
-    var shownLines: Int? {
-        switch fold {
-        case .folded: 0
-        case .lines: lines
-        case .expanded: nil
-        }
-    }
+    var shownLines: Int? { lines }
 }
 
 extension EnvironmentValues {
     @Entry var chatLayout: ChatLayout = .off
 }
 
-/// The choice, kept in UserDefaults (`ui.newChatLayout`, a key of its own: not the shell's Layout switch). Read once,
-/// observed by the chat page only: rows get the result through the environment, so no row watches UserDefaults.
-@MainActor @Observable final class ChatLayoutSettings {
+/// Fixed policy. Legacy UserDefaults keys are deliberately neither read nor written; keeping their stored values
+/// lets older app versions retain their preferences without affecting this version. No row observes UserDefaults.
+@MainActor final class ChatLayoutSettings {
     static let shared = ChatLayoutSettings()
-
-    nonisolated static let key = "ui.newChatLayout"
-    nonisolated static let foldKey = "ui.newChatLayout.fold"
-    nonisolated static let linesKey = "ui.newChatLayout.lines"
     nonisolated static let defaultLines = 3
-    nonisolated static let lineRange = 1...10
 
-    @ObservationIgnored private let defaults: UserDefaults
+    let on = true
+    let fold: ChatFold = .lines
+    let lines = defaultLines
 
-    var on: Bool { didSet { defaults.set(on, forKey: Self.key) } }
-    var fold: ChatFold { didSet { defaults.set(fold.rawValue, forKey: Self.foldKey) } }
-    var lines: Int { didSet { defaults.set(lines, forKey: Self.linesKey) } }
+    /// Accept a defaults domain so regression tests can prove old persisted and launch-argument values are ignored.
+    init(defaults: UserDefaults = .standard) {}
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        // On unless turned off (`-ui.newChatLayout NO` in a launch argument is a string: `bool(forKey:)` reads it).
-        on = defaults.object(forKey: Self.key) == nil ? true : defaults.bool(forKey: Self.key)
-        fold = defaults.string(forKey: Self.foldKey).flatMap(ChatFold.init(rawValue:)) ?? .lines
-        let n = defaults.integer(forKey: Self.linesKey)
-        lines = Self.lineRange.contains(n) ? n : Self.defaultLines
-    }
-
-    /// The layout a chat draws with: the new one only in Persona's conversations (`assistant`) on iPhone and iPad.
     func layout(assistant: Bool) -> ChatLayout {
         #if os(iOS)
-        guard assistant, on else { return .off }
-        return ChatLayout(on: true, fold: fold, lines: lines)
+        return ChatLayout(on: assistant)
         #else
         return .off
         #endif

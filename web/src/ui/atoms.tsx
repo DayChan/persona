@@ -12,7 +12,7 @@ import { composing } from "../lib/send-history";
 import { keyboardFrame } from "../lib/viewport";
 import { prefersReducedMotion } from "./stream/motion";
 import { accelLabel, activation, edge, enabled, keyIntent, renameCommit, rowLabel, type MenuItem } from "./menu-model";
-import { NARROW_QUERY, placeMenu, placeSubmenu, SHEET_QUERY, useEscapeClose, useMedia, useModalFocus, type MenuPlace } from "./overlay";
+import { focusables, NARROW_QUERY, placeMenu, placeSubmenu, SHEET_QUERY, useEscapeClose, useMedia, useModalFocus, type MenuPlace } from "./overlay";
 import { STATE_LABEL, stateName } from "../lib/state-labels";
 
 export const EASE = "cubic-bezier(0.23, 1, 0.32, 1)";
@@ -308,9 +308,10 @@ interface Sub {
 }
 
 /** A menu next to its anchor (a button, or a row's ⋯), or at the pointer (`point`, a right click). ↑ ↓ move, → opens a
- *  submenu and ← goes back, Enter chooses, Esc closes, a row's letter chooses it, ⌫ chooses the close action. A row
- *  can ask again before it runs (`confirm`), turn into an input (`rename`), open a submenu (`children`) or show its
- *  work and failure inside the menu (`inline`). A menu without those keys is the plain one it always was. */
+ *  submenu and ← goes back, Enter chooses, Esc closes, Tab closes it and moves on, a row's letter chooses it, ⌫
+ *  chooses the close action. A row can ask again before it runs (`confirm`), turn into an input (`rename`), open a
+ *  submenu (`children`) or show its work and failure inside the menu (`inline`). A menu without those keys is the
+ *  plain one it always was. */
 export function Menu({
   items,
   anchor,
@@ -342,6 +343,11 @@ export function Menu({
   const asking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loads = useRef(0);
   const rows = useRef<(HTMLElement | null)[][]>([]);
+  // What had the focus as the menu opened (its button, a row's ⋯), read on the first render, before a row can take it.
+  const [opener] = useState(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return el && el !== document.body ? el : null;
+  });
   // On a narrow screen Back closes the menu first, like the drawer and the sheets, instead of leaving the page (#5132).
   // A row that opens a sheet or a panel takes the menu's entry over (back-close reuses an entry closed a tick before).
   useCloseOnBack(true, onClose, useMedia(NARROW_QUERY));
@@ -393,9 +399,25 @@ export function Menu({
     (it.children as () => Promise<MenuItem[]>)().then((list) => settle({ items: list }), (e) => settle({ error: errMessage(e) }));
   };
 
+  // A click on a row focuses that row, and the row is gone once the menu closes: a Dialog the row opens notes it as
+  // where the focus goes back, and closing it left the focus on body. From the keyboard the focus never left the
+  // menu's button (the highlight is drawn), so give it back there first: to the opener, else the anchor, else the
+  // anchor's first control (a sidebar row whose ⋯ shows only under the pointer). Only when the focus is still ours:
+  // in this menu, or lost to body.
+  const handBack = () => {
+    const active = document.activeElement;
+    const ours = !active || active === document.body || active.closest("[data-menu]")?.getAttribute("data-menu") === id;
+    if (!ours) return;
+    for (const el of [opener, anchor, ...(anchor ? focusables(anchor) : [])]) {
+      if (!el?.isConnected) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) return;
+    }
+  };
   const run = async (depth: number, it: MenuItem) => {
     setConfirming(null);
     setFailure(null);
+    handBack();
     if (!it.inline) {
       void it.onSelect();
       if (!it.submenu && !it.keepOpen) onClose();
@@ -435,6 +457,7 @@ export function Menu({
     setFailure(null);
     try {
       await it.rename!.commit(name);
+      handBack(); // the input had it
       onClose();
     } catch (e) {
       setFailure({ depth, text: errMessage(e) });
@@ -475,10 +498,18 @@ export function Menu({
       const depth = open.length;
       const intent = keyIntent(e, ls[depth], act[depth] ?? -1, depth);
       if (intent.type === "none") return;
+      if (intent.type === "leave") {
+        // the focus is on the menu's button (the highlight is drawn), so the browser's Tab goes on from there; not
+        // stopped either, so a Dialog the menu sits in still keeps Tab inside
+        handBack();
+        return onClose();
+      }
       e.preventDefault();
       e.stopPropagation();
-      if (intent.type === "close") onClose();
-      else if (intent.type === "back") closeSubsTo(depth - 1);
+      if (intent.type === "close") {
+        handBack(); // a row the pointer chose to confirm may have it
+        onClose();
+      } else if (intent.type === "back") closeSubsTo(depth - 1);
       else if (intent.type === "move") setActive(depth, intent.index);
       else choose(depth, intent.index, true);
     };

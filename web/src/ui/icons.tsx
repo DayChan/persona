@@ -127,6 +127,11 @@ const P: Record<string, React.ReactNode> = {
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
   pullRequest: <g><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" /></g>,
   merge: <g><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 21V9a9 9 0 0 0 9 9" /></g>,
+  // voice chat (docs/web/web.md "Voice"): the composer's entry (a sound wave), the bar's mute (after Lucide's mic-off) and hang-up
+  voice: <path d="M3 10v4M7.5 6v12M12 3v18M16.5 7v10M21 10v4" />,
+  micOff: <g><path d="M15 9.34V5.5a3 3 0 0 0-5.68-1.33M9 9v2.5a3 3 0 0 0 5.12 2.12" /><path d="M19 11a7 7 0 0 1-1.07 3.73M5 11a7 7 0 0 0 11.37 5.47M12 18v3.5M2 2l20 20" /></g>,
+  // hang up: Lucide's phone handset turned to lie flat, as call apps draw it
+  hangUp: <path transform="translate(12 12.6) rotate(135) scale(0.86) translate(-12 -12)" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />,
   // Settings › Extensions
   extension: <path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57a2.4 2.4 0 0 1 0 3.41l-1.61 1.61a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.93a2.5 2.5 0 1 0-3.21 3.21c.45.17.86.5.93.97a.98.98 0 0 1-.28.84l-1.61 1.61a2.4 2.4 0 0 1-3.41 0l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.46-.18.89-.53.97-1.02a1.03 1.03 0 0 0-.29-.88l-1.57-1.57a2.4 2.4 0 0 1 0-3.41L4.23 8.77c.24-.24.58-.35.92-.3.52.08.88.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.2-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92l1.53-1.53a2.4 2.4 0 0 1 3.41 0l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.46.18-.89.53-.97 1.02z" />,
   // extensions' declarative UI version 6 (the home's and the markets' meanings; lib/extension-ui.ts NEW_ICONS_6)

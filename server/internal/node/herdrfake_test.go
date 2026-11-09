@@ -334,6 +334,9 @@ func agentOf(kind, session, status, pane, tab, ws, cwd, title string) map[string
 func herdrNode(t *testing.T) (*Node, *fakeHerdr, string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	// herdr's config is the temp home's, not one the environment points at (herdr.WorktreesDir)
+	t.Setenv("HERDR_CONFIG_PATH", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	f := newFakeHerdr(t)
 	n, home := testNode(t)
 	n.hosts, n.dir, n.bin = herdrHosts(&herdr.Client{Socket: f.sock}), filepath.Join(home, ".persona"), "/tmp/persona-test/personad"

@@ -212,8 +212,9 @@ struct RFBClientTests {
         try await seen.until { $0.ended }
 
         let encodings = try #require(t.sent.first { $0.first == 2 })
-        let asked = stride(from: 4, to: encodings.count, by: 4).map { i in
-            Int32(bitPattern: UInt32(encodings[i]) << 24 | UInt32(encodings[i + 1]) << 16 | UInt32(encodings[i + 2]) << 8 | UInt32(encodings[i + 3]))
+        let asked = stride(from: 4, to: encodings.count, by: 4).map { i -> Int32 in
+            let b = encodings[i..<i + 4].map { UInt32($0) }
+            return Int32(bitPattern: b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3])
         }
         #expect(asked.contains(-308), "ExtendedDesktopSize asked for: \(asked)")
         let s = await seen.snapshot

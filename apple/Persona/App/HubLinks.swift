@@ -17,7 +17,8 @@ final class HubLink: Identifiable {
     @ObservationIgnored private(set) var surfaceCapabilitiesConfig: ServerConfig?
     /// The group's last Fleet state (hub/liveactivity.go): merged with the other groups' for the Live Activity.
     var fleet: FleetState?
-    /// The desktop apps connected to the hub (the 「Mac 上的 Persona 已登录」 banner shows the hub-level group's).
+    /// The hub's `desktops` list: Mac apps connected and computers where Persona Link reports you at them (the banner over
+    /// the Agents list shows the hub-level group's).
     var desktops: [DesktopDevice] = []
     /// Pinned and muted spaces / agents: each hub keeps its own.
     @ObservationIgnored let pins: PinsStore

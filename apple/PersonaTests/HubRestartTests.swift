@@ -20,7 +20,7 @@ import Testing
         #expect(c == EventCursor(stream: "s1", seq: 41))
         #expect(c.queryItems == [URLQueryItem(name: "event_stream", value: "s1"), URLQueryItem(name: "event_seq", value: "41")])
         #expect(LiveConnection.queryItems(c).map(\.name) == ["features", "event_stream", "event_seq"])
-        #expect(LiveConnection.queryItems(EventCursor()) == [URLQueryItem(name: "features", value: "sessions_delta,extension_operations,managers," + HubNaming.feature)])
+        #expect(LiveConnection.queryItems(EventCursor()) == [URLQueryItem(name: "features", value: "sessions_delta,extension_operations,managers,desktops_link," + HubNaming.feature)])
     }
 
     @Test func aResumedHelloLeavesTheCursorToTheReplay() {

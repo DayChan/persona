@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_sent_title">以你的名义发出</string>
+    <string name="settings_sent_title">以你的名义发出的记录</string>
     <string name="settings_sent_subtitle">以你的名义发出过什么、为什么放行</string>
     <string name="settings_sent_demo">体验模式里没有以你名义发出的内容，连上自己的 hub 后再来</string>
     <string name="settings_sent_intro">Persona 通过连接器以你的名义发出的内容，新的在前。点一行看全文。</string>

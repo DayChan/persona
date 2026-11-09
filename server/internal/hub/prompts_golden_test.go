@@ -253,6 +253,11 @@ func TestGoldenTaskDone(t *testing.T) {
 	golden(t, "task_done", prompts.RenderTaskDone(prompts.TaskDone{Owner: "示例用户"}))
 	golden(t, "task_done.delivery", prompts.RenderTaskDone(prompts.TaskDone{Owner: "示例用户", Delivery: true}))
 	golden(t, "task_delivery", prompts.RenderTaskDelivery()) // handed to a task's agent after its prompt (#3306)
+	// The user's files, copied to the agent's computer (#2437).
+	golden(t, "task_attachments", prompts.RenderTaskAttachments(prompts.TaskAttachments{Copied: true,
+		Files:    []string{"/home/me/.persona/uploads/terminal/2026-11-09/ab12-notes.txt"},
+		Missing:  []string{"/tmp/report.pdf（over 50 MB）"},
+		Pictures: []string{"/home/me/.persona/uploads/terminal/2026-11-09/cd34-screen.png"}}))
 	golden(t, "task_done_input.hints", prompts.RenderTaskDoneInput(prompts.TaskDoneInput{Title: "修登录崩溃",
 		Prompt:   "iPad 横屏时登录页崩溃，修好并补测试，走 PR 合并后发 TestFlight",
 		Replies:  []prompts.TaskDoneReply{{Machine: "box", Text: "修好了，PR https://github.com/o/r/pull/901 已合并，TestFlight 构建号 202611041200"}},

@@ -1173,6 +1173,7 @@ struct VoiceDeps { var api: () -> APIClient?                 // Refetch each con
 - Models, frames, views compile in shared iOS/Mac sources. Audio has iOS implementation only; `VoiceAvailability` unsupported on macOS/visionOS.
 - Separate follow-up Mac issue. macOS `AVAudioEngine` also supports voice processing; Codex voice is desktop-first.
 - Watch compiles tokens only, no UI.
+- The web app has its own client (#2273), on the same protocol 2 and the same pure rules: 6.11.
 
 ### 6.10 iOS tests (PersonaTests, FakeHub + `FakeVoiceSocket` + `FakeVoiceAudio`)
 
@@ -1190,6 +1191,17 @@ struct VoiceDeps { var api: () -> APIClient?                 // Refetch each con
   - idle timer disabled on start, restored on end.
 - **#3508**: `VoiceBarLineTests` (every second-line case and its buttons, the first row and the orb), `VoiceNotesTests` (the "+" explanations, the ended row), `VoiceModeTests` (`isOver` changes only as a call ends or picks up, `VoiceCalls.isLive`, Never Mind, the plan feedback body, Clear and Send returns `clearable`, the cue tones' rate, length and gain).
 - **#5029**: `VoiceCaptureTests` (`VoiceCapture.plan`: no permission or no input ends before the probe, a device uses voice processing without one, the simulator records plain only once the probe started; a probe that has not come back is not started again until it does); `VoiceConversationTests` (a start that finds no input ends as `audioFailed`, a refused recording as `permissionDenied`).
+
+### 6.11 The web client (#2273)
+
+The web app's voice chat follows this section's design; `docs/web/web.md` ("Voice chat") has the page-side detail and `web/e2e/voice.mjs` walks the mock's script in a browser. Where it differs from iOS:
+
+- **HTTPS is required**: browsers give the microphone only to secure contexts (HTTPS, or `localhost` on the same computer). A hub reached over plain HTTP on another address cannot record, so the voice button explains that and offers the hub's HTTPS address when its `hello` advertises one (`public_url` if https, else an https endpoint, by name first); it never fails silently. A hub meant for voice in the browser needs TLS (its own, or a reverse proxy: `docs/operations/network.md`).
+- **The credential rides in the query**: a browser cannot set `Authorization` on a WebSocket, so the socket is `…/extensions/<id>/ws?token=<the browser's device token>`; the hub accepts `?token=` on every route and strips it before forwarding (`hub/extensions_link.go`). A refused handshake's status is invisible to a browser: a socket that never opened asks `GET …/info` and treats its status as the handshake's (401, 403 end the call; 404 only before a first `ready`), as 6.5 says.
+- **Entry**: the composer's voice button only; the web's **+** picks files directly, so where the user can act (set the extension up, update it, open the HTTPS address, use another browser) the button stays and its click explains (1.3's words). With no voice extension, an answer-only credential (`/info` 403) or a read-only chat there is no button. The main conversation's task dock and route chip step aside during a call, as 1.2 A.2 says.
+- **Audio**: `getUserMedia` with the browser's echo cancellation, noise suppression and gain control (`echo_cancellation` in `start` comes from the track's settings); an AudioWorklet resamples to `input_rate` with an anti-aliasing low-pass and sends 20 ms PCM16 frames (zero frames muted), 50 a second for the whole call (the capture context's output is kept just above zero so Chrome never moves it to a slower sink after 30 s of silence: docs/lessons/voice.md); a second AudioContext at `output_rate` plays the voice back to back and drops everything queued on `clear`. No pre-microphone probe like 6.4's simulator one: `getUserMedia` either answers or is refused. Both contexts are created inside the click that starts the call.
+- **Lifecycle**: leaving the conversation or closing the tab ends the call; a hidden tab keeps it (people work in other windows while an agent runs), unless the browser suspends the audio, which ends it with Continue. Idle, reconnect and resume as 6.5. No screen lock to hold, no phone calls, no haptics.
+- **Not yet**: the model sheet in the call's ⋯ (the voice picker is there), Mac-style multi-window calls, the Android client's entry for agents.
 
 ## 7. Work breakdown
 

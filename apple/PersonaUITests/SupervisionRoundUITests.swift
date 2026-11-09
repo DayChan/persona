@@ -40,7 +40,7 @@ final class SupervisionRoundUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["supervision-input"].firstMatch.exists)
     }
 
-    @MainActor func testOptionalOldLayoutAlsoFoldsTheWholeRound() {
+    @MainActor func testLegacyDisabledPreferenceStillFoldsTheWholeRound() {
         let app = launch(["-ui.newChatLayout", "NO"])
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["supervision-record"].firstMatch.waitForExistence(timeout: 25))

@@ -371,7 +371,7 @@ The costliest long-task mistake is an Agent forgetting a decision already made: 
 - Recording/superseding updates to-do `updated_at` and broadcasts `{"type":"todos"}` so clients refetch decisions.
 - iOS / Mac (`apple/Persona/Views/Todos/TodoDecisionsSection.swift`, model `TodoDecisionsModel`, wire `apple/Shared/TodoDecisions.swift`): the same Decisions section in to-do details, under the notes: **Add** records one, **Revise** records one that replaces it, the row's ⋯ marks it as replacing an earlier one or undoes that, **Full History** shows the replaced ones struck through. Read again whenever the to-do's `updated_at` changes; hidden on a hub without the route (route-level 404).
 
-Not yet: the Android decision list.
+- Android (`android/feature/agents/src/main/kotlin/persona/feature/agents/TodoDecisions.kt`, wire `TasksApi.todoDecisions` / `addTodoDecision`, source `TodoDecisionsSource` that `TasksStore` implements; #1853): the same Decisions section in to-do details, under the notes: **Add** records one, **Revise** records one that replaces it (its question filled in, the earlier choice kept struck through), **Full history** shows the replaced ones struck through, and each row says when and where it came from. Typed words are asked about before the form is dropped. Read again whenever the to-do's `updated_at` changes; hidden on a hub without the route (route-level 404). So a question nobody answered can be answered on Android too ("Questions nobody answered"). Not on Android yet: marking an existing decision as replacing an earlier one, or undoing that (the iOS row's ⋯, `PATCH …/decisions/{did}`).
 
 ## Questions nobody answered
 

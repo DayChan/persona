@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import Persona
 
-/// The new conversation layout of Persona's main conversation (#1666, `ChatLayout`): on by default and off on request,
+/// The fixed conversation layout of Persona's main conversation (#2477, `ChatLayout`): always on with three-line exchanges,
 /// only in Persona's conversations; supervision and scheduled runs are Persona writing to itself; the right-edge
 /// navigator's ticks are the messages the user typed, placed to fit; links in an exchange open; the boxes read well.
 @MainActor
@@ -15,52 +15,53 @@ struct ChatLayoutTests {
         return d
     }
 
-    @Test func onByDefaultAndRemembered() {
-        let d = defaults()
-        let s = ChatLayoutSettings(defaults: d)
-        #expect(s.on)
-        #expect(s.fold == .lines)
-        #expect(s.lines == 3)
-        s.on = false
-        s.fold = .folded
-        s.lines = 5
-        let again = ChatLayoutSettings(defaults: d)
-        #expect(!again.on)
-        #expect(again.fold == .folded)
-        #expect(again.lines == 5)
+    @Test func fixedPolicyShowsThreeLines() {
+        let settings = ChatLayoutSettings(defaults: defaults())
+        #expect(settings.on)
+        #expect(settings.fold == .lines)
+        #expect(settings.lines == 3)
+        #expect(ChatLayout(on: true).shownLines == 3)
     }
 
-    /// `-ui.newChatLayout NO` as a launch argument reaches UserDefaults as a string.
-    @Test func aLaunchArgumentTurnsItOff() {
+    @Test(arguments: ["folded", "lines", "expanded", "invalid"], [0, 1, 5, 10, 40])
+    func oldPreferencesAreIgnored(fold: String, lines: Int) {
         let d = defaults()
-        d.set("NO", forKey: ChatLayoutSettings.key)
-        #expect(!ChatLayoutSettings(defaults: d).on)
-        d.set("YES", forKey: ChatLayoutSettings.key)
-        #expect(ChatLayoutSettings(defaults: d).on)
+        d.set(false, forKey: "ui.newChatLayout")
+        d.set(fold, forKey: "ui.newChatLayout.fold")
+        d.set(lines, forKey: "ui.newChatLayout.lines")
+        for _ in 0..<2 {
+            let settings = ChatLayoutSettings(defaults: d)
+            #expect(settings.on)
+            #expect(settings.fold == .lines)
+            #expect(settings.lines == 3)
+            #if os(iOS)
+            #expect(settings.layout(assistant: true) == ChatLayout(on: true))
+            #expect(settings.layout(assistant: true).shownLines == 3)
+            #endif
+        }
+        // Ignoring the old keys must not rewrite preferences used by an older app version.
+        #expect(d.bool(forKey: "ui.newChatLayout") == false)
+        #expect(d.string(forKey: "ui.newChatLayout.fold") == fold)
+        #expect(d.integer(forKey: "ui.newChatLayout.lines") == lines)
     }
 
-    /// Off, or anywhere but Persona's conversations, every chat draws as before (`ChatLayout.off`).
-    @Test func offRestoresTheOldLookEverywhere() {
-        let s = ChatLayoutSettings(defaults: defaults())
-        #expect(s.layout(assistant: false) == .off)
+    @Test func oldLaunchArgumentsAreIgnored() {
+        let d = defaults()
+        d.setVolatileDomain(["ui.newChatLayout": "NO", "ui.newChatLayout.fold": "expanded",
+                             "ui.newChatLayout.lines": "9"], forName: UserDefaults.argumentDomain)
+        let settings = ChatLayoutSettings(defaults: d)
+        #expect(settings.on && settings.fold == .lines && settings.lines == 3)
+    }
+
+    @Test func otherConversationsKeepTheirPlatformPresentation() {
+        let settings = ChatLayoutSettings(defaults: defaults())
+        #expect(settings.layout(assistant: false) == .off)
         #if os(iOS)
-        #expect(s.layout(assistant: true) == ChatLayout(on: true, fold: .lines, lines: 3))
+        #expect(settings.layout(assistant: true) == ChatLayout(on: true))
+        #else
+        #expect(settings.layout(assistant: true) == .off)
         #endif
-        s.on = false
-        #expect(s.layout(assistant: true) == .off)
         #expect(!ChatLayout.off.on)
-    }
-
-    @Test func foldsToTheChosenLines() {
-        #expect(ChatLayout(on: true, fold: .folded).shownLines == 0)
-        #expect(ChatLayout(on: true, fold: .lines, lines: 4).shownLines == 4)
-        #expect(ChatLayout(on: true, fold: .expanded).shownLines == nil)
-    }
-
-    @Test func outOfRangeLinesFallBackToThree() {
-        let d = defaults()
-        d.set(40, forKey: ChatLayoutSettings.linesKey)
-        #expect(ChatLayoutSettings(defaults: d).lines == ChatLayoutSettings.defaultLines)
     }
 
     @Test func supervisionAndScheduledRunsArePersonaToItself() {

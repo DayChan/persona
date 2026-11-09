@@ -67,7 +67,7 @@ data class SettingsServices(
     val hubUpdates: HubUpdates? = null,
     /** Settings › Managers (the hub's roster of managers and their install codes) on the paired hub; null in demo mode. */
     val managers: HubManagers? = null,
-    /** Settings › Sent as you (what was written in the user's name through the connectors) on the paired hub; null in demo mode. */
+    /** Settings › Connectors › Records sent as you on the paired hub; null in demo mode. */
     val sent: HubSent? = null,
     /** Settings › Translation, kept on this phone; null in demo mode. */
     val translation: TranslationSettings? = null,

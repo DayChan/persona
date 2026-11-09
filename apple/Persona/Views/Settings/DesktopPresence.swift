@@ -1,8 +1,9 @@
 import SwiftUI
 
 #if os(iOS) || os(visionOS)
-/// 「Mac 上的 Persona 已登录」 over the Agents list, like WeChat's line over its chats (docs/apple/ios.md「Mac 已登录」): one
-/// quiet row while a desktop app is connected, Phone Muted beside it when on. A tap opens `DesktopPresenceSheet`.
+/// "Persona is signed in on your Mac" over the Agents list, like WeChat's line over its chats (docs/apple/ios.md "Mac signed in"): one
+/// quiet row while a desktop app is connected or you're at a computer with Persona Link, Phone Muted beside it when on. A tap
+/// opens `DesktopPresenceSheet`.
 struct DesktopPresenceRow: View {
     @Environment(AppModel.self) private var model
     @State private var showSheet = false
@@ -40,7 +41,9 @@ struct DesktopPresenceRow: View {
 }
 
 /// What the banner opens, after WeChat's: which Macs are signed in and since when, Phone Muted, and Sign Out for each (it
-/// revokes that Mac's device token; the hub closes its connection and it has to pair again).
+/// revokes that Mac's device token; the hub closes its connection and it has to pair again). Persona Link entries say since
+/// when you've been at that computer and have no Sign Out: they end when you lock it or quit Persona Link (said once, under
+/// the first of them).
 struct DesktopPresenceSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -53,31 +56,34 @@ struct DesktopPresenceSheet: View {
                     SettingsSwitchRow(title: String(localized: "Phone Muted"), symbol: Theme.Icon.muted, accessibilityID: "desktops.mute",
                                       isOn: Binding(get: { model.muteWhileDesktop }, set: { on in Task { await model.setMuteWhileDesktop(on) } }))
                 } footer: {
-                    Text("While Persona is online on a Mac, this iPhone stops sending “Needs you” and “Agent done” notifications and the Mac alerts you instead. Reminders you asked Persona to set still come through.")
+                    Text(DesktopDevice.muteNote(model.desktops))
                 }
 
+                let firstLink = model.desktops.first(where: \.isLink)?.id
                 ForEach(model.desktops) { d in
                     Section {
                         LabeledContent {
                             if let since = d.since {
-                                Text(String(localized: "Signed in \(since.formatted(.relative(presentation: .named)))")).lineLimit(1)
+                                Text(Self.sinceLine(d, since)).lineLimit(1)
                             }
                         } label: {
                             Label(d.name, systemImage: Theme.Icon.laptop).lineLimit(1)
                         }
-                        if !d.device.isEmpty {
+                        if d.canSignOut {
                             Button(role: .destructive) { signingOut = d } label: {
                                 Text("Sign Out Persona on This Mac").lineLimit(1)
                             }
                         }
                     } footer: {
-                        if d.device.isEmpty {
+                        if d.id == firstLink {
+                            Text("Persona Link tells the hub you're at this computer while it's unlocked and in use. This stops when you lock the computer or quit Persona Link.")
+                        } else if d.isApp && d.device.isEmpty {
                             Text("This Mac connects to the hub with its own pairing credentials and can't be signed out here.")
                         }
                     }
                 }
             }
-            .navigationTitle("Signed-In Macs")
+            .navigationTitle(model.desktops.contains(where: \.isLink) ? String(localized: "Computers in Use") : String(localized: "Signed-In Macs"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done [Extension System Presentation c0b3fb]") { dismiss() }.lineLimit(1) }
@@ -95,6 +101,13 @@ struct DesktopPresenceSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// A Mac app's row says when it signed in; a Persona Link row since when you've been at it, with the date when not today.
+    private static func sinceLine(_ d: DesktopDevice, _ since: Date) -> String {
+        guard d.isLink else { return String(localized: "Signed in \(since.formatted(.relative(presentation: .named)))") }
+        let at = since.formatted(date: Calendar.current.isDateInToday(since) ? .omitted : .abbreviated, time: .shortened)
+        return String(localized: "Persona Link · since \(at)")
     }
 }
 #endif

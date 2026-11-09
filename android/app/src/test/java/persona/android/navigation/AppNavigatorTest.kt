@@ -6,6 +6,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AppNavigatorTest {
+    @Test fun legacyLedgerNavigationAndRestoredStacksReturnToConnectors() {
+        selected = AppTab.Settings
+        navigator.navigate(SettingsPageRoute(SettingsPage.Sent))
+        assertEquals(listOf(SettingsRoute, SettingsPageRoute(SettingsPage.Connectors), SettingsPageRoute(SettingsPage.Sent)),
+            stacks.getValue(AppTab.Settings))
+        navigator.back()
+        assertEquals(SettingsPageRoute(SettingsPage.Connectors), stacks.getValue(AppTab.Settings).last())
+        navigator.back()
+        assertEquals(listOf(SettingsRoute), stacks.getValue(AppTab.Settings))
+
+        stacks.getValue(AppTab.Settings).add(SettingsPageRoute(SettingsPage.Sent))
+        val restored = AppNavigator(stacks, { selected }, { selected = it })
+        restored.back()
+        assertEquals(SettingsPageRoute(SettingsPage.Connectors), stacks.getValue(AppTab.Settings).last())
+    }
+
     @Test fun confirmedCloseRemovesAllMatchingDestinationsAcrossTabs() {
         val target = persona.core.contracts.SessionKey("machine", "closed")
         val chat = ChatRoute(target.machineId, target.sessionId)

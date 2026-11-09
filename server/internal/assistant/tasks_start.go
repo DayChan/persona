@@ -191,12 +191,12 @@ func (s *Service) startPlanTask(planID, conversation string, i int, t PlanTask, 
 	defer cancel()
 	placed := t.Machine
 	mid, sid, err := s.startTaskAgent(ctx, &t, retry)
-	if err != nil && ctx.Err() == nil {
+	if err != nil && ctx.Err() == nil && !startStalled(err) {
 		// The machine's link dropped (a node restarting, a tunnel blinking): try once more after a moment. Any other
-		// failure counts against the launcher there. Only flexible tasks may retry on another healthy machine.
+		// launcher failure may move a flexible task, after verifying its directory on the destination.
 		shouldRetry := transientStartErr(err)
 		if !shouldRetry && t.MachinePolicy == machineFlexible {
-			_, _, shouldRetry = s.healthDetour(ctx, Device{ID: t.Machine}, s.startLauncher(ctx, t.Launcher))
+			shouldRetry = s.healthyPlace(ctx, &t)
 		}
 		if shouldRetry {
 			s.logf("task %s: start: %v; retrying", t.TodoID, err)

@@ -1,7 +1,7 @@
 // One conversation: an agent in herdr on one of your computers, or a Persona assistant conversation.
 import { useManagerOffline } from "../ManagerParts";
 import { alsoOpenText } from "../../lib/engines";
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, errorText, sessionPath } from "../../lib/api";
 import { ago, attentionReason, backgroundWaiting, externalLink, failureReason, resumeCommand, sessionCan, sessionDeletable, sessionMenuActions, sourceSubtitle, sessionTitle, shortPath, stateOf, tabLabel, uuid } from "../../lib/format";
 import { navigate, type SessionView } from "../../lib/router";
@@ -85,6 +85,10 @@ import { PageBoundary } from "../PageBoundary";
 import { ViewLayer } from "../session/ViewLayer";
 import { MAIN_TITLE, conversationTitle } from "../assistant/conversations";
 import { usePersona } from "../assistant/Persona";
+import { voiceCalls, useVoiceCall, useVoiceState } from "../../lib/voice/calls";
+import { agentLabel } from "../../lib/mentions";
+import { VoiceBar } from "./voice/VoiceBar";
+import { useVoiceEntry, VoiceEnded, VoiceTail } from "./voice/VoiceParts";
 import { ChatOnlyNote, FailureCard, ReadinessCard, useReadinessGate, type ReadinessGate } from "../assistant/Readiness";
 import { codedFailure, refreshReadiness, turnErrorFix, type CodedFailure } from "../../lib/readiness";
 import { usageLimitLabel } from "../../lib/usage-limit";
@@ -242,6 +246,18 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const outgoing = shownPending.length + outbox.filter((e) => e.state !== "failed").length;
   const persona = usePersona();
   const state = session ? stateOf(session) : "unknown";
+  // Voice chat (docs/web/web.md "Voice"): the call belongs to this page (the same chat may be open twice, a page and a
+  // side panel), and ends as the page leaves the conversation. ChatView learns only whether a call is on here.
+  const voiceId = useId();
+  const voiceOwner = useMemo(() => ({ mid, sid, owner: voiceId }), [mid, sid, voiceId]);
+  useEffect(() => () => voiceCalls.leave(voiceOwner), [voiceOwner]);
+  const voiceState = useVoiceState(voiceOwner);
+  const voiceCall = useVoiceCall(voiceOwner);
+  const voiceLabel = assistant ? persona.name : session ? agentLabel(session) : "Claude";
+  const itemsNow = useRef(tr.items);
+  itemsNow.current = tr.items;
+  const readItems = useCallback(() => itemsNow.current, []);
+  const voiceEntry = useVoiceEntry({ ...voiceOwner, session, items: readItems, label: voiceLabel, off: readOnly || Boolean(offlineLine) || !sessionCan(session, "send") });
   // the message is in, the hub has not said working yet (#3654): the live row covers that wait too
   const segs = useMemo(() => segments(tr.items), [tr.items]);
   const lastSeg = segs[segs.length - 1];
@@ -1162,6 +1178,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                 <Loading label={starting ? t("chat-chatview.preparing") : shownPending.some((p) => p.waits) ? t("ultracode.send_waits") : t("chat-chatview.delivering")} />
               </div>
             )}
+            {voiceState && <VoiceTail owner={voiceOwner} persona={persona.name} />}
           </div>
           {!readOnly && <CommentMarks scroller={scroller} />}
           </ChatActionsContext.Provider>
@@ -1205,8 +1222,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         {assistant && (
           <>
             <TaskQuestions conversation={sid} />
-            <TaskDock conversation={sid} />
-            <RouteChip conversation={sid} />
+            {/* a call keeps the footer to the cards and itself (docs/assistant/voice.md 1.2 A.2) */}
+            {voiceState !== "live" && <TaskDock conversation={sid} />}
+            {voiceState !== "live" && <RouteChip conversation={sid} />}
           </>
         )}
         <PendingCards
@@ -1239,8 +1257,16 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           />
         )}
         {!short && queue}
+        {voiceState === "ended" && <VoiceEnded owner={voiceOwner} />}
         </div>
-        <div ref={composerBox} className="shrink-0">
+        {voiceEntry.dialog}
+        {voiceState === "live" && voiceCall && (
+          <div className="shrink-0">
+            <VoiceBar call={voiceCall} session={session} cards={interactions} label={voiceLabel} persona={persona.name} onStopAgent={interrupt} />
+          </div>
+        )}
+        {/* kept while a call is on (its draft, attachments and quotes stay), the bar in its place */}
+        <div ref={composerBox} className="shrink-0" hidden={voiceState === "live"}>
         <Composer
           draftKey={draftKey}
           placeholder={offlineLine ? offlineLine : !sessionCan(session, "send") && session?.source_kind ? t("chat-chatview.view_only") : state === "working" || state === "needs_you" ? t("chat-chatview.queue_placeholder") : assistant ? t("chat-chatview.ask_placeholder", { name: persona.name }) : state === "offline" ? t("chat-chatview.resume_placeholder") : t("chat-chatview.agent_placeholder")}
@@ -1259,6 +1285,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           onFocusChange={setTyping}
           blocked={gate.blocked}
           footer={footer}
+          voice={voiceEntry.offer}
         />
         </div>
       </div>

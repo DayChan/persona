@@ -178,6 +178,7 @@ func editSessions(m *Machine, edit func([]proto.Session) []proto.Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessions = edit(m.sessions)
+	m.raws, m.rawsOf = nil, keptList{} // edited in place maybe: no longer what the manager's bytes gave
 }
 
 // nodeAsks is a node's request on m as the manager takes it (devices.Options.Answer): the assistant's own, then the

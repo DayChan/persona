@@ -108,6 +108,8 @@ export type Intent =
   | { type: "choose"; index: number }
   | { type: "back" }
   | { type: "close" }
+  /** Tab and Shift+Tab: the menu closes and the key keeps its default, so the focus moves on from the menu's button. */
+  | { type: "leave" }
   | { type: "none" };
 
 const NONE: Intent = { type: "none" };
@@ -117,6 +119,8 @@ export function keyIntent(e: KeyInput, items: readonly MenuItem[], active: numbe
   switch (e.key) {
     case "Escape":
       return { type: "close" };
+    case "Tab":
+      return { type: "leave" };
     case "ArrowDown":
     case "ArrowUp": {
       const index = step(items, active, e.key === "ArrowDown" ? 1 : -1);

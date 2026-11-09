@@ -1,6 +1,7 @@
 package sessionlist
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -273,6 +274,63 @@ func TestUnchangedReplaceAndBatchOwnership(t *testing.T) {
 	i.RemoveSource("unknown")
 	if i.Revision() != revision {
 		t.Fatal("no-op removal bumped revision")
+	}
+}
+
+// Items reads the stored items in the order asked, the zero Item for an unknown ID; handing them back unchanged is
+// no change, and changing a returned copy changes nothing stored.
+func TestItemsReadsStoredItems(t *testing.T) {
+	var i Index
+	if got := i.Items([]string{"a"}); len(got) != 1 || !reflect.DeepEqual(got[0], Item{}) {
+		t.Fatalf("empty index: %+v", got)
+	}
+	a, b := testItem("a", 1), testItem("b", 2)
+	i.Replace("owner", []Item{a, b})
+	revision := i.Revision()
+	got := i.Items([]string{"b", "missing", "a"})
+	if !reflect.DeepEqual(got, []Item{b, {}, a}) {
+		t.Fatalf("items: %+v", got)
+	}
+	i.Replace("owner", []Item{got[2], got[0]})
+	if i.Revision() != revision {
+		t.Fatal("stored items handed back bumped the revision")
+	}
+	got[0].State = "idle"
+	if p := mustQuery(t, &i, Options{State: "idle"}); p.Total != 0 || i.Revision() != revision {
+		t.Fatal("a returned copy changed the index")
+	}
+}
+
+// sameItem is reflect.DeepEqual on items: payloads shared, copied, changed, nil or empty, of other types, and each
+// attribute changed alone, times in other zones included.
+func TestSameItemMatchesDeepEqual(t *testing.T) {
+	raw := json.RawMessage(`{"id":"a"}`)
+	base := Item{ID: "a", Machine: "m", UpdatedAt: testTime, SearchText: "text", Full: raw, Summary: raw[:5]}
+	edits := []func(*Item){
+		func(*Item) {},
+		func(i *Item) { i.Full = json.RawMessage(bytes.Clone(raw)) },
+		func(i *Item) { i.Full = json.RawMessage(`{"id":"b"}`) },
+		func(i *Item) { i.Full = raw[:len(raw)-1] },
+		func(i *Item) { i.Full = nil },
+		func(i *Item) { i.Full, i.Summary = json.RawMessage{}, json.RawMessage(nil) },
+		func(i *Item) { i.Full = []byte(raw) },
+		func(i *Item) { i.Full = testPayload{ID: "a", Details: map[string][]string{"k": {"v"}}} },
+		func(i *Item) { i.Summary = raw },
+		func(i *Item) { i.State = "idle" },
+		func(i *Item) { i.PaneSource = "terminal" },
+		func(i *Item) { i.BackgroundWaiting = true },
+		func(i *Item) { i.SearchText += " " },
+		func(i *Item) { i.UpdatedAt = i.UpdatedAt.In(time.FixedZone("demo", 0)) },
+		func(i *Item) { i.UpdatedAt = i.UpdatedAt.Add(time.Nanosecond) },
+	}
+	for n, edit := range edits {
+		for _, a := range []Item{base, {ID: "a", Full: testPayload{ID: "a"}}} {
+			b := a
+			edit(&b)
+			if got, want := sameItem(&a, &b), reflect.DeepEqual(a, b); got != want {
+				t.Fatalf("edit %d: sameItem %v, reflect.DeepEqual %v", n, got, want)
+			}
+		}
 	}
 }
 

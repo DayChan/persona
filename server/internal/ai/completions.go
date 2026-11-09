@@ -19,11 +19,14 @@ func (c *Client) chatCompletions(ctx context.Context, hc *http.Client, key strin
 		turns = append(turns, Message{Role: "system", Content: r.System})
 	}
 	turns = append(turns, r.Messages...)
-	body := map[string]any{"model": c.cfg.Model, "messages": turns, "stream": true}
+	// OpenAI-contract servers stream the final usage chunk only when asked for it.
+	body := map[string]any{"model": c.cfg.Model, "messages": turns, "stream": true, "stream_options": map[string]any{"include_usage": true}}
 	if r.MaxTokens > 0 {
 		body["max_tokens"] = r.MaxTokens
 	}
-	for attempt := 0; ; attempt++ {
+	// Each rejected field is changed at most once, so one call sends at most three requests.
+	renamedTokens, droppedStreamOptions := false, false
+	for {
 		encoded, _ := json.Marshal(body)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiEndpoint(c.cfg.BaseURL, "chat/completions"), bytes.NewReader(encoded))
 		if err != nil {
@@ -39,11 +42,18 @@ func (c *Client) chatCompletions(ctx context.Context, hc *http.Client, key strin
 		if resp.StatusCode != http.StatusOK {
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 			resp.Body.Close()
-			// Some models reject max_tokens and explicitly ask for the newer name. Retry only that
-			// rejected request; arbitrary 400s and already-started streams must never be replayed.
-			if attempt == 0 && r.MaxTokens > 0 && resp.StatusCode == http.StatusBadRequest && ChatRequiresCompletionTokens(raw) {
+			// Some models reject max_tokens and explicitly ask for the newer name, and strict compatible servers
+			// reject stream_options. Retry only those rejected requests; arbitrary 400s and already-started
+			// streams must never be replayed.
+			if !renamedTokens && r.MaxTokens > 0 && resp.StatusCode == http.StatusBadRequest && ChatRequiresCompletionTokens(raw) {
+				renamedTokens = true
 				delete(body, "max_tokens")
 				body["max_completion_tokens"] = r.MaxTokens
+				continue
+			}
+			if !droppedStreamOptions && (resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity) && chatRejectsStreamOptions(raw) {
+				droppedStreamOptions = true
+				delete(body, "stream_options")
 				continue
 			}
 			return Reply{}, false, newHTTPError(resp, raw)
@@ -67,6 +77,13 @@ func ChatRequiresCompletionTokens(raw []byte) bool {
 	message := strings.ToLower(envelope.Error.Message)
 	return strings.Contains(message, "max_tokens") && strings.Contains(message, "max_completion_tokens") &&
 		(strings.Contains(message, "unsupported") || strings.Contains(message, "not supported"))
+}
+
+// chatRejectsStreamOptions recognizes an error body that names the stream_options field. Such a server then
+// streams no usage, and the reply reports zero.
+func chatRejectsStreamOptions(raw []byte) bool {
+	body := strings.ToLower(string(raw))
+	return strings.Contains(body, "stream_options") || strings.Contains(body, "include_usage")
 }
 
 // readCompletions consumes SSE events, including usage-only events after the finish reason.
@@ -159,7 +176,7 @@ func readCompletions(body io.Reader) (Reply, error) {
 		return Reply{}, err
 	}
 	if !done && !finished {
-		return Reply{}, errors.New("ai: stream ended without a completed reply")
+		return Reply{}, fmt.Errorf("ai: stream ended without a completed reply: %w", io.ErrUnexpectedEOF)
 	}
 	if refusal != "" {
 		return reply, &RefusalError{StopReason: refusal}

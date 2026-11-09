@@ -48,6 +48,7 @@ type Service struct {
 	srcMu     sync.RWMutex
 	sources   map[string]Source
 	order     []string
+	polls     map[string]*pollMarks // source → what the poll saw of it; a new one each time the source is added
 	cache     *cache
 	listIndex sessionlist.Index
 	out       *outbox
@@ -55,12 +56,15 @@ type Service struct {
 	onChange  func(ids []string) // sessions whose content changed: the apps re-pull them
 	logf      func(string, ...any)
 
-	pollMu sync.Mutex
-	marks  map[string][2]int64 // id → rankTimeMs, unreadCount at the last poll
+	pollMu sync.Mutex // one poll at a time; guards every pollMarks' seen
 }
 
+// pollMarks is what the poll saw of one source's sessions at its last list: id → rankTimeMs, unreadCount. seen is
+// nil until the source first answers: that list is its baseline, since the apps were told when it was added.
+type pollMarks struct{ seen map[string][2]int64 }
+
 func NewService(kv KV, onChange func(ids []string), logf func(string, ...any), sources ...Source) *Service {
-	s := &Service{sources: map[string]Source{}, cache: newCache(20 * time.Second), out: &outbox{kv: kv}, prefs: &prefsStore{kv: kv},
+	s := &Service{sources: map[string]Source{}, polls: map[string]*pollMarks{}, cache: newCache(20 * time.Second), out: &outbox{kv: kv}, prefs: &prefsStore{kv: kv},
 		onChange: onChange, logf: logf}
 	s.cache.onSessions = s.indexSessions
 	if s.onChange == nil {
@@ -72,6 +76,7 @@ func NewService(kv KV, onChange func(ids []string), logf func(string, ...any), s
 	for _, src := range sources {
 		s.sources[src.Name()] = src
 		s.order = append(s.order, src.Name())
+		s.polls[src.Name()] = &pollMarks{}
 	}
 	return s
 }
@@ -86,6 +91,7 @@ func (s *Service) Add(src Source) bool {
 	}
 	s.sources[src.Name()] = src
 	s.order = append(s.order, src.Name())
+	s.polls[src.Name()] = &pollMarks{}
 	return true
 }
 
@@ -104,6 +110,7 @@ func (s *Service) Remove(name string) {
 		return
 	}
 	delete(s.sources, name)
+	delete(s.polls, name)
 	s.order = slices.DeleteFunc(s.order, func(n string) bool { return n == name })
 	s.srcMu.Unlock()
 	s.cache.forget(name)
@@ -447,7 +454,8 @@ func (s *Service) Updated(source string, keys []string) {
 }
 
 // Poll is the fallback when realtime events are missing: every interval it re-lists each source and reports the
-// sessions whose rankTimeMs or unreadCount moved. The first pass only records a baseline.
+// sessions whose rankTimeMs or unreadCount moved. A source's first list (at start, or once it is added) only records
+// its baseline.
 func (s *Service) Poll(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -464,28 +472,52 @@ func (s *Service) Poll(ctx context.Context, interval time.Duration) {
 func (s *Service) PollOnce(ctx context.Context) {
 	s.pollMu.Lock()
 	defer s.pollMu.Unlock()
-	first := s.marks == nil
-	if first {
-		s.marks = map[string][2]int64{}
-	}
-	for _, src := range s.all() {
+	srcs, marks := s.pollTargets()
+	for i, src := range srcs {
 		n := src.Name()
 		gen := s.cache.generation(n)
 		list, err := src.Sessions(ctx)
 		if err != nil {
 			continue // the next tick tries again; the routes report errors themselves
 		}
-		var changed []string
-		for _, x := range list {
-			m := [2]int64{x.RankTimeMs, int64(x.UnreadCount)}
-			if old, ok := s.marks[x.ID]; !first && (!ok || old != m) {
-				changed = append(changed, x.SessionKey)
-			}
-			s.marks[x.ID] = m
-		}
+		changed := s.mark(n, marks[i], list)
 		s.cache.putSessions(n, gen, list)
 		if len(changed) > 0 {
 			s.Updated(n, changed)
 		}
 	}
+}
+
+// pollTargets is the sources in order with what the poll saw of each.
+func (s *Service) pollTargets() ([]Source, []*pollMarks) {
+	s.srcMu.RLock()
+	defer s.srcMu.RUnlock()
+	srcs, marks := make([]Source, len(s.order)), make([]*pollMarks, len(s.order))
+	for i, n := range s.order {
+		srcs[i], marks[i] = s.sources[n], s.polls[n]
+	}
+	return srcs, marks
+}
+
+// mark records list as what the poll saw of source and answers the keys of its sessions that are new or moved since
+// the last list: none on its first (the baseline), nor when the source was removed while it answered (added again,
+// it starts over). Callers hold pollMu.
+func (s *Service) mark(source string, pm *pollMarks, list []Session) []string {
+	s.srcMu.RLock()
+	current := s.polls[source] == pm
+	s.srcMu.RUnlock()
+	if !current {
+		return nil
+	}
+	seen := make(map[string][2]int64, len(list))
+	var changed []string
+	for _, x := range list {
+		m := [2]int64{x.RankTimeMs, int64(x.UnreadCount)}
+		if old, ok := pm.seen[x.ID]; pm.seen != nil && (!ok || old != m) {
+			changed = append(changed, x.SessionKey)
+		}
+		seen[x.ID] = m
+	}
+	pm.seen = seen
+	return changed
 }

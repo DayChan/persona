@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/prompts"
@@ -39,7 +40,7 @@ func (s *Service) placeTask(ctx context.Context, t *PlanTask) bool {
 	return true
 }
 
-// healthyPlace moves t off a machine where its launcher failed its health check, to one where it works
+// healthyPlace moves t off a machine where its launcher failed its health check, to one where it works and the directory exists
 // (launcher_health_check.go); its why says so. False: it stays.
 func (s *Service) healthyPlace(ctx context.Context, t *PlanTask) bool {
 	if t.MachinePolicy != machineFlexible {
@@ -49,7 +50,9 @@ func (s *Service) healthyPlace(ctx context.Context, t *PlanTask) bool {
 	if !ok {
 		return false
 	}
-	alt, note, moved := s.healthDetour(ctx, m, s.startLauncher(ctx, t.Launcher))
+	alt, note, moved := s.healthDetour(ctx, m, s.startLauncher(ctx, t.Launcher), func(alt Device) bool {
+		return s.taskDirectoryExists(ctx, alt.ID, rehome(t.Cwd, m, alt))
+	})
 	if note != "" && !strings.Contains(t.Why, note) {
 		t.Why = strings.TrimSpace(t.Why + " (" + note + ")")
 	}
@@ -64,6 +67,23 @@ func (s *Service) healthyPlace(ctx context.Context, t *PlanTask) bool {
 		t.Machine, t.Cwd = alt.ID, rehome(t.Cwd, m, alt)
 	}
 	return moved
+}
+
+// taskDirectoryExists checks the mapped directory before a flexible task changes machines. Missing, denied or
+// unreadable paths (including a node too old to answer fs.stat) keep that machine out of the detour.
+func (s *Service) taskDirectoryExists(ctx context.Context, machine, dir string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var res struct {
+		Stats []struct {
+			Path string `json:"path"`
+			Kind string `json:"kind"`
+		} `json:"stats"`
+	}
+	if err := s.call(ctx, machine, "fs.stat", map[string]any{"paths": []string{dir}}, &res); err != nil {
+		return false
+	}
+	return len(res.Stats) == 1 && res.Stats[0].Path == dir && res.Stats[0].Kind == "dir"
 }
 
 // startTaskAgent starts the agent for t on its machine (another when its launcher does not work there: t says which)
@@ -112,6 +132,11 @@ func (s *Service) startTaskAgent(ctx context.Context, t *PlanTask, retry bool) (
 	// The project background, and the todo's decisions (a task started again may have some), go before the prompt
 	// (#2820, #1618); the tab is named from the title.
 	prompt = s.withProjectContext(ctx, m.ID, t.Cwd, s.withTodoDecisions(ctx, t.TodoID, prompt))
+	// The user's attachments end it, copied here when this is not the assistant's computer (#2437): last, so the
+	// pictures' <attached_images> block ends the message as it does one sent straight to an agent.
+	if len(t.Attachments)+len(t.Mentioned) > 0 {
+		prompt = withAttachments(prompt, s.handAttachments(ctx, t.AttachFrom, m.ID, t.Attachments, t.Mentioned))
+	}
 	params["cwd"], params["prompt"], params["tab_name"] = t.Cwd, prompt, s.tabName(ctx, t.Title)
 	if t.Model != "" {
 		params["model"] = t.Model

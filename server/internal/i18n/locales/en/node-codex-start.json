@@ -1,0 +1,3 @@
+{
+  "cleanup_failed": "Could not stop the abandoned Codex start in pane {pane}. No new tab will be opened until it can be closed: {reason}"
+}

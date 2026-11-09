@@ -34,7 +34,8 @@ class SettingsNavigationTest {
             SettingsPage.Desktops to "desktops",
             SettingsPage.Managers to "managers",
             SettingsPage.FeishuBot to "feishu-bot",
-            SettingsPage.Sent to "sent",
+            SettingsPage.Sent to "connectors/sent",
+            SettingsPage.Connectors to "connectors",
         )
         assertEquals(SettingsPage.entries.toSet(), pages.keys)
         assertEquals(pages.size, pages.values.toSet().size)
@@ -43,6 +44,11 @@ class SettingsNavigationTest {
             assertEquals(page, settingsPageFromInitialPage(name))
             assertEquals(page, settingsPageFromInitialPage(page.toInitialPage()))
         }
+    }
+
+    @Test fun legacySentPageNamesResolveToTheNestedLedger() {
+        assertEquals(SettingsPage.Sent, settingsPageFromInitialPage("sent"))
+        assertEquals("connectors/sent", settingsPageFromInitialPage("sent")!!.toInitialPage())
     }
 
     @Test fun rootAndUnknownNamesHaveNoDetailDestination() {

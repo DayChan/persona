@@ -31,9 +31,11 @@ fun SettingsPage.toInitialPage(): String = when (this) {
     SettingsPage.Desktops -> "desktops"
     SettingsPage.Managers -> "managers"
     SettingsPage.FeishuBot -> "feishu-bot"
-    SettingsPage.Sent -> "sent"
+    SettingsPage.Sent -> "connectors/sent"
+    SettingsPage.Connectors -> "connectors"
 }
 
-/** The root and unknown page names have no detail destination. */
+/** The legacy ledger page opens at its new location; the root and unknown names have no destination. */
 fun settingsPageFromInitialPage(initialPage: String): SettingsPage? =
-    SettingsPage.entries.firstOrNull { it.toInitialPage() == initialPage }
+    if (initialPage == "sent") SettingsPage.Sent
+    else SettingsPage.entries.firstOrNull { it.toInitialPage() == initialPage }

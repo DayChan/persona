@@ -1,6 +1,9 @@
 package prompts
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // AssistantMachine is one computer in the assistant's CLAUDE.md, as seen from where the assistant runs.
 type AssistantMachine struct {
@@ -558,6 +561,19 @@ func RenderTaskDone(d TaskDone) string { return render("assistant/task_done", d)
 // RenderTaskDelivery is the delivery standard a task's agent is handed after its prompt (assistant/task_delivery,
 // docs/assistant/todos.md "Delivery"): done is live and checked, and its last line says how far it got.
 func RenderTaskDelivery() string { return render("assistant/task_delivery", nil) }
+
+// TaskAttachments ends a message to an agent with the files and pictures the user gave the assistant for it (#2437):
+// where they are on the agent's computer (Copied: copied there from the assistant's), and those that could not come.
+// Pictures go last, in the <attached_images> block a picture sent straight to an agent ends with (node/send.go), so
+// the apps draw them as they do those.
+type TaskAttachments struct {
+	Files, Missing, Pictures []string
+	Copied                   bool
+}
+
+func RenderTaskAttachments(a TaskAttachments) string {
+	return strings.TrimRight(render("assistant/task_attachments", a), "\n")
+}
 
 // SideConversation preserves the provenance of a non-owner's message to a tasked Agent.
 type SideConversation struct {

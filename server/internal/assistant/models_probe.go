@@ -387,29 +387,27 @@ func (s *Service) providerTest(ctx context.Context, in probeInput) map[string]an
 	return out
 }
 
-// responsesProbeCompleted requires the same terminal event as the runtime, within the response budget.
+// responsesProbeCompleted requires the same terminal event as the runtime, within the response budget, reading the
+// stream's events the way the runtime does (ai.SSEEvents).
 func responsesProbeCompleted(body io.Reader) bool {
-	sc := bufio.NewScanner(io.LimitReader(body, 8<<20))
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() {
-		data, ok := strings.CutPrefix(sc.Text(), "data:")
-		if !ok {
-			continue
-		}
+	completed := false
+	err := ai.SSEEvents(io.LimitReader(body, 8<<20), func(data string) bool {
 		var event struct {
 			Type string `json:"type"`
 		}
-		if json.Unmarshal([]byte(strings.TrimSpace(data)), &event) != nil {
-			continue
+		if json.Unmarshal([]byte(data), &event) != nil {
+			return false
 		}
 		switch event.Type {
 		case "response.completed":
+			completed = true
 			return true
 		case "response.failed", "response.incomplete", "error":
-			return false
+			return true
 		}
-	}
-	return false
+		return false
+	})
+	return err == nil && completed
 }
 
 // chatProbeCompleted follows the first choice to a terminal event, including errors after its finish reason.

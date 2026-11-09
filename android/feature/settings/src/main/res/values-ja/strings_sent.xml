@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_sent_title">あなたの名前で送信</string>
+    <string name="settings_sent_title">あなたの名前で送信した記録</string>
     <string name="settings_sent_subtitle">あなたの名前で送信した内容と、許可された理由</string>
     <string name="settings_sent_demo">デモモードには、あなたの名前で送信した内容はありません。ご自身のハブに接続してからもう一度開いてください</string>
     <string name="settings_sent_intro">Persona があなたの名前でコネクタ経由で送ったものを、新しい順に表示します。行を選ぶと全文を表示します。</string>

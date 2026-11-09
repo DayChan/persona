@@ -75,6 +75,10 @@ class ExtensionShowcaseShotsTest {
 
     // https pictures go to the app's ordinary loader: here the same one, which draws them without the network
     @org.junit.Before fun pictures() { coil3.SingletonImageLoader.setUnsafe(pictures) }
+    @org.junit.After fun releasePictures() {
+        coil3.SingletonImageLoader.reset()
+        pictures.shutdown()
+    }
 
     private fun out(): File = File(System.getProperty("persona.shots") ?: "build/extension-showcase-shots").also { it.mkdirs() }
 

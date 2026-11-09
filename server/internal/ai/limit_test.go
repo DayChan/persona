@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -377,6 +379,49 @@ func TestResponsesAPIIsGatedToo(t *testing.T) {
 	}
 }
 
+// A Responses stream can report a limit after its 200 (relays and Codex-style backends put it in the response.failed
+// or error event's code): it holds the connection like the HTTP answer. Any other failure is sent again as before.
+func TestResponsesStreamLimitsPause(t *testing.T) {
+	for _, c := range []struct {
+		name, event, reason, detail string
+		pause                       time.Duration
+	}{
+		{"rate limit", `{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"Rate limit reached. Please try again in 20s."}}}`,
+			ReasonBusy, "(stream rate_limit_exceeded: Rate limit reached. Please try again in 20s.)", 20 * time.Second},
+		{"quota", `{"type":"response.failed","response":{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}}`,
+			ReasonQuota, "(stream insufficient_quota: You exceeded your current quota)", quotaPause},
+		{"error event", `{"type":"error","code":"rate_limit_exceeded","message":"Rate limit reached"}`,
+			ReasonBusy, "(stream rate_limit_exceeded: Rate limit reached)", busyFirst},
+		{"other failure", `{"type":"response.failed","response":{"error":{"code":"server_error","message":"boom"}}}`, "", "", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			clk := fakeClock(t)
+			u := newUpstream(t, answer(200, "data: "+c.event+"\n\n"))
+			cl := New(Config{API: "responses", BaseURL: u.srv.URL, APIKey: "k", Model: "m"})
+			var errs [2]error
+			for i := range errs {
+				_, errs[i] = cl.Complete(context.Background(), "s", "u", 10)
+			}
+			p := Held(cl.Config())
+			if c.reason == "" {
+				if u.sent.Load() != 2 || p != nil || IsPaused(errs[0]) || errs[1] == nil || errs[1].Error() != "ai: response.failed: boom" {
+					t.Fatalf("sent %d, held %+v, errs %v", u.sent.Load(), p, errs)
+				}
+				return
+			}
+			if !IsPaused(errs[0]) || !IsPaused(errs[1]) || Transient(errs[0]) || u.sent.Load() != 1 {
+				t.Fatalf("sent %d, errs %v", u.sent.Load(), errs)
+			}
+			if p == nil || p.Reason != c.reason || !p.Until.Equal(now().Add(c.pause)) {
+				t.Fatalf("held = %+v, want %s for %s", p, c.reason, c.pause)
+			}
+			if logs := clk.lines(); len(logs) != 1 || !strings.Contains(logs[0], c.detail) {
+				t.Fatalf("logs = %q", logs)
+			}
+		})
+	}
+}
+
 func TestOtherErrorsDoNotPause(t *testing.T) {
 	fakeClock(t)
 	u := newUpstream(t, answer(500, `{"error":{"message":"boom"}}`))
@@ -421,11 +466,98 @@ func TestClassify(t *testing.T) {
 	if d := retryAfter("999999"); d != afterMost {
 		t.Errorf("retryAfter(huge) = %s", d)
 	}
+	for msg, want := range map[string]time.Duration{
+		"Please try again in 1.5s.": 1500 * time.Millisecond, "try again in 250ms": 250 * time.Millisecond,
+		"Try again in 20 seconds": 20 * time.Second, "try again in 99999999s": afterMost, "Rate limit reached": 0,
+		// Go-style durations of more than one unit, as OpenAI's rate-limit messages write them
+		"Please try again in 6m0s.": 6 * time.Minute, "try again in 1m30s": 90 * time.Second,
+		"try again in 1h2m3.5s": time.Hour + 2*time.Minute + 3500*time.Millisecond, "try again in 2 minutes": 2 * time.Minute,
+		"try again in 1m 30s, thanks": 90 * time.Second, "try again in 5 more minutes": 0,
+	} {
+		if d := tryAgain(msg); d != want {
+			t.Errorf("tryAgain(%q) = %s, want %s", msg, d, want)
+		}
+	}
+	if got, _, _ := classify(fmt.Errorf("wrapped: %w", streamLimitFor("error", "Slow_Down", "m"))); got != ReasonBusy {
+		t.Errorf("a wrapped stream limit: %q", got)
+	}
 }
 
-// Transient tells a failure worth one more try (no answer in time, a gateway's 5xx) from one that answers the same
-// again: a request turned down, a model that isn't set up (#1532).
+// headersIn tells a fake upstream that the client has the response headers (the round trip returned), so the fake
+// can cut the body after them rather than before.
+type headersIn struct {
+	next http.RoundTripper
+	done func()
+}
+
+func (h headersIn) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := h.next.RoundTrip(r)
+	h.done()
+	return resp, err
+}
+
+// Transient tells a failure worth one more try (no answer in time, a gateway's 5xx, a connection that failed
+// partway through the reply) from one that answers the same again: a request turned down, a model that isn't set up,
+// a refusal, a pause (#1532).
 func TestTransient(t *testing.T) {
+	fakeClock(t) // the 429 below holds its connection: keep the gate's log line out of the output
+	// ask sends one request through api to a fake whose handle gets the headers channel (closed once the client has
+	// the response headers) and returns the error.
+	ask := func(api string, handle func(w http.ResponseWriter, headers <-chan struct{})) error {
+		headers := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost { // a port probe from elsewhere on the machine, not this test's client
+				http.NotFound(w, r)
+				return
+			}
+			handle(w, headers)
+		}))
+		defer srv.Close()
+		c := New(Config{API: api, BaseURL: srv.URL, APIKey: "k", Model: "m"})
+		c.http.Transport = headersIn{next: srv.Client().Transport, done: sync.OnceFunc(func() { close(headers) })}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := c.Complete(ctx, "", "hi", 10)
+		return err
+	}
+	// shortBody answers a Messages reply that stops before its Content-Length.
+	shortBody := func(w http.ResponseWriter, _ <-chan struct{}) {
+		body := `{"content":[{"type":"text","text":"hel`
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)+64))
+		_, _ = io.WriteString(w, body)
+	}
+	// reset answers 200 and one stream event, then resets the connection once the client has the headers.
+	reset := func(event string) func(w http.ResponseWriter, headers <-chan struct{}) {
+		return func(w http.ResponseWriter, headers <-chan struct{}) {
+			conn, buf, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			defer conn.Close()
+			chunk := "data: " + event + "\n\n"
+			_, _ = fmt.Fprintf(buf, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n",
+				len(chunk), chunk)
+			_ = buf.Flush()
+			select {
+			case <-headers:
+			case <-time.After(5 * time.Second):
+			}
+			if tc, ok := conn.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0) // Close sends RST instead of FIN
+			}
+		}
+	}
+	// unfinished answers one Chat Completions event and ends the stream cleanly, with no finish_reason or [DONE].
+	unfinished := func(w http.ResponseWriter, _ <-chan struct{}) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"content":"hel"}}]}`+"\n\n")
+	}
+	refusal := func(w http.ResponseWriter, _ <-chan struct{}) {
+		_, _ = io.WriteString(w, `{"content":[],"stop_reason":"refusal"}`)
+	}
+	const chatEvent = `{"choices":[{"index":0,"delta":{"content":"hel"}}]}`
+	const responsesEvent = `{"type":"response.output_text.delta","delta":"hel"}`
 	status := func(code int) error {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"no"}}`, code)
@@ -449,18 +581,31 @@ func TestTransient(t *testing.T) {
 		return err
 	}
 	_, unset := New(Config{}).Complete(context.Background(), "", "hi", 10)
+	if paused := status(http.StatusTooManyRequests); !IsPaused(paused) || Transient(paused) {
+		t.Errorf("429: Transient(%v) = %v, want a pause that is not transient", paused, Transient(paused))
+	}
 	for _, c := range []struct {
 		name string
 		err  error
+		says string // what the error must say, so a fake that broke earlier than meant fails the case
 		want bool
 	}{
-		{"502", status(http.StatusBadGateway), true},
-		{"500", status(http.StatusInternalServerError), true},
-		{"timed out", slow(), true},
-		{"400", status(http.StatusBadRequest), false},
-		{"not configured", unset, false},
-		{"nil", nil, false},
+		{"502", status(http.StatusBadGateway), "HTTP 502", true},
+		{"500", status(http.StatusInternalServerError), "HTTP 500", true},
+		{"timed out", slow(), "deadline exceeded", true},
+		{"messages body cut short", ask("", shortBody), "ai: read response: unexpected EOF", true},
+		{"chat stream reset", ask("chat", reset(chatEvent)), "ai: read stream:", true},
+		{"responses stream reset", ask("responses", reset(responsesEvent)), "ai: read stream:", true},
+		{"chat stream ended unfinished", ask("chat", unfinished), "stream ended without a completed reply", true},
+		{"400", status(http.StatusBadRequest), "HTTP 400", false},
+		{"404", status(http.StatusNotFound), "HTTP 404", false},
+		{"refusal", ask("", refusal), ErrRefused.Error(), false},
+		{"not configured", unset, "", false},
+		{"nil", nil, "", false},
 	} {
+		if c.says != "" && (c.err == nil || !strings.Contains(c.err.Error(), c.says)) {
+			t.Errorf("%s: error %v, want one saying %q", c.name, c.err, c.says)
+		}
 		if got := Transient(c.err); got != c.want {
 			t.Errorf("%s: Transient(%v) = %v, want %v", c.name, c.err, got, c.want)
 		}

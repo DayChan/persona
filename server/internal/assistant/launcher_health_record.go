@@ -155,12 +155,11 @@ func (s *Service) healthChanged(ctx context.Context, r LauncherHealth, before st
 	s.event(ctx, map[string]any{"type": "launcher_health", "record": r})
 }
 
-// recordStartFailure: an agent did not start with launcher on machine. A dropped link says nothing about the
-// launcher, nor does a start the node turned down before running it (startRefused); anything else counts, and a
-// check follows at once to tell a blink from a broken launcher. Not after a start the terminal could not run
-// (errKindNotInTerminal): the check runs where it works.
+// recordStartFailure: a dropped link, refused request or stalled agent says nothing about launcher health. Other
+// failures count, with one shared follow-up check to tell a blink from a broken launcher. A terminal-shell failure
+// (errKindNotInTerminal) skips the check: the login shell is where the launcher already works.
 func (s *Service) recordStartFailure(ctx context.Context, machine, launcher string, err error) {
-	if err == nil || launcher == "" || transientStartErr(err) || errors.Is(err, ErrNoDevice) || startRefused(err) {
+	if err == nil || launcher == "" || transientStartErr(err) || errors.Is(err, ErrNoDevice) || startRefused(err) || startStalled(err) {
 		return
 	}
 	if terminalMissing(err) {
@@ -168,12 +167,10 @@ func (s *Service) recordStartFailure(ctx context.Context, machine, launcher stri
 		return
 	}
 	s.recordHealth(ctx, machine, launcher, healthResult{err: err.Error(), source: healthSourceStart})
-	go func() {
-		ctx := context.WithoutCancel(ctx)
-		if res, ok := s.probeLauncherHealth(ctx, machine, launcher); ok {
-			s.recordHealth(ctx, machine, launcher, res)
-		}
-	}()
+	// Reserve before launching the goroutine: a task's immediate detour must join this check, even before it runs.
+	if rc, run := s.claimHealthRecheck(ctx, machine, launcher); run {
+		go s.runHealthRecheck(context.WithoutCancel(ctx), machine, launcher, rc, true)
+	}
 }
 
 // recordStartSuccess: an agent started with launcher on machine, so the terminal there runs it: a record saying it
@@ -328,4 +325,11 @@ func startRefused(err error) bool {
 		return slices.Contains(startRefusalCodes, re.Code)
 	}
 	return startRequestErr.MatchString(re.Message)
+}
+
+// startStalled is a node's coded timeout after opening the agent. Text from older nodes deliberately keeps the
+// previous failure handling; guessing from translated messages could suppress genuine launcher failures.
+func startStalled(err error) bool {
+	var re *rpc.Error
+	return errors.As(err, &re) && re.Code == proto.CodeAgentStartStalled
 }

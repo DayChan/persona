@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_sent_title">Sent as you</string>
+    <string name="settings_sent_title">Records sent as you</string>
     <string name="settings_sent_subtitle">What Persona sent in your name, and why it was allowed</string>
     <string name="settings_sent_demo">There\'s nothing sent as you in demo mode. Connect your own hub first</string>
     <string name="settings_sent_intro">What Persona sent in your name through your connectors, newest first. Tap a row for the full text.</string>

@@ -337,10 +337,20 @@ func (s *Service) lastSeq(ctx context.Context, machine, sid string) int {
 
 // uploadBytes saves a file on a machine (its temp directory, like the app's uploads) and returns the path.
 func (s *Service) uploadBytes(ctx context.Context, machine, name string, data []byte) (string, error) {
+	return s.uploadBytesInto(ctx, machine, name, data, "")
+}
+
+// uploadBytesInto is uploadBytes into the node's dest ("": its temp directory; "terminal": uploads/terminal/<date>/,
+// swept after 7 days, node/upload_sweep.go).
+func (s *Service) uploadBytesInto(ctx context.Context, machine, name string, data []byte, dest string) (string, error) {
 	var begin struct {
 		UploadID string `json:"upload_id"`
 	}
-	if err := s.call(ctx, machine, "file.upload.begin", map[string]any{"name": name, "size": len(data)}, &begin); err != nil {
+	params := map[string]any{"name": name, "size": len(data)}
+	if dest != "" {
+		params["dest"] = dest
+	}
+	if err := s.call(ctx, machine, "file.upload.begin", params, &begin); err != nil {
 		return "", err
 	}
 	for off := 0; off < len(data); off += proto.UploadChunkBytes {

@@ -116,9 +116,10 @@ class Router(
             "inbox" -> InboxItemRoute(parameters["item"] ?: return null)
             "new-todo" -> NewTodoRoute
             "lark" -> LarkChatRoute(parameters["chat"] ?: return null)
-            "settings" -> SettingsPageRoute(SettingsPage.entries.firstOrNull {
-                it.name.equals(parameters["page"], ignoreCase = true)
-            } ?: return null)
+            "settings" -> SettingsPageRoute(if (parameters["page"] == "connectors/sent") SettingsPage.Sent
+                else SettingsPage.entries.firstOrNull {
+                    it.name.equals(parameters["page"], ignoreCase = true)
+                } ?: return null)
             "tab" -> tabRoot(AppTab.entries.firstOrNull { it.name.equals(ProtocolCompatibility.canonicalTab(parameters["tab"]), ignoreCase = true) } ?: return null)
             else -> return null
         }
@@ -170,9 +171,26 @@ fun ResolvedRoute.restore(stacks: Map<AppTab, MutableList<NavKey>>, newTodo: New
             stack[existing] = key
         }
     }
+    // Keep the serialized Sent key compatible, but make its parent explicit for links and history restores.
+    restoreConnectorParents(stack)
     // The list kept from an earlier use keeps its state too: its sheet opens on this request, each time.
     if (key == NewTodoRoute) newTodo.request()
     return tab
+}
+
+/** Insert the ledger's connector parent without replacing its saved key or affecting other pages. */
+fun restoreConnectorParents(stack: MutableList<NavKey>) {
+    var index = 0
+    val parent = SettingsPageRoute(SettingsPage.Connectors)
+    while (index < stack.size) {
+        val key = stack[index]
+        val child = key == SettingsPageRoute(SettingsPage.Sent)
+        if (child && (index == 0 || stack[index - 1] != parent)) {
+            stack.add(index, parent)
+            index++
+        }
+        index++
+    }
 }
 
 private fun sameTarget(left: NavKey, right: NavKey): Boolean = when {

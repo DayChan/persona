@@ -4,7 +4,7 @@
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Dialog } from "./atoms";
+import { Dialog, Menu } from "./atoms";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -203,6 +203,72 @@ describe("Dialog focus", () => {
     expect(document.activeElement).toBe(field());
     act(() => void field()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(more);
+  });
+
+  describe("opened from a menu row chosen with the pointer", () => {
+    // jsdom has no CSS.escape (the menu's outside-press check calls it), and its click() neither sends a pointerdown
+    // nor focuses the button: `press` does all three, as a browser does (docs/lessons/web.md, "Popup menus")
+    beforeEach(() => {
+      const css = ((globalThis as { CSS?: Partial<typeof CSS> }).CSS ??= {});
+      css.escape ??= (s: string) => s.replace(/[^\w-]/g, (c) => `\\${c}`);
+    });
+    const press = (el: HTMLElement) => {
+      act(() => void el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerType: "mouse" })));
+      el.focus();
+      act(() => el.click());
+    };
+
+    // a header's More: the menu sits on the button, its Rename… row opens a Dialog with an autoFocus field
+    function MoreMenu({ anchor }: { anchor: HTMLElement }) {
+      const [menu, setMenu] = useState(true);
+      const [renaming, setRenaming] = useState(false);
+      return (
+        <>
+          {menu && <Menu anchor={anchor} onClose={() => setMenu(false)} items={[{ key: "rename", label: "Rename…", onSelect: () => setRenaming(true) }]} />}
+          <Dialog open={renaming} onClose={() => setRenaming(false)} title="Rename">
+            <input autoFocus data-testid="field" />
+          </Dialog>
+        </>
+      );
+    }
+    const row = () => [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((b) => b.textContent?.includes("Rename"))!;
+    const escape = () => act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+
+    it("gives the focus back to the menu's button, not to the row that is gone", () => {
+      act(() => root.render(<StrictMode><MoreMenu anchor={opener} /></StrictMode>));
+      press(row());
+      expect(document.querySelector("[data-menu]")).toBeNull();
+      expect(document.activeElement).toBe(field());
+      escape();
+      expect(document.querySelector("[role=dialog]")).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    });
+
+    it("gives it to a focusable anchor when nothing had the focus as the menu opened", () => {
+      // a browser that does not focus a clicked button (Safari): the menu opens with the focus on body
+      opener.blur();
+      act(() => root.render(<StrictMode><MoreMenu anchor={opener} /></StrictMode>));
+      press(row());
+      escape();
+      expect(document.activeElement).toBe(opener);
+    });
+
+    it("gives it to the row's own control when the ⋯ that opened it can no longer take it", () => {
+      // a sidebar row: the menu sits on the row (its link and its ⋯), and the ⋯ shows only under the pointer
+      const box = document.createElement("div");
+      const link = document.createElement("a");
+      link.href = "#row";
+      const dots = document.createElement("button");
+      box.append(link, dots);
+      document.body.append(box);
+      dots.focus();
+      act(() => root.render(<StrictMode><MoreMenu anchor={box} /></StrictMode>));
+      dots.remove(); // gone from under the menu, as the hidden ⋯ is for the browser's focus
+      press(row());
+      escape();
+      expect(document.activeElement).toBe(link);
+      box.remove();
+    });
   });
 
   it("wraps Tab and Shift+Tab among its controls", () => {

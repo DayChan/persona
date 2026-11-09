@@ -31,6 +31,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -391,28 +393,73 @@ class SentShotsTest {
         rule.onNode(hasText("重试") and hasClickAction()).assertExists()
     }
 
-    /** Sent as you sits right after Connectors, opens its page, and is left out where there is no hub (demo mode). */
+    /** The real Settings home has one Connectors entry; the ledger is a secondary page with Back to Connectors. */
+    @Config(sdk = [35], qualifiers = "zh-w400dp-h900dp-xhdpi")
     @Test fun theSettingsRowSitsAfterTheConnectorsAndOpensThePage() {
-        var opened: SettingsPage? = null
         var services by mutableStateOf(settingsServices(FakeSent()))
         rule.setContent {
             PersonaTheme(reduceMotion = true) {
-                Box(Modifier.width(400.dp).height(3200.dp)) { SettingsScreen(services, onOpen = { opened = it }) }
+                Box(Modifier.testTag("shot").width(400.dp).height(900.dp)) { SettingsScreen(services) }
             }
         }
-        rule.waitForIdle()
-        val row = rule.onNode(hasText("以你的名义发出") and hasClickAction()).fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithText("以你的名义发出的记录").assertDoesNotExist()
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("连接器") and hasClickAction())
+        rule.onNode(hasText("连接器") and hasClickAction()).performClick()
+        rule.onNodeWithText("以你的名义发出的记录").assertExists()
+        val row = rule.onNode(hasText("以你的名义发出的记录") and hasClickAction()).fetchSemanticsNode().boundsInRoot
         val mail = rule.onNode(hasText("邮箱") and hasClickAction()).fetchSemanticsNode().boundsInRoot
-        val appearance = rule.onNodeWithText("外观").fetchSemanticsNode().boundsInRoot
-        assertTrue(row.top >= mail.bottom && row.bottom <= appearance.top)
-        rule.onNode(hasText("以你的名义发出") and hasClickAction()).performClick()
+        assertTrue(row.top >= mail.bottom)
+        rule.onNodeWithText("以你的名义发出的记录").performClick()
+        rule.onNodeWithText("Persona 通过连接器以你的名义发出的内容，新的在前。点一行看全文。").assertExists()
+        rule.onNodeWithContentDescription("返回").performClick()
+        rule.onNode(hasText("邮箱") and hasClickAction()).assertExists()
+        rule.onNodeWithContentDescription("返回").performClick()
+        rule.onNodeWithText("以你的名义发出的记录").assertDoesNotExist()
+    }
+
+    @Config(sdk = [35], qualifiers = "zh-w400dp-h900dp-xhdpi")
+    @Test fun connectorsEntryKeepsTheNavigationTargetAndCapabilityGate() {
+        var opened: SettingsPage? = null
+        var services by mutableStateOf(settingsServices(FakeSent()))
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            SettingsScreen(services, initialPage = "connectors", onOpen = { opened = it })
+        } }
+        rule.onNodeWithText("以你的名义发出的记录").performClick()
         assertEquals(SettingsPage.Sent, opened)
         services = services.copy(demo = true)
-        rule.waitForIdle()
-        rule.onAllNodesWithText("以你的名义发出").assertCountEquals(0)
+        rule.onNodeWithText("以你的名义发出的记录").assertDoesNotExist()
         services = services.copy(demo = false, sent = null)
-        rule.waitForIdle()
-        rule.onAllNodesWithText("以你的名义发出").assertCountEquals(0)
+        rule.onNodeWithText("以你的名义发出的记录").assertDoesNotExist()
+    }
+
+    /** JVM native-rendered evidence uses the real connector list and real ledger, not lookalike rows. */
+    @Config(sdk = [35], qualifiers = "zh-w400dp-h900dp-xhdpi")
+    @Test fun nestedPagesInEveryStyleAndAppearance() {
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        var page by mutableStateOf("connectors")
+        val services = settingsServices(FakeSent())
+        rule.setContent { PersonaTheme(style = style, darkTheme = dark, reduceMotion = true) {
+            Box(Modifier.testTag("shot").width(400.dp).height(900.dp).background(PersonaTheme.palette.background)) {
+                SettingsScreen(services, initialPage = page)
+            }
+        } }
+        for (s in AppStyle.entries) {
+            style = s
+            for (d in listOf(false, true)) {
+                dark = d
+                androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                page = "connectors"
+                rule.onNodeWithText("以你的名义发出的记录").assertExists()
+                capture("nested-connectors-${s.key}-${if (d) "dark" else "light"}")
+                // The legacy standalone page name remains accepted, but Back now reaches Connectors.
+                page = "sent"
+                rule.onNodeWithText("Persona 通过连接器以你的名义发出的内容，新的在前。点一行看全文。").assertExists()
+                capture("nested-ledger-${s.key}-${if (d) "dark" else "light"}")
+                rule.onNodeWithContentDescription("返回").performClick()
+                rule.onNode(hasText("邮箱") and hasClickAction()).assertExists()
+            }
+        }
     }
 
     private fun settingsServices(api: HubSent) = SettingsServices(

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -111,6 +112,36 @@ func TestResponsesProbeRejectsUnfinishedStreams(t *testing.T) {
 		if out["ok"] != false || out["error"] == nil {
 			t.Fatalf("body %s: %v", body, out)
 		}
+	}
+}
+
+// The probe passes exactly the Responses streams the runtime reads to a reply: both frame events with ai.SSEEvents, so
+// an event split over data lines, or events sent one data line each without a blank line between, read the same.
+func TestResponsesProbeReadsStreamsLikeTheRuntime(t *testing.T) {
+	delta := `data: {"type":"response.output_text.delta","delta":"hi"}`
+	for name, c := range map[string]struct {
+		body string
+		ok   bool
+	}{
+		"completed over two data lines":    {delta + "\n\n" + "data: {\"type\":\n" + "data: \"response.completed\"}\n\n", true},
+		"no blank line between events":     {delta + "\n" + `data: {"type":"response.completed"}` + "\n", true},
+		"cut before the terminal event":    {delta + "\n\n", false},
+		"failed without a blank line":      {delta + "\n" + `data: {"type":"response.failed"}` + "\n", false},
+		"completed after failed, no blank": {delta + "\n" + `data: {"type":"response.failed"}` + "\n" + `data: {"type":"response.completed"}`, false},
+		"completed after a comment and id": {": ping\n\n" + delta + "\n\nid: 2\n" + `data: {"type":"response.completed"}`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := responsesProbeCompleted(strings.NewReader(c.body)); got != c.ok {
+				t.Errorf("probe ok %v, want %v", got, c.ok)
+			}
+			gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(c.body)) }))
+			defer gw.Close()
+			_, err := ai.New(ai.Config{API: "responses", BaseURL: gw.URL, APIKey: "k", Model: "m"}).Chat(context.Background(),
+				ai.Request{Messages: []ai.Message{{Role: ai.RoleUser, Content: "a"}}})
+			if (err == nil) != c.ok {
+				t.Errorf("runtime err %v, want ok %v", err, c.ok)
+			}
+		})
 	}
 }
 

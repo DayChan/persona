@@ -73,7 +73,13 @@ object HubLinks {
             else -> null
         }
         "agents" -> if (p.size == 1) HubPage.Screen(AgentsRoute) else null
-        "settings" -> if (p.size == 1) HubPage.Screen(SettingsRoute) else null
+        "settings" -> when {
+            p == listOf("settings", "sent") || p.size == 1 && (query["tab"] == "sent" ||
+                query["tab"] == "connectors" && query["connector"] == "-sent") -> HubPage.Screen(SettingsPageRoute(SettingsPage.Sent))
+            p.size == 1 && query["tab"] == "connectors" -> HubPage.Screen(SettingsPageRoute(SettingsPage.Connectors))
+            p.size == 1 -> HubPage.Screen(SettingsRoute)
+            else -> null
+        }
         "machines" -> when (p.size) {
             1 -> HubPage.Screen(MachinesRoute)
             2 -> HubPage.Screen(MachineDetailRoute(p[1]))

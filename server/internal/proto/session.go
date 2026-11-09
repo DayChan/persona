@@ -337,6 +337,9 @@ const (
 	// CodeTerminalNotReady: the new tab's terminal would not take the start command (herdr's pane_send_failed); nothing
 	// ran, the tab is closed, a retry may work (node/typedstart.go). 503, retryable.
 	CodeTerminalNotReady = "terminal_not_ready"
+	// CodeAgentStartStalled: the agent opened but its session never became identifiable. This says nothing about
+	// launcher health and must not trigger an automatic retry or a health detour.
+	CodeAgentStartStalled = "agent_start_stalled"
 )
 
 // TodoRef is a session's link to an active todo (docs/assistant/todos.md).

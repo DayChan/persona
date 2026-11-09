@@ -22,6 +22,12 @@ When you hand new work to an agent that runs already (one the user opened, a lon
       "type": "boolean",
       "description": "Press Enter first to close a notice that only says \"Enter to continue\" (no options). Any other dialog still refuses the send."
     },
+    "attachments": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string" },
+      "description": "pictures and files the user gave you for it, by their absolute paths on your computer: a picture they sent (the path Claude Code gives it), a file the app put in their message. They are copied to the agent's computer and listed at the end of its message, and the text's mentions of them name the copies. Only those the user gave you in this conversation are accepted"
+    },
     "task": {
       "type": "object",
       "description": "new work: make it your supervised task first (main conversation only)",

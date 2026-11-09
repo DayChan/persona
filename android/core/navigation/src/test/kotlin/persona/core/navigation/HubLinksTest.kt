@@ -57,6 +57,16 @@ class HubLinksTest {
         assertEquals(HubPage.Screen(MachineDetailRoute("m1")), page("$hub/machines/m1"))
     }
 
+    @Test fun legacyAndCanonicalSentLinksOpenTheNestedLedger() {
+        val sent = HubPage.Screen(SettingsPageRoute(SettingsPage.Sent))
+        listOf("/settings?tab=sent", "/settings/sent", "/settings/sent/", "/settings?tab=connectors&connector=-sent").forEach {
+            assertEquals(it, sent, page("$hub$it"))
+        }
+        assertEquals(HubPage.Screen(SettingsPageRoute(SettingsPage.Connectors)), page("$hub/settings?tab=connectors"))
+        assertNull(page("$hub/settings/sent/more"))
+        assertNull(page("https://other.example.com/settings/sent"))
+    }
+
     @Test fun leavesPagesWithoutAScreenToTheWeb() {
         listOf("/s/m1", "/s/m1/abc-1/more", "/kb/people/x", "/terminal", "/admin", "/api/v1/sessions", "/assets/app.js",
             "/persona/abc/more", "/todos/a/b", "/extension/x/y").forEach { assertNull(it, page("$hub$it")) }

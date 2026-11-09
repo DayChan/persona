@@ -34,15 +34,6 @@ struct AppearanceSection: View {
                                 value: AppLanguage.settingsSummary, look: .oneLine)
                 }
                 .accessibilityIdentifier("settings-language")
-                #if os(iOS)
-                // Persona's conversation on iPhone and iPad (#1666); the Mac and Vision Pro keep their look.
-                NavigationLink(value: SettingsPage.chatLayout) {
-                    SettingsRow(title: String(localized: "New Conversation Layout"), symbol: Theme.Icon.conversation, tint: Theme.Hue.orange,
-                                value: ChatLayoutSettings.shared.on ? String(localized: "On") : String(localized: "Off"), look: .oneLine)
-                }
-                .settingsListRow(SettingsPage.chatLayout)
-                .accessibilityIdentifier("settings-chat-layout")
-                #endif
                 #if os(iOS) || os(visionOS)
                 NavigationLink(value: SettingsPage.colorScheme) {
                     SettingsRow(title: String(localized: "Light & Dark"), symbol: Theme.Icon.colorScheme, tint: Theme.Hue.indigo,

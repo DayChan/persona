@@ -57,6 +57,12 @@ describe("keys in an open menu", () => {
   it("Esc closes", () => {
     expect(key("Escape", 2, 1)).toEqual({ type: "close" });
   });
+  it("Tab leaves: the menu closes and the focus moves on, at any level and with a row highlighted or not", () => {
+    expect(key("Tab", 2)).toEqual({ type: "leave" });
+    expect(key("Tab", -1, 1)).toEqual({ type: "leave" });
+    expect(key("Tab", 0, 0, items, { shiftKey: true })).toEqual({ type: "leave" });
+    expect(key("Tab", 0, 0, items, { ctrlKey: true })).toEqual({ type: "none" }); // the browser's tab switching
+  });
   it("a letter chooses its row, in either case, never a disabled one", () => {
     expect(key("c")).toEqual({ type: "choose", index: 0 });
     expect(key("G")).toEqual({ type: "choose", index: 2 });

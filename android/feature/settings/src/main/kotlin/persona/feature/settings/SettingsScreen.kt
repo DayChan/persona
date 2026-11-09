@@ -67,7 +67,7 @@ private fun SettingsContent(
     onBack: (() -> Unit)?,
     onNavigate: ((androidx.navigation3.runtime.NavKey) -> Unit)?,
 ) {
-    var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
+    var page by rememberSaveable(initialPage) { mutableStateOf(settingsPageFromInitialPage(initialPage)?.toInitialPage() ?: initialPage) }
     var purposeManager by rememberSaveable(initialPage) { mutableStateOf<String?>(null) }
     var purpose by rememberSaveable(initialPage) { mutableStateOf<String?>(null) }
     var extension by rememberSaveable(initialPage) { mutableStateOf<String?>(null) }
@@ -158,7 +158,7 @@ private fun SettingsContent(
     }
     LaunchedEffect(hubUpdates) { hubUpdates?.events?.collect { hubUpdateStatus = it } }
     LaunchedEffect(connectorsService, page, connection, larkChats) {
-        if (connectorsService == null || page != "settings" || connection != ConnectionState.Online) return@LaunchedEffect
+        if (connectorsService == null || page != "connectors" || connection != ConnectionState.Online) return@LaunchedEffect
         try {
             mailAccounts = runCatching { connectorsService.mailAccounts() }.getOrNull()
             // Lark's status is the Lark extension's (`/api/v1/lark/status`): only asked while the hub has it.
@@ -167,8 +167,11 @@ private fun SettingsContent(
         } catch (_: Exception) {}
     }
     val back: () -> Unit = onBack ?: {
-        if (page == "mail-add") page = "mail"
-        else page = "settings"
+        page = when {
+            page == "mail-add" -> "mail"
+            page in setOf("sent", "connectors/sent", "phone", "mail", "feishu", "feishu-bot") || page.startsWith("connector/") -> "connectors"
+            else -> "settings"
+        }
     }
     BackHandler(page != "settings" && onBack == null, onBack = back)
     val detailKey = LocalDetailKey.current
@@ -181,7 +184,80 @@ private fun SettingsContent(
             scope.launch { deviceController.disconnect() }
         }
     }
+    val connectorItems: LazyListScope.() -> Unit = {
+        val connectorRows = connectorRows(hubConnectors, lark = larkChats)
+        fun connectorPosition(row: ConnectorRow) = GroupPosition.of(connectorRows.indexOf(row), connectorRows.size)
+        item {
+            JGroupItem(connectorPosition(ConnectorRow.Phone)) {
+                JRow(
+                    selected = detailKey == SettingsPageRoute(SettingsPage.PhoneData),
+                    title = stringResource(R.string.settings_diag_phone),
+                    leadingIcon = PhIcons.DeviceMobile,
+                    subtitle = stringResource(R.string.settings_row_phone_subtitle),
+                    value = ConnectorText.device(phoneOn),
+                    onClick = { if (onOpen == null && onPhoneData != null) onPhoneData() else open(SettingsPage.PhoneData) },
+                )
+            }
+        }
+        item {
+            JGroupItem(connectorPosition(ConnectorRow.Mail)) {
+                JRow(
+                    selected = detailKey == SettingsPageRoute(SettingsPage.Mail),
+                    title = stringResource(R.string.settings_row_mail),
+                    leadingIcon = PhIcons.EnvelopeSimple,
+                    subtitle = stringResource(R.string.settings_row_mail_subtitle),
+                    value = ConnectorText.mail(mailAccounts),
+                    onClick = { open(SettingsPage.Mail) },
+                )
+            }
+        }
+        if (ConnectorRow.Lark in connectorRows) item {
+            JGroupItem(connectorPosition(ConnectorRow.Lark)) {
+                JRow(
+                    selected = detailKey == SettingsPageRoute(SettingsPage.Feishu),
+                    title = stringResource(R.string.settings_row_lark),
+                    leadingIcon = PhIcons.ChatCircleDots,
+                    subtitle = stringResource(R.string.settings_row_lark_subtitle),
+                    value = ConnectorText.lark(larkStatus),
+                    onClick = { open(SettingsPage.Feishu) },
+                )
+            }
+        }
+        connectorRows.filterIsInstance<ConnectorRow.Hub>().forEach { row ->
+            val c = row.connector
+            item {
+                JGroupItem(connectorPosition(row)) {
+                    JRow(
+                        title = connectorTitle(c, hubConnectors, LocalManagerRoster.current),
+                        leadingIcon = PhIcons.PlugsConnected,
+                        subtitle = listOfNotNull(c.account, c.via).joinToString(" · ").ifEmpty { ConnectorText.state(c) },
+                        value = ConnectorText.summary(c),
+                        onClick = {
+                            onNavigate?.invoke(persona.core.navigation.ConnectorRoute(c.id, c.manager)) ?: run {
+                                connectorManager = c.manager
+                                page = "connector/${c.id}"
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        item {
+            SettingsCaption(
+                stringResource(R.string.settings_connectors_caption),
+                Modifier.padding(horizontal = pagePadding, vertical = Tokens.Space.s),
+            )
+        }
+        // The host-owned ledger entry follows every connector, as on the web (#2521).
+        if (services.sent != null && !services.demo) item {
+            JGroupItem(GroupPosition.Single, Modifier.padding(top = Tokens.Space.s)) {
+                JRow(selected = detailKey == SettingsPageRoute(SettingsPage.Sent), title = stringResource(R.string.settings_sent_title),
+                    leadingIcon = PhIcons.PaperPlaneTilt, subtitle = stringResource(R.string.settings_sent_subtitle), onClick = { open(SettingsPage.Sent) })
+            }
+        }
+    }
     when (page) {
+        "connectors" -> JListPage(title = stringResource(R.string.settings_section_connectors), onBack = back, content = connectorItems)
         "pair" -> PairingScreen(services.pairing, services.sessions, onReady = back,
             onDiagnostics = { open(SettingsPage.Diagnostics) }, diagnostics = services.diagnostics, onBack = back,
             footer = { onDemo?.let { Action(stringResource(R.string.settings_try_demo), onClick = it) }; deviceFeedback() },
@@ -240,7 +316,7 @@ private fun SettingsContent(
             devices = services.deviceSettings.takeUnless { services.demo }, machines = machines) }
             ?: ManagersPage(services.managers.takeUnless { services.demo }, back,
                 onManager = { id -> onNavigate?.invoke(persona.core.navigation.ManagerRoute(id)) ?: run { manager = id } })
-        "sent" -> SentAsYouPage(services.sent.takeUnless { services.demo }, back,
+        "sent", "connectors/sent" -> SentAsYouPage(services.sent.takeUnless { services.demo }, back,
             // A chat opens by its ids in the hub's group, as every other page's link to one does.
             onChat = onNavigate?.let { navigate -> { machine, session -> navigate(persona.core.navigation.ChatRoute(machine, session)) } })
         "hub-update" -> HubUpdatePage(hubUpdates, machines, back, online = connection == ConnectionState.Online, onMachine = onNavigate)
@@ -368,76 +444,11 @@ private fun SettingsContent(
                 }
             }
             item { JSectionHeader(stringResource(R.string.settings_section_connectors)) }
-            val connectorRows = connectorRows(hubConnectors, lark = larkChats)
-            fun connectorPosition(row: ConnectorRow) = GroupPosition.of(connectorRows.indexOf(row), connectorRows.size)
-            item {
-                JGroupItem(connectorPosition(ConnectorRow.Phone)) {
-                    JRow(
-                        selected = detailKey == SettingsPageRoute(SettingsPage.PhoneData),
-                        title = stringResource(R.string.settings_diag_phone),
-                        leadingIcon = PhIcons.DeviceMobile,
-                        subtitle = stringResource(R.string.settings_row_phone_subtitle),
-                        value = ConnectorText.device(phoneOn),
-                        onClick = { if (onOpen == null && onPhoneData != null) onPhoneData() else open(SettingsPage.PhoneData) },
-                    )
-                }
-            }
-            item {
-                JGroupItem(connectorPosition(ConnectorRow.Mail)) {
-                    JRow(
-                        selected = detailKey == SettingsPageRoute(SettingsPage.Mail),
-                        title = stringResource(R.string.settings_row_mail),
-                        leadingIcon = PhIcons.EnvelopeSimple,
-                        subtitle = stringResource(R.string.settings_row_mail_subtitle),
-                        value = ConnectorText.mail(mailAccounts),
-                        onClick = { open(SettingsPage.Mail) },
-                    )
-                }
-            }
-            if (ConnectorRow.Lark in connectorRows) item {
-                JGroupItem(connectorPosition(ConnectorRow.Lark)) {
-                    JRow(
-                        selected = detailKey == SettingsPageRoute(SettingsPage.Feishu),
-                        title = stringResource(R.string.settings_row_lark),
-                        leadingIcon = PhIcons.ChatCircleDots,
-                        subtitle = stringResource(R.string.settings_row_lark_subtitle),
-                        value = ConnectorText.lark(larkStatus),
-                        onClick = { open(SettingsPage.Feishu) },
-                    )
-                }
-            }
-            connectorRows.filterIsInstance<ConnectorRow.Hub>().forEach { row ->
-                val c = row.connector
-                item {
-                    JGroupItem(connectorPosition(row)) {
-                        JRow(
-                            title = connectorTitle(c, hubConnectors, LocalManagerRoster.current),
-                            leadingIcon = PhIcons.PlugsConnected,
-                            subtitle = listOfNotNull(c.account, c.via).joinToString(" · ").ifEmpty { ConnectorText.state(c) },
-                            value = ConnectorText.summary(c),
-                            onClick = {
-                                onNavigate?.invoke(persona.core.navigation.ConnectorRoute(c.id, c.manager)) ?: run {
-                                    connectorManager = c.manager
-                                    page = "connector/${c.id}"
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-            item {
-                SettingsCaption(
-                    stringResource(R.string.settings_connectors_caption),
-                    Modifier.padding(horizontal = pagePadding, vertical = Tokens.Space.s),
-                )
-            }
-            // What Persona sent in the user's name through the connectors (#5278, docs/extensions/connectors.md "Sent as the user"), right after them.
-            if (services.sent != null && !services.demo) item {
-                JGroupItem(GroupPosition.Single, Modifier.padding(top = Tokens.Space.s)) {
-                    JRow(selected = detailKey == SettingsPageRoute(SettingsPage.Sent), title = stringResource(R.string.settings_sent_title),
-                        leadingIcon = PhIcons.PaperPlaneTilt, subtitle = stringResource(R.string.settings_sent_subtitle), onClick = { open(SettingsPage.Sent) })
-                }
-            }
+            item { JGroupItem(GroupPosition.Single) {
+                JRow(selected = detailKey == SettingsPageRoute(SettingsPage.Connectors) || detailKey == SettingsPageRoute(SettingsPage.Sent),
+                    title = stringResource(R.string.settings_section_connectors), leadingIcon = PhIcons.PlugsConnected,
+                    subtitle = stringResource(R.string.settings_connectors_caption), onClick = { open(SettingsPage.Connectors) })
+            } }
             item { JSectionHeader(stringResource(R.string.settings_section_appearance)) }
             item { JGroupItem(GroupPosition.of(0, 3)) { JRow(selected = detailKey == SettingsPageRoute(SettingsPage.Persona), title = stringResource(R.string.settings_avatar_title), leadingIcon = PhIcons.Robot, value = if (LocalPersonaPack.current != null) LocalPersonaName.current else LocalPersonaDesign.current.title, onClick = { open(SettingsPage.Persona) }) } }
             item { JGroupItem(GroupPosition.of(1, 3)) { JRow(selected = detailKey == SettingsPageRoute(SettingsPage.Appearance), title = stringResource(R.string.settings_style_title), leadingIcon = PhIcons.SquaresFour, value = PersonaTheme.style.label, onClick = { open(SettingsPage.Appearance) }) } }

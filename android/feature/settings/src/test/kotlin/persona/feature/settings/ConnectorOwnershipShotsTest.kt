@@ -92,7 +92,7 @@ class ConnectorOwnershipShotsTest {
             PersonaTheme(style = style, darkTheme = dark, reduceMotion = true) {
                 CompositionLocalProvider(LocalManagerRoster provides roster) {
                     Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background).testTag("shot")) {
-                        SettingsScreen(services, onNavigate = { opened += it as ConnectorRoute })
+                        SettingsScreen(services, initialPage = "connectors", onNavigate = { opened += it as ConnectorRoute })
                     }
                 }
             }

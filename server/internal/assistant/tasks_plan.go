@@ -24,6 +24,11 @@ type planTaskIn struct {
 }
 
 func (s *Service) toolTaskPlan(ctx context.Context, sessionID string, args json.RawMessage) (string, error) {
+	return s.toolTaskPlanFrom(ctx, s.mainMachine(ctx), sessionID, args)
+}
+
+// toolTaskPlanFrom is task_plan from the conversation sessionID running on machine (where its attachments are).
+func (s *Service) toolTaskPlanFrom(ctx context.Context, machine, sessionID string, args json.RawMessage) (string, error) {
 	var in struct {
 		Tasks []planTaskIn `json:"tasks"`
 	}
@@ -67,6 +72,17 @@ func (s *Service) toolTaskPlan(ctx context.Context, sessionID string, args json.
 		}
 		if t.Model != "" && !proto.ValidModelID(t.Model) { // it goes to the agent as --model (#1644)
 			return "", fmt.Errorf("task %d: model %q is not a model id: %s", i+1, t.Model, proto.ModelIDRule)
+		}
+		atts, err := cleanAttachments(t.Attachments)
+		if err == nil {
+			atts, err = s.checkAttachments(ctx, machine, sessionID, atts)
+		}
+		if err != nil {
+			return "", fmt.Errorf("task %d: %w", i+1, err)
+		}
+		t.Attachments, t.Mentioned, t.AttachFrom = atts, s.mentionedAttachments(ctx, machine, sessionID, t.Prompt, atts), ""
+		if len(t.Attachments)+len(t.Mentioned) > 0 {
+			t.AttachFrom = machine
 		}
 		if !s.placeTask(ctx, t) {
 			return "", fmt.Errorf("task %d: unknown machine %q (machines: %s)", i+1, t.Machine, s.machineIDs(ctx))

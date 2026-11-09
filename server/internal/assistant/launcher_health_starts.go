@@ -128,10 +128,10 @@ func sessionStartErr(sess proto.Session) error {
 }
 
 // codedStartRefusal is err's code and text details when it is a coded refusal the hub words itself (apierr.Sentence): a
-// failed task's error_code and error_args. Nothing for any other error.
+// failed task's error_code and error_args. Stalled starts also keep their code, with the node's existing message.
 func codedStartRefusal(err error) (string, map[string]string) {
 	var re *rpc.Error
-	if !errors.As(err, &re) || apierr.Sentence(i18n.Default, re.Code, nil) == "" {
+	if !errors.As(err, &re) || re.Code != proto.CodeAgentStartStalled && apierr.Sentence(i18n.Default, re.Code, nil) == "" {
 		return "", nil
 	}
 	var data map[string]any

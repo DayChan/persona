@@ -219,6 +219,12 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 	var a map[string]any
 	_ = json.Unmarshal(p.Params, &a)
 	switch p.Method {
+	case "fs.stat":
+		var stats []map[string]string
+		for _, path := range a["paths"].([]any) {
+			stats = append(stats, map[string]string{"path": path.(string), "kind": "dir"})
+		}
+		return json.Marshal(map[string]any{"stats": stats})
 	case DeviceSessionSendOnce:
 		if sid, _ := a["session_id"].(string); f.failSendOnce[p.Device+"/"+sid] != nil {
 			return nil, f.failSendOnce[p.Device+"/"+sid]

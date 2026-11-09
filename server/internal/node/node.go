@@ -175,6 +175,8 @@ type Node struct {
 
 	// codexStarting: panes a Codex start is opening (codex_start.go): no thread is guessed for them meanwhile.
 	codexStarting map[string]bool
+	// codexAbandoned: failed starts whose pane could not be closed; a retry must close it before opening another.
+	codexAbandoned map[string][]codexAbandonedStart
 
 	expectedTokensMu sync.Mutex
 	expectedTokens   map[string]map[string]string

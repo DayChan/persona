@@ -5,6 +5,7 @@ package sessionlist
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"reflect"
 	"sync"
 	"time"
@@ -218,7 +219,7 @@ func (i *Index) Replace(source string, items []Item) {
 		// Strip monotonic clock data and normalize zones before comparison.
 		item.UpdatedAt = item.UpdatedAt.Round(0).UTC()
 		previous := old[item.ID]
-		if previous != nil && reflect.DeepEqual(previous.item, item) {
+		if previous != nil && sameItem(&previous.item, &item) {
 			next[item.ID] = previous
 			continue
 		}
@@ -270,8 +271,45 @@ func (i *Index) Replace(source string, items []Item) {
 	i.cache = make(map[cacheKey]*cacheEntry)
 }
 
+// sameItem is reflect.DeepEqual(*a, *b) without walking what is plainly the same: the attributes compared as values,
+// a payload that is the very bytes stored (an item Items returned, handed back) by its slice. Anything else, such as
+// a payload built again, is left to reflect.DeepEqual.
+func sameItem(a, b *Item) bool {
+	if !samePayload(a.Full, b.Full) || !samePayload(a.Summary, b.Summary) {
+		return false
+	}
+	x, y := *a, *b
+	x.Full, x.Summary, y.Full, y.Summary = nil, nil, nil, nil
+	return x == y || reflect.DeepEqual(x, y)
+}
+
+func samePayload(a, b any) bool {
+	if x, ok := a.(json.RawMessage); ok {
+		if y, ok := b.(json.RawMessage); ok && len(x) > 0 && len(x) == len(y) && &x[0] == &y[0] {
+			return true
+		}
+	}
+	return reflect.DeepEqual(a, b)
+}
+
 // RemoveSource removes an owner's entire batch in one revision.
 func (i *Index) RemoveSource(source string) { i.Replace(source, nil) }
+
+// Items returns the current items with the given IDs, in order, and the zero
+// Item for an ID the index does not hold, all under one lock. The items are
+// copies, but their Full and Summary are the index's own: callers only read
+// them, or hand them back to Replace unchanged, which then keeps the record.
+func (i *Index) Items(ids []string) []Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	out := make([]Item, len(ids))
+	for k, id := range ids {
+		if r := i.items[id]; r != nil {
+			out[k] = r.item
+		}
+	}
+	return out
+}
 
 func (i *Index) pruneSnapshots() {
 	now := i.now()

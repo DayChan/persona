@@ -20,6 +20,8 @@ internal class AppNavigator(
      */
     private val openedFrom = mutableMapOf<NavKey, AppTab>()
 
+    init { stacks.values.forEach(::restoreConnectorParents) }
+
     override fun selectTab(tab: AppTab) {
         if (tab != selectedTab()) openedFrom.clear()
         onSelectTab(tab)
