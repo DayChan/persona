@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -14,8 +15,10 @@ import (
 // restartReceiptStore preserves both settings and receipt rows across manager instances.
 type restartReceiptStore struct {
 	memStore
-	muFeed sync.Mutex
-	rows   []db.FeedRow
+	muFeed    sync.Mutex
+	rows      []db.FeedRow
+	writes    chan bool
+	blockOnce chan struct{}
 }
 
 func (s *restartReceiptStore) AppendFeed(_ context.Context, row db.FeedRow) error {
@@ -23,6 +26,33 @@ func (s *restartReceiptStore) AppendFeed(_ context.Context, row db.FeedRow) erro
 	defer s.muFeed.Unlock()
 	s.rows = append(s.rows, row)
 	return nil
+}
+
+// AppendFeedOnce commits before optionally blocking its caller, as if the process
+// stopped after the database write but before the manager got its acknowledgment.
+func (s *restartReceiptStore) AppendFeedOnce(_ context.Context, row db.FeedRow) (bool, error) {
+	s.muFeed.Lock()
+	inserted := true
+	for _, existing := range s.rows {
+		if existing.ID == row.ID {
+			inserted = false
+			break
+		}
+	}
+	if inserted {
+		s.rows = append(s.rows, row)
+	}
+	block, writes := s.blockOnce, s.writes
+	s.blockOnce = nil
+	s.muFeed.Unlock()
+	if writes != nil {
+		writes <- inserted
+	}
+	if block != nil {
+		<-block
+		return false, errors.New("process stopped after feed commit")
+	}
+	return inserted, nil
 }
 
 func (s *restartReceiptStore) receipts() int {
@@ -106,4 +136,71 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 			})
 		})
 	}
+}
+
+// The feed row can commit just before a manager dies. A new manager must
+// replay the follow-up even when the idempotent feed insert finds that row.
+func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		defer close(release)
+		store := &restartReceiptStore{writes: make(chan bool, 4), blockOnce: release}
+		linked := time.Now().Add(-time.Hour)
+		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked,
+			Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
+		newNode := func() *fakeHub {
+			node := newFakeHub()
+			node.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "session", Status: proto.StatusDone,
+				State: proto.StateIdle, LastText: "Finished", UpdatedAt: time.Now()}}
+			node.items = []proto.Item{{Role: "assistant", Kind: "text", Text: "Finished"}}
+			return node
+		}
+		old := New(Options{Hub: newNode(), Store: func() Store { return store }})
+		putTodo(old, todo)
+		oldCtx, stopOld := context.WithCancel(context.Background())
+		oldDone := make(chan struct{})
+		go func() { defer close(oldDone); old.Run(oldCtx) }()
+		synctest.Wait()
+		old.taskTurnEndedAfter(oldCtx, "box", "session", time.Now().Add(time.Minute))
+		select {
+		case inserted := <-store.writes:
+			if !inserted {
+				t.Fatal("first feed write did not insert the receipt")
+			}
+		case <-time.After(2 * time.Minute):
+			stopOld()
+			<-oldDone
+			t.Fatal("the original manager did not commit the feed row")
+		}
+		stopOld()
+		<-oldDone
+
+		restarted := New(Options{Hub: newNode(), Store: func() Store { return store }})
+		putTodo(restarted, todo)
+		ctx, stop := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); restarted.Run(ctx) }()
+		select {
+		case inserted := <-store.writes:
+			if inserted {
+				t.Error("restart inserted a second receipt instead of reusing the committed row")
+			}
+		case <-time.After(2 * time.Minute):
+			stop()
+			<-done
+			t.Fatal("the restarted manager did not revisit the committed receipt")
+		}
+		synctest.Wait()
+		if got := store.receipts(); got != 1 {
+			t.Errorf("feed contains %d receipts; want one", got)
+		}
+		restarted.quiet.mu.Lock()
+		notice := restarted.quiet.pending["task"]
+		restarted.quiet.mu.Unlock()
+		if notice == nil || notice.state != "done" {
+			t.Error("restarted manager did not resume the completion notice")
+		}
+		stop()
+		<-done
+	})
 }
