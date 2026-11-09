@@ -157,9 +157,12 @@ func validUsageName(n string) bool {
 
 // applyUsageInput puts in over s (a new source starts empty) and checks the result; the code is the one for the page.
 // The key goes with its address: changing where a source points means typing its key again, so that a saved key
-// cannot be sent somewhere else without being known.
+// cannot be sent somewhere else without being known. Only a saved key is held back that way (a source without one
+// moves freely, #1844), and an address counts as moved only when its normalized form changes: a hand-written
+// "https://pool.example.com/" in manager.json is the same address as the "https://pool.example.com" the page sends,
+// and a request that does not touch the address (the enable switch) never moves it.
 func applyUsageInput(s UsageSourceConfig, in usageSourceInput, isNew bool) (UsageSourceConfig, string, error) {
-	oldURL, oldType := s.URL, s.Type
+	oldURL, oldType := sameUsageURL(s.URL), s.Type
 	if in.Type != nil {
 		s.Type = strings.TrimSpace(*in.Type)
 	}
@@ -193,7 +196,7 @@ func applyUsageInput(s UsageSourceConfig, in usageSourceInput, isNew bool) (Usag
 			return s, "invalid_key", i18n.Err("hub-admin_usage.invalid_key")
 		}
 		s.Key = k
-	case moved:
+	case moved && s.Key != "":
 		s.Key = ""
 		if oldURL != "" {
 			return s, "key_required", i18n.Err("hub-admin_usage.key_required")
@@ -207,6 +210,15 @@ func applyUsageInput(s UsageSourceConfig, in usageSourceInput, isNew bool) (Usag
 		s.Enabled = &on
 	}
 	return s, "", nil
+}
+
+// sameUsageURL is a saved address as the page compares it: normalized, or as written when it does not parse (it then
+// differs from anything the page can send).
+func sameUsageURL(raw string) string {
+	if norm, err := usagesource.NormalizeURL(raw); err == nil {
+		return norm
+	}
+	return raw
 }
 
 var usageTesting atomic.Bool
@@ -409,7 +421,7 @@ func (d *Devices) adminUsageRoutes(mux *http.ServeMux) {
 			cfg.Key = ""
 		} else if cfg.Key == "" && in.ID != "" { // the saved key, only to the saved address
 			for _, s := range d.usageConfigNow().Sources {
-				if s.ID == in.ID && s.URL == norm && s.Type == cfg.Type {
+				if s.ID == in.ID && sameUsageURL(s.URL) == norm && s.Type == cfg.Type {
 					cfg.Key = s.Key
 				}
 			}

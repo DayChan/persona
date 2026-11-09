@@ -341,6 +341,73 @@ func TestAdminUsageSourceTestKeySelection(t *testing.T) {
 	}
 }
 
+// The key goes with its address only when there is a key (#1844): a source without one changes address or type freely.
+func TestAdminUsageKeylessSourceMovesFreely(t *testing.T) {
+	h, c := usageTestDevices(t, `{"token":"t"}`)
+	code, out, _ := c.do("POST", "/api/v1/admin/usage-sources", `{"type":"generic","name":"Pool","url":"https://pool.example.com/usage"}`)
+	src, _ := out["source"].(map[string]any)
+	if code != 200 || src == nil || src["has_key"] != false {
+		t.Fatalf("add: %d %v", code, out)
+	}
+	id := src["id"].(string)
+	if code, out, _ = c.do("PUT", "/api/v1/admin/usage-sources/"+id, `{"name":"Pool","type":"generic","url":"https://other.example.com/usage"}`); code != 200 {
+		t.Fatalf("keyless move: %d %v", code, out)
+	}
+	if entry := usageFile(t, h)["sources"].([]any)[0].(map[string]any); entry["url"] != "https://other.example.com/usage" || entry["key"] != nil {
+		t.Fatalf("entry: %v", entry)
+	}
+	// a relay still needs a key, saved or not
+	if code, out, _ = c.do("PUT", "/api/v1/admin/usage-sources/"+id, `{"type":"relay"}`); code != 400 || out["code"] != "key_required" {
+		t.Fatalf("to relay without a key: %d %v", code, out)
+	}
+	// and a saved key still does not follow a new address
+	if code, out, _ = c.do("PUT", "/api/v1/admin/usage-sources/"+id, `{"key":"`+usageTestKey+`"}`); code != 200 {
+		t.Fatalf("add a key: %d %v", code, out)
+	}
+	if code, out, _ = c.do("PUT", "/api/v1/admin/usage-sources/"+id, `{"url":"https://third.example.com/usage"}`); code != 400 || out["code"] != "key_required" {
+		t.Fatalf("keyed move: %d %v", code, out)
+	}
+	if entry := usageFile(t, h)["sources"].([]any)[0].(map[string]any); entry["url"] != "https://other.example.com/usage" || entry["key"] != usageTestKey {
+		t.Fatalf("rejected move written: %v", entry)
+	}
+}
+
+// An address written by hand in manager.json that the hub would write differently (a trailing slash) is still the same
+// address (#1844): the enable switch, a save with nothing changed and Test connection all keep the saved key.
+func TestAdminUsageHandWrittenAddressIsNotAMove(t *testing.T) {
+	const saved = `{"token":"t","usage":{"sources":[` +
+		`{"id":"keyed","name":"Keyed","type":"generic","url":"https://pool.example.com/","key":"` + usageTestKey + `"},` +
+		`{"id":"keyless","name":"Keyless","type":"generic","url":"https://free.example.com/usage/"}]}}`
+	h, c := usageTestDevices(t, saved)
+	for _, id := range []string{"keyed", "keyless"} {
+		if code, out, _ := c.do("PUT", "/api/v1/admin/usage-sources/"+id, `{"enabled":false}`); code != 200 {
+			t.Fatalf("%s: toggle: %d %v", id, code, out)
+		}
+	}
+	if code, out, _ := c.do("PUT", "/api/v1/admin/usage-sources/keyed", `{"name":"Keyed","type":"generic","url":"https://pool.example.com"}`); code != 200 {
+		t.Fatalf("save unchanged: %d %v", code, out)
+	}
+	if code, out, _ := c.do("PUT", "/api/v1/admin/usage-sources/keyless", `{"name":"Keyless","type":"generic","url":"https://free.example.com/usage"}`); code != 200 {
+		t.Fatalf("keyless save unchanged: %d %v", code, out)
+	}
+	got := h.usageGW.config().Sources
+	if len(got) != 2 || got[0].Key != usageTestKey || got[0].on() || got[1].on() {
+		t.Fatalf("saved: %+v", got)
+	}
+
+	// Test connection with the saved key, on a source whose address is still the hand-written one
+	h2, c2 := usageTestDevices(t, saved)
+	h2.usageConfigNow()
+	var tried string
+	h2.usageGW.fetch = func(_ context.Context, cfg usagesource.Config, _ time.Time) (usagesource.Result, error) {
+		tried = cfg.Key
+		return usagesource.Result{}, nil
+	}
+	if code, out, _ := c2.do("POST", "/api/v1/admin/usage-sources/test", `{"id":"keyed","type":"generic","url":"https://pool.example.com"}`); code != 200 || out["ok"] != true || tried != usageTestKey {
+		t.Fatalf("test: %d %v key=%q", code, out, tried)
+	}
+}
+
 func TestAdminUsageTakesUpAHandEditOnRead(t *testing.T) {
 	h, c := usageTestDevices(t, `{"token":"t","usage":{"poll_minutes":10,"sources":[{"id":"hand","name":"Hand","type":"generic","url":"https://gw.example.com/x","key":"`+usageTestKey+`"}]}}`)
 	_, out, w := c.do("GET", "/api/v1/admin/usage-sources", "")
