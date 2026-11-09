@@ -141,7 +141,8 @@ const CodeNoLauncher = "no_launcher"
 // CodeNoGateway: models.launcher_http's launcher has no gateway address of its own (it uses the official API).
 const CodeNoGateway = "no_gateway"
 
-// modelRoutes are the model configuration's routes the assistant answers (models.go, models_launchers_routes.go there).
+// modelRoutes are the model configuration's routes the assistant answers (models_routes.go,
+// models_launchers_routes.go there).
 var modelRoutes = []string{
 	"GET /api/v1/model-config",
 	"GET /api/v1/model-config/purposes/{id}",

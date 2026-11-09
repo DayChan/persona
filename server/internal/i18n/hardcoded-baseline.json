@@ -30,7 +30,7 @@
   "internal/assistant/launcher_health.go": 1,
   "internal/assistant/launcher_health_record.go": 1,
   "internal/assistant/launcher_repair.go": 1,
-  "internal/assistant/models.go": 1,
+  "internal/assistant/models_resolve.go": 1,
   "internal/assistant/origins.go": 3,
   "internal/assistant/quiet.go": 10,
   "internal/assistant/reports.go": 6,

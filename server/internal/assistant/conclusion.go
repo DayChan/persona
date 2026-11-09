@@ -208,7 +208,7 @@ func (s *Service) dropDecision(ctx context.Context, id string) {
 	a.AcceptedAt = time.Now().UTC()
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
-	s.boardChanged()
+	s.askChanged(ctx)
 }
 
 // askCopy is task id's ask as it is now (false: none, or a claim still going out).
