@@ -107,6 +107,9 @@ type scheduleLimitRetry struct {
 	LastRun time.Time   `json:"last_run"`
 	Failed  ScheduleRun `json:"failed"`
 	Claimed bool        `json:"claimed,omitempty"`
+	// A manual admission can advance LastRun before it sends; restore it on a proven pre-send failure.
+	ManualAt      time.Time `json:"manual_at,omitempty"`
+	ManualLastRun time.Time `json:"manual_last_run,omitempty"`
 }
 
 // armLimitRetry saves the wait before letting the scheduler see it. If storage is temporarily unavailable,
@@ -185,7 +188,7 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 		wait scheduleLimitRetry
 	}
 	for _, t := range sc.tasks {
-		if t.LimitRetry != nil && !t.LimitRetry.At.After(now) {
+		if t.LimitRetry != nil && (t.LimitRetry.Claimed || !t.LimitRetry.At.After(now)) {
 			due = append(due, struct {
 				id   string
 				wait scheduleLimitRetry
@@ -218,6 +221,7 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 		}
 		cur.MachineID, cur.SessionID, cur.limitRetry = w.Failed.MachineID, w.Failed.SessionID, true
 		cur.limitRetryRunID = w.Failed.ID
+		cur.limitOwnerDone, cur.limitWorkerStop = ownerDone, workerStop
 		s.sched.inflight.Add(1)
 		s.sched.limitInflight.Add(1)
 		go func() {
@@ -229,8 +233,23 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 	}
 }
 
-// errLimitRetryNotSent is used only when the node was unavailable before calling assistant.send.
-var errLimitRetryNotSent = errors.New("retry conversation's machine is unavailable")
+// errLimitRetryNotSent marks a failure known to have happened before assistant.send.
+var errLimitRetryNotSent = errors.New("retry was not sent")
+
+type limitPreSendError struct{ cause error }
+
+func (e limitPreSendError) Error() string        { return e.cause.Error() }
+func (e limitPreSendError) Unwrap() error        { return e.cause }
+func (e limitPreSendError) Is(target error) bool { return target == errLimitRetryNotSent }
+
+type limitStartKey struct{}
+
+func limitStartPreSend(ctx context.Context, err error) error {
+	if err != nil && ctx.Value(limitStartKey{}) != nil {
+		return limitPreSendError{cause: err}
+	}
+	return err
+}
 
 // dispatchLimitRetry is separated from the durable claim so tests can stop an owner at the boundary.
 func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Time, ownerDone, workerStop <-chan struct{}) {
@@ -246,17 +265,7 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 	if _, err := s.runTask(cur, now, now, false, true); err != nil {
 		s.logf("task %s retry: %v", cur.ID, err)
 		if errors.Is(err, errLimitRetryNotSent) || errors.Is(err, errTaskBusy) {
-			for !s.releaseUnsentLimitClaim(cur.ID, w) {
-				select {
-				case <-ownerDone:
-					s.forgetLimitActive(w.Failed.ID)
-					return
-				case <-workerStop:
-					s.forgetLimitActive(w.Failed.ID)
-					return
-				case <-time.After(time.Second):
-				}
-			}
+			s.settleLimitRetry(cur.ID, w, err, ownerDone, workerStop)
 			return
 		}
 		s.sched.mu.Lock()
@@ -274,17 +283,7 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 		cancel()
 		return
 	}
-	for !s.finishLimitClaim(cur.ID, w) {
-		select {
-		case <-ownerDone:
-			s.forgetLimitActive(w.Failed.ID)
-			return
-		case <-workerStop:
-			s.forgetLimitActive(w.Failed.ID)
-			return // the durable claim remains for the next owner
-		case <-time.After(time.Second):
-		}
-	}
+	s.settleLimitRetry(cur.ID, w, nil, ownerDone, workerStop)
 }
 
 func (s *Service) forgetLimitActive(id string) {
@@ -333,6 +332,7 @@ func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time)
 	if wait != nil {
 		claim := *wait
 		claim.Claimed = true
+		claim.ManualAt, claim.ManualLastRun = now.UTC(), t.LastRun
 		tasks[i].LimitRetry = &claim
 	}
 	if err := s.saveLocked(sc, tasks); err != nil {
@@ -350,33 +350,34 @@ func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time)
 		sc.inflight.Add(1)
 		sc.limitInflight.Add(1)
 		t.manualLimitRetry, t.limitRetryRunID = true, wait.Failed.ID
+		t.limitOwnerDone, t.limitWorkerStop = sc.ownerDone, sc.workerStop
 	}
 	return t, wait, sc.ownerDone, sc.workerStop, nil
 }
 
-func (s *Service) settleManualLimitRetry(id string, w scheduleLimitRetry, sendErr error, ownerDone, workerStop <-chan struct{}) {
+func (s *Service) settleLimitRetry(id string, w scheduleLimitRetry, sendErr error, ownerDone, workerStop <-chan struct{}) bool {
 	if sendErr != nil && !errors.Is(sendErr, errTaskBusy) && !errors.Is(sendErr, errLimitRetryNotSent) {
 		s.forgetLimitActive(w.Failed.ID)
 		select {
 		case <-ownerDone:
-			return
+			return false
 		case <-workerStop:
-			return
+			return false
 		default:
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		s.recoverLimitClaim(ctx, id, w, time.Now(), "assistant-schedule.retry_delivery_unknown")
 		cancel()
-		return
+		return false
 	}
 	for {
 		select {
 		case <-ownerDone:
 			s.forgetLimitActive(w.Failed.ID)
-			return
+			return false
 		case <-workerStop:
 			s.forgetLimitActive(w.Failed.ID)
-			return
+			return false
 		default:
 		}
 		finished := false
@@ -386,15 +387,15 @@ func (s *Service) settleManualLimitRetry(id string, w scheduleLimitRetry, sendEr
 			finished = s.finishLimitClaim(id, w)
 		}
 		if finished {
-			return
+			return true
 		}
 		select {
 		case <-ownerDone:
 			s.forgetLimitActive(w.Failed.ID)
-			return
+			return false
 		case <-workerStop:
 			s.forgetLimitActive(w.Failed.ID)
-			return
+			return false
 		case <-time.After(time.Second):
 		}
 	}
@@ -417,6 +418,10 @@ func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool 
 	wait := *sc.tasks[i].LimitRetry
 	wait.Claimed = false
 	tasks := slices.Clone(sc.tasks)
+	if !wait.ManualAt.IsZero() && tasks[i].LastRun.Equal(wait.ManualAt) {
+		tasks[i].LastRun = wait.ManualLastRun
+	}
+	wait.ManualAt, wait.ManualLastRun = time.Time{}, time.Time{}
 	tasks[i].LimitRetry = &wait
 	if s.saveLocked(sc, tasks) != nil {
 		sc.mu.Unlock()
@@ -482,7 +487,13 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 	if err != nil {
 		return false
 	}
-	defer sc.mu.Unlock()
+	adopted := false
+	defer func() {
+		sc.mu.Unlock()
+		if adopted {
+			go s.keepListed(context.Background())
+		}
+	}()
 	i := sc.indexLocked(id)
 	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID {
 		delete(sc.limitActive, w.Failed.ID)
@@ -516,8 +527,16 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		return false
 	}
 	tasks := slices.Clone(sc.tasks)
+	for _, r := range slices.Backward(sc.runs) {
+		if r.RetryOf == w.Failed.ID && r.Adopt && r.SessionID != "" && r.MachineID != "" {
+			tasks[i].RunMachineID, tasks[i].RunSessionID, tasks[i].RunLauncher = r.MachineID, r.SessionID, r.Launcher
+			adopted = true
+			break
+		}
+	}
 	tasks[i].LimitRetry = nil
 	if s.saveLocked(sc, tasks) != nil {
+		adopted = false
 		return false
 	}
 	delete(sc.limitActive, w.Failed.ID)
