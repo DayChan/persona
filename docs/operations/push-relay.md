@@ -31,7 +31,7 @@ hub ──(HPKE ciphertext + grant)──▶ relay ──(APNs key)──▶ APN
 - HPKE (RFC 9180) base mode: DHKEM(P-256, HKDF-SHA256) + HKDF-SHA256 + AES-256-GCM, `info = "persona push v1"`.
   Go uses the standard library `crypto/hpke`; iOS uses CryptoKit `HPKE` (`P256_SHA256_AES_GCM_256`). Ciphertext = `enc` (65 bytes) ‖ AEAD output, base64 in the push's `e` field.
 - The plaintext is exactly the JSON the hub would send when direct (`aps.alert` title / subtitle / body, `category`, `thread-id`, `interruption-level`,
-  `interaction_id` / `machine_id` / `session_id`, an optional question `ask`, the pairing receipt `pair`, `persona_wake`), plus an `iat` (Unix seconds).
+  `interaction_id` / `machine_id` / `session_id`, an optional question `ask`, the pairing receipt `pair`, a decision's `todo` (`../assistant/todos.md` "Waiting for the owner"), `persona_wake`), plus an `iat` (Unix seconds).
 - The phone's private key: a `P256.KeyAgreement.PrivateKey` stored in the keychain access group shared by the App and the Notification Service Extension, `AfterFirstUnlockThisDeviceOnly`
   (readable by the extension on the lock screen once the device has been unlocked after boot; not in iCloud backups, regenerated on a new phone). Generated the first time it's needed, then never changes.
 
@@ -125,7 +125,7 @@ Now every side says which way pushes take and, when none, why:
   | `relay` | | No `apns.json`; the device reported relay, grant and push key |
   | `none` | `relay_failed` | No `apns.json`; the phone's relay registration failed (`detail`: its words, kept in `devices.relay_error`) |
   | `none` | `no_relay` | No `apns.json`, and the phone names no relay (a build without one, or an App too old to say why) |
-  | `direct` / `relay` | `push_failed` | The way is there, but the last push did not go (`detail`: APNs' or the relay's answer). In memory, until a push goes or the device registers a new token / relay |
+  | `direct` / `relay` | `push_failed` | The way is there, but the last push to the device's token did not go (`detail`: APNs' or the relay's answer, or the hub's own reason when it did not send the push: `seal: …` for a relay push it could not seal, `push of N bytes is over APNs' 4096-byte limit` for a direct push too long even shortened). In memory, until a push goes or the device registers a new token / relay. A Live Activity push goes to the activity's own token: its answer neither sets nor clears this |
 
   `GET /api/v1/auth/tokens` adds `push` (credential id → the way of the device it registered last) for **Settings › Devices**; `GET /api/v1/devices/push` lists every device (`personad hub doctor` prints it under "推送").
 

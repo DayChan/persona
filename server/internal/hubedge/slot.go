@@ -37,7 +37,7 @@ var ErrNoSocket = errors.New("hubedge: the edge has no socket for this port")
 // Slot is a hub process the edge started: its end of the edge's pipes and the sockets it serves on.
 type Slot struct {
 	Name    string
-	Standby bool              // started as a standby: WaitActivate before serving
+	Standby bool              // started as a standby: StandbyReady before serving
 	sockets map[string]string // port -> socket path
 
 	out      *lineWriter

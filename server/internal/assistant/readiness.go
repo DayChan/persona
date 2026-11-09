@@ -552,7 +552,9 @@ func (s *Service) readinessModel(ctx context.Context, lang i18n.Lang, d Device, 
 			case proto.TurnErrorNotLoggedIn:
 				alt = "login_claude"
 			case proto.TurnErrorAuthFailed:
-				action = "edit_provider"
+				action, alt = "edit_provider", "test_assistant"
+			case proto.TurnErrorModelRoute:
+				alt = "test_assistant"
 			}
 			st := s.readinessStep(lang, StepModel, StepProblem, code, d.Name, launcher, action)
 			st.Machine = d.ID
@@ -848,21 +850,31 @@ func (s *Service) askAhead(machine, launcher string) {
 }
 
 // claudeAuthStatus is launcher's sign-in status on machine (claude.auth_status), cached readinessAuthFresh, and
-// readinessClaudeRetry when signed out or not answered (readinessAuthFresh for an old node). done false when the node did not answer within wait (the
+// readinessClaudeRetry when signed out or not answered (readinessAuthFresh for an old node). An expired answer that
+// said nothing is answered at once while it is asked again. done false when the node did not answer within wait (the
 // question goes on, and is cached).
 func (s *Service) claudeAuthStatus(ctx context.Context, machine, launcher string, wait time.Duration) (claudeAuth, bool) {
 	key := machine + "/" + launcher
 	b := &s.ready
 	b.mu.Lock()
+	var stale *claudeAuth
 	if a, ok := b.auth[key]; ok {
 		fresh := readinessAuthFresh
-		if !a.known && !a.old || a.st.State == proto.ClaudeNotLoggedIn ||
-			a.st.State == proto.ClaudeAuthUnknown && (a.st.Reason == proto.ClaudeAuthTimeout || a.st.Reason == proto.ClaudeAuthUnreadable) {
+		saidNothing := !a.known && !a.old ||
+			a.st.State == proto.ClaudeAuthUnknown && (a.st.Reason == proto.ClaudeAuthTimeout || a.st.Reason == proto.ClaudeAuthUnreadable)
+		if saidNothing || a.st.State == proto.ClaudeNotLoggedIn {
 			fresh = readinessClaudeRetry
 		}
 		if time.Since(a.at) < fresh {
 			b.mu.Unlock()
 			return a, true
+		}
+		if saidNothing {
+			// The last ask said nothing (no answer, a timeout, output with no status): asked again below, but not
+			// waited for. A launcher whose status cannot be read says so again on every ask, and each ask runs the
+			// login shell and Claude Code (seconds, up to claudeAuthTimeout); the readiness takes unknown as not
+			// known either way. Signed out is still waited for: the user may have just signed in.
+			stale = &a
 		}
 	}
 	ch := b.authIn[key]
@@ -875,6 +887,9 @@ func (s *Service) claudeAuthStatus(ctx context.Context, machine, launcher string
 		go s.askClaudeAuth(machine, launcher, key, ch)
 	}
 	b.mu.Unlock()
+	if stale != nil {
+		return *stale, true
+	}
 	if wait <= 0 {
 		return claudeAuth{}, false
 	}

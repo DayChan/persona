@@ -67,6 +67,10 @@ func TestBrowserScriptWrapsTheAssistants(t *testing.T) {
 	if !strings.Contains(look, `page.snapshot({ scope: "full_page" })`) || strings.Contains(look, "__r.value") {
 		t.Fatal(look)
 	}
+	viewport := browserScript("persona-1", "", true, false, false, "/tmp/x/page.png")
+	if !strings.Contains(viewport, `page.snapshot({ scope: "only_within_viewport" })`) {
+		t.Fatalf("ego's viewport scope: %s", viewport)
+	}
 	text, r := splitBrowserOutput("hello\nworld\n" + browserMark + `{"value":2,"url":"https://example.com/"}` + "\n")
 	if text != "hello\nworld" || r["value"] != float64(2) || r["url"] != "https://example.com/" {
 		t.Fatal(text, r)

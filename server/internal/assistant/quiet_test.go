@@ -671,7 +671,7 @@ func TestReportingConversationTaskReviewMakesNoLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := todoNow(s, todo.ID)
-	if now.DoneAt == nil || now.DoneBy != db.DoneByReview || now.Supervision != nil {
+	if now.DoneAt == nil || now.DoneBy != db.DoneByCancelled || now.Supervision != nil {
 		t.Fatalf("after cancelled: %+v, supervision %+v", now, now.Supervision)
 	}
 }

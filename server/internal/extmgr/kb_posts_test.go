@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/connector"
@@ -180,6 +182,67 @@ func TestConnectorPostsHonorBothSwitches(t *testing.T) {
 				if got := a.got(call.forwarded); len(got) != 1 {
 					t.Fatalf("%s not forwarded after re-enabling: %s", call.method, got)
 				}
+			}
+		})
+	}
+}
+
+func TestConnectorDeletionWaitsForAdmittedPosts(t *testing.T) {
+	for _, endpoint := range []string{"archive", "data"} {
+		t.Run(endpoint, func(t *testing.T) {
+			h, a, _ := postsManager(t)
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			var released sync.Once
+			t.Cleanup(func() { released.Do(func() { close(release) }) })
+			a.on(assistantwire.MethodKBPostsPut, func(json.RawMessage) (any, error) {
+				close(entered)
+				<-release
+				return map[string]any{"statuses": []string{"new"}}, nil
+			})
+			posted := make(chan error, 1)
+			go func() {
+				_, err := h.kbFor("feed").PutPosts(t.Context(), []connector.PostPut{{Post: connector.Post{ID: "p1", Text: "Example post"}}})
+				posted <- err
+			}()
+			<-entered
+			deleted := make(chan int, 1)
+			go func() {
+				code, _ := call(t, h.routes(), "DELETE", "/api/v1/connectors/feed/"+endpoint, h.cfg.Token, "")
+				deleted <- code
+			}()
+			// A mutex wait is not durably blocked for synctest. Bound this negative assertion while the admitted
+			// call remains held by release; deletion must wait instead of allowing that post to arrive afterward.
+			select {
+			case code := <-deleted:
+				t.Fatalf("deletion returned %d before the admitted post finished", code)
+			case <-time.After(50 * time.Millisecond):
+			}
+			if got := a.got(assistantwire.MethodKBForget); len(got) != 0 {
+				t.Fatalf("deletion reached the knowledge base before the admitted post finished: %s", got)
+			}
+			released.Do(func() { close(release) })
+			select {
+			case err := <-posted:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("admitted post did not finish")
+			}
+			select {
+			case code := <-deleted:
+				if code != 200 {
+					t.Fatalf("deletion returned %d", code)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("deletion did not finish after the admitted post")
+			}
+			if got := a.got(assistantwire.MethodKBForget); len(got) != 1 {
+				t.Fatalf("deletion calls after the admitted post: %s", got)
+			}
+			if _, err := h.kbFor("feed").PutPosts(t.Context(), nil); !errors.Is(err, errArchiveOff) {
+				t.Fatalf("post accepted after deletion: %v", err)
 			}
 		})
 	}

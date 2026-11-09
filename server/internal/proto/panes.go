@@ -84,6 +84,10 @@ type WorktreePrepare struct {
 	// Branch is the branch checked out in the workspace ("" on a detached HEAD).
 	Branch string `json:"branch"`
 	Path   string `json:"path"`
+	// ChooseParent permits parent_workspace_id independently of the source workspace. Old nodes omit it.
+	ChooseParent bool `json:"choose_parent,omitempty"`
+	// AutomaticName permits an unnamed create. The host owns naming when supported, otherwise the node chooses a unique name.
+	AutomaticName bool `json:"automatic_name,omitempty"`
 }
 
 // WorktreeAdded is the worktree worktree.add made for a new agent (#6115): its checkout, its branch, the repository's root.
@@ -117,10 +121,11 @@ type WorktreeRemoved struct {
 
 // WorktreeCreateResult is what worktree.create opened: the new workspace, and the checkout it is in.
 type WorktreeCreateResult struct {
-	WorkspaceID string `json:"workspace_id"`
-	TabID       string `json:"tab_id,omitempty"`
-	Pane        string `json:"pane,omitempty"`
-	Terminal    string `json:"terminal,omitempty"`
-	Path        string `json:"path"`
-	Branch      string `json:"branch"`
+	WorkspaceID       string `json:"workspace_id"`
+	ParentWorkspaceID string `json:"parent_workspace_id,omitempty"`
+	TabID             string `json:"tab_id,omitempty"`
+	Pane              string `json:"pane,omitempty"`
+	Terminal          string `json:"terminal,omitempty"`
+	Path              string `json:"path"`
+	Branch            string `json:"branch"`
 }

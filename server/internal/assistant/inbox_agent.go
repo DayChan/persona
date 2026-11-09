@@ -132,7 +132,19 @@ func (a *InboxAgent) startDue(now time.Time) bool {
 func (s *Service) handInbox(ctx context.Context) {
 	b := &s.inbox
 	if !s.inboxConfig(ctx).Agent.Enabled {
-		return
+		b.mu.Lock()
+		pending := false
+		for _, it := range b.items {
+			active, queued := inboxAgentReleaseState(it)
+			if active || queued {
+				pending = true
+				break
+			}
+		}
+		b.mu.Unlock()
+		if !pending {
+			return
+		}
 	}
 	b.handAgain.Store(true)
 	if !b.handing.TryLock() {
@@ -159,6 +171,7 @@ func (s *Service) handPass(ctx context.Context) {
 	cfg := s.inboxConfig(ctx).Agent
 	b := &s.inbox
 	if !cfg.Enabled {
+		s.releaseInboxAgents(ctx)
 		return
 	}
 	if f := b.passHook; f != nil {
@@ -183,6 +196,54 @@ func (s *Service) handPass(ctx context.Context) {
 	s.startInboxAgents(ctx, cfg)
 }
 
+// releaseInboxAgents returns unfinished twin work to the user even while promotion and starts are disabled.
+func (s *Service) releaseInboxAgents(ctx context.Context) {
+	b := &s.inbox
+	b.mu.Lock()
+	var changed []*inboxWrite
+	now := time.Now()
+	for _, it := range b.items {
+		if w := b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now); w != nil {
+			changed = append(changed, w)
+		}
+	}
+	b.mu.Unlock()
+	s.saveWrites(ctx, changed, "the disabled AI twin's work")
+}
+
+// releaseInboxAgent drops queued work and releases an unfinished item. Completed suggestions and confirmed
+// actions waiting for a reply stay available. HandlingDone restores the item's tier; HandlingFailed returns it to
+// Needs you. The caller holds b.mu and persists the returned write.
+func (b *inboxBook) releaseInboxAgent(it *InboxItem, state, reason string, now time.Time) *inboxWrite {
+	active, pending := inboxAgentReleaseState(it)
+	if !active && !pending {
+		return nil
+	}
+	w := beginWrite(it)
+	if active {
+		if state == HandlingFailed {
+			b.failHandling(it, reason, now)
+		} else {
+			b.setHandling(it, state, "", now)
+			b.chainAdd(it, InboxChainEntry{Kind: ChainConcluded, At: now.UTC(), Text: reason})
+		}
+	}
+	if a := it.Agent; a != nil {
+		a.Pending, a.Wake, a.Back, a.RetryAfter = nil, false, "", nil
+	}
+	b.settle(w)
+	return w
+}
+
+// inboxAgentReleaseState identifies unfinished handling and queued work while the caller holds the inbox lock.
+func inboxAgentReleaseState(it *InboxItem) (active, pending bool) {
+	a, h := it.Agent, it.Handling
+	active = it.open() && (h != nil && (h.State == HandlingLooking || h.State == HandlingAgent) ||
+		h == nil && a != nil && (a.State == AgentQueued || a.State == AgentRunning))
+	pending = a != nil && (len(a.Pending) > 0 || a.Wake || a.Back != "" || a.RetryAfter != nil)
+	return active, pending
+}
+
 // startInboxAgents starts a processing conversation for the queued events that have none (newest first, while fewer
 // than the configured number are looking): one the event's id finds (a start the manager restarted during) is taken
 // back instead; one that comes after a lost conversation carries the recap and the chain.
@@ -199,6 +260,7 @@ func (s *Service) startInboxAgents(ctx context.Context, cfg InboxAgentConfig) {
 	b.mu.Lock()
 	running := 0
 	var queued []*InboxItem
+	var released []*inboxWrite
 	for _, it := range b.items {
 		if it.Agent == nil {
 			continue
@@ -206,8 +268,17 @@ func (s *Service) startInboxAgents(ctx context.Context, cfg InboxAgentConfig) {
 		switch {
 		case it.Agent.SessionID != "" && (it.Handling == nil && it.Agent.State == AgentRunning || it.Handling != nil && it.Handling.State == HandlingLooking):
 			running++
-		case it.Agent.State == AgentQueued && it.Agent.SessionID == "" && it.open() && it.Agent.startDue(now):
-			queued = append(queued, it)
+		case it.Agent.State == AgentQueued && it.Agent.SessionID == "" && it.open():
+			// Recheck before backoff, capacity or adoption: a saved rule also covers work already queued.
+			if b.policyTwin(it) == TwinNever {
+				if w := b.releaseInboxAgent(it, HandlingDone, i18n.T(b.userLang(), "assistant-inbox_agent.never"), now); w != nil {
+					released = append(released, w)
+				}
+				continue
+			}
+			if it.Agent.startDue(now) {
+				queued = append(queued, it)
+			}
 		}
 	}
 	b.sortQueued(queued)
@@ -239,6 +310,8 @@ func (s *Service) startInboxAgents(ctx context.Context, cfg InboxAgentConfig) {
 			it.Agent.told})
 	}
 	b.mu.Unlock()
+	// A failed release stays queued for the next pass, but never starts under the rule.
+	s.saveWrites(ctx, released, "the AI twin policy's queued work")
 	// An adoption whose row failed is undone (no conversation again): its notes wait, and the next pass adopts it.
 	s.saveWrites(ctx, adopted, "the adoption of its conversation")
 	for _, w := range adopted {

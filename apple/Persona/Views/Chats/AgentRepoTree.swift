@@ -70,13 +70,35 @@ nonisolated struct RepoTree {
         var path: String
         var main: Bool
         var sessions: [Session]
-        /// The spaces its host nests under it (Orca's child worktrees, `parent_space_id`, #3075), every level, depth
-        /// first: listed behind one「N 个子项」row, as Orca's sidebar does.
+        /// The spaces its host directly nests under it (Orca's `parent_space_id`); each keeps its own children and
+        /// its own「N 个子项」fold, so deeper levels remain under their actual parent.
         var children: [Worktree] = []
         /// The fold id of its「N 个子项」row; folded until opened (`childFoldSuffix`).
         var childrenFoldID: String { id + RepoTree.childFoldSuffix }
+        var agentsFoldID: String { id + RepoTree.agentsFoldSuffix }
         /// Its agents and its children's.
-        var treeSessions: [Session] { sessions + children.flatMap(\.sessions) }
+        var treeSessions: [Session] { sessions + children.flatMap(\.treeSessions) }
+        var catalog = false
+        var workspace: HostWorkspace? = nil
+
+        /// Repository grouping names the root; nested cards repeat a repository only at a parent/child boundary.
+        func repositoryBadge(parent: HostWorkspace?, inheritedName: String) -> String? {
+            guard let workspace, let parent, let name = workspace.projectName, !name.isEmpty else { return nil }
+            guard workspace.machineRef == parent.machineRef && workspace.source == parent.source else { return name }
+            if let id = workspace.projectID, !id.isEmpty, let parentID = parent.projectID, !parentID.isEmpty {
+                return id == parentID ? nil : name
+            }
+            if let path = workspace.projectPath, !path.isEmpty, let parentPath = parent.projectPath, !parentPath.isEmpty {
+                func normalized(_ value: String) -> String {
+                    var path = value
+                    while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+                    return path
+                }
+                return normalized(path) == normalized(parentPath) ? nil : name
+            }
+            let parentName = parent.projectName.flatMap { $0.isEmpty ? nil : $0 } ?? inheritedName
+            return name == parentName ? nil : name
+        }
     }
 
     /// One repository on one machine.
@@ -90,7 +112,8 @@ nonisolated struct RepoTree {
         var worktrees: [Worktree]
         var sessions: [Session] { worktrees.flatMap(\.treeSessions) }
         /// Only its main checkout, nothing nested under it: its agents sit right under it, with no working-tree level.
-        var flat: Bool { worktrees.count == 1 && worktrees[0].main && worktrees[0].children.isEmpty }
+        var flat: Bool { worktrees.count == 1 && worktrees[0].main && worktrees[0].children.isEmpty && !worktrees[0].catalog }
+        var structured: Bool { worktrees.contains { $0.catalog || !$0.children.isEmpty } }
     }
 
     /// One machine's repositories, by name.
@@ -105,6 +128,7 @@ nonisolated struct RepoTree {
     static let unnamed = String(localized: "Other")
     /// A working tree's「N 个子项」fold id: its id and this.
     static let childFoldSuffix = String(localized: "/sub-items")
+    static let agentsFoldSuffix = "/workspace-agents"
 
     /// A session's space on its machine, unique across hosts; nil outside a space.
     static func spaceKey(_ s: Session) -> String? {
@@ -136,61 +160,126 @@ nonisolated struct RepoTree {
     /// `sessions` (the live agents the list shows) under their machines in `machines`' order (the hub's); a machine it
     /// does not list goes last. A space nested under another (Orca's child worktrees) goes under its top space's working
     /// tree, whatever its own directory says.
-    static func build(_ sessions: [Session], machines: [MachineRef]) -> [Host] {
-        let parentOf = parents(sessions)
-        let nested = sessions.filter { s in spaceKey(s).map { parentOf[$0] != nil } ?? false }
-        let top = sessions.filter { s in spaceKey(s).map { parentOf[$0] == nil } ?? true }
+    private struct Node {
+        var machine: MachineRef
+        var path: String
+        var name: String
+        var index: Int
+        var parent: String?
+        var sessions: [Session]
+        var catalog = false
+        var workspace: HostWorkspace? = nil
+    }
+
+    static func build(_ sessions: [Session], machines: [MachineRef], workspaces: [HostWorkspace] = [],
+                      includeEmpty: Bool = true, search: String = "") -> [Host] {
+        var nodes: [String: Node] = [:]
+        var loose: [Session] = []
+        for s in sessions {
+            guard s.spaceKind == "orca", let key = spaceKey(s) else { loose.append(s); continue }
+            if nodes[key] != nil { nodes[key]!.sessions.append(s); continue }
+            nodes[key] = Node(machine: s.machineRef, path: s.cwd, name: s.spaceName ?? "",
+                              index: s.spaceIndex ?? Int.max,
+                              parent: s.parentSpaceID.map { s.machineRef.path + "/" + (s.spaceKind ?? "") + ":" + $0 }, sessions: [s],
+                              workspace: HostWorkspace(machineID: s.machineID, source: "orca", sourceID: s.spaceID!,
+                                                       title: s.spaceName ?? s.folderName, cwd: s.cwd, group: s.group))
+        }
+        // Discovery supplies containers, including existing workspaces with no running Agent. Its source-local identity
+        // keeps two workspaces in the same directory distinct and permits cross-project Orca lineage.
+        for w in workspaces where w.source == "orca" {
+            let old = nodes[w.key]
+            nodes[w.key] = Node(machine: w.machineRef, path: w.cwd, name: w.title,
+                                index: w.index ?? old?.index ?? Int.max,
+                                parent: w.parentKey ?? (w.index == nil ? old?.parent : nil),
+                                sessions: old?.sessions ?? [], catalog: true, workspace: w)
+        }
+        var parentOf: [String: String] = [:]
+        for (key, node) in nodes {
+            if let parent = node.parent, parent != key, nodes[parent] != nil { parentOf[key] = parent }
+        }
+        let edges = parentOf
+        for key in edges.keys {
+            var seen: Set<String> = [key]
+            var at = edges[key]
+            while let parent = at {
+                if !seen.insert(parent).inserted { parentOf.removeValue(forKey: key); break }
+                at = edges[parent]
+            }
+        }
+        var children: [String: [String]] = [:]
+        for (key, parent) in parentOf { children[parent, default: []].append(key) }
+        func beforeNode(_ a: String, _ b: String) -> Bool {
+            nodes[a]!.index != nodes[b]!.index ? nodes[a]!.index < nodes[b]!.index : a < b
+        }
+        func tree(_ key: String) -> Worktree? {
+            let n = nodes[key]!
+            let below = (children[key] ?? []).sorted(by: beforeNode).compactMap(tree)
+            let matches = includeEmpty && !search.isEmpty && (n.name + " " + n.path).localizedStandardContains(search)
+            guard includeEmpty && search.isEmpty || matches || !n.sessions.isEmpty || !below.isEmpty else { return nil }
+            let name = n.name.isEmpty ? n.path.split(separator: "/").last.map(String.init) ?? unnamed : n.name
+            return Worktree(id: "tree/space/" + key, name: name, path: n.path, main: n.workspace?.isMain ?? false,
+                            sessions: n.sessions, children: below, catalog: n.catalog, workspace: n.workspace)
+        }
         var repos: [String: Repo] = [:]
-        var worktreeIndices: [String: [String: Int]] = [:]
-        /// Where each top space's first agent went: its repository's key and working tree's path.
-        var placeOf: [String: (repo: String, worktree: String)] = [:]
-        for s in top {
+        for key in nodes.keys.filter({ parentOf[$0] == nil }).sorted(by: beforeNode) {
+            let n = nodes[key]!
+            guard var w = tree(key) else { continue }
+            let place = RepoPlace(cwd: n.path, repoRoot: n.sessions.first?.repoRoot)
+            let metadata = n.workspace
+            let addressProject = metadata?.sourceID.components(separatedBy: "::")
+            let projectID = metadata?.projectID.flatMap { $0.isEmpty ? nil : $0 }
+                ?? ((addressProject?.count ?? 0) > 1 ? addressProject?.first.flatMap { $0.isEmpty ? nil : $0 } : nil)
+            let repoKey = n.machine.path + "/" + (projectID.map { "project/orca:" + $0 }
+                ?? (n.catalog ? "workspace/" + key : place.repo))
+            var repo = repos[repoKey] ?? Repo(id: "repo/" + repoKey, machine: n.machine,
+                                            name: metadata?.projectName.flatMap { $0.isEmpty ? nil : $0 }
+                                                ?? (n.catalog && projectID == nil ? w.name : (place.name.isEmpty ? unnamed : place.name)),
+                                            path: metadata?.projectPath.flatMap { $0.isEmpty ? nil : $0 } ?? place.repo, worktrees: [])
+            if let name = metadata?.projectName, !name.isEmpty { repo.name = name }
+            if let path = metadata?.projectPath, !path.isEmpty { repo.path = path }
+            w.main = metadata?.isMain ?? place.main
+            if !n.catalog {
+                w.id = "tree/" + n.machine.path + "/" + place.worktree
+                w.name = place.worktree == place.repo ? repo.name : place.worktree.split(separator: "/").last.map(String.init) ?? ""
+                w.path = place.worktree
+            }
+            if let i = repo.worktrees.firstIndex(where: { $0.id == w.id }) {
+                repo.worktrees[i].sessions += w.sessions
+                repo.worktrees[i].children += w.children
+            } else { repo.worktrees.append(w) }
+            repos[repoKey] = repo
+        }
+        // Sessions without host placement keep the established path-based repository grouping.
+        var worktreeIndices = repos.mapValues { repo in
+            Dictionary(repo.worktrees.enumerated().map { ($0.element.path, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        }
+        for s in loose {
             let place = RepoPlace(cwd: s.cwd, repoRoot: s.repoRoot)
             let key = s.machineRef.path + "/" + place.repo
             if repos[key] == nil {
                 repos[key] = Repo(id: "repo/" + key, machine: s.machineRef,
                                   name: place.name.isEmpty ? unnamed : place.name, path: place.repo, worktrees: [])
             }
-            // Mutate the stored value in place: a local Repo copy detaches its growing arrays on every append.
-            if let i = worktreeIndices[key]?[place.worktree] {
-                repos[key]!.worktrees[i].sessions.append(s)
-            } else {
-                let name = place.worktree == place.repo ? repos[key]!.name : (place.worktree.split(separator: "/" as Character).last.map(String.init) ?? "")
-                let i = repos[key]!.worktrees.count
+            // Preserve the projection's linear accumulation for large inventories.
+            if let i = worktreeIndices[key]?[place.worktree] { repos[key]!.worktrees[i].sessions.append(s) }
+            else {
+                let name = place.worktree == place.repo ? repos[key]!.name : place.worktree.split(separator: "/").last.map(String.init) ?? ""
+                let index = repos[key]!.worktrees.count
                 repos[key]!.worktrees.append(Worktree(id: "tree/" + s.machineRef.path + "/" + place.worktree, name: name,
                                                     path: place.worktree, main: place.main, sessions: [s]))
-                worktreeIndices[key, default: [:]][place.worktree] = i
-            }
-            if let space = spaceKey(s), placeOf[space] == nil { placeOf[space] = (key, place.worktree) }
-        }
-        // Each nested space a working tree of its own, under its top space's working tree: depth first, each level by
-        // the host's order of spaces.
-        let bySpace = Dictionary(grouping: nested) { spaceKey($0)! }
-        var childrenOf: [String: [String]] = [:]
-        for key in bySpace.keys { childrenOf[parentOf[key]!, default: []].append(key) }
-        func index(_ key: String) -> Int { bySpace[key]?.first?.spaceIndex ?? Int.max }
-        func descendants(_ key: String) -> [String] {
-            (childrenOf[key] ?? []).sorted { index($0) != index($1) ? index($0) < index($1) : $0 < $1 }
-                .flatMap { [$0] + descendants($0) }
-        }
-        for rootKey in placeOf.keys.sorted() where childrenOf[rootKey] != nil {
-            let at = placeOf[rootKey]!
-            guard let i = repos[at.repo]?.worktrees.firstIndex(where: { $0.path == at.worktree }) else { continue }
-            repos[at.repo]!.worktrees[i].children += descendants(rootKey).map { key in
-                let list = bySpace[key]!
-                let first = list[0]
-                let name = first.spaceName.flatMap { $0.isEmpty ? nil : $0 }
-                    ?? first.cwd.split(separator: "/" as Character).last.map(String.init) ?? first.spaceID ?? ""
-                return Worktree(id: "tree/space/" + key, name: name, path: first.cwd, main: false, sessions: list)
+                worktreeIndices[key, default: [:]][place.worktree] = index
             }
         }
         var hosts: [MachineRef: [Repo]] = [:]
         for var repo in repos.values {
-            repo.worktrees.sort { a, b in a.main != b.main ? a.main : before(a.name, a.path, b.name, b.path) }
+            repo.worktrees.sort { a, b in
+                if a.catalog && b.catalog, let ai = a.workspace?.index, let bi = b.workspace?.index, ai != bi { return ai < bi }
+                return a.main != b.main ? a.main : before(a.name, a.path, b.name, b.path)
+            }
             hosts[repo.machine, default: []].append(repo)
         }
         return hostOrder(Set(hosts.keys), machines: machines).map { ref in
-            Host(ref: ref, repos: hosts[ref, default: []].sorted { before($0.name, $0.path, $1.name, $1.path) })
+            Host(ref: ref, repos: hosts[ref, default: []].sorted { before($0.name, $0.id, $1.name, $1.id) })
         }
     }
 

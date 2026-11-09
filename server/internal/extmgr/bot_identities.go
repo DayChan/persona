@@ -64,7 +64,13 @@ func wechatIdentity(data []byte) string {
 
 // The WeChat program also saves its polling cursor and context token here. Only an identity change needs to
 // rebuild the full extension report, which may include look assets; never compare or report the secret fields.
-func (h *Manager) reportWeChatIdentity(data []byte) {
+func (h *Manager) reportWeChatIdentity(ctx context.Context, data []byte) error {
+	// Revocation also clears the credentials through connector.secrets, without connectorLogout. Do not wait
+	// for the cached connector status: the same account can bind again before its next refresh.
+	var err error
+	if wechatIdentity(data) == "" {
+		err = h.connectorChannelsUnbound(ctx, wechat.ID)
+	}
 	id := ""
 	if h.wechatIdentityEnabled() {
 		id = wechatIdentity(data)
@@ -81,4 +87,5 @@ func (h *Manager) reportWeChatIdentity(data []byte) {
 	if id != previous {
 		h.sendReport()
 	}
+	return err
 }

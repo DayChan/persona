@@ -126,6 +126,8 @@ extension Theme {
         static let gitBranch = "arrow.triangle.branch"
         /// The spaces a host nests under another (Orca's child worktrees,「N 个子项」, #3075).
         static let childSpaces = "square.3.layers.3d.down.right"
+        static let workspaceUnread = "bell.fill"
+        static let workspaceHost = "powerplug"
         /// Branch to New Chat: a new conversation from a reply (#2137).
         static let forkChat = "arrow.branch"
         /// Rewind to Here: back to before one of your messages in a Claude session (#2915).

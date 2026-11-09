@@ -38,6 +38,8 @@ func (s *Service) kbPostsEngine(ctx context.Context) (*kb.Engine, error) {
 }
 
 func (s *Service) kbPutPosts(ctx context.Context, p assistantwire.KBPosts) ([]string, error) {
+	s.kb.postWrites.Lock()
+	defer s.kb.postWrites.Unlock()
 	e, err := s.kbPostsEngine(ctx)
 	if err != nil {
 		return nil, err
@@ -100,6 +102,8 @@ func (s *Service) kbPutPosts(ctx context.Context, p assistantwire.KBPosts) ([]st
 }
 
 func (s *Service) kbPutComments(ctx context.Context, p assistantwire.KBPosts) error {
+	s.kb.postWrites.Lock()
+	defer s.kb.postWrites.Unlock()
 	e, err := s.kbPostsEngine(ctx)
 	if err != nil {
 		return err
@@ -175,6 +179,8 @@ func (s *Service) kbArchivedChats(ctx context.Context, p assistantwire.KBPosts) 
 // kbPostsUpkeep rewrites the post archive's index after posts came in, and prunes it past the text retention once
 // a day (kbLoop; the hub's own crawler did both itself).
 func (s *Service) kbPostsUpkeep(e *kb.Engine, daily bool) {
+	s.kb.postWrites.Lock()
+	defer s.kb.postWrites.Unlock()
 	if daily {
 		if n := e.Store.PruneMoments(time.Now().Add(-kbTextRetention(e))); n > 0 {
 			s.logf("kb: pruned %d post(s) past the text retention", n)

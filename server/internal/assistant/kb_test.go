@@ -118,7 +118,7 @@ func TestKBAnswersTheHub(t *testing.T) {
 	_ = e.Store.PutChat(&kb.Chat{ID: "example-c1", Source: "example", Name: "示例群"})
 	_ = e.Store.PutPerson(&kb.Person{ID: "example-p1", Source: "example", Name: "示例用户"})
 	st.rows["chats/example-c1"], st.rows["people/example-p1"] = "示例群", "示例用户"
-	if got := fmt.Sprint(ask(assistantwire.MethodKBForget, map[string]any{"source": "example"})); got != "map[chats:1 people:1]" {
+	if got := fmt.Sprint(ask(assistantwire.MethodKBForget, map[string]any{"source": "example"})); got != "map[chats:1 items:0 people:1 posts:0]" {
 		t.Fatalf("forget: %s", got)
 	}
 	if _, ok := e.Store.Chat("example-c1"); ok {

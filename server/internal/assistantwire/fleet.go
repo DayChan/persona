@@ -112,9 +112,13 @@ const (
 	// NotifyReply reminds the user of an agent still waiting on their answer (Session.AwaitsReply, #5096): the devices
 	// that take "needs you" pushes; answerable from the notification as a finished turn is.
 	NotifyReply = "reply"
+	// NotifyDecide is a to-do whose conclusion waits for the owner's decision with a recommended option
+	// (Notification.Todo, #2056): the devices that take "needs you" pushes; the notification's OK takes the
+	// recommendation through POST /api/v1/todos/{id}/accept with its asked_at.
+	NotifyDecide = "decide"
 )
 
-// FleetState is the Live Activity's ContentState, field for field (apple/LiveActivity/FleetActivity.swift). Times
+// FleetState is the Live Activity's ContentState, field for field (apple/Shared/FleetState.swift). Times
 // are Unix seconds: ActivityKit decodes pushed JSON with a default JSONDecoder, which would read a Date as seconds
 // since 2001. The manager works out what it shows; the hub fills in each device's part (Details, Left, Right, Stats,
 // Look) when it pushes.

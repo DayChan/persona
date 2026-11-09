@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 
@@ -195,6 +196,8 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 	type built struct {
 		payload map[string]any
 		body    []byte
+		// unfit: the direct body is over APNs' limit even shortened, so it is not sent (APNs would refuse it with 413).
+		unfit error
 	}
 	type variant struct {
 		lang  i18n.Lang
@@ -205,8 +208,17 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 		lang := p.langOf(d)
 		key := variant{lang, hush != nil && hush(d)}
 		b, ok := byLang[key]
+		if ok && b.payload == nil {
+			continue // nothing in its language: logged once below
+		}
 		if !ok {
 			b.payload = cleanAlert(build(lang))
+			if b.payload == nil {
+				// build had nothing in this language: its devices get no push, and the hub_id below is not written to a nil map
+				p.logf("push: no %s payload in %s: its devices get none", pushType, lang)
+				byLang[key] = b
+				continue
+			}
 			if key.quiet {
 				b.payload = hushed(b.payload)
 			}
@@ -221,7 +233,8 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 				if body, err := fitAlert(fitted, apnsMaxAlert); err == nil {
 					b.body = body
 				} else {
-					p.logf("apns: %s push of %d bytes does not fit even shortened: %v", pushType, len(b.body), err)
+					b.unfit = fmt.Errorf("push of %d bytes is over APNs' %d-byte limit", len(b.body), apnsMaxAlert)
+					p.logf("apns: %s push of %d bytes does not fit even shortened, not sent: %v", pushType, len(b.body), err)
 				}
 			}
 			byLang[key] = b
@@ -232,6 +245,7 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 			sealed, err := p.sealFor(d, payload)
 			if err != nil {
 				p.logf("relay %s: seal: %v", d.Name, err) // never falls back to sending it in the clear
+				p.pushed(d, fmt.Errorf("seal: %w", err))
 				continue
 			}
 			p.notePush(d, nil, event, "relay", "attempt", 0, int64(len(body)), 0)
@@ -245,6 +259,10 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 					p.forgetIfCurrent(d)
 				}
 			}(d)
+			continue
+		}
+		if b.unfit != nil {
+			p.pushed(d, b.unfit)
 			continue
 		}
 		p.notePush(d, nil, event, "apns", "attempt", 0, int64(len(body)), 0)

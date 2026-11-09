@@ -1,12 +1,15 @@
 package assistant
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/dialogwire"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -339,10 +342,50 @@ func TestMarkStatesForgetsEndedSessions(t *testing.T) {
 
 // The history keeps that a secret field was filled in, not what with; the answer itself is not changed.
 func TestRedacted(t *testing.T) {
-	r := proto.Resolution{Values: map[string]string{"password": "example-password", "name": "example"}}
-	kept := redacted(proto.Interaction{Fields: []proto.Field{{Key: "password", Secret: true}}}, r)
-	if kept.Values["password"] != "<redacted>" || kept.Values["name"] != "example" || r.Values["password"] != "example-password" {
+	r := proto.Resolution{Values: map[string]string{"code": "example-password", "api_key": "example-key", "name": "example"}}
+	kept := redacted(proto.Interaction{Fields: []proto.Field{{Key: "code", Secret: true}}}, r)
+	if kept.Values["code"] != redactedValue || kept.Values["api_key"] != redactedValue || kept.Values["name"] != "example" || r.Values["code"] != "example-password" || r.Values["api_key"] != "example-key" {
 		t.Fatal("redaction changed the answer or leaked a secret")
+	}
+}
+
+func TestRedactedText(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ix   proto.Interaction
+		want string
+	}{
+		{"secret", proto.Interaction{Secret: true}, redactedValue},
+		{"secret terminal", proto.Interaction{Secret: true, Dialog: &dialogwire.Dialog{}}, redactedValue},
+		{"terminal", proto.Interaction{Dialog: &dialogwire.Dialog{}}, "synthetic input"},
+		{"ordinary", proto.Interaction{}, "synthetic input"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := proto.Resolution{Text: "synthetic input"}
+			if kept := redacted(tc.ix, r); kept.Text != tc.want || r.Text != "synthetic input" {
+				t.Fatal("text redaction changed the answer or kept the wrong value")
+			}
+			if kept := redacted(tc.ix, proto.Resolution{}); kept.Text != "" {
+				t.Fatal("empty text was changed")
+			}
+		})
+	}
+}
+
+func TestRedactedContent(t *testing.T) {
+	ix := proto.Interaction{Elicitation: &proto.Elicitation{RequestedSchema: json.RawMessage(`{"properties":{"code":{"format":"password"},"hidden":{"writeOnly":true},"label":{"type":"string"}}}`)}}
+	content := map[string]any{"code": "example-code", "hidden": "example-hidden", "access_token": "example-token", "label": "example", "count": float64(3), "enabled": true}
+	r := proto.Resolution{Content: content}
+	kept := redacted(ix, r)
+	want := map[string]any{"code": redactedValue, "hidden": redactedValue, "access_token": redactedValue, "label": "example", "count": float64(3), "enabled": true}
+	if !reflect.DeepEqual(kept.Content, want) || r.Content["code"] != "example-code" || r.Content["hidden"] != "example-hidden" || r.Content["access_token"] != "example-token" {
+		t.Fatal("content redaction changed the answer or kept the wrong values")
+	}
+	for _, elicitation := range []*proto.Elicitation{nil, {RequestedSchema: json.RawMessage(`invalid`)}} {
+		kept := redacted(proto.Interaction{Elicitation: elicitation}, r)
+		if kept.Content["access_token"] != redactedValue || kept.Content["label"] != "example" {
+			t.Fatal("credential names were not redacted without a valid schema")
+		}
 	}
 }
 

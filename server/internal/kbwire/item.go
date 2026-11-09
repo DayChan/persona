@@ -5,7 +5,8 @@ import "time"
 // Item is a document, meeting or calendar event as a connector hands it over (connectors.items, docs/extensions/connectors.md):
 // the same JSON as the knowledge base's own item (kb.Item), which adds what only the store keeps.
 type Item struct {
-	Kind     string    `json:"kind"` // docs | meetings | events
+	Kind     string    `json:"kind"`             // docs | meetings | events
+	Source   string    `json:"source,omitempty"` // the collector replaces this with its trusted connector ID
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
 	URL      string    `json:"url,omitempty"`
@@ -14,7 +15,36 @@ type Item struct {
 	Projects []string  `json:"projects,omitempty"`
 	Note     string    `json:"note,omitempty"`
 	Seen     time.Time `json:"seen"`
+	// Signals are why the item concerns the owner, as far as the source can tell (Signal*): the knowledge base's
+	// selection decides by them which documents it keeps. A source that cannot tell one leaves it out.
+	Signals []string `json:"signals,omitempty"`
 	Tagging
+}
+
+// What a source can tell about a document and the owner (Item.Signals).
+const (
+	SignalMentions        = "mentions"         // the document mentions the owner
+	SignalCommentMentions = "comment_mentions" // a comment or reply on it mentions the owner
+	SignalAuthored        = "authored"         // the owner owns it
+	SignalViewed          = "viewed"           // the owner opened it recently
+)
+
+// Signals are every signal an item may carry, in the selection's default order.
+var Signals = []string{SignalMentions, SignalCommentMentions, SignalAuthored, SignalViewed}
+
+// CanonicalSignals is a source's signals as the knowledge base keeps them: each known one once, in Signals' order, and
+// nil for none. A source may list them in any order or repeat one; an unknown one is left out.
+func CanonicalSignals(in []string) []string {
+	var out []string
+	for _, s := range Signals {
+		for _, v := range in {
+			if v == s {
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // Tagging is how an entity is tagged, as the knowledge base writes it into the entity's metadata.

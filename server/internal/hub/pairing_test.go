@@ -74,6 +74,27 @@ func (s *pairStore) RevokeDeviceToken(_ context.Context, id string) (bool, error
 	return false, nil
 }
 
+// RevokeMachineCredentials is db.DB's: the machine's live credentials revoked, its unused codes expired.
+func (s *pairStore) RevokeMachineCredentials(_ context.Context, machine string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for hash, p := range s.pairs {
+		if p.MachineID == machine && p.UsedAt == nil && now.Before(p.ExpiresAt) {
+			p.ExpiresAt = now
+			s.pairs[hash] = p
+		}
+	}
+	var ids []string
+	for _, device := range s.rows {
+		if device.MachineID == machine && device.Role == roleLink && !s.rev[device.ID] {
+			s.rev[device.ID] = true
+			ids = append(ids, device.ID)
+		}
+	}
+	return ids, nil
+}
+
 func newPairCode(t *testing.T, h *Hub) pairCode {
 	t.Helper()
 	w := securityRequest(h.routes(), "POST", "/api/v1/auth/pair-codes", h.cfg.Token, "", "127.0.0.1:1", false)

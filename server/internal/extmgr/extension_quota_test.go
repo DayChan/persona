@@ -19,7 +19,7 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// serveQuotaPluginForTest is a quota plugin: it asks the launcher's gateway for /me/usage with the key in its
+// serveQuotaExtensionForTest is a quota plugin: it asks the launcher's gateway for /me/usage with the key in its
 // Authorization (a gateway that answers 404 is not its), and reports what it saw — never the key itself.
 func serveQuotaExtensionForTest() {
 	var hub *pserve.Hub

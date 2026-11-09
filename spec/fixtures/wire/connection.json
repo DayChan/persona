@@ -88,6 +88,7 @@
         "task_push",
         "sessions_list",
         "sessions_lookup",
+        "sessions_pane_source",
         "machine_rename"
       ],
       "fp": "",
@@ -189,6 +190,7 @@
           "task_push",
           "sessions_list",
           "sessions_lookup",
+          "sessions_pane_source",
           "machine_rename"
         ],
         "/type": "hello"
@@ -281,6 +283,7 @@
         "task_push",
         "sessions_list",
         "sessions_lookup",
+        "sessions_pane_source",
         "machine_rename"
       ],
       "fp": "",
@@ -372,6 +375,7 @@
           "task_push",
           "sessions_list",
           "sessions_lookup",
+          "sessions_pane_source",
           "machine_rename"
         ],
         "/ok": true,

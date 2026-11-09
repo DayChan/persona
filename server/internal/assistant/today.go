@@ -167,13 +167,7 @@ func (s *Service) todayFailures(ctx context.Context, conversation string, since 
 			Why: clip(oneLine(t.StartError), 60)})
 	}
 	if sc, err := s.lockedSchedule(ctx); err == nil {
-		for _, r := range sc.runs { // appended as runs end, not by At: read them all (sorted below)
-			if r.At.Before(since) {
-				continue
-			}
-			if r.Status != runFailed && r.Status != runSkipped {
-				continue
-			}
+		for _, r := range sc.missedRuns(since) {
 			out = append(out, todayFailed{Kind: "routine", ID: r.RefID, Ref: r.ID, Title: clip(r.Title, 60),
 				At: r.At.In(loc), Why: clip(oneLine(r.Error), 60), Skipped: r.Status == runSkipped})
 		}

@@ -52,6 +52,7 @@ func TestRevokeMachineCredentials(t *testing.T) {
 		{ID: "link-1", Name: "laptop", Kind: "link", Role: "link", MachineID: "laptop"},
 		{ID: "link-2", Name: "desk", Kind: "link", Role: "link", MachineID: "desk"},
 		{ID: "phone-1", Name: "phone", Kind: "phone", Role: "full"},
+		{ID: "peer-1", Name: "hub", Kind: "peer", Role: "peer", MachineID: "laptop"}, // a peer hub whose id is the same
 	} {
 		if err := d.CreateDeviceToken(ctx, tok, "hash-"+tok.ID); err != nil {
 			t.Fatal(err)
@@ -67,7 +68,7 @@ func TestRevokeMachineCredentials(t *testing.T) {
 	if tok, _ := d.DeviceTokenByHash(ctx, "hash-link-1"); tok != nil {
 		t.Fatal("the laptop's credential still works")
 	}
-	for _, h := range []string{"hash-link-2", "hash-phone-1"} {
+	for _, h := range []string{"hash-link-2", "hash-phone-1", "hash-peer-1"} {
 		if tok, _ := d.DeviceTokenByHash(ctx, h); tok == nil {
 			t.Fatalf("%s was revoked too", h)
 		}

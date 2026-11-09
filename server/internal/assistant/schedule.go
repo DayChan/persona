@@ -257,6 +257,30 @@ type schedule struct {
 	limitWait func(reset, now time.Time) time.Duration
 }
 
+// missedRuns returns scheduled failures that have not been followed by a successful run.
+// The caller must hold sc.mu. Runs are appended when they end, so compare start times
+// across the whole history, using append order only to break equal-time ties.
+func (sc *schedule) missedRuns(since time.Time) []ScheduleRun {
+	var missed []ScheduleRun
+	for i, r := range sc.runs {
+		if r.At.Before(since) || (r.Status != runFailed && r.Status != runSkipped) || r.Manual {
+			continue
+		}
+		recovered := false
+		for j, o := range sc.runs {
+			if o.RefID == r.RefID && o.Status == runOK &&
+				(o.At.After(r.At) || (o.At.Equal(r.At) && j > i)) {
+				recovered = true
+				break
+			}
+		}
+		if !recovered {
+			missed = append(missed, r)
+		}
+	}
+	return missed
+}
+
 // defaultRoutines are the tasks a new hub starts with, titled in l (the user edits them as their own afterwards).
 func defaultRoutines(l i18n.Lang) []Routine {
 	weekdays := []int{1, 2, 3, 4, 5}

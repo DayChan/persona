@@ -152,7 +152,8 @@ type Machines interface {
 
 // Chats is a connector whose conversations the knowledge base reads chat by chat, each with its own cursor
 // (Feishu's chats, Moments posts): one kb.Source per stream, its Name the prefix of its chats' ids (which never
-// changes). A source that can read further back also implements kb.Backfiller.
+// changes). Reading a conversation further back is History's (CapHistory), for the connectors whose conversations
+// come through Archive.
 type Chats interface {
 	ChatSources() []kb.Source
 }

@@ -23,7 +23,7 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// serveUIPluginForTest draws a page (a metric, a field, a button), a launcher section that reads the gateway through
+// serveUIExtensionForTest draws a page (a metric, a field, a button), a launcher section that reads the gateway through
 // the hub, and a page the apps could not draw; it counts the agent.finished events it is told.
 func serveUIExtensionForTest() {
 	var hub *pserve.Hub

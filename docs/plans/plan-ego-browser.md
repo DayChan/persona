@@ -159,6 +159,7 @@ The user decided: go step by step, periodic screenshots first, cookies go into t
   - the task space is closed at the end of the test.
   - Opening the page takes about 0.3 s, snapshot plus screenshot about 0.1 s.
 - **Gotcha**: if the script's printed output contains even one NUL character, ego drops that call's entire output. The result line now uses a visible marker, `@@persona-browser@@`.
+- **Protocol compatibility (#1224)**: ordinary `browser_look` uses `page.snapshot({scope: "only_within_viewport"})`; `full: true` uses `full_page`. A returned result object with a nonempty `error` becomes a failed tool call even when the node RPC succeeded, while retaining its metadata and screenshot. Both changes require deploying the node to the Mac running ego and the hub respectively. The extension page's **Set Up** opens the existing per-Mac installation and first-run guide; it does not install anything by itself.
 
 ## Steps
 

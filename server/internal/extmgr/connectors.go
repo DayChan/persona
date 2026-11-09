@@ -192,11 +192,11 @@ func (h *Manager) connectorRoutes(api *http.ServeMux) {
 			writeForgetErr(w, err)
 			return
 		}
-		h.logf("connector %s: deleted %d chat(s), %d person(s), %d inbox item(s)", id, res.Chats, res.People, res.Inbox)
+		h.logf("connector %s: deleted %d chat(s), %d person(s), %d post(s), %d knowledge item(s), %d inbox item(s)", id, res.Chats, res.People, res.Posts, res.Items, res.Inbox)
 		writeJSON(w, res)
 	})
 	// "Delete saved knowledge base content": "Add to knowledge base" turned off first (and kept off: on, the next round
-	// would bring it back), then the knowledge base's chats and people of it go. The connector keeps running: the inbox
+	// would bring it back), then its knowledge-base content goes. The connector keeps running: the inbox
 	// and the tools are untouched.
 	api.HandleFunc("DELETE /api/v1/connectors/{id}/archive", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -210,14 +210,14 @@ func (h *Manager) connectorRoutes(api *http.ServeMux) {
 		}
 		var res sourceForgotten
 		var err error
-		res.Chats, res.People, err = h.forgetArchive(r.Context(), id)
-		h.auditConnector(r.Context(), id, auditConnectorArchiveDeleted, forgotten(map[string]any{"chats": res.Chats, "people": res.People}, err))
+		res.KBForgotten, err = h.forgetArchive(r.Context(), id)
+		h.auditConnector(r.Context(), id, auditConnectorArchiveDeleted, forgotten(map[string]any{"chats": res.Chats, "people": res.People, "posts": res.Posts, "items": res.Items}, err))
 		if err != nil {
 			h.logf("connector %s: delete the archive: %v", id, err)
 			writeForgetErr(w, err)
 			return
 		}
-		h.logf("connector %s: deleted %d chat(s), %d person(s) from the knowledge base", id, res.Chats, res.People)
+		h.logf("connector %s: deleted %d chat(s), %d person(s), %d post(s), %d item(s) from the knowledge base", id, res.Chats, res.People, res.Posts, res.Items)
 		writeJSON(w, res)
 	})
 	h.imessageRoutes(api)
@@ -226,40 +226,42 @@ func (h *Manager) connectorRoutes(api *http.ServeMux) {
 // sourceForgotten is what deleting a source's data removed (DELETE /api/v1/connectors/{id}/data,
 // DELETE /api/v1/imessage/data).
 type sourceForgotten struct {
-	Chats  int `json:"chats"`
-	People int `json:"people"`
-	Inbox  int `json:"inbox"`
+	assistantwire.KBForgotten
+	Inbox int `json:"inbox"`
 }
 
-// forgetSource removes what the hub kept of a source (a connector's id): the knowledge base's chats and people (and
-// their index rows, their places in projects, the cursor), and has the manager remove the inbox's items. The caller
+// forgetSource removes what the hub kept of a source (a connector's id): its knowledge-base content (and
+// its index rows, project associations and cursors), and has the manager remove the inbox's items. The caller
 // stops the source first. The inbox's items go whatever the knowledge base answers, and either part fails while the
 // assistant (the manager) is away: asked again, the deletion finishes what is left.
 func (h *Manager) forgetSource(ctx context.Context, source string) (sourceForgotten, error) {
 	var out sourceForgotten
 	var kerr, ierr error
-	out.Chats, out.People, kerr = h.forgetArchive(ctx, source)
+	out.KBForgotten, kerr = h.forgetArchive(ctx, source)
 	out.Inbox, ierr = h.forgetInbox(ctx, source)
 	err := errors.Join(kerr, ierr)
-	h.auditConnector(ctx, source, auditConnectorDataDeleted, forgotten(map[string]any{"chats": out.Chats, "people": out.People, "inbox": out.Inbox}, err))
+	h.auditConnector(ctx, source, auditConnectorDataDeleted, forgotten(map[string]any{"chats": out.Chats, "people": out.People, "posts": out.Posts, "items": out.Items, "inbox": out.Inbox}, err))
 	return out, err
 }
 
-// forgetArchive removes a source's chats and people from the knowledge base, with their index rows, their places in
-// projects and the cursor; it says how many chats and people went.
-func (h *Manager) forgetArchive(ctx context.Context, source string) (int, int, error) {
+// forgetArchive removes a connector's knowledge-base content, including its declared archive sources.
+func (h *Manager) forgetArchive(ctx context.Context, source string) (assistantwire.KBForgotten, error) {
 	if h.kbOff() {
-		return 0, 0, nil
+		return assistantwire.KBForgotten{}, nil
 	}
 	// A big source takes a while (every chat's directory, the projects' timelines): longer than a call's default, and
 	// not cut short when the app gives up waiting.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), kbForgetWait)
 	defer cancel()
-	var f assistantwire.KBForgotten
-	if err := h.kbAsk(ctx, assistantwire.MethodKBForget, map[string]any{"source": source}, &f); err != nil {
-		return 0, 0, err
+	p := assistantwire.KBForget{Source: source}
+	if c := h.connectorByID(source); c != nil {
+		p.ArchiveSources = h.forgetArchiveSources(c)
 	}
-	return f.Chats, f.People, nil
+	var f assistantwire.KBForgotten
+	if err := h.kbAsk(ctx, assistantwire.MethodKBForget, p, &f); err != nil {
+		return assistantwire.KBForgotten{}, err
+	}
+	return f, nil
 }
 
 // kbForgetWait is how long deleting a source's data waits for the knowledge base.
@@ -372,8 +374,11 @@ func (h *Manager) applyConnectorOptions(ctx context.Context, id string, raw json
 
 // setConnectorEnabled switches a connector and keeps the choice for the next start.
 func (h *Manager) setConnectorEnabled(ctx context.Context, id string, on bool) error {
+	h.kbPostsMu.Lock()
 	was := h.connectors.Enabled(id)
-	if err := h.connectors.SetEnabled(id, on); err != nil {
+	err := h.connectors.SetEnabled(id, on)
+	h.kbPostsMu.Unlock()
+	if err != nil {
 		return err
 	}
 	if id == "wechat" {
@@ -399,8 +404,11 @@ func (h *Manager) setConnectorEnabled(ctx context.Context, id string, on bool) e
 // setConnectorFeed turns one of a connector's feeds on or off and keeps the choice for the next start; turned on, the
 // inbox or the archive goes again soon.
 func (h *Manager) setConnectorFeed(ctx context.Context, id string, f connector.Feed, on bool) error {
+	h.kbPostsMu.Lock()
 	was := h.connectors.Feeds(id, f)
-	if err := h.connectors.SetFeed(id, f, on); err != nil {
+	err := h.connectors.SetFeed(id, f, on)
+	h.kbPostsMu.Unlock()
+	if err != nil {
 		return err
 	}
 	if was != on {
@@ -530,7 +538,7 @@ func (s connectorSecrets) Save(ctx context.Context, data []byte) error {
 		return err
 	}
 	if s.id == "wechat" {
-		s.h.reportWeChatIdentity(data)
+		return s.h.reportWeChatIdentity(ctx, data)
 	}
 	return nil
 }
@@ -544,7 +552,7 @@ func (s connectorSecrets) Delete(ctx context.Context) error {
 		return err
 	}
 	if s.id == "wechat" {
-		s.h.reportWeChatIdentity(nil)
+		return s.h.reportWeChatIdentity(ctx, nil)
 	}
 	return nil
 }

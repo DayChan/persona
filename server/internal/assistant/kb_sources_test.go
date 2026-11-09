@@ -167,7 +167,7 @@ func TestArchiveConnectorFilesUnderItsSources(t *testing.T) {
 	if _, err := archiveConnector(context.Background(), e, "feed", sourcedArchive{}, "posts"); err != nil {
 		t.Fatal(err)
 	}
-	if c, ok := st.Chat(kb.ChatID("posts", "p9")); !ok || c.Source != "posts" || c.Kind != "moment" {
+	if c, ok := st.Chat(kb.ChatID("posts", "p9")); !ok || c.Source != "posts" || c.Connector != "feed" || c.Kind != "moment" {
 		t.Fatalf("posts-p9 %+v", c)
 	}
 	if _, ok := st.Chat(kb.ChatID("mail", "x")); ok {
@@ -262,9 +262,9 @@ func TestKBCollectsItemsThroughTheHub(t *testing.T) {
 	s := newKBService(t, f)
 	e := kbEng(t, s)
 	st := e.Store
-	_ = st.PutItem(&kb.Item{Kind: kb.KindDoc, ID: "d1", URL: "https://docs.example.com/d1"})
+	_ = st.PutItem(&kb.Item{Kind: kb.KindDoc, ID: "d1", Source: "example", URL: "https://docs.example.com/d1"})
 	s.kbCollectItems(context.Background(), e)
-	if it, ok := st.Item(kb.KindMeeting, "m1"); !ok || it.Title != "周会" {
+	if it, ok := st.Item(kb.KindMeeting, "m1"); !ok || it.Title != "周会" || it.Source != "example" {
 		t.Fatalf("meeting %+v", it)
 	}
 	if it, ok := st.Item(kb.KindDoc, "d1"); !ok || it.Title != "发布计划" {

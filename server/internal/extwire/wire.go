@@ -219,7 +219,8 @@ const (
 
 // More of the hub's apps the manager calls.
 const (
-	// HubPushLocalized: {payloads: {lang: payload}} → {}: a push to every device in its language.
+	// HubPushLocalized: {payloads: {lang: payload}} → {}: a push to every device in its language. A device whose language
+	// has no payload gets the fallback's (en), else the default's (zh-Hans), else the first by code; none at all is an error.
 	HubPushLocalized = "push.localized"
 	// HubMailTargets: {} → {targets}: the languages the devices want mail translated into.
 	HubMailTargets = "push.mail_targets"

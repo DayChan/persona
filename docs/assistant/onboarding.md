@@ -436,7 +436,7 @@ Evaluation order and data sources (all existing, plus one new node RPC):
 
 1. `computer`: device list, online status, trust state (5.3). Later steps are `unknown` until the computer is `ok`.
 2. `claude`: `claude-version` from node self-check (`node/doctor.go:454`), cached by the assistant service for 10 minutes.
-3. `model`: new node RPC `claude.auth_status` (4.3, runs `claude auth status --json` in the launcher's actual environment, cached 10 minutes); the most recent `?probe=1` or "Try a message" result; `turn_error_kind` of main chat's last turn. **No proactive token spending** by default. If never verified, use `unknown` + `model_unverified`, not `problem`; `mode` can still be `full`.
+3. `model`: new node RPC `claude.auth_status` (4.3, runs `claude auth status --json` in the launcher's actual environment, cached 10 minutes; a signed-out answer is asked again after a minute and waited for, an answer that said nothing — timeout, unreadable output — is asked again after a minute in the background while the last one is used); the most recent `?probe=1` or "Try a message" result; `turn_error_kind` of main chat's last turn. **No proactive token spending** by default. If never verified, use `unknown` + `model_unverified`, not `problem`; `mode` can still be `full`.
 4. `first_message`: whether main chat has ever had a successful reply. `todo` does not affect `mode`.
 
 Storage: the latest check result and `dismissed` live in Postgres settings (one key, `assistant.readiness`), not files.
@@ -463,6 +463,7 @@ Implementation (#3710, `server/internal/assistant/readiness.go`; endpoint detail
 - `?probe=1` does not run unless computer is `ok`, and the response omits `probe`. A probe with no computer reply (offline, timeout) returns only `error`, is not recorded, and is not evidence.
 - `dismiss` accepts `{"dismissed": false}` to undo; an empty body means `true`.
 - Once `first_message` succeeds, it stays `ok` (stored in `assistant.readiness`, even after main chat changes).
+- Model problems `auth_failed` and `model_route` also offer `test_assistant` as an alternative to editing or connecting the provider, so a repaired model can be verified without replacing the current chat after its first answer (#1894).
 
 ### 5.2 Structured main-chat errors
 

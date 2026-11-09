@@ -130,3 +130,26 @@ func TestMalformedTokens(t *testing.T) {
 	filtered := mustQuery(t, &i, Options{Limit: 1, Q: "TITLE"})
 	mustQuery(t, &i, Options{Cursor: filtered.NextCursor, Q: "title"})
 }
+
+func TestPaneSourceParameters(t *testing.T) {
+	for _, source := range []string{"terminal", "feishu", "desktop", "unknown"} {
+		values := url.Values{"pane_source": {source}}
+		o, err := Parse(values)
+		if !Enabled(values) || err != nil || o.PaneSource != source {
+			t.Fatalf("%s: %+v %v", source, o, err)
+		}
+	}
+	for _, values := range []url.Values{
+		{"pane_source": {""}}, {"pane_source": {"runtime"}}, {"pane_source": {"Terminal"}},
+		{"pane_source": {"terminal,feishu"}}, {"pane_source": {" terminal"}},
+		{"pane_source": {"terminal", "terminal"}}, {"pane_source": nil},
+	} {
+		_, err := Parse(values)
+		requireCode(t, err, "invalid_query")
+	}
+	var i Index
+	_, err := i.Query(Options{PaneSource: "runtime"})
+	requireCode(t, err, "invalid_query")
+	_, err = i.Counts(Options{PaneSource: "runtime"})
+	requireCode(t, err, "invalid_query")
+}

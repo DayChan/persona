@@ -18,13 +18,27 @@ import {
 import { presenceStyle, usePresence, type Present } from "../../ui/motion";
 import { Fading, Rolling } from "../../ui/Rolling";
 import { t } from "../../i18n";
-import { Button, cx, EASE, Spinner } from "../../ui/atoms";
+import { Button, cx, EASE, Loading, Spinner } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
 import { Pill, Switch } from "../settings/SettingsParts";
-import { Breadcrumb, CodeView, CommentThread, Composer, FileTree, Header } from "./CodeViews";
-import { DiffView } from "./DiffReview";
 import { ChartFrame, LABEL_H, plotHeight } from "./ChartFrame";
 import { SegmentedTrack } from "../../ui/Segmented";
+
+// UI version 4's code hosting items (CodeViews.tsx, DiffReview.tsx) are their own chunks too: only an extension's code
+// review or file browser draws them, never the assistant's cards (ui/AssistantCard.tsx), which bring this file into the
+// app's first chunk (#1794). Each is drawn under CodeItem's Suspense, so the page-level one never shows.
+const codeViews = () => import("./CodeViews");
+const Header = lazyPage(() => codeViews().then((m) => m.Header));
+const Breadcrumb = lazyPage(() => codeViews().then((m) => m.Breadcrumb));
+const FileTree = lazyPage(() => codeViews().then((m) => m.FileTree));
+const CodeView = lazyPage(() => codeViews().then((m) => m.CodeView));
+const CommentThread = lazyPage(() => codeViews().then((m) => m.CommentThread));
+const Composer = lazyPage(() => codeViews().then((m) => m.Composer));
+const DiffView = lazyPage(() => import("./DiffReview").then((m) => m.DiffView));
+
+function CodeItem({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<Loading />}>{children}</Suspense>;
+}
 
 // Only chart items draw it: its own chunk, fetched by the idle preload or the first chart (lib/lazy-page.ts).
 const ExtensionChart = lazyPage(() => import("./ExtensionChart").then((m) => m.ExtensionChart));
@@ -311,19 +325,19 @@ function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoo
   const code = { act: onAct ?? ((a: UIAction) => onPress(a)), busy: locked ? busy || "stream-locked" : busy, reveal: revealDiff, local, fetch: nativeFetch, canFetch: nativeAvailable };
   switch (it.type) {
     case "header":
-      return <Header item={it} native={!!local} />;
+      return <CodeItem><Header item={it} native={!!local} /></CodeItem>;
     case "breadcrumb":
-      return <Breadcrumb item={it} {...code} />;
+      return <CodeItem><Breadcrumb item={it} {...code} /></CodeItem>;
     case "file_tree":
-      return <FileTree item={it} onPicked={onPicked} {...code} />;
+      return <CodeItem><FileTree item={it} onPicked={onPicked} {...code} /></CodeItem>;
     case "code":
-      return <CodeView item={it} {...code} />;
+      return <CodeItem><CodeView item={it} {...code} /></CodeItem>;
     case "diff":
-      return <DiffView key={local?.identity} item={it} {...code} />;
+      return <CodeItem key={local?.identity}><DiffView item={it} {...code} /></CodeItem>;
     case "comment_thread":
-      return <CommentThread item={it} {...code} />;
+      return <CodeItem><CommentThread item={it} {...code} /></CodeItem>;
     case "composer":
-      return locked && !local ? null : <Composer item={it} draft={draft} {...code} />;
+      return locked && !local ? null : <CodeItem><Composer item={it} draft={draft} {...code} /></CodeItem>;
     case "chart":
       return (
         // the chart's own frame (header, detail) around an empty plot of its height while its chunk loads, so the

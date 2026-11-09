@@ -206,11 +206,114 @@ class InboxHandOffRepositoryTest {
         }
     }
 
+    @Test fun mainHandOffUsesTheItemsManagerAndReturnsItsSession() = runTest {
+        val directory = Files.createTempDirectory("inbox-handoff-route").toFile()
+        try {
+            AssistantManagerChoice.choose("hub", null, "assistant")
+            val transport = ItemsTransport(buildJsonArray {
+                add(buildJsonObject { put("id", "item"); put("kind", "mail"); put("title", "Example"); put("manager", "m-2") })
+            })
+            val calls = mutableListOf<List<String?>>()
+            transport.onHandOff = { item, text, client ->
+                calls += listOf(item, text, client, currentCoroutineContext()[RequestManager]?.id)
+                buildJsonObject {
+                    put("session", buildJsonObject { put("machine_id", "hub-machine"); put("session_id", "main-m-2") })
+                    put("item", buildJsonObject { put("id", "item"); put("kind", "mail"); put("title", "Handed off") })
+                }
+            }
+            val main = RecordingMain()
+            val repository = repository(transport, directory, backgroundScope, main = main)
+            repository.snapshot.first { it.contentSource != null }
+            repository.refresh()
+            val id = repository.snapshot.value.records.single().item.id
+            val result = repository.handOff(InboxHandOffRequest(id, "Summarize", operationId = "attempt-1"))
+            assertEquals(SessionKey("hub-machine", "main-m-2"), result)
+            assertEquals(listOf(listOf("item", "Summarize", "attempt-1", "m-2")), calls)
+            assertTrue(main.sent.isEmpty())
+            assertEquals("Handed off", repository.snapshot.value.records.single().item.title)
+            assertEquals("m-2", repository.snapshot.value.records.single().manager)
+        } finally {
+            AssistantManagerChoice.reset()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun oldHandOffRoutesFallBackButUnclearFailuresRetainTheAttempt() = runTest {
+        val directory = Files.createTempDirectory("inbox-handoff-fallback").toFile()
+        try {
+            val transport = ItemsTransport(JsonArray(emptyList()))
+            val main = RecordingMain()
+            val repository = repository(transport, directory, backgroundScope, main = main)
+            for (status in listOf(404, 405)) {
+                transport.onHandOff = { _, _, _ -> throw HttpFailure(status) }
+                assertNull(repository.handOff(InboxHandOffRequest("item", "Summarize", operationId = "attempt-$status")))
+            }
+            assertEquals(listOf("attempt-404", "attempt-405"), main.sent.map { it.first })
+            val calls = mutableListOf<String>()
+            var failure: Exception? = HttpFailure(502)
+            transport.onHandOff = { _, _, client ->
+                calls += client
+                failure?.let { throw it }
+                buildJsonObject { put("session", buildJsonObject { put("machine_id", "hub-machine"); put("session_id", "main") }) }
+            }
+            val request = InboxHandOffRequest("item", "Summarize", operationId = "same-attempt")
+            for (error in listOf(HttpFailure(502), java.io.IOException("connection lost"))) {
+                failure = error
+                assertSame(error, runCatching { repository.handOff(request) }.exceptionOrNull())
+            }
+            failure = null
+            assertEquals(SessionKey("hub-machine", "main"), repository.handOff(request))
+            assertEquals(listOf("same-attempt", "same-attempt", "same-attempt"), calls)
+            assertEquals(2, main.sent.size)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun offlineMainHandOffDoesNotQueueOrCallTheHub() = runTest {
+        val directory = Files.createTempDirectory("inbox-handoff-offline").toFile()
+        try {
+            val transport = ItemsTransport(JsonArray(emptyList()))
+            var called = false
+            transport.onHandOff = { _, _, _ -> called = true; JsonObject(emptyMap()) }
+            val main = RecordingMain()
+            val link = object : HubConnection {
+                override val state = MutableStateFlow(ConnectionState.WaitingForNetwork)
+                override val events = MutableSharedFlow<ServerEvent>()
+                override fun reconnect() = Unit
+                override fun send(message: JsonObject) = false
+            }
+            val repository = repository(transport, directory, backgroundScope, main = main, link = link)
+            val error = runCatching { repository.handOff(InboxHandOffRequest("item", "Summarize")) }.exceptionOrNull()
+            assertTrue(error is java.io.IOException)
+            assertEquals("network offline", error?.message)
+            assertFalse(called)
+            assertTrue(main.sent.isEmpty())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun malformedMainHandOffReceiptDoesNotFallBackToAnotherSend() = runTest {
+        val directory = Files.createTempDirectory("inbox-handoff-receipt").toFile()
+        try {
+            val transport = ItemsTransport(JsonArray(emptyList()))
+            val main = RecordingMain()
+            val repository = repository(transport, directory, backgroundScope, main = main)
+            for (session in listOf(JsonObject(emptyMap()), buildJsonObject { put("machine_id", "hub"); put("session_id", "") })) {
+                transport.onHandOff = { _, _, _ -> buildJsonObject { put("session", session) } }
+                assertTrue(runCatching { repository.handOff(InboxHandOffRequest("item", "Summarize")) }.exceptionOrNull() is java.io.IOException)
+            }
+            assertTrue(main.sent.isEmpty())
+        } finally { directory.deleteRecursively() }
+    }
+
+    private class HttpFailure(override val status: Int) : java.io.IOException("HTTP $status"), HubCodedFailure {
+        override val code: String? = null
+    }
+
     private fun repository(
         transport: ItemsTransport, directory: java.io.File, owner: CoroutineScope,
         machines: MutableStateFlow<List<Machine>> = MutableStateFlow(emptyList()),
         main: MainConversationSender? = null, agents: MessageSender? = null, actions: InboxActionsTransport? = null,
         mainOf: (suspend (String) -> SessionKey)? = null,
+        link: HubConnection? = null,
     ) = RealInboxRepository(
         object : InboxAssistantConnection { override val current = MutableStateFlow<InboxAssistantTransport?>(transport) },
         InboxReplyJournal(directory, "hub/generation"),
@@ -223,7 +326,7 @@ class InboxHandOffRepositoryTest {
             override val pending = MutableStateFlow<List<Interaction>>(emptyList())
             override suspend fun refresh() = Unit
             override suspend fun resolve(id: String, resolution: Resolution) = Unit
-        }, owner, mainConversationSender = main, actions = actions, messageSender = agents, mainConversationOf = mainOf,
+        }, owner, hubConnection = link, mainConversationSender = main, actions = actions, messageSender = agents, mainConversationOf = mainOf,
     ) { _, _ -> error("unused") }
 
     private class RecordingMain : MainConversationSender {
@@ -243,6 +346,10 @@ class InboxHandOffRepositoryTest {
     private class ItemsTransport(private val items: JsonArray, override val scope: String = "hub/generation") : InboxAssistantTransport {
         /** What the hub says of triage with the list (#1773); none: an older hub. */
         var triage: JsonObject? = null
+        var onHandOff: suspend (String, String, String) -> JsonObject = { _, _, _ ->
+            throw UnsupportedOperationException("Inbox hand-off route unavailable")
+        }
+        override suspend fun handOff(itemId: String, text: String, clientId: String) = onHandOff(itemId, text, clientId)
         override suspend fun inbox() = buildJsonObject { put("items", items); triage?.let { put("triage", it) } }
         override suspend fun setDone(itemId: String, done: Boolean) = JsonObject(emptyMap())
         override suspend fun reply(itemId: String?, feedId: String?, text: String, clientId: String) = JsonObject(emptyMap())

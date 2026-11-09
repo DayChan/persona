@@ -99,12 +99,6 @@ func (r *Registry) ToolPath(id, version, path string) string {
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
 
-// installTools installs the tools of version m.Version of extension m.ID, reporting StepTools on ctx. Nothing of a
-// failed install is left for that version (the tool directories it made may stay: they are complete or absent).
-func (r *Registry) installTools(ctx context.Context, m *Manifest) error {
-	return r.installToolsAt(ctx, m, r.storageKey(m.ID))
-}
-
 func (r *Registry) installToolsAt(ctx context.Context, m *Manifest, storageID string) error {
 	if len(m.Tools) == 0 {
 		reportState(ctx, StepTools, StepSkipped)
