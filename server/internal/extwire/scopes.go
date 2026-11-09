@@ -77,12 +77,14 @@ var RouteScopes = map[string]string{
 	"GET /api/v1/assistant/conversations/{id}/feed":      ScopeAssistantAsk,
 	"POST /api/v1/assistant/conversations/{id}/stop":     ScopeAssistantAsk, // /agent's /stop (#3308)
 	"GET /api/v1/assistant/reporters":                    ScopeAssistantAsk,
-	// The todos (the assistant's, relayed): reading them, and adding, editing and attaching agents and spaces. Deleting
-	// a todo, its decisions, the done check and a retry stay with full credentials.
+	// The todos (the assistant's, relayed): reading them, adding, editing and attaching agents and spaces, and writing
+	// outcome decisions (an extension writes no other source). Deleting a todo, superseding decisions, the done check and
+	// a retry stay with full credentials.
 	"GET /api/v1/todos":                                 ScopeTodosRead,
 	"GET /api/v1/todos/{id}/decisions":                  ScopeTodosRead,
 	"POST /api/v1/todos":                                ScopeTodosWrite,
 	"PATCH /api/v1/todos/{id}":                          ScopeTodosWrite,
+	"POST /api/v1/todos/{id}/decisions":                 ScopeTodosWrite,
 	"PUT /api/v1/todos/{id}/agents/{mid}/{sid}":         ScopeTodosWrite,
 	"DELETE /api/v1/todos/{id}/agents/{mid}/{sid}":      ScopeTodosWrite,
 	"PUT /api/v1/todos/{id}/spaces/{mid}/{space...}":    ScopeTodosWrite,

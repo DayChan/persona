@@ -2985,11 +2985,14 @@ struct Toast: Identifiable, Equatable {
     let message: String
     let style: Style
     let action: Action?
+    /// A second button before `action` (Undo beside View).
+    let secondary: Action?
 
-    init(_ message: String, style: Style = .info, action: Action? = nil) {
+    init(_ message: String, style: Style = .info, action: Action? = nil, secondary: Action? = nil) {
         self.message = message
         self.style = style
         self.action = action
+        self.secondary = secondary
     }
 
     static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }

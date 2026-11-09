@@ -424,7 +424,7 @@ agents.control       POST /api/v1/sessions/{mid}/{sid}/seen
 todos.write          POST /api/v1/todos
 -                    POST /api/v1/todos/retitle
 -                    POST /api/v1/todos/{id}/accept
--                    POST /api/v1/todos/{id}/decisions
+todos.write          POST /api/v1/todos/{id}/decisions
 -                    POST /api/v1/todos/{id}/done-check
 -                    POST /api/v1/todos/{id}/retry
 -                    POST /api/v1/translate

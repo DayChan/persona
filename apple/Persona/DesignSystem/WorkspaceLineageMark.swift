@@ -51,7 +51,7 @@ struct WorkspaceLineageMark: View {
     }
 }
 
-private struct WorkspaceLineageShape: Shape {
+private nonisolated struct WorkspaceLineageShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addRoundedRect(in: CGRect(x: 3, y: 3, width: 8, height: 8), cornerSize: CGSize(width: 2, height: 2))
