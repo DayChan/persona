@@ -316,8 +316,9 @@ func TestSessionsMessage(t *testing.T) {
 }
 
 // A change pushes the machine's kept list as decorated gives it, stamped with its manager, from the list itself: the
-// list is neither changed nor copied (Machine.sessions). With an older app, 2.44x the list message's size measured
-// (the encoded sessions and the message), 3.53x before.
+// list is neither changed nor copied (Machine.sessions). With an older app, 2.40x the list message's size measured
+// (the encoded sessions and the message), 2.44x before the rows were written with proto.AppendSession, 3.53x before
+// that.
 func TestSessionsChangedStampsWithoutCopy(t *testing.T) {
 	if !isolatedSessionAllocation(t) {
 		return
@@ -345,7 +346,7 @@ func TestSessionsChangedStampsWithoutCopy(t *testing.T) {
 		h.sessionsChanged(m)
 		<-app.out
 	})
-	if per > size*251/100 {
+	if per > size*247/100 {
 		t.Fatalf("pushing a %d-byte list allocates %d bytes", size, per)
 	}
 }
@@ -478,11 +479,12 @@ func TestEncodeSessionsMatchesMarshal(t *testing.T) {
 		t.Fatalf("with a session that does not encode: %+v", got)
 	}
 
-	// One shared buffer and little else: each session is written straight into it (proto.Session.MarshalJSONTo), not
-	// copied and marshalled to a buffer of its own first. 1.44x the list's size measured, 4.8x before.
+	// One shared buffer and little else: each session is written straight into it (proto.AppendSession), not copied and
+	// marshalled to a buffer of its own first. 1.35x the list's size measured, 1.44x with proto.Session.MarshalJSONTo,
+	// 4.8x before that.
 	many := busyList()
 	size := len(sessionsMessage("box", encodeSessions(many)))
-	if per := allocated(func() { encodeSessions(many) }); per > size*148/100 {
+	if per := allocated(func() { encodeSessions(many) }); per > size*139/100 {
 		t.Fatalf("encoding a %d-byte list allocates %d bytes", size, per)
 	}
 }
