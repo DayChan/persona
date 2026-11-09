@@ -105,6 +105,39 @@ func TestPruneReceiptLooksRechecksReopenedTask(t *testing.T) {
 	}
 }
 
+func TestPruneReceiptLooksKeepsConfirmedCancellationWhenOtherRecheckFails(t *testing.T) {
+	ctx := context.Background()
+	linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	done := linked.Add(time.Hour)
+	st := &receiptSnapshotTestStore{
+		todos: []db.TodoRow{{ID: "a", Origin: "conv", DoneAt: &done}, {ID: "b", Origin: "conv"}},
+		agents: []db.TodoAgentRow{
+			{TodoID: "a", MachineID: "box", SessionID: "a", LinkedAt: linked},
+			{TodoID: "b", MachineID: "box", SessionID: "b", LinkedAt: linked.Add(time.Minute)},
+		},
+		failAgentAt: 2, // Snapshot succeeds; B's individual recheck fails.
+	}
+	looks := []receiptLook{
+		{Todo: "a", Machine: "box", Session: "a", Linked: linked, ID: "cancelled"},
+		{Todo: "b", Machine: "box", Session: "b", Linked: linked, ID: "uncertain"},
+	}
+	s := receiptSnapshotService(t, st, looks)
+	s.pruneReceiptLooks(ctx)
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID != "uncertain" {
+		t.Fatalf("individual read failure discarded a confirmed cancellation: %+v, %v", state, err)
+	}
+	// A is reopened with the same link after the transient B failure clears.
+	// Its old wait must not return; B becomes valid and stays pending.
+	st.todos[0].DoneAt = nil
+	st.agents[1].LinkedAt = linked
+	st.failAgentAt = 0
+	s.pruneReceiptLooks(ctx)
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID != "uncertain" {
+		t.Fatalf("cancelled wait revived after reopen: %+v, %v", state, err)
+	}
+}
+
 func TestPruneReceiptLooksKeepsAllOnStoreFailure(t *testing.T) {
 	for _, mode := range []string{"snapshot-todos", "snapshot-agents", "recheck-todos", "recheck-agents", "save"} {
 		t.Run(mode, func(t *testing.T) {

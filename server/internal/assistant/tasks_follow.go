@@ -1112,7 +1112,7 @@ func (s *Service) pruneReceiptLooks(ctx context.Context) {
 		valid, err := s.receiptLookLinked(ctx, look)
 		if err != nil {
 			s.logf("task %s: check receipt link: %v", look.Todo, err)
-			return
+			continue
 		}
 		if !valid {
 			remove[ref] = look
