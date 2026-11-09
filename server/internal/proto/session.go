@@ -128,12 +128,12 @@ type Session struct {
 	Efforts          []string `json:"efforts,omitempty"`
 	StartedByPersona bool     `json:"started_by_persona"`
 	Assistant        bool     `json:"assistant"` // runs in the assistant directory (the app's "Chat" tab)
-	// Space is the assistant's space it runs in: "health" for the health space's (docs/assistant/health.md), "" for the
-	// assistant's own. Set by the hub on the assistant's conversations.
-	Space string `json:"space,omitempty"`
 	// Archived: a retained conversation moved out of the normal list. Assistant
 	// conversations and Claude/Codex Agents are managed by their owning manager.
 	Archived bool `json:"archived,omitempty"`
+	// Space is the assistant's space it runs in: "health" for the health space's (docs/assistant/health.md), "" for the
+	// assistant's own. Set by the hub on the assistant's conversations.
+	Space string `json:"space,omitempty"`
 	// ArchiveChangedAt is the manager's last explicit archive/restore visibility change.
 	// The hub uses it only to order its legacy delete tombstones against that report.
 	ArchiveChangedAt time.Time `json:"archive_changed_at,omitzero"`
@@ -262,17 +262,18 @@ type Session struct {
 	Rev int64 `json:"rev,omitempty"`
 	// WokeByTask: the latest turn was started by a background task reporting back, not by the user; finishing
 	// it sends no push (the user did not ask for anything).
-	WokeByTask          bool `json:"woke_by_task,omitempty"`
+	WokeByTask bool `json:"woke_by_task,omitempty"`
+	// Starting: Persona is opening its tab and waiting for claude (node/starting.go); messages sent now go in once it is
+	// ready.
+	Starting            bool `json:"starting,omitempty"`
 	PendingInteractions int  `json:"pending_interactions"`
 	// Suggestion is the next message Claude Code proposes after a turn (grey in its empty input box), read off the
 	// screen; gone once the agent works again or a message is sent.
 	Suggestion string `json:"suggestion,omitempty"`
-	// Starting: Persona is opening its tab and waiting for claude (node/starting.go); messages sent now go in once it is
-	// ready. StartError: the start failed (shown in the chat for a while). StartErrorCode is the start's coded refusal
+	// StartError: the start failed (shown in the chat for a while). StartErrorCode is the start's coded refusal
 	// when it was one (claude_missing, launcher_missing…: the code a synchronous start is answered 409 with), with
 	// StartErrorArgs, the refusal's details (launcher, where, missing, pane_shell…, docs/protocol/protocol.md "Errors"):
 	// the hub writes StartError as the sentence for that code in the user's language, and a client offers its remedy.
-	Starting       bool              `json:"starting,omitempty"`
 	StartError     string            `json:"start_error,omitempty"`
 	StartErrorCode string            `json:"start_error_code,omitempty"`
 	StartErrorArgs map[string]string `json:"start_error_args,omitempty"`

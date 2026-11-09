@@ -21,7 +21,7 @@ import (
 // fields differ from them (a field added, renamed, retyped or retagged by a change that did not update this file),
 // appendSession leaves every session to the reflect encoder: the session is sent whole, only slower, until its line
 // here and this hash are brought up to date. TestSessionWireMatchesReflect fails meanwhile and prints the new hash.
-const sessionWireLayout = 0x480e8e957cc9787d
+const sessionWireLayout = 0xb1af97948f2526ed
 
 var sessionWireCurrent = sessionLayout() == sessionWireLayout
 
@@ -116,8 +116,8 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	w.strs(`"efforts":`, s.Efforts)
 	w.boolean(`"started_by_persona":`, s.StartedByPersona, false)
 	w.boolean(`"assistant":`, s.Assistant, false)
-	w.str(`"space":`, s.Space, true)
 	w.boolean(`"archived":`, s.Archived, true)
+	w.str(`"space":`, s.Space, true)
 	if !s.ArchiveChangedAt.IsZero() {
 		w.time(`"archive_changed_at":`, s.ArchiveChangedAt)
 	}
@@ -204,9 +204,9 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	}
 	w.integer(`"rev":`, s.Rev, true)
 	w.boolean(`"woke_by_task":`, s.WokeByTask, true)
+	w.boolean(`"starting":`, s.Starting, true)
 	w.integer(`"pending_interactions":`, int64(s.PendingInteractions), false)
 	w.str(`"suggestion":`, s.Suggestion, true)
-	w.boolean(`"starting":`, s.Starting, true)
 	w.str(`"start_error":`, s.StartError, true)
 	w.str(`"start_error_code":`, s.StartErrorCode, true)
 	if len(s.StartErrorArgs) > 0 {
