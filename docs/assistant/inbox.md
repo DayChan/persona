@@ -489,7 +489,7 @@ which users saw as one action: clear this batch they do not need to handle now. 
 ## App
 
 - `InboxStore` (`Persona/App/InboxStore.swift`): list cached locally (`inbox-items`), shown before refresh on cold start; fetch on Inbox events, reconnect, page entry.
-  Mark done locally before request; restore on failure. Tab badge = unhandled Needs you count.
+  Mark done locally before request; restore on failure. A mark the hub may not have yet is laid over every list that comes in (`InboxMarks`, #2201): while its request is out, over every list; once the hub took it, over the lists that started before then. So a reload taken before the hub had it (the push after another item's Done) can't bring a swiped-away item back; the web does the same (`withPending`). Tab badge = unhandled Needs you count.
 - Page (`Persona/Views/Inbox/InboxView.swift`): top filters (All / Lark / each mail account | Mentions / Private / Groups / Mail); search titles, senders,
   body, summary. Sections: Needs you (expanded), Working (always expanded, non-tappable heading, Inbox phase 1; present only with hub `status`, absent on older hubs using `tier`; excluded from badges and Watch Needs you, while urgent `status: action` still counts), FYI (expanded, Mark All Seen to the heading's right), Collapsed (collapsed, Clear All), then Done (collapsed).
   Tap headings to expand / collapse. Row: 40-point avatar (18pt source badge at bottom right: Lark blue, mail neutral gray), title (headline) + type `Chip` (mentions red), time;

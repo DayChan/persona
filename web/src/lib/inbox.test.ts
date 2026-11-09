@@ -466,6 +466,29 @@ describe("列表状态", () => {
     expect(byId(dm.id).done_at).toBeUndefined();
   });
 
+  // #2201 (reported on iOS): A then B marked done; A's answer comes after B's mark, and the reload A's push brings has
+  // the list from before the hub had B. B must stay done until its own answer, not come back for a moment.
+  it("two done in a row: the reload after the first answer, listed before the second, keeps the second done", async () => {
+    const finishA = held();
+    const a = setDone(dm, true);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    const finishB = held();
+    const b = setDone(doc, true);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+    finishA(ok({ ...dm, done_at: at(0), done_by: "user" }));
+    expect(await a).toBe(true);
+    // the push for A: the hub lists A done and B still open
+    fetcher.mockResolvedValueOnce(ok({ items: [{ ...dm, done_at: at(0), done_by: "user" }, doc, mail] }));
+    await reloadInbox();
+    expect(byId(dm.id).done_at).toBeTruthy();
+    expect(byId(doc.id).done_at, "B came back while its request was out").toBeTruthy();
+    finishB(ok({ ...doc, done_at: at(0), done_by: "user" }));
+    expect(await b).toBe(true);
+    fetcher.mockResolvedValueOnce(ok({ items: [{ ...dm, done_at: at(0), done_by: "user" }, { ...doc, done_at: at(0), done_by: "user" }, mail] }));
+    await reloadInbox();
+    expect([dm, doc, mail].map((x) => Boolean(byId(x.id).done_at))).toEqual([true, true, false]);
+  });
+
   it("a failed done is not laid over a reload that left before it", async () => {
     const finishGet = held();
     const reload = reloadInbox();
