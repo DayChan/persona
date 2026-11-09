@@ -57,43 +57,71 @@ func encodeStamped(list []proto.Session, manager string) []sentSession {
 }
 
 func encodeRows(list []proto.Session, stamp bool, manager string) []sentSession {
-	out := make([]sentSession, 0, len(list))
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf) // escapes HTML as json.Marshal does
-	type span struct{ start, end int }
-	spans := make([]span, 0, len(list))
-	var scratch *proto.Session
+	var w rowWriter
+	spans := make([]rowSpan, len(list))
 	for i := range list {
-		start := buf.Len()
-		s := &list[i]
-		if stamp && s.Manager != manager {
-			if scratch == nil {
-				scratch = new(proto.Session)
-			}
-			*scratch = *s
-			scratch.Manager, s = manager, scratch
-		}
-		if err := enc.Encode(s); err != nil {
-			buf.Truncate(start)
-			spans = append(spans, span{-1, -1})
-			continue
-		}
-		spans = append(spans, span{start, buf.Len() - 1}) // without the '\n' Encode ends each value with
-		if start == 0 && i < len(list)-1 {
-			// Sized from the first session, room for the rest to differ a little, so the buffer is rarely regrown.
-			buf.Grow(buf.Len() * (len(list) - i - 1) * 5 / 4)
-		}
+		spans[i] = w.add(&list[i], stamp, manager, len(list)-i-1)
 	}
-	b := buf.Bytes()
+	out := make([]sentSession, 0, len(list))
 	for i, sp := range spans {
 		if sp.start < 0 {
-			continue
+			continue // it does not encode: left out
 		}
-		s := &list[i]
-		out = append(out, sentSession{id: s.SessionID, history: s.SourceKind == "codex_history", raw: b[sp.start:sp.end:sp.end]})
+		out = append(out, sentRow(&list[i], w.row(sp)))
 	}
 	return out
 }
+
+// sentRow is session s sent as row.
+func sentRow(s *proto.Session, row []byte) sentSession {
+	return sentSession{id: s.SessionID, history: s.SourceKind == "codex_history", raw: row}
+}
+
+// rowWriter writes sessions as rows into one buffer: each what json.Marshal gives for it, written by
+// proto.AppendSession straight into the buffer, or by encoding/json for a session it leaves to it. json.Encoder,
+// which wrote them before, checked and copied again each session's bytes (most of what a row cost).
+type rowWriter struct {
+	b       []byte
+	scratch *proto.Session
+}
+
+// rowSpan is where add wrote a row in the buffer; start is -1 for a session that does not encode.
+type rowSpan struct{ start, end int }
+
+// add writes s, stamped with manager when stamp (stamped, without changing s), and says where; more is how many
+// rows are still to come, for the buffer to be sized from the first.
+func (w *rowWriter) add(s *proto.Session, stamp bool, manager string, more int) rowSpan {
+	if stamp && s.Manager != manager {
+		if w.scratch == nil {
+			w.scratch = new(proto.Session)
+		}
+		*w.scratch = *s
+		w.scratch.Manager, s = manager, w.scratch
+	}
+	start := len(w.b)
+	if w.b == nil {
+		w.b = make([]byte, 0, 2<<10) // most sessions fit, so the first is not written in growing steps
+	}
+	b, ok := proto.AppendSession(w.b, s)
+	if !ok {
+		raw, err := json.Marshal(s) // escapes HTML, as the hub's json.Encoder did
+		if err != nil {
+			w.b = b[:start]
+			return rowSpan{-1, -1}
+		}
+		b = append(b[:start], raw...)
+	}
+	w.b = b
+	if start == 0 && more > 0 {
+		// Sized from the first session, room for the rest to differ a little, so the buffer is rarely regrown.
+		w.b = slices.Grow(w.b, len(w.b)*more*5/4)
+	}
+	return rowSpan{start, len(w.b)}
+}
+
+// row is the row at sp, once every row is written (the buffer may move while they are): it has no room to grow
+// into the next one.
+func (w *rowWriter) row(sp rowSpan) []byte { return w.b[sp.start:sp.end:sp.end] }
 
 // sessionsMessage is the whole-list message (the same bytes as marshalling the sessions themselves). Put together
 // from the encoded sessions rather than marshalled: json.Marshal checks and copies every json.RawMessage again,
