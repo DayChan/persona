@@ -181,6 +181,9 @@ func joinedBy(s string, parts []string, sep byte) bool {
 // The JSON tuple is unambiguous even if a runtime id contains slashes. Clients
 // form the same key from machine_id/session_id when applying delta removals.
 func runtimeListID(mid, sid string) string {
+	if plainJSONString(mid) && plainJSONString(sid) {
+		return `["` + mid + `","` + sid + `"]` // json.Marshal's bytes, in one allocation rather than four
+	}
 	b, _ := json.Marshal([2]string{mid, sid})
 	return string(b)
 }

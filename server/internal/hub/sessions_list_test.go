@@ -324,6 +324,19 @@ func TestRuntimeListFollowsRevs(t *testing.T) {
 	}
 }
 
+// A paged-index id is json.Marshal's tuple of the machine and session ids, written by hand only when neither has a
+// byte the encoder escapes.
+func TestRuntimeListIDMatchesMarshal(t *testing.T) {
+	for _, sid := range []string{"", "s", "a/b@c?d+e", `q"uote`, `back\slash`, "<b>&", "标题", "line\u2028", "\xff", "\x7f", "tab\t", "~ !#$%'()*,-.:;=[]^_`{|}"} {
+		for _, pair := range [][2]string{{"demo", sid}, {sid, "s"}} {
+			want, _ := json.Marshal(pair)
+			if got := runtimeListID(pair[0], pair[1]); got != string(want) {
+				t.Fatalf("%q: %s, want %s", pair, got, want)
+			}
+		}
+	}
+}
+
 // fullIndexItems is what indexSessionsLocked indexed before it reused rows: every row's summary, full row and search
 // text built from the row itself. The oracle of TestIndexRowReuseMatchesFullPath.
 func fullIndexItems(mid string, list []proto.Session, encoded []sentSession) []sessionlist.Item {
