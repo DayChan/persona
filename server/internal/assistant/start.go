@@ -153,6 +153,11 @@ func (s *Service) startOn(ctx context.Context, machine string, p StartParams, ma
 	var res struct {
 		SessionID string `json:"session_id"`
 	}
+	if signals, ok := ctx.Value(limitStartKey{}).(limitStartSignals); ok {
+		if err := limitSendReady(ctx, signals.ownerDone, signals.workerStop); err != nil {
+			return proto.Session{}, err
+		}
+	}
 	err = s.call(ctx, machine, DeviceAssistantSend, params, &res)
 	if ctx.Value(limitStartKey{}) != nil {
 		go func(startErr error) {

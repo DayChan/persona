@@ -21,6 +21,45 @@ func scheduleDBs(t *testing.T) (*DB, *DB) {
 	return d, other
 }
 
+func TestOriginsRawCompareKeepsLegacyMap(t *testing.T) {
+	d, other := scheduleDBs(t)
+	ctx := context.Background()
+	raw, rev, found, err := d.ReadOrigins(ctx)
+	if err != nil || found || rev != 0 || raw != nil {
+		t.Fatalf("missing: %s %d %v %v", raw, rev, found, err)
+	}
+	if err := d.PutSetting(ctx, originsKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, rev, found, err = d.ReadOrigins(ctx)
+	if err != nil || !found || string(raw) != "null" {
+		t.Fatalf("legacy null: %s %d %v %v", raw, rev, found, err)
+	}
+	initial := json.RawMessage(`{"session":{"machine_id":"machine","origin":"task","by":"start"}}`)
+	if ok, err := d.CompareOrigins(ctx, rev, initial); err != nil || !ok {
+		t.Fatalf("write: %v %v", ok, err)
+	}
+	raw, rev, found, err = other.ReadOrigins(ctx)
+	if err != nil || !found {
+		t.Fatalf("read: %v %v", found, err)
+	}
+	var legacy map[string]map[string]any
+	if err := json.Unmarshal(raw, &legacy); err != nil || legacy["session"]["origin"] != "task" {
+		t.Fatalf("legacy shape: %s %v", raw, err)
+	}
+	if err := d.PutSetting(ctx, originsKey, map[string]any{"new-session": map[string]string{"origin": "user"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := other.CompareOrigins(ctx, rev, initial); err != nil || ok {
+		t.Fatalf("legacy writer was not detected: %v %v", ok, err)
+	}
+	for _, invalid := range []string{"null", "[]", "3", "{"} {
+		if _, err := d.CompareOrigins(ctx, rev, json.RawMessage(invalid)); err == nil {
+			t.Errorf("accepted %q", invalid)
+		}
+	}
+}
+
 func TestScheduleCompare(t *testing.T) {
 	d, other := scheduleDBs(t)
 	ctx := context.Background()

@@ -285,6 +285,23 @@ func (e limitPreSendError) Is(target error) bool { return target == errLimitRetr
 
 type limitStartKey struct{}
 
+type limitStartSignals struct {
+	ownerDone, workerStop <-chan struct{}
+}
+
+func limitSendReady(ctx context.Context, ownerDone, workerStop <-chan struct{}) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ownerDone:
+		return context.Canceled
+	case <-workerStop:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
 func limitStartPreSend(ctx context.Context, err error) error {
 	if err != nil && ctx.Value(limitStartKey{}) != nil {
 		return limitPreSendError{cause: err}

@@ -89,14 +89,67 @@ func (s *Service) originsLocked(ctx context.Context) bool {
 	return true
 }
 
-func (s *Service) saveOriginsLocked(ctx context.Context) error {
-	st := s.store()
-	if st == nil {
+type originVersionStore interface {
+	ReadOrigins(context.Context) (json.RawMessage, int64, bool, error)
+	CompareOrigins(context.Context, int64, json.RawMessage) (bool, error)
+}
+
+// changeOriginsLocked merges one operation into the latest map and publishes it only after persistence.
+// The legacy JSON remains an unwrapped session-id map. The caller holds origins.mu.
+func (s *Service) changeOriginsLocked(ctx context.Context, change func(map[string]*convOrigin) bool) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	b, st := &s.origins, s.store()
+	for range 8 {
+		current := make(map[string]*convOrigin)
+		var revision int64
+		vs, versioned := st.(originVersionStore)
+		if st == nil {
+			for id, origin := range b.m {
+				current[id] = origin
+			}
+		} else if versioned {
+			raw, rev, found, err := vs.ReadOrigins(ctx)
+			if err != nil {
+				return err
+			}
+			revision = rev
+			if found && json.Unmarshal(raw, &current) != nil {
+				return errors.New("invalid conversation origins")
+			}
+		} else {
+			if _, err := st.Setting(ctx, originsKey, &current); err != nil {
+				return err
+			}
+		}
+		if current == nil {
+			current = make(map[string]*convOrigin)
+		}
+		changed := change(current)
+		if changed && st != nil {
+			if versioned {
+				raw, err := json.Marshal(current)
+				if err != nil {
+					return err
+				}
+				ok, err := vs.CompareOrigins(ctx, revision, raw)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					continue
+				}
+			} else if err := st.PutSetting(ctx, originsKey, current); err != nil {
+				return err
+			}
+		}
+		b.m, b.loaded = current, true
+		if b.checked == nil {
+			b.checked = make(map[string]bool)
+		}
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	return st.PutSetting(ctx, originsKey, s.origins.m)
+	return errors.New("conversation origins changed repeatedly")
 }
 
 // originSet notes where a conversation the hub just started comes from: it replaces whatever the backfill may have
@@ -110,21 +163,24 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string
 	}
 	b := &s.origins
 	b.mu.Lock()
-	if !s.originsLocked(ctx) {
-		b.mu.Unlock()
-		return
-	}
-	if o := b.m[id]; o != nil && o.By == originByStart && o.Origin == origin && o.Ref == ref {
-		b.mu.Unlock()
-		return
-	}
-	b.m[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
-	err := s.saveOriginsLocked(ctx)
+	changed := false
+	err := s.changeOriginsLocked(ctx, func(current map[string]*convOrigin) bool {
+		changed = false
+		if o := current[id]; o != nil && o.By == originByStart {
+			return false // an established start is never replaced by a stale manager
+		}
+		current[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
+		changed = true
+		return true
+	})
 	b.mu.Unlock()
 	if err != nil {
 		s.logf("save conversation origins: %v", err)
+		return
 	}
-	s.publish(ctx)
+	if changed {
+		s.publish(ctx)
+	}
 }
 
 // recordRetryOrigin stores an observed task start without granting authority on a failed write.
@@ -137,36 +193,13 @@ func (s *Service) recordRetryOrigin(ctx context.Context, machine, id, origin, re
 		(!s.sameMachine(current.MachineID, machine) || current.Origin != origin || current.Ref != ref) {
 		return nil // a newer in-memory start is authoritative too
 	}
-	var current map[string]*convOrigin
-	st := s.store()
-	if st != nil {
-		if _, err := st.Setting(ctx, originsKey, &current); err != nil {
-			return err
+	return s.changeOriginsLocked(ctx, func(current map[string]*convOrigin) bool {
+		if existing := current[id]; existing != nil && existing.By == originByStart {
+			return false // never replace another established start
 		}
-	} else {
-		current = b.m
-	}
-	if current == nil {
-		current = make(map[string]*convOrigin)
-	}
-	if existing := current[id]; existing != nil && existing.By == originByStart {
-		b.m, b.loaded = current, true
-		if b.checked == nil {
-			b.checked = make(map[string]bool)
-		}
-		return nil // never replace another established start
-	}
-	current[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
-	if st != nil {
-		if err := st.PutSetting(ctx, originsKey, current); err != nil {
-			return err
-		}
-	}
-	b.m, b.loaded = current, true
-	if b.checked == nil {
-		b.checked = make(map[string]bool)
-	}
-	return nil
+		current[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
+		return true
+	})
 }
 
 // retryStartedOrigin is bounded by the manager lifetime and does not extend startup authorization.
@@ -384,30 +417,28 @@ func (s *Service) backfillOrigins(ctx context.Context, machine string, list []pr
 	b.mu.Lock()
 	now := time.Now().UTC()
 	changed := false
-	for _, g := range guesses {
-		id := g.c.SessionID
-		b.checked[id] = true
-		res.Checked++
-		if o := b.m[id]; o != nil && (o.By != originByBackfill || !redo) { // the start noted it meanwhile
-			continue
-		}
-		// A redo never takes a backfilled origin back to the user's: the lists the hub decorates have the
-		// assistant's titles over the first messages the first backfill read.
-		if o := b.m[id]; o != nil && (o.Origin == g.origin && o.Ref == g.ref || g.origin == OriginUser) {
-			continue
-		}
-		mid := firstNonEmpty(g.c.MachineID, machine)
-		b.m[id] = &convOrigin{MachineID: mid, Origin: g.origin, Ref: g.ref, By: originByBackfill, At: now}
-		res.Filled[g.origin]++
-		changed = true
-	}
-	var err error
-	if changed {
-		err = s.saveOriginsLocked(ctx)
-		if err != nil {
-			for _, g := range guesses { // not saved: tried again on the next list
-				delete(b.checked, g.c.SessionID)
+	err := s.changeOriginsLocked(ctx, func(current map[string]*convOrigin) bool {
+		changed = false
+		res.Filled = make(map[string]int)
+		for _, g := range guesses {
+			id := g.c.SessionID
+			if o := current[id]; o != nil && (o.By != originByBackfill || !redo) {
+				continue // another manager or a start recorded it meanwhile
 			}
+			if o := current[id]; o != nil && (o.Origin == g.origin && o.Ref == g.ref || g.origin == OriginUser) {
+				continue
+			}
+			mid := firstNonEmpty(g.c.MachineID, machine)
+			current[id] = &convOrigin{MachineID: mid, Origin: g.origin, Ref: g.ref, By: originByBackfill, At: now}
+			res.Filled[g.origin]++
+			changed = true
+		}
+		return changed
+	})
+	if err == nil {
+		for _, g := range guesses {
+			b.checked[g.c.SessionID] = true
+			res.Checked++
 		}
 	}
 	b.mu.Unlock()
