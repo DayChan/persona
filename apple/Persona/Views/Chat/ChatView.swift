@@ -822,11 +822,36 @@ struct ChatView: View {
 
     /// What builds the lines from the blocks, with what is open now.
     private var lineBuilder: ChatLines {
-        ChatLines(openWork: openWork, openAll: Self.debugOpenAll, openRuns: openRuns, openAllRuns: Self.debugOpenRuns, chipRuns: AppStyle.current.usesBeautifulUI,
+        ChatLines(openWork: openWork, openAll: Self.debugOpenAll, opensLive: Self.opensLiveWork(style), openRuns: openRuns,
+                  openAllRuns: Self.debugOpenRuns, chipRuns: AppStyle.current.usesBeautifulUI,
                   foldsIntoRun: foldsIntoRun, showsFolded: showsFolded)
     }
     private func unfoldWork(_ lines: [ChatLine]) -> [ChatLine] { lineBuilder.unfold(lines) }
-    private func isOpen(_ work: String) -> Bool { lineBuilder.isOpen(work) }
+    private func isOpen(_ work: String) -> Bool { lineBuilder.isOpen(work, live: work == liveWorkID) }
+    private func isOpen(_ work: String, live: Bool) -> Bool { lineBuilder.isOpen(work, live: live) }
+    /// Opens or folds a work line from wherever it is (a jump to a step): flipping it in `openWork` flips it from how
+    /// it starts, folded or (running, `opensLive`) open.
+    private func flipWork(_ id: String) {
+        if openWork.contains(id) { openWork.remove(id) } else { openWork.insert(id) }
+    }
+
+    /// The assistant shows its running work line open, its tool calls listed as they come; the Agents chat folds it (#1614).
+    static func opensLiveWork(_ style: ChatStyle) -> Bool { style == .assistant }
+
+    /// The running turn's work line, if one is drawn.
+    private var liveWorkID: String? {
+        guard Self.opensLiveWork(style) else { return nil } // only the assistant's chat needs it: no lookup elsewhere
+        return currentLines().last { if case .work(_, _, true, _, _) = $0.content { true } else { false } }?.id
+    }
+
+    /// The running work line stopped running (its turn ended, or a message started the next exchange): folded again,
+    /// whatever the user did with it while it ran (#1614). Only where running lines start open.
+    private func liveWorkEnded(_ id: String?) {
+        guard let id, Self.opensLiveWork(style), id != liveWorkID, openWork.contains(id) else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { _ = openWork.remove(id) }
+    }
     private func isRunOpen(_ id: String) -> Bool { openRuns.contains(id) != Self.debugOpenRuns }
     private func runID(holding call: String, group: String, items: [WorkItem]) -> String? {
         lineBuilder.runID(holding: call, group: group, items: items)
@@ -1221,7 +1246,7 @@ struct ChatView: View {
             // Close to the bubble below it, like the photos on a message being sent (the list's spacing is 14).
             SentPhotos(images: items.compactMap(\.image)).padding(.bottom, -8)
         case .work(let id, let items, let live, let start, let end):
-            WorkLine(items: items, live: live, start: start, end: end, open: isOpen(id), agents: live ? agentsWorking : nil,
+            WorkLine(items: items, live: live, start: start, end: end, open: isOpen(id, live: live), agents: live ? agentsWorking : nil,
                      openTerminal: live && style == .dev && session?.canTerminal == true ? { openTerminal() } : nil) {
                 toggleWork(id, fromHeader: true)
             }
@@ -1311,7 +1336,7 @@ struct ChatView: View {
         var results = Array(groups.reversed().joined())
         let items = ChatLines.workItems(process)
         if !items.isEmpty || live {
-            results.append(.work(id: "dw-" + t.id, items: items, live: live,
+            results.append(.work(id: ChatLines.drawerWork + t.id, items: items, live: live,
                                  start: process.first?.firstTS, end: process.last?.lastTS))
         }
         return results
@@ -1929,13 +1954,13 @@ struct ChatView: View {
             switch line.content {
             case .row, .recaps:
                 if line.holds(ref.msg) { target = line.id }
-            case .work(let wid, let items, _, _, _):
+            case .work(let wid, let items, let live, _, _):
                 // The agent's words before its last ones are in the work line: open it, go to that step.
                 if let item = items.first(where: { if case .text(let i) = $0 { i.id == ref.msg } else { false } }) {
-                    if !isOpen(wid) {
+                    if !isOpen(wid, live: live) {
                         var t = Transaction()
                         t.disablesAnimations = true
-                        withTransaction(t) { if Self.debugOpenAll { openWork.remove(wid) } else { openWork.insert(wid) } }
+                        withTransaction(t) { flipWork(wid) }
                     }
                     target = wid + "/" + item.id
                 }
@@ -1968,13 +1993,13 @@ struct ChatView: View {
         var target: String?
         for line in currentLines() {
             switch line.content {
-            case .work(let wid, let items, _, _, _):
+            case .work(let wid, let items, let live, _, _):
                 let steps = items.compactMap { if case .step(let s) = $0 { s } else { nil } }
                 if let step = holds(steps) {
                     var t = Transaction()
                     t.disablesAnimations = true
-                    if !isOpen(wid) {
-                        withTransaction(t) { if Self.debugOpenAll { openWork.remove(wid) } else { openWork.insert(wid) } }
+                    if !isOpen(wid, live: live) {
+                        withTransaction(t) { flipWork(wid) }
                     }
                     if AppStyle.current.usesBeautifulUI, let run = runID(holding: step, group: wid, items: items), !isRunOpen(run) {
                         withTransaction(t) { _ = openRuns.insert(run) }
@@ -2494,6 +2519,7 @@ struct ChatView: View {
         .onChange(of: lines.count, initial: true) { _, _ in landEntry(lines) }
         .onChange(of: store.backlogBuilt) { _, _ in landEntry(lines) }
         .onChange(of: liveTurnID) { _, _ in contentArrived(foldChrome: false) }
+        .onChange(of: liveWorkID) { old, _ in liveWorkEnded(old) }
         .task(id: awaitDeadline) {
             guard let end = awaitDeadline, end > .now else { return }
             try? await Task.sleep(for: .seconds(end.timeIntervalSinceNow + 0.1))

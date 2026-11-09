@@ -148,6 +148,8 @@ func Call(w http.ResponseWriter, err error) {
 		switch code {
 		case "internal", "node_unreachable", "timeout":
 			status = http.StatusBadGateway
+		case proto.CodeTerminalNotReady: // the node's new tab would not take the start command; nothing ran
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusConflict
 		}
@@ -199,15 +201,16 @@ func LocalizedBody(status int, code string, err error, l i18n.Lang) map[string]a
 }
 
 var rpcFailureKeys = map[string]string{
-	"timeout":            "rpc-errors.timeout",
-	"node_unreachable":   "rpc-errors.unreachable",
-	"internal":           "rpc-errors.failed",
-	"input_draft":        "rpc-errors.input_draft",
-	"dialog_open":        "rpc-errors.dialog_open",
-	"prompt_changed":     "rpc-errors.prompt_changed",
-	"attach_busy":        "rpc-errors.attach_busy",
-	"node_outdated":      "rpc-errors.node_outdated",
-	"assistant_in_doubt": "rpc-errors.in_doubt",
+	"timeout":                  "rpc-errors.timeout",
+	"node_unreachable":         "rpc-errors.unreachable",
+	"internal":                 "rpc-errors.failed",
+	"input_draft":              "rpc-errors.input_draft",
+	"dialog_open":              "rpc-errors.dialog_open",
+	"prompt_changed":           "rpc-errors.prompt_changed",
+	"attach_busy":              "rpc-errors.attach_busy",
+	proto.CodeTerminalNotReady: "rpc-errors.terminal_not_ready",
+	"node_outdated":            "rpc-errors.node_outdated",
+	"assistant_in_doubt":       "rpc-errors.in_doubt",
 	// queued messages sent now (#6088)
 	"nothing_queued":       "rpc-errors.nothing_queued",
 	"send_now_unsupported": "rpc-errors.send_now_unsupported",

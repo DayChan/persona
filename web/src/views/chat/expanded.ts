@@ -20,6 +20,7 @@ const foldRanges = new Map<string, [number, number][]>();
 /** Forget what was opened: for tests, whose rows reuse the same ids. */
 export function forgetExpanded() {
   opened.clear();
+  liveOverrides.clear();
   foldRanges.clear();
 }
 
@@ -48,4 +49,24 @@ export function useExpanded(key: string, initial = false): [boolean, (next: bool
     [key, initial],
   );
   return [value, set];
+}
+
+/** What the reader set a work line to while its exchange ran (#1614, assistant chats): kept apart from `opened` so the
+ *  run's toggles never outlive it, and across a remount (a page of history landing above) while it runs. */
+const liveOverrides = new Map<string, boolean>();
+
+/** The run's override of a work line: undefined until the reader toggles it; dropped once `running` goes false. */
+export function useLiveOverride(key: string, running: boolean): [boolean | undefined, (next: boolean) => void] {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!running) liveOverrides.delete(key);
+  }, [key, running]);
+  const set = useCallback(
+    (next: boolean) => {
+      liveOverrides.set(key, next);
+      bump((n) => n + 1);
+    },
+    [key],
+  );
+  return [running ? liveOverrides.get(key) : undefined, set];
 }

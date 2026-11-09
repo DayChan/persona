@@ -40,7 +40,7 @@ type fakeInbox struct {
 	failing   map[string]error  // Collect fails
 	cfg       assistantwire.InboxConfig
 	// model is every inbox purpose's model (nil: none set up), models by purpose over it: manager.json's "ai" and its
-	// triage / judge / kb connections in the hello (models.go's baselines; translation and drafts are kb's).
+	// triage / judge / kb connections in the hello (models_resolve.go's baselines; translation and drafts are kb's).
 	model   *ai.Client
 	models  map[string]*ai.Client
 	mail    *fakeMail

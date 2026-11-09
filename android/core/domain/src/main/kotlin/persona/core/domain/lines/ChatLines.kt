@@ -12,7 +12,7 @@ fun chatLines(items: List<LineItem>, options: LineOptions = LineOptions()): Chat
     }
     val blocks = buildBlocks(buildLineRows(foldCompactions(source)))
     val live = liveTurnId(blocks, options)
-    val builder = LineBuilder(live, options.openWork)
+    val builder = LineBuilder(live, options)
     val lines = blocks.flatMap {
         when (it) {
             is Block.Row -> listOf(ChatLine.Row(it.row))
@@ -21,13 +21,17 @@ fun chatLines(items: List<LineItem>, options: LineOptions = LineOptions()): Chat
     }.let {
         // Working with nothing of this turn yet (the last block is a recap): the work line still shows, as on the web.
         if (live == null && options.live && frozen == null && options.liveTurnId == null)
-            it + ChatLine.Work(LiveWorkId, emptyList(), true, null, null, LiveWorkId in options.openWork)
+            it + ChatLine.Work(LiveWorkId, emptyList(), true, null, null, workOpen(LiveWorkId, true, options))
         else it
     }
     // As iOS does: API errors become cards and recaps in a row one line, before open work lines unfold.
     return ChatSnapshot(builder.unfold(foldRecaps(foldApiErrors(lines))), blocks.filterIsInstance<Block.Turn>().map { it.turn },
         TaskIndex.build(source), options.pendingInteractionIds?.let(::ChatFooter), live)
 }
+
+/** Whether a work line is open: a running one by default where [LineOptions.openLive] says so, else only when opened. */
+fun workOpen(id: String, live: Boolean, options: LineOptions): Boolean =
+    if (live && options.openLive) id !in options.liveFolded else id in options.openWork
 
 /** A session status in which the last turn is still running: working, or blocked on you (iOS `isActive`). */
 fun isLiveStatus(status: String?): Boolean = status == "working" || status == "blocked"
@@ -240,7 +244,7 @@ private fun workItems(rows: List<ChatRow>): List<WorkItem> = rows.flatMap {
     }
 }
 
-private class LineBuilder(val liveId: String?, val open: Set<String>) {
+private class LineBuilder(val liveId: String?, val options: LineOptions) {
     fun unfold(lines: List<ChatLine>): List<ChatLine> = lines.flatMap { line ->
         if (line is ChatLine.Work && line.open && line.steps.isNotEmpty()) {
             listOf(line) + line.steps.mapIndexed { i, step -> ChatLine.Step(line.id, step, i == 0) } +
@@ -251,7 +255,7 @@ private class LineBuilder(val liveId: String?, val open: Set<String>) {
     }
 
     private fun work(id: String, steps: List<WorkItem>, live: Boolean, start: Instant?, end: Instant?) =
-        ChatLine.Work(id, steps, live, start, end, id in open)
+        ChatLine.Work(id, steps, live, start, end, workOpen(id, live, options))
 
     private fun wakes(turn: ChatTurn, live: Boolean): ChatLine.Wakes {
         val drawer = buildList {

@@ -11,13 +11,24 @@ import (
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-// fakeGh puts a gh on the PATH that runs script.
+// fakeGh puts a gh on the PATH that answers --version as the GitHub CLI and otherwise runs script.
 func fakeGh(t *testing.T, script string) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+	writeGh(t, dir, ghVersionLine+script)
+	t.Setenv("PATH", dir)
+}
+
+// ghVersionLine makes a fake gh say it is the GitHub CLI.
+const ghVersionLine = `[ "$1" = --version ] && { echo "gh version 2.0.0 (test)"; exit 0; }` + "\n"
+
+// writeGh writes a gh running script into dir.
+func writeGh(t *testing.T, dir, script string) string {
+	t.Helper()
+	p := filepath.Join(dir, "gh")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	return p
 }
 
 func TestGhToken(t *testing.T) {
