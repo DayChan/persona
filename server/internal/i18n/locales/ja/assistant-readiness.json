@@ -1,5 +1,7 @@
 {
   "this_computer": "このコンピューター",
+  "machine_pending_title": "コンピューターを確認",
+  "machine_pending_detail": "Persona が使えるように、{machine} があなたのコンピューターであることを確認してください。",
   "no_machine_title": "コンピューターを追加",
   "no_machine_detail": "Persona はお使いのコンピューターの 1 台で作業します。まだコンピューターが接続されていません。",
   "node_unreachable_title": "{machine} はオフラインです",

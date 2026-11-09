@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/secretkey"
 )
@@ -230,6 +231,18 @@ func (s *Service) lang(ctx context.Context) i18n.Lang {
 
 // call is a DeviceCall whose answer is read into out (nil: not read).
 func (s *Service) call(ctx context.Context, device, method string, params, out any) error {
+	if p, ok := params.(map[string]any); ok && (method == DeviceAssistantSend || method == DeviceSessionSend) {
+		if text, ok := p["text"].(string); ok {
+			source, _ := p["message_source"].(*proto.MessageSource)
+			if source == nil {
+				source = prompts.ItemSource(proto.Item{Role: "user", Kind: proto.KindText, Text: text})
+			}
+			if source != nil {
+				p["message_source"] = source
+				p["text"] = prompts.MessageSourceText(text, source)
+			}
+		}
+	}
 	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend && p["supervision"] != true {
 		if id, _ := p["session_id"].(string); id != "" && s.supervising(id) {
 			s.releasePushes(ctx, id) // something else speaks there: its turns are pushed again (a supervision message holds them anew)
@@ -330,12 +343,13 @@ func (s *Service) device(ctx context.Context, id string) (Device, bool) {
 
 // startParams are what a new conversation starts with.
 type startParams struct {
-	Text           string `json:"text"`
-	PermissionMode string `json:"permission_mode,omitempty"`
-	Purpose        string `json:"purpose,omitempty"` // the model configuration's purpose; "" is the assistant's
-	Space          string `json:"space,omitempty"`   // "health" starts it in the health space (docs/assistant/health.md)
-	Origin         string `json:"origin,omitempty"`  // where it comes from (origins.go); "" is the user's
-	OriginRef      string `json:"origin_ref,omitempty"`
+	Text           string               `json:"text"`
+	PermissionMode string               `json:"permission_mode,omitempty"`
+	Purpose        string               `json:"purpose,omitempty"` // the model configuration's purpose; "" is the assistant's
+	Space          string               `json:"space,omitempty"`   // "health" starts it in the health space (docs/assistant/health.md)
+	Origin         string               `json:"origin,omitempty"`  // where it comes from (origins.go); "" is the user's
+	OriginRef      string               `json:"origin_ref,omitempty"`
+	Source         *proto.MessageSource `json:"source,omitempty"`
 }
 
 // kbReady: there is a knowledge base (kb.go; on, opened or about to).

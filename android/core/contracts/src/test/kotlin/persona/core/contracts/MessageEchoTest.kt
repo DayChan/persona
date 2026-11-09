@@ -58,6 +58,19 @@ class MessageEchoTest {
         assertFalse(MessageEcho.candidate(Item("notice-2", 3, role = "system", kind = "notice", text = "压缩上下文")))
     }
 
+    @Test fun automatedSourcesDoNotSettleAnIdenticallyWordedOutboxMessage() {
+        listOf(
+            user("Report ready").copy(source = MessageSource("patrol")),
+            user("Report ready").copy(injected = Injected("followup", "once")),
+            user("Report ready").copy(from = "Peer"),
+        ).forEach { item ->
+            assertFalse(MessageEcho.candidate(item))
+            assertFalse(MessageEcho.carries(item, item.id))
+            assertFalse(MessageEcho.arrived("Report ready", sentAt.toEpochMilli(), item))
+            assertTrue(MessageEcho.carries(item.copy(clientMsgId = "client_1"), "client_1"))
+        }
+    }
+
     @Test fun decodesTheTag() {
         val item = JsonCodec.decodeFromString<Item>("""{"id":"i1","role":"user","kind":"image","client_msg_id":"m1"}""")
         assertEquals("m1", (item.clientMsgId).zhAny())

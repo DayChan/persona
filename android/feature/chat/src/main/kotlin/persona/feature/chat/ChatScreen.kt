@@ -263,6 +263,9 @@ private fun ChatPage(
     val chatList = rememberChatListState(readingKey, anchorStore)
     val search = remember { ChatSearchState() }
     val openWork = chatList.position.expanded
+    // The running work lines the user folded where they open on their own (Persona's own chat, #1614); kept through a
+    // rotation or a theme change, like the chat's other open lines.
+    var liveFolded by rememberSaveable(stateSaver = LiveFoldedSaver) { mutableStateOf(emptySet<String>()) }
     var timelineVersion by remember { mutableIntStateOf(0) }
     val timeline = remember { ChatTimeline() }
     // Sent, the hub not saying working yet (#3909): the turn counts as started for a minute after the message.
@@ -284,11 +287,16 @@ private fun ChatPage(
     // Which items the lines were last built from: until the first build finishes, the page is still loading, not empty.
     var projectedFrom by remember { mutableStateOf<List<Item>?>(null) }
     val projection by produceState(persona.core.domain.lines.ChatSnapshot(emptyList(), emptyList(), persona.core.domain.lines.TaskIndex()),
-        snapshot.items, live, openWork, timelineVersion) {
+        snapshot.items, live, openWork, liveFolded, renderStyle, timelineVersion) {
         val items = snapshot.items
-        value = withContext(Dispatchers.Default) { timeline.lines(items, live, openWork.toSet()) }
+        value = withContext(Dispatchers.Default) {
+            timeline.lines(items, live, openWork.toSet(), renderStyle.openLiveWork, liveFolded)
+        }
         projectedFrom = items
     }
+    val liveWorkLines = remember(projection) { liveWorkIds(projection.lines) }
+    // A turn that ended drops what was folded during it: its line folds, the next turn's opens (#1614).
+    LaunchedEffect(liveWorkLines) { liveFolded = settleLiveFolds(liveFolded, liveWorkLines) }
     val feeds by (tasks?.feeds ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyMap<String, List<persona.core.contracts.FeedItem>>()) })
         .collectAsStateWithLifecycle()
     val feed = feeds[key.sessionId].orEmpty()
@@ -317,6 +325,7 @@ private fun ChatPage(
             photos.id.takeIf { photos is ChatLine.UserImages && user.id in contentUserImages }
         }.toSet()
     }
+    val contentSourceLabels = remember(lines) { sourceLabelIds(lines.asReversed()) }
     val contentWorkGroups = remember(lines) { lines.filterIsInstance<ChatLine.Work>().associateBy { it.id } }
     // Each open work line's plan card (web #1990 draws only the latest plan of an exchange).
     val contentPlans = remember(contentWorkGroups) { contentWorkGroups.filterValues { it.open }.mapValues { latestPlan(it.value.steps) } }
@@ -375,10 +384,16 @@ private fun ChatPage(
         }
     }
     fun toggle(id: String) {
-        val wasOpen = id in openWork
-        chatList.setExpanded(if (wasOpen) openWork - id else openWork + id)
-        if (!wasOpen) (projection.lines.firstOrNull { it.id == id } as? ChatLine.Work)?.steps
+        val (next, opened) = toggleWork(WorkOpenState(openWork.toSet(), liveFolded), id, id in liveWorkLines, renderStyle.openLiveWork)
+        if (next.open != openWork.toSet()) chatList.setExpanded(next.open)
+        liveFolded = next.liveFolded
+        if (opened) (projection.lines.firstOrNull { it.id == id } as? ChatLine.Work)?.steps
             ?.filterIsInstance<persona.core.domain.lines.WorkItem.Folded>()?.forEach { expand(it.item.item) }
+    }
+    // A running line open by default loads its hub folds as a tap would, those arriving while it is open too (#1614).
+    // Keyed on the lines only: a fold that loaded is gone from the next build, one in flight or failed is skipped.
+    LaunchedEffect(projection) {
+        liveFoldsToFetch(projection.lines, renderStyle.openLiveWork, folding, foldErrors.keys).forEach(::expand)
     }
     /** Whether the message was taken (false: nothing went, the box or another send stands); [onFailed] if it then fails. */
     fun send(command: String? = null, onFailed: () -> Unit = {}): Boolean {
@@ -841,7 +856,8 @@ private fun ChatPage(
                                         lastWorkStep = (line as? ChatLine.Step)?.let {
                                             contentWorkGroups[it.groupId]?.steps?.lastOrNull()?.id == it.step.id
                                         } == true,
-                                        plan = (line as? ChatLine.Step)?.let { contentPlans[it.groupId] })
+                                        plan = (line as? ChatLine.Step)?.let { contentPlans[it.groupId] },
+                                        showSourceLabel = line.id in contentSourceLabels)
                                         }
                                     }
                                 }

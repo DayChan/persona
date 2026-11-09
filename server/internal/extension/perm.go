@@ -478,10 +478,8 @@ func AddedIn(l i18n.Lang, old, m *Manifest) []PermissionLine {
 		out = append(out, PermissionLine{Key: "ui_surfaces", Title: permissionText(l, "surfaces_more_title"), Detail: surfacesDetail(l, m, surfaces)})
 	}
 	var names []string
-	for _, s := range m.Secrets {
-		if !slices.ContainsFunc(old.Secrets, func(o SecretSpec) bool { return o.Name == s.Name }) {
-			names = append(names, s.Title)
-		}
+	for _, s := range newSecrets(old, m) {
+		names = append(names, s.Title)
 	}
 	if len(names) > 0 {
 		out = append(out, PermissionLine{Key: "secrets", Title: permissionText(l, "secrets_more_title"), Detail: strings.Join(names, permissionText(l, "list_separator"))})
@@ -490,6 +488,17 @@ func AddedIn(l i18n.Lang, old, m *Manifest) []PermissionLine {
 		out = append(out, nodeLines(l, m.Node, old.NodeProgram())...)
 		if names := nodeSecrets(m, old); len(names) > 0 {
 			out = append(out, PermissionLine{Key: "node_secrets", Title: permissionText(l, "node_secrets_more_title"), Detail: strings.Join(names, permissionText(l, "list_separator"))})
+		}
+	}
+	return out
+}
+
+// newSecrets are m's secrets whose names old did not declare, whether required or optional.
+func newSecrets(old, m *Manifest) []SecretSpec {
+	var out []SecretSpec
+	for _, s := range m.Secrets {
+		if !slices.ContainsFunc(old.Secrets, func(o SecretSpec) bool { return o.Name == s.Name }) {
+			out = append(out, s)
 		}
 	}
 	return out

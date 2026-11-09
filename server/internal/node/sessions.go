@@ -223,6 +223,10 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 	for _, s := range n.codexSessions(seen) {
 		out = append(out, s)
 	}
+	for _, s := range n.codexAssistantsAtRest(seen) {
+		out = append(out, s)
+		seen[s.SessionID] = true
+	}
 	offlineRows := n.offline(seen)
 	n.markInterrupted(offlineRows, seen) // the restart cut these off (#1917)
 	for _, s := range offlineRows {

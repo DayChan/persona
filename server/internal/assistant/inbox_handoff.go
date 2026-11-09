@@ -229,7 +229,7 @@ func (s *Service) tellHandoff(ctx context.Context, id, title string, to SessionR
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		text := renderHandoffNote(n, s.owner(cctx), id, title)
-		params, err := s.SendParams(cctx, SendParams{MachineID: to.MachineID, SessionID: to.SessionID,
+		params, err := s.sendParams(cctx, SendParams{MachineID: to.MachineID, SessionID: to.SessionID,
 			Params: map[string]any{"session_id": to.SessionID, "text": text}})
 		if err == nil {
 			err = s.call(cctx, to.MachineID, DeviceSessionSend, params, nil)

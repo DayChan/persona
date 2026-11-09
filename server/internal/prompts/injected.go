@@ -50,6 +50,9 @@ var noticeLines = map[string]string{"done": "做完了", "needs": "在等你", "
 // ParseInjected says what text is when it is one of the messages Persona writes for the model; nil for anything
 // else (what the user wrote stays theirs: only the templates' exact shapes are taken).
 func ParseInjected(text string) *proto.Injected {
+	if UserAuthoredContext(text) {
+		return nil
+	}
 	for {
 		loc := leadContextRe.FindStringIndex(text)
 		if loc == nil {

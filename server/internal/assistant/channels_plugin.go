@@ -642,12 +642,14 @@ func rewindLastAnswer(a *channel.Ask) {
 // --- pushes and the sync mirror ---
 
 // channelPush sends what notify_user pushed to the phone to the plugin channels with pushes on too.
-func (s *Service) channelPush(title, body string) {
+func (s *Service) channelPush(machine, session, title, body string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, v := range s.textChannels(ctx) {
 		if v.Capabilities.Push && featureOn(v, channel.FeaturePushes) {
-			_ = s.channelTell(ctx, v.ID, "", strings.TrimSpace("🔔 "+title+"\n\n"+body), channel.OutPush)
+			if err := s.channelTell(ctx, v.ID, "", strings.TrimSpace("🔔 "+title+"\n\n"+body), channel.OutPush); err == nil {
+				s.markPushed(v.ID, machine, session)
+			}
 		}
 	}
 }
@@ -678,13 +680,14 @@ func (s *Service) extensionMirror(ctx context.Context, machine, session string) 
 	if !ok {
 		return
 	}
-	pushed := s.pushedLately(session)
 	for _, v := range to {
 		switch {
+		case featureOn(v, channel.FeaturePushes) && s.pushedLately(v.ID, machine, session):
+			continue // its notify_user copy already reached this channel
 		case strings.Contains(asked, `title="`+v.Name+`机器人"`):
 			continue // its own message: answered by the run
 		case main && featureOn(v, channel.FeatureSync):
-		case task != "" && featureOn(v, channel.FeaturePushes) && !pushed:
+		case task != "" && featureOn(v, channel.FeaturePushes):
 		default:
 			continue
 		}

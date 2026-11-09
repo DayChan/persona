@@ -50,11 +50,21 @@ func legacyLarkAgent(s string) string {
 	return b.String()
 }
 
+// messageSourceKindRe identifies provenance metadata, including the user-authored
+// sentinel. Cutting its JSON changes authorship, so it is fixed-size context.
+var messageSourceKindRe = lazyre.New(`\bkind\s*=\s*["']message-source["']`)
+
 // lightContexts fits a message with context blocks into limit bytes by cutting the blocks' bodies, longest first,
 // so what the user wrote and every block's title stay whole (a plain cut could end inside a block). ok is false when
 // even that does not fit, or there is nothing to cut.
 func lightContexts(s string, limit int) (string, bool) {
-	locs := contextBlockRe.FindAllStringSubmatchIndex(s, -1)
+	all := contextBlockRe.FindAllStringSubmatchIndex(s, -1)
+	locs := all[:0]
+	for _, loc := range all {
+		if !messageSourceKindRe.MatchString(s[loc[2]:loc[3]]) {
+			locs = append(locs, loc)
+		}
+	}
 	if len(locs) == 0 {
 		return "", false
 	}

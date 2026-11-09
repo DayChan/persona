@@ -610,3 +610,7 @@ A purpose-level model override does not change the managed launcher's default. L
   A new variable the node gives only the assistant goes into `assistantOnlyEnv`.
 - To see what an Agent really got, read its process environment (`ps -E -ww -o command= -p <pid>` on a Mac). Print the
   names only. Its Bash tool's `env` also shows what its own Claude added for its children.
+
+## A Codex assistant conversation needs its own "process gone" row (2026-11-09, #2126)
+
+`scanOffline` reads only Claude's projects and `codexSessions` leaves the assistant's conversations out of Agents, so a Codex main conversation had no row once its idle process was reaped. A client with no row can't send, so the composer turned off and the message that would resume it could not go. `codexAssistantsAtRest` in `server/internal/node/sessions_offline.go` lists them now.

@@ -632,6 +632,9 @@ func (ps *extensions) apply(ctx context.Context, id string) {
 	ps.mu.Unlock()
 	why := tokenStopReason(ps.reg.GetExact(id))
 	if ps.h != nil {
+		ps.h.widgetsDropExtension(id)
+		// Wake after the replacement is published, so a catalog refresh sees the new contributions.
+		defer ps.h.widgetsWake(id, nil, true)
 		ps.h.pageDropExtension(id)
 		// Switched off, upgraded (maybe to fewer scopes), uninstalled or reconfigured: its token goes now, and a new
 		// one comes with its next start.

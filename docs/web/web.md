@@ -282,6 +282,7 @@ use it only on the intranet / VPN, and put an HTTPS reverse proxy in front befor
   **Mark all as seen** still marks every done-but-not-seen Agent (the confirmation shows the actual count), including those collapsed into the **Stuck, take a look** and working rows: when there is an **Unread** group it sits right of that heading; when there is no such group but there are done-not-seen Agents, it sits right of the summary sentence at the top. Search (⌘K), todos, and groupings other than by machine in the sidebar / Agents page (by repo / project / status / to-do) still show one Agent per row.
 - **Chat page** (#1963 aligned with cindy's rendering; code in `src/lib/turns.ts`, `src/lib/work-groups.ts`, `views/chat/`): one section per message from you. Tools, thinking and in-between text in a section are grouped by cindy's rules:
   in progress it is **Working…** + a timer, showing the latest 5 items (with 5 or fewer, the heading is not clickable); when a turn finishes, the last reply stays outside and the process before it folds into "Worked Xs" (folded by default; when it is all reads and searches, "· read N files · searched N times" is appended).
+  In a Persona (assistant) conversation the work lines differ while the turn runs (#1614, `workLineOpen` in `lib/work-groups.ts`): they are open and list every step as it arrives (each tool call its own row, running / done / failed), and can be folded even with 5 or fewer steps; a fold made during the run holds only for the run (`useLiveOverride` in `views/chat/expanded.ts`). When the turn ends they fold to "Worked Xs"; opening it lists every call (the inner groups of a timeline start open there). Open groups fetch the hub's folds (`fold_work`) as usual. This follows the conversation, not the page: a Persona conversation opened from the Agents page (`/s/<machine>/<id>`) behaves the same (`workLineStyle`, from `Session.assistant`). Agents chats keep the behavior above.
   Deliverable body text (600+ characters, or with headings, tables, lists of 3+ items, images) and subagent cards (running or finished, #5602) are not folded in. Requests carry `fold_work`; expanding fetches the folded part by `from_seq` / `through_seq`.
   - **Tool rows** (`ActionRow`): `[status][verb][argument][+N −N][›]`; verbs are Edit / Create / Run / Read / Search / Visit / Call. Persona's own MCP tools (`mcp__persona__*`, #2896, the same table as iOS `PersonaToolNames`, `personaToolVerb` in `lib/turns.ts`) use their own verbs (read Agent chat, search knowledge base, remind, control computer…; `phone_*` / `mail_*` are "iPhone" / "Mail" + what was done); unmapped ones still read "Call Persona · <tool name>". Bash uses its description as the whole line when it has one; file arguments are small chips with just the file name. Command-type rows expand in place (input, divider, output, untruncated); Edit / Write / MultiEdit open a diff overlay.
   - **Thinking** (`ThinkingCard`): "Thought Ns", expandable only when there is body text (Claude Code's thinking mostly has none); while thinking, a temporary last line shows "Thinking" + bouncing dots + timer (from live status).
@@ -710,6 +711,24 @@ The main conversation shows this browser's last successful latest page immediate
 Only the latest two user turns are eligible, matching the latest-page request. Older pages and expanded folds remain in memory. The cache is limited to 200 items and 256 KiB of UTF-8 JSON; a page exceeding either limit is not retained. Image bodies and inline base64 image URLs are removed, leaving lazy image metadata. Storage restrictions, corrupt entries and quota failures fall back to the usual loading behavior. This is local conversation storage, not an offline sync queue; no configuration is required.
 
 Fresh items replace matching ids; a changed transcript history or a confirmed empty transcript replaces stale content. A failed refresh keeps the last page and shows the existing chat status capsule with **Couldn't refresh** and **Reload**, localized in English, Simplified Chinese and Japanese. Reload retries both the main-conversation reference and its transcript without blanking the cached page.
+
+### Message sources (#2125)
+
+Relayed conversations, scheduled patrols, follow-ups and supervision use the optional `Item.source` contract in
+[the protocol](../protocol/protocol.md). Their model-facing role can remain `user`, but the chat renders a left-aligned
+neutral source block with an `@` title, never a user bubble. Consecutive messages from the same source share the title;
+a reply, user input or different source resets it. Long content folds to three lines with an accessible Expand / Collapse
+control. No group-chat header, member list or per-source avatar is added. Quiet supervision rounds retain their existing
+folded trace, now labeled with their source mention.
+
+The cache retains the source metadata. Unknown nonempty source kinds still use the source presentation. Old hubs fall back
+to injected metadata and complete canonical relay contexts; genuine app inputs and protected quoted templates are never
+reclassified. Source messages cannot settle an identical pending user message or become user-navigation ticks.
+
+Browser regression: run an isolated mock hub and Vite, then
+`node web/e2e/message-sources.mjs <web URL> --shots <directory>`. It checks the real transcript renderer, consecutive labels,
+fold toggles, one genuine user bubble, console errors and wide/narrow light/dark screenshots. `--cdp <CDP URL>` leaves the
+inspection pages in an existing browser. All transcript content is synthetic; this check does not test live delivery.
 
 ### Unified main-chat entry (#930)
 

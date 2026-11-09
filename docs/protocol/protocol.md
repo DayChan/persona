@@ -587,6 +587,8 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
                                                       // recognized by the node, see "Matching pending messages"; old hubs / nodes omit it
  "wake":true,                                         // notice only: Claude was idle when a background task finished, and this notification started a new turn
  "injected":{"kind":"task_notice","state":"done",…},   // user text only: this is a message Persona sent to the model (task notification, scheduled task, wake-up…), not written by the user; added by the hub when sending, see "Messages Persona injects"
+ "source":{"kind":"conversation|patrol|followup|supervision","conversation_id":"…","title":"…"}, // optional input provenance, independent of role; id/title optional, see "Message source"
+ "from":"peer name",                                  // optional native peer sender; a display name, not necessarily a conversation id
  "compact":{"trigger":"manual|auto","pre_tokens":151467}, // notice only: the context was compacted here (Claude Code's compact_boundary); the App draws a divider and folds the following "已从压缩的上下文继续" ("continued from compacted context") and the idle-compaction note into it
  "task":{"kind":"shell|monitor|agent|workflow|task",     // notice only: a background task notification (command, Monitor event / end, subagent, workflow); text is a one-line summary
          "status":"completed|failed|killed|stopped|event|ended|waiting","title":"description or the command's first line",
@@ -798,13 +800,13 @@ POST /api/v1/assistant/warm                 → {"ok": true, "readiness"?: Readi
 ```
 
 - `steps` always has four entries in a fixed order: `computer`, `claude`, `model`, `first_message`. `state`: `ok` / `todo` / `problem` / `checking` / `unknown` / `skipped`. `todo` / `problem` always carry `code`, `title`, `detail` (per `Accept-Language`) and usually `action`; `model` in `unknown` carries them too (`model_unverified`).
-- `computer`: no computer is `todo` + `no_machine` (`add_computer`); computer not online is `problem` + `node_unreachable` (`wake_computer`); node too old (doesn't know model configuration) is `problem` + `node_outdated` (no button). `machine_pending` appears only once pending-computer confirmation (5.3) ships. When the computer isn't `ok`, the next three steps are all `unknown`.
+- `computer`: no computer is `todo` + `no_machine` (`add_computer`); computer not online is `problem` + `node_unreachable` (`wake_computer`); node too old (doesn't know model configuration) is `problem` + `node_outdated` (no button). With no confirmed computer selected, a pending computer owned by the manager is `todo` + `machine_pending` (`confirm_computer`); the top-level `machine` has its ID and display name, and the computer step's `machine` has its ID. With several pending computers, choose the smallest ID. This is a confirmation target, not permission to run there: main-chat creation returns 409 `machine_pending`, `action: "confirm_computer"`, `delivered: "none"`, and `machine_name`. A selected confirmed computer keeps priority even when offline. When the computer isn't `ok`, the next three steps are all `unknown`.
 - `claude`: the node self-check (`node.doctor`'s `claude-version`, cached per computer: 10 minutes when a version was read, 1 minute when not) reading a version is `ok` + `version`. The default launcher `claude` not readable is `problem` + `claude_missing` (`install_claude`, alternative `connect_model`). The last chat start being refused gives `claude_missing` / `launcher_missing` (no longer counted once a later self-check reads a version, or the launcher is back on this computer), and the same when the launcher health check's record says the command wasn't found. Your own launcher no longer existing on this computer is `launcher_missing` (`connect_model`; launchers added in Persona and direct API providers speaking Messages count as present on every computer). A launcher running Codex or a runtime is `skipped`. An old node without the self-check, or your own launcher whose version can't be read, is `unknown`. A self-check that didn't finish answering this time is `checking` (GET waits at most 12 seconds, warm 2 seconds; the result is cached either way). Once the model has answered, it is always `ok`.
 - `model`: takes the newest piece of evidence: the latest probe (same computer, same launcher), the main chat's latest turn (the session's `turn_error` / `turn_error_code`, or a normal answer), the launcher health check record (within 6 hours). If the newest is an answer, `ok`; if it's a failure with a recognized cause, `problem` + `not_logged_in` (`connect_model`, alternative `login_claude`) / `auth_failed` (`edit_provider`) / `model_route` / `rate_limited` (`connect_model`); with no evidence, or a failure of unrecognized cause, `unknown` + `model_unverified` (`test_assistant`), which doesn't count as a problem. For `auth_failed` and `model_route`, `alt_actions` includes `test_assistant` so the user can verify a repair even after `first_message` is `ok`, without replacing the current chat (#1894). It never spends tokens on its own. The evidence also includes the node's `claude.auth_status` (free, #4048; cached per computer per launcher: 10 minutes when signed in, 1 minute when not signed in or no answer (the call failed, `timeout`, `unreadable`), 10 minutes for an old node's `unknown method`): `not_logged_in` counts as a failure (`not_logged_in`). A `claude.ai` sign-in counts as an answer only when there's no other evidence or the newest is `not_logged_in`; it can't override a recognized `auth_failed` / `model_route` / `rate_limited`. Keys, gateway tokens and cloud providers (`api_key`, `api_key_helper`, `oauth_token`, `third_party`) don't count as evidence; with no other evidence, the `unknown` `detail` says "uses an account or key it was set up with, not tried yet". `unknown` doesn't count as evidence.
 - `first_message`: `ok` once the main chat has answered (recorded, then always `ok`; a changed main chat counts too); if it never answered and the latest turn failed, `problem` + that turn's code; otherwise `todo` + `never_tried` (`test_assistant`). While `first_message` offers `test_assistant`, an unverified `model` step has no action: the try is one button, on `first_message`, where clients show its spinner and answer; the probe it runs verifies the model (#6317). It doesn't affect `mode`.
 - `mode`: `setup` when any of `computer`, `claude`, `model` is `todo` or `problem`, except `rate_limited` (it recovers by itself, so `mode` stays `full`); `unknown` / `checking` don't block.
 - `suggestions`: in `setup` only the two `local: true` ones (`what_can_you_do`, `how_to_connect_model`; the client opens local help, nothing goes to the model); in `full` also `largest_folders`, `today` (`needs: ["phone_calendar"]`), `connect_mail`, with `prompt` (the exact text sent when tapped).
-- `probe` is `POST /api/v1/launchers/{name}/check`'s `{ok, agent, model, answer, millis, error}` on the main chat's computer. When the computer didn't answer (offline, timeout) only `error` is present; such results are not recorded and not used as model evidence.
+- `probe` is `POST /api/v1/launchers/{name}/check`'s `{ok, agent, model, answer, millis, error}` on the main chat's computer. If the computer step is not `ok` (including `machine_pending`), `?probe=1` sends no probe and the response omits `probe`. When the computer didn't answer (offline, timeout) only `error` is present; such results are not recorded and not used as model evidence.
 - Scheduled tasks (#4253): a run that comes due first computes readiness with the same rules (no probe). If a step this run needs is blocking, it isn't sent; the run record has `status: "skipped"`, `not_ready: true` (#1857), and `error` "Your computer or model isn’t set up yet, so this one was skipped", with no push. These skips, including temporary sleep / offline cases, neither count toward nor reset a failure streak. **Run Now** and one-off tasks don't check (a one-off closes when due, so a skip would lose it).
 - Storage: the latest result, `dismissed`, the latest probe, chat start refusals, the main chat having answered once, and scheduled tasks waiting for readiness (`routines_waiting`, #4253) are stored in Postgres `settings` under `assistant.readiness`; nothing is written when the result is unchanged (ignoring time). The first version pushes no events; clients re-fetch when entering the Persona tab, after pairing succeeds, after adding / confirming a computer, after saving a provider, and on `machines` changes.
 
@@ -3016,12 +3018,39 @@ The user's typed text
 Limits: comments up to 4000 characters, attached code up to 60 lines (extra lines are counted in `Truncated` but not included); the fence has one more backtick than the longest run in the code. Numbers follow the order of comments above the input, starting at 1.
 On reading back, web only recognizes blocks after the first block whose first line is `Comment N` / `Code comment N` / `Element comment N` (`splitQuotes`), so ordinary `> ` quotes are unaffected; editing a sent message puts comments back above the input.
 
+### Message source (#2125)
+
+`Item.source` is optional authorship metadata, independent of the runtime's `role`. New automated input keeps the model's existing user role and the legacy `injected` / `from` fields. Clients must not render any nonempty source kind as a user bubble, count it in user-only navigation or statistics, or match it to a user's pending send. Unknown kinds get a generic source label; they do not fall back to a user identity.
+
+```json
+{"kind":"conversation","conversation_id":"<sending conversation id>","title":"Research"}
+```
+
+| `source.kind` | Meaning | Optional fields |
+| --- | --- | --- |
+| `conversation` | Input from `conversation_send` or `conversation_new` | `conversation_id` is the sending session's stable id; `title` is its title at send time |
+| `patrol` | A repeating scheduled run, including daily routines and interval patrols | `title` is the scheduled task title; `conversation_id` is the originating conversation when recorded |
+| `followup` | A one-shot scheduled follow-up, wake, or usage-limit continuation | `title` and originating `conversation_id` when recorded |
+| `supervision` | A supervision dispatch | Existing `injected.level` and turn-folding behavior still apply |
+
+The manager persists explicit provenance in the native transcript with a leading context block, rendered by `shared/message_source.md`:
+
+```text
+<persona-context kind="message-source" title="">
+{"kind":"conversation","conversation_id":"<sending conversation id>","title":"Research"}
+</persona-context>
+```
+
+The original content follows the block. JSON is HTML-escaped when written so a title cannot close the block. This is metadata, not a selectable Context card: clients exclude `kind="message-source"` from Context groups. The block survives history reads, full-item reads, paging, subscription backlog and process restarts without depending on the 24-hour echo cache or a database migration. Queued relays retain their sender id/title in the existing persisted relay JSON; dispatch reconstructs the same source after restart. Scheduled runs receive a source whether they address an existing chat, reuse their own chat, or start a new one.
+
+For compatibility, prefer explicit `source`, then persisted source context, then existing `injected`: `followup.daily|interval` maps to `patrol`, other followup states to `followup`, and `system.supervise` to `supervision`. `from` still names a native peer and is not converted into a conversation id. With no metadata, only the complete canonical relay context (`assistant/relay.md`, matching sender and reply ids, recognized relay tool and numeric hop limits) supplies a conversation id/title; an emoji, title, or ordinary user sentence never does. Existing generated task templates remain the narrow fallback for old transcripts. A message with `client_msg_id` is never text-inferred. New user starts and app sends protect pasted source blocks or complete templates with an outer `message-source` block containing `{"author":"user"}`; this internal sentinel produces no source and prevents nested metadata or legacy recognition, even before the echo id arrives. Explicit source fields supplied by app input are removed.
+
 ## Messages injected by Persona
 
 The hub sends some model-facing messages into chats as "user input" (#2360, #2358). In the transcript they have `role:"user", kind:"text"`, just like the user's typed words,
-but aren't user-written: **clients don't draw them as user bubbles or show the instructions for the model inside them**. The text the model receives is unchanged (templates in `server/internal/prompts/`);
-recognition happens entirely when sending to clients: the hub recognizes the line by template (`prompts.ParseInjected`, tested against rendering) and adds `injected` to the item. Pagination (`/items`), pushes (`items` events and subscription backlog),
-and `/items/{iid}/full` all carry it. Recognition is by text, so old messages and those written by old nodes carry it too. A line the App sends with its own `client_msg_id` is never recognized as injected.
+but aren't user-written: **clients don't draw them as user bubbles or show the instructions for the model inside them**. The runtime role stays unchanged; generated content carries the source context above.
+The hub preserves explicit provenance and recognizes legacy generated lines by template (`prompts.ParseInjected`, tested against rendering), adding `injected` to the item. Pagination (`/items`), pushes (`items` events and subscription backlog),
+and `/items/{iid}/full` all carry the metadata. Old messages and those written by old nodes keep the narrow template fallback. A line the App sends with its own `client_msg_id` is never recognized as injected.
 
 ```jsonc
 "injected": {
@@ -3065,8 +3094,8 @@ and `/items/{iid}/full` all carry it. Recognition is by text, so old messages an
 - Anything unrecognized stays a user bubble (better to miss recognition than hide the user's words).
 - Shared fixtures: `spec/fixtures/injected/cases.json` (Go test `TestParseInjected` generates them from templates; `UPDATE_GOLDEN=1` rewrites them): `input.text` → `expected` (`null` means not recognized); all clients run their fallback recognition against these fixtures.
 
-Other "not user-written" messages already have their own shapes and aren't covered here: messages from another chat (`<persona-context title="来自对话「x」">`, "From chat 'x'"), background for resuming the old main chat (`<persona-context title="接上旧主对话">`, "Resume the old main chat")
-are gathered as "Context" by the tags above; background-task notifications use `kind:"notice"` + `task`; `/model`, compaction and similar notices use `kind:"notice"`.
+Other "not user-written" messages retain their own shapes: inter-chat input now additionally carries `source.kind="conversation"` as above; background for resuming the old main chat (`<persona-context title="接上旧主对话">`, "Resume the old main chat")
+is gathered as "Context" by the tags above; background-task notifications use `kind:"notice"` + `task`; `/model`, compaction and similar notices use `kind:"notice"`.
 
 
 

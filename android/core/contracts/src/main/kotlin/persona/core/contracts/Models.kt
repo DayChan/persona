@@ -529,7 +529,20 @@ data class Item(
     /** A message Persona typed in for the model (a task's notice, a scheduled run…), not by the user; the hub marks it
      *  (docs/protocol/protocol.md "Messages Persona injects"), older hubs do not (core/domain `injectedOf`). */
     val injected: Injected? = null,
+    /** Optional provenance for model input that was not typed by the user. Older hubs omit it. */
+    val source: MessageSource? = null,
 )
+
+/** Source titles are business data; clients localize the fallback for each kind. */
+@KeepGeneratedSerializer
+@Serializable(with = MessageSourceSerializer::class)
+data class MessageSource(
+    val kind: String = "",
+    @SerialName("conversation_id") val conversationId: String? = null,
+    val title: String? = null,
+)
+
+object MessageSourceSerializer : WireSerializer<MessageSource>(MessageSource.generatedSerializer())
 
 /** What a message Persona wrote for the model is: [line] is what the chat shows instead of it. */
 @KeepGeneratedSerializer

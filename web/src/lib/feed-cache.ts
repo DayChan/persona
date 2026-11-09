@@ -85,6 +85,8 @@ function validItem(value: unknown): value is Item {
   if (value.tool_input !== undefined && !object(value.tool_input)) return false;
   if (value.compact !== undefined && (!object(value.compact) || !strings(value.compact, ["trigger"]) || !numbers(value.compact, ["pre_tokens"])
     || (value.compact.notes !== undefined && (!Array.isArray(value.compact.notes) || !value.compact.notes.every((note) => typeof note === "string"))))) return false;
+  if (value.source !== undefined && (!object(value.source) || typeof value.source.kind !== "string"
+    || !strings(value.source, ["conversation_id", "title"]))) return false;
   if (value.injected !== undefined && (!object(value.injected) || typeof value.injected.kind !== "string" || typeof value.injected.line !== "string"
     || !strings(value.injected, ["state", "title", "machine", "todo_id", "detail"]))) return false;
   if (value.task !== undefined && (!object(value.task) || typeof value.task.kind !== "string" || typeof value.task.status !== "string"

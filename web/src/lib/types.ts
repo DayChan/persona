@@ -493,8 +493,17 @@ export interface Item {
   compact?: CompactInfo;
   /** A message Persona typed in for the model (a task's notice, a scheduled run…), not by you (lib/injected.ts). */
   injected?: Injected;
+  /** Display provenance, independent of the model-facing role. Unknown kinds remain non-user sources. */
+  source?: MessageSource;
   /** Client-only promotion evidence transferred from a removed Fold.supervision_user during an overlapping merge. */
   supervisionUser?: boolean;
+}
+
+/** Message provenance supplied by the assistant, not a group-chat member or a model role. */
+export interface MessageSource {
+  kind: "conversation" | "patrol" | "followup" | "supervision" | (string & {});
+  conversation_id?: string;
+  title?: string;
 }
 
 /** What a message Persona wrote for the model is (docs/protocol/protocol.md "Messages Persona injects"). */

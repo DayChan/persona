@@ -7,7 +7,8 @@ import { t } from "../i18n";
 import { errorSignature, isRetryText, parseAPIError, type APIErrorInfo } from "./api-errors";
 import { foldCompactions, isCompaction } from "./compaction";
 import { injectedOf } from "./injected";
-import type { Injected, Item } from "./types";
+import { sourceKey, sourceOf, userSourceSentinel } from "./message-source";
+import type { Injected, Item, MessageSource } from "./types";
 
 export type Step =
   | { kind: "tool"; id: string; use: Item; result?: Item; images: Item[] }
@@ -36,6 +37,9 @@ export interface UserMessage {
   photos?: string[];
   /** Persona typed it in for the model (a task's notice, a scheduled run…): one line, not a bubble (lib/injected.ts). */
   injected?: Injected;
+  source?: MessageSource;
+  /** The previous visible message has the same source and no intervening reply or work. */
+  continuedSource?: boolean;
   /** Original injected input blocks, before display parsing or shortening. */
   rawInput?: Item[];
 }
@@ -209,7 +213,7 @@ export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Se
       if (injected) {
         // The line stands for the input; the complete original remains available in the supervision trace.
         cur = open(`seg:${it.id}`);
-        cur.user = { id: it.id, text: injected.line, images: [], ts: it.ts, contexts: [], injected, rawInput: [it] };
+        cur.user = { id: it.id, text: injected.line, images: [], ts: it.ts, contexts: [], injected, source: sourceOf(it, injected), rawInput: [it] };
         cur.start = it.ts;
         lastUserEntry = entry;
         continue;
@@ -217,7 +221,7 @@ export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Se
       // blocks of one transcript line (text + its images) are one message
       if (!cur || !cur.user || cur.user.injected || entry !== lastUserEntry || cur.steps.length || cur.answer) {
         cur = open(`seg:${it.id}`);
-        cur.user = { id: it.id, text: "", images: [], queued: it.queued, ts: it.ts, contexts: [], from: it.from || undefined };
+        cur.user = { id: it.id, text: "", images: [], queued: it.queued, ts: it.ts, contexts: [], from: it.from || undefined, source: sourceOf(it, null), rawInput: [it] };
         cur.start = it.ts;
       }
       lastUserEntry = entry;
@@ -226,7 +230,7 @@ export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Se
       else {
         const p = parseUserText(it.text ?? "");
         cur.user!.text = cur.user!.text ? `${cur.user!.text}\n${p.text}` : p.text;
-        cur.user!.contexts.push(...p.contexts);
+        cur.user!.contexts.push(...p.contexts.filter((c) => c.kind !== "message-source"));
         if (p.files.length) cur.user!.files = [...(cur.user!.files ?? []), ...p.files];
         if (p.photos.length) cur.user!.photos = [...new Set([...(cur.user!.photos ?? []), ...p.photos])];
       }
@@ -291,7 +295,22 @@ export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Se
     }
     s.replies = s.steps.filter((x) => x.kind === "text").length;
   }
-  return out;
+  return groupSourceLabels(out);
+}
+
+/** Keep consecutive provenance labels quiet without hiding any individual message. */
+function groupSourceLabels(segs: Segment[]): Segment[] {
+  let previous: string | undefined;
+  for (const seg of segs) {
+    const source = seg.user?.source;
+    if (source && seg.user) {
+      const key = sourceKey(source);
+      seg.user.continuedSource = previous === key;
+      previous = key;
+    } else previous = undefined;
+    if (seg.steps.length || seg.answer) previous = undefined;
+  }
+  return segs;
 }
 
 /** The agent's words in a pushed batch that the chat did not have yet: they just came in (their words fade in once). */
@@ -743,7 +762,18 @@ export function chatLines(items: Item[], opts: ChatLinesOptions = {}): ChatLine[
   // Working with nothing of this run yet (the last thing is a recap): retain the supervision round's visibility.
   if (opts.live && !liveId) append([{ kind: "segment", id: "live", seg: { id: "live", steps: [], tools: 0, thoughts: 0, replies: 0, folds: [] }, live: true }], [], true);
   flush();
-  return foldRecaps(foldAPIErrors(out));
+  const lines = foldRecaps(foldAPIErrors(out));
+  let previous: string | undefined;
+  for (const line of lines) {
+    if (line.kind === "supervision") {
+      groupSourceLabels(line.lines.filter((child): child is Extract<ChatLine, { kind: "segment" }> => child.kind === "segment").map((child) => child.seg));
+    }
+    if (line.kind !== "segment" || !line.seg.user?.source) { previous = undefined; continue; }
+    const key = sourceKey(line.seg.user.source);
+    line.seg.user.continuedSource = previous === key;
+    previous = line.seg.steps.length || line.seg.answer ? undefined : key;
+  }
+  return lines;
 }
 
 /** The API error a line ends in: an answer, or a notice of its own line. `rest`: the line without it (null: nothing). */
@@ -840,18 +870,16 @@ export function wakeDrawer(t: Turn): { groups: { id: string; notices: Item[]; an
   return { groups: groups.filter((g) => g.notices.length || g.answer).reverse(), process };
 }
 
-/** The title of the context a message another Persona conversation sent carries (prompts/assistant/relay.md). */
-const RELAY_TITLE = "来自对话「"; // i18n-ignore: matches the hub's relay text
-
 /** Sent by another Persona conversation (conversation_new / conversation_send), not typed by you. */
 export function isRelayed(msg: UserMessage): boolean {
-  return msg.contexts.some((c) => c.title?.startsWith(RELAY_TITLE));
+  if (msg.client_msg_id || msg.rawInput?.some((item) => userSourceSentinel(item.text ?? ""))) return false;
+  return msg.source?.kind === "conversation";
 }
 
 /** Typed (or dictated, or a quick command expanded) by you: the pale blue bubble. Persona's own messages, another
  *  session's and another conversation's are not. */
 export function isOwnMessage(msg: UserMessage): boolean {
-  return !msg.injected && !msg.from && !isRelayed(msg);
+  return !msg.source && !msg.injected && !msg.from && !isRelayed(msg);
 }
 
 /** A /loop wakeup (the transcript records each as the "/loop …" prompt again): a quiet line, not a bubble. */

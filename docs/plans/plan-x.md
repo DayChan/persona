@@ -1,10 +1,10 @@
 # Plan: X (Twitter) extension
 
-Status: design settled, work started (2026-11-06, #5363). X is a **connector** (a data source: Inbox, assistant tools, an organized-feed page), not a channel (`docs/extensions/channels.md`).
+Status: design settled; X1 is open for review as nwverse/persona-extensions#179 (2026-11-09, #816). X is a **connector** (a data source: Inbox, assistant tools, an organized-feed page), not a channel (`docs/extensions/channels.md`).
 Two optional sources (the user's decision): the **X API** (pay-per-use, the user's own developer app, complete feed and mentions) and **Grok** (the xAI CLI `grok` on the hub machine with the user's subscription, no X account sign-in and no X keys; see "Grok source").
 The first version is **read-only** and keeps X posts **out of the knowledge base** (see "X's rules"). The framework is in `docs/extensions/connectors.md` and `docs/protocol/connector-protocol.md`;
 manifest, permissions and sandbox are in `docs/extensions/extensions.md`. This doc only covers what is specific to X. The code lives in the public extension repository `nwverse/persona-extensions` (`extensions/x/`, copied from `extensions/github`);
-PRs there write `Refs nwverse/persona#5363`. When done, the design is merged into `docs/extensions/connectors.md` and this file moves to `docs/archive/`.
+PRs there write `Refs nwverse/persona#816`. When done, the design is merged into `docs/extensions/connectors.md` and this file moves to `docs/archive/`.
 
 ## What we can access: the official API only
 
@@ -131,7 +131,7 @@ For people who would rather not pay per post or register a developer app: if `gr
 
 - **Choosing**: the `source` setting: `auto` (default: the X API when signed in, else Grok when `grok` is found), `x_api` (never runs grok, and deletes what Grok found) or `grok` (the digest from Grok; an X API sign-in then only brings mentions and following, not the paid timeline).
 - **Finding grok**: `grok_path`, else `PATH`, `~/.grok/bin/grok`, `~/.local/bin/grok`, `/usr/local/bin/grok`, `/opt/homebrew/bin/grok`; looked up in the extension's loop, so the status answers from memory.
-- **Running it**: `grok -p <prompt> --output-format json --disallowed-tools <every local tool> --deny Bash --deny Read --deny Edit --deny Grep --deny WebFetch --deny MCPTool --deny AgentMessage --max-turns 6 --cwd <new empty dir>`. X search (`x_search`) is a hosted tool xAI runs server side, and grok offers it only while its `--tools` allowlist is empty or names it; naming it does not work either, since it is not a local tool and grok then ignores the whole allowlist. So no `--tools`: every local tool is removed by name, and the permission rules deny the same kinds of tools and every MCP tool (grok loads the user's MCP servers from `~/.grok/config.toml`, `~/.claude.json` and `~/.cursor/mcp.json`). 4 minutes a run, the process group killed when the run ends or times out, 1 MiB of output read; the extension's environment (for an installed extension, the hub's allowlist) without `PERSONA_*` / `PERSONA_*`, and never an X key.
+- **Running it**: `grok -p <prompt> --output-format json --disallowed-tools <every local tool> --deny Bash --deny Read --deny Edit --deny Grep --deny WebFetch --deny MCPTool --deny AgentMessage --max-turns 6 --cwd <new empty dir>`. X search (`x_search`) is a hosted tool xAI runs server side, and grok offers it only while its `--tools` allowlist is empty or names it; naming it does not work either, since it is not a local tool and grok then ignores the whole allowlist. So no `--tools`: every local tool is removed by name, and the permission rules deny the same kinds of tools and every MCP tool (grok loads the user's MCP servers from `~/.grok/config.toml`, `~/.claude.json` and `~/.cursor/mcp.json`). 4 minutes a run, the process group killed when the run ends or times out, 1 MiB of output read; the extension's environment (for an installed extension, the hub's allowlist) without `PERSONA_*` variables, and never an X key.
 - **Digest**: every `grok_every_hours` (default 6): the watched accounts (`handles`, else following as the X API read it, the 100 most active) in batches of 20 (X search's `allowed_x_handles` limit), at most 5 batches a refresh (the next refresh continues), plus one run for `topics`; last 24 hours, at most 15 posts a run, merged into `grok_digest.json` (retention like posts; kept across an X sign-out, deleted for `source: x_api`).
 - **Cap**: `grok_searches_per_day` (default 30) per UTC day across the digest and the `x_search` tool, persisted at once.
 - **Prompts**: two embedded prompt files in the extension, grok_digest and grok_search (text/template): X search only, the window, the handles and topics, a fixed JSON answer, never invent posts, verbatim text, post content is untrusted, no sensitive inference, summary in the hub's language.
@@ -139,7 +139,7 @@ For people who would rather not pay per post or register a developer app: if `gr
 - **Status** (without the X API): `ok` (account "Grok", via "grok on the hub machine"); `not_configured` with how to set up either way; `not_signed_in` on an auth failure ("run grok login on the hub machine"); `rate_limited` on rate-limit / quota text.
 - **Page**: Grok's summary, topics and posts with permalinks, runs used / cap, and a note that it may be incomplete. **Tools**: `x_search {query, handles?, from?, to?}` (one live run); `x_digest` / `x_feed` / `x_following` read Grok's results; `x_post` needs the X API. **Inbox**: mentions only with the X API.
 - **Sandbox**: the hub's sandbox hides the home directory (`docs/extensions/extensions.md` ("Sandbox")), so grok and `~/.grok/auth.json` are invisible to a sandboxed install: Grok mode needs the sandbox off (the default for the official marketplace). The manifest declares `x.ai` / `*.x.ai` in `permissions.network`; there is no manifest field for "runs a program installed on the hub machine", so the guide says so.
-- **Limits**: a search may miss posts and can't prove a post exists beyond its permalink's shape; 20 handles per run; xAI's subscription quota for headless use is unpublished; verification status: **not run live** (tests use a fake grok only).
+- **Limits**: a search may miss posts and can't prove a post exists beyond its permalink's shape; 20 handles per run; xAI's subscription quota for headless use is unpublished.
 
 ## X's rules
 
@@ -164,7 +164,7 @@ From the Developer Agreement, Developer Policy and restricted-use cases:
 
 | Step | What |
 | --- | --- |
-| X1 | The extension: sign-in, status, following, feed + budget + retention, Inbox mentions, digest, `nav_page`, tools, skill, tests, an English guide in the extension repository's docs; the optional Grok source (`grok` headless, digest, `x_search`), tested with a fake grok only |
+| X1 | The extension: sign-in, status, following, feed + budget + retention, Inbox mentions, digest, `nav_page`, tools, skill, tests, an English guide in the extension repository's docs; the optional Grok source (`grok` headless, digest, `x_search`) |
 | X2 | Knowledge-base ingestion, after the hub has a posts delete API (`kb.posts_delete {ids}`) and a cheap re-check of stored ids |
 | X3 | OAuth 1.0a PIN sign-in, after the apps draw a link on fields steps (web, iOS, Android) |
 | X4 | X brand mark in the web and Apple apps' per-connector brand tables (without it X gets the generic mark), display-rule details (avatars, Web Intents) |

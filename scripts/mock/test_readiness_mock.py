@@ -171,6 +171,16 @@ class ReadinessMockTests(unittest.TestCase):
         self.assertEqual([(m["id"], m["trust"]) for m in machines["machines"]], [("mbp", "pending")])
         status, body = h.call("POST", "/api/v1/sessions", {"machine_id": "mbp", "cwd": "/Users/me"})
         self.assertEqual((status, body["code"], body["error"]), (409, "machine_pending", "这台电脑还没确认是你的，确认后才能在上面开 Agent"))
+        _, r = h.call("GET", "/api/v1/assistant/readiness?probe=1")
+        self.assertEqual(r["machine"], {"id": "mbp", "name": machines["machines"][0]["name"]})
+        self.assertEqual((r["steps"][0]["state"], r["steps"][0]["code"], r["steps"][0]["machine"],
+                          r["steps"][0]["action"]["id"], r["ready"]),
+                         ("todo", "machine_pending", "mbp", "confirm_computer", False))
+        self.assertNotIn("probe", r)
+        self.assertEqual([s["state"] for s in r["steps"][1:]], ["unknown"] * 3)
+        status, body = h.call("POST", "/api/v1/assistant/conversations", {"prompt": "Hello", "main": True})
+        self.assertEqual((status, body["code"], body["action"], body["delivered"], body["machine_name"]),
+                         (409, "machine_pending", "confirm_computer", "none", r["machine"]["name"]))
         # Confirmed: it is the main conversation's computer, and the readiness says so.
         self.assertEqual(h.call("POST", "/api/v1/machines/mbp/confirm", {}), (200, {"ok": True}))
         _, r = h.call("GET", "/api/v1/assistant/readiness")
@@ -184,7 +194,7 @@ class ReadinessMockTests(unittest.TestCase):
         self.assertEqual((status, code["trust"]), (200, "pending"))
         time.sleep(0.8)
         _, r = h.call("GET", "/api/v1/assistant/readiness")
-        self.assertEqual(r["steps"][0]["code"], "no_machine")  # online now, still waiting to be confirmed
+        self.assertEqual((r["steps"][0]["code"], r["steps"][0]["machine"]), ("machine_pending", code["machine"]))
         h.call("POST", "/api/v1/machines/%s/confirm" % code["machine"], {})
         _, r = h.call("GET", "/api/v1/assistant/readiness")
         self.assertEqual((r["machine"]["name"], r["steps"][0]["state"]), ("办公室的电脑", "ok"))

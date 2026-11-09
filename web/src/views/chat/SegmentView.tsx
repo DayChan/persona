@@ -16,6 +16,7 @@ import { Markdown } from "../../ui/Markdown";
 import { CardConversation, CardItem } from "../../ui/AssistantCard";
 import { cardReply } from "../../lib/assistant-blocks";
 import { InjectedHint, LoopTick, MergedBubble, PeerMessage } from "./Messages";
+import { SourceMessage } from "./SourceMessage";
 import { ContextGroup } from "./ContextGroup";
 import { AttachedPhotos } from "./AttachedPhotos";
 import { useFullText } from "./FullText";
@@ -208,14 +209,14 @@ export const SegmentView = memo(function SegmentView({
   /** An opened supervision round shows its original input instead of the injected hint. */
   trace?: boolean;
 }) {
-  const { subagents, scope, workflowCalls = NO_WORKFLOW_CALLS } = useChatContext();
+  const { subagents, scope, workflowCalls = NO_WORKFLOW_CALLS, lineStyle } = useChatContext();
   const steps = useMemo(() => planSteps(exchangeSteps(seg)), [seg]);
   const turnStart = seg.user?.ts ?? seg.start;
   const thinking = useMemo(() => thinkingDurations(steps, turnStart), [steps, turnStart]);
   const p = useMemo<WorkProps>(() => {
     const agent = (s: ToolStep) => agentStatus(s.result, subagentFor(subagents, s.use), live);
-    return { mid, sid, scope, expandFold, agentStatus: agent, thinking, segment: seg.id, workflowCalls, trace };
-  }, [mid, sid, scope, expandFold, subagents, live, thinking, seg.id, workflowCalls, trace]);
+    return { mid, sid, scope, expandFold, agentStatus: agent, thinking, segment: seg.id, workflowCalls, trace, lineStyle, turnLive: live };
+  }, [mid, sid, scope, expandFold, subagents, live, thinking, seg.id, workflowCalls, trace, lineStyle]);
   const nodes = useMemo(
     () => workBlocks(steps, { live, turnStart, agentStatus: p.agentStatus, workflowCard: (s) => workflowCalls.known.has(s.use.tool_use_id ?? ""), keepTool: seg.supervision ? (s) => Boolean(supervisionTool(s.use.tool_name)) : undefined }),
     [steps, live, turnStart, p.agentStatus, workflowCalls, seg.supervision],
@@ -232,7 +233,7 @@ export const SegmentView = memo(function SegmentView({
   const imageStrip = images.length > 0 && <TurnImages images={images} mid={mid} sid={sid} cwd={getSession(mid, sid)?.cwd} />;
   return (
     <section className="flex flex-col gap-3" data-segment>
-      {trace && seg.user?.rawInput ? <RawInjectedInput items={seg.user.rawInput} mid={mid} sid={sid} /> : seg.user && (seg.user.injected ? <InjectedHint msg={seg.user} sid={sid} /> : seg.user.parts ? <MergedBubble msg={seg.user} mid={mid} sid={sid} /> : seg.user.from ? <PeerMessage msg={seg.user} /> : isLoopTick(seg.user) ? <LoopTick msg={seg.user} /> : <UserBubble msg={seg.user} mid={mid} sid={sid} />)}
+      {trace && seg.user?.rawInput ? <RawInjectedInput items={seg.user.rawInput} mid={mid} sid={sid} /> : seg.user && (seg.user.source ? <SourceMessage msg={seg.user} mid={mid} sid={sid} /> : seg.user.injected ? <InjectedHint msg={seg.user} sid={sid} /> : seg.user.parts ? <MergedBubble msg={seg.user} mid={mid} sid={sid} /> : seg.user.from ? <PeerMessage msg={seg.user} /> : isLoopTick(seg.user) ? <LoopTick msg={seg.user} /> : <UserBubble msg={seg.user} mid={mid} sid={sid} />)}
       {/* while the agent works, its live work stays at the bottom */}
       {live && <Fragment key="before-words">{beforeWords}</Fragment>}
       <WorkNodes nodes={nodes.slice(0, cut)} p={p} live={live} fade />

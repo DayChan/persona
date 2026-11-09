@@ -323,9 +323,16 @@ func (s *Service) readiness(ctx context.Context, probe bool, wait time.Duration)
 	out := Readiness{Version: 1, Launcher: launcher, CheckedAt: time.Now().UTC().Truncate(time.Second)}
 
 	d, has := s.device(ctx, v.MachineID)
+	pending := false
+	if !has || v.MachineID == "" {
+		d, pending = s.pendingAssistantMachine(ctx)
+		has = pending
+	}
 	computer := ReadinessStep{ID: StepComputer, State: StepOK}
 	switch {
-	case !has || v.MachineID == "":
+	case pending:
+		computer = s.readinessStep(lang, StepComputer, StepTodo, proto.CodeMachinePending, d.Name, launcher, "confirm_computer")
+	case !has:
 		computer = s.readinessStep(lang, StepComputer, StepTodo, proto.CodeNoMachine, "", launcher, "add_computer")
 	case !d.Online && !d.Reachable:
 		computer = s.readinessStep(lang, StepComputer, StepProblem, codeNodeUnreachable, d.Name, launcher, "wake_computer")
@@ -638,13 +645,13 @@ func (s *Service) readinessClaude(ctx context.Context, lang i18n.Lang, d Device,
 }
 
 // readinessFirst is the first_message step: the main conversation answered once (a main conversation was replaced:
-// it did long ago), or its one turn failed.
+// it did long ago), a probe check succeeded, or its one turn failed.
 func (s *Service) readinessFirst(ctx context.Context, lang i18n.Lang, d Device, rec readinessRecord, v Settings,
 	main proto.Session, hasMain bool) ReadinessStep {
 	if rec.AnsweredAt != nil || len(v.Former) > 0 {
 		return ReadinessStep{ID: StepFirstMessage, State: StepOK}
 	}
-	if hasMain && answeredWell(main) {
+	if (hasMain && answeredWell(main)) || (rec.Probe != nil && rec.Probe.Check.OK) {
 		now := time.Now().UTC()
 		if err := s.readinessUpdate(ctx, func(r *readinessRecord) { r.AnsweredAt = &now }); err != nil {
 			s.logf("assistant: readiness: %v", err)
@@ -729,7 +736,11 @@ func (s *Service) readinessProbe(ctx context.Context, machine, launcher string) 
 		return &proto.LauncherCheck{Error: i18n.Localize(err, s.requestCtxLang(ctx))}
 	}
 	if err := s.readinessUpdate(ctx, func(r *readinessRecord) {
-		r.Probe = &readinessProbe{Machine: machine, Launcher: launcher, At: time.Now().UTC(), Check: res}
+		now := time.Now().UTC()
+		r.Probe = &readinessProbe{Machine: machine, Launcher: launcher, At: now, Check: res}
+		if res.OK && r.AnsweredAt == nil {
+			r.AnsweredAt = &now
+		}
 	}); err != nil {
 		s.logf("assistant: readiness: %v", err)
 	}

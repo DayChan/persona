@@ -26,9 +26,9 @@ func ghToken(ctx context.Context, host string) (map[string]any, error) {
 	if !ghHost.MatchString(host) {
 		return nil, &rpc.Error{Message: "bad host"}
 	}
-	gh, err := exec.LookPath("gh")
+	gh, err := ghLookPath()
 	if err != nil {
-		return nil, &rpc.Error{Code: proto.CodeNoGh, Message: "gh is not installed"}
+		return nil, &rpc.Error{Code: proto.CodeNoGh, Message: ghMissing(err)}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()

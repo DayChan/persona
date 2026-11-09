@@ -1,5 +1,10 @@
 # Lessons: web UI and interactions
 
+## Message provenance is independent of model roles (#2125)
+
+- An automatic or relayed input can legitimately have model role `user` without belonging in a user bubble, pending-message echo matching or the user-input navigator. Carry structured provenance through display parsing and cached pages; test these consumers together. Legacy relay inference requires the complete machine template, and an app user's protected quotation must suppress inference. Use transcript-backed metadata for long-lived history rather than a short-lived echo record.
+- Source folding uses the chat typography tokens. Unlayered `.prose-j` rules override component-layer inheritance unless the component deliberately pins that inheritance; otherwise narrow-screen folds can clip half a line.
+
 ## Pushed batches follow more_after too (#1118)
 
 - A contiguous reconnect replay can still be incomplete when its final batch carries `more_after`. Follow that flag on pushed batches as well as HTTP pages, continuing from the updated contiguous coverage cursor through the existing gap-fill timer; do not wait for another push to reveal a gap.

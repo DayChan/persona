@@ -283,7 +283,7 @@ func (t *tracker) sourceOf(ctx context.Context, it proto.Item) (foreign bool, fr
 	if t.c.target == nil || t.c.target.Kind == "agent" {
 		return false, ""
 	}
-	if it.Injected != nil || it.From != "" {
+	if it.Injected != nil || it.From != "" || it.Source != nil && it.Source.Kind != "" {
 		return true, ""
 	}
 	head, _, ok := strings.Cut(it.ClientMsgID, "-")

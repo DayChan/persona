@@ -2,5 +2,10 @@
   "message_count_other": "{count} 条消息",
   "from": "来自 {name}",
   "loop_tick": "循环唤醒",
+  "source_conversation": "对话",
+  "source_patrol": "定时巡检",
+  "source_followup": "跟进",
+  "source_supervision": "督办巡检",
+  "source_other": "来源",
   "open_task": "{line}，打开任务"
 }

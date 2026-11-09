@@ -2,6 +2,8 @@
   "this_computer": "this computer",
   "no_machine_title": "Add your computer",
   "no_machine_detail": "Persona works on one of your computers, and none is connected yet.",
+  "machine_pending_title": "Confirm your computer",
+  "machine_pending_detail": "Confirm that {machine} is your computer before Persona can work on it.",
   "node_unreachable_title": "{machine} is offline",
   "node_unreachable_detail": "{machine} is offline right now. It may be asleep, or Persona Link isn't running.",
   "node_outdated_title": "Persona on {machine} is out of date",

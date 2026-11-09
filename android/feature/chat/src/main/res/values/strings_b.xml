@@ -247,6 +247,14 @@
     <string name="chat_draft_save_failed">Couldn\'t save the draft. Your typing is still on this page; don\'t quit the app</string>
     <string name="chat_dictation_prompt">Go ahead; what you say goes into the message box</string>
     <string name="chat_dictation_unavailable">No voice input on this phone</string>
+    <string name="chat_source_label">@%1$s</string>
+    <string name="chat_source_conversation">Conversation</string>
+    <string name="chat_source_patrol">Routine check</string>
+    <string name="chat_source_followup">Follow-up</string>
+    <string name="chat_source_supervision">Supervision</string>
+    <string name="chat_source_unknown">Source</string>
+    <string name="chat_source_expand">Show more</string>
+    <string name="chat_source_collapse">Show less</string>
     <string name="chat_injected_open_task">Open task</string>
     <string name="chat_injected_view_request">View the task\'s request</string>
     <string name="chat_read_only_history">This past session is read-only. Continue it first</string>

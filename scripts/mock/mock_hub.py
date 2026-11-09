@@ -16957,7 +16957,7 @@ MOCK_HELP.append("MOCK_ADD_COMPUTER=1|seed  机器 › 添加电脑（#287）：
 # the states the setup card shows, in the hub's shapes and words (its own catalogs, by Accept-Language): the features
 # assistant_readiness, machines_add, machine_trust and builtin_presets; GET /api/v1/assistant/readiness[?probe=1],
 # POST …/readiness/dismiss, POST /api/v1/assistant/warm with readiness; POST /api/v1/assistant/conversations refused
-# with the scenario's code (409 no_machine / claude_missing / launcher_missing, 503 node_unreachable); POST
+# with the scenario's code (409 no_machine / machine_pending / claude_missing / launcher_missing, 503 node_unreachable); POST
 # /api/v1/sessions on a pending computer 409 machine_pending; GET /api/v1/launchers/presets with the built-in providers
 # (presets_builtin.json) before the plugins'. The computer is the example user's MacBook (mbp) alone, with no agents, except in
 # demo (full on the usual data, the assistant on server). Adding and confirming a computer works (MOCK_ADD_COMPUTER), and the
@@ -17021,13 +17021,17 @@ if READINESS:
 
 def ready_machine():
     """The main conversation's computer as readiness_mock wants it: the one set in Settings › Assistant when it is among the
-    confirmed ones served, else the first of them (assistant/profile.go effective); None when there is none."""
-    ok = [m for m in out_machines() if m.get("trust") != "pending"]
+    confirmed ones served, else the first of them (assistant/profile.go effective). With none confirmed, name the
+    pending computer with the smallest id for confirmation; None when neither exists."""
+    machines = out_machines()
+    ok = [m for m in machines if m.get("trust") != "pending"]
     m = next((x for x in ok if x["id"] == ASSISTANT_CONFIG["machine_id"]), ok[0] if ok else None)
+    if m is None:
+        m = min((x for x in machines if x.get("trust") == "pending"), key=lambda x: x["id"], default=None)
     if m is None:
         return None
     return {"id": m["id"], "name": m["name"], "online": bool(m.get("online")), "claude_version": m.get("claude_version", ""),
-            "node_outdated": m.get("error_code") == "node_outdated"}
+            "pending": m.get("trust") == "pending", "node_outdated": m.get("error_code") == "node_outdated"}
 
 
 def ready_lang(handler):
@@ -17038,7 +17042,7 @@ def ready_state(handler, probe=False):
     sc, m = READY["sc"], ready_machine()
     launcher = ASSISTANT_CONFIG["launcher"] or "claude"
     result = None
-    if probe and m and m["online"] and not m["node_outdated"]:
+    if probe and m and not m["pending"] and m["online"] and not m["node_outdated"]:
         result = readiness_mock.probe_result(sc, launcher)
         if result["ok"] and not sc.get("model"):
             READY["sc"] = sc = dict(sc, model="ok")  # what a probe that answered says of the model, from now on
@@ -17139,6 +17143,8 @@ if READINESS or BUILTIN_PRESETS:
             if not code:
                 if m is None:
                     code = "no_machine"
+                elif m["pending"]:
+                    code = "machine_pending"
                 elif not m["online"]:
                     code = "node_unreachable"
                 elif READY["sc"].get("claude") == "missing":

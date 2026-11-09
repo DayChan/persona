@@ -102,6 +102,36 @@
   --shadow-inset-field: inset 0 1px 2px #0006;
 }
 
+/* Source messages share the chat's typography and neutral surfaces in every theme. */
+@layer components {
+  .chat-source {
+    @apply flex min-w-0 flex-col items-start gap-1.5 rounded-card bg-inset p-3 text-ink-2;
+  }
+  .chat-source-label {
+    @apply max-w-full truncate font-medium text-accent-ink;
+    font-size: var(--chat-secondary);
+  }
+  .chat-source-body {
+    @apply min-w-0 w-full;
+    font-size: var(--chat-secondary);
+    line-height: 1.6;
+  }
+  .chat-source-body .prose-j {
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+  .chat-source-body .prose-j > :first-child { margin-top: 0; }
+  .chat-source-body .prose-j > :last-child { margin-bottom: 0; }
+  .chat-source-folded {
+    max-height: 3lh;
+    overflow: hidden;
+  }
+  .chat-source-toggle {
+    @apply rounded-control font-medium whitespace-nowrap text-ink-3 hover:text-ink-2;
+    font-size: var(--chat-secondary);
+  }
+}
+
 /* Expose the tokens as Tailwind utilities. */
 /* Phones under 340 px wide (iPhone SE first generation, small Android phones): `max-xs:` is below 340 px, where the composer's mode chips turn into
    an icon and a short word (#4316). */
