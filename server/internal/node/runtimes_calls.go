@@ -16,7 +16,7 @@ import (
 
 // claimMethods are the calls that ask the connected runtimes about a session nobody claimed yet: what the apps do
 // with a session they show (open it, page it, send to it, stop it).
-var claimMethods = map[string]bool{"session.user-inputs": true, "session.send": true, "session.items": true, "session.item": true, "session.image": true,
+var claimMethods = map[string]bool{"session.send": true, "session.items": true, "session.item": true, "session.image": true,
 	"session.watch": true, "session.info": true, "session.interrupt": true}
 
 // runtimeClaimTimeout bounds asking one runtime whether it has a session.
@@ -101,6 +101,7 @@ type runtimeCallParams struct {
 	SinceSeq       int           `json:"since_seq"`
 	FoldWork       bool          `json:"fold_work"`
 	LazyImages     bool          `json:"lazy_images"`
+	UserInputs     bool          `json:"user_inputs"`
 	AfterSeq       *int          `json:"after_seq"`
 	ThroughSeq     int           `json:"through_seq"`
 	Title          *string       `json:"title"`
@@ -150,10 +151,11 @@ func (n *Node) runtimeHandle(ctx context.Context, h *runtimeConn, method string,
 		}
 	}
 	switch method {
-	case "session.user-inputs":
-		index, err := n.runtimeUserInputs(ctx, p.SessionID, func(params any) (json.RawMessage, error) { return call("session.items", params) })
-		return index, err, true
 	case "session.items":
+		if p.UserInputs {
+			index, err := n.runtimeUserInputs(ctx, p.SessionID, func(params any) (json.RawMessage, error) { return call("session.items", params) })
+			return index, err, true
+		}
 		out, err := call("session.items", params)
 		if err != nil {
 			return nil, err, true

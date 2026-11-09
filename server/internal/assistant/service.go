@@ -153,7 +153,6 @@ func New(o Options) *Service {
 	s.models.secret = secretkey.NewWithFallback(o.SecretKey)
 	s.archiveRoutes()
 	s.agentArchiveRoutes()
-	s.userInputRoutes()
 	s.alwaysRoutes()
 	s.reporterRoutes()
 	s.originRoutes()

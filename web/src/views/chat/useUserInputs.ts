@@ -16,7 +16,7 @@ export function useUserInputs(mid: string, sid: string, history: string | undefi
     const ctl = new AbortController();
     let timer: number | undefined;
     let delay = 3000;
-    const load = () => void api<unknown>(`${sessionPath(mid, sid)}/user-inputs`, { signal: ctl.signal }).then((index) => {
+    const load = () => void api<unknown>(`${sessionPath(mid, sid)}/items?user_inputs=1&lazy_images=1`, { signal: ctl.signal }).then((index) => {
       if (!alive || scopeNow.current !== scope || !validUserInputIndex(index)) return;
       if (history && index.history && index.history !== history) {
         // A complete scan can discover a historical rewrite outside the tail. Refresh bodies before accepting it.

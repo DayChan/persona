@@ -8,7 +8,7 @@ import { cx } from "../../ui/atoms";
 import { t } from "../../i18n";
 
 function labelOf(tick: NavRailTick): string {
-  return tick.preview || (tick.attachmentsOnly ? t("chat-navrail.attachments", { count: tick.attachmentsOnly }) : "");
+  return tick.preview || (tick.attachmentsOnly ? t("chat-navrail.attachments", { count: tick.attachmentsOnly }) : tick.ordinal ? t("chat-navrail.input", { index: tick.ordinal }) : "");
 }
 
 export function NavRail({ ticks, total, scroller, onJump, reset }: {

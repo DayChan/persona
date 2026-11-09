@@ -11,6 +11,8 @@ export interface NavRailTick {
   /** Optional loaded row owner and stable sequence from the independent server index. */
   lineId?: string;
   seq?: number;
+  /** An unloaded input's ordinal, localized by the component rather than cached in its preview. */
+  ordinal?: number;
   /** The question's first line worth showing (quote blocks skipped, trimmed, capped): the preview card and the label. */
   preview: string;
   /** A question with no words of its own (only pictures, files or picked contexts): how many, for a fallback label. */

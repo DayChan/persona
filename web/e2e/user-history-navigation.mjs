@@ -47,7 +47,7 @@ try {
       if (!["GET", "HEAD"].includes(request.method())) return route.fulfill({ json: { ok: true } });
       if (!url.pathname.startsWith("/api/")) return route.continue();
       const path = url.pathname.replace(/^\/api\/v1/, "");
-      if (path.endsWith("/user-inputs")) { await ready; return route.fulfill({ json: index }); }
+      if (path.endsWith("/items") && url.searchParams.get("user_inputs") === "1") { await ready; return route.fulfill({ json: index }); }
       if (path.endsWith("/items")) {
         const before = Number(url.searchParams.get("before_seq") ?? 0);
         if (before) run.olderReads++;

@@ -2,7 +2,6 @@ import { lineItemIds } from "./chat-search";
 import { navRailExcerpt, navRailPreview, navRailTicks, type NavRailTick } from "./nav-rail";
 import { parseUserText, type ChatLine } from "./turns";
 import type { Item } from "./types";
-import { t } from "../i18n";
 
 export interface UserInputPosition { id: string; seq: number }
 export interface UserInputIndex { total: number; inputs: UserInputPosition[]; history: string }
@@ -40,8 +39,8 @@ export function indexedNavTicks(index: UserInputIndex, lines: ChatLine[], items:
     const lineId = owner.get(entry(input.id));
     const tick = lineId ? loaded.get(lineId) : undefined;
     return {
-      id: `seg:${input.id}`, seq: input.seq, lineId,
-      preview: navRailPreview(words.get(entry(input.id)) ?? "") || tick?.preview || (tick?.attachmentsOnly ? "" : t("chat-navrail.input", { index: i + 1 })),
+      id: `seg:${input.id}`, seq: input.seq, lineId, ordinal: i + 1,
+      preview: navRailPreview(words.get(entry(input.id)) ?? "") || tick?.preview || "",
       ...(tick?.attachmentsOnly ? { attachmentsOnly: tick.attachmentsOnly } : {}),
       ...(tick?.answerExcerpt ? { answerExcerpt: navRailExcerpt(tick.answerExcerpt) } : {}),
     };
