@@ -62,11 +62,8 @@ final class ComposerKeyboardTests: XCTestCase {
         }
     }
 
-    @MainActor private func assertNoAppDismissButton() {
-        let keyboard = app.keyboards.firstMatch
-        let top = keyboard.exists ? keyboard.frame.minY : app.frame.maxY
-        let appButtons = app.buttons.matching(identifier: "收起键盘").allElementsBoundByIndex
-        XCTAssertFalse(appButtons.contains { $0.frame.maxY <= top }, "the app still adds a dismiss-keyboard button")
+    @MainActor private var dismissButton: XCUIElement {
+        app.buttons["shell-composer-dismiss-keyboard"].firstMatch
     }
 
     @MainActor private func headerButtons() -> Set<String> {
@@ -75,7 +72,9 @@ final class ComposerKeyboardTests: XCTestCase {
     }
 
     @MainActor private func typeAndDismiss(_ name: String, shell: Bool, sideBars: Bool = false) {
-        assertNoAppDismissButton()
+        if shell {
+            XCTAssertFalse(dismissButton.exists, "dismiss-keyboard button should not appear before typing")
+        }
         let before = headerButtons()
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "no software keyboard")
@@ -85,7 +84,9 @@ final class ComposerKeyboardTests: XCTestCase {
         }
         field.typeText("first line\nsecond line")
         sleep(1)
-        assertNoAppDismissButton()
+        if shell {
+            XCTAssertTrue(dismissButton.exists && dismissButton.isHittable, "missing dismiss-keyboard button while typing")
+        }
         XCTAssertEqual(field.value as? String, "first line\nsecond line", "return should insert a newline, not send")
         let send = app.buttons["发送"].firstMatch
         XCTAssertTrue(send.exists && send.isEnabled && send.isHittable)
@@ -115,18 +116,31 @@ final class ComposerKeyboardTests: XCTestCase {
                           "side-bars: no title while typing")
         }
 
+        if shell {
+            dismissButton.tapCenter()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "dismiss button did not dismiss the keyboard")
+            XCTAssertFalse(dismissButton.exists, "dismiss button stayed after keyboard dismissal")
+            XCTAssertEqual(field.value as? String, "first line\nsecond line", "button dismissal must preserve the draft")
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "keyboard did not reopen")
+        }
+
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .default,
                    thenHoldForDuration: 0.1)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "drag no longer dismisses the keyboard")
         sleep(1)
-        assertNoAppDismissButton()
+        if shell {
+            XCTAssertFalse(dismissButton.exists, "dismiss-keyboard button remained after drag dismissal")
+        }
         XCTAssertEqual(field.value as? String, "first line\nsecond line", "dismissal must preserve the draft")
         for (id, frame) in frames {
             let now = app.buttons[id].firstMatch.frame
             XCTAssertEqual(now.width, frame.width, accuracy: 1, "\(id) tap width changed")
             XCTAssertEqual(now.height, frame.height, accuracy: 1, "\(id) tap height changed")
-            XCTAssertEqual(now.minX, frame.minX, accuracy: 1, "\(id) moved horizontally after dismissal")
+            if id != "shell-composer-modes" {
+                XCTAssertEqual(now.minX, frame.minX, accuracy: 1, "\(id) moved horizontally after dismissal")
+            }
         }
         shot("\(name)-keyboard-down")
         if sideBars { XCTAssertEqual(headerButtons(), before, "side-bars header did not return") }

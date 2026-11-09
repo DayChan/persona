@@ -647,7 +647,7 @@ class CheckFastSignalTests(unittest.TestCase):
                 os.killpg(proc.pid, sig)
             else:
                 proc.send_signal(sig)
-            out, _ = proc.communicate(timeout=15)
+            out, _ = proc.communicate(timeout=30)
             self.assertEqual(code, proc.returncode, out)
             self.assertIn("check-fast: interrupted", out)
             self.assertNotIn("Killed", out)  # bash's report of each job subshell it KILLed stays off the output

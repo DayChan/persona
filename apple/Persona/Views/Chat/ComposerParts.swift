@@ -89,6 +89,18 @@ struct ComposerRow<MenuItems: View>: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .accessibilityLabel("Send")
             }
+            #if os(iOS)
+            if focused.wrappedValue {
+                Button(action: dismissKeyboard) {
+                    ThemedIcon(Theme.Icon.dismissKeyboard).font(Theme.Font.heading).frame(width: Self.glyph, height: Self.glyph)
+                }
+                .themedButton()
+                .clipShape(.circle)
+                .accessibilityLabel("Hide Keyboard")
+                .accessibilityIdentifier("composer-row-dismiss-keyboard")
+                .transition(.scale.combined(with: .opacity))
+            }
+            #endif
         }
     }
 }
@@ -104,6 +116,15 @@ extension ComposerRow {
         #endif
         send()
     }
+
+    #if os(iOS)
+    fileprivate func dismissKeyboard() {
+        Haptics.tap()
+        if focused.wrappedValue { TypedText.commitFocused(into: $text) }
+        focused.wrappedValue = false
+        Keyboard.dismiss()
+    }
+    #endif
 }
 
 /// Photos picked for the next message, above the composer: × takes one out; with `edit`, a tap marks it up first.

@@ -22,4 +22,13 @@ struct ComposerGrowthTests {
         }
         #expect(!ComposerGrowth.offersExpansion(textHeight: 100, lineHeight: 0, maximumLines: 3))
     }
+
+    @Test func expandButtonShowsWhenFocusedMultilineOrAtLimit() {
+        #expect(!ComposerGrowth.showsExpandButton(text: "", focused: false, textHeight: 24, lineHeight: 24, maximumLines: 3))
+        #expect(ComposerGrowth.showsExpandButton(text: "", focused: true, textHeight: 24, lineHeight: 24, maximumLines: 3))
+        #expect(ComposerGrowth.showsExpandButton(text: "short", focused: true, textHeight: 24, lineHeight: 24, maximumLines: 3))
+        #expect(!ComposerGrowth.showsExpandButton(text: "short", focused: false, textHeight: 24, lineHeight: 24, maximumLines: 3))
+        #expect(ComposerGrowth.showsExpandButton(text: "line 1\nline 2", focused: false, textHeight: 48, lineHeight: 24, maximumLines: 5))
+        #expect(ComposerGrowth.showsExpandButton(text: "long single line", focused: false, textHeight: 72, lineHeight: 24, maximumLines: 3))
+    }
 }

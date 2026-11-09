@@ -276,9 +276,9 @@ launch_all() {
   local _i
   for _i in "${!JOB_NAME[@]}"; do
     (
-      # A TERM or HUP to the whole process group must not end the subshell (or the tee its steps start) before
+      # A INT, TERM or HUP to the whole process group must not end the subshell (or the tee its steps start) before
       # on_signal has frozen the checks under it; on_signal KILLs them itself (see there).
-      trap '' TERM HUP
+      trap '' INT TERM HUP
       JOB_STATUS=${JOB_STATUS[$_i]}
       JOB_I=$_i
       SECONDS=0

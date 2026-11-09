@@ -774,6 +774,14 @@
       "path_tokens": [],
       "external_refs": []
     },
+    "server/cmd/personad/launch_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
     "server/internal/assistant/owndb_test.go": {
       "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
       "tokens": [
@@ -923,6 +931,22 @@
       "path_tokens": [],
       "external_refs": []
     },
+    "server/internal/node/assistant_start_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_HOME"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
+    "server/internal/node/attach_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_HOME"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
     "server/internal/node/herdrstart_test.go": {
       "reason": "Regression assertion that the retained data-directory environment alias reaches terminal hosts.",
       "tokens": [
@@ -931,7 +955,31 @@
       "path_tokens": [],
       "external_refs": []
     },
+    "server/internal/node/launchkey_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_HOME"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
     "server/internal/node/pathguard_unix_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_HOME"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
+    "server/internal/node/spool_review_test.go": {
+      "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
+      "tokens": [
+        "JARVIS_HOME"
+      ],
+      "path_tokens": [],
+      "external_refs": []
+    },
+    "server/internal/nodecmd/launch_test.go": {
       "reason": "Baseline regression fixture or exact compatibility assertion for a persisted contract.",
       "tokens": [
         "JARVIS_HOME"
