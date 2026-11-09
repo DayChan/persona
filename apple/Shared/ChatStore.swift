@@ -15,14 +15,16 @@ nonisolated struct ToolCall: Identifiable, Hashable, Sendable {
 }
 
 nonisolated extension ChatRow {
-    /// A message from the user, or a picture sent with one.
-    var isUserInput: Bool {
+    /// The item of a user input row, including image-only messages.
+    var userInput: Item? {
         switch self {
-        case .user: true
-        case .image(let i): i.role == "user" && i.toolUseID == nil
-        default: false
+        case .user(let i): i
+        case .image(let i) where i.role == "user" && i.toolUseID == nil: i
+        default: nil
         }
     }
+
+    var isUserInput: Bool { userInput != nil }
 }
 
 nonisolated enum ChatRow: Identifiable, Hashable, Sendable {
@@ -176,7 +178,7 @@ nonisolated struct Turn: Identifiable, Hashable, Sendable {
         guard let pick else { return }
         tail = all[(pick + 1)...].filter { !$0.isUserInput }
         ordered = Array(all[...pick]) + all[(pick + 1)...].filter(\.isUserInput)
-        process = ordered.filter { if case .user = $0 { false } else { true } }
+        process = ordered.filter { !$0.isUserInput }
     }
 }
 
@@ -282,17 +284,25 @@ nonisolated enum ChatBlock: Identifiable, Hashable, Sendable {
             current = nil
         }
 
-        var messageSeq: Int? // the last message's line: its pictures come after its text (`picturesAfterTheirText`)
+        var messageEntry: String?
+        // Persists across recap/continuation blocks until the next actual input, not merely until `close`.
+        var supervisionRound = false
         for row in rows {
-            switch row {
-            case .user(let item):
-                if item.queued == true, current != nil {
-                    current!.users.append(row) // queued input joins the turn it was sent during
+            if let item = row.userInput {
+                let sameMessage = current?.ordered.last?.isUserInput == true && item.entry == messageEntry
+                let supervision = Injected.of(item)?.isSupervision == true
+                if current != nil, sameMessage || (item.queued == true && !supervision && !supervisionRound) {
+                    current!.users.append(row)
                     current!.ordered.append(row)
                 } else {
                     close()
                     current = Turn(id: row.id, users: [row], ordered: [row])
                 }
+                if !sameMessage { supervisionRound = supervision }
+                messageEntry = item.entry
+                continue
+            }
+            switch row {
             case .recap:
                 close()
                 blocks.append(.row(row))
@@ -321,17 +331,11 @@ nonisolated enum ChatBlock: Identifiable, Hashable, Sendable {
                     current!.process.append(row)
                     current!.ordered.append(row)
                 }
-            case .image(let item) where item.role == "user" && item.toolUseID == nil && item.seq != messageSeq:
-                // A picture sent with no text (claude -p writes Persona such a message as image blocks alone): a
-                // message of its own, not the end of the exchange before it.
-                close()
-                current = Turn(id: row.id, ordered: [row])
             default:
                 if current == nil { current = Turn(id: row.id) }
                 current!.process.append(row)
                 current!.ordered.append(row)
             }
-            if case .user(let item) = row { messageSeq = item.seq }
         }
         close()
         return blocks
@@ -349,6 +353,11 @@ nonisolated struct ItemSpan: Sendable, Equatable {
 }
 
 nonisolated extension Item {
+    /// The transcript entry, shared by all of one input's text and image blocks.
+    var entry: String { String(id.prefix { $0 != "#" }) }
+
+    var isUserInput: Bool { role == "user" && (kind == .text || (kind == .image && toolUseID == nil)) }
+
     /// The block within its transcript line (ids end in "#<n>").
     var part: Int { Self.part(of: id) }
 
@@ -399,8 +408,13 @@ final class ChatStore {
     private(set) var backlogBuilt = false
     var screen: String = ""
     /// Text of the assistant message being generated (headless sessions stream it token by token), or what of an
-    /// agent's live message its newest items do not hold yet (`agentStreamed`).
-    var liveText: String = ""
+    /// agent's live message its newest items do not hold yet (`agentStreamed`). Set through `showLive`, which a clear's
+    /// fallback watches.
+    private(set) var liveText: String = ""
+    /// Bumped each time `liveText` is set: a clear's fallback (`clearLive`) does nothing once anything else set it.
+    @ObservationIgnored private var liveStamp = 0
+    /// The newest line when the live text began: its copy is written after it, so lines up to this one are not.
+    @ObservationIgnored private var liveSince = 0
     /// The live text is an agent's (its last delta came through `agentStreamed`): a chat of it draws it under the
     /// newest items, as the main chat draws the assistant's, matched against the transcript (`LiveText`).
     private(set) var liveIsAgents = false
@@ -536,6 +550,7 @@ final class ChatStore {
         ids = []
         opened = [:]
         newestFrom = nil
+        liveSince = 0 // the new file's seqs started over
         covered = 0
         hasMore = false
         loadedOnce = false
@@ -545,11 +560,51 @@ final class ChatStore {
 
     func merge(_ new: [Item], backlog: Bool = false, hasMore: Bool? = nil) {
         if backlog || !new.isEmpty { error = nil } // data arrived: a stale "machine is offline" no longer applies
-        let fresh = opened.isEmpty ? new : new.filter { !stillOpen($0) }
-        var changed = dropFolded(by: fresh)
+        // Promotion is monotone, including when overlapping real work takes a promoted fold's place. Retain it on
+        // the replacement items before either kind of overlap removes evidence. Opened folds count too: a repeated
+        // folded page can bring authoritative promotion while the UI keeps that work expanded.
+        let evidence = (items + Array(opened.values) + new).filter { $0.supervisionUser == true || $0.fold?.supervisionUser == true }
+        let promotedIDs = Set(evidence.filter { $0.supervisionUser == true }.map(\.id))
+        let promotedFolds = evidence.filter { $0.fold != nil }
+        let promotedWork = evidence.filter(\.isWork)
+        func retainingPromotion(_ list: [Item]) -> [Item] {
+            guard !evidence.isEmpty else { return list }
+            return list.map { it in
+                guard promotedIDs.contains(it.id) ||
+                    (it.isWork && promotedFolds.contains { $0.folds(it) }) ||
+                    (it.fold != nil && promotedWork.contains { it.folds($0) }) else { return it }
+                var it = it
+                it.supervisionUser = true
+                if it.fold != nil { it.fold?.supervisionUser = true }
+                return it
+            }
+        }
+        let retained = retainingPromotion(items)
+        var changed = retained != items
+        if changed { items = retained; settled = nil }
+        let promoted = retainingPromotion(new)
+        let batchWork = promoted.filter { $0.isWork && $0.kind != .fold }
+        let fresh = promoted.filter { it in
+            !stillOpen(it) && !(it.kind == .fold && batchWork.contains { it.folds($0) })
+        }
+        if dropFolded(by: fresh) { changed = true }
+        if dropOverlappingFolds(by: fresh) { changed = true }
+        // Pages can repeat an id with new metadata or a completed receipt. The new copy wins, but never erases the
+        // evidence above. Append-only pushes keep the fast path without building an index.
+        let indices = fresh.contains { ids.contains($0.id) } ? Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.id, $0.offset) }) : [:]
         var inOrder = true
         var added: [Item] = []
-        for it in Self.withImageRefs(fresh, key) where !ids.contains(it.id) {
+        for it in Self.withImageRefs(fresh, key) {
+            if let i = indices[it.id] {
+                if items[i] != it {
+                    if (items[i].seq, items[i].part) != (it.seq, it.part) { inOrder = false }
+                    items[i] = it
+                    settled = nil
+                    changed = true
+                }
+                continue
+            }
+            guard !ids.contains(it.id) else { continue }
             if let last = items.last, (it.seq, it.part) < (last.seq, last.part) { inOrder = false }
             ids.insert(it.id)
             items.append(it)
@@ -598,6 +653,19 @@ final class ChatStore {
         return true
     }
 
+    /// Real work from an overlapping page replaces the old fold, even when only part of its range has arrived.
+    /// `merge` has already transferred any authoritative promotion to that work.
+    private func dropOverlappingFolds(by new: [Item]) -> Bool {
+        let work = new.filter { $0.isWork && $0.kind != .fold }
+        guard !work.isEmpty, items.contains(where: { $0.kind == .fold }) else { return false }
+        let before = items.count
+        items.removeAll { it in it.kind == .fold && work.contains { it.folds($0) } }
+        guard items.count != before else { return false }
+        ids = Set(items.map(\.id))
+        settled = nil
+        return true
+    }
+
     /// A fold over work opened here that reaches no further than what was opened (`opened`).
     private func stillOpen(_ f: Item) -> Bool {
         guard f.kind == .fold, let was = opened[f.id]?.fold, let now = f.fold else { return false }
@@ -607,9 +675,9 @@ final class ChatStore {
     /// The work a fold stood for, fetched (`AppModel.unfold`): it takes the fold's place.
     func unfold(_ fold: Item, into work: [Item]) {
         guard let i = items.firstIndex(where: { $0.id == fold.id }) else { return }
-        items.remove(at: i)
+        let retained = items.remove(at: i)
         ids.remove(fold.id)
-        opened[fold.id] = fold
+        opened[fold.id] = retained // the caller may hold an older copy without the latest promotion
         settled = nil
         merge(work.filter { $0.kind != .fold })
         scheduleRebuild()
@@ -642,8 +710,10 @@ final class ChatStore {
             let rows = buildRows(items)
             return (rows, ChatBlock.build(rows), nil)
         }
-        guard let cut = items.lastIndex(where: { $0.role == "user" && $0.kind == .text && $0.queued != true }), cut > 0,
-              standsAlone(items[cut...]) else { return full() }
+        guard var cut = items.lastIndex(where: { $0.role == "user" && $0.kind == .text && $0.queued != true }) else { return full() }
+        // Several text blocks and images from one input must stay on the same side of the incremental cut.
+        while cut > 0, items[cut - 1].isUserInput, items[cut - 1].entry == items[cut].entry { cut -= 1 }
+        guard cut > 0, standsAlone(items[cut...]) else { return full() }
         var base = settled
         // Still the same items up to it: an older page or a sorted-in item moves them.
         if let b = base, !(b.count <= cut && items.first?.id == b.firstID && items[b.count - 1].id == b.lastID && standsAlone(items[b.count...])) {
@@ -676,17 +746,55 @@ final class ChatStore {
     /// the main thread and published a pass later; cleared at once, the reply was gone for a frame, the chat ending
     /// at the message before it, then back (2026-11-04: 「流式输出的时候，滚动就不稳定了」).
     func endLive(_ text: String) {
-        guard rebuildScheduled else { liveText = ""; return }
+        guard rebuildScheduled else { showLive(""); return }
         liveEnds = text
+    }
+
+    /// The streamed text as a delta gave it ("": cleared).
+    func showLive(_ text: String) {
+        if liveText.isEmpty, !text.isEmpty { liveSince = items.last?.seq ?? 0 }
+        liveText = text
+        liveStamp += 1
     }
 
     /// A batch was taken in (`apply`): if it holds the streamed message (`pending`: a newer text kept back to draw), its
     /// live copy goes once its row comes (`endLive`). True when it did: what was kept back is stale now.
     func landed(_ new: [Item], pending: String?) -> Bool {
         let live = pending ?? liveText
-        guard !live.isEmpty, new.contains(where: { $0.role == "assistant" && $0.kind == .text && ($0.text ?? "").hasPrefix(live) }) else { return false }
+        guard new.contains(where: { Self.isLiveCopy($0, of: live, after: liveSince) }) else { return false }
         endLive(live)
         return true
+    }
+
+    /// `item` is the transcript line of the streamed `live` text: the reply (a text item), or the words written before a
+    /// tool call, which Claude Code streams as text and records as a thinking block (#1966: their live copy never landed,
+    /// and stayed at the end of the chat with its cursor). Written after line `since` (the newest when the text began):
+    /// an earlier line that starts the same way (the same first word) is not it.
+    nonisolated static func isLiveCopy(_ item: Item, of live: String, after since: Int = 0) -> Bool {
+        !live.isEmpty && item.seq > since && item.role == "assistant" && (item.kind == .text || item.kind == .thinking)
+            && (item.text ?? "").hasPrefix(live)
+    }
+
+    /// The streamed `live` text's line is among `items`, looked for back to the line it began after (`since`), the start of
+    /// the turn (the user's message that began it) and at most `window` items: a turn of fifteen tool calls puts the
+    /// words before them thirty lines back.
+    nonisolated static func holdsLive(_ items: [Item], _ live: String, after since: Int = 0, window: Int = 400) -> Bool {
+        for item in items.reversed().prefix(window) {
+            if item.seq <= since { return false }
+            if isLiveCopy(item, of: live, after: since) { return true }
+            if item.role == "user", item.kind == .text, item.queued != true { return false }
+        }
+        return false
+    }
+
+    /// A subscription's backlog is in (a new subscription, one made again after the page was hidden, a reconnect that
+    /// resumed): a clear that came while this chat was not listening is not sent again (deltas are not replayed), and the
+    /// hub sends the live text right after the backlog only while a message is being generated. So what is drawn goes as
+    /// a clear makes it go (`clearLive`); a delta that follows takes its place (#1966). An agent's is matched against the
+    /// transcript instead (`agentStreamed`).
+    func backlogArrived() {
+        guard !liveIsAgents, !liveText.isEmpty else { return }
+        clearLive(newest: nil)
     }
 
     /// The stream was cleared (`text`: the newest text streamed). The hub clears it when the turn ends or the next
@@ -694,16 +802,16 @@ final class ChatStore {
     /// did, the chat ending at the message before it. The live copy stays until the item comes (`endLive`), 5 s at most
     /// (a turn cut off before its message was written).
     func clearLive(newest text: String?) {
-        if let text, !text.isEmpty, text.hasPrefix(liveText) { liveText = text }
+        if let text, !text.isEmpty, text.hasPrefix(liveText) { showLive(text) }
         let shown = liveText
         guard !shown.isEmpty else { return }
-        if items.suffix(12).contains(where: { $0.role == "assistant" && $0.kind == .text && ($0.text ?? "").hasPrefix(shown) }) {
-            return endLive(shown)
-        }
+        if Self.holdsLive(items, shown, after: liveSince) { return endLive(shown) }
+        let stamp = liveStamp
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard let self, self.liveText == shown else { return }
-            self.liveText = ""
+            // Anything set since (a new delta, even the same text sent again after a backlog) keeps it.
+            guard let self, self.liveStamp == stamp, self.liveText == shown else { return }
+            self.showLive("")
         }
     }
 
@@ -713,7 +821,17 @@ final class ChatStore {
     /// `agentStreamed`; the headless assistant's is its whole reply so far, "" when it ends (`newest`: a newer text the
     /// pacer kept back).
     func streamed(_ text: String, agents: Bool, newest: String? = nil) {
-        if agents { agentStreamed(text) } else if text.isEmpty { clearLive(newest: newest) } else { liveText = text }
+        if agents {
+            agentStreamed(text)
+        } else if text.isEmpty {
+            clearLive(newest: newest)
+        } else if liveText.isEmpty, Self.holdsLive(items, text) {
+            // Its line is in already: the text sent again after a backlog (its line came with it), or a last delta
+            // after its copy landed. Drawn, it was taken for a new message and its line never ended it (#1966).
+            return
+        } else {
+            showLive(text)
+        }
     }
 
     /// An agent's delta as the pacer lets it through (docs/integrations/claude-integration.md "Live replies
@@ -736,7 +854,7 @@ final class ChatStore {
     /// The live text drops at once: the socket started over, or (an agent's) the chat's subscription ended or started
     /// again (`AppModel.forgetAgentLive`); the hub sends the current one again after its catch-up.
     func dropLive() {
-        liveText = ""
+        showLive("")
         agentLive = ""
         agentLiveDue = false
     }
@@ -744,7 +862,7 @@ final class ChatStore {
     private func showAgentLive() {
         guard !rebuildScheduled else { agentLiveDue = true; return } // with the rows it waits for
         let want = agentLiveShown()
-        if want != liveText { liveText = want }
+        if want != liveText { showLive(want) }
     }
 
     /// What of the agent's live message to draw: what the newest items do not hold.
@@ -794,13 +912,13 @@ final class ChatStore {
                 // meanwhile stays).
                 if let ended = self.liveEnds {
                     self.liveEnds = nil
-                    if ended.hasPrefix(self.liveText) { self.liveText = "" }
+                    if ended.hasPrefix(self.liveText) { self.showLive("") }
                 }
                 // An agent's live text that waited for these rows (`showAgentLive`): in the same pass.
                 if self.agentLiveDue {
                     self.agentLiveDue = false
                     let want = self.agentLiveShown()
-                    if want != self.liveText { self.liveText = want }
+                    if want != self.liveText { self.showLive(want) }
                 }
                 // No item changed since the snapshot (same revision): these blocks hold everything loaded so far.
                 if self.backlogBuilt != self.loadedOnce { self.backlogBuilt = self.loadedOnce }
@@ -1271,10 +1389,13 @@ nonisolated enum ChatCache {
     /// v10: a background workflow's end notice is kind `workflow` (#3731) and the hub gives it in the App's language
     /// (#5511); v9's copies would keep its Chinese text for English and Japanese users. v11: folds carry the task
     /// lists their calls left (`Fold.tasks`), the chat's plan while its TodoWrite is folded (#5602).
+    /// v12: relayed and automated assistant input retains additive source metadata.
+    /// v13: cached tails count user questions, not automatic supervision; discard the old shallow tails.
+    /// v14: injected supervision levels and folded promotion are retained, including client evidence on replaced folds.
     /// Bump it whenever the item structure or the text the hub gives an item changes.
-    static let folder = "chats-v11"
+    static let folder = "chats-v14"
     /// The folder before, removed on the first launch with this one.
-    private static let previous = "chats-v10"
+    private static let previous = "chats-v13"
 
     /// Once per launch, before the first copy is read or written (a static let runs once, on whichever thread asks first).
     private static let dropOlder: Void = {
@@ -1346,11 +1467,12 @@ nonisolated enum ChatCache {
         try? data.write(to: url, options: .atomic)
     }
 
-    /// Items from the start of the `turns`-th last user prompt on (never half a transcript line: what a page before
+    /// Items from the `turns`-th last user question on; automatic prompts do not consume the budget (never half a transcript line: what a page before
     /// its first seq would bring back leaves out the rest of that line).
     static func tail(_ items: [Item], turns: Int) -> [Item] {
         var seen = 0
-        for i in items.indices.reversed() where items[i].role == "user" && items[i].kind == .text && items[i].queued != true {
+        for i in items.indices.reversed() where items[i].role == "user" && items[i].kind == .text
+            && items[i].queued != true && items[i].wake != true && Injected.of(items[i]) == nil {
             seen += 1
             if seen == turns {
                 var start = i
@@ -1403,7 +1525,7 @@ nonisolated struct PendingMessage: Identifiable, Hashable, Codable, Sendable {
     /// the same words (a second "Continue") is not it: the bubble of one never sent stayed gone.
     static func arrived(_ p: PendingMessage, as item: Item) -> Bool {
         if let tied = tied(item, to: p.id) { return tied }
-        guard item.role == "user", item.kind == .text, Injected.of(item) == nil else { return false }
+        guard item.role == "user", item.kind == .text, Injected.of(item) == nil, MessageSource.of(item) == nil else { return false }
         if let created = p.createdAt, let ts = item.ts, ts < created.addingTimeInterval(-120) { return false }
         guard item.fullSize != nil else { return same(item.text ?? "", p.text) }
         let start = normalize(item.cutText), whole = normalize(p.text)

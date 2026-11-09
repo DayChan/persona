@@ -15,11 +15,17 @@ const AnchorSpan = 50
 // each gap, including the gap before the newest window. Nothing is marked after the oldest window until Flush, and
 // a conversation without any anchor gets no line at all (no chat is made out of nothing).
 //
+// Keep, when set, picks messages kept on their own, without a window (one that only mentions the owner): one that
+// falls in a gap splits it, each part with its own omission line. Kept, when set, is told of each (it is in no
+// window: not near any anchor).
+//
 // It holds at most Span messages, and its state (State) is plain data to keep between pages, so an import resumes
 // mid-window after a restart.
 type AnchorFilter struct {
 	Anchor func(SourceMessage) bool
-	Span   int // 0: AnchorSpan
+	Keep   func(SourceMessage) bool
+	Kept   func(SourceMessage)
+	Span   int // 0: AnchorSpan; negative: none (an anchor is kept alone)
 	st     AnchorFilterState
 }
 
@@ -33,8 +39,10 @@ type AnchorFilterState struct {
 	// Omitted and OmittedAt: the messages of the current gap left out so far, and the time of the oldest of them.
 	Omitted   int       `json:"omitted,omitempty"`
 	OmittedAt time.Time `json:"omitted_at,omitzero"`
-	// Windows: anchors' windows kept so far (merged ones count once). Read, Dropped: messages pushed, and left out.
+	// Windows: anchors' windows kept so far (merged ones count once); Kept: messages kept on their own (Keep). Read,
+	// Dropped: messages pushed, and left out.
 	Windows int `json:"windows,omitempty"`
+	Kept    int `json:"kept,omitempty"`
 	Read    int `json:"read,omitempty"`
 	Dropped int `json:"dropped,omitempty"`
 }
@@ -62,7 +70,12 @@ func NewAnchorFilter(anchor func(SourceMessage) bool, span int, st *AnchorFilter
 	return f
 }
 
-func (f *AnchorFilter) span() int { return or(f.Span, AnchorSpan) }
+func (f *AnchorFilter) span() int {
+	if f.Span < 0 {
+		return 0
+	}
+	return or(f.Span, AnchorSpan)
+}
 
 // State is the filter's state to keep between pages (with the buffered messages' identity hints left out).
 func (f *AnchorFilter) State() AnchorFilterState { return f.st.clean() }
@@ -77,19 +90,23 @@ func (f *AnchorFilter) Push(page []SourceMessage) []SourceMessage {
 		f.st.Read++
 		switch {
 		case f.Anchor != nil && f.Anchor(m):
+			// A new window unless this one touches the last: nothing was left out since it (still within its older
+			// span, or every message since is in the ring).
+			if f.st.Windows == 0 || f.st.Omitted > 0 {
+				f.st.Windows++
+			}
 			out = f.closeGap(out, true)
 			out = append(out, f.st.Ring...)
 			out = append(out, m)
 			f.st.Ring = nil
 			f.st.Older = f.span()
-			f.st.Windows++
 		case f.st.Older > 0:
 			out = append(out, m)
 			f.st.Older--
 		default:
 			f.st.Ring = append(f.st.Ring, m)
 			if len(f.st.Ring) > f.span() {
-				f.omit(f.st.Ring[0])
+				out = f.drop(out, f.st.Ring[0])
 				f.st.Ring = slices.Delete(f.st.Ring, 0, 1)
 			}
 		}
@@ -98,15 +115,31 @@ func (f *AnchorFilter) Push(page []SourceMessage) []SourceMessage {
 	return out
 }
 
+// drop lets go of a message no window took: left out, or kept on its own (Keep), which ends the gap before it.
+func (f *AnchorFilter) drop(out []SourceMessage, m SourceMessage) []SourceMessage {
+	if f.Keep == nil || !f.Keep(m) {
+		f.omit(m)
+		return out
+	}
+	f.st.Kept++
+	if f.Kept != nil {
+		f.Kept(m)
+	}
+	return append(f.closeGap(out, true), m)
+}
+
 // Flush ends the conversation (its start, or the text retention, was reached): what is still buffered is left out,
 // and the gap after the oldest window gets its omission line.
 func (f *AnchorFilter) Flush() []SourceMessage {
+	var out []SourceMessage // newest first while it is built
 	for _, m := range f.st.Ring {
-		f.omit(m)
+		out = f.drop(out, m)
 	}
 	f.st.Ring = nil
 	f.st.Older = 0
-	return f.closeGap(nil, f.st.Windows > 0)
+	out = f.closeGap(out, f.st.Windows > 0 || f.st.Kept > 0)
+	slices.Reverse(out)
+	return out
 }
 
 func (f *AnchorFilter) omit(m SourceMessage) {

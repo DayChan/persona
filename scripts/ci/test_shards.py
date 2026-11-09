@@ -58,8 +58,13 @@ class ShardTests(unittest.TestCase):
 """
         self.assertIn(setup, workflow)
         self.assertLess(workflow.index(setup), workflow.index("      - name: Server checks"))
-        for filename in ("ci.yml", "runtimes-test.yml"):
-            self.assertIn("bun-version: '1.4.2'", (ROOT / ".github/workflows" / filename).read_text())
+        workflow = (ROOT / ".github/workflows/runtimes-test.yml").read_text()
+        setup = """      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+"""
+        self.assertIn(setup, workflow)
+        self.assertLess(workflow.index(setup), workflow.index("      - name: Runtime and SDK checks"))
         source_packages = ["example/server/internal/extension/denohost", "example/server/internal/extmgr"]
         self.assertEqual(server.select_packages(source_packages, "other"), source_packages)
 

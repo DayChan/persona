@@ -412,9 +412,37 @@ After a turn, Claude Code may draw a dim (SGR 2) next-message suggestion in an e
 - Node (`node/suggestion.go`): on Claude working / blocked → idle / done, read visible screen at 0 / 2 / 5 / 10 seconds (2.1.312 suggestions usually appear within seconds). Stop once found, store `proto.Session.Suggestion`; stop if draft exists. Clear on working again or Persona send / key input. No extra high-frequency screen reads.
 - Short replies such as “ok” may lack suggestions; replies outlining next steps usually have one (tested “add all three to the README”).
 
+## Refusal fallback notices and unavailable models (#2203)
+
+Claude Code can write `system/model_refusal_fallback` after an upstream refusal, switching from `originalModel` to
+`fallbackModel`. With `scope: "session"`, later turns can keep using that fallback even though the launcher and purpose
+still name the configured model. A subsequent `model_not_found` / model-route 404 can therefore be a session fallback
+failure rather than a configuration error.
+
+- The transcript parser emits every `system/model_refusal_*` record as an ordinary notice, including unknown subtypes.
+  `Item.model_refusal` keeps the subtype, original and fallback models, original category, scope, explanation and raw JSON
+  record. The hub adds an English, Simplified Chinese or Japanese explanation to the notice without translating or
+  replacing the source values. Existing clients display its text; it may appear inside folded work.
+- `Session.model_fallback` carries the active observed fallback. Session scope survives later turns; other scopes end
+  at the next turn. A real reply from another model or a confirmed `/model` change clears the evidence. Synthetic
+  error replies do not count as model changes. The incremental background scan retains this state even when the
+  fallback record has moved outside the quick metadata tail.
+- A model-route failure while that fallback is active gets `turn_error_code: "model_fallback_unavailable"` and
+  `turn_error_kind: "user"`. The original error stays intact. Readiness and work triage explain the refusal → fallback →
+  unavailable-model chain, recommending a new conversation or `/model` in a Claude Code terminal. Readiness does not
+  point at model settings or block creating a new conversation because of this session-only problem. Automatic work
+  continuation and scheduled-run retries do not resend this failed turn.
+- No configuration is required. Recovery is the user's decision, and the same request may be refused again. This
+  change does not alter Claude Code's fallback policy or send a model-switch command automatically.
+
+Client follow-up remains necessary for dedicated cards, an always-visible notice, an actual-model/Fell Back marker,
+explicit recovery buttons, and suppressing the old error cards' Retry/Continue or model-settings buttons. Clients may
+ignore the new structured fields today. Apple also needs a `ChatCache` version bump when adopting the changed item
+structure; this server change does not modify Swift. The broader no-fallback refusal policy below remains a proposal.
+
 ## Safety blocks and automatic fallback (proposal, #2282, decision pending)
 
-The user asked whether safety blocks and model downgrades are visible in the app. Currently both are invisible or misrepresented. This section is a proposal, **not implemented**. Items marked Decision Pending require the user's choice; implement the PR split below afterward.
+The user asked whether safety blocks and model downgrades are visible in the app. The limited server behavior above is implemented; the broader design in this section remains a proposal, **not implemented**. Items marked Decision Pending require the user's choice; implement the PR split below afterward.
 
 **Principle**: report what happened honestly and let the user decide. Do not bypass or reduce safeguards: no rewriting user messages, automatic rephrasing retries, automatic Continue on blocked turns, or decisions by the task manager's judging model. Blocked turns use rules only, never model triage.
 

@@ -1,6 +1,7 @@
 // One main conversation's newest page, for rendering before the hub answers. This is never a source of authority.
 import { BASE } from "./base";
 import type { Item } from "./types";
+import { injectedOf } from "./injected";
 
 const PREFIX = "persona.feedCache.v1:";
 export const FEED_CACHE_MAX_BYTES = 256 * 1024;
@@ -146,14 +147,14 @@ function containsCredential(raw: string): boolean {
   return !!token && [token, encodeURIComponent(token), JSON.stringify(token).slice(1, -1)].some((value) => raw.includes(value));
 }
 
-/** Only the newest two turns, matching GET items?turns=2. Older pages and expanded folds belong only in memory. */
+/** Only the newest two user-question turns, matching GET items?turns=2; injected prompts do not consume the budget. */
 export function writeFeedCache(scope: string | null, value: FeedCache): boolean {
   if (!scope || scope !== feedCacheScope()) return false;
   try {
     let start = value.items.length, turns = 0;
     while (start > 0 && turns < 2) {
       const item = value.items[--start];
-      if (item.role === "user" && item.kind === "text" && !item.queued) turns++;
+      if (item.role === "user" && item.kind === "text" && !item.queued && !item.wake && !injectedOf(item)) turns++;
     }
     while (start > 0 && value.items[start].seq === value.items[start - 1].seq) start--;
     const page: FeedCache = {

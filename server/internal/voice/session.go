@@ -127,6 +127,10 @@ type conversation struct {
 	// turnsEnd: the service says when the model's turn is over (evTurnEnd, or evReply, whose replies end with one): a
 	// line of the model's ends by that, not by a late caption of the user's (#5673).
 	turnsEnd bool
+	// owed is the answer the model owes the user, and modelAt when it last spoke, wrote a caption, handed something
+	// over or called a function (nudge.go).
+	owed    owedAnswer
+	modelAt time.Time
 }
 
 type outFrame struct {
@@ -319,7 +323,7 @@ func (c *conversation) negotiate(s *startFrame) error {
 				continue
 			}
 			c.resume = append(c.resume, r)
-			c.open = append(c.open, openTask{id: r.ID, task: clipRunes(r.Task, taskMost)})
+			c.open = append(c.open, openTask{id: r.ID, task: clipRunes(r.Task, taskMost), state: r.State})
 		}
 	}
 	c.resumed = len(c.history) > 0 || len(c.resume) > 0
@@ -375,8 +379,8 @@ func (c *conversation) bind(ctx context.Context) func() (online bool, err error)
 	}
 }
 
-// openTask is a run not over yet, as a new upstream session is told (instructions' Waiting).
-type openTask struct{ id, task string }
+// openTask is a run not over yet, as a new upstream session is told (instructions' Waiting), and its run frame's state.
+type openTask struct{ id, task, state string }
 
 // waiting are the tasks of the runs not over yet, oldest first (mu held).
 func (c *conversation) waiting() []string {
@@ -387,13 +391,13 @@ func (c *conversation) waiting() []string {
 	return out
 }
 
-// setOpen records run id's task as not over yet (task "": over).
-func (c *conversation) setOpen(id, task string) {
+// setOpen records run id's task as not over yet, in state (task "": over).
+func (c *conversation) setOpen(id, task, state string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.open = slices.DeleteFunc(c.open, func(o openTask) bool { return o.id == id })
 	if task != "" {
-		c.open = append(c.open, openTask{id: id, task: task})
+		c.open = append(c.open, openTask{id: id, task: task, state: state})
 	}
 }
 

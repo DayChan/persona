@@ -45,7 +45,7 @@ func (n *Node) send(ctx context.Context, id, text string, images []proto.Image, 
 	defer unlock()
 	if n.externalCodex(id) {
 		if n.codexResumable(id) { // nothing runs it: resumed in a new tab with the message (codex_resume.go)
-			return n.resumeCodexThread(ctx, id, opts.Launcher, text, images) // a refusal says nothing was sent
+			return n.resumeCodexThread(ctx, id, opts.Launcher, text, images, "") // a refusal says nothing was sent
 		}
 		return n.sendCodex(ctx, id, text, images)
 	}

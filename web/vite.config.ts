@@ -99,8 +99,22 @@ const classicWorker: Plugin = {
   },
 };
 
+// KaTeX's CSS (src/ui/stream/math.ts) lists each font as woff2, woff and ttf. Every browser the build targets (es2022)
+// takes woff2, so the other two are only bytes in every personad: drop them from @font-face, and Rollup no longer
+// emits those 40 files. The build fails if a KaTeX update writes its fonts some other way.
+const katexFonts: Plugin = {
+  name: "katex-fonts",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/\/katex\/dist\/katex(?:\.min)?\.css$/.test(id.split("?")[0])) return;
+    const css = code.replace(/,\s*url\([^)]*\)\s*format\(["'](?:woff|truetype)["']\)/g, "");
+    if (/\.(?:woff|ttf)\b/.test(css) || !css.includes(".woff2")) this.error(`katex-fonts: ${id} still lists woff or ttf fonts, or no woff2`);
+    return { code: css, map: null };
+  },
+};
+
 export default defineConfig({
-  plugins: [i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, startupPreload, classicWorker, thirdPartyLicenses],
+  plugins: [katexFonts, i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, startupPreload, classicWorker, thirdPartyLicenses],
   // Text size (src/lib/text-scale.ts): font sizes become calc(size * var(--text-scale, 1)), after Tailwind wrote them.
   css: { postcss: { plugins: [textScale()] } },
   server: {

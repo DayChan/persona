@@ -51,9 +51,9 @@ final class NewChatLayoutTests: XCTestCase {
         XCTAssertTrue(routed.waitForExistence(timeout: 20), "no Persona → task message:\n\(app.debugDescription)")
         XCTAssertTrue(has(app, "Persona → @补齐网络层的单元测试").exists, "no 「Persona → @task」 header")
         XCTAssertTrue(has(app, "补齐网络层的单元测试 → @Persona").exists, "no 「task → @Persona」 header")
-        XCTAssertTrue(has(app, "督办巡查").exists, "the digest is not under the Supervision identity")
-        // The model's instructions in the digest are nowhere; its line is.
-        XCTAssertTrue(has(app, "督办：2 个派出去的任务要处理").exists)
+        XCTAssertTrue(any["supervision-record"].firstMatch.exists, "the quiet round has no compact record")
+        // Both the injected digest and the assistant's answer stay inside the unopened audit trace.
+        XCTAssertFalse(has(app, "督办：2 个派出去的任务要处理").exists)
         XCTAssertFalse(has(app, "这是 Persona 的督办消息").exists)
         // No evidence list under the report: its second link is only in the list.
         XCTAssertFalse(has(app, "actions/runs/1001").exists, "the evidence list is still drawn")
@@ -80,7 +80,7 @@ final class NewChatLayoutTests: XCTestCase {
         XCTAssertFalse(any["exchange.routed"].firstMatch.exists)
         XCTAssertTrue(has(app, "actions/runs/1001").exists, "the old evidence list is missing")
         XCTAssertFalse(has(app, "督办巡查").exists)
-        XCTAssertTrue(any["injected-system"].firstMatch.exists, "the digest's old centered line is missing")
+        XCTAssertTrue(any["supervision-record"].firstMatch.exists, "quiet round folding must not depend on the optional layout")
         sleep(1)
         try shot(app, "off")
         app.terminate()

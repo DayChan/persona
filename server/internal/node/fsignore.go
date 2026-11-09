@@ -20,6 +20,9 @@ func markIgnored(dir string, list []DirEntry) {
 	}
 	var in bytes.Buffer
 	for _, e := range list {
+		// check-ignore reads every line as a pathspec: a name such as ":!x" or ":(glob)y" would be magic it refuses,
+		// failing the whole listing. A "./" prefix makes every name a plain path (git accepts "/" on Windows too).
+		in.WriteString("./")
 		in.WriteString(e.Name)
 		in.WriteByte(0)
 	}
@@ -37,7 +40,7 @@ func markIgnored(dir string, list []DirEntry) {
 	}
 	ignored := map[string]bool{}
 	for _, name := range strings.Split(out.String(), "\x00") {
-		if name != "" {
+		if name = strings.TrimPrefix(name, "./"); name != "" {
 			ignored[name] = true
 		}
 	}

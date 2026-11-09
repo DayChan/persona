@@ -131,6 +131,8 @@ func (s *Store) settleChatLocked(id string) (bool, error) {
 	type entry struct {
 		at   time.Time
 		text string
+		// oldDay and old: the day and text it had before (a message line's), to carry its retention ledger entry.
+		oldDay, old string
 	}
 	byDay := map[string][]entry{}
 	chatName := ""
@@ -165,9 +167,12 @@ func (s *Store) settleChatLocked(id string) (bool, error) {
 					cur = &entry{at: at, text: l}
 					continue
 				}
-				cur = &entry{at: at, text: "- " + at.In(to).Format("15:04") + l[7:]}
+				cur = &entry{at: at, text: "- " + at.In(to).Format("15:04") + l[7:], oldDay: d, old: l}
 			case strings.HasPrefix(l, "  ") && cur != nil:
 				cur.text += "\n" + l
+				if cur.old != "" {
+					cur.old += "\n" + l
+				}
 			default:
 				flush()
 			}
@@ -175,6 +180,37 @@ func (s *Store) settleChatLocked(id string) (bool, error) {
 		flush()
 	}
 
+	// The retention ledger keys lines by their day and minute, which move: their entries move with them. The ledger
+	// is written with both keys before the swap (a move cut short still finds either) and with the new ones after.
+	ledger, hasLedger, err := s.readLedger(id)
+	if err != nil {
+		hasLedger = false // one that does not read stays as it is (pruning keeps such a chat's lines longest)
+	}
+	moved := retentionLedger{Version: 1, Rule: ledger.Rule}
+	both := retentionLedger{Version: 1, Rule: ledger.Rule, Lines: map[string]map[string]string{}}
+	for d, keys := range ledger.Lines {
+		both.Lines[d] = map[string]string{}
+		for k, r := range keys {
+			both.Lines[d][k] = r
+		}
+	}
+	for d, es := range byDay {
+		for _, e := range es {
+			if e.old == "" || !hasLedger {
+				continue
+			}
+			if r, ok := ledger.Lines[e.oldDay][lineKey(e.old)]; ok {
+				key := lineKey(e.text)
+				moved.note(d, key, r, false)
+				both.note(d, key, r, false)
+			}
+		}
+	}
+	if hasLedger {
+		if err := writeJSON(s.ledgerPath(id), both); err != nil {
+			return false, err
+		}
+	}
 	for d, es := range byDay {
 		sort.SliceStable(es, func(i, j int) bool { return es[i].at.Before(es[j].at) })
 		var b strings.Builder
@@ -197,6 +233,11 @@ func (s *Store) settleChatLocked(id string) (bool, error) {
 		return false, err
 	}
 	_ = os.RemoveAll(old)
+	if hasLedger {
+		if err := writeJSON(s.ledgerPath(id), moved); err != nil {
+			return true, err
+		}
+	}
 	return true, nil
 }
 

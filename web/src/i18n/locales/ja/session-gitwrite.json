@@ -18,6 +18,7 @@
   "push_confirm_one": "{count}件のコミットを {upstream} にプッシュします。",
   "push_confirm_other": "{count}件のコミットを {upstream} にプッシュします。",
   "push_new": "{branch} はまだリモートにありません。origin に同名で作成し、以後追跡します。",
+  "push_gone": "{upstream} はリモートで削除されています。プッシュすると {branch} から作り直します。",
   "push_never_force": "強制プッシュはしません。リモートに新しいコミットがあれば止めて知らせます。",
   "branches": "ブランチ",
   "branch_search": "ブランチを検索、または新しい名前",

@@ -270,12 +270,25 @@ export interface Permissions {
    * user names, machine names or IP addresses). Needed by contributes.error_reports.
    */
   error_reports?: boolean;
+  storage?: StoragePermission;
   /**
    * It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
    * printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
    * contributes.auth_relay.
    */
   auth_relay?: boolean;
+}
+
+/**
+ * Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+ * prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+ * host quotas. Queue and blob methods additionally require their flags.
+ */
+export interface StoragePermission {
+  keys?: string[];
+  patterns?: string[];
+  queues?: boolean;
+  blobs?: boolean;
 }
 
 /**
@@ -875,6 +888,29 @@ export interface UIParams {
   machine?: UIMachine;
   launcher?: UILauncher;
   item?: UIInboxItem;
+}
+
+/**
+ * ui.image's parameters (UI version 6): the hub asks the extension for a picture it drew as a ref, for the ui
+ * contribution that drew it. width is the pixel width the app wants (320, 640, 1280 or 2048; 0 when it says nothing);
+ * the extension may ignore it.
+ */
+export interface UIImageParams {
+  contribution: string;
+  ref: string;
+  width?: number;
+  placement?: Placement;
+}
+
+/**
+ * What ui.image answers: the picture's bytes in base64 (png, jpeg, webp or gif, at most 4 MB decoded and 8192 pixels
+ * a side; the hub reads the type from the bytes, not from mime) and how long the hub may keep it (seconds, 60 when
+ * absent; a camera 5 to 10, a still 86400).
+ */
+export interface UIImage {
+  mime: string;
+  data: string;
+  max_age?: number;
 }
 
 export interface UIMachine {

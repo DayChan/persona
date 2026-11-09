@@ -63,7 +63,10 @@ interface ExtensionMarkets {
     /** The selected hub runs installs as operations. */
     val operationsAvailable: Flow<Boolean> get() = flowOf(false)
 
-    /** Each `extension_operation` the hub pushes; null after each hello: what was missed is listed again. */
+    /**
+     * Each `extension_operation` the hub pushes; null after each hello (what was missed is listed again) and each managers
+     * push (a manager that restarted lost its operations).
+     */
     val operationUpdates: Flow<ExtensionOperation?> get() = emptyFlow()
 
     /** `POST …/-/catalog/preview` with `async`: downloads and checks it in the background; the operation, at its first step. */

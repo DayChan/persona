@@ -1,4 +1,8 @@
 <resources>
     <string name="settings_update_auto_notice">Persona は起動時に更新を確認します。インストールには必ず確認が必要です。</string>
     <string name="settings_update_later">後で</string>
+    <string name="settings_update_metadata_failed">更新情報を取得できませんでした。サーバー接続を確認して再試行してください。</string>
+    <string name="settings_update_download_failed">APK のダウンロードに失敗しました。サーバー接続を確認して再試行してください。</string>
+    <string name="settings_update_verification_failed">APK が更新情報と一致しません。更新を再確認し、繰り返す場合は配信元に連絡してください。</string>
+    <string name="settings_update_install_failed">システムのインストーラーを開けませんでした。保留中のインストールを完了またはキャンセルして再試行してください。</string>
 </resources>

@@ -83,6 +83,8 @@ func (h *Hub) assistantRoutesRelayed(api *http.ServeMux) {
 			by = h.byMachine
 		case strings.Contains(pattern, "/assistant/conversations/{id}/"):
 			by = h.byConversation
+		case strings.Contains(pattern, "/todos/{id}"):
+			by = h.byTodo
 		}
 		api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.forwardOwned(w, r, by) })
 	}

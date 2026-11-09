@@ -18,6 +18,9 @@
   --line: #ecedef;
   --line-strong: #e0e2e5;
   --field: #f2f2f3;
+  /* A dropdown's arrow (#2314, the select rule below): ui/icons.tsx `chevron` stroked in --ink-3. A background image
+     cannot read var(), so the color is written out here; ui/select-chevron.test.tsx keeps it equal to --ink-3. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2366696f' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --stripe: #49494913;
   --stripe-bg: #f5f5f5;
   --accent: #0285ff;
@@ -57,6 +60,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1018280a, 0 2px 6px #10182808;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #0000000b;
   --shadow-overlay: 0 0 0 1px var(--line), 0 8px 28px #0001;
+  --shadow-nav-preview: 0 12px 40px #00000014;
   --shadow-inset-field: inset 0 1px 2px #0000001f;
 }
 
@@ -73,6 +77,7 @@
   --line: #2e3033;
   --line-strong: #3a3c40;
   --field: #2b2c2f;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23979aa0' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --stripe: #ffffff0e;
   --stripe-bg: #1b1c1e;
   --accent: #3d9aff;
@@ -99,6 +104,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #0003, 0 2px 6px #0003;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #00000038;
   --shadow-overlay: 0 0 0 1px var(--line-strong), 0 8px 28px #00000057;
+  --shadow-nav-preview: 0 12px 40px #00000060;
   --shadow-inset-field: inset 0 1px 2px #0006;
 }
 
@@ -176,11 +182,13 @@
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-nav-preview: var(--shadow-nav-preview);
   --shadow-inset-field: var(--shadow-inset-field);
 
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
+  --radius-nav-preview: 16px;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
@@ -366,6 +374,19 @@ button:disabled { cursor: default; }
    over the text-[13px] utilities. */
 @media (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select { font-size: max(16px, 1em); }
+}
+/* Dropdowns (#2314): left to the browser, a <select>'s arrow ignores the field's padding. Chrome pins a bold black arrow
+   2 px from the right edge, Safari drops the padding and draws ⇕. A single-line select draws the icon set's chevron
+   (--select-chevron) instead, 10 px in like the fields' text (px-2.5) and 12 px wide like a menu's, and keeps its text
+   6 px clear of it. Unlayered on purpose, so its right padding wins over the px-* utilities; a select that draws its
+   own arrow sets appearance-none (Machines › Usage's filter pills). */
+select:not([multiple], [size], .appearance-none) {
+  appearance: none;
+  padding-right: 28px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
 }
 
 /* ══ #3559 status marks and the segmented thumb (follows Moshi; own block, kept apart from the reduced-motion work of #3475) ══ */

@@ -279,3 +279,63 @@ func TestTaskPlanReportsQueuedDispatchBeforeAnAgentExists(t *testing.T) {
 		t.Fatalf("dispatch was reported as an actual start: %s", res)
 	}
 }
+
+func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
+	for _, tc := range []struct{ name, configured, explicit, want string }{
+		{"unset", "", "", "default"},
+		{"configured", "acceptEdits", "", "acceptEdits"},
+		{"explicit", "acceptEdits", "bypassPermissions", "bypassPermissions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f := newTaskService(t)
+			ctx := context.Background()
+			if _, err := s.updateSettings(ctx, func(v *Settings) error {
+				v.DefaultPermissionMode = tc.configured
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			// Writable tasks exercise the default contract. Read-only tasks are
+			// independently constrained to plan and must not inherit this mode.
+			args, err := json.Marshal(map[string]any{"tasks": []map[string]any{{
+				"title": "Inspect code", "prompt": "Review code", "machine": "box",
+				"cwd": "/code/app", "readonly": false, "permission": tc.explicit,
+			}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := s.toolTaskPlan(ctx, "conv1", args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := regexp.MustCompile(`plan_[0-9a-f]+`).FindString(res)
+			plan, err := s.loadPlan(ctx, id)
+			if err != nil {
+				t.Fatalf("loadPlan: %v; response: %s", err, res)
+			}
+			if len(plan.Tasks) != 1 || plan.Tasks[0].Permission != tc.want {
+				t.Fatalf("saved tasks = %+v, want permission %q", plan.Tasks, tc.want)
+			}
+			f.mu.Lock()
+			starts := len(f.starts)
+			f.mu.Unlock()
+			if starts != 0 {
+				t.Fatalf("writable plan started before approval: %d", starts)
+			}
+			if _, err := s.startPlan(ctx, id, nil, false); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "approved task started", func() bool {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				return len(f.starts) == 1
+			})
+			f.mu.Lock()
+			got := f.starts[0]["permission_mode"]
+			f.mu.Unlock()
+			if got != tc.want {
+				t.Fatalf("started permission = %v, want %q", got, tc.want)
+			}
+		})
+	}
+}

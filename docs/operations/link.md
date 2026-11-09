@@ -11,6 +11,74 @@ instead, the client on the computer connects to the hub and reconnects on its ow
 The user decided again on 2026-11-02 ([plan-hub-center.md](../archive/operations/plan-hub-center.md), sections 0 and 4): hubs and computers always connect through a preinstalled service on the computer, not SSH (too much permission);
 the computer can connect to the hub or accept a connection from it. The recommendation is one hub for the whole household, with a **node service** on every other computer: resident node plus persona-link, installed by one command or one App.
 
+## On computers: the web app and Persona Link
+
+On a computer, Persona has two parts. The native Mac app is frozen and no other desktop client takes its place ([mac.md](../apple/mac.md)).
+
+- **The web app** is the interface, in the browser or installed as an app ([web.md](../web/web.md), "On computers").
+- **Persona Link** runs on a computer whose Agents the hub should reach, and does only what a browser cannot. Today that is the connection to the hub and the resident node service.
+  A computer you only use the web app from does not need it.
+  Its menu bar App (Mac) and tray (Windows) show the link's state and handle pairing, reconnecting, renaming, the background service and starting at sign-in.
+  Neither tells you about Agents: the menu bar App posts no notifications, and the Windows tray posts only about its own link ([windows.md](windows.md), "Tray").
+
+A desktop need goes into the web app first, and into Persona Link only when the browser cannot meet it (for example notifications while no Persona page is open, presence, local integrations).
+
+### Menu bar App or command-line Link
+
+Both run the same persona-link with the `link.json` in their data directory; they differ in how that directory is chosen, what starts persona-link and how you see it.
+
+| | Menu bar App (Mac) | Command-line Link |
+| --- | --- | --- |
+| Program | `/Applications/Persona Link.app`, with persona-link and persona-node in `Contents/Helpers/` (`./scripts/app/mac-link.sh install`) | `persona-link`; the installers put it in the data directory's `bin/` (`install.sh --node`, or `persona-link install` on Linux) |
+| Data directory | `PERSONA_HOME` in the App's own environment, else the one the node service file names, else the default ("Helper" under "Menu bar App" below) | `PERSONA_HOME` in the environment it starts in, else the default (`~/.persona`, [rename.md](rename.md)) |
+| What keeps it running | The App runs `persona-link run --parent` and restarts it when it exits; **Launch at login** starts the App | Linux: the systemd user service `persona-link.service` (`persona-link install`). Mac: nothing from this repository: `persona-link install` refuses on a Mac, and `install.sh --node` installs only the node service and the pairing, leaving `persona-link run` to you |
+| State and pairing | Menu bar icon, menu and pairing window | `persona-link status`, `persona-link pair`, `persona-link logs` |
+| Where | Mac | Linux (headless or desktop); a Mac without the App |
+
+Windows has one program for both: `persona-link install` sets up the sign-in task and the tray ([windows.md](windows.md)). Linux has no menu bar App, so the command-line Link stays there.
+
+### Move a Mac from the command-line Link to the menu bar App
+
+The App takes over the pairing, the computer's name on the hub and the node service when it opens the data directory the command-line Link used.
+The App picks its data directory in this order: `PERSONA_HOME` (or its former name) in its own environment, then the one the node service file names, then the default.
+These steps assume the App's own environment sets neither variable, as when it starts from Finder, `open` or as a login item; if yours does, change that first.
+One persona-link runs per data directory (the `link.json.run` lock beside `link.json`): while the command-line one runs there, the App's helper exits at once and the App keeps restarting it.
+The steps name the command-line program `<link>` and its data directory `<dir>`, as steps 1 and 2 record them. The App's menu is in Chinese only for now; the bold menu names below are English renderings of its items.
+
+1. Record how the command-line Link runs:
+   - `pgrep -fl 'link run'` prints its process id `<pid>`; the pattern also finds the program under its former name.
+   - How it starts: from a terminal, or from something you set up yourself (your own launch agent, a terminal multiplexer). This repository installs nothing that starts it on a Mac.
+     Take `<link>`, the program's full path, and any `PERSONA_HOME` (or former name) from that command or setup, not from the `pgrep` output, which drops quoting.
+2. Record `<dir>`: in that same environment, `"<link>" status --json` shows `running: true` and `link.pid` equal to `<pid>`; `<dir>` is the directory of its `config` (absolute and normalized).
+   Use this `<dir>` from here on, also on the way back. Then check that the App will open it: `"<link>" node status --json` gives the node service file (`file`), and `/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables' "<file>"` lists its variables.
+   Their `PERSONA_HOME` (or the same variable under its former name, [rolling-upgrade-compatibility.md](../protocol/rolling-upgrade-compatibility.md)) must name `<dir>`, with `~` and relative paths taken from your home folder; with neither, or no node service, `<dir>` must be the default.
+   If it names another directory, the node did not share the Link's (the Link reaches the node only through `<dir>/node-attach.sock`): make the node service name `<dir>` before going on. Keep `<dir>` as the base; pairing again does not fix this.
+3. Stop the command-line Link: Ctrl-C in its terminal or `kill <pid>`, and stop or remove whatever you set up to start it again.
+   `PERSONA_HOME="<dir>" "<link>" status --json` then shows `running: false`. Do not run `persona-link uninstall --purge`: it deletes `link.json`, the pairing the App takes over.
+4. Install the App: `./scripts/app/mac-link.sh install`. It builds, copies the App to `/Applications/Persona Link.app` and opens it.
+   Use only "Prerequisites" and "Build and install" in [persona-link-install.md](persona-link-install.md); skip its "Pairing".
+5. Do not pair again: the App opens `<dir>` and connects with the pairing there. If its menu says the Mac is not connected to a hub yet, it opened another directory: quit it and go back to step 2.
+6. Leave the node service as it is. On first launch the App checks for a node service and installs one only when there is none. An existing one, under the current or the former name, stays unchanged.
+7. Check the result:
+   - The menu says the local node is online (**Local node online**) and names this computer on the hub.
+   - `pgrep -fl 'link run'` lists only `…/Persona Link.app/Contents/Helpers/persona-link run --parent`.
+   - `PERSONA_HOME="<dir>" "/Applications/Persona Link.app/Contents/Helpers/persona-link" status --json` shows the same `config` as step 2, `running: true`, `link.state` `connected`,
+     and a `link.pid` equal to the helper's process id from `pgrep`. Another `link.pid` means another persona-link still holds the lock: go back to step 3.
+   - The computer is online in the web app's **Machines**.
+8. Turn on **Launch at login** in the menu.
+
+**Optional, later: the device's program.** The App works with the node service on either program. When `node status --json` shows it runs personad (`runs`) and this Mac runs no hub or manager,
+`PERSONA_HOME="<dir>" "/Applications/Persona Link.app/Contents/Helpers/persona-link" node switch`, in Terminal on the Mac, moves it to persona-node.
+The switch restarts the node and cuts off an answer the assistant is writing on this computer; conditions and recovery are in "The device's program" below.
+
+**To go back**:
+
+1. In the App's menu, turn off **Launch at login** and choose **Quit Persona Link**; its helper exits with it. `PERSONA_HOME="<dir>" "<link>" status --json` shows `running: false`.
+2. Start the command-line Link the way step 1 recorded, and put back anything you removed in step 3; from a terminal, `PERSONA_HOME="<dir>" "<link>" run`.
+   `PERSONA_HOME="<dir>" "<link>" status --json` shows `running: true` and the same `config` as step 2.
+3. To remove the App, delete only `/Applications/Persona Link.app`. Keep `<dir>` (pairing, passive-mode TLS identity, logs), the node service and its program, and the computer on the hub.
+   Do not follow "Uninstall" in [persona-link-install.md](persona-link-install.md): it removes those shared files and the computer on the hub.
+
 ## Two modes
 
 The same persona-link supports both, selected during pairing and changeable anytime (`persona-link mode active|passive`, or the pairing window of the Mac menu bar App or the Windows tray). Each mode stores its pairing separately, so switching back doesn't require pairing again.
@@ -397,6 +465,9 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 - `./scripts/app/mac-link.sh build|install|snapshot <directory>`.
 - A standalone SwiftPM package (not in `apple/project.yml`, no shared code with the Persona App), built with `xcodebuild`: on this development machine, `swift build`'s default build system reports "Developer directory not found".
 - persona-link and persona-node are built into `Contents/Helpers/` (persona-node is for the resident node; see "The device's program").
+- The App's newer text is in `Resources/Localizable.xcstrings` (en / zh-Hans / ja); the build copies its resource bundle into `Contents/Resources/`.
+  `scripts/i18n/apple_l10n.py check` checks that catalog apart from the apps' and keeps the older hard-coded Chinese from growing (`LINK_CJK`, counts per file that may only go down).
+- Unit tests: `xcrun swift test --package-path apple/PersonaLink`; the Apple CI packages lane runs them (`scripts/ci/apple.sh`).
 - Local ad-hoc signing (Sign to Run Locally), no hard-coded team.
 - Default bundle id is the placeholder `com.example.persona.link`, overrideable by `mac.link_bundle_id` in `~/.config/persona/config.json` or environment variable
   `PERSONA_LINK_BUNDLE_ID` (old name `PERSONA_LINK_BUNDLE_ID`).
@@ -443,7 +514,22 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 - The first line describes the state plainly: unpaired is "Not connected to hub yet" (menu action "Paste pairing link…"); "Connected to hub"; awaiting confirmation is "Waiting for confirmation on your phone" plus "Tap ‘This is my computer’ in the phone App";
   if the resident node is not running, "Persona's background service on this computer is not running", with **Reinstall** in the menu (`persona-link node uninstall` then `node install`, preserving the node program in `~/.persona/bin`); "Connecting" or "Offline".
   "Waiting for confirmation" uses status-line `pending`: the hub does not yet send this field (#4655), so this period currently shows "Connected".
-- **Reconnect now** (not in passive mode, where the hub initiates), **Pair / Change connection…**, **Install local node service** (only when absent), **Launch at login**, **Quit**.
+- **Reconnect now** (not in passive mode, where the hub initiates), **Pair / Change connection…**, **Install local node service** (only when absent), **Set Web Address…** (while the hub sends a "Needs you" summary, or once an address is set), **Launch at login**, **Quit**.
+
+**Needs you** (the status line's `attention`: the hub's summary of the sessions waiting on you; without it the menu and the icon are as above)
+- The icon: the count (`needs_you`, muted sessions included) beside the symbol, `99+` above 99; nothing at 0.
+- The menu: a **Needs You** section under the status block with the first 5 sessions in the hub's order (latest `since` first): title, the card's kind and detail ("Permission: Bash: npm test"), place.
+  A muted session (`muted`) is listed dimmed, with a muted bell; `muted` changes only how it looks. **And N More…** counts the rest (the ones the hub left out included) and opens the web app's root. An empty summary says "Nothing needs you right now".
+- Notifications (`UNUserNotificationCenter`): one per session, identifier `<machine_id>/<session_id>#needs` (the web app's tag), only for items with `notify: true`
+  (the manager applies the phone's push rule: not for a muted session, nor for a question the assistant is still deciding on; a missing `notify` counts as false).
+  A card notifies once per connection, the first time it has `notify: true`, also when it was listed before without it (the assistant handed you its question); a card whose notification is still shown does not notify again.
+  The cards already notifying in a connection's first summary make none (the web app's baseline rule). A newer card of a session replaces the older notification once its own goes out; when it does not notify, or its post is dropped, the older one is taken back. A session that leaves the summary, or no longer waits on the card its notification shows, takes the notification back, including one left from an earlier run of the App (a notification remembers its card).
+  The summary goes away with the connection, so the next connection's first summary is a baseline again; a summary that does not decode changes nothing. A notification counts as shown only once it went out; one still waiting (behind the permission prompt) is dropped once its card is answered or replaced, it stops notifying, or the connection is gone.
+  While the list is capped (`more` above 0, the oldest cut), a session missing from it may still wait: its notification stays (also one found at launch), and it does not notify again when it comes back; a post still waiting for it is dropped.
+- Permission to notify is asked when the first summary arrives, not at launch (an older hub never sends one). Denied: the section says so, with **Turn On Notifications…** (System Settings › Notifications).
+- A row or a notification opens `<web address> + route` in the default browser. The web address is **Set Web Address…** if set, else the summary's `web_url`
+  (the hub's https public URL; in active mode without one, the hub address the link went to, which may have a self-signed certificate and is another origin than the one you signed in to).
+  Set the web address when the hub has no https public URL. Without either (passive mode, no public URL), the section says so, and a row or a notification opens the **Web Address** window; saving an address there opens what was clicked, unless a later click already opened it. A typed address without a scheme is saved as https.
 
 **Pairing window**
 - Select **Connect to hub (active)** or **Let hub connect (passive)** at the top, defaulting to the current mode; viewing doesn't switch. Switching happens when pairing (active: paste and pair; passive: generate link),
@@ -458,9 +544,9 @@ For Linux see "Linux (headless)" below: build `persona-link`, then `persona-link
 
 **Screenshots**
 - `./scripts/app/mac-link.sh snapshot <directory>` renders the App's own views offscreen, a light and dark set each:
-  - Every menu state;
-  - Pairing window;
-  - Every icon.
+  - Every menu state, including "Needs you" with none, one, five (all four kinds, one muted), an item that does not notify without being muted, more than the menu lists, the longest text the hub sends, notifications off, and no web address;
+  - Pairing window and the web address window;
+  - Every icon, and the icon with a count.
 - No screen-recording permission needed, and no unrelated content captured.
 
 ## Status line (helper → App)

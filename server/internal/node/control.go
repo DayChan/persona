@@ -39,7 +39,9 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 	}
 	if resume != "" && validID(resume) && n.codexPath(resume) != "" && !n.isAssistantSession(resume) {
 		if _, live := n.agent(resume); !live { // a Codex thread nothing runs (codex_resume.go)
-			return n.resumeCodexSession(ctx, resume, launcher, prompt)
+			return n.resumeCodexSession(ctx, resume, launcher, prompt, mode)
+		} else if mode == "plan" {
+			return nil, readonlyStartUnsupported() // CLI flags cannot constrain a process that is already running.
 		}
 	}
 	if resume != "" && n.externalCodex(resume) {
@@ -56,6 +58,17 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 	if kind != "claude" && kind != "codex" && kind != traexAgent {
 		return nil, fmt.Errorf("unsupported agent type %q", kind)
 	}
+	argv, codex := n.codexLauncher(ctx, launcher)
+	if mode == "plan" {
+		if codex && kind != traexAgent {
+			if argv, err = n.codexReadonlyArgs(launcher, argv, mode); err != nil {
+				return nil, err
+			}
+		} else if kind != "claude" {
+			// This launcher path has no verified read-only argument mapping.
+			return nil, readonlyStartUnsupported()
+		}
+	}
 	if err := n.checkUltracodeStart(ctx, execution.Ultracode, kind); err != nil {
 		return nil, err
 	}
@@ -70,6 +83,9 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 	}
 	if resume != "" {
 		if a, ok := n.agent(resume); ok {
+			if mode == "plan" && a.Agent == "codex" {
+				return nil, readonlyStartUnsupported() // A live thread without a local rollout cannot acquire CLI flags either.
+			}
 			return n.sessionFor(resume, a), nil // already running
 		}
 		// A claude still alive on the session (Claude's desktop app, another terminal, suspended there) refuses: two
@@ -97,7 +113,7 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 			return nil, err
 		}
 	}
-	if argv, ok := n.codexLauncher(ctx, launcher); ok && kind != traexAgent { // codex_start.go
+	if codex && kind != traexAgent { // codex_start.go
 		if resume != "" { // a Codex thread is resumed above: this id is not one
 			return nil, refusal(codexResumeRefused, "找不到这个 Codex 会话的记录，没法接着它：请在电脑上恢复（codex resume）。", nil)
 		}
@@ -107,7 +123,7 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 		if execution.Effort != "" {
 			return nil, errors.New("新建 Codex 的思考强度由其启动器管理，请将此用途的思考强度恢复继承")
 		}
-		return n.startCodex(ctx, launch, cwd, launcher, argv, prompt, ws, tabName)
+		return n.startCodex(ctx, launch, cwd, launcher, argv, prompt, ws, tabName, mode)
 	}
 	if kind != "claude" { // start_agent.go
 		if mode != "" || effort != "" {
@@ -148,6 +164,7 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 	shells := paneShells(ctx)
 	cmd := withHerdrAgent(typedHerdrAgent(launch, "claude", shells...), n.claudeCommandLine(spec, args+modeFlags(mode, effort), shellQuote))
 	cmd = n.agentCommand(cmd, shellQuote, shells...)
+	n.notePaneStart(launcher) // not in the agent sandbox unless a managed launcher (agentsandbox.go)
 	st := sessionState{Pane: pane, Launcher: launcher, Cwd: cwd, StartedAt: time.Now().UTC(), Model: execution.Model, ModelFingerprint: execution.Fingerprint}
 	if prev, ok := n.state.get(id); ok && resume != "" {
 		if !prev.StartedAt.IsZero() { // a branch (fork.go) has none: it starts now

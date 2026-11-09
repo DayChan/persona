@@ -5,9 +5,9 @@ Requirement: **when the server restarts, clients notice nothing at all**. Issue 
 
 Goal: in a normal deployment, no client shows a disconnect notice, no message is lost, and no running chat is interrupted.
 
-## Current state (verified 2026-11-04, before the change, master `2fe55f92`)
+## Before the change
 
-Code locations refer to the current files and functions (checked 2026-11-06; after `2fe55f92`, machine connections (spawning nodes, disconnect handling) moved from hub/machine.go and hub/machine_conn.go to `devices/`; `hub/machine.go` still exists, and `onEvent`, which forwards node events, stayed there); the behavior described is still that before the change.
+Verified on 2026-11-04 against master `2fe55f92`, before the work below. Code locations refer to the current files and functions (checked 2026-11-06; after `2fe55f92`, machine connections (spawning nodes, disconnect handling) moved from hub/machine.go and hub/machine_conn.go to `devices/`; `hub/machine.go` still exists, and `onEvent`, which forwards node events, stayed there); the behavior described is still that before the change.
 
 ### What a restart does
 
@@ -93,7 +93,7 @@ The manager's and the node's run entries (`managercli.Assistant`, `manager run`,
 `hub-systemd.sh` writes both units: the first time (or when the address changes) it stops the service once to hand the port to the socket (only this once is there a ~1 s gap); after that it always just runs `restart personad`.
 `TimeoutStopSec=20` (headroom beyond the 8 s shutdown budget).
 
-### Blue-green switching: the hub's edge (`internal/hubedge`, 2026-11-06)
+### Blue-green switching: the hub's edge (`internal/hubedge`)
 
 Modeled on an account-pool relay gateway's approach: a resident edge process holds the port, with two slots behind it. The trigger was a problem reproduced on Linux on 2026-11-05: when self-update `syscall.Exec`'d the new binary in place, the listening socket passed by systemd was lost.
 `LISTEN_FDS` was cleared at startup, and the fd duplicated by `net.FileListener` had close-on-exec set, so the new process had to `bind` itself while the port was still held by `personad.socket`; it exited with `address already in use`,
@@ -305,18 +305,8 @@ Socket activation caveats:
     the background command's result came back, and the chat received no "just restarted" message.
   - The last line is `PASS` / `FAIL` / `TIMEOUT` and the numbers.
 
-## Measured results (2026-11-04, this dev machine's hub, after deploying #1617)
-
-Deployment: switched the hub to `personad.socket`, installed the resident node (`personad-node`); that initial switch stopped it for about 1 s. Afterwards:
-
-| Scenario | Result |
-| --- | --- |
-| `hub_restart_seamless.py --restarts 3` (client only) | PASS: 247 health probes, 0 failures (slowest 0.95 s, waiting in the backlog); all 3 reconnects among 4 connections were `resumed` on the same stream, 54 events with no loss or duplicates; client-visible disconnects 0.73–1.01 s (web / Android grace is 8 s, 30 s during restart, so the UI stays unchanged); 1.3–1.6 s per restart including the command |
-| `--restarts 3 --converse --count 300` (a streaming side chat plus a `sleep 75` background command) | PASS: 827 health probes, 0 failures; all 3 reconnects resumed, 121 events with no loss or duplicates, longest disconnect 0.81 s; all 300 answer lines present, the background command finished and reported back, no "just restarted" message in the chat; the node logged "took over 1 running conversations" three times (the same claude process) |
-| Hub logs | Each restart: `event log: continuing stream … at N`, `warm start: 3 machines shown as before`, local node reconnects in 0.2–1 s, the two Macs over ssh in 1–3 s |
-| Resident node idle restart (`node-launchd.sh restart-idle`) | PID unchanged (`exec`), the local node disconnected from the hub for about 2 s, which then broadcast an offline event; the 5 s grace and `dialResident` above were added afterwards (follow-up PR for #1574) |
-
-Before-change comparison (journal of the deployment at 19:30 on 2026-11-04 on the same machine): the port closed for about 1.3 s and connections were refused; the local node and its assistant processes were killed; the two Macs reconnected after 2.4 s and 8 s, showing offline in between.
+After socket activation and the resident node were deployed (#1617), repeated restarts with a streaming side chat passed on a real hub: no failed health probe, every reconnect resumed on the same stream with no lost or duplicated event, and each disconnect lasted about a second, well inside the clients' grace period.
+Before the change a restart refused connections for about 1.3 s and killed the local node's assistant processes. The numbers are in `docs/archive/operations/hub-restart-records.md`.
 
 ## iOS / Mac (#1634)
 

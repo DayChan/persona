@@ -342,12 +342,26 @@ data class ExtensionPermissions(
      * user names, machine names or IP addresses). Needed by contributes.error_reports.
      */
     @SerialName("error_reports") val errorReports: Boolean? = null,
+    val storage: ExtensionStoragePermission? = null,
     /**
      * It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
      * printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
      * contributes.auth_relay.
      */
     @SerialName("auth_relay") val authRelay: Boolean? = null,
+)
+
+/**
+ * Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+ * prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+ * host quotas. Queue and blob methods additionally require their flags.
+ */
+@Serializable
+data class ExtensionStoragePermission(
+    val keys: List<String>? = null,
+    val patterns: List<String>? = null,
+    val queues: Boolean? = null,
+    val blobs: Boolean? = null,
 )
 
 /**
@@ -1261,6 +1275,31 @@ data class ExtensionUIParams(
     val machine: ExtensionUIMachine? = null,
     val launcher: ExtensionUILauncher? = null,
     val item: ExtensionUIInboxItem? = null,
+)
+
+/**
+ * ui.image's parameters (UI version 6): the hub asks the extension for a picture it drew as a ref, for the ui
+ * contribution that drew it. width is the pixel width the app wants (320, 640, 1280 or 2048; 0 when it says nothing);
+ * the extension may ignore it.
+ */
+@Serializable
+data class ExtensionUIImageParams(
+    val contribution: String = "",
+    val ref: String = "",
+    val width: Int? = null,
+    val placement: String? = null,
+)
+
+/**
+ * What ui.image answers: the picture's bytes in base64 (png, jpeg, webp or gif, at most 4 MB decoded and 8192 pixels
+ * a side; the hub reads the type from the bytes, not from mime) and how long the hub may keep it (seconds, 60 when
+ * absent; a camera 5 to 10, a still 86400).
+ */
+@Serializable
+data class ExtensionUIImage(
+    val mime: String = "",
+    val data: String = "",
+    @SerialName("max_age") val maxAge: Int? = null,
 )
 
 @Serializable

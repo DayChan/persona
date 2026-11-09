@@ -188,7 +188,9 @@ func (r *Registry) Uninstall(ctx context.Context, id string, keepData bool, acto
 		if err != nil {
 			return err
 		}
-		if store, ok := r.store.(IdentityDeleteStore); ok {
+		if store, ok := r.store.(StorageRetentionStore); ok {
+			err = store.DeleteExtensionRecordRetainingData(ctx, old.Record, keepData)
+		} else if store, ok := r.store.(IdentityDeleteStore); ok {
 			err = store.DeleteExtensionRecord(ctx, old.Record)
 		} else {
 			err = r.store.DeleteExtension(ctx, slot)

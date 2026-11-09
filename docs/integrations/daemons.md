@@ -131,7 +131,7 @@ server.on('upgrade', (req, socket, head) => { if (req.url === '/api/persona') rt
 
 Daemons not written in JS implement the "Spec" section above themselves: one WebSocket endpoint, one JSON object per message.
 
-## Acceptance
+## Tests
 
 - node unit tests (`go test ./internal/node -run TestDaemon`):
   - config validation, and no token in error messages;
@@ -149,8 +149,8 @@ Daemons not written in JS implement the "Spec" section above themselves: one Web
   - a new connection replaces the old one;
   - fragmented messages, a ping in the middle of a message, unmasked frames.
 - End to end:
-  - `PERSONAD=<personad> node integrations/runtime-sdk/e2e/daemon.mjs`: uses a real `personad node`, the echo example as the daemon, and the script plays the hub. Covers: launcher name, start, session id prefix, row fields, sending (a resend goes in only once), permission cards, streamed output, paging, interrupt, rejected terminal calls, a local runtime grabbing a reserved id, the same runtime on the socket and as a daemon at once, a wrong token, config changes taking effect, reconnecting after a daemon restart, removal from the config, hub reconnect under a resident node. 22/22 passed on 2026-11-02.
-  - `PERSONA_E2E_DAEMON=1 DSH_CHECKOUT=<built dsh source> PERSONAD=<personad> node integrations/dsh/e2e/run.mjs`: uses a real `dsh web` with the DSH plugin as the daemon (`listen` in its config), runs the full runtime acceptance (`conformance()`: text turn, approve, deny with a reason, question, streamed output, interrupt, continuous pushes), plus closing from the phone (archives in DSH) and "the daemon cannot get phone tools". 21/21 passed on 2026-11-02; the original socket way also 21/21.
+  - `PERSONAD=<personad> node integrations/runtime-sdk/e2e/daemon.mjs`: uses a real `personad node`, the echo example as the daemon, and the script plays the hub. Covers: launcher name, start, session id prefix, row fields, sending (a resend goes in only once), permission cards, streamed output, paging, interrupt, rejected terminal calls, a local runtime grabbing a reserved id, the same runtime on the socket and as a daemon at once, a wrong token, config changes taking effect, reconnecting after a daemon restart, removal from the config, hub reconnect under a resident node.
+  - `PERSONA_E2E_DAEMON=1 DSH_CHECKOUT=<built dsh source> PERSONAD=<personad> node integrations/dsh/e2e/run.mjs`: uses a real `dsh web` with the DSH plugin as the daemon (`listen` in its config), runs the full runtime acceptance (`conformance()`: text turn, approve, deny with a reason, question, streamed output, interrupt, continuous pushes), plus closing from the phone (archives in DSH) and "the daemon cannot get phone tools". Without `PERSONA_E2E_DAEMON=1`, the same script checks DSH connected the original socket way.
 
 Once a new daemon is connected, write its own end-to-end test based on `e2e/daemon.mjs`: replace the part that starts the echo daemon with starting your own service.
 

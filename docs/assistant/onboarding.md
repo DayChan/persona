@@ -215,7 +215,7 @@ Implementation (#4482, `assistant/models_probe.go`): distinguish Anthropic regio
 Web implementation (#4037, `views/settings/ProviderWizard.tsx`): "Working Claude Code already exists" requires `ok` for all three readiness steps: computer, Claude Code, and model (an untested `unknown` model does not count; a new key still defaults to assignment). Hide the switch until the first result arrives; saving also waits for it before deciding whether to include `assign`.
 For the step 4 notice, check readiness both before saving and after refetching: show it if Claude Code was `claude_missing` in either result and is not `ok` after saving. Checking only after saving is insufficient: once main chat switches to a Persona-managed provider, hub returns `unknown` for this step (`readiness.go` asserts absence only for the default `claude` launcher).
 
-**C. Has neither**: one screen, "Where to get a model." Sort built-in presets by request language (Chinese lists providers available directly in China first; other languages list Anthropic first). Give each a one-sentence explanation and "Sign up" (open `signup_url` in the in-app browser); on return, proceed to B. Beside it, offer "Try demo first." No affiliate links; recommendations and order are decision 11.
+**C. Has neither**: one screen, "Where to get a model." Sort built-in presets by request language (Chinese lists providers available directly in China first; other languages list Anthropic first). Give each a one-sentence explanation and "Sign up" (open `signup_url` in the in-app browser); on return, proceed to B. Leave out direct-API presets (Grok): signing up there gives no main chat (iOS still lists them until #2223). Beside it, offer "Try demo first." No affiliate links; recommendations and order are decision 11.
 
 Android implementation (#4297; details in `docs/android/android.md`, "Onboarding: models, devices, computers"): when hub has `builtin_presets`, use the same three steps as web. Differences: "Where to get a key" opens `signup_url` in the system browser (Settings has no in-app browser); while readiness is pending, the switch area says "Checking…" and saving waits for the result. Old hubs retain "Enter manually / Add from extension"; connection tests and fetching model lists exist only in the custom-gateway form.
 
@@ -224,6 +224,7 @@ Android implementation (#4297; details in `docs/android/android.md`, "Onboarding
 - Add an embedded presets_builtin.json under `server/internal/assistant/`, using `assistantwire.LauncherPreset` (`assistantwire/models.go:61-75`), `plugin: "builtin"`, and IDs `builtin/<vendor>`. Add two optional fields: `signup_url`, `name_zh` (or an i18n key).
 - `launcherPresets()` (`models_presets.go:20`) returns "built-in + plugins"; a plugin overrides a built-in with the same ID. Leave `presetFill` unchanged.
 - Initial candidates: official Anthropic, DeepSeek, Kimi (Moonshot), Zhipu GLM, Alibaba Bailian, and MiniMax's Anthropic-compatible endpoints. **Addresses and model names were not verified while drafting**. Before adding any provider, check its official documentation and pass a one-word request test, with sources in the PR. Include only vendors' public addresses, not relay services or company gateways. Tests ensure every entry has all required fields.
+  Grok was added later (#2204) as the first direct-API built-in: xAI deprecated its Anthropic-compatible endpoint, so it is on Responses and serves only direct-API categories (`docs/integrations/launchers.md`, "Built-in presets").
 - The first wizard step on all three clients lists presets directly, with "Custom compatible gateway" last. Base URL and authentication method appear only in the custom flow. Replace hardcoded "Official Anthropic" in client wizards (`web/src/lib/providers.ts`, `ProviderWizardModel.swift`) with preset data. Add "Test connection" and "Get model list" on Android (currently does not call `/launchers/test` or `/discover`).
 
 ### 4.4 Main-chat readiness and degradation
@@ -477,6 +478,7 @@ On failure from `POST /api/v1/assistant/conversations` or a session-send endpoin
 - `no_machine`, `claude_missing`, `launcher_missing`, and `machine_pending` return 409; `node_unreachable` is unchanged (coded 502, `ErrOffline` 503); `assistant_offline` is unchanged (503).
 - `detail` contains the original text; clients show it only in "Details."
 - For turns with `turn_error_kind: "user"`, sessions also carry `turn_error_code` (`not_logged_in` / `auth_failed` / `model_route` / `rate_limited`), which clients use to render cards.
+- `model_fallback_unavailable` identifies a model-route failure after Claude Code switched the session following an upstream refusal (#2203). Readiness explains the chain and recommends a new conversation or `/model` in the terminal, with no model-settings or test-message action. This session-only failure does not put readiness into setup mode or prevent creating a new conversation. Existing client error cards still need to adopt this code and hide their old Retry/Continue actions; the ordinary refusal notice already carries localized recovery guidance.
 - `errNoAssistantMachine` (`start.go:29`) and `memory()` (`profile.go:465`) use the same code; do not let them drift apart. Update voice-prompt goldens (`server/internal/voice/testdata/prompts/refused.failed.*.golden`, all three languages) too.
 - Old clients still display `error`, now localized rather than raw English. Check that iOS `isQuiet` does not treat 409 as a silent error.
 
@@ -662,6 +664,7 @@ Separate P1 issues: "Chat only" mode (after decision 9), node `claude.install`, 
 ### 7.3 iOS / macOS work assigned to a Mac
 
 Each issue references the protocol in section 5 and states "The Linux development machine cannot compile Swift; note in the PR if Xcode 26.0 was not verified." UI uses only the design system (`.surface`, `EmptyStateView(action:)`, `Theme.*`); do not raise the `TokenRatchetTests` baseline. Single-line buttons; light and dark screenshots.
+The native Mac app is frozen ([mac.md](../apple/mac.md)): in M1–M4 and M6, the Mac gets only what the shared iOS code brings, with no Mac-only work and no Mac screenshots or acceptance beyond keeping an existing Mac flow working (M2's paste-link pairing). M5 is Persona Link, which is not frozen.
 
 | # | Title | Changes | Acceptance |
 | --- | --- | --- | --- |

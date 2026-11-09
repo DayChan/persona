@@ -28,6 +28,11 @@ func fakeClaudeHome(t *testing.T, script string) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(home, ".zshrc"), nil, 0o600)
+	// The fake claude is meant to work, so mark its first-run setup finished: the launcher check's onboarding gate
+	// (claudeonboarding.go) otherwise stops before it ever runs.
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"hasCompletedOnboarding":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("ZDOTDIR", home)
 	t.Setenv("PATH", bin+":/usr/bin:/bin")
@@ -79,6 +84,8 @@ func TestSockGoneTellsADeadReplacementFromALiveOne(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	t.Setenv("PERSONA_HOME", "")
+	t.Setenv("JARVIS_HOME", "")
 	if err := os.MkdirAll(filepath.Dir(nodeclient.SocketPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}

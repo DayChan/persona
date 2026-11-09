@@ -2,6 +2,9 @@ package persona.feature.settings
 
 import android.content.res.Resources
 import persona.core.contracts.MachineComputer
+import persona.core.contracts.pushManager
+import persona.core.contracts.api.AssistantManagerChoice
+import persona.core.contracts.api.ManagerRoster
 import persona.core.contracts.api.HubExtension
 import persona.core.contracts.api.ExtensionConfigRejected
 import persona.core.contracts.api.ExtensionAuth
@@ -314,6 +317,15 @@ internal object ExtensionChanges {
     fun of(api: ExtensionManagement): Flow<Unit> = changes.filter { it === api }.map { }
 }
 
+/**
+ * Whose an extension, a page or a list's item is: the manager it names, else the default manager (the hub answers what
+ * names none from it). Compared with a push's [pushManager] (#1834).
+ */
+internal object ExtensionOwners {
+    fun of(manager: String?): String = manager?.takeIf { it.isNotBlank() } ?: default
+    val default: String get() = AssistantManagerChoice.current.value.defaultId.ifBlank { ManagerRoster.ASSISTANT_MANAGER }
+}
+
 /** Settings › Extensions: the list. */
 internal class ExtensionListModel(private val api: ExtensionManagement, private val res: Resources) {
     private val mutable = MutableStateFlow(ExtensionListState())
@@ -330,9 +342,13 @@ internal class ExtensionListModel(private val api: ExtensionManagement, private 
         finally { mutable.update { it.copy(loading = false) } }
     }
 
-    /** Follows the hub's `extension_auth` pushes while the list is open. */
+    /** Follows the hub's `extension_auth` pushes while the list is open: each changes its own manager's copy (#1834). */
     suspend fun watchAuth() = api.authUpdates.collect { event ->
-        mutable.update { s -> s.copy(extensions = s.extensions?.map { if (it.id == event.extension) it.copy(auth = event.auth) else it }) }
+        mutable.update { s ->
+            s.copy(extensions = s.extensions?.map {
+                if (it.id == event.extension && ExtensionOwners.of(it.manager) == pushManager(event.manager)) it.copy(auth = event.auth) else it
+            })
+        }
     }
 }
 
@@ -367,7 +383,11 @@ internal data class ExtensionState(
 internal data class ExtensionCascade(val names: List<String>, val keepData: Boolean? = null)
 
 /** Settings › Extensions › one: its switch, its form (a draft saved as a whole), its secrets. */
-internal class ExtensionModel(private val api: ExtensionManagement, private val id: String, private val res: Resources) {
+internal class ExtensionModel(
+    private val api: ExtensionManagement, private val id: String, private val res: Resources,
+    /** Whose extension the page shows (several managers); null: the default's. */
+    private val manager: String? = null,
+) {
     private val mutable = MutableStateFlow(ExtensionState())
     val state = mutable.asStateFlow()
 
@@ -388,8 +408,10 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
 
     fun dismissCascade() = mutable.update { it.copy(cascade = null) }
 
-    /** Follows the hub's `extension_auth` pushes for this extension while the page is open (#4507). */
-    suspend fun watchAuth() = api.authUpdates.collect { event -> if (event.extension == id) setAuth(event.auth) }
+    /** Follows the hub's `extension_auth` pushes for this extension while the page is open (#4507), its manager's only (#1834). */
+    suspend fun watchAuth() = api.authUpdates.collect { event ->
+        if (event.extension == id && ExtensionOwners.of(manager) == pushManager(event.manager)) setAuth(event.auth)
+    }
 
     /** The sign-in as the hub says it is now (a push, signing out). */
     fun setAuth(auth: ExtensionAuth) = mutable.update { s ->

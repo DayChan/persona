@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,6 +235,54 @@ func TestFsWatchCapsTheSet(t *testing.T) {
 	}
 }
 
+// A folder over the cap is watched as the tree shows it (the first maxDirEntries in treeOrder), not as os.ReadDir lists
+// it: an edit or rename of a shown entry that sorts past the cap in byte order is a change, and an edit of an entry the
+// tree leaves out is not.
+func TestFsWatchSignatureFollowsTheTreeOrderPastTheCap(t *testing.T) {
+	n, home := testNode(t)
+	dir := filepath.Join(home, "big")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxDirEntries {
+		writeEmpty(t, dir, fmt.Sprintf("B%05d", i))
+	}
+	writeEmpty(t, dir, "a-first")
+	if err := os.Mkdir(filepath.Join(dir, "zz-sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w := fsWatchDir{Path: dir}
+	sig := n.dirSignature(w)
+	changed := func(what string) {
+		t.Helper()
+		now := n.dirSignature(w)
+		if now == sig {
+			t.Fatalf("%s: signature unchanged", what)
+		}
+		sig = now
+	}
+
+	// Shown second (after zz-sub) but past the 2000th name in byte order.
+	writeWhole(t, home, filepath.Join(dir, "a-first"), []byte("edited"))
+	changed("edit of a-first")
+	if err := os.Rename(filepath.Join(dir, "a-first"), filepath.Join(dir, "a-second")); err != nil {
+		t.Fatal(err)
+	}
+	changed("rename of a-first")
+	// A file added inside the subfolder changes its time, which the tree shows.
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "zz-sub"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	changed("new time of zz-sub")
+
+	// B01998 and B01999 are past the cap in the tree's order: the listing does not show them.
+	writeWhole(t, home, filepath.Join(dir, fmt.Sprintf("B%05d", maxDirEntries-1)), []byte("hidden"))
+	if now := n.dirSignature(w); now != sig {
+		t.Fatal("an edit of an entry the tree does not show changed the signature")
+	}
+}
+
 // A folder outside what the path guard allows is never read by the poll: its signature is the error's.
 func TestFsWatchRefusesGuardedFolders(t *testing.T) {
 	n := &Node{home: t.TempDir()}
@@ -334,6 +383,61 @@ func TestListDirMarksIgnored(t *testing.T) {
 			t.Errorf("%s marked ignored outside a repository", e.Name)
 		}
 	}
+}
+
+// A name git would read as pathspec magic (":!x", ":(glob)y") used to stop check-ignore with a fatal error at that
+// name; it sorts before letters, so a.log and every other name after it lost its Ignored mark.
+func TestListDirMarksIgnoredBesideMagicNames(t *testing.T) {
+	hasGit(t)
+	reviewGitEnv(t)
+	list := func(odd []string) map[string]bool {
+		t.Helper()
+		dir := t.TempDir()
+		gitIn(t, dir, "init", "-q")
+		files := map[string]string{".gitignore": "*.log\n", "a.log": "", "keep.txt": ""}
+		for _, name := range odd {
+			files[name] = ""
+		}
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		res, err := (&Node{home: dir}).listDir(dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ignored := map[string]bool{}
+		for _, e := range res["entries"].([]DirEntry) {
+			if e.Name != ".git" {
+				ignored[e.Name] = e.Ignored
+			}
+		}
+		if len(ignored) != len(files) {
+			t.Fatalf("listed %v, want the %d files written", ignored, len(files))
+		}
+		return ignored
+	}
+	want := map[string]bool{".gitignore": false, "a.log": true, "keep.txt": false}
+	check := func(got map[string]bool, odd []string) {
+		t.Helper()
+		for name, w := range want {
+			if got[name] != w {
+				t.Errorf("with %q: %s ignored=%v, want %v", odd, name, got[name], w)
+			}
+		}
+		for _, name := range odd {
+			if got[name] {
+				t.Errorf("with %q: %s marked ignored", odd, name)
+			}
+		}
+	}
+	check(list(nil), nil)
+	if runtime.GOOS == "windows" { // ':' cannot be part of a file name there
+		return
+	}
+	odd := []string{":!odd.txt", ":(glob)y", ":^x"}
+	check(list(odd), odd)
 }
 
 // The RPC the hub calls: the JSON of fs.watch becomes the watched set, and an empty one releases it.

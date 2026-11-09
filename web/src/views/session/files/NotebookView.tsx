@@ -7,7 +7,7 @@ import { extendStates, languageOf, lexLine, splitLines, type LexState, type Toke
 import { languageFile, withAttachmentRefs, type Cell, type Notebook, type Output } from "../../../lib/notebook";
 import { cx } from "../../../ui/atoms";
 import { Markdown } from "../../../ui/Markdown";
-import { TOKEN_CLASS } from "./FileView";
+import { TOKEN_CLASS } from "./file-data";
 import { t } from "../../../i18n";
 
 export function NotebookView({ nb }: { nb: Notebook }) {

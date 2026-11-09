@@ -192,6 +192,18 @@ nonisolated struct LauncherCheck: Codable, Hashable, Sendable {
     var error: String?
 }
 
+extension LauncherCheck {
+    /// The row for a check whose request failed (#1901), as web and Android show it: what the hub said when it answered
+    /// (the computer went offline, the node call failed or timed out, no machine to test on), a timeout's words included;
+    /// "The request didn't finish" only when nothing answered (a client timeout, no network) or it was cancelled.
+    nonisolated static func failed(_ error: any Error) -> LauncherCheck {
+        let reason: String?
+        if let api = error as? APIError { reason = api.message.isEmpty ? nil : api.localizedDescription }
+        else { reason = error.shown }
+        return LauncherCheck(ok: false, millis: 0, error: reason ?? String(localized: "The request didn't finish"))
+    }
+}
+
 /// A launcher added or changed in the app; an empty `apiKey` on a change keeps the key.
 nonisolated struct LauncherInput: Encodable, Sendable {
     var name: String

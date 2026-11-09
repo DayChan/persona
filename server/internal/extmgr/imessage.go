@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/imessage"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -115,7 +116,7 @@ func (h *Manager) imessageRoutes(api *http.ServeMux) {
 		c.SetAI(*in.AI)
 		h.logf("imessage: 交给 Persona %v", *in.AI)
 		if *in.AI {
-			h.kbKick()
+			h.kbKick(c.ID(), connector.ScopeChats)
 			h.kickInbox()
 		}
 		writeJSON(w, c.Detail(r.Context()))

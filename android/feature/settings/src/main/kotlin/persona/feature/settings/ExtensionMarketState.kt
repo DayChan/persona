@@ -9,6 +9,7 @@ import persona.core.contracts.api.ExtensionMarket
 import persona.core.contracts.api.ExtensionMarkets
 import persona.core.contracts.api.ExtensionOperation
 import persona.core.contracts.api.ExtensionPreview
+import persona.core.contracts.api.hubCodedFailure
 import persona.core.designsystem.failureReasonText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -268,10 +269,25 @@ internal class CatalogExtensionModel(
     private suspend fun relist() {
         if (!stepped()) return
         val list = try { api.operations() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { return }
+        // The manager keeps operations only in memory: one it no longer lists was lost with a restart of it (#1832), and
+        // no push will end it. The page lets go of it, so Install / Upgrade can start again.
+        state.value.operation?.let { held -> if (list.none { it.id == held.id }) gone(held) }
         list.filter(::mine).maxByOrNull { OperationText.instant(it.startedAt) }?.let { track(it) }
     }
 
-    private fun mine(op: ExtensionOperation) = op.extension == id && (op.market.isNullOrEmpty() || op.market == market)
+    /** An operation the manager does not know (any more): nothing to wait for, cancel or retry. */
+    private fun gone(op: ExtensionOperation) {
+        if (removing?.first == op.id) removing = null
+        mutable.update {
+            if (it.operation?.id != op.id) it
+            else it.copy(operation = null, consentFor = if (it.consentFor == op.id) null else it.consentFor,
+                preview = if (it.consentFor == op.id) null else it.preview)
+        }
+    }
+
+    /** This extension's, from this market, and the default manager's, whose catalog this is (another's copy: #1834). */
+    private fun mine(op: ExtensionOperation) = op.extension == id && (op.market.isNullOrEmpty() || op.market == market) &&
+        ExtensionOwners.of(op.manager) == ExtensionOwners.default
 
     /** Keeps op when it is this extension's and newer than what the page has; what it waits for or how it ended follows. */
     private suspend fun track(op: ExtensionOperation) {
@@ -339,14 +355,18 @@ internal class CatalogExtensionModel(
         } finally { mutable.update { it.copy(acting = false) } }
     }
 
-    /** Stops one that downloads or checks (the hub then says it is canceled), or puts away one that failed. */
+    /**
+     * Stops one that downloads or checks (the hub then says it is canceled), or puts away one that failed. One the manager
+     * does not know (404: lost with a restart of it, #1832) is put away too.
+     */
     suspend fun closeOperation() {
         val op = state.value.operation ?: return
         if (!op.active) mutable.update { it.copy(operation = null) }
         try { api.cancelOperation(op.id) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
-            if (op.active) mutable.update { it.copy(actionError = failureReasonText(error).resolve(res)) }
+            if (hubCodedFailure(error)?.status == 404) gone(op)
+            else if (op.active) mutable.update { it.copy(actionError = failureReasonText(error).resolve(res)) }
         }
     }
 

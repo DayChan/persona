@@ -61,8 +61,8 @@ it("reads and saves independent assistants including explicit default, and reloa
   await render(); expect(select(permission).value).toBe("plan");
   await choose(target, "work"); expect(select(permission).value).toBe("auto");
   expect(new URLSearchParams(location.search).get("manager")).toBe("work");
-  expect(host.querySelector<HTMLAnchorElement>('a[href*="purpose=agent.new"]')!.getAttribute("href")).toBe("/settings?tab=model-config&purpose=agent.new&manager=work");
-  expect([...host.querySelectorAll<HTMLAnchorElement>("a")].map((a) => a.getAttribute("href"))).toContain("/settings?tab=model-config&purpose=assistant&manager=work");
+  expect(host.querySelector<HTMLAnchorElement>('a[href*="purpose=agent.new"]')!.getAttribute("href")).toBe("/settings?tab=models&purpose=agent.new&manager=work#settings-model-config");
+  expect([...host.querySelectorAll<HTMLAnchorElement>("a")].map((a) => a.getAttribute("href"))).toContain("/settings?tab=models&purpose=assistant&manager=work#settings-model-config");
   await choose(permission, "bypassPermissions");
   await choose(target, "assistant"); await choose(permission, "default");
   await choose(target, "work"); expect(select(permission).value).toBe("bypassPermissions");

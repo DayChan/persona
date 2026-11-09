@@ -7,15 +7,14 @@
   "theme_light": "Light",
   "theme_dark": "Dark",
   "appearance": "Appearance",
+  "agent_preferences": "Agent preferences",
   "reply_motion": "Reply animation",
   "reply_motion_hint": "New replies fade in word by word. Off when the system's Reduce motion is on.",
   "sidebar_terminals": "Show terminals in sidebar",
   "sidebar_terminals_hint": "When agents are grouped by machine, each computer lists the plain shells in its terminal under its agents; click one to open its Terminal page. Off by default; applies to this browser only.",
   "avatar": "Avatar",
   "avatar_footer": "Persona's name, avatar, the site's logo and tab icon, and the moving state in conversations; synced across your devices when the hub supports it. With the theme color set to follow the avatar, the site's colors follow it too. Extensions can add avatars.",
-  "assistant": "Persona assistant",
   "assistant_footer": "Each chat runs in the background on {machine}. Pick models in Model settings; manage connections and credentials in Model providers.",
-  "runs_on": "Runs on",
   "this_browser": "This browser",
   "this_browser_footer": "Disconnecting revokes this browser's token; next time you'll paste the hub's token again. The hub uses plain HTTP by default, so use it only on your local network or VPN.",
   "hub_address": "Hub address",
@@ -150,5 +149,9 @@
   "sync_footer": "Whether each computer sent its list this time. One that didn't answer shows its last list, marked on the providers.",
   "stale": "{machines} not updated",
   "stale_mark": "Not updated",
-  "launchers_failed": "Couldn't load the providers: {error}"
+  "launchers_failed": "Couldn't load the providers: {error}",
+  "search_settings": "Search settings",
+  "search_in_page": "In this page",
+  "search_no_results": "No matching settings",
+  "search_placeholder_settings": "Search settings"
 }

@@ -18,7 +18,8 @@ var Platforms = []string{"linux/amd64", "linux/arm64", "darwin/arm64", "darwin/a
 
 // HubOwn are the hub's own packages: persona-manager links none of them.
 var HubOwn = []string{"cmd/persona-hub", "internal/hub", "internal/hubcli", "internal/hubedge", "internal/apns",
-	"internal/mdns", "internal/proxyproto", "internal/pushcrypto", "internal/relay", "internal/relayproto"}
+	"internal/mdns", "internal/proxyproto", "internal/pushcrypto", "internal/relay", "internal/relayproto",
+	"internal/webasset"}
 
 // Shared are the packages both programs link (the wire types, the database, the configuration, identity, the update
 // code): the hub links these and its own, nothing else; a new package the hub needs is put in one of the two lists on
@@ -28,7 +29,7 @@ var Shared = []string{"internal/acceptloop", "internal/aiwire", "internal/apierr
 	"internal/devicewire", "internal/dialogwire", "internal/errreport", "internal/extwire", "internal/i18n",
 	"internal/identity", "internal/kbwire", "internal/lazyre", "internal/link", "internal/managerconf", "internal/netaddr",
 	"internal/nodeproto", "internal/osproc", "internal/pgdocker", "internal/preview", "internal/prompts",
-	"internal/proto", "internal/rpc", "internal/screen", "internal/secretkey", "internal/sessionlist", "internal/streams",
+	"internal/proto", "internal/rpc", "internal/screen", "internal/secretkey", "internal/sessionlist", "internal/sessionorigin", "internal/streams",
 	"internal/textfmt", "internal/transcript", "internal/update", "internal/workspaceboard"}
 
 // HubExceptions are manager-side packages the hub still links, and may only shrink: internal/extension (and what it

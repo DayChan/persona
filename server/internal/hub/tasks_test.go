@@ -188,14 +188,14 @@ func TestTaskPlanReadOnlyStartsAtOnce(t *testing.T) {
 	}
 	starts, _ := tn.calls()
 	if len(starts) != 1 || starts[0]["prompt"] != "iPad 横屏时登录页崩溃，修好并补测试" || starts[0]["cwd"] != "/code/app" ||
-		starts[0]["permission_mode"] != "acceptEdits" {
+		starts[0]["permission_mode"] != "plan" {
 		t.Fatalf("session.start = %+v", starts)
 	}
 	if got := strings.Join(feedKinds(h, "conv1"), ","); got != "plan,task" {
 		t.Fatalf("feed = %s", got)
 	}
 	p := loadPlan(h, todo.PlanID)
-	if p.State != "started" || p.Tasks[0].TodoID != todo.ID {
+	if p.State != "started" || p.Tasks[0].TodoID != todo.ID || p.Tasks[0].Permission != "plan" {
 		t.Fatalf("plan = %+v", p)
 	}
 }

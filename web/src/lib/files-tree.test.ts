@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FsEntry, FsListing } from "./files";
 import { syncBadge, type GitStatus } from "./files";
-import { ancestors, expandedKey, ListingCache, listingBytes, readExpanded, toggleExpanded, treeRows, visibleDirs, withExpanded, writeExpanded, type Listed } from "./files-tree";
+import { ancestors, CACHE_FOLDERS, expandedKey, ListingCache, listingBytes, listingCache, readExpanded, toggleExpanded, treeRows, visibleDirs, withExpanded, writeExpanded, type Listed } from "./files-tree";
 
 const file = (name: string, extra: Partial<FsEntry> = {}): FsEntry => ({ name, dir: false, size: 1, ...extra });
 const dir = (name: string, extra: Partial<FsEntry> = {}): FsEntry => ({ name, dir: true, size: 0, ...extra });
@@ -148,6 +148,22 @@ describe("listing cache", () => {
     expect(c.size).toBe(1);
     c.delete("/a");
     expect(c.bytes).toBe(0);
+  });
+
+  it("keeps the caches of the most recently used session folders only", () => {
+    // Keys unique to this test: the map of caches is module state.
+    const first = listingCache("lru-test", "/w/0");
+    first.set("/w/0", list("/w/0", []));
+    const kept = listingCache("lru-test", "/w/1");
+    for (let i = 2; i <= CACHE_FOLDERS; i++) {
+      listingCache("lru-test", `/w/${i}`);
+      if (i === 4) listingCache("lru-test", "/w/1"); // used again: no longer the oldest
+    }
+    const again = listingCache("lru-test", "/w/0");
+    expect(again).not.toBe(first);
+    expect(again.get("/w/0")).toBeUndefined(); // listed from the hub again, as on a first open
+    expect(listingCache("lru-test", "/w/1")).toBe(kept);
+    expect(listingCache("lru-test", "/w/0")).toBe(again);
   });
 });
 

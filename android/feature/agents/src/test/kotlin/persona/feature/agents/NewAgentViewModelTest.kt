@@ -82,6 +82,30 @@ class NewAgentViewModelTest {
         }
     }
 
+    @Test fun aCodexStartKeepsTheMachinesClaudeModeAndEffort() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = MemoryStore().apply { saved["first"] = AgentDefaults("/code/old", "claude", "plan", "high") }
+        val service = FakeService().apply {
+            available = listOf(AgentLauncher("claude"), AgentLauncher("codex", agentType = "codex"))
+            result = AgentStartResult.Created(Session(machineId = "first", sessionId = "codex-1"))
+        }
+        val model = NewAgentViewModel(service, store, MutableStateFlow(listOf(Machine("first", online = true))))
+        try {
+            advanceUntilIdle()
+            model.selection(model.state.value.selection.copy(cwd = "/code/new", launcher = "codex"))
+            model.submit() // the answer is lost
+            advanceUntilIdle()
+            model.submit() // asking again finds it created
+            advanceUntilIdle()
+            assertEquals("codex", service.request?.agentType)
+            // The folder and launcher are this start's; the mode and effort stay for the next Claude Code.
+            assertEquals(AgentDefaults("/code/new", "codex", "plan", "high"), store.saved["first"])
+        } finally {
+            model.viewModelScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun lostStartReplySurvivesReopeningAndOnlyQueriesTheSameOperation() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val machines = MutableStateFlow(listOf(Machine("first", online = true), Machine("second", online = true)))

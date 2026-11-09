@@ -177,11 +177,38 @@ var blockTitleRe = lazyre.New(`<` + compat.ContextPattern() + `\b[^>]*?\stitle="
 // falls back to the agent's project). A tag cut off by a clip ("<persona-context kind="context" title="Continuing…") has
 // no title to take: it is dropped. Strip first, then clip: a clip first can end inside a tag.
 func Title(s string) string {
-	if t := StripInjected(s); t != "" {
+	if t := dropLeadingBlocks(StripInjected(s)); t != "" {
 		return t
 	}
 	if m := blockTitleRe.FindStringSubmatch(s); m != nil {
 		return strings.TrimSpace(html.UnescapeString(m[1]))
 	}
 	return ""
+}
+
+// leadingTagRe is an opening tag with attributes at the start of a message (`<memory-index file="MEMORY.md">`), or one a
+// clip cut off before its ">": markup a tool wrote into the first message, not words a person typed. Like a custom element
+// the name has a "-" or "_", so HTML someone pasted (`<a href="…">`) stays.
+var leadingTagRe = lazyre.New(`^<([A-Za-z][\w.]*[-_][\w.-]*)(?:\s+[\w:.-]+="[^"]*(?:"|$))+\s*(?:>|$)`)
+
+// dropLeadingBlocks is a title without the blocks other tools put in front of what the user wrote: each one up to its
+// closing tag, or to the end when a clip cut it off. Persona's own blocks are gone already (StripInjected).
+func dropLeadingBlocks(s string) string {
+	for {
+		// Most titles start with words: skip the regexp for them, it allocates on every call (the session lists title
+		// every row, #2371).
+		if !strings.HasPrefix(s, "<") {
+			return s
+		}
+		m := leadingTagRe.FindStringSubmatchIndex(s)
+		if m == nil {
+			return s
+		}
+		end := "</" + s[m[2]:m[3]] + ">"
+		i := strings.Index(s[m[1]:], end)
+		if i < 0 {
+			return ""
+		}
+		s = strings.TrimSpace(s[m[1]+i+len(end):])
+	}
 }

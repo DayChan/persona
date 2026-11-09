@@ -8,6 +8,8 @@ import { joinPath, type FsEntry, type FsListing } from "./files";
 /** How many folders and how many bytes of listings are kept per machine and session folder. */
 export const CACHE_DIRS = 12;
 export const CACHE_BYTES = 8 * 1024 * 1024;
+/** How many session folders keep a cache; the least recently used one is let go (at most 8 x CACHE_BYTES). */
+export const CACHE_FOLDERS = 8;
 
 /** The bytes a listing takes in the cache (its JSON, which is what came over the wire). */
 export function listingBytes(l: FsListing): number {
@@ -72,13 +74,20 @@ export class ListingCache {
   }
 }
 
-const caches = new Map<string, ListingCache>();
+const caches = new Map<string, ListingCache>(); // insertion order: least recently used first
 
-/** The cache of one machine's session folder (listings of other folders or machines never mix). */
+/**
+ * The cache of one machine's session folder (listings of other folders or machines never mix). Only the
+ * CACHE_FOLDERS most recently used are kept; a tree that is open keeps the instance it got, and a folder whose
+ * cache was let go is listed from the hub again, as on its first open.
+ */
 export function listingCache(mid: string, cwd: string): ListingCache {
   const key = JSON.stringify([mid, cwd]);
   let c = caches.get(key);
-  if (!c) caches.set(key, (c = new ListingCache()));
+  if (c) caches.delete(key);
+  else c = new ListingCache();
+  caches.set(key, c);
+  while (caches.size > CACHE_FOLDERS) caches.delete(caches.keys().next().value!);
   return c;
 }
 

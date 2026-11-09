@@ -397,6 +397,12 @@ func snapshotExtension(p *Extension) *Extension {
 	out.Record.Aliases = slices.Clone(p.Record.Aliases)
 	out.Record.Granted.Network = slices.Clone(p.Record.Granted.Network)
 	out.Record.Granted.Hub = slices.Clone(p.Record.Granted.Hub)
+	if p.Record.Granted.Storage != nil {
+		storage := *p.Record.Granted.Storage
+		storage.Keys = slices.Clone(storage.Keys)
+		storage.Patterns = slices.Clone(storage.Patterns)
+		out.Record.Granted.Storage = &storage
+	}
 	out.Record.DisabledContributions = slices.Clone(p.Record.DisabledContributions)
 	if p.Record.Remote != nil {
 		remote := *p.Record.Remote

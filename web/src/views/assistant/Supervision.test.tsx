@@ -82,6 +82,21 @@ describe("a supervised task", () => {
     expect(say({ text: "先修测试" })).toContain("对「");
   });
 
+  it("shows the independent review's result under the criteria, and nothing when none ran", () => {
+    expect(renderToStaticMarkup(<ReviewChecklist todo={todo} />)).not.toContain("auto-review");
+    const reviewed = (auto_review: NonNullable<Todo["supervision"]>["auto_review"]): string =>
+      renderToStaticMarkup(<ReviewChecklist todo={{ ...todo, supervision: { ...todo.supervision!, state: "pending_review", auto_review } }} />);
+    const clean = reviewed({ id: "rv_1", state: "clean", count: 2, blocking: 0, findings: "P2 app.ts:3 命名" });
+    expect(clean).toContain("独立评审");
+    expect(clean).toContain("没有阻断问题 · 2 条发现");
+    expect(clean).toContain("展开报告");
+    expect(clean).not.toContain("P2 app.ts:3"); // the report opens on a click
+    expect(reviewed({ id: "rv_1", state: "blocking", count: 3, blocking: 1, findings: "P0 x" })).toContain("还剩 1 条阻断问题 · 3 条发现");
+    expect(reviewed({ id: "rv_1", state: "running" })).toContain("进行中");
+    expect(reviewed({ id: "rv_1", state: "failed" })).toContain("没评审完");
+    expect(reviewed({ id: "rv_1", state: "cancelled" })).not.toContain("auto-review");
+  });
+
   it("draws a review in the conversation as a line", () => {
     const item: FeedItem = { id: "f1", conversation: "main", at: "2026-11-05T09:00:00Z", kind: "review", ref: "todo_1",
       body: { title: "部署 hub", verdict: "accepted", note: "已部署，/healthz ok" } };

@@ -15,6 +15,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/kb"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -39,11 +40,14 @@ type KBOptions struct {
 }
 
 const (
-	kbPoll        = 2 * time.Minute
-	kbDebounce    = 5 * time.Second
-	kbItemsPoll   = 30 * time.Minute
-	kbCompressMax = 8   // chats compressed per run
-	kbWaitingMost = 200 // agents' turns kept until it opens
+	kbPoll = 2 * time.Minute
+	// kbChangedFloor is how soon after it was last read a connector that says it changed is read again (and the items):
+	// a chatty connector cannot make every round read it.
+	kbChangedFloor = time.Minute
+	kbDebounce     = 5 * time.Second
+	kbItemsPoll    = 30 * time.Minute
+	kbCompressMax  = 8   // chats compressed per run
+	kbWaitingMost  = 200 // agents' turns kept until it opens
 	// kbRetryWaiting is how soon the loop tries to open again while agents' turns wait for it (the user's zone not
 	// read yet, the data directory still locked by the process before): not at the next round, two minutes on.
 	kbRetryWaiting = time.Second
@@ -77,9 +81,14 @@ type kbState struct {
 	postWrites   sync.Mutex // separate: a connector read may synchronously submit posts
 	mu           sync.Mutex
 	archivedAt   map[string]time.Time        // connector id → when its archive was last asked (kb_sources.go)
+	changed      map[string]bool             // connectors that said their chats changed: read at the next round (kbChangedFloor)
+	itemsNew     bool                        // a connector said its items changed: collected at the next round
 	agentAt      map[string]time.Time        // agent → when its turn last went into a project timeline (kb_bus.go)
 	waiting      []assistantwire.KBAgentTurn // turns that came before it opened
 	postsDirty   atomic.Bool                 // posts came in since the post archive's index was written (kb_posts.go)
+
+	history   kbHistoryShared  // the history import (kb_history.go)
+	selection kbSelectionState // what is brought in and kept (kb_selection.go)
 }
 
 // kbOpened is the open knowledge base and the hub's settings it was opened with.
@@ -98,6 +107,7 @@ type kbIndex interface {
 func (s *Service) kbInit(o *KBOptions) {
 	s.kb.kick = make(chan struct{}, 1)
 	s.kb.wake = make(chan struct{}, 1)
+	s.kbHistoryInit()
 	if o != nil {
 		s.kb.dir, s.kb.keyDir = o.Dir, o.KeyDir
 	}
@@ -167,7 +177,8 @@ func (s *Service) kbOpenLocked(ctx context.Context, set assistantwire.KBSettings
 		if err != nil {
 			return nil, err
 		}
-		e := &kb.Engine{Store: st, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, RecordingDaysFunc: s.recordingDaysNow, ExtraDirs: kbReadDirs(set.ExtraDirs)}
+		e := &kb.Engine{Store: st, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, RecordingDaysFunc: s.recordingDaysNow, ExtraDirs: kbReadDirs(set.ExtraDirs),
+			Selection: s.kbSelectionNow}
 		k.cur.Store(&kbOpened{eng: e, set: set})
 		return e, nil
 	}
@@ -202,7 +213,8 @@ func (s *Service) kbOpenLocked(ctx context.Context, set assistantwire.KBSettings
 	}
 	s.kbRezone(k.store, loc)
 	e := &kb.Engine{Store: k.store, Model: s.kbModel("inbox.triage"), ModelFor: func(id string) kb.Model { return s.kbModel(id) },
-		Owner: s.owner(ctx), Logf: s.logf, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, HandleKey: k.key, Index: s.kbIndexEntity, Unindex: s.kbUnindex, RecordingDaysFunc: s.recordingDaysNow, Changed: s.kbChanged, MineObserved: s.kbObserveOwner}
+		Owner: s.owner(ctx), Logf: s.logf, TextDays: set.TextDays, AttachmentDays: set.AttachmentDays, AttachmentDaysBySource: set.AttachmentDaysBySource, HandleKey: k.key, Index: s.kbIndexEntity, Unindex: s.kbUnindex, RecordingDaysFunc: s.recordingDaysNow, Changed: s.kbChanged, MineObserved: s.kbObserveOwner,
+		Selection: s.kbSelectionNow}
 	e.ObserveChanges()
 	e.ExtraDirs = kbReadDirs(set.ExtraDirs)
 	if !k.passed {
@@ -333,6 +345,35 @@ func (s *Service) kbWake() {
 	}
 }
 
+// kbNoteKick notes what a kb.kick says changed: that connector's chats are read at the next round (kbConnectors), or
+// the items collected, even before their poll interval; at most every kbChangedFloor.
+func (s *Service) kbNoteKick(k assistantwire.KBKick) {
+	s.kb.mu.Lock()
+	defer s.kb.mu.Unlock()
+	switch {
+	case k.Scope == string(connector.ScopeItems):
+		s.kb.itemsNew = true
+	case k.Connector != "":
+		if s.kb.changed == nil {
+			s.kb.changed = map[string]bool{}
+		}
+		s.kb.changed[k.Connector] = true
+	}
+}
+
+// kbItemsDue says whether a round collects the items, last collected at last: every kbItemsPoll, or the round after a
+// connector said its items changed (at most every kbChangedFloor).
+func (s *Service) kbItemsDue(last time.Time) bool {
+	s.kb.mu.Lock()
+	defer s.kb.mu.Unlock()
+	since := time.Since(last)
+	due := since >= kbItemsPoll || s.kb.itemsNew && since >= kbChangedFloor
+	if due {
+		s.kb.itemsNew = false
+	}
+	return due
+}
+
 // kbKick has the loop go round soon (a source has something new).
 func (s *Service) kbKick() {
 	select {
@@ -347,7 +388,8 @@ func (s *Service) kbConnected() bool {
 	return !ok || c.Connected()
 }
 
-// kbLoop archives, compresses and keeps up the knowledge base, every two minutes (five seconds after a kick), from
+// kbLoop archives, compresses and keeps up the knowledge base, every two minutes (five seconds after a kick, which
+// also has the connector that changed read then), from
 // when the assistant first connected until ctx ends. While it is not connected the knowledge base is closed. A mesh
 // member's waits: the center's knowledge base is the group's (docs/server/mesh.md), this one's stays as it was.
 func (s *Service) kbLoop(ctx context.Context) {
@@ -435,7 +477,7 @@ func (s *Service) kbRound(ctx context.Context, e *kb.Engine, r *kbRounds) {
 			}
 		})
 	}
-	if time.Since(r.items) >= kbItemsPoll {
+	if s.kbItemsDue(r.items) {
 		r.items = time.Now()
 		s.kbRun(ctx, func() { s.kbCollectItems(ctx, e) })
 	}
@@ -443,7 +485,7 @@ func (s *Service) kbRound(ctx context.Context, e *kb.Engine, r *kbRounds) {
 	if daily {
 		r.prune = time.Now()
 		if n := e.Prune(time.Now()); n > 0 {
-			s.logf("kb: pruned %d day(s)", n)
+			s.logf("kb: pruned %d day(s) and document(s)", n)
 		}
 	}
 	s.kbRun(ctx, func() { s.kbPostsUpkeep(e, daily) })

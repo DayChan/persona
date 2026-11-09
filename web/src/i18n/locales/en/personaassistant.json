@@ -12,5 +12,6 @@
   "empty_body_setup": "One more step before we start. Here's what's missing.",
   "needs_calendar": "Uses your phone's calendar",
   "load_failed": "Couldn't load main conversation: {error}",
-  "retry": "Retry"
+  "retry": "Retry",
+  "still_starting": "Still starting {launcher}…"
 }

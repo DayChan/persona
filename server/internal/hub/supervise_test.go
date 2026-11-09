@@ -15,6 +15,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/assistant"
+	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -83,12 +84,18 @@ func TestSupervisedTaskOverTheBus(t *testing.T) {
 		}
 		return textOf(r)
 	}
+	// The supervise messages sent to the main conversation, recognized the way the hub reads them back: the supervise
+	// template behind the message-source block (#2156), whose source is supervision. The text no longer starts with
+	// the template, so a prefix match finds none.
 	digests := func() []string {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		var out []string
 		for _, s := range n.sends {
-			if text, _ := s["text"].(string); strings.HasPrefix(text, "📋 督办") {
+			text, _ := s["text"].(string)
+			in := prompts.ParseInjected(text)
+			source := prompts.ItemSource(proto.Item{Role: "user", Kind: proto.KindText, Text: text})
+			if in != nil && in.State == "supervise" && source != nil && source.Kind == proto.SourceSupervision {
 				out = append(out, text)
 			}
 		}

@@ -1120,6 +1120,7 @@ func (s *Service) Run(ctx context.Context) {
 	go s.remindLoop(ctx)       // the todos' reminders (todo_plan.go)
 	go s.channelLoop(ctx)      // the channels' runs that lost their watcher (channels.go)
 	go s.kbLoop(ctx)           // the knowledge base (kb.go)
+	go s.kbHistoryLoop(ctx)    // importing chats' older history into it, off by default (kb_history.go)
 	go s.viewActionLoop(ctx)   // durable card reply outbox
 	go s.acceptLoop(ctx)       // "Please verify" cards that did not go out, and reminders each morning (acceptance.go)
 	go s.healthLoop(ctx)       // each machine's launchers (launcher_health.go)
@@ -1641,10 +1642,9 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		return
 	}
 	text := s.lastTurnAPIError(ctx, m.ID, run.SessionID)
-	if text == "" {
-		if c, ok := s.session(ctx, m.ID, run.SessionID); ok {
-			text = c.TurnError
-		}
+	failedSession, hasSession := s.session(ctx, m.ID, run.SessionID)
+	if text == "" && hasSession {
+		text = failedSession.TurnError
 	}
 	if text == "" {
 		// The model service answered 200 with nothing in it: no reply, no tool call, no error. The run stayed "ok"
@@ -1672,6 +1672,14 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	}
 	if run.Retried {
 		return
+	}
+	if hasSession {
+		if failedSession.TurnError == "" {
+			failedSession.TurnError = full
+		}
+		if sessionTurnErrorCode(failedSession) == proto.TurnErrorModelFallbackUnavailable {
+			return // the unavailable refusal fallback needs the user's recovery, never an automatic replay
+		}
 	}
 	var limitTurn time.Time // the turn a usage limit stopped, when one did: the retry goes only while it is still the last
 	if reset, turn, resumes, limited := s.runLimit(ctx, m.ID, run.SessionID, full); limited {

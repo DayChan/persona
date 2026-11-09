@@ -5,6 +5,12 @@ import SwiftUI
 // watch compiles them; it draws none of it.
 
 nonisolated extension Theme {
+    /// Lightweight provenance rows are not user bubbles, regardless of the conversation layout preference.
+    enum MessageSource {
+        static let previewLines = 3
+        static let foldCharacters = 240
+    }
+
     /// Every message of the new layout sits in a box: the user's pale blue, Persona's and its agents' pale gray. Their
     /// words stay the primary text color in both modes (dark: deep boxes under light words), well past 4.5:1.
     enum ChatBox {

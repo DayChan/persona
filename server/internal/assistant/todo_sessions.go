@@ -582,6 +582,9 @@ func (s *Service) quietSessionsLocked(now time.Time) map[[2]string]bool {
 			delete(out, key)
 		}
 	}
+	for key := range s.reviewerSessionsLocked() { // a review's reviewer never pushes (supervise_autoreview.go)
+		out[key] = true
+	}
 	return out
 }
 

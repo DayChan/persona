@@ -22,6 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import persona.core.contracts.SessionKey
 import persona.core.contracts.api.*
 import persona.core.designsystem.*
 import persona.core.domain.inbox.InboxItem
@@ -66,7 +67,7 @@ class InboxConversationSwipeTest {
         override val conversationInbox = MutableStateFlow<InboxConversations?>(null)
         val calls = mutableListOf<Pair<List<InboxDoneTarget>, InboxBulkAction>>()
         val handoffs = mutableListOf<InboxHandOffRequest>()
-        override suspend fun handOff(request: InboxHandOffRequest) {
+        override suspend fun handOff(request: InboxHandOffRequest): SessionKey? {
             handoffs += request
             throw IllegalStateException("Synthetic handoff failure")
         }

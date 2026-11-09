@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -50,6 +51,9 @@ type GitStatus struct {
 	Files    []GitFile   `json:"files"`
 	Stashes  int         `json:"stashes"`
 	Commits  []GitCommit `json:"commits"`
+	// Gone: the upstream is configured but its ref is not there (the remote branch was deleted and pruned, as a merged
+	// pull request's branch is); ahead and behind are then 0 and mean nothing, and a push publishes the branch again.
+	Gone bool `json:"gone,omitempty"`
 }
 
 type GitPullResult struct {
@@ -64,8 +68,11 @@ type GitShow struct {
 	Truncated bool      `json:"truncated"`
 }
 
+// gitTimeout bounds each git command the panels run.
+const gitTimeout = 15 * time.Second
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	return gitTimed(ctx, dir, 15*time.Second, args...)
+	return gitTimed(ctx, dir, gitTimeout, args...)
 }
 
 // gitCmd is a git command in dir that never prompts and never takes a lock (the status panels poll it).
@@ -84,16 +91,66 @@ func gitTimed(ctx context.Context, dir string, timeout time.Duration, args ...st
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return out.String(), fmt.Errorf("Git 操作超时或已取消：%w", ctx.Err())
-		}
-		msg := strings.TrimSpace(errb.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return out.String(), fmt.Errorf("git %s: %s", gitSubcommand(args), msg)
+		return out.String(), gitFailed(ctx, args, errb.String(), err)
 	}
 	return out.String(), nil
+}
+
+// gitCapped runs git as git() does, but reads at most limit bytes of what it prints: past that it stops git and returns
+// the output up to its last whole line within limit, with truncated set. A huge diff then costs about limit in memory
+// and time, and a cut one never ends mid-line or mid-character.
+func gitCapped(ctx context.Context, dir string, limit int, args ...string) (out string, truncated bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	cmd := gitCmd(ctx, dir, args...)
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", false, gitFailed(ctx, args, "", err)
+	}
+	var b strings.Builder
+	_, readErr := io.Copy(&b, io.LimitReader(stdout, int64(limit)+1))
+	out = b.String()
+	if truncated = len(out) > limit; truncated {
+		cancel() // the rest is never read: stop git instead of waiting for it, whatever it exits with then
+	}
+	waitErr := cmd.Wait()
+	if truncated {
+		return cutAtLine(out, limit), true, nil
+	}
+	if waitErr == nil {
+		waitErr = readErr
+	}
+	if waitErr != nil {
+		return out, false, gitFailed(ctx, args, errb.String(), waitErr)
+	}
+	return out, false, nil
+}
+
+// gitFailed is the error for a git command that failed: timed out or canceled, or what git said on stderr.
+func gitFailed(ctx context.Context, args []string, stderr string, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("Git 操作超时或已取消：%w", ctx.Err())
+	}
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		msg = err.Error()
+	}
+	return fmt.Errorf("git %s: %s", gitSubcommand(args), msg)
+}
+
+// cutAtLine is s cut to at most limit bytes, after its last newline there; with none (a first line longer than
+// limit), at the last whole character.
+func cutAtLine(s string, limit int) string {
+	s = s[:min(limit, len(s))]
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[:i+1]
+	}
+	return string(trimPartialRune([]byte(s)))
 }
 
 // gitSubcommand is the command args run (after git's own options), for errors.
@@ -234,9 +291,11 @@ func (n *Node) gitPull(ctx context.Context, cwd string) (*GitPullResult, error) 
 	return &GitPullResult{Status: after, Updated: updated}, nil
 }
 
-// parseStatusV2 reads `git status --porcelain=v2 --branch -z`.
+// parseStatusV2 reads `git status --porcelain=v2 --branch -z`. Git prints branch.ab only when the upstream's commit
+// is there: an upstream without it is gone (`git status -sb` says [gone]).
 func parseStatusV2(out string, st *GitStatus) []GitFile {
 	files := []GitFile{}
+	counted := false
 	recs := strings.Split(out, "\x00")
 	for i := 0; i < len(recs); i++ {
 		r := recs[i]
@@ -248,6 +307,7 @@ func parseStatusV2(out string, st *GitStatus) []GitFile {
 		case strings.HasPrefix(r, "# branch.upstream "):
 			st.Upstream = strings.TrimPrefix(r, "# branch.upstream ")
 		case strings.HasPrefix(r, "# branch.ab "):
+			counted = true
 			for _, f := range strings.Fields(strings.TrimPrefix(r, "# branch.ab ")) {
 				v, _ := strconv.Atoi(f[1:])
 				if f[0] == '+' {
@@ -280,6 +340,7 @@ func parseStatusV2(out string, st *GitStatus) []GitFile {
 			files = append(files, GitFile{Path: r[2:], Index: "?", Worktree: "?"})
 		}
 	}
+	st.Gone = st.Upstream != "" && !counted
 	return files
 }
 
@@ -340,14 +401,19 @@ func (n *Node) gitDiff(ctx context.Context, cwd, path string, staged bool) (map[
 		}
 	}
 	var out string
+	var truncated bool
 	if staged {
-		out, err = git(ctx, root, "--literal-pathspecs", "diff", "--cached", "--no-color", "--", path)
+		args := []string{"--literal-pathspecs", "diff", "--cached", "--no-color", "--", path}
+		if from := n.stagedRenameSource(ctx, root, path); from != "" {
+			args = []string{"--literal-pathspecs", "diff", "--cached", "-M", "--no-color", "--", from, path}
+		}
+		out, truncated, err = gitCapped(ctx, root, maxDiffBytes, args...)
 	} else {
-		out, err = git(ctx, root, "--literal-pathspecs", "diff", "--no-color", "--", path)
+		out, truncated, err = gitCapped(ctx, root, maxDiffBytes, "--literal-pathspecs", "diff", "--no-color", "--", path)
 		if err == nil && strings.TrimSpace(out) == "" {
 			if o, _ := git(ctx, root, "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "--", path); strings.TrimSpace(o) != "" {
 				// --no-index exits 1 when files differ; the output is still the diff.
-				out, _ = git(ctx, root, "diff", "--no-color", "--no-index", "--", "/dev/null", path)
+				out, truncated, _ = gitCapped(ctx, root, maxDiffBytes, "diff", "--no-color", "--no-index", "--", "/dev/null", path)
 				err = nil
 			}
 		}
@@ -355,11 +421,41 @@ func (n *Node) gitDiff(ctx context.Context, cwd, path string, staged bool) (map[
 	if err != nil {
 		return nil, err
 	}
-	truncated := len(out) > maxDiffBytes
-	if truncated {
-		out = out[:maxDiffBytes]
-	}
 	return map[string]any{"path": path, "diff": out, "truncated": truncated}, nil
+}
+
+// stagedRenameSource is the source of the staged rename (or copy) whose destination is path, or "" when there is none.
+// Rename detection pairs only files inside the pathspec, so without its source a renamed file diffs as wholly new. The
+// source is left out (path diffs alone, as before) when file.read refuses it, or when its name covers more than the
+// one file in the index (it is a folder now): a pathspec takes everything under that name into the diff.
+func (n *Node) stagedRenameSource(ctx context.Context, root, path string) string {
+	o, err := git(ctx, root, "diff", "--cached", "-M", "--name-status", "-z")
+	if err != nil {
+		return ""
+	}
+	from := ""
+	recs := strings.Split(o, "\x00")
+	for i := 0; i+1 < len(recs) && from == ""; i += 2 {
+		k := recs[i]
+		if k == "" {
+			i--
+			continue
+		}
+		if (k[0] == 'R' || k[0] == 'C') && i+2 < len(recs) { // from, to
+			if recs[i+2] == path {
+				from = recs[i+1]
+			}
+			i++
+		}
+	}
+	if from == "" || n.guardRepoPath(root, from) != nil {
+		return ""
+	}
+	names, err := git(ctx, root, "--literal-pathspecs", "diff", "--cached", "--no-renames", "--name-only", "-z", "--", from)
+	if err != nil || names != from+"\x00" {
+		return ""
+	}
+	return from
 }
 
 func (n *Node) gitShow(ctx context.Context, cwd, hash string) (*GitShow, error) {
@@ -379,7 +475,14 @@ func (n *Node) gitShow(ctx context.Context, cwd, hash string) (*GitShow, error) 
 		return nil, fmt.Errorf("commit %s not found", hash)
 	}
 	res := &GitShow{Commit: cs[0], Files: []GitFile{}}
-	if o, err := git(ctx, dir, "show", "--numstat", "-z", "--format=", hash); err == nil {
+	// The three show calls below take the same flags, whatever the user's config says: -M pairs renames (diff.renames),
+	// and a merge is diffed against its first parent, the changes it brought in (-m --first-parent, with log.diffMerges
+	// pinned for the gits that read it). git's default for a merge, the combined diff, is empty for a clean merge while
+	// numstat lists the first parent's files.
+	show := func(args ...string) []string {
+		return append([]string{"-c", "log.diffMerges=first-parent", "show", "-M", "-m", "--first-parent"}, args...)
+	}
+	if o, err := git(ctx, dir, show("--numstat", "-z", "--format=", hash)...); err == nil {
 		for path, c := range parseNumstat(o) {
 			f := GitFile{Path: path, Index: "M", Worktree: "."}
 			if c[0] < 0 {
@@ -393,9 +496,9 @@ func (n *Node) gitShow(ctx context.Context, cwd, hash string) (*GitShow, error) 
 	sortFiles(res.Files)
 	// The diff is the content of every file the commit touched: the ones file.read refuses (either side of a rename
 	// or copy) are left out of it, by name. Without the names, or without a working tree to check them against (a
-	// bare repository, cwd inside .git), the commit and its files are shown without the diff. -M: renames are paired
-	// the same way in both commands, whatever diff.renames says.
-	o, err = git(ctx, dir, "show", "-M", "--name-status", "-z", "--format=", hash)
+	// bare repository, cwd inside .git), the commit and its files are shown without the diff. Renames and a merge's
+	// files are named the same way here as in the patch (show).
+	o, err = git(ctx, dir, show("--name-status", "-z", "--format=", hash)...)
 	if err != nil {
 		return res, nil
 	}
@@ -445,13 +548,9 @@ func (n *Node) gitShow(ctx context.Context, cwd, hash string) (*GitShow, error) 
 			res.Files[i].Index = k
 		}
 	}
-	diff, err := git(ctx, dir, append([]string{"show", "-M", "--no-color", "--format=", hash, "--"}, exclude...)...)
+	diff, truncated, err := gitCapped(ctx, dir, maxDiffBytes, append(show("--no-color", "--format=", hash, "--"), exclude...)...)
 	if err == nil {
-		res.Truncated = len(diff) > maxDiffBytes
-		if res.Truncated {
-			diff = diff[:maxDiffBytes]
-		}
-		res.Diff = diff
+		res.Diff, res.Truncated = diff, truncated
 	}
 	return res, nil
 }

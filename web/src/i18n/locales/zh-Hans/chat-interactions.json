@@ -5,6 +5,7 @@
   "send_failed": "没送到：{error}",
   "hand_back": "交回电脑处理",
   "question": "提问",
+  "tool_loop_kicker": "可能陷入工具调用循环",
   "previous_question": "上一题",
   "question_n": "第 {n} 题",
   "next_question": "下一题",

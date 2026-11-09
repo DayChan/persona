@@ -11,8 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
@@ -20,6 +23,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.*
 import org.junit.After
@@ -36,6 +40,8 @@ import persona.core.designsystem.*
 import persona.core.domain.sort.AgentQuickFilter
 import persona.core.navigation.*
 import java.io.File
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /** Real AgentsScreen, native JVM rendering; not physical-device frame-time evidence. */
 @RunWith(AndroidJUnit4::class)
@@ -94,6 +100,30 @@ class AgentsPaginationScreenTest {
         println("8000 synthetic sessions: first page=50, after end scroll=100; LazyColumn offscreen Task 49 not composed")
     }
 
+    @Test fun searchPreservesTextAndCaretWhileListProjectionIsPaused() {
+        val repository = PagedRepository()
+        // Leave the list dispatcher paused while the editor and repository receive input.
+        val model = model(repository, StandardTestDispatcher())
+        rule.setContent { PersonaTheme(reduceMotion = true) { AgentsScreen(model, Nowhere, AgentsMetadata()) } }
+
+        val search = rule.onNode(hasSetTextAction())
+        search.performTextInput("OA")
+        search.assertTextContains("OA")
+        search.performSemanticsAction(SemanticsActions.SetSelection) { it(1, 1, false) }
+        search.performTextInput("R")
+        search.assertTextContains("ORA")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(2)))
+        search.performTextInput("C")
+        search.assertTextContains("ORCA")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(3)))
+        rule.waitUntil(5_000) { repository.filters.lastOrNull()?.query == "ORCA" }
+        assertFalse(model.page.value.loaded)
+
+        rule.onNodeWithContentDescription(rule.activity.getString(persona.core.designsystem.R.string.designsystem_search_clear)).performClick()
+        search.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        rule.waitUntil(5_000) { repository.filters.lastOrNull()?.query == "" }
+    }
+
     @Test fun firstPageScreenshotsAllStylesLightAndDark() {
         val repository = PagedRepository()
         val model = model(repository)
@@ -124,7 +154,7 @@ class AgentsPaginationScreenTest {
         }
     }
 
-    private fun model(repository: SessionsRepository) = AgentsViewModel(repository, object : InteractionCenter {
+    private fun model(repository: SessionsRepository, listContext: CoroutineContext = EmptyCoroutineContext) = AgentsViewModel(repository, object : InteractionCenter {
         override val pending = MutableStateFlow<List<Interaction>>(emptyList())
         override suspend fun refresh() = Unit
         override suspend fun resolve(id: String, resolution: Resolution) = Unit
@@ -145,7 +175,7 @@ class AgentsPaginationScreenTest {
         override suspend fun togglePin(path: String, space: Boolean) = Unit
         override suspend fun toggleMute(path: String, space: Boolean) = Unit
         override suspend fun markSeen(session: SessionKey, version: String) = Unit
-    })).also { models += it }
+    }), listContext = listContext).also { models += it }
 
     private object Nowhere : Navigator {
         override fun navigate(key: NavKey) = Unit

@@ -202,6 +202,48 @@ class CatalogValidationTest(unittest.TestCase):
         self.assertEqual(apple_l10n.format_specs("%%d %lld %%"), ({1: "lld"}, []))
 
 
+class LinkCatalogTest(unittest.TestCase):
+    """Persona Link's own catalog: checked apart from the apps', with a per-file ceiling on Chinese literals."""
+
+    def problems(self, src, allowed=None):
+        with tempfile.TemporaryDirectory() as apple:
+            sources = Path(apple, apple_l10n.LINK_SOURCES)
+            (sources / "Resources").mkdir(parents=True)
+            data = catalog()
+            data["strings"].update(catalog("Files: %lld", "Files: %1$lld", "文件：%1$lld", "ファイル：%1$lld")["strings"])
+            Path(apple, apple_l10n.LINK_CATALOG).write_text(json.dumps(data))
+            (sources / "Menu.swift").write_text(src)
+            return apple_l10n.link_problems(apple, allowed or {})
+
+    def test_link_text_keys_come_from_its_own_catalog(self):
+        self.assertEqual(self.problems('func linkText(_ key: String.LocalizationValue) -> String\n'
+                                       'let a = linkText("Open"), b = linkText("Files: \\(n)")'), [])
+        found = self.problems('let a = linkText("Missing")')
+        self.assertEqual(len(found), 1)
+        self.assertIn("linkText key not in", found[0])
+
+    def test_a_file_cannot_gain_chinese_text(self):
+        src = 'let a = "打开"\nlet b = "关闭" // i18n-ignore\n'
+        self.assertIn("1 Chinese/Japanese literals, at most 0", self.problems(src)[0])
+        self.assertEqual(self.problems(src, allowed={"Menu.swift": 1}), [])
+
+    def test_an_incomplete_catalog_fails(self):
+        with patch.object(apple_l10n, "catalog_problems", return_value=["incomplete"]):
+            self.assertIn("incomplete", self.problems('let a = linkText("Open")'))
+
+    def test_a_missing_catalog_is_a_problem_and_subdirectories_are_checked(self):
+        with tempfile.TemporaryDirectory() as apple:
+            self.assertEqual(apple_l10n.link_problems(apple, {}), [f"apple/{apple_l10n.LINK_CATALOG}: missing"])
+        with tempfile.TemporaryDirectory() as apple:
+            sources = Path(apple, apple_l10n.LINK_SOURCES)
+            (sources / "Resources").mkdir(parents=True)
+            (sources / "Views").mkdir()
+            Path(apple, apple_l10n.LINK_CATALOG).write_text(json.dumps(catalog()))
+            (sources / "Views" / "Menu.swift").write_text('let a = "打开"\n')
+            self.assertIn("at most 0", apple_l10n.link_problems(apple, {})[0])
+            self.assertEqual(apple_l10n.link_problems(apple, {"Views/Menu.swift": 1}), [])
+
+
 class SourceKeysTest(unittest.TestCase):
     def check_source(self, src, keys=("Open",), **tables):
         return apple_l10n.source_problems(src, {"Localizable": keys, **tables})

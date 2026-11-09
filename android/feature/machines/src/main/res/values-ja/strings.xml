@@ -79,6 +79,11 @@
     <string name="machines_deploying">ハブのバージョンのPersonaをこのコンピューターにインストールしています…</string>
     <string name="machines_deploy_failed_last">前回のデプロイに失敗しました：%1$s</string>
     <string name="machines_redeploy">再デプロイ</string>
+    <string name="machines_deploy_waiting_idle">このコンピューターのエージェントがアイドルになってからPersonaを更新します…</string>
+    <string name="machines_deploy_transferring">ハブのバージョンのPersonaをこのコンピューターに転送しています…</string>
+    <string name="machines_deploy_restarting">このコンピューターのPersonaを再起動しています…</string>
+    <string name="machines_deploy_confirming">このコンピューターのPersonaの再接続と、ハブとのバージョン一致を確認しています…</string>
+    <string name="machines_deploy_unsupported">このコンピューターはまだリモート更新に対応していません。まずこのコンピューターでPersonaを更新してください。</string>
     <string name="machines_controls_title">エンジンと接続</string>
     <string name="machines_engine">エンジン</string>
     <string name="machines_reconnecting">再接続中…</string>

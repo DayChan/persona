@@ -61,6 +61,8 @@ nonisolated struct ContextRef: Identifiable, Hashable, Sendable, Codable {
             for am in attrRe.matches(in: attrs as String, range: NSRange(location: 0, length: attrs.length)) {
                 a[attrs.substring(with: am.range(at: 1))] = unescape(attrs.substring(with: am.range(at: 2)))
             }
+            // Provenance and protected-user sentinels are transport metadata, never selectable context cards.
+            guard a["kind"] != "message-source" else { continue }
             refs.append(ContextRef(kind: a["kind"] ?? "context", title: a["title"] ?? "", url: a["url"] ?? "",
                                    text: ns.substring(with: m.range(at: 2)), msg: a["msg"] ?? "", part: a["part"]))
         }

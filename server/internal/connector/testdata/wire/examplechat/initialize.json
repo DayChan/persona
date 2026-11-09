@@ -16,7 +16,8 @@
           "archive",
           "login",
           "threads",
-          "fallback"
+          "fallback",
+          "catalog"
         ],
         "confirm_always": [
           "examplechat_send"

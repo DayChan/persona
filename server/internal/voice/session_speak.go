@@ -22,6 +22,7 @@ type sentWords struct {
 	// then it is not said (a heartbeat gone stale).
 	run     string
 	expires time.Time
+	nudge   bool // the nudge of a model that owes the user an answer (nudge.go): never owed one itself
 }
 
 // deliver sends s once the insertion gate lets it (gate.go; a tool's result on its call goes at once).
@@ -65,6 +66,7 @@ func (c *conversation) speaker() {
 			c.sendNow(s)
 		}
 		c.maybePause(time.Now()) // suspend.go
+		c.maybeNudge(time.Now()) // nudge.go
 		c.mu.Lock()
 		if now := time.Now(); c.user != nil && now.Sub(c.userAt) >= captionQuiet && now.Sub(c.pace.voice) >= captionQuiet {
 			c.closeUser()
@@ -134,6 +136,7 @@ func (c *conversation) sendNow(s *sentWords) {
 	}
 	c.sus.said = now
 	c.told(s.card)
+	c.handedOver(s, now) // the model owes the user an answer to it (nudge.go)
 	delegation, gen, text, onCall := s.delegation, s.gen, s.text, s.onCall
 	c.mu.Unlock()
 	if delegation != "" && c.sendUp(gen, w.reply(delegation, text, true, id)...) || onCall {
