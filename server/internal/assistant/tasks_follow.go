@@ -379,6 +379,29 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		return
 	}
 	agents, reached := s.taskAgentsReached(ctx, t)
+	waitingForLimit := false
+	for _, c := range agents {
+		if c.Status != proto.StatusDone && c.Status != proto.StatusIdle || c.State == proto.StateWorking ||
+			c.State == proto.StateNeedsYou || c.PendingInteractions > 0 || backgroundRunning(c) {
+			continue
+		}
+		if w := c.Work; w != nil && w.Phase == proto.WorkBlocked && w.On == proto.WaitTransient && w.WakeAt != nil {
+			continue
+		}
+		now := time.Now()
+		if !limitTakenUp(c, now) {
+			continue
+		}
+		s.tasks.mu.Lock()
+		current, observed := s.tasks.workIDs[t.ID]
+		s.tasks.mu.Unlock()
+		if expected != nil && !expected.Work.IsZero() && (!observed || current == expected.Generation) {
+			s.registerTaskReceiptLook(ctx, &t, c.MachineID, c.SessionID, limitLookAgain(c, now), expected.Work, expected.Generation, false)
+		} else {
+			s.taskTurnEndedForTaskAfter(ctx, &t, c.MachineID, c.SessionID, limitLookAgain(c, now))
+		}
+		waitingForLimit = true
+	}
 	if !reached {
 		if expected == nil {
 			s.tasks.mu.Lock()
@@ -416,29 +439,16 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	if !s.receiptTurnMatches(t, machine, sid, expected) {
 		return
 	}
+	if waitingForLimit {
+		return
+	}
 	var last, cut proto.Session
-	waitingForLimit := false
 	for _, c := range agents {
 		if c.State == proto.StateWorking || c.State == proto.StateNeedsYou || c.PendingInteractions > 0 {
 			return
 		}
 		if w := c.Work; w != nil && w.Phase == proto.WorkBlocked && w.On == proto.WaitTransient && w.WakeAt != nil {
 			return // "Continue" goes by itself (agents_work.go): the receipt waits for how that ends
-		}
-		if now := time.Now(); limitTakenUp(c, now) {
-			// A usage limit stopped it until the reset, and its CLI or the manager goes on then (usage_limit.go): the
-			// receipt waits for how that ends. Looked at again once the wait is over, so a turn that did not go on after
-			// all (the continue cancelled) still gets its receipt.
-			s.tasks.mu.Lock()
-			current, observed := s.tasks.workIDs[t.ID]
-			s.tasks.mu.Unlock()
-			if expected != nil && !expected.Work.IsZero() && (!observed || current == expected.Generation) {
-				s.registerTaskReceiptLook(ctx, &t, c.MachineID, c.SessionID, limitLookAgain(c, now), expected.Work, expected.Generation, false)
-			} else {
-				s.taskTurnEndedForTaskAfter(ctx, &t, c.MachineID, c.SessionID, limitLookAgain(c, now))
-			}
-			waitingForLimit = true
-			continue
 		}
 		if c.UpdatedAt.After(last.UpdatedAt) {
 			last = c
@@ -454,9 +464,6 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 			cut = c
 			cut.TurnError, cut.TurnErrorKind = text, kind
 		}
-	}
-	if waitingForLimit {
-		return
 	}
 	s.tasks.mu.Lock()
 	since, worked := s.tasks.working[t.ID]
@@ -745,6 +752,15 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 				return "", errors.New("receipt task association changed")
 			}
 			return s.appendBoundTaskReceipt(ctx, t, ref, oldLink, "feed_"+randomHex(16), body)
+		}
+		if _, atomic := s.store().(interface {
+			AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time) (bool, bool, error)
+		}); atomic || s.todoDB() != nil {
+			if !ok || current.ID != t.ID || !linkedOK || !wasLinked || !currentLink.Equal(oldLink) {
+				return "", errors.New("receipt task association changed")
+			}
+			_, err := s.appendBoundTaskReceipt(ctx, t, ref, oldLink, "feed_"+randomHex(16), body)
+			return "", err
 		}
 		_, err := s.appendFeed(ctx, t.Origin, feedReceipt, t.ID, body)
 		return "", err
