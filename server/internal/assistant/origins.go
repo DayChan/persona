@@ -127,6 +127,66 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string
 	s.publish(ctx)
 }
 
+// recordRetryOrigin stores an observed task start without granting authority on a failed write.
+// A different authoritative origin wins over a delayed retry.
+func (s *Service) recordRetryOrigin(ctx context.Context, machine, id, origin, ref string) error {
+	b := &s.origins
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if current := b.m[id]; current != nil && current.By == originByStart &&
+		(!s.sameMachine(current.MachineID, machine) || current.Origin != origin || current.Ref != ref) {
+		return nil // a newer in-memory start is authoritative too
+	}
+	var current map[string]*convOrigin
+	st := s.store()
+	if st != nil {
+		if _, err := st.Setting(ctx, originsKey, &current); err != nil {
+			return err
+		}
+	} else {
+		current = b.m
+	}
+	if current == nil {
+		current = make(map[string]*convOrigin)
+	}
+	if existing := current[id]; existing != nil && existing.By == originByStart {
+		b.m, b.loaded = current, true
+		if b.checked == nil {
+			b.checked = make(map[string]bool)
+		}
+		return nil // never replace another established start
+	}
+	current[id] = &convOrigin{MachineID: machine, Origin: origin, Ref: ref, By: originByStart, At: time.Now().UTC()}
+	if st != nil {
+		if err := st.PutSetting(ctx, originsKey, current); err != nil {
+			return err
+		}
+	}
+	b.m, b.loaded = current, true
+	if b.checked == nil {
+		b.checked = make(map[string]bool)
+	}
+	return nil
+}
+
+// retryStartedOrigin is bounded by the manager lifetime and does not extend startup authorization.
+func (s *Service) retryStartedOrigin(ctx context.Context, machine, id, origin, ref string) {
+	for {
+		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := s.recordRetryOrigin(attempt, machine, id, origin, ref)
+		cancel()
+		if err == nil {
+			return
+		}
+		s.logf("retry conversation origin: %v", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
+}
+
 type shownOrigin struct{ origin, ref, machine string }
 
 // conversationOrigins are the origins to show, by session id; false while they could not be read.

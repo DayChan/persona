@@ -99,7 +99,14 @@ func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mu
 	return errors.New("schedule run history changed repeatedly")
 }
 
-// flushSchedulePending retries observed run outcomes after a storage outage.
+func (s *Service) hasSchedulePending() bool {
+	s.sched.mu.Lock()
+	defer s.sched.mu.Unlock()
+	return len(s.sched.pendingRuns) > 0
+}
+
+// flushSchedulePending retries observed run outcomes after a storage outage. It only writes history through CAS and
+// is safe even when this manager no longer owns the scheduler.
 func (s *Service) flushSchedulePending(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -476,7 +483,7 @@ func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool 
 	wait.ManualAt, wait.ManualLastRun = time.Time{}, time.Time{}
 	wait.ClaimToken = randomHex(16) // a later claim is a different operation even for the same failed run
 	tasks[i].LimitRetry = &wait
-	if s.saveLocked(sc, tasks) != nil {
+	if s.saveScheduleLocked(ctx, sc, tasks) != nil {
 		sc.mu.Unlock()
 		return false
 	}
@@ -593,7 +600,7 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		}
 	}
 	tasks[i].LimitRetry = nil
-	if s.saveLocked(sc, tasks) != nil {
+	if s.saveScheduleLocked(ctx, sc, tasks) != nil {
 		adopted = false
 		return false
 	}

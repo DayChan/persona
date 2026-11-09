@@ -224,21 +224,30 @@ func (s *Service) startConversationOn(ctx context.Context, p StartParams, main b
 	}
 	sess.Origin, sess.OriginRef = firstNonEmpty(p.Origin, OriginUser), p.OriginRef
 	if ctx.Value(limitStartKey{}) != nil {
-		// Keep startup authorization while origin is recorded, but do not hold a sent retry on metadata I/O.
+		// Origin retries do not grant authorization; the bootstrap grant still expires after five seconds.
 		releaseHere = false
+		s.sched.mu.Lock()
+		parent := s.sched.limitArmCtx
+		s.sched.mu.Unlock()
+		if parent == nil {
+			parent = context.Background()
+		}
+		metadataCtx, cancel := context.WithTimeout(parent, 2*time.Minute)
+		done := make(chan struct{})
 		go func() {
-			metadataCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
+			defer close(done)
+			s.retryStartedOrigin(metadataCtx, sess.MachineID, sess.SessionID, sess.Origin, sess.OriginRef)
+		}()
+		go func() {
 			defer finishStart()
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				s.originSet(metadataCtx, sess.MachineID, sess.SessionID, sess.Origin, sess.OriginRef)
-			}()
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
 			select {
 			case <-done:
-			case <-metadataCtx.Done():
+			case <-timer.C:
 				s.logf("assistant: retry origin registration timed out")
+			case <-parent.Done():
 			}
 		}()
 	} else {
