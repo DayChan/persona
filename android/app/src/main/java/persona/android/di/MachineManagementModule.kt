@@ -14,6 +14,7 @@ import persona.core.contracts.ExtensionOperationEvent
 import persona.core.contracts.ExtensionAuthEvent
 import persona.core.contracts.Hello
 import persona.core.contracts.ServerEvent
+import persona.core.contracts.pushManager
 import persona.core.contracts.api.*
 import persona.core.hub.HttpConnectorsManagement
 import persona.core.hub.HttpComputerPairing
@@ -188,6 +189,9 @@ object MachineManagementModule {
         override suspend fun extensions() = api().extensions()
         override suspend fun extension(id: String) = api().extension(id)
         override suspend fun setEnabled(id: String, enabled: Boolean, cascade: Boolean) = changed { api().setEnabled(id, enabled, cascade) }
+        override suspend fun setAutoUpgrade(id: String, auto: Boolean) = changed { api().setAutoUpgrade(id, auto) }
+        override suspend fun autoUpgrades() = api().autoUpgrades()
+        override suspend fun setAutoUpgrades(auto: Boolean) = changed { api().setAutoUpgrades(auto) }
         override suspend fun setConfig(id: String, config: JsonObject) = api().setConfig(id, config)
         override suspend fun setSecret(id: String, name: String, value: String) = api().setSecret(id, name, value)
         override suspend fun clearSecret(id: String, name: String) = api().clearSecret(id, name)
@@ -300,5 +304,6 @@ object MachineManagementModule {
  * while the socket stays up loses them with only a managers push to tell (#1832).
  */
 internal fun extensionOperationUpdates(events: Flow<ServerEvent>): Flow<ExtensionOperation?> = events.transform { event ->
-    if (event is Hello || event is ManagersEvent) emit(null) else if (event is ExtensionOperationEvent) emit(event.operation)
+    if (event is Hello || event is ManagersEvent) emit(null)
+    else if (event is ExtensionOperationEvent) emit(event.operation.copy(manager = pushManager(event.manager)))
 }

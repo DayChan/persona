@@ -214,7 +214,7 @@ function ExtensionList({ onOpen, onMarket, onMarkets }: { onOpen: (id: string) =
       </p>
       {/* Extension market first, above the installed list (#5017): where a phone or a browser gets another extension. */}
       {markets && (
-        <Group title={t("settings-extensions.market_title")} footer={t("settings-extensions.market_footer")}>
+        <Group title={t("settings-extensions.market_title")} footer={t("settings-extensions.market_footer")} anchor="market">
           <Row
             label={
               <span className="flex items-center gap-2">
@@ -236,6 +236,7 @@ function ExtensionList({ onOpen, onMarket, onMarkets }: { onOpen: (id: string) =
         </Group>
       )}
       <Group
+        anchor="extensions"
         title={
           <span className="flex items-center gap-2">
             {t("settings-extensions.title")}

@@ -353,6 +353,10 @@ button:disabled { cursor: default; }
  * Checked as a set (adjacent pairs, light and dark) with the dataviz palette validator. */
 :root { --series-1: #0285ff; --series-2: #1baf7a; --series-3: #6250d6; --series-4: #e87ba4; }
 .dark { --series-1: #3987e5; --series-2: #199e70; --series-3: #9085e9; --series-4: #d55181; }
+/* Extensions' named colors (UI version 6, schema Color): on badges, icons, tiles, chart series and sparks, never on text.
+ * Each reads on the surface in its theme (3:1 at least, as an icon); a tile that is on lays it at 14% under the ink. */
+:root { --hue-red: #e3474c; --hue-orange: #e2680a; --hue-amber: #b57a00; --hue-yellow: #9c8500; --hue-green: #189a4d; --hue-teal: #0f8a9c; --hue-blue: #0285ff; --hue-indigo: #5b5bd6; --hue-purple: #9a4fd0; --hue-pink: #d6407f; --hue-gray: #7c8087; }
+.dark { --hue-red: #ee5c61; --hue-orange: #f68f3c; --hue-amber: #f0b429; --hue-yellow: #e8d04a; --hue-green: #3dbb72; --hue-teal: #3fb8c8; --hue-blue: #3d9aff; --hue-indigo: #8b8ef0; --hue-purple: #c08af0; --hue-pink: #ef7aa8; --hue-gray: #9a9ea5; }
 
 /* ── Phones (#1996) ─────────────────────────────────────── */
 /* The chat's reading sizes: 15 / 14 on wide screens, 16 / 15 on a phone (the user's call: iOS reads at 17, but tool rows
@@ -419,3 +423,17 @@ select:not([multiple], [size], .appearance-none) {
 .seg-thumb { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; background: var(--surface); box-shadow: var(--shadow-btn); transition: transform var(--seg-dur) var(--ease-out-strong), width var(--seg-dur) var(--ease-out-strong), height var(--seg-dur) var(--ease-out-strong); }
 .seg-thumb[data-ready="false"] { transition: none; }
 @media (prefers-reduced-motion: reduce) { .seg-thumb { transition: none !important; } }
+
+/* ── Slider (ui/Slider.tsx) ─────────────────────────────── */
+/* A native range input in the design system: a 4px track the accent fills up to the thumb (--fill), a white thumb. */
+.range { -webkit-appearance: none; appearance: none; height: 22px; background: transparent; cursor: pointer; touch-action: pan-y; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--hover-2) var(--fill, 0%)); }
+.range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--hover-2); }
+.range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-btn); transition: transform 150ms var(--ease-out-strong); }
+.range::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: #fff; box-shadow: var(--shadow-btn); }
+.range:active::-webkit-slider-thumb { transform: scale(1.1); }
+.range:focus-visible { outline: none; }
+.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--accent), var(--shadow-btn); }
+.range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(--accent), var(--shadow-btn); }
+.range:disabled { opacity: 0.5; cursor: default; }

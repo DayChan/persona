@@ -355,4 +355,8 @@
     <string name="designsystem_color_lavender">Lavender</string>
     <string name="designsystem_color_teal">Teal</string>
     <string name="designsystem_color_lark">Lark blue</string>
+    <string name="designsystem_candle">Open %1$s · High %2$s · Low %3$s · Close %4$s</string>
+    <string name="designsystem_candle_volume">Vol %1$s</string>
+    <string name="designsystem_stepper_minus">Decrease</string>
+    <string name="designsystem_stepper_plus">Increase</string>
 </resources>

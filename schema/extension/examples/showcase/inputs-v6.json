@@ -1,0 +1,215 @@
+{
+  "title": "输入（v6）",
+  "sections": [
+    {
+      "title": "日期和时间",
+      "items": [
+        {
+          "type": "field",
+          "kind": "date",
+          "name": "day",
+          "label": "日期",
+          "value": "2026-11-06",
+          "earliest": "2026-11-01",
+          "latest": "2026-12-31",
+          "detail": "只能选 11 月和 12 月"
+        },
+        {
+          "type": "field",
+          "kind": "time",
+          "name": "alarm",
+          "label": "闹钟",
+          "value": "07:30"
+        },
+        {
+          "type": "field",
+          "kind": "datetime",
+          "name": "at",
+          "label": "提醒时间",
+          "placeholder": "未设置",
+          "earliest": "2026-11-06T00:00"
+        }
+      ]
+    },
+    {
+      "title": "多选",
+      "items": [
+        {
+          "type": "field",
+          "kind": "multichoice",
+          "name": "rooms",
+          "label": "打扫的房间",
+          "value": "[\"kitchen\",\"bedroom\"]",
+          "choices": [
+            {
+              "value": "living",
+              "title": "客厅"
+            },
+            {
+              "value": "kitchen",
+              "title": "厨房"
+            },
+            {
+              "value": "bedroom",
+              "title": "卧室"
+            },
+            {
+              "value": "study",
+              "title": "书房"
+            }
+          ]
+        },
+        {
+          "type": "field",
+          "kind": "multichoice",
+          "name": "fruits",
+          "label": "喜欢的水果（30 个）",
+          "choices": [
+            {
+              "value": "f0",
+              "title": "苹果"
+            },
+            {
+              "value": "f1",
+              "title": "香蕉"
+            },
+            {
+              "value": "f2",
+              "title": "橙子"
+            },
+            {
+              "value": "f3",
+              "title": "葡萄"
+            },
+            {
+              "value": "f4",
+              "title": "西瓜"
+            },
+            {
+              "value": "f5",
+              "title": "芒果"
+            },
+            {
+              "value": "f6",
+              "title": "草莓"
+            },
+            {
+              "value": "f7",
+              "title": "蓝莓"
+            },
+            {
+              "value": "f8",
+              "title": "樱桃"
+            },
+            {
+              "value": "f9",
+              "title": "桃子"
+            },
+            {
+              "value": "f10",
+              "title": "梨"
+            },
+            {
+              "value": "f11",
+              "title": "李子"
+            },
+            {
+              "value": "f12",
+              "title": "杏"
+            },
+            {
+              "value": "f13",
+              "title": "柠檬"
+            },
+            {
+              "value": "f14",
+              "title": "椰子"
+            },
+            {
+              "value": "f15",
+              "title": "菠萝"
+            },
+            {
+              "value": "f16",
+              "title": "荔枝"
+            },
+            {
+              "value": "f17",
+              "title": "龙眼"
+            },
+            {
+              "value": "f18",
+              "title": "火龙果"
+            },
+            {
+              "value": "f19",
+              "title": "猕猴桃"
+            },
+            {
+              "value": "f20",
+              "title": "石榴"
+            },
+            {
+              "value": "f21",
+              "title": "柿子"
+            },
+            {
+              "value": "f22",
+              "title": "枇杷"
+            },
+            {
+              "value": "f23",
+              "title": "杨梅"
+            },
+            {
+              "value": "f24",
+              "title": "山竹"
+            },
+            {
+              "value": "f25",
+              "title": "榴莲"
+            },
+            {
+              "value": "f26",
+              "title": "哈密瓜"
+            },
+            {
+              "value": "f27",
+              "title": "木瓜"
+            },
+            {
+              "value": "f28",
+              "title": "桑葚"
+            },
+            {
+              "value": "f29",
+              "title": "柚子"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "多行",
+      "items": [
+        {
+          "type": "field",
+          "kind": "multiline",
+          "name": "note",
+          "label": "备注",
+          "placeholder": "可以换行",
+          "value": "第一行\n第二行",
+          "detail": "最多 2000 字"
+        },
+        {
+          "type": "button",
+          "title": "提交",
+          "action": {
+            "id": "submit",
+            "submit": true
+          }
+        }
+      ]
+    }
+  ]
+}

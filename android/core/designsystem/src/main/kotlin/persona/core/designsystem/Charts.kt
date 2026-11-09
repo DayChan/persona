@@ -38,18 +38,33 @@ import kotlin.math.pow
 // series colours come from the palette (the style's accent first) or a role colour (Tone); sizes, type and lines
 // from the style in use. Nothing here knows about extensions.
 
-enum class JChartKind { Bar, Line }
+enum class JChartKind { Bar, Line, Area, Candlestick, Donut, Pie }
 
-/** One line, or one colour of bars: a value per label, how each is written, and a role colour or the next series colour. */
-data class JChartSeries(val name: String?, val values: List<Double>, val displays: List<String>, val tone: Tone? = null)
+/**
+ * One line, or one colour of bars: a value per label, how each is written, and a role colour ([tone]), a named one
+ * ([hue]) or the next series colour.
+ */
+data class JChartSeries(val name: String?, val values: List<Double>, val displays: List<String>, val tone: Tone? = null, val hue: JHue? = null)
 
-/** A chart's data: the labels along the bottom (one per value) and 1–4 series. [axis] writes the side scale's numbers. */
+/** One candle of a candlestick chart: its open, high, low and close, and the volume when the chart has one. */
+data class JCandle(val open: Double, val high: Double, val low: Double, val close: Double, val volume: Double? = null) {
+    val rising: Boolean get() = close >= open
+}
+
+/**
+ * A chart's data: the labels along the bottom (one per value) and 1–4 series. [axis] writes the side scale's numbers.
+ * A candlestick has one series (its closes) and a [candles] per label; [risingRed] draws rising candles red (and
+ * falling green) as some markets do. A donut writes [center] in its hole.
+ */
 data class JChartData(
     val kind: JChartKind,
     val labels: List<String>,
     val series: List<JChartSeries>,
     val stacked: Boolean = false,
     val axis: (Double) -> String = ChartMath::compact,
+    val candles: List<JCandle> = emptyList(),
+    val risingRed: Boolean = false,
+    val center: String? = null,
 )
 
 /** A colour per series when the chart gives no role colour: the style's accent, then three hues that differ from it. */
@@ -85,12 +100,23 @@ object ChartMath {
 
     private fun String.trimDecimals(): String = if (contains('.')) trimEnd('0').trimEnd('.') else this
 
-    /** The lowest and highest the plot shows: always with zero, stacked bars by their sums above and below it. */
+    /**
+     * The lowest and highest the plot shows: always with zero, stacked bars and areas by their sums above and below it;
+     * a candlestick from its lowest low to its highest high (prices are far from zero), a little room on each side.
+     */
     fun range(data: JChartData): Pair<Double, Double> {
         val n = data.labels.size
         var low = 0.0
         var high = 0.0
-        if (data.kind == JChartKind.Bar && data.stacked && data.series.size > 1) {
+        if (data.kind == JChartKind.Candlestick && data.candles.isNotEmpty()) {
+            val lows = data.candles.map { it.low }.filter(Double::isFinite)
+            val highs = data.candles.map { it.high }.filter(Double::isFinite)
+            if (lows.isEmpty() || highs.isEmpty()) return 0.0 to 1.0
+            val l = lows.min(); val h = highs.max()
+            val pad = ((h - l).takeIf { it > 0 } ?: abs(h).coerceAtLeast(1.0)) * 0.05
+            return (l - pad) to (h + pad)
+        }
+        if ((data.kind == JChartKind.Bar || data.kind == JChartKind.Area) && data.stacked && data.series.size > 1) {
             for (i in 0 until n) {
                 val values = data.series.mapNotNull { it.values.getOrNull(i)?.takeIf(Double::isFinite) }
                 high = max(high, values.filter { it > 0 }.sum())
@@ -151,6 +177,44 @@ object ChartMath {
 
     /** The label under [x] px of a plot [width] px wide with [n] equal slots. */
     fun indexAt(x: Float, width: Float, n: Int): Int = if (n <= 0 || width <= 0f) 0 else floor(x / width * n).toInt().coerceIn(0, n - 1)
+
+    /** A donut's or a pie's slices: each value's share of the sum (negatives count as none); all none when the sum is not more than 0. */
+    fun shares(values: List<Double>): List<Double> {
+        val clean = values.map { if (it.isFinite() && it > 0) it else 0.0 }
+        val sum = clean.sum()
+        return if (sum <= 0) clean.map { 0.0 } else clean.map { it / sum }
+    }
+
+    /** A share written as a whole percent ("42%"), or with one decimal under 10 ("4.5%"). */
+    fun percent(share: Double): String {
+        val p = share * 100
+        return if (p < 10 && p != floor(p)) String.format(java.util.Locale.ROOT, "%.1f%%", p).replace(".0%", "%")
+        else "${kotlin.math.round(p).toInt()}%"
+    }
+
+    /**
+     * The slice under a point [dx], [dy] from a circle's centre (angles from twelve o'clock, clockwise), or null outside
+     * the ring from [inner] to [outer].
+     */
+    fun sliceAt(dx: Float, dy: Float, inner: Float, outer: Float, shares: List<Double>): Int? {
+        val r = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (r < inner || r > outer) return null
+        var angle = Math.toDegrees(kotlin.math.atan2(dx.toDouble(), -dy.toDouble()))
+        if (angle < 0) angle += 360.0
+        var start = 0.0
+        shares.forEachIndexed { i, share ->
+            val end = start + share * 360.0
+            if (share > 0 && angle >= start && angle < end) return i
+            start = end
+        }
+        return null
+    }
+
+    /** The stacked tops of [series] at each label: series k's top is the sum of 0…k (non-finite as none). */
+    fun stackedTops(series: List<List<Double>>, n: Int): List<List<Double>> {
+        val sums = DoubleArray(n)
+        return series.map { values -> List(n) { i -> sums[i] += values.getOrNull(i)?.takeIf(Double::isFinite) ?: 0.0; sums[i] } }
+    }
 }
 
 /**
@@ -161,11 +225,14 @@ object ChartMath {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun JChart(data: JChartData, modifier: Modifier = Modifier, compact: Boolean = false, title: String? = null, detail: String? = null) {
+    if (data.kind == JChartKind.Donut || data.kind == JChartKind.Pie) return JPieChart(data, modifier, compact, title, detail)
     val palette = PersonaTheme.palette
     val type = PersonaTheme.type
     val n = data.labels.size
     var picked by remember(data) { mutableStateOf<Int?>(null) }
-    val colors = data.series.mapIndexed { index, s -> s.tone?.let { palette.tone(it).dot } ?: palette.series(index) }
+    val colors = data.series.mapIndexed { index, s -> s.tone?.let { palette.tone(it).dot } ?: s.hue?.let { palette.hue(it).dot } ?: palette.series(index) }
+    val candle = stringResource(R.string.designsystem_candle)
+    val volume = stringResource(R.string.designsystem_candle_volume)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
         if (title != null) Text(title, style = if (compact) type.caption else type.headline, color = if (compact) palette.ink2 else palette.ink,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -175,24 +242,35 @@ fun JChart(data: JChartData, modifier: Modifier = Modifier, compact: Boolean = f
         val index = picked?.takeIf { it < n }
         if (index != null) FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(data.labels[index], style = type.micro, color = palette.ink2, maxLines = 1)
-            data.series.forEachIndexed { i, s ->
+            val c = data.candles.getOrNull(index)
+            if (data.kind == JChartKind.Candlestick && c != null) {
+                Text(candleText(candle, c, data.axis), style = type.micro, color = palette.ink, maxLines = 1)
+                c.volume?.let { Text(volume.format(data.axis(it)), style = type.micro, color = palette.ink2, maxLines = 1) }
+            } else data.series.forEachIndexed { i, s ->
                 Swatch(colors[i], s.name?.takeIf { data.series.size > 1 }, s.displays.getOrNull(index) ?: "—")
             }
         }
         val separator = stringResource(R.string.designsystem_separator)
         val seriesSeparator = stringResource(R.string.designsystem_series_separator)
         val labeled = stringResource(R.string.designsystem_labeled)
-        val summary = remember(data, separator, seriesSeparator, labeled) {
-            data.series.joinToString(seriesSeparator) { s ->
+        val summary = remember(data, separator, seriesSeparator, labeled, candle) {
+            if (data.kind == JChartKind.Candlestick) data.labels.indices.joinToString(seriesSeparator) { i ->
+                "${data.labels[i]} ${data.candles.getOrNull(i)?.let { candleText(candle, it, data.axis) }.orEmpty()}"
+            } else data.series.joinToString(seriesSeparator) { s ->
                 val values = data.labels.indices.joinToString(separator) { "${data.labels[it]} ${s.displays.getOrNull(it).orEmpty()}" }
                 s.name?.let { labeled.format(it, values) } ?: values
             }
         }
         ChartPlot(data, chartValues(data), colors, compact, index, onPick = { picked = it },
-            Modifier.fillMaxWidth().height(if (compact) 72.dp else 180.dp).semantics { contentDescription = summary })
+            Modifier.fillMaxWidth().height(if (compact) 72.dp else if (hasVolume(data)) 220.dp else 180.dp).semantics { contentDescription = summary })
         if (detail != null) Text(detail, style = type.caption, color = palette.ink3)
     }
 }
+
+/** A candle's four numbers in the page's words ("开 1.2 · 高 1.3 · 低 1.1 · 收 1.25"). */
+private fun candleText(format: String, c: JCandle, axis: (Double) -> String) = format.format(axis(c.open), axis(c.high), axis(c.low), axis(c.close))
+
+private fun hasVolume(data: JChartData) = data.kind == JChartKind.Candlestick && data.candles.isNotEmpty() && data.candles.all { it.volume != null }
 
 @Composable
 private fun Swatch(color: Color, name: String?, value: String?) {
@@ -246,7 +324,10 @@ private fun ChartPlot(data: JChartData, values: List<List<Double>>, colors: List
         val gap = 8.dp.toPx()
         val labelHeight = labels.maxOfOrNull { it.size.height }?.toFloat() ?: 0f
         val plotWidth = (size.width - (if (gutter > 0) gutter + gap else 0f)).coerceAtLeast(1f)
-        val plotHeight = (size.height - labelHeight - 6.dp.toPx()).coerceAtLeast(1f)
+        val fullHeight = (size.height - labelHeight - 6.dp.toPx()).coerceAtLeast(1f)
+        // a candlestick's volume has the bottom fifth of the plot to itself, under the prices
+        val volumeHeight = if (hasVolume(data) && !compact) fullHeight * 0.22f else 0f
+        val plotHeight = (fullHeight - (if (volumeHeight > 0) volumeHeight + 4.dp.toPx() else 0f)).coerceAtLeast(1f)
         val slot = plotWidth / max(1, n)
         fun y(v: Double) = (plotHeight * (1 - (v - bottom) / (top - bottom))).toFloat()
         fun cx(i: Int) = slot * i + slot / 2
@@ -256,7 +337,7 @@ private fun ChartPlot(data: JChartData, values: List<List<Double>>, colors: List
             drawLine(if (tick == 0.0) palette.ink3.copy(alpha = 0.5f) else palette.line, Offset(0f, yy), Offset(plotWidth, yy), 1.dp.toPx())
             val label = scale[k]
             drawText(label, topLeft = Offset(plotWidth + gap, (yy - label.size.height / 2).coerceIn(0f, max(0f, plotHeight - label.size.height))))
-        } else drawLine(palette.line, Offset(0f, y(0.0)), Offset(plotWidth, y(0.0)), 1.dp.toPx())
+        } else if (data.kind != JChartKind.Candlestick) drawLine(palette.line, Offset(0f, y(0.0)), Offset(plotWidth, y(0.0)), 1.dp.toPx())
         // The labels under the plot: thinned on a page, the first and last on a card.
         val widths = labels.map { it.size.width.toFloat() }
         val shown = if (compact) ChartMath.endIndices(n, plotWidth, widths.firstOrNull() ?: 0f, widths.lastOrNull() ?: 0f, gap)
@@ -268,7 +349,7 @@ private fun ChartPlot(data: JChartData, values: List<List<Double>>, colors: List
                 compact && i == n - 1 -> plotWidth - w
                 else -> ChartMath.labelLeft(i, w, plotWidth, n)
             }.coerceIn(0f, max(0f, plotWidth - w))
-            drawText(labels[i], topLeft = Offset(left, plotHeight + 6.dp.toPx()))
+            drawText(labels[i], topLeft = Offset(left, fullHeight + 6.dp.toPx()))
         }
         val dim = picked != null
         when (data.kind) {
@@ -316,6 +397,52 @@ private fun ChartPlot(data: JChartData, values: List<List<Double>>, colors: List
                     } }
                 }
             }
+            JChartKind.Area -> {
+                if (picked != null) drawLine(palette.ink3, Offset(cx(picked), 0f), Offset(cx(picked), plotHeight), 1.dp.toPx())
+                val stacked = data.stacked && data.series.size > 1
+                val tops = if (stacked) ChartMath.stackedTops(values, n) else values
+                val base = y(max(bottom, 0.0))
+                // stacked: each band between the one under it and its own top, the lowest first
+                data.series.indices.forEach { k ->
+                    val points = (0 until n).mapNotNull { i -> tops[k].getOrNull(i)?.takeIf(Double::isFinite)?.let { Offset(cx(i), y(it)) } }
+                    if (points.size < 2) { points.forEach { drawCircle(colors[k], 2.5.dp.toPx(), it) }; return@forEach }
+                    val line = Path().apply { points.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
+                    val area = Path().apply {
+                        addPath(line)
+                        if (stacked && k > 0) (n - 1 downTo 0).forEach { i -> lineTo(cx(i), y(tops[k - 1][i])) }
+                        else { lineTo(points.last().x, base); lineTo(points.first().x, base) }
+                        close()
+                    }
+                    drawPath(area, colors[k].copy(alpha = if (stacked) 0.32f else if (data.series.size > 1) 0.16f else 0.22f))
+                    drawPath(line, colors[k], style = Stroke((if (compact) 1.5.dp else 2.dp).toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    picked?.let { i -> tops[k].getOrNull(i)?.takeIf(Double::isFinite)?.let { v ->
+                        drawCircle(palette.background, 5.dp.toPx(), Offset(cx(i), y(v)))
+                        drawCircle(colors[k], 3.5.dp.toPx(), Offset(cx(i), y(v)))
+                    } }
+                }
+            }
+            JChartKind.Candlestick -> {
+                val up = if (data.risingRed) palette.danger.dot else palette.tone(Tone.Positive).dot
+                val down = if (data.risingRed) palette.tone(Tone.Positive).dot else palette.danger.dot
+                val body = min(slot * 0.7f, 12.dp.toPx()).coerceAtLeast(1f)
+                val wick = min(1.dp.toPx(), body)
+                val volumes = data.candles.mapNotNull { it.volume }
+                val most = volumes.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+                val volumeTop = fullHeight - volumeHeight
+                data.candles.take(n).forEachIndexed { i, c ->
+                    if (!c.open.isFinite() || !c.close.isFinite() || !c.high.isFinite() || !c.low.isFinite()) return@forEachIndexed
+                    val color = (if (c.rising) up else down).copy(alpha = if (dim && i != picked) 0.35f else 1f)
+                    drawLine(color, Offset(cx(i), y(c.high)), Offset(cx(i), y(c.low)), wick)
+                    val y0 = y(c.open); val y1 = y(c.close)
+                    drawRect(color, Offset(cx(i) - body / 2, min(y0, y1)), Size(body, max(1.dp.toPx(), abs(y0 - y1))))
+                    if (volumeHeight > 0) c.volume?.let { v ->
+                        val h = (volumeHeight * (v / most)).toFloat().coerceAtLeast(1f)
+                        drawRect(color.copy(alpha = color.alpha * 0.45f), Offset(cx(i) - body / 2, volumeTop + volumeHeight - h), Size(body, h))
+                    }
+                }
+                if (picked != null) drawLine(palette.ink3, Offset(cx(picked), 0f), Offset(cx(picked), fullHeight), 1.dp.toPx())
+            }
+            JChartKind.Donut, JChartKind.Pie -> Unit
         }
     }
 }
@@ -353,8 +480,121 @@ private fun chartValues(data: JChartData): List<List<Double>> {
     return if (last.first == shape && shown.map(List<Double>::size) == target.map(List<Double>::size)) shown else target
 }
 
-/** One number of a [JStatGrid]: [detail] is coloured by [tone] (neutral is the quiet grey). */
-data class JStat(val label: String, val value: String, val detail: String? = null, val tone: Tone = Tone.Neutral)
+/** A slice's colour: the series colours first, then named hues that differ from them (up to eight slices). */
+fun PersonaPalette.slice(index: Int): Color = if (index < 4) series(index)
+else hue(listOf(JHue.Teal, JHue.Pink, JHue.Amber, JHue.Indigo)[(index - 4) % 4]).dot
+
+/**
+ * A donut or a pie: one series' values as slices of a ring (a donut writes [JChartData.center] in its hole), a legend
+ * beside it (label, value, share). Tapping a slice or its legend line picks it (the others dim); tapping again lets go.
+ * A card's is small and has no legend values.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun JPieChart(data: JChartData, modifier: Modifier, compact: Boolean, title: String?, detail: String?) {
+    val palette = PersonaTheme.palette
+    val type = PersonaTheme.type
+    val series = data.series.firstOrNull() ?: return
+    val shares = remember(series) { ChartMath.shares(series.values) }
+    val colors = data.labels.indices.map { i -> if (series.hue != null && data.labels.size == 1) palette.hue(series.hue).dot else palette.slice(i) }
+    var picked by remember(data) { mutableStateOf<Int?>(null) }
+    val donut = data.kind == JChartKind.Donut
+    val separator = stringResource(R.string.designsystem_separator)
+    val summary = remember(data, separator) {
+        data.labels.indices.joinToString(separator) { "${data.labels[it]} ${series.displays.getOrNull(it).orEmpty()} ${ChartMath.percent(shares[it])}" }
+    }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
+        if (title != null) Text(title, style = if (compact) type.caption else type.headline, color = if (compact) palette.ink2 else palette.ink,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Space.l)) {
+            val ring = if (compact) 72.dp else 148.dp
+            Box(Modifier.size(ring).semantics { contentDescription = summary }, contentAlignment = Alignment.Center) {
+                val current by rememberUpdatedState(picked)
+                Canvas(Modifier.matchParentSize().pointerInput(shares) {
+                    detectTapGestures { o ->
+                        val outer = size.width / 2f
+                        val i = ChartMath.sliceAt(o.x - outer, o.y - outer, if (donut) outer * 0.62f else 0f, outer, shares)
+                        picked = if (i == null || i == current) null else i
+                    }
+                }) {
+                    val stroke = size.minDimension * 0.19f
+                    var start = -90f
+                    shares.forEachIndexed { i, share ->
+                        val sweep = (share * 360).toFloat()
+                        if (sweep <= 0f) return@forEachIndexed
+                        val color = colors[i].copy(alpha = if (picked != null && picked != i) 0.35f else 1f)
+                        // a hairline of the page between slices
+                        val gap = if (shares.count { it > 0 } > 1) min(1.2f, sweep / 2) else 0f
+                        if (donut) drawArc(color, start + gap / 2, sweep - gap, false, Offset(stroke / 2, stroke / 2),
+                            Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
+                        else drawArc(color, start + gap / 2, sweep - gap, true, Offset.Zero, size)
+                        start += sweep
+                    }
+                }
+                if (donut) {
+                    val pickedIndex = picked
+                    val words = if (pickedIndex != null) ChartMath.percent(shares[pickedIndex]) else data.center
+                    words?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, style = if (compact) type.micro else type.bodyStrong, color = palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp))
+                    }
+                }
+            }
+            if (!compact || data.labels.size <= 4) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 6.dp)) {
+                data.labels.forEachIndexed { i, label ->
+                    Row(Modifier.fillMaxWidth().pointerInput(i) { detectTapGestures { picked = if (picked == i) null else i } }
+                        .stableAlpha(if (picked != null && picked != i) 0.45f else 1f), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(colors[i], PersonaTheme.shapes.controlShape))
+                        Spacer(Modifier.width(6.dp))
+                        Text(label, Modifier.weight(1f), style = if (compact) type.micro else type.callout, color = palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!compact) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(series.displays.getOrNull(i).orEmpty(), style = type.micro, color = palette.ink2, maxLines = 1)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(ChartMath.percent(shares[i]), style = type.micro, color = palette.ink3, maxLines = 1)
+                    }
+                }
+            }
+        }
+        if (detail != null) Text(detail, style = type.caption, color = palette.ink3)
+    }
+}
+
+/** A small trend line's data (a row's, a number's, a tile's): [values] only, in a [hue] or a [tone], [fill] shading under it. */
+data class JSpark(val values: List<Double>, val hue: JHue? = null, val tone: Tone? = null, val fill: Boolean = false)
+
+/** The size of a [JSparkline] in a row or a tile. */
+object SparkSize {
+    val width = 56.dp
+    val height = 20.dp
+}
+
+/**
+ * A small trend line, no axes: [spark]'s values from lowest to highest across the box (a row's or a tile's, or as wide
+ * as the cell under a number). Without a hue or tone it is the quiet ink. Read out as its first and last values.
+ */
+@Composable
+fun JSparkline(spark: JSpark, modifier: Modifier = Modifier.size(SparkSize.width, SparkSize.height)) {
+    val palette = PersonaTheme.palette
+    val color = spark.tone?.takeIf { it != Tone.Neutral }?.let { palette.tone(it).dot } ?: spark.hue?.let { palette.hue(it).dot } ?: palette.ink3
+    val values = spark.values.filter(Double::isFinite)
+    if (values.size < 2) return
+    val description = "${ChartMath.compact(values.first())} → ${ChartMath.compact(values.last())}"
+    Canvas(modifier.semantics { contentDescription = description }) {
+        val low = values.min(); val high = values.max()
+        val span = (high - low).takeIf { it > 0 } ?: 1.0
+        val inset = 1.5.dp.toPx()
+        val h = size.height - inset * 2
+        val points = values.mapIndexed { i, v -> Offset(size.width * i / (values.size - 1), (inset + h * (1 - (v - low) / span)).toFloat()) }
+        val line = Path().apply { points.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
+        if (spark.fill) drawPath(Path().apply { addPath(line); lineTo(size.width, size.height); lineTo(0f, size.height); close() }, color.copy(alpha = 0.16f))
+        drawPath(line, color, style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** One number of a [JStatGrid]: [detail] is coloured by [tone] (neutral is the quiet grey); [spark] a trend line under it. */
+data class JStat(val label: String, val value: String, val detail: String? = null, val tone: Tone = Tone.Neutral, val spark: JSpark? = null)
 
 /**
  * A few numbers side by side: two or three to a row by the width (three where three fit, and four as two rows of
@@ -391,6 +631,7 @@ private fun StatCell(stat: JStat, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(stat.label, style = type.caption, color = palette.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
         JChangingText(stat.value, style = type.number, color = palette.ink)
+        stat.spark?.let { JSparkline(it, Modifier.fillMaxWidth().height(SparkSize.height)) }
         stat.detail?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = type.caption, color = if (stat.tone == Tone.Neutral) palette.ink3 else palette.tone(stat.tone).text, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)

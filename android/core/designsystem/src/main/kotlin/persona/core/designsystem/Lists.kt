@@ -190,12 +190,14 @@ fun JRow(
     changingValue: Boolean = false,
     /** What accessibility services call the row's click: a switch row says [Role.Switch] so its on / off is read. */
     role: Role = Role.Button,
+    /** [leadingIcon]'s colour in place of the quiet ink (an extension's named `icon_color`). */
+    leadingIconTint: Color? = null,
 ) {
     val palette = PersonaTheme.palette
     RowFrame(modifier, onClick, onLongClick, null, enabled, selected, value, trailing, chevron, changingValue, role) {
         if (leading != null) { leading(); Spacer(Modifier.width(14.dp)) }
         else if (leadingIcon != null) {
-            JIcon(leadingIcon, null, size = 22.dp, tint = if (destructive) palette.danger.dot else palette.ink2, decorative = true)
+            JIcon(leadingIcon, null, size = 22.dp, tint = if (destructive) palette.danger.dot else leadingIconTint ?: palette.ink2, decorative = true)
             Spacer(Modifier.width(16.dp))
         }
         Column(Modifier.weight(1f)) {
@@ -357,14 +359,17 @@ fun JEmptyState(
     modifier: Modifier = Modifier,
     icon: PhIcon? = null,
     action: (@Composable () -> Unit)? = null,
+    /** A named colour for the icon and its well (an extension's `icon_color`); none: the quiet ink. */
+    iconHue: JHue? = null,
 ) {
     val palette = PersonaTheme.palette
     Column(modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         icon?.let {
+            val hue = iconHue?.let { h -> palette.hue(h) }
             Box(
-                Modifier.size(64.dp).clip(if (PersonaTheme.style == AppStyle.Board) RoundedCornerShape(12.dp) else CircleShape).background(palette.surfaceStrong),
+                Modifier.size(64.dp).clip(if (PersonaTheme.style == AppStyle.Board) RoundedCornerShape(12.dp) else CircleShape).background(hue?.tint ?: palette.surfaceStrong),
                 contentAlignment = Alignment.Center,
-            ) { JIcon(it, null, size = 28.dp, tint = palette.ink2, decorative = true) }
+            ) { JIcon(it, null, size = 28.dp, tint = hue?.dot ?: palette.ink2, decorative = true) }
             Spacer(Modifier.height(16.dp))
         }
         Text(title, style = PersonaTheme.type.title, color = palette.ink, textAlign = TextAlign.Center)

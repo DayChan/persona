@@ -1604,7 +1604,7 @@ When the app draws a slot, it states in `context` whom it is drawing for and whe
 | --- | --- | --- |
 | `placement` | — | This contribution's slot |
 | `size` | Optional: `compact` / `full` | If not sent, the size from the slot table; `compact` is a card and must be compact (see the limits under "New items") |
-| `ui_version` | The UI version the app can draw: the hub knows `6`, apps currently send `5` (web, Android; iOS catching up) until they draw all of UI version 6; **older apps do not send it, which counts as 1** | `min(app's, hub's)`; the extension can draw a version an older app can handle (e.g. `progress` instead of `chart`) |
+| `ui_version` | The UI version the app can draw: the hub knows `6`; the web sends `6`, the other apps send `5` (Android; iOS catching up) until they draw all of UI version 6; **older apps do not send it, which counts as 1** | `min(app's, hub's)`; the extension can draw a version an older app can handle (e.g. `progress` instead of `chart`) |
 | `tz` | The user's time zone (IANA name, `Asia/Shanghai`) | Passed on only if it loads; if not sent or invalid, the user time zone the hub knows (reported by the app, or from assistant settings), empty if neither. "Today" is computed in it |
 | `locale` | The app's language (`zh-Hans-CN`) | Passed on only if it looks like a language tag, otherwise empty |
 | `platform` | `ios` / `mac` / `android` / `web` | Other values are dropped |
@@ -2026,6 +2026,43 @@ A redraw while a request is in flight keeps the user's value for that control.
 A card (`compact`) takes switches and steppers but no slider, at most 4 pictures, a grid of at most 4 tiles and a carousel of at most 6, tiles counting toward its 12 items.
 A widget draws none of version 6 yet: the hub gives it what an app of version 5 gets. An assistant card (`persona-view`) takes `url` pictures but no `ref` and no controls.
 
+### Pictures through the hub (`ui.image`, #2301)
+
+A `ref` is the extension's own name for a picture (a camera, a map) that the app could not reach itself: the phone is often outside the home network,
+and loading it directly would mean giving the app the device's token. For an app of UI version 6 the hub writes, after `Fit`, next to every `ref`
+(`image.src`, `row.thumbnail`, avatars, `Tile.image`, in a view and in an action's `items`) a `path` of its own:
+
+```
+path  = /api/v1/extensions/{id}/-/image/{token}
+token = base64url({e: extension, u: ui, r: ref, x: expiry}) "." base64url(HMAC-SHA256(key, payload))
+```
+
+- The token is good for 15 minutes; a view drawn again is signed again. A page on screen longer gets `410 expired` for its pictures and draws again (`ui.render` with its `state`).
+- The key is derived with HKDF-SHA256 (info `persona extension image v1`) from the hub's secret key, the one that seals extension secrets and market tokens (`secretkey.Box.Derive`): nothing more is stored, and it holds across restarts, redeploys and blue-green switches.
+- `GET …/-/image/{token}?w=<pixels>` is for a device with full rights, as drawing the page is (the app's own credentials: the `Authorization` header, or `?token=` on the web as for its other hub pictures); never an extension's token. `w` is rounded up to 320, 640, 1280 or 2048.
+- The hub checks the signature, the expiry, that `{id}` is the token's extension, and that the extension is on and running with that ui (otherwise 404), then answers from its disk cache
+  (`<hub dir>/cache/extension-images/<extension>/<sha256(ui, ref, width)>`, 256 MB in all, oldest first; an extension switched off, upgraded or removed loses its own) or asks the extension once however many ask at the same time (at most 4 calls of one extension at once, 10 s each):
+
+```json
+// hub → extension
+{"method": "ui.image", "params": {"contribution": "home", "ref": "camera.front_door", "width": 1280, "placement": "nav_page"}}
+// extension → hub
+{"result": {"mime": "image/jpeg", "data": "<base64>", "max_age": 10}}
+```
+
+- What it answers must pass `wire.CheckImage` (shared with the conformance tests): at most 4 MB decoded; a png, jpeg, webp or gif **as read from the bytes** (`http.DetectContentType`; the declared `mime` is ignored), never SVG; its size readable, at most 8192 pixels a side and 40 M in all. Otherwise `502 plugin_failed`, a line in the log and the counter `ui.image refused` in the extension's runtime status.
+- `max_age` (seconds, 0–86400, 60 when absent) is how long the hub keeps it: a camera 5–10, a map 30, a still 86400; 0 is not kept.
+- The answer has the type read from the bytes, `Cache-Control: private, max-age=<the least of max_age and the token's time left>`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`, `Content-Disposition: inline`.
+
+**Security boundary**:
+
+- The app sends its credentials only to `path`s the hub signed; an extension's `url` is https only and loaded **without** credentials. An extension cannot use this to make the app reach an address of its choosing, nor learn the app's credentials. A `path` written by the extension refuses the whole view (502).
+- A `ref` is opaque to the hub and only ever handed back to the extension and ui that drew it: a token of extension A opens nothing of B, and a token changed in any byte opens nothing.
+- What the extension reaches (the device, Home Assistant) is still governed by its `permissions.network` and the egress proxy; the image proxy opens no new way out. No new permission: the pictures are the extension's own data, drawn on its own pages.
+- Read-only devices get none (as with drawing the page). A leaked token is good for at most 15 minutes and still needs a device's credentials.
+- Assistant cards (`persona-view`) have no `ref` pictures: nothing would serve them.
+
+
 ### Compatibility
 
 The hub draws version 6 for an older app (`downgrade6`, before the older downgrades), so a page never goes blank:
@@ -2051,6 +2088,13 @@ When an older app sends an action, the hub puts the multichoice back (`extension
 `~csv:<name>` is split at commas (`,`, `，`, `、`), and the `~` names are taken out, so the extension always sees version 6's format.
 The view the extension drew is checked first, whatever the app's version (a view is refused or drawn alike for every app); then what the app gets is checked again.
 Extensions may still draw an older app differently (`ui_version`), for example a `link` to the device's own web page in place of a camera picture.
+
+**The web** (#829) draws all of it and sends `6` (`web/src/views/extensions/ViewBody6.tsx`, `ExtensionChart.tsx`; the logic in `web/src/lib/extension-ui-v6.ts`).
+It loads a picture's `path` with the device token in the query (`?token=`, as the inbox's pictures), and only a path of the hub's image route
+(`/api/v1/extensions/<id>/-/image/<token>`): any other address under `path` is not loaded, so the token never goes elsewhere; a `url` loads without it.
+A hub picture that fails to load may have outlived its token, so the page is drawn again (which signs anew), at most once a minute.
+A row's extra actions open from a right click, a half-second press on a touch screen and the … button at its end (no swipe on the web).
+The component showcase's version 6 pages are `web/src/showcase/v6` (with their pictures in `web/src/showcase/images`) until the showcase extension's own snapshots have them.
 
 ## System-level placements (#1858)
 

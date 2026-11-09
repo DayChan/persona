@@ -16,6 +16,7 @@ import persona.core.contracts.api.ExtensionViewItem
 import persona.core.contracts.api.ExtensionViewPush
 import persona.core.contracts.api.ExtensionViewSection
 import persona.core.designsystem.ChartMath
+import persona.core.designsystem.JCandle
 import persona.core.designsystem.JChartData
 import persona.core.designsystem.JChartKind
 import persona.core.designsystem.JChartSeries
@@ -59,11 +60,101 @@ internal object ExtensionViewText {
         return runCatching { java.net.URLDecoder.decode(segments[0].replace("+", "%2B"), "UTF-8") }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
-    /** A field's value before the user touches it: the extension's, never for a secret; a switch is off. */
+    /** A field's value before the user touches it: the extension's, never for a secret; a switch is off; no choices `[]`. */
     fun initial(item: ExtensionViewItem): String = when (item.kind) {
         "secret" -> ""
         "toggle" -> if (item.value == "true") "true" else "false"
+        "multichoice" -> multi(item.value).let(::multiValue)
         else -> item.value.orEmpty()
+    }
+
+    /** The field kinds this app draws (UI version 6 added date, time, datetime, multichoice and multiline). */
+    val FieldKinds = setOf("text", "secret", "number", "toggle", "choice", "date", "time", "datetime", "multichoice", "multiline")
+
+    /** A multichoice's value read: the chosen values of its JSON array, none when it is not one. */
+    fun multi(value: String?): List<String> = runCatching {
+        (persona.core.contracts.JsonCodec.parseToJsonElement(value ?: return emptyList()) as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }?.distinct()
+    }.getOrNull().orEmpty()
+
+    /** A multichoice's value written: the chosen values as a JSON array of strings. */
+    fun multiValue(values: List<String>): String =
+        kotlinx.serialization.json.JsonArray(values.distinct().map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+
+    /** A named colour (UI version 6), or none for a name this app does not know (the quiet ink). */
+    fun hue(name: String?): persona.core.designsystem.JHue? = persona.core.designsystem.JHue.of(name)
+
+    /** A trend line (UI version 6) for the design system; none with fewer than two values. */
+    fun spark(spark: persona.core.contracts.api.ExtensionSpark?): persona.core.designsystem.JSpark? = spark?.values?.filter(Double::isFinite)
+        ?.takeIf { it.size >= 2 }?.take(60)?.let { persona.core.designsystem.JSpark(it, hue(spark.color), spark.tone?.takeIf { t -> t.isNotBlank() }?.let(::tone), spark.fill == true) }
+
+    /** A picture's frame (UI version 6): `square` 1:1, `wide` 16:9, `portrait` 3:4, `auto` from the source's size; else 4:3. */
+    fun aspect(item: ExtensionViewItem): Float = when (item.aspect) {
+        "square" -> 1f
+        "wide" -> 16f / 9f
+        "portrait" -> 3f / 4f
+        "auto" -> item.src?.let { s -> if ((s.width ?: 0) > 0 && (s.height ?: 0) > 0) s.width!!.toFloat() / s.height!! else null } ?: (4f / 3f)
+        else -> 4f / 3f
+    }
+
+    /**
+     * Where a picture loads from: the hub's signed [ExtensionHubPicture] path (with the device's credentials), else an
+     * https url (without any); none for a ref the hub has not signed (an older hub) or anything else.
+     */
+    fun pictureModel(url: String?, path: String?): Any? = when {
+        persona.core.hub.HttpExtensionManagement.isImagePath(path) -> ExtensionHubPicture(path!!)
+        else -> picture(url)
+    }
+
+    /** A control's value now: the user's while their change is on its way, else the extension's ("true" / "false", a number). */
+    fun controlValue(control: persona.core.contracts.api.ExtensionRowControl, pending: Map<String, String>): String =
+        pending[control.name] ?: if (control.kind == "switch") (control.on == true).toString() else number(control.value ?: control.min ?: 0.0, control.step)
+
+    /** A slider's or stepper's step: the extension's, else a hundredth of the range, else 1. */
+    fun step(control: persona.core.contracts.api.ExtensionRowControl): Double = control.step?.takeIf { it > 0 && it.isFinite() }
+        ?: control.max?.let { max -> control.min?.let { min -> ((max - min) / 100).takeIf { it > 0 } } } ?: 1.0
+
+    /** A control's number as it goes back: as many decimals as its step has, no trailing zeros ("22.5", "3"). */
+    fun number(value: Double, step: Double?): String {
+        val places = step?.takeIf { it > 0 && it.isFinite() }?.let { java.math.BigDecimal(it.toString()).stripTrailingZeros().scale().coerceIn(0, 6) } ?: 6
+        return java.math.BigDecimal(value).setScale(places, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString().let { if (it == "-0") "0" else it }
+    }
+
+    /** How a control's value reads: the extension's words for its own value, else the number and the unit. */
+    fun controlDisplay(control: persona.core.contracts.api.ExtensionRowControl, pending: Map<String, String>): String {
+        if (control.name !in pending) control.display?.takeIf { it.isNotBlank() }?.let { return it }
+        val value = controlValue(control, pending)
+        return value + (control.unit?.takeIf { it.isNotBlank() }?.let { if (it == "%" || it.startsWith("°")) it else " $it" } ?: "")
+    }
+
+    /** A stepper's next value [by] steps away, held to its range. */
+    fun stepped(control: persona.core.contracts.api.ExtensionRowControl, current: Double, by: Int): Double {
+        val next = current + step(control) * by
+        return next.coerceIn(control.min ?: Double.NEGATIVE_INFINITY, control.max ?: Double.POSITIVE_INFINITY)
+    }
+
+    /** A row's or tile's extra actions (UI version 6) that can be sent, at most four. */
+    fun rowActions(actions: List<persona.core.contracts.api.ExtensionRowAction>?): List<persona.core.contracts.api.ExtensionRowAction> =
+        actions.orEmpty().filter { it.title.isNotBlank() && (it.action.id.isNotEmpty() || it.action.push != null) }.take(4)
+
+    /** A date field's value read (`YYYY-MM-DD`). */
+    fun date(value: String?): java.time.LocalDate? = runCatching { java.time.LocalDate.parse(value?.take(10) ?: return null) }.getOrNull()
+
+    /** A time field's value read (`HH:MM`), or a datetime's time. */
+    fun time(value: String?): java.time.LocalTime? = runCatching {
+        java.time.LocalTime.parse((value ?: return null).substringAfter('T').take(5))
+    }.getOrNull()
+
+    /** A date, time or datetime field's value as it reads in the page's language; the value itself when it cannot be read. */
+    fun whenText(kind: String?, value: String, locale: java.util.Locale = java.util.Locale.getDefault()): String {
+        if (value.isBlank()) return ""
+        val dateFormat = java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM).withLocale(locale)
+        return when (kind) {
+            "date" -> date(value)?.format(dateFormat)
+            "time" -> time(value)?.toString()
+            "datetime" -> date(value)?.let { d -> time(value)?.let { t -> "${d.format(dateFormat)} $t" } }
+            else -> null
+        } ?: value
     }
 
     /** Every field (and segmented choice) of the view by name, as the extension first sent it. */
@@ -76,7 +167,7 @@ internal object ExtensionViewText {
 
     /** Rows, links, switches and choices line up in one group; the rest stand alone. */
     fun grouped(item: ExtensionViewItem): Boolean = item.type == "row" || item.type == "link" ||
-        (item.type == "field" && (item.kind == "toggle" || item.kind == "choice"))
+        (item.type == "field" && item.kind in setOf("toggle", "choice", "date", "time", "datetime", "multichoice"))
 
     /**
      * Kinds this app draws (a newer hub's are skipped, not drawn half, and the rest of the view is drawn); a link that
@@ -89,7 +180,7 @@ internal object ExtensionViewText {
         "empty" -> !item.title.isNullOrBlank()
         "button" -> item.action?.id?.isNotEmpty() == true
         "link" -> isHttps(item.url)
-        "field" -> !item.name.isNullOrEmpty() && item.kind in setOf("text", "secret", "number", "toggle", "choice")
+        "field" -> !item.name.isNullOrEmpty() && item.kind in FieldKinds
         "chart" -> chart(item) != null
         "stat_grid" -> !item.stats.isNullOrEmpty()
         "segmented" -> !item.name.isNullOrEmpty() && item.action?.id?.isNotEmpty() == true && item.choices.orEmpty().size >= 2
@@ -102,6 +193,9 @@ internal object ExtensionViewText {
         "diff" -> !item.path.isNullOrBlank()
         "comment_thread" -> item.comments != null
         "composer" -> !item.name.isNullOrEmpty() && item.buttons.orEmpty().any { it.action.id.isNotEmpty() }
+        // UI version 6 (#5464)
+        "image" -> item.src != null && !item.alt.isNullOrBlank()
+        "grid", "carousel" -> item.tiles.orEmpty().any { it.title.isNotBlank() }
         else -> false
     }
 
@@ -187,19 +281,38 @@ internal object ExtensionViewText {
      * many points (the hub checks they match), a role colour for a series with a tone. None when there is nothing to draw.
      */
     fun chart(item: ExtensionViewItem): JChartData? {
-        val kind = when (item.kind) { "bar" -> JChartKind.Bar; "line" -> JChartKind.Line; else -> return null }
-        val series = item.series.orEmpty().take(4)
-        val labels = series.firstOrNull()?.points.orEmpty().map { it.label }
+        val kind = when (item.kind) {
+            "bar" -> JChartKind.Bar; "line" -> JChartKind.Line
+            // UI version 6
+            "area" -> JChartKind.Area; "candlestick" -> JChartKind.Candlestick; "donut" -> JChartKind.Donut; "pie" -> JChartKind.Pie
+            else -> return null
+        }
+        val single = kind == JChartKind.Candlestick || kind == JChartKind.Donut || kind == JChartKind.Pie
+        val series = item.series.orEmpty().take(if (single) 1 else 4)
+        val first = series.firstOrNull()?.points.orEmpty().take(if (kind == JChartKind.Candlestick) 240 else if (single) 8 else 120)
+        val labels = first.map { it.label }
         if (labels.isEmpty()) return null
+        // a candlestick's points all have their four numbers (the hub checks it; an older one may not)
+        val candles = if (kind == JChartKind.Candlestick) first.map { p ->
+            JCandle(p.open ?: return null, p.high ?: return null, p.low ?: return null, p.close ?: p.value, p.volume)
+        } else emptyList()
+        val volumes = candles.all { it.volume != null }
         return JChartData(kind, labels, series.map { s ->
             val points = s.points.take(labels.size)
             JChartSeries(s.name?.takeIf { it.isNotBlank() }, points.map { it.value }, points.map { display(it.value, it.display, item.unit) },
-                s.tone?.takeIf { it.isNotBlank() }?.let(::tone))
-        }, stacked = item.stacked == true)
+                s.tone?.takeIf { it.isNotBlank() }?.let(::tone), hue(s.color))
+        }, stacked = item.stacked == true && (kind == JChartKind.Bar || kind == JChartKind.Area),
+            axis = if (kind == JChartKind.Candlestick) ::price else ChartMath::compact,
+            candles = if (volumes) candles else candles.map { it.copy(volume = null) },
+            risingRed = item.rising == "red", center = item.center?.takeIf { it.isNotBlank() && kind == JChartKind.Donut })
     }
 
+    /** A price on a candlestick's scale and in its numbers: up to two decimals ("182.35", "1,234.5"), large ones short. */
+    fun price(value: Double): String = if (!value.isFinite()) "—" else if (kotlin.math.abs(value) >= 100_000) ChartMath.compact(value)
+    else java.math.BigDecimal(value).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+
     /** A stat_grid's numbers, up to six. */
-    fun stats(item: ExtensionViewItem): List<JStat> = item.stats.orEmpty().take(6).map { JStat(it.label, it.value, it.detail, tone(it.tone)) }
+    fun stats(item: ExtensionViewItem): List<JStat> = item.stats.orEmpty().take(6).map { JStat(it.label, it.value, it.detail, tone(it.tone), spark(it.spark)) }
 
     /** When a view wants drawing again, clamped to the hub's bounds (30 s to a day); null: it does not. */
     fun refreshAt(state: ExtensionViewState): Long? {
@@ -247,6 +360,13 @@ internal data class ExtensionViewState(
     val query: String? = null,
     /** A section's "Load more" on its way (the section's index): its row spins, the page stays usable. */
     val loadingMore: Int? = null,
+    /**
+     * UI version 6: the user's values of controls (by name) whose change is on its way or about to go: drawn in place of
+     * the extension's until the answer is back, even across a redraw.
+     */
+    val controls: Map<String, String> = emptyMap(),
+    /** The controls whose change is on its way (one request each at a time). */
+    val sending: Set<String> = emptySet(),
 ) {
     val busy: Boolean get() = loading || acting != null
 }
@@ -255,6 +375,9 @@ internal data class ExtensionViewState(
  * What pressing a button brought back for the page to show: a notice, a link to open, a failure, and since UI version 3
  * a page to draw on top ([push]) or going back ([pop]).
  */
+/** A picture the extension serves through the hub (UI version 6): its signed [path], loaded with the device's credentials. */
+internal data class ExtensionHubPicture(val path: String)
+
 internal data class ExtensionActionOutcome(
     val toast: String? = null,
     val openUrl: String? = null,
@@ -357,6 +480,76 @@ internal class ExtensionViewModel(
     }
 
     fun edit(name: String, value: String) = mutable.update { it.copy(values = it.values + (name to value)) }
+
+    /** The latest value waiting for a control whose change is on its way (sent once that one is back). */
+    private val queued = HashMap<String, Pair<persona.core.contracts.api.ExtensionRowControl, String>>()
+
+    /** Shows [value] for [name] at once, before its change goes (a stepper's taps, a slider let go). */
+    fun hold(name: String, value: String) = mutable.update { it.copy(controls = it.controls + (name to value)) }
+
+    /**
+     * A control was changed to [value] (UI version 6): shown at once, sent with `{name: value}`, one request at a time
+     * (a change while one is on its way waits, only the latest). The answer's view or items say what is so (the
+     * extension's value); nothing back draws the page again; a failure puts back the extension's last value.
+     */
+    suspend fun change(control: persona.core.contracts.api.ExtensionRowControl, value: String): ExtensionActionOutcome {
+        val name = control.name.takeIf { it.isNotEmpty() } ?: return ExtensionActionOutcome()
+        if (control.action.id.isEmpty()) return ExtensionActionOutcome()
+        hold(name, value)
+        if (name in state.value.sending) { queued[name] = control to value; return ExtensionActionOutcome() }
+        mutable.update { it.copy(sending = it.sending + name) }
+        var next: Pair<persona.core.contracts.api.ExtensionRowControl, String>? = control to value
+        var outcome = ExtensionActionOutcome()
+        try {
+            while (next != null) {
+                val (c, v) = next
+                outcome = sendControl(c, v)
+                next = queued.remove(name)
+                if (outcome.error != null) next = null
+            }
+        } finally {
+            queued.remove(name)
+            mutable.update { it.copy(sending = it.sending - name, controls = it.controls - name) }
+        }
+        return outcome
+    }
+
+    private suspend fun sendControl(control: persona.core.contracts.api.ExtensionRowControl, value: String): ExtensionActionOutcome = try {
+        val action = control.action
+        val values = (if (action.submit) state.value.values else emptyMap()) + action.values.orEmpty() + (control.name to value)
+        val result = api.uiAction(extension, ui, action.id, context, currentState(), values)
+        when {
+            result.view != null -> mutable.update { s ->
+                val fresh = ExtensionViewText.fields(result.view)
+                s.copy(view = result.view, values = fresh + s.values.filterKeys { it in fresh }, error = null, drawnAt = now())
+            }
+            result.items.isNotEmpty() -> mutable.update { s -> s.copy(view = s.view?.let { ExtensionCodeReview.patchView(it, result.items) }) }
+            result.toast == null && result.openUrl == null && result.push == null && !result.pop -> redraw()
+        }
+        ExtensionActionOutcome(result.toast?.takeIf { it.isNotBlank() }, result.openUrl?.takeIf(opens), push = result.push, pop = result.pop)
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (error: Exception) { ExtensionActionOutcome(error = ExtensionFailure(R.string.settings_ext_action_failed, failureReasonText(error))) }
+
+    /** Draws the view again without holding the page (a control's answer said nothing). */
+    private suspend fun redraw() {
+        val view = runCatching { api.renderUi(extension, ui, context, currentState()) }.getOrNull() ?: return
+        mutable.update { s ->
+            val fresh = ExtensionViewText.fields(view)
+            s.copy(view = view, values = fresh + s.values.filterKeys { it in fresh }, drawnAt = now())
+        }
+    }
+
+    private var resigned = Long.MIN_VALUE / 2
+
+    /**
+     * A picture the extension serves (UI version 6), from the hub. One whose signature has expired draws the page again
+     * (which signs its pictures anew), at most once every 30 seconds.
+     */
+    suspend fun picture(path: String): ByteArray = try { api.uiImage(path) }
+    catch (expired: persona.core.contracts.api.ExtensionImageExpired) {
+        if (now() - resigned > 30_000) { resigned = now(); redraw() }
+        throw expired
+    }
 
     /**
      * An action that does not hold the page (search, filter, "Load more"): sent with [values]; a new view replaces this one,

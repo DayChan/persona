@@ -4,6 +4,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +67,16 @@ internal class ExtensionViewHandle(
     val nativeItem: (@Composable (ExtensionViewItem, ExtensionViewState, Modifier) -> Boolean)? = null,
     val nativeLocal: NativeExtensionLocal? = null,
     val nodeKey: String = "",
+    /** UI version 6: a row's or a tile's control was changed (after its confirm); shown at once, sent without holding the page. */
+    val change: (persona.core.contracts.api.ExtensionRowControl, String) -> Unit = { _, _ -> },
+    /** UI version 6: shows a control's new value at once (a slider let go), before [change]. */
+    val hold: (String, String) -> Unit = { _, _ -> },
+    /** UI version 6: loads the pictures the extension serves through the hub; none where there is no hub (an assistant's card). */
+    val pictures: coil3.ImageLoader? = null,
+    /** UI version 6: a picture's bytes from the hub, for the full-screen viewer. */
+    val picture: suspend (String) -> ByteArray = { throw UnsupportedOperationException("picture") },
+    /** UI version 6: a date, time or datetime field was tapped: its picker opens. */
+    val pick: (ExtensionViewItem) -> Unit = {},
 )
 
 /**
@@ -84,6 +96,9 @@ internal fun rememberExtensionView(model: ExtensionViewModel, appLink: (String) 
     var confirming by remember(model) { mutableStateOf<Pair<ExtensionViewItem, ExtensionViewAction>?>(null) }
     var confirmingValues by remember(model) { mutableStateOf<Map<String, String>?>(null) }
     var choosing by remember(model) { mutableStateOf<ExtensionViewItem?>(null) }
+    var picking by remember(model) { mutableStateOf<ExtensionViewItem?>(null) }
+    var confirmingControl by remember(model) { mutableStateOf<Pair<persona.core.contracts.api.ExtensionRowControl, String>?>(null) }
+    val context = LocalContext.current
     val routes by rememberUpdatedState(appLink)
     val push by rememberUpdatedState(onPush)
     val pop by rememberUpdatedState(onPop)
@@ -122,14 +137,36 @@ internal fun rememberExtensionView(model: ExtensionViewModel, appLink: (String) 
             },
             tab = { value -> scope.launch { show(model.tab(value)) } },
             review = review,
+            change = { control, value ->
+                if (!control.action.confirm.isNullOrBlank()) confirmingControl = control to value
+                else { model.hold(control.name, value); scope.launch { show(model.change(control, value)) } }
+            },
+            hold = model::hold,
+            pictures = extensionPictureLoader(context.applicationContext, model::picture),
+            picture = model::picture,
+            pick = { picking = it },
         )
     }
+    confirmingControl?.let { (control, value) ->
+        // cancelled, the control stays as the extension drew it (nothing was held)
+        JDialog({ confirmingControl = null }, title = res.getString(R.string.settings_ext_confirm_title), text = control.action.confirm,
+            confirm = res.getString(R.string.settings_ext_confirm_ok) to {
+                confirmingControl = null
+                model.hold(control.name, value)
+                scope.launch { show(model.change(control, value)) }
+            })
+    }
+    picking?.let { item -> ExtensionWhenPicker(item, state.values[item.name.orEmpty()].orEmpty(), { model.edit(item.name.orEmpty(), it) }, { picking = null }) }
     confirming?.let { (item, action) ->
         JDialog({ confirming = null }, title = ExtensionViewText.confirmTitle(res, item), text = action.confirm,
             confirm = ExtensionViewText.confirmLabel(res, item) to { confirming = null; run(action, confirmingValues); confirmingValues = null },
             destructive = item.role == "destructive")
     }
-    choosing?.let { item ->
+    choosing?.takeIf { it.kind == "multichoice" }?.let { item ->
+        val name = item.name.orEmpty()
+        ExtensionMultiChoiceSheet(item, ExtensionViewText.multi(state.values[name]), { model.edit(name, ExtensionViewText.multiValue(it)) }, { choosing = null })
+    }
+    choosing?.takeIf { it.kind != "multichoice" }?.let { item ->
         val name = item.name.orEmpty()
         val current = state.values[name]
         JActionSheet(item.choices.orEmpty().map { choice ->
@@ -214,31 +251,80 @@ internal fun GroupedItem(item: ExtensionViewItem, state: ExtensionViewState, han
     if (handle.nativeItem?.invoke(item, state, Modifier) == true) return
     val enabled = !state.busy
     when (item.type) {
-        "row" -> {
-            val action = item.action?.takeIf { it.id.isNotEmpty() }
-            val badge = item.badge?.takeIf { it.text.isNotBlank() }
-            JRow(item.title.orEmpty(), subtitle = item.subtitle?.takeIf { it.isNotBlank() }, value = item.value?.takeIf { it.isNotBlank() },
-                leadingIcon = item.icon?.takeIf { it.isNotBlank() }?.let(ExtensionIcons::of), leading = rowLeading(item),
-                trailing = when {
-                    action != null && state.acting == action.id -> ({ JSpinner() })
-                    badge != null -> ({ JTag(badge.text, ExtensionViewText.tone(badge.tone), animated = true) })
-                    else -> null
-                },
-                chevron = action != null, enabled = enabled || action == null, changingValue = true,
-                onClick = action?.let { a -> { handle.press(item, a) } })
-        }
+        "row" -> ExtensionRow(item, state, handle)
         "link" -> JRow(item.title.orEmpty(), leadingIcon = PhIcons.ArrowSquareOut, chevron = false, onClick = { handle.open(item.url.orEmpty()) })
         "field" -> {
             val name = item.name.orEmpty()
             val value = state.values[name].orEmpty()
+            val detail = item.detail?.takeIf { it.isNotBlank() }
             if (item.kind == "toggle") {
-                JSwitchRow(item.label.orEmpty(), value == "true", { on -> handle.edit(name, if (on) "true" else "false") }, enabled = enabled)
+                JSwitchRow(item.label.orEmpty(), value == "true", { on -> handle.edit(name, if (on) "true" else "false") }, subtitle = detail, enabled = enabled)
+            } else if (item.kind in setOf("date", "time", "datetime")) {
+                JRow(item.label.orEmpty(), subtitle = detail, value = ExtensionViewText.whenText(item.kind, value).ifEmpty { item.placeholder ?: stringResource(R.string.settings_ext_not_chosen) },
+                    leadingIcon = if (item.kind == "time") PhIcons.Clock else PhIcons.CalendarBlank, enabled = enabled, onClick = { handle.pick(item) })
+            } else if (item.kind == "multichoice") {
+                val chosen = ExtensionViewText.multi(value)
+                val label = when (chosen.size) {
+                    0 -> item.placeholder ?: stringResource(R.string.settings_ext_not_chosen)
+                    1 -> item.choices.orEmpty().firstOrNull { it.value == chosen[0] }?.label ?: chosen[0]
+                    else -> stringResource(R.string.settings_ext_chosen_count, chosen.size)
+                }
+                JRow(item.label.orEmpty(), subtitle = detail, value = label, enabled = enabled, onClick = { handle.choose(item) })
             } else {
                 val label = item.choices.orEmpty().firstOrNull { it.value == value }?.label ?: value.ifEmpty { item.placeholder ?: stringResource(R.string.settings_ext_not_chosen) }
 
-                JRow(item.label.orEmpty(), value = label, enabled = enabled, onClick = { handle.choose(item) })
+                JRow(item.label.orEmpty(), subtitle = detail, value = label, enabled = enabled, onClick = { handle.choose(item) })
             }
         }
+    }
+}
+
+/**
+ * A row: its picture or icon (in its named colour, UI version 6), title, subtitle and value, and at its end a spark, a
+ * badge, its control (a switch, a stepper; a slider goes under it) and its extra actions' ⋮ (also a long press, and
+ * the first `swipe` ones under swipes).
+ */
+@Composable
+private fun ExtensionRow(item: ExtensionViewItem, state: ExtensionViewState, handle: ExtensionViewHandle) {
+    val enabled = !state.busy
+    val palette = PersonaTheme.palette
+    val action = item.action?.takeIf { it.id.isNotEmpty() || it.push != null }
+    val badge = item.badge?.takeIf { it.text.isNotBlank() }
+    val control = item.drawnControl()
+    val actions = ExtensionViewText.rowActions(item.actions)
+    var menu by remember(item.key, item.title) { mutableStateOf(false) }
+    val spark = ExtensionViewText.spark(item.spark)
+    val iconHue = ExtensionViewText.hue(item.iconColor)
+    val icon = item.icon?.takeIf { it.isNotBlank() }?.let(ExtensionIcons::of)
+    val leading = rowLeading(item, handle)
+    val busy = action != null && state.acting == action.id
+    val end = control?.takeIf { !it.under() }
+    val flip = end?.takeIf { it.kind == "switch" && it.disabled != true }
+    val trailing: (@Composable () -> Unit)? = if (busy || badge != null || end != null || spark != null || actions.isNotEmpty()) ({
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+            spark?.let { JSparkline(it) }
+            if (busy) JSpinner() else badge?.let { ExtensionBadge(it) }
+            end?.let { RowControlEnd(it, state, handle) }
+            RowActionsMenu(actions, menu, { menu = it }, handle, enabled = true)
+        }
+    }) else null
+    val (start, swipeEnd) = rowSwipes(actions, handle)
+    val row: @Composable (String?) -> Unit = { value ->
+        JRow(item.title.orEmpty(), Modifier.rowActionSemantics(actions, handle), subtitle = item.subtitle?.takeIf { it.isNotBlank() }, value = value,
+            leadingIcon = if (leading == null) icon else null, leading = leading, trailing = trailing,
+            leadingIconTint = iconHue?.let { palette.hue(it).dot },
+            chevron = action != null, enabled = enabled || action == null, changingValue = true,
+            // a row with a switch and nothing to open flips its switch, as a settings switch row does
+            onClick = action?.let { a -> { handle.press(item, a) } } ?: flip?.let { c -> {
+                handle.change(c, (ExtensionViewText.controlValue(c, state.controls) != "true").toString())
+            } },
+            onLongClick = if (actions.isNotEmpty()) ({ menu = true }) else null,
+            role = if (action == null && flip != null) androidx.compose.ui.semantics.Role.Switch else androidx.compose.ui.semantics.Role.Button)
+    }
+    JSwipeActions(start = start, end = swipeEnd) {
+        val slider = control?.takeIf { it.under() }
+        if (slider != null) RowSlider(slider, item.title.orEmpty(), state, handle) { value -> row(value) }
+        else row(item.value?.takeIf { it.isNotBlank() })
     }
 }
 
@@ -256,14 +342,24 @@ internal fun StandaloneItem(item: ExtensionViewItem, state: ExtensionViewState, 
                 "code" -> JCodeBlock(text, top, small = true)
                 "caption" -> Text(text, top.padding(horizontal = rowPadding), style = type.caption, color = palette.ink3)
                 "secondary" -> Text(text, top.padding(horizontal = rowPadding), style = type.callout, color = palette.ink2)
+                // UI version 6: a section's big title and a small heading
+                "title" -> Text(text, top.padding(horizontal = rowPadding), style = type.title, color = palette.ink)
+                "headline" -> Text(text, top.padding(horizontal = rowPadding), style = type.headline, color = palette.ink)
                 else -> Text(text, top.padding(horizontal = rowPadding), style = type.body, color = palette.ink)
             }
         }
         "metric" -> JGroupItem(GroupPosition.Single, top) {
             Column(Modifier.fillMaxWidth().padding(horizontal = rowPadding, vertical = Tokens.Space.m), verticalArrangement = Arrangement.spacedBy(Tokens.Space.xxs)) {
-                Text(item.label.orEmpty(), style = type.caption, color = palette.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    item.icon?.takeIf { it.isNotBlank() }?.let {
+                        JIcon(ExtensionIcons.of(it), null, size = Tokens.Space.l, tint = palette.hueOr(ExtensionViewText.hue(item.iconColor)), decorative = true)
+                        Spacer(Modifier.width(Tokens.Space.xs))
+                    }
+                    Text(item.label.orEmpty(), style = type.caption, color = palette.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 val tone = ExtensionViewText.tone(item.tone)
                 JChangingText(item.value.orEmpty(), style = type.number, color = if (tone == Tone.Neutral) palette.ink else palette.tone(tone).text)
+                ExtensionViewText.spark(item.spark)?.let { JSparkline(it, Modifier.fillMaxWidth().height(SparkSize.height)) }
                 item.detail?.takeIf { it.isNotBlank() }?.let { Text(it, style = type.caption, color = palette.ink3) }
             }
         }
@@ -298,6 +394,7 @@ internal fun StandaloneItem(item: ExtensionViewItem, state: ExtensionViewState, 
         "markdown" -> ExtensionMarkdown(item.text.orEmpty(), top.padding(horizontal = rowPadding))
         "table" -> JGroupItem(GroupPosition.Single, top) { ExtensionTable(item, Modifier.padding(horizontal = rowPadding, vertical = Tokens.Space.m), local = handle.nativeLocal) }
         "empty" -> JEmptyState(item.title.orEmpty(), item.detail.orEmpty(), top, icon = item.icon?.takeIf { it.isNotBlank() }?.let(ExtensionIcons::of),
+            iconHue = ExtensionViewText.hue(item.iconColor),
             action = item.button?.takeIf { it.title.isNotBlank() && it.action.id.isNotEmpty() }?.let { b ->
                 { JButton(b.title, { handle.press(item, b.action) }, kind = JButtonKind.Secondary, loading = state.acting == b.action.id,
                     enabled = !state.busy) }
@@ -311,6 +408,10 @@ internal fun StandaloneItem(item: ExtensionViewItem, state: ExtensionViewState, 
         "diff" -> CodeDiff(item, state, handle, top)
         "comment_thread" -> CodeCommentThread(item, state, handle, top)
         "composer" -> CodeComposer(item, state, handle, top)
+        // UI version 6
+        "image" -> ExtensionImage(item, handle, top)
+        "grid" -> ExtensionGrid(item, state, handle, top)
+        "carousel" -> ExtensionCarousel(item, state, handle, top)
     }
 }
 
@@ -393,9 +494,10 @@ private fun CardItem(item: ExtensionViewItem, state: ExtensionViewState, handle:
     val palette = PersonaTheme.palette
     val type = PersonaTheme.type
     when (item.type) {
-        "text" -> Text(item.text.orEmpty(), style = when (item.style) { "caption" -> type.caption; "secondary" -> type.callout; "code" -> type.code; else -> type.body },
+        "text" -> Text(item.text.orEmpty(), style = when (item.style) {
+            "caption" -> type.caption; "secondary" -> type.callout; "code" -> type.code; "title" -> type.headline; "headline" -> type.bodyStrong; else -> type.body },
             color = when (item.style) { "caption" -> palette.ink3; "secondary" -> palette.ink2; else -> palette.ink })
-        "metric" -> JStatGrid(listOf(JStat(item.label.orEmpty(), item.value.orEmpty(), item.detail, ExtensionViewText.tone(item.tone))))
+        "metric" -> JStatGrid(listOf(JStat(item.label.orEmpty(), item.value.orEmpty(), item.detail, ExtensionViewText.tone(item.tone), ExtensionViewText.spark(item.spark))))
         "progress" -> Column(verticalArrangement = Arrangement.spacedBy(Tokens.Space.xs)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(item.label.orEmpty(), Modifier.weight(1f), style = type.callout, color = palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -418,6 +520,10 @@ private fun CardItem(item: ExtensionViewItem, state: ExtensionViewState, handle:
             JSpinner()
             item.title?.takeIf { it.isNotBlank() }?.let { Spacer(Modifier.width(Tokens.Space.s)); Text(it, style = type.caption, color = palette.ink3) }
         }
+        // UI version 6: a card's grid has at most four tiles, its carousel six (the hub holds them to it)
+        "image" -> ExtensionImage(item, handle, compact = true)
+        "grid" -> ExtensionGrid(item, state, handle, limit = 4)
+        "carousel" -> ExtensionCarousel(item, state, handle, limit = 6)
     }
 }
 
@@ -428,8 +534,11 @@ private fun FieldBox(item: ExtensionViewItem, state: ExtensionViewState, handle:
     val value = state.values[name].orEmpty()
     val secret = item.kind == "secret"
     val number = item.kind == "number"
+    // UI version 6: several lines (3 to 8, the text keeps its line breaks), and a line of help under any field
+    val multiline = item.kind == "multiline"
     JTextField(value, { text -> if (!number || ExtensionViewText.isNumber(text)) handle.edit(name, text) }, modifier.fillMaxWidth(),
-        label = item.label, placeholder = item.placeholder?.takeIf { it.isNotBlank() }, singleLine = true, enabled = !state.busy,
+        label = item.label, placeholder = item.placeholder?.takeIf { it.isNotBlank() }, singleLine = !multiline,
+        minLines = if (multiline) 3 else 1, maxLines = if (multiline) 8 else 1, supportingText = item.detail?.takeIf { it.isNotBlank() }, enabled = !state.busy,
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, keyboardType = when {
             secret -> KeyboardType.Password
@@ -445,12 +554,16 @@ private fun CardLine(item: ExtensionViewItem, state: ExtensionViewState, handle:
     val type = PersonaTheme.type
     val link = item.type == "link"
     val action = item.action?.takeIf { it.id.isNotEmpty() && !link }
+    val actions = if (link) emptyList() else ExtensionViewText.rowActions(item.actions)
+    var menu by remember(item.key, item.title) { mutableStateOf(false) }
     val click: (() -> Unit)? = when {
         link -> ({ handle.open(item.url.orEmpty()) })
         action != null -> ({ handle.press(item, action) })
         else -> null
     }
-    Row(Modifier.fillMaxWidth().then(if (click != null) Modifier.clickable(enabled = !state.busy || link, onClick = click) else Modifier)
+    Row(Modifier.fillMaxWidth().rowActionSemantics(actions, handle)
+        .then(if (click != null || actions.isNotEmpty()) Modifier.combinedClickable(enabled = !state.busy || link, onClick = click ?: {},
+            onLongClick = if (actions.isNotEmpty()) ({ menu = true }) else null) else Modifier)
         .padding(vertical = Tokens.Space.xs), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(item.title.orEmpty(), style = type.body, color = if (link) palette.accent else palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -460,12 +573,16 @@ private fun CardLine(item: ExtensionViewItem, state: ExtensionViewState, handle:
             Spacer(Modifier.width(Tokens.Space.s))
             JChangingText(it, style = type.callout, color = palette.ink3)
         }
+        ExtensionViewText.spark(item.spark)?.takeIf { !link }?.let { Spacer(Modifier.width(Tokens.Space.s)); JSparkline(it) }
         item.badge?.takeIf { it.text.isNotBlank() && !link }?.let {
             Spacer(Modifier.width(Tokens.Space.s))
-            JTag(it.text, ExtensionViewText.tone(it.tone), animated = true)
+            ExtensionBadge(it)
         }
+        // a card takes a switch or a stepper (the hub leaves no slider there), and the row's actions only in its menu
+        item.drawnControl()?.takeIf { !link && !it.under() }?.let { Spacer(Modifier.width(Tokens.Space.s)); RowControlEnd(it, state, handle) }
+        if (actions.isNotEmpty()) RowActionsMenu(actions, menu, { menu = it }, handle, enabled = true)
         if (action != null && state.acting == action.id) { Spacer(Modifier.width(Tokens.Space.s)); JSpinner() }
-        else if (click != null) {
+        else if (click != null && actions.isEmpty()) {
             Spacer(Modifier.width(Tokens.Space.xs))
             JIcon(if (link) PhIcons.ArrowSquareOut else PhIcons.CaretRight, null, size = Tokens.Space.l, tint = palette.ink3)
         }

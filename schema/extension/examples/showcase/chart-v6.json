@@ -1,0 +1,795 @@
+{
+  "title": "图表（v6）",
+  "sections": [
+    {
+      "title": "K 线",
+      "items": [
+        {
+          "type": "chart",
+          "key": "k-green",
+          "kind": "candlestick",
+          "title": "示例股份 · 日 K（绿涨）",
+          "unit": "元",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "10/1",
+                  "value": 181.76,
+                  "open": 180.0,
+                  "high": 183.11,
+                  "low": 179.12,
+                  "close": 181.76,
+                  "volume": 53000
+                },
+                {
+                  "label": "10/2",
+                  "value": 178.98,
+                  "open": 181.76,
+                  "high": 182.16,
+                  "low": 177.96,
+                  "close": 178.98,
+                  "volume": 67000
+                },
+                {
+                  "label": "10/3",
+                  "value": 177.9,
+                  "open": 178.98,
+                  "high": 179.21,
+                  "low": 177.02,
+                  "close": 177.9,
+                  "volume": 45000
+                },
+                {
+                  "label": "10/4",
+                  "value": 179.28,
+                  "open": 177.9,
+                  "high": 180.06,
+                  "low": 176.95,
+                  "close": 179.28,
+                  "volume": 32000
+                },
+                {
+                  "label": "10/5",
+                  "value": 177.44,
+                  "open": 179.28,
+                  "high": 180.26,
+                  "low": 176.11,
+                  "close": 177.44,
+                  "volume": 53000
+                },
+                {
+                  "label": "10/6",
+                  "value": 178.42,
+                  "open": 177.44,
+                  "high": 179.47,
+                  "low": 177.12,
+                  "close": 178.42,
+                  "volume": 74000
+                },
+                {
+                  "label": "10/7",
+                  "value": 177.43,
+                  "open": 178.42,
+                  "high": 178.75,
+                  "low": 176.11,
+                  "close": 177.43,
+                  "volume": 52000
+                },
+                {
+                  "label": "10/8",
+                  "value": 177.1,
+                  "open": 177.43,
+                  "high": 177.76,
+                  "low": 176.62,
+                  "close": 177.1,
+                  "volume": 57000
+                },
+                {
+                  "label": "10/9",
+                  "value": 174.69,
+                  "open": 177.1,
+                  "high": 177.36,
+                  "low": 173.23,
+                  "close": 174.69,
+                  "volume": 66000
+                },
+                {
+                  "label": "10/10",
+                  "value": 174.61,
+                  "open": 174.69,
+                  "high": 176.06,
+                  "low": 174.14,
+                  "close": 174.61,
+                  "volume": 84000
+                },
+                {
+                  "label": "10/11",
+                  "value": 177.47,
+                  "open": 174.61,
+                  "high": 177.71,
+                  "low": 173.9,
+                  "close": 177.47,
+                  "volume": 75000
+                },
+                {
+                  "label": "10/12",
+                  "value": 176.3,
+                  "open": 177.47,
+                  "high": 178.49,
+                  "low": 175.97,
+                  "close": 176.3,
+                  "volume": 87000
+                },
+                {
+                  "label": "10/13",
+                  "value": 174.49,
+                  "open": 176.3,
+                  "high": 177.35,
+                  "low": 173.91,
+                  "close": 174.49,
+                  "volume": 45000
+                },
+                {
+                  "label": "10/14",
+                  "value": 173.77,
+                  "open": 174.49,
+                  "high": 175.0,
+                  "low": 172.73,
+                  "close": 173.77,
+                  "volume": 86000
+                },
+                {
+                  "label": "10/15",
+                  "value": 170.85,
+                  "open": 173.77,
+                  "high": 175.06,
+                  "low": 170.63,
+                  "close": 170.85,
+                  "volume": 62000
+                },
+                {
+                  "label": "10/16",
+                  "value": 171.2,
+                  "open": 170.85,
+                  "high": 172.34,
+                  "low": 169.78,
+                  "close": 171.2,
+                  "volume": 67000
+                },
+                {
+                  "label": "10/17",
+                  "value": 170.46,
+                  "open": 171.2,
+                  "high": 171.94,
+                  "low": 170.08,
+                  "close": 170.46,
+                  "volume": 82000
+                },
+                {
+                  "label": "10/18",
+                  "value": 167.78,
+                  "open": 170.46,
+                  "high": 171.25,
+                  "low": 166.54,
+                  "close": 167.78,
+                  "volume": 70000
+                },
+                {
+                  "label": "10/19",
+                  "value": 165.36,
+                  "open": 167.78,
+                  "high": 168.6,
+                  "low": 164.03,
+                  "close": 165.36,
+                  "volume": 31000
+                },
+                {
+                  "label": "10/20",
+                  "value": 167.71,
+                  "open": 165.36,
+                  "high": 168.85,
+                  "low": 163.91,
+                  "close": 167.71,
+                  "volume": 77000
+                },
+                {
+                  "label": "10/21",
+                  "value": 169.41,
+                  "open": 167.71,
+                  "high": 170.14,
+                  "low": 167.4,
+                  "close": 169.41,
+                  "volume": 74000
+                },
+                {
+                  "label": "10/22",
+                  "value": 169.24,
+                  "open": 169.41,
+                  "high": 170.6,
+                  "low": 168.47,
+                  "close": 169.24,
+                  "volume": 30000
+                },
+                {
+                  "label": "10/23",
+                  "value": 167.39,
+                  "open": 169.24,
+                  "high": 170.39,
+                  "low": 166.56,
+                  "close": 167.39,
+                  "volume": 42000
+                },
+                {
+                  "label": "10/24",
+                  "value": 164.5,
+                  "open": 167.39,
+                  "high": 168.34,
+                  "low": 163.95,
+                  "close": 164.5,
+                  "volume": 66000
+                },
+                {
+                  "label": "10/25",
+                  "value": 162.63,
+                  "open": 164.5,
+                  "high": 165.4,
+                  "low": 161.97,
+                  "close": 162.63,
+                  "volume": 86000
+                },
+                {
+                  "label": "10/26",
+                  "value": 161.16,
+                  "open": 162.63,
+                  "high": 163.4,
+                  "low": 159.73,
+                  "close": 161.16,
+                  "volume": 82000
+                },
+                {
+                  "label": "10/27",
+                  "value": 159.77,
+                  "open": 161.16,
+                  "high": 162.02,
+                  "low": 158.9,
+                  "close": 159.77,
+                  "volume": 38000
+                },
+                {
+                  "label": "10/28",
+                  "value": 161.1,
+                  "open": 159.77,
+                  "high": 162.0,
+                  "low": 158.68,
+                  "close": 161.1,
+                  "volume": 79000
+                },
+                {
+                  "label": "10/29",
+                  "value": 160.04,
+                  "open": 161.1,
+                  "high": 162.22,
+                  "low": 158.48,
+                  "close": 160.04,
+                  "volume": 68000
+                },
+                {
+                  "label": "10/30",
+                  "value": 161.21,
+                  "open": 160.04,
+                  "high": 161.78,
+                  "low": 158.94,
+                  "close": 161.21,
+                  "volume": 82000
+                },
+                {
+                  "label": "10/31",
+                  "value": 162.59,
+                  "open": 161.21,
+                  "high": 163.01,
+                  "low": 159.85,
+                  "close": 162.59,
+                  "volume": 20000
+                },
+                {
+                  "label": "11/1",
+                  "value": 163.33,
+                  "open": 162.59,
+                  "high": 164.88,
+                  "low": 162.13,
+                  "close": 163.33,
+                  "volume": 34000
+                },
+                {
+                  "label": "11/2",
+                  "value": 164.42,
+                  "open": 163.33,
+                  "high": 165.14,
+                  "low": 161.75,
+                  "close": 164.42,
+                  "volume": 83000
+                },
+                {
+                  "label": "11/3",
+                  "value": 166.54,
+                  "open": 164.42,
+                  "high": 166.83,
+                  "low": 163.95,
+                  "close": 166.54,
+                  "volume": 54000
+                },
+                {
+                  "label": "11/4",
+                  "value": 167.22,
+                  "open": 166.54,
+                  "high": 168.01,
+                  "low": 165.24,
+                  "close": 167.22,
+                  "volume": 87000
+                },
+                {
+                  "label": "11/5",
+                  "value": 167.17,
+                  "open": 167.22,
+                  "high": 168.08,
+                  "low": 166.83,
+                  "close": 167.17,
+                  "volume": 66000
+                }
+              ]
+            }
+          ],
+          "detail": "带成交量"
+        },
+        {
+          "type": "chart",
+          "key": "k-red",
+          "kind": "candlestick",
+          "title": "示例指数 · 日 K（红涨）",
+          "rising": "red",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "10/1",
+                  "value": 34.77,
+                  "open": 32.0,
+                  "high": 35.92,
+                  "low": 31.46,
+                  "close": 34.77
+                },
+                {
+                  "label": "10/2",
+                  "value": 32.64,
+                  "open": 34.77,
+                  "high": 35.85,
+                  "low": 32.3,
+                  "close": 32.64
+                },
+                {
+                  "label": "10/3",
+                  "value": 29.91,
+                  "open": 32.64,
+                  "high": 33.51,
+                  "low": 28.7,
+                  "close": 29.91
+                },
+                {
+                  "label": "10/4",
+                  "value": 30.69,
+                  "open": 29.91,
+                  "high": 31.87,
+                  "low": 29.53,
+                  "close": 30.69
+                },
+                {
+                  "label": "10/5",
+                  "value": 28.66,
+                  "open": 30.69,
+                  "high": 31.77,
+                  "low": 28.09,
+                  "close": 28.66
+                },
+                {
+                  "label": "10/6",
+                  "value": 28.66,
+                  "open": 28.66,
+                  "high": 28.89,
+                  "low": 27.57,
+                  "close": 28.66
+                },
+                {
+                  "label": "10/7",
+                  "value": 31.11,
+                  "open": 28.66,
+                  "high": 31.93,
+                  "low": 27.37,
+                  "close": 31.11
+                },
+                {
+                  "label": "10/8",
+                  "value": 31.46,
+                  "open": 31.11,
+                  "high": 32.33,
+                  "low": 30.1,
+                  "close": 31.46
+                },
+                {
+                  "label": "10/9",
+                  "value": 34.33,
+                  "open": 31.46,
+                  "high": 34.93,
+                  "low": 29.94,
+                  "close": 34.33
+                },
+                {
+                  "label": "10/10",
+                  "value": 34.34,
+                  "open": 34.33,
+                  "high": 34.93,
+                  "low": 33.75,
+                  "close": 34.34
+                },
+                {
+                  "label": "10/11",
+                  "value": 33.92,
+                  "open": 34.34,
+                  "high": 35.83,
+                  "low": 33.68,
+                  "close": 33.92
+                },
+                {
+                  "label": "10/12",
+                  "value": 32.42,
+                  "open": 33.92,
+                  "high": 34.97,
+                  "low": 31.89,
+                  "close": 32.42
+                },
+                {
+                  "label": "10/13",
+                  "value": 33.85,
+                  "open": 32.42,
+                  "high": 34.52,
+                  "low": 32.18,
+                  "close": 33.85
+                },
+                {
+                  "label": "10/14",
+                  "value": 35.05,
+                  "open": 33.85,
+                  "high": 35.73,
+                  "low": 33.54,
+                  "close": 35.05
+                },
+                {
+                  "label": "10/15",
+                  "value": 34.45,
+                  "open": 35.05,
+                  "high": 35.44,
+                  "low": 33.21,
+                  "close": 34.45
+                },
+                {
+                  "label": "10/16",
+                  "value": 32.22,
+                  "open": 34.45,
+                  "high": 35.14,
+                  "low": 30.65,
+                  "close": 32.22
+                },
+                {
+                  "label": "10/17",
+                  "value": 32.37,
+                  "open": 32.22,
+                  "high": 32.78,
+                  "low": 31.63,
+                  "close": 32.37
+                },
+                {
+                  "label": "10/18",
+                  "value": 32.41,
+                  "open": 32.37,
+                  "high": 33.8,
+                  "low": 31.05,
+                  "close": 32.41
+                },
+                {
+                  "label": "10/19",
+                  "value": 33.58,
+                  "open": 32.41,
+                  "high": 34.78,
+                  "low": 32.03,
+                  "close": 33.58
+                },
+                {
+                  "label": "10/20",
+                  "value": 35.12,
+                  "open": 33.58,
+                  "high": 36.71,
+                  "low": 32.59,
+                  "close": 35.12
+                },
+                {
+                  "label": "10/21",
+                  "value": 36.84,
+                  "open": 35.12,
+                  "high": 37.84,
+                  "low": 34.66,
+                  "close": 36.84
+                },
+                {
+                  "label": "10/22",
+                  "value": 38.97,
+                  "open": 36.84,
+                  "high": 39.91,
+                  "low": 36.63,
+                  "close": 38.97
+                },
+                {
+                  "label": "10/23",
+                  "value": 39.28,
+                  "open": 38.97,
+                  "high": 40.41,
+                  "low": 37.77,
+                  "close": 39.28
+                },
+                {
+                  "label": "10/24",
+                  "value": 41.11,
+                  "open": 39.28,
+                  "high": 41.83,
+                  "low": 38.15,
+                  "close": 41.11
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "面积",
+      "items": [
+        {
+          "type": "chart",
+          "key": "area",
+          "kind": "area",
+          "title": "用电",
+          "unit": "kWh",
+          "series": [
+            {
+              "color": "teal",
+              "points": [
+                {
+                  "label": "1月",
+                  "value": 210
+                },
+                {
+                  "label": "2月",
+                  "value": 190
+                },
+                {
+                  "label": "3月",
+                  "value": 230
+                },
+                {
+                  "label": "4月",
+                  "value": 260
+                },
+                {
+                  "label": "5月",
+                  "value": 320
+                },
+                {
+                  "label": "6月",
+                  "value": 410
+                },
+                {
+                  "label": "7月",
+                  "value": 450
+                },
+                {
+                  "label": "8月",
+                  "value": 380
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "key": "area-stack",
+          "kind": "area",
+          "stacked": true,
+          "title": "各房间用电（堆叠）",
+          "unit": "kWh",
+          "series": [
+            {
+              "name": "客厅",
+              "color": "blue",
+              "points": [
+                {
+                  "label": "1月",
+                  "value": 80
+                },
+                {
+                  "label": "2月",
+                  "value": 70
+                },
+                {
+                  "label": "3月",
+                  "value": 90
+                },
+                {
+                  "label": "4月",
+                  "value": 100
+                },
+                {
+                  "label": "5月",
+                  "value": 130
+                },
+                {
+                  "label": "6月",
+                  "value": 170
+                },
+                {
+                  "label": "7月",
+                  "value": 180
+                },
+                {
+                  "label": "8月",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "name": "卧室",
+              "color": "purple",
+              "points": [
+                {
+                  "label": "1月",
+                  "value": 60
+                },
+                {
+                  "label": "2月",
+                  "value": 55
+                },
+                {
+                  "label": "3月",
+                  "value": 70
+                },
+                {
+                  "label": "4月",
+                  "value": 80
+                },
+                {
+                  "label": "5月",
+                  "value": 100
+                },
+                {
+                  "label": "6月",
+                  "value": 130
+                },
+                {
+                  "label": "7月",
+                  "value": 140
+                },
+                {
+                  "label": "8月",
+                  "value": 120
+                }
+              ]
+            },
+            {
+              "name": "厨房",
+              "color": "orange",
+              "points": [
+                {
+                  "label": "1月",
+                  "value": 70
+                },
+                {
+                  "label": "2月",
+                  "value": 65
+                },
+                {
+                  "label": "3月",
+                  "value": 70
+                },
+                {
+                  "label": "4月",
+                  "value": 80
+                },
+                {
+                  "label": "5月",
+                  "value": 90
+                },
+                {
+                  "label": "6月",
+                  "value": 110
+                },
+                {
+                  "label": "7月",
+                  "value": 130
+                },
+                {
+                  "label": "8月",
+                  "value": 110
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "环形和饼",
+      "items": [
+        {
+          "type": "chart",
+          "key": "donut",
+          "kind": "donut",
+          "title": "资产配置",
+          "center": "¥128 万",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "股票",
+                  "value": 52,
+                  "display": "¥66.6 万"
+                },
+                {
+                  "label": "债券",
+                  "value": 28,
+                  "display": "¥35.8 万"
+                },
+                {
+                  "label": "现金",
+                  "value": 12,
+                  "display": "¥15.4 万"
+                },
+                {
+                  "label": "黄金",
+                  "value": 8,
+                  "display": "¥10.2 万"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "key": "pie",
+          "kind": "pie",
+          "title": "本月支出",
+          "unit": "元",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "房租",
+                  "value": 4500
+                },
+                {
+                  "label": "吃饭",
+                  "value": 2100
+                },
+                {
+                  "label": "交通",
+                  "value": 600
+                },
+                {
+                  "label": "其他",
+                  "value": 900
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

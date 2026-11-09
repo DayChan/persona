@@ -1,5 +1,20 @@
 {
   "loading": "Loading…",
   "load_more": "Load more",
-  "side_pane": "Files"
+  "side_pane": "Files",
+  "decrease": "Decrease {name}",
+  "increase": "Increase {name}",
+  "more_actions": "More actions",
+  "view_image": "View {alt}",
+  "scroll_back": "Scroll back",
+  "scroll_on": "Scroll on",
+  "tile_on": "on",
+  "read_sep": ", ",
+  "list_sep": ", ",
+  "none_chosen": "None chosen",
+  "chosen_count_one": "{count} chosen",
+  "chosen_count_other": "{count} chosen",
+  "done": "Done",
+  "search_choices": "Search",
+  "no_match": "Nothing matches"
 }
