@@ -5,11 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
+
+func scheduleRunsIncludingPending(sc *schedule) []ScheduleRun {
+	runs := slices.Clone(sc.runs)
+	for _, r := range sc.pendingRuns {
+		runs = append(runs, r)
+	}
+	return runs
+}
 
 type scheduleRunsStore interface {
 	ReadScheduleRuns(context.Context) (json.RawMessage, int64, bool, error)
@@ -40,6 +49,23 @@ func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mu
 		} else if _, err := st.Setting(ctx, runsKey, &stored); err != nil {
 			return err
 		}
+		pending := make([]ScheduleRun, 0, len(sc.pendingRuns))
+		for _, r := range sc.pendingRuns {
+			pending = append(pending, r)
+		}
+		slices.SortFunc(pending, func(a, b ScheduleRun) int {
+			if n := a.At.Compare(b.At); n != 0 {
+				return n
+			}
+			return strings.Compare(a.ID, b.ID)
+		})
+		for _, r := range pending {
+			if i := slices.IndexFunc(stored, func(existing ScheduleRun) bool { return existing.ID == r.ID }); i >= 0 {
+				stored[i] = r
+			} else {
+				stored = append(stored, r)
+			}
+		}
 		stored = mutate(stored)
 		if len(stored) > maxRuns {
 			stored = slices.Clone(stored[len(stored)-maxRuns:])
@@ -63,6 +89,11 @@ func (s *Service) mutateScheduleRunsLocked(ctx context.Context, sc *schedule, mu
 			return err
 		}
 		sc.runs = stored
+		for id := range sc.pendingRuns {
+			if slices.ContainsFunc(stored, func(r ScheduleRun) bool { return r.ID == id }) {
+				delete(sc.pendingRuns, id)
+			}
+		}
 		return nil
 	}
 	return errors.New("schedule run history changed repeatedly")
@@ -88,8 +119,7 @@ func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at t
 		sc, err := s.lockedSchedule(ctx)
 		if err == nil {
 			i := sc.indexLocked(run.RefID)
-			if i < 0 || (!run.of.IsZero() && sc.tasks[i].LastRun.After(run.of)) ||
-				retryCancelled(sc.tasks[i], i >= 0, run, sc.runs, time.Now()) != "" {
+			if i < 0 || retryCancelled(sc.tasks[i], i >= 0, run, scheduleRunsIncludingPending(sc), time.Now()) != "" {
 				sc.mu.Unlock()
 				return true // the task no longer needs this wait
 			}
@@ -109,6 +139,35 @@ func (s *Service) armLimitRetry(ctx context.Context, run ScheduleRun, turn, at t
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// refreshLimitSchedule picks up waits registered by another manager even when this process received no wakeup.
+func (s *Service) refreshLimitSchedule(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	vs, ok := s.store().(scheduleVersionStore)
+	if !ok {
+		return s.store() == nil
+	}
+	sc := &s.sched
+	sc.mu.Lock()
+	_, revision, found, err := vs.ReadSchedule(ctx)
+	if err != nil {
+		sc.mu.Unlock()
+		return false
+	}
+	if !found || !sc.loaded || revision != sc.revision {
+		sc.loaded = false
+	}
+	loaded := sc.loaded
+	sc.mu.Unlock()
+	if !loaded {
+		sc = s.loadSchedule(ctx)
+		sc.mu.Lock()
+		loaded = sc.loaded
+		sc.mu.Unlock()
+	}
+	return loaded
 }
 
 // runLimitRetries drives a scan directly in tests; the scheduler holds an owner while it scans.
@@ -170,6 +229,9 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 	}
 }
 
+// errLimitRetryNotSent is used only when the node was unavailable before calling assistant.send.
+var errLimitRetryNotSent = errors.New("retry conversation's machine is unavailable")
+
 // dispatchLimitRetry is separated from the durable claim so tests can stop an owner at the boundary.
 func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Time, ownerDone <-chan struct{}) {
 	select {
@@ -182,6 +244,19 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 	}
 	if _, err := s.runTask(cur, now, now, false, true); err != nil {
 		s.logf("task %s retry: %v", cur.ID, err)
+		if errors.Is(err, errLimitRetryNotSent) {
+			for !s.releaseUnsentLimitClaim(cur.ID, w) {
+				select {
+				case <-ownerDone:
+					s.sched.mu.Lock()
+					delete(s.sched.limitActive, w.Failed.ID)
+					s.sched.mu.Unlock()
+					return
+				case <-time.After(time.Second):
+				}
+			}
+			return
+		}
 		s.sched.mu.Lock()
 		delete(s.sched.limitActive, w.Failed.ID)
 		s.sched.mu.Unlock()
@@ -207,6 +282,32 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 	}
 }
 
+// releaseUnsentLimitClaim makes a proven-unsent retry eligible again, without recreating a canceled task.
+func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool {
+	sc, err := s.lockedSchedule(context.Background())
+	if err != nil {
+		return false
+	}
+	i := sc.indexLocked(id)
+	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID {
+		delete(sc.limitActive, w.Failed.ID)
+		sc.mu.Unlock()
+		return true
+	}
+	wait := *sc.tasks[i].LimitRetry
+	wait.Claimed = false
+	tasks := slices.Clone(sc.tasks)
+	tasks[i].LimitRetry = &wait
+	if s.saveLocked(sc, tasks) != nil {
+		sc.mu.Unlock()
+		return false
+	}
+	delete(sc.limitActive, w.Failed.ID)
+	sc.mu.Unlock()
+	s.broadcastSchedule()
+	return true
+}
+
 // consumeLimitRetry claims before sending. A restored claim is reported as unknown instead of being sent again.
 func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLimitRetry, c proto.Session, now time.Time) (Task, bool) {
 	sc, err := s.lockedSchedule(ctx)
@@ -214,13 +315,17 @@ func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLi
 		return Task{}, false
 	}
 	i := sc.indexLocked(id)
+	if sc.scheduledSending[id] > 0 || sc.sending[id] {
+		sc.mu.Unlock()
+		return Task{}, false // an admitted run may still send; do not consume the wait yet
+	}
 	if i < 0 || sc.tasks[i].LimitRetry == nil || sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != w.Failed.ID ||
 		!sc.tasks[i].LimitRetry.At.Equal(w.At) {
 		sc.mu.Unlock()
 		return Task{}, false
 	}
 	cur := sc.tasks[i]
-	cancelled := !cur.LastRun.Equal(w.LastRun) || retryCancelled(cur, true, w.Failed, sc.runs, now) != "" ||
+	cancelled := retryCancelled(cur, true, w.Failed, scheduleRunsIncludingPending(sc), now) != "" ||
 		c.Status == proto.StatusWorking || c.State == proto.StateWorking || (!w.Turn.IsZero() && !sameTurn(c, w.Turn))
 	tasks := slices.Clone(sc.tasks)
 	if cancelled {

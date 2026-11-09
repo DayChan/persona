@@ -244,14 +244,17 @@ const (
 )
 
 type schedule struct {
-	mu       sync.Mutex
-	loaded   bool  // false after a failed read: nothing is saved over what Postgres has, the next call reads again
-	revision int64 // version of the persisted task list
-	tasks    []Task
-	runs     []ScheduleRun // newest last
-	wake     chan struct{} // the list changed: scheduleLoop recomputes when to wake up
+	mu          sync.Mutex
+	loaded      bool  // false after a failed read: nothing is saved over what Postgres has, the next call reads again
+	revision    int64 // version of the persisted task list
+	tasks       []Task
+	runs        []ScheduleRun          // newest last
+	pendingRuns map[string]ScheduleRun // outcomes observed but not yet persisted
+	wake        chan struct{}          // the list changed: scheduleLoop recomputes when to wake up
 	// sending: tasks whose run is being sent right now (runTask), so two can't go into one conversation at once.
 	sending map[string]bool
+	// scheduledSending reserves admitted runs until their send or skip has been recorded.
+	scheduledSending map[string]int
 	// inflight: runs runDue started and that have not recorded their result yet.
 	inflight sync.WaitGroup
 	// limitInflight holds the scheduler owner until claimed retry sends have returned.
@@ -466,8 +469,7 @@ func (s *Service) saveLocked(sc *schedule, tasks []Task) error {
 					t.Time != old.Time || !slices.Equal(t.Weekdays, old.Weekdays) || t.EveryMinutes != old.EveryMinutes ||
 					t.SessionID != old.SessionID || t.RunSessionID != old.RunSessionID || t.RunMachineID != old.RunMachineID
 			}
-			if replaced || !t.LastRun.Equal(w.LastRun) ||
-				(t.Repeat == repeatOnce && t.Enabled) || (t.Repeat != repeatOnce && !t.Enabled) {
+			if replaced || (t.Repeat == repeatOnce && t.Enabled) || (t.Repeat != repeatOnce && !t.Enabled) {
 				t.LimitRetry = nil
 			}
 		}
@@ -1200,6 +1202,7 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 			s.sched.limitJoining()
 		}
 		s.sched.limitInflight.Wait()
+		s.sched.inflight.Wait()
 		if cancelOwner != nil {
 			cancelOwner()
 		}
@@ -1214,12 +1217,12 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 		// one-off or interval task on, so its time stays past: a member only checks again at the idle wake-up (or
 		// when the list changes), not every 50 ms.
 		if !s.hello(ctx).Assistant.Standby {
-			s.runDue(ctx, now)
 			if !now.Before(nextLimitScan) {
 				if ownerDone != nil {
 					select {
 					case <-ownerDone:
 						s.sched.limitInflight.Wait()
+						s.sched.inflight.Wait()
 						cancelOwner()
 						releaseOwner()
 						ownerDone, releaseOwner, cancelOwner = nil, nil, nil
@@ -1253,10 +1256,19 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 				if s.store() != nil {
 					owned = owned && versioned && runsVersioned
 				}
-				if owned {
+				if owned && s.refreshLimitSchedule(ctx) {
+					s.runDue(ctx, now)
 					s.scanLimitRetries(ctx, now, ownerDone)
 				}
 				nextLimitScan = time.Now().Add(time.Second)
+			} else if s.store() == nil {
+				s.runDue(ctx, now)
+			} else if ownerDone != nil {
+				select {
+				case <-ownerDone:
+				default:
+					s.runDue(ctx, now)
+				}
 			}
 			if next := s.nextDue(ctx, now); !next.IsZero() && next.Sub(now) < wait {
 				wait = max(next.Sub(now), 50*time.Millisecond)
@@ -1264,8 +1276,12 @@ func (s *Service) scheduleLoop(ctx context.Context) {
 					wait = time.Second // runDue moves a due task on; one still past could not run (its list was not read): retry, not spin
 				}
 			}
+			if _, supported := s.store().(scheduleOwnerStore); supported {
+				wait = min(wait, time.Second) // retry ownership and discover waits registered by other managers
+			}
 		} else if releaseOwner != nil {
 			s.sched.limitInflight.Wait()
+			s.sched.inflight.Wait()
 			cancelOwner()
 			releaseOwner()
 			ownerDone, releaseOwner, cancelOwner = nil, nil, nil
@@ -1403,6 +1419,12 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 			return // none of this batch was consumed: leave it due for the next turn
 		}
 	}
+	if len(due) > 0 && sc.scheduledSending == nil {
+		sc.scheduledSending = make(map[string]int)
+	}
+	for _, d := range due {
+		sc.scheduledSending[d.t.ID]++
+	}
 	sc.mu.Unlock()
 	if !changed {
 		return
@@ -1415,6 +1437,14 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 		sc.inflight.Add(1)
 		go func() {
 			defer sc.inflight.Done()
+			defer func() {
+				sc.mu.Lock()
+				sc.scheduledSending[d.t.ID]--
+				if sc.scheduledSending[d.t.ID] == 0 {
+					delete(sc.scheduledSending, d.t.ID)
+				}
+				sc.mu.Unlock()
+			}()
 			_, _ = s.runTask(d.t, d.due, now, false, false)
 		}()
 	}
@@ -1434,11 +1464,16 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	if len(sc.runs) > maxRuns {
 		sc.runs = append([]ScheduleRun(nil), sc.runs[len(sc.runs)-maxRuns:]...)
 	}
-	if i := sc.indexLocked(r.RefID); i >= 0 && (r.of.IsZero() || !sc.tasks[i].LastRun.After(r.of)) {
+	if i := sc.indexLocked(r.RefID); i >= 0 {
 		t := &sc.tasks[i]
-		t.LastStatus, t.LastError = r.Status, r.Error
-		if r.SessionID != "" {
-			t.LastSessionID = r.SessionID
+		if w := t.LimitRetry; w != nil && !w.Claimed && !r.Retried && r.SessionID != "" && r.Status != runSkipped && r.At.After(w.Failed.At) {
+			t.LimitRetry = nil // a later run actually reached a conversation
+		}
+		if r.of.IsZero() || !t.LastRun.After(r.of) {
+			t.LastStatus, t.LastError = r.Status, r.Error
+			if r.SessionID != "" {
+				t.LastSessionID = r.SessionID
+			}
 		}
 	}
 	streakTask, streakN, streak := streakToldLocked(sc, len(sc.runs)-1, false) // told once per streak (schedule_streak.go)
@@ -1447,6 +1482,10 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	// can still report the real result. Later writes retry the complete current lists under this lock.
 	_ = s.saveLocked(sc, sc.tasks)
 	if s.store() != nil {
+		if sc.pendingRuns == nil {
+			sc.pendingRuns = make(map[string]ScheduleRun)
+		}
+		sc.pendingRuns[r.ID] = r
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 			if !slices.ContainsFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
@@ -1489,6 +1528,10 @@ func (s *Service) updateRun(r ScheduleRun, status, errText string) bool {
 	streakRun := sc.runs[i]
 	_ = s.saveLocked(sc, sc.tasks)
 	if s.store() != nil {
+		if sc.pendingRuns == nil {
+			sc.pendingRuns = make(map[string]ScheduleRun)
+		}
+		sc.pendingRuns[streakRun.ID] = streakRun
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 			if j := slices.IndexFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }); j >= 0 {
@@ -1569,7 +1612,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			}
 			s.logf("task %s into %s: %v; starting a new conversation", t.ID, t.SessionID, err)
 		} else if t.limitRetry {
-			return proto.Session{}, errors.New("retry conversation's machine is unavailable")
+			return proto.Session{}, errLimitRetryNotSent
 		}
 	}
 	here := s.settings(ctx).MachineID
@@ -2548,7 +2591,13 @@ func (s *Service) runTaskRoute(w http.ResponseWriter, r *http.Request) {
 	var t Task
 	if i >= 0 {
 		t = sc.tasks[i]
+		if t.LimitRetry != nil && t.LimitRetry.Claimed {
+			sc.mu.Unlock()
+			apierr.Write(w, http.StatusConflict, i18n.Err("assistant-schedule.busy_wait"))
+			return
+		}
 		tasks := slices.Clone(sc.tasks)
+		tasks[i].LimitRetry = nil // an explicit Run now replaces an unclaimed automatic retry
 		// A manual run is admitted durably too, including repeating tasks: its result must own the latest
 		// status, and a storage outage must not dispatch work from an unpersisted run marker.
 		tasks[i].LastRun = now.UTC()

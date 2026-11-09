@@ -166,6 +166,225 @@ func TestLimitRetryWaitStoredBeforeFailureNotice(t *testing.T) {
 	}
 }
 
+func TestLimitRetryOwnerFindsWaitRegisteredByAnotherManager(t *testing.T) {
+	owner, f, st, now := limitRetryFixture(t)
+	ownerStore := &limitOwnedStore{limitTestStore: st, acquired: make(chan struct{}), released: make(chan struct{})}
+	owner.store = func() Store { return ownerStore }
+	_, release, acquired, err := ownerStore.TryScheduleOwner(t.Context())
+	if err != nil || !acquired {
+		t.Fatal("owner lock was not acquired")
+	}
+	defer release()
+	task, _ := taskByID(owner, "limit")
+	w := *task.LimitRetry
+	sc, err := owner.lockedSchedule(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := slices.Clone(sc.tasks)
+	tasks[sc.indexLocked("limit")].LimitRetry = nil
+	err = owner.saveLocked(sc, tasks)
+	sc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := newServiceOn(t, f, st)
+	if !other.armLimitRetry(t.Context(), w.Failed, w.Turn, now.Add(time.Hour)) {
+		t.Fatal("arm failed")
+	}
+	if task, _ := taskByID(owner, "limit"); task.LimitRetry != nil {
+		t.Fatal("owner cache unexpectedly updated")
+	}
+	if !owner.refreshLimitSchedule(t.Context()) {
+		t.Fatal("refresh failed")
+	}
+	if task, _ := taskByID(owner, "limit"); task.LimitRetry == nil {
+		t.Fatal("owner did not discover remote wait")
+	}
+	owner.runLimitRetries(t.Context(), now.Add(2*time.Hour))
+	owner.sched.inflight.Wait()
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("sent %d times", got)
+	}
+}
+
+func TestLimitRetryPreservedWhenNextRunIsSkipped(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	sc, err := s.lockedSchedule(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := slices.Clone(sc.tasks)
+	w := *tasks[0].LimitRetry
+	tasks[0].LimitRetry = nil
+	err = s.saveLocked(sc, tasks)
+	if err == nil {
+		tasks = slices.Clone(sc.tasks)
+		tasks[0].Repeat, tasks[0].Enabled, tasks[0].EveryMinutes = repeatInterval, true, 30
+		tasks[0].At = now.Add(-time.Minute)
+		tasks[0].LimitRetry = &w
+		err = s.saveLocked(sc, tasks)
+	}
+	sc.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.sched.begin("limit") {
+		t.Fatal("could not hold task busy")
+	}
+	s.runDue(t.Context(), now)
+	s.sched.inflight.Wait()
+	s.sched.end("limit")
+	restarted := newServiceOn(t, f, st)
+	if task, ok := taskByID(restarted, "limit"); !ok || task.LimitRetry == nil {
+		t.Fatal("skipped run discarded retry")
+	}
+	restarted.runLimitRetries(t.Context(), now.Add(2*time.Hour))
+	restarted.sched.inflight.Wait()
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("retry sends: %d", got)
+	}
+}
+
+func TestLimitRetryWaitsForAdmittedRunBeforeClaim(t *testing.T) {
+	s, _, _, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	s.sched.mu.Lock()
+	s.sched.scheduledSending = map[string]int{"limit": 1}
+	s.sched.mu.Unlock()
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); ok {
+		t.Fatal("claimed while another run was admitted")
+	}
+	s.sched.mu.Lock()
+	delete(s.sched.scheduledSending, "limit")
+	s.sched.mu.Unlock()
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("did not claim after admitted run ended")
+	}
+}
+
+func TestLimitRetryLaterRunOutcomeControlsCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      string
+		session     string
+		wantPending bool
+	}{
+		{"not_started", runFailed, "", true},
+		{"skipped", runSkipped, "", true},
+		{"sent", runOK, "new-session", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f, st, now := limitRetryFixture(t)
+			sc, err := s.lockedSchedule(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tasks := slices.Clone(sc.tasks)
+			tasks[0].LastRun = now
+			err = s.saveLocked(sc, tasks)
+			sc.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.recordRun(ScheduleRun{RefID: "limit", At: now, Status: tc.status, SessionID: tc.session})
+			restarted := newServiceOn(t, f, st)
+			task, ok := taskByID(restarted, "limit")
+			if !ok || (task.LimitRetry != nil) != tc.wantPending {
+				t.Fatalf("pending = %v, want %v", ok && task.LimitRetry != nil, tc.wantPending)
+			}
+		})
+	}
+}
+
+func TestLimitRetryManualRunReplacesUnclaimedWait(t *testing.T) {
+	s, f, st, _ := limitRetryFixture(t)
+	w := scheduleRequest(s, "POST", "tasks/limit/run", "")
+	if w.Code != 200 {
+		t.Fatalf("manual run: HTTP %d: %s", w.Code, w.Body)
+	}
+	restarted := newServiceOn(t, f, st)
+	if task, ok := taskByID(restarted, "limit"); !ok || task.LimitRetry != nil {
+		t.Fatal("manual run did not clear the pending wait")
+	}
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("manual sends: %d", got)
+	}
+}
+
+func TestLimitRetryManualRunRejectsClaimedWait(t *testing.T) {
+	s, f, _, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("claim failed")
+	}
+	if res := scheduleRequest(s, "POST", "tasks/limit/run", ""); res.Code != 409 {
+		t.Fatalf("claimed manual run: HTTP %d", res.Code)
+	}
+	if got := scheduleSendCount(f); got != 0 {
+		t.Fatalf("claimed manual run sent %d messages", got)
+	}
+}
+
+func TestLimitRetryNodeUnavailableAfterClaimRearms(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	cur, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour))
+	if !ok {
+		t.Fatal("claim failed")
+	}
+	cur.MachineID, cur.SessionID, cur.limitRetry, cur.limitRetryRunID = "server", "s1", true, w.Failed.ID
+	f.mu.Lock()
+	f.devices = []Device{}
+	f.mu.Unlock()
+	s.dispatchLimitRetry(cur, w, now.Add(2*time.Hour), nil)
+	restarted := newServiceOn(t, f, st)
+	if task, ok := taskByID(restarted, "limit"); !ok || task.LimitRetry == nil || task.LimitRetry.Claimed {
+		t.Fatal("unsent retry was not rearmed")
+	}
+	f.mu.Lock()
+	f.devices = nil
+	f.mu.Unlock()
+	restarted.runLimitRetries(t.Context(), now.Add(3*time.Hour))
+	restarted.sched.inflight.Wait()
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("recovered node sends: %d", got)
+	}
+}
+
+func TestLimitRetryFailedHistoryWriteSurvivesAnotherRun(t *testing.T) {
+	s, _, st, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("claim failed")
+	}
+	st.failWrites(runsKey)
+	id := s.recordRun(ScheduleRun{RefID: task.ID, At: now, Status: runOK, SessionID: "s1", Retried: true, RetryOf: w.Failed.ID})
+	st.failWrites("")
+	s.sched.mu.Lock()
+	s.sched.loaded = false // a cross-manager refresh must also preserve the unsaved result
+	s.sched.mu.Unlock()
+	s.recordRun(ScheduleRun{RefID: "other", At: now.Add(time.Second), Status: runOK})
+	if !s.finishLimitClaim(task.ID, w) {
+		t.Fatal("claim did not finish after storage recovered")
+	}
+	var runs []ScheduleRun
+	if _, err := st.Setting(t.Context(), runsKey, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == id && r.RetryOf == w.Failed.ID }) {
+		t.Fatal("unsaved retry result was lost")
+	}
+}
+
 func TestLimitRetrySurvivesRestartAndIsConsumedOnce(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	s.runDue(t.Context(), now) // a one-off older than doneKeep still owns its wait
