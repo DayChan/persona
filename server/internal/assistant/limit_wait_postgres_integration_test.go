@@ -12,6 +12,56 @@ import (
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
+func TestBoundReceiptRetryRejectsPostgresUnlink(t *testing.T) {
+	dsn := os.Getenv("PERSONA_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated Postgres test database not configured")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || !strings.HasPrefix(u.Path, "/persona_test_") {
+		t.Fatal("test requires a disposable database")
+	}
+	ctx := context.Background()
+	a, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
+	b, err := db.Open(ctx, dsn, db.ManagerSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	id := "bound_unlink_" + randomHex(8)
+	linked := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+	if err := a.CreateTodo(ctx, db.TodoRow{ID: id, Title: "Task", Origin: "bound-unlink-conversation", CreatedAt: linked, UpdatedAt: linked}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.LinkTodoAgent(ctx, id, "box", "session", "", "", "", "", linked); err != nil {
+		t.Fatal(err)
+	}
+	node := newFakeHub()
+	s := New(Options{Hub: node, Store: func() Store { return a }})
+	if err := s.ensureTodosLoaded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	todo, found := s.taskOf(ctx, "box", "session")
+	if !found {
+		t.Fatal("first manager did not cache the association")
+	}
+	if err := b.UnlinkTodoAgent(ctx, id, "box", "session"); err != nil {
+		t.Fatal(err)
+	}
+	ref := SessionRef{MachineID: "box", SessionID: "session"}
+	expected := &receiptLook{Todo: id, Machine: "box", Session: "session", Linked: linked, Work: linked, RetryID: "feed_bound_" + randomHex(8)}
+	if _, err := s.appendTaskReceiptForLook(ctx, todo, ref, receiptBody{State: "interrupted"}, linked, false, expected); err == nil {
+		t.Fatal("cached association bypassed committed unlink")
+	}
+	if row, err := a.FeedItem(ctx, expected.RetryID); err != nil || row != nil {
+		t.Fatalf("feed after unlink = %+v, %v", row, err)
+	}
+}
+
 // This test uses actual manager tables and independent connections. The
 // package's TestMain creates a disposable database from PERSONA_TEST_DATABASE_URL.
 // It checks the durable association separately from virtual-time lifecycle tests.
