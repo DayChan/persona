@@ -46,11 +46,12 @@ afterEach(() => {
 });
 
 const render = (session: Session, props: Record<string, unknown> = {}) => {
-  const old = root;
-  if (old) act(() => old.unmount());
-  const r = createRoot(host);
-  root = r;
-  act(() => r.render(<Header session={session} title="Demo" machineName="Box" siblings={[]} onInterrupt={() => {}} onStopLoop={() => {}} {...props} />));
+  if (root) act(() => root!.unmount());
+  root = createRoot(host);
+  rerender(session, props);
+};
+const rerender = (session: Session, props: Record<string, unknown> = {}) => {
+  act(() => root!.render(<Header session={session} title="Demo" machineName="Box" siblings={[]} onInterrupt={() => {}} onStopLoop={() => {}} {...props} />));
 };
 const openMenu = () => act(() => host.querySelector<HTMLButtonElement>(`button[aria-label="${t("chat-chatview.more")}"]`)!.click());
 /** Every ⋯ row by its label text, disabled as the menu says. */
@@ -67,7 +68,100 @@ function hub() {
   return calls;
 }
 
+const settle = async () => { await act(async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); }); };
+const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const item = () => row(t("chat-chatview.review_work"))!;
+
 describe("the ⋯ menu's independent review entry", () => {
+  it("disables a clean branch with a localized reason, and enables changed or truncated results", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(answer({ files: [] }))
+      .mockResolvedValueOnce(answer({ files: [{ path: "a" }] }))
+      .mockResolvedValueOnce(answer({ files: [], truncated: true }));
+    vi.stubGlobal("fetch", fetch);
+    render(agent());
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(true);
+    expect(item().textContent).toContain(t("chat-agent-review.no_changes"));
+    openMenu();
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+    openMenu();
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["no_default_branch", "no_merge_base"])("falls back to uncommitted for %s", async (code) => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(answer({ code }, 409))
+      .mockResolvedValueOnce(answer({ files: [] }))
+      .mockResolvedValueOnce(answer({ code }, 409))
+      .mockResolvedValueOnce(answer({ files: [{ path: "a" }] }));
+    vi.stubGlobal("fetch", fetch);
+    render(agent());
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(true);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/machines/m/git/review?cwd=%2Fcode&scope=branch",
+      "/api/v1/machines/m/git/review?cwd=%2Fcode&scope=uncommitted",
+    ]);
+    openMenu();
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+  });
+
+  it("leaves errors and malformed responses unknown", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(answer({ code: "not_git" }, 409)).mockResolvedValueOnce(answer({})).mockResolvedValueOnce(answer({ code: "no_merge_base" }, 409)).mockResolvedValueOnce(answer({ code: "unavailable" }, 503));
+    vi.stubGlobal("fetch", fetch);
+    render(agent());
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+    openMenu();
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+    openMenu();
+    openMenu();
+    await settle();
+    expect(item().disabled).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("discards old responses when switching sessions or reopening the menu", async () => {
+    const pending: ((res: Response) => void)[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((resolve) => pending.push(resolve))));
+    render(agent());
+    openMenu();
+    expect(pending).toHaveLength(1);
+    rerender(agent({ session_id: "s2", cwd: "/other" }));
+    expect(pending).toHaveLength(2);
+    await act(async () => { pending[1](answer({ files: [{ path: "new" }] })); });
+    await settle();
+    expect(item().disabled).toBe(false);
+    await act(async () => { pending[0](answer({ files: [] })); });
+    await settle();
+    expect(item().disabled).toBe(false);
+    openMenu();
+    openMenu();
+    expect(pending).toHaveLength(3);
+    await act(async () => { pending[2](answer({ files: [] })); });
+    await settle();
+    expect(item().disabled).toBe(true);
+    openMenu();
+    openMenu();
+    expect(item().disabled).toBe(false);
+    expect(pending).toHaveLength(4);
+    await act(async () => { pending[3](answer({ files: [{ path: "new" }] })); });
+    await settle();
+    expect(item().disabled).toBe(false);
+  });
   it("starts a review and toasts that the findings will come back as a card", async () => {
     const calls = hub();
     render(agent());
@@ -76,7 +170,10 @@ describe("the ⋯ menu's independent review entry", () => {
     expect(item.disabled).toBe(false);
     act(() => item.click());
     await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
-    expect(calls).toEqual([{ method: "POST", url: "/api/v1/machines/m/sessions/s1/review" }]);
+    expect(calls).toEqual([
+      { method: "GET", url: "/api/v1/machines/m/git/review?cwd=%2Fcode&scope=branch" },
+      { method: "POST", url: "/api/v1/machines/m/sessions/s1/review" },
+    ]);
     expect(toasts).toEqual([[t("chat-agent-review.started"), "info"]]);
   });
 
@@ -90,18 +187,22 @@ describe("the ⋯ menu's independent review entry", () => {
   });
 
   it("stays, disabled with its hint, while the agent works", () => {
+    const calls = hub();
     render(agent({ status: "working" }));
     openMenu();
     const item = row(t("chat-chatview.review_work"))!;
     expect(item.disabled).toBe(true);
     expect(item.textContent).toContain(t("chat-agent-review.busy"));
+    expect(calls).toEqual([]);
   });
 
   it("is only where the hub starts independent reviews: not without the feature, not on the assistant's chat", () => {
+    const calls = hub();
     render(agent());
     openMenu();
     expect(row(t("chat-chatview.review_work"))).toBeTruthy();
     expect(row(t("chat-chatview.review_changes"))).toBeUndefined(); // no git_review feature either: only the new entry is the question
+    expect(calls.filter((call) => call.url.includes("/git/review"))).toHaveLength(1);
 
     Object.assign(getState(), { features: [] });
     render(agent());
@@ -112,5 +213,6 @@ describe("the ⋯ menu's independent review entry", () => {
     render(agent(), { assistant: true });
     openMenu();
     expect(row(t("chat-chatview.review_work"))).toBeUndefined();
+    expect(calls.filter((call) => call.url.includes("/git/review"))).toHaveLength(1);
   });
 });
