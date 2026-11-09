@@ -38,6 +38,31 @@ class ParityInboxTransportTest {
         }
     }
 
+    @Test fun inboxPoliciesUseTheHubsRoutes() = runBlocking {
+        MockWebServer().use { server ->
+            val t = HttpInboxAssistantTransport("scope", server.url("/").toString(), "token", OkHttpClient())
+            server.enqueue(MockResponse().setBody("""{"policies":[{"id":"p1"}]}"""))
+            server.enqueue(MockResponse().setBody("""{"policy":{"id":"p2"},"applied":2}"""))
+            server.enqueue(MockResponse().setBody("""{"policy":{"id":"p/3"},"applied":0}"""))
+            server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+            assertEquals("""{"policies":[{"id":"p1"}]}""", t.inboxPolicies().toString())
+            assertEquals("""{"id":"p2"}""", t.setInboxPolicy("github:1", "repo", "noise", "")["policy"].toString())
+            t.updateInboxPolicy("p/3", "", "first")
+            t.removeInboxPolicy("p/3")
+            fun next() = server.takeRequest()
+            next().let { assertEquals("GET /api/v1/inbox/policies", "${it.method} ${it.path}") }
+            next().let {
+                assertEquals("POST /api/v1/inbox/policies", "${it.method} ${it.path}")
+                assertEquals("""{"item_id":"github:1","tag":"repo","tier":"noise","twin":""}""", it.body.readUtf8())
+            }
+            next().let {
+                assertEquals("PATCH /api/v1/inbox/policies/p%2F3", "${it.method} ${it.path}")
+                assertEquals("""{"tier":"","twin":"first"}""", it.body.readUtf8())
+            }
+            next().let { assertEquals("DELETE /api/v1/inbox/policies/p%2F3", "${it.method} ${it.path}") }
+        }
+    }
+
     // Inbox phase 1: POST /api/v1/inbox/{id}/suggestion with the version shown; 409 suggestion_stale carries the item.
     @Test fun aSuggestionAnswerPostsItsVersionAndAStaleOneCarriesTheItem() = runBlocking {
         MockWebServer().use { server ->

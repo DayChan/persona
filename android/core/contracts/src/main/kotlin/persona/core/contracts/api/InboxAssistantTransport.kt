@@ -108,6 +108,18 @@ interface InboxAssistantTransport {
     /** `DELETE /api/v1/inbox/mutes/{id}`. */
     suspend fun unmuteInbox(id: String): Unit = throw UnsupportedOperationException("Inbox mutes unavailable")
 
+    // Policies (docs/assistant/inbox.md "Policies"): the tier and AI twin of what an item has under one of its mute options.
+    /** `GET /api/v1/inbox/policies`: `{policies: [{id, source, source_name, tag, value, name, tier?, twin?, created_at, updated_at}]}`. */
+    suspend fun inboxPolicies(): JsonObject = throw UnsupportedOperationException("Inbox policies unavailable")
+    /** `POST /api/v1/inbox/policies` `{item_id, tag, tier, twin}`: `{policy, applied}`; setting neither part removes it. */
+    suspend fun setInboxPolicy(itemId: String, tag: String, tier: String, twin: String): JsonObject =
+        throw UnsupportedOperationException("Inbox policies unavailable")
+    /** `PATCH /api/v1/inbox/policies/{id}` `{tier, twin}`: `{policy, applied}`; setting neither part removes it. */
+    suspend fun updateInboxPolicy(id: String, tier: String, twin: String): JsonObject =
+        throw UnsupportedOperationException("Inbox policies unavailable")
+    /** `DELETE /api/v1/inbox/policies/{id}`. */
+    suspend fun removeInboxPolicy(id: String): Unit = throw UnsupportedOperationException("Inbox policies unavailable")
+
     // A Feishu chat's pinned messages (iOS `LarkChatPins`): reading the list marks the pins read upstream.
     /** `GET /api/v1/lark/conversations/{feed}/pins?limit=50&account_id=&cursor=`. */
     suspend fun larkChatPins(feedId: String, accountId: String?, cursor: String?): JsonObject =

@@ -297,6 +297,50 @@ class RealInboxRepository(
 
     override suspend fun unmute(id: String) = requireTransport().unmuteInbox(id)
 
+    override suspend fun inboxPolicies(record: InboxRecord?): List<persona.feature.inbox.InboxPolicy> {
+        val transport = requireTransport()
+        return persona.feature.inbox.inboxPolicies(asItem(record) { transport.inboxPolicies() })
+    }
+
+    // A rule's tier reaches the open, triaged items it covers at once (the hub moves them too), back if it fails.
+    override suspend fun savePolicy(
+        target: persona.feature.inbox.InboxPolicyTarget,
+        tier: persona.feature.inbox.InboxPolicyTier,
+        twin: persona.feature.inbox.InboxPolicyTwin,
+    ): persona.feature.inbox.InboxPolicy? {
+        val transport = requireTransport()
+        val record = target.record
+        val id = target.policy?.id
+        require(id != null || record != null) { "A new rule needs its item" }
+        val default = AssistantManagerChoice.current.value.defaultId
+        fun ownerOf(r: InboxRecord?) = r?.manager?.takeIf { it.isNotBlank() && it != default } ?: ""
+        val owner = ownerOf(record)
+        val moved = refreshLock.withLock {
+            val before = current.value.records
+            val after = persona.feature.inbox.applyPolicyTier(before, target.source, target.option, tier) { ownerOf(it) == owner }
+            current.update { it.copy(records = after) }
+            before.zip(after).filter { (old, new) -> old !== new }
+        }
+        val result = try {
+            asItem(record) {
+                if (id != null) transport.updateInboxPolicy(id, tier.wire, twin.wire)
+                else transport.setInboxPolicy(checkNotNull(record).hubItemId, target.option.tag, tier.wire, twin.wire)
+            }
+        } catch (e: Exception) {
+            // Back only the ones still as this left them: a refresh meanwhile has the hub's.
+            if (owns(transport)) refreshLock.withLock {
+                val now = current.value.records.associateBy { it.item.id }
+                moved.forEach { (old, new) -> if (now[new.item.id] == new) replaceRecord(old) }
+            }
+            throw e
+        }
+        quietly { refresh() }
+        if (tier == persona.feature.inbox.InboxPolicyTier.None && twin == persona.feature.inbox.InboxPolicyTwin.None) return null
+        return result.obj("policy")?.let { persona.feature.inbox.inboxPolicy(it) }
+    }
+
+    override suspend fun removePolicy(id: String) = requireTransport().removeInboxPolicy(id)
+
     override suspend fun setDone(items: List<InboxDoneTarget>, done: Boolean): InboxBulkResult =
         bulk(items, if (done) InboxBulkAction.Done else InboxBulkAction.Reopen)
 

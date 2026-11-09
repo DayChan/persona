@@ -16,6 +16,7 @@ internal fun InboxItemRow(record: InboxRecord, repository: InboxRepository, navi
     composers: ReplyComposers, position: GroupPosition, done: Boolean, busy: Boolean, onlineSince: Long?, onDone: () -> Unit,
     onHandOff: () -> Unit,
     onMute: (InboxMuteOption) -> Unit = {},
+    onRule: (InboxMuteOption) -> Unit = {},
 ) {
     val item = record.item
     val groupEvent = record.feedId != null && record.isGroup != false && item.kind in setOf("group", "mention", "bot")
@@ -28,11 +29,8 @@ internal fun InboxItemRow(record: InboxRecord, repository: InboxRepository, navi
     if (menu) JActionSheet(title = item.title, onDismiss = { menu = false }, actions = buildList {
         add(JAction(doneLabel, PhIcons.Check, enabled = !busy, onClick = onDone))
         add(JAction(handOffLabel, PhIcons.Robot, onClick = onHandOff))
-        // What the item can be muted by, the name with each (iOS `rowMenu`): its repository, chat or sender.
-        record.mutes.forEachIndexed { i, option ->
-            add(JAction(res.getString(R.string.inbox_mute_option, res.getString(option.title), option.shortName), PhIcons.Prohibit,
-                separatorBefore = i == 0) { onMute(option) })
-        }
+        // What the item can be muted by, the name with each (iOS `rowMenu`): its repository, chat or sender; then a rule for each.
+        addAll(muteAndRuleActions(res, record, onMute, onRule))
     })
     JSwipeActions(
         start = if (busy) null else SwipeAction(doneLabel, PhIcons.Check, Status.Unread, onDone),

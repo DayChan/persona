@@ -186,6 +186,35 @@
     <string name="inbox_unmute_failed">Couldn\'t unmute; restored</string>
     <string name="inbox_muted_notice">Muted “%1$s”; it won\'t come into the Inbox again</string>
 
+    <!-- Rules: where an item's chat, sender or repository goes, and the AI twin (InboxPolicies.kt). -->
+    <string name="inbox_policy_repo">Rule for this repository</string>
+    <string name="inbox_policy_chat">Rule for this conversation</string>
+    <string name="inbox_policy_sender">Rule for this sender</string>
+    <string name="inbox_policy_title">Rule for %1$s</string>
+    <string name="inbox_policy_intro">%1$s. The hub applies it in code to what comes in from here, after the AI sorts it; a mute still wins.</string>
+    <string name="inbox_policy_tier">Where it goes</string>
+    <string name="inbox_policy_tier_none">Leave to triage</string>
+    <string name="inbox_policy_tier_action">Always Needs you</string>
+    <string name="inbox_policy_tier_fyi">FYI</string>
+    <string name="inbox_policy_tier_noise">Collapsed</string>
+    <string name="inbox_policy_twin">AI twin</string>
+    <string name="inbox_policy_twin_none">As set</string>
+    <string name="inbox_policy_twin_first">AI twin first</string>
+    <string name="inbox_policy_twin_never">Never AI twin</string>
+    <string name="inbox_policy_twin_note">AI twin first hands these to the AI twin even when they are not Needs you, before the others. Never keeps them yours. The AI twin must be on.</string>
+    <string name="inbox_policy_save">Save</string>
+    <string name="inbox_policy_cancel">Cancel</string>
+    <string name="inbox_policy_remove">Remove</string>
+    <string name="inbox_policy_edit">Edit</string>
+    <string name="inbox_policy_saved">Rule saved for “%1$s”</string>
+    <string name="inbox_policy_removed">Rule removed for “%1$s”</string>
+    <string name="inbox_policy_failed">Couldn\'t save the rule: %1$s</string>
+    <string name="inbox_rules_title">Rules</string>
+    <string name="inbox_rules_failed">Couldn\'t load the rules: %1$s</string>
+    <string name="inbox_rules_empty_title">No rules</string>
+    <string name="inbox_rules_empty_text">Long-press an item in the Inbox and pick a rule for its conversation, sender or repository.</string>
+    <string name="inbox_rules_remove_failed">Couldn\'t remove the rule: %1$s</string>
+
     <!-- Inbox phase 1: events, suggestions, the Handling chain (InboxEvents.kt). -->
     <string name="inbox_section_working">In progress</string>
     <string name="inbox_handling_looking">AI is on it</string>

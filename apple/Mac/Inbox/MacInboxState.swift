@@ -143,6 +143,9 @@ final class MacInboxState {
     var editingDraft: InboxItem?
     var drafting: InboxItem?
     var handingOff: InboxItem?
+    /// Rules, and an item's Rule for This Chat / Sender / Repository…
+    var showRules = false
+    var ruling: InboxPolicyTarget?
     /// Clear All over many items, waiting for the user to say yes.
     var confirming = false
 

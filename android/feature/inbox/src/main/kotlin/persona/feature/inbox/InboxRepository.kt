@@ -111,6 +111,17 @@ interface InboxRepository : persona.core.contracts.api.InboxRepository {
     suspend fun mute(record: InboxRecord, option: InboxMuteOption): Unit = error("静音尚未接入") // i18n-ignore: developer error
     suspend fun unmute(id: String): Unit = error("静音尚未接入") // i18n-ignore: developer error
 
+    /** "Rules" (docs/assistant/inbox.md "Policies"): every source's rules, newest first; [record]'s manager's, else the default's. */
+    suspend fun inboxPolicies(record: InboxRecord? = null): List<InboxPolicy> = error("Inbox policies unavailable")
+    /**
+     * Sets [target]'s rule (POST from its item, PATCH when it has one): the open, triaged items it covers take [tier] at
+     * once, back if it fails. Setting neither part removes it. Returns the hub's rule, null when removed.
+     */
+    suspend fun savePolicy(target: InboxPolicyTarget, tier: InboxPolicyTier, twin: InboxPolicyTwin): InboxPolicy? =
+        error("Inbox policies unavailable")
+    /** Removes a rule by its id ("Rules" › Remove). */
+    suspend fun removePolicy(id: String): Unit = error("Inbox policies unavailable")
+
     /** A chat's "Pinned messages", a page at a time ([accountId] null: the hub's current account, which the page names). */
     suspend fun larkChatPins(feedId: String, accountId: String?, cursor: String?): LarkChatPinsPage = error("Chat pins unavailable")
     /** Where a pin's message is: the message itself, and the thread's root when it is a reply in one ([topic]: a topic group). */

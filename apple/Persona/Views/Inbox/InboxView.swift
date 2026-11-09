@@ -55,6 +55,8 @@ struct InboxPage: View {
     @State private var editingDraft: InboxItem? // Edit on the AI Twin's draft
     @State private var answering: Interaction? // a card on no session, open by itself (#4059)
     @State private var showingMutes = false     // Muted
+    @State private var showingRules = false     // Rules
+    @State private var ruling: InboxPolicyTarget? // a row's Rule for This Chat / Sender / Repository…
     @State private var confirming = false // Clear All over many items asks first
     private var store: InboxStore { .shared }
 
@@ -109,6 +111,7 @@ struct InboxPage: View {
                             Button { composing = ComposeDraft(accountID: accounts.first?.id ?? "") } label: { Label("New Email", systemImage: Theme.Icon.compose) }
                                 .disabled(accounts.isEmpty)
                             Button { showingMutes = true } label: { Label("Muted [Inbox Mutes View e5e468]", systemImage: Theme.Icon.mute) }
+                            Button { showingRules = true } label: { Label("Rules [Inbox Policy]", systemImage: Theme.Icon.inboxRule) }
                         } label: { ThemedIcon(Theme.Icon.moreMenu) }
                         .accessibilityLabel("More")
                         .accessibilityIdentifier("inbox.more")
@@ -118,6 +121,8 @@ struct InboxPage: View {
                 .sheet(item: $editingDraft) { InboxDraftSheet(item: $0, accounts: accounts) }
                 .sheet(item: $answering) { SessionlessCardSheet(interaction: $0) }
                 .sheet(isPresented: $showingMutes) { InboxMutesView() }
+                .sheet(isPresented: $showingRules) { InboxRulesView() }
+                .sheet(item: $ruling) { InboxPolicySheet(target: $0) }
                 .confirmationDialog(InboxBulk.confirmTitle, isPresented: $confirming, titleVisibility: .visible) {
                     Button(InboxBulk.confirmButton(count: cleanScope.count)) { clean(confirmed: true) }
                         .accessibilityIdentifier("inbox.cleanConfirm")
@@ -133,6 +138,16 @@ struct InboxPage: View {
                     #if DEBUG
                     // `-showInboxMutes YES`: the Muted list (screenshots).
                     if UserDefaults.standard.bool(forKey: "showInboxMutes") { showingMutes = true }
+                    // `-showInboxRules YES`: the Rules list. `-openInboxRule chat|sender|repo`: the rule sheet of the first open
+                    // item with one, as its menu opens it; `edit`: Rules, then Edit on the newest rule (screenshots).
+                    if UserDefaults.standard.bool(forKey: "showInboxRules") || UserDefaults.standard.string(forKey: "openInboxRule") == "edit" {
+                        showingRules = true
+                    } else if let tag = UserDefaults.standard.string(forKey: "openInboxRule") {
+                        for _ in 0..<20 where store.open.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
+                        for it in openItems {
+                            if let m = it.mutes?.first(where: { $0.tag == tag }) { ruling = InboxPolicyTarget(item: it, option: m); break }
+                        }
+                    }
                     // `-openInboxFirst YES`: open the first open item (detail screenshots).
                     if UserDefaults.standard.bool(forKey: "openInboxFirst") {
                         for _ in 0..<20 where store.open.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
@@ -320,7 +335,7 @@ struct InboxPage: View {
     }
 
     /// A row's long-press menu: Done (or Move Back), then what the item can be muted by — its repository, chat or sender,
-    /// the name under each (docs/assistant/inbox.md「静音」).
+    /// the name under each (docs/assistant/inbox.md「静音」) — then a rule for each of those ("Policies").
     @ViewBuilder private func rowMenu(_ it: InboxItem) -> some View {
         if it.isDone {
             Button { store.setDone(it, false) } label: { Label("Move Back", systemImage: Theme.Icon.undo) }
@@ -336,6 +351,7 @@ struct InboxPage: View {
                     }
                 }
             }
+            Section { InboxRuleButtons(item: it) { ruling = $0 } }
         }
     }
 
@@ -709,6 +725,7 @@ struct InboxDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var drafting = false
     @State private var handingOff = false
+    @State private var ruling: InboxPolicyTarget?
     @State private var slot: InboxItemSlotModel
 
     init(item: InboxItem, accounts: [MailAccount]) {
@@ -725,6 +742,7 @@ struct InboxDetailView: View {
                 InboxDraftSheet(item: current, accounts: accounts, onSent: { dismiss() })
             }
             .sheet(isPresented: $handingOff) { InboxHandOffSheet(item: current) }
+            .sheet(item: $ruling) { InboxPolicySheet(target: $0) }
             #if DEBUG
             // `-showInboxAction draft|handoff`: open that sheet (screenshots).
             .task {
@@ -736,6 +754,13 @@ struct InboxDetailView: View {
             }
             #endif
             .pageToolbar {
+                if let mutes = current.mutes, !mutes.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu { InboxRuleButtons(item: current) { ruling = $0 } } label: { ThemedIcon(Theme.Icon.moreMenu) }
+                            .accessibilityLabel("More")
+                            .accessibilityIdentifier("inbox.detail.more")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if current.isDone {
                         Button { InboxStore.shared.setDone(current, false) } label: { Label("Move Back", systemImage: Theme.Icon.undo) }

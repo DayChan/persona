@@ -175,8 +175,12 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
         }
     }
     var showMutes by remember { mutableStateOf(false) }
+    var showRules by remember { mutableStateOf(false) }
+    var ruleTarget by remember { mutableStateOf<InboxPolicyTarget?>(null) }
     val sectionReader = rememberInboxSectionReader(conversations, conversationRows)
     if (showMutes) InboxMutesSheet(repository, onDismiss = { showMutes = false })
+    if (showRules) InboxRulesSheet(repository, onDismiss = { showRules = false })
+    ruleTarget?.let { InboxPolicySheet(repository, it, onDismiss = { ruleTarget = null }) }
     LaunchedEffect(repository) { refresh(collectNow = false) }
     // The title while the hub is out of reach opens why, since when and "Retry now" in place (iOS ConnectionTitle).
     val connectionDetails = rememberConnectionDetails(shownConnection, { navigator.navigate(ConnectionSettingsRoute) }, onRetry = { refresh(collectNow = false) })
@@ -198,6 +202,7 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
             actions = listOf(
                 JAction(bulkLabel(res, bulk.size, scopeText), PhIcons.Checks, enabled = bulk.isNotEmpty()) { cleanAll() },
                 JAction(res.getString(R.string.inbox_mutes_title), PhIcons.Prohibit, separatorBefore = true) { showMutes = true },
+                JAction(res.getString(R.string.inbox_rules_title), PhIcons.Target) { showRules = true },
             ),
             note = if (scopeText == null) stringResource(R.string.inbox_bulk_note_all) else stringResource(R.string.inbox_bulk_note_scope, scopeText))
     }
@@ -336,7 +341,7 @@ fun InboxScreen(repository: InboxRepository, navigator: Navigator, onOpenCard: (
                         val done = pending[record.item.id] ?: record.item.isDone
                         InboxItemRow(record, repository, navigator, composers, position, done, record.item.id in pending, onlineSince,
                             onDone = { markDone(record.item.id, !done) }, onHandOff = { handingOff = record.item.id },
-                            onMute = { option -> mute(record, option) })
+                            onMute = { option -> mute(record, option) }, onRule = { ruleTarget = InboxPolicyTarget.of(record, it) })
                     }
                 }
             } }

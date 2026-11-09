@@ -124,6 +124,8 @@ struct MacInboxList: View {
             Text(InboxBulk.confirmMessage(count: state.openInView.count, filters: state.scopeFilters, query: state.query))
         }
         .sheet(item: $state.editingDraft) { InboxDraftSheet(item: $0, accounts: state.accounts).macSheet() }
+        .sheet(isPresented: $state.showRules) { InboxRulesView() }
+        .sheet(item: $state.ruling) { InboxPolicySheet(target: $0) }
         // A plugin enabled or set up since: its sources' items open as it draws them.
         .task { await InboxItemSlots.shared.reload() }
         .task {
@@ -133,6 +135,16 @@ struct MacInboxList: View {
             // `-openInboxFirst YES`: select the first open item; `-openInboxMatch <text>`: the first whose title has the
             // text (detail screenshots); `-addMail YES`: Manage Accounts; `-showCleanUpConfirm YES`: the clean-up question.
             if UserDefaults.standard.bool(forKey: "addMail") { state.showAccounts = true }
+            // `-showInboxRules YES`: Rules. `-openInboxRule chat|sender|repo`: the rule sheet of the first open item with
+            // one, as its menu opens it; `edit`: Rules, then Edit on the newest rule.
+            if UserDefaults.standard.bool(forKey: "showInboxRules") || UserDefaults.standard.string(forKey: "openInboxRule") == "edit" {
+                state.showRules = true
+            } else if let tag = UserDefaults.standard.string(forKey: "openInboxRule") {
+                for _ in 0..<20 where store.open.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
+                for it in store.open {
+                    if let m = it.mutes?.first(where: { $0.tag == tag }) { state.ruling = InboxPolicyTarget(item: it, option: m); break }
+                }
+            }
             if UserDefaults.standard.bool(forKey: "showCleanUpConfirm") {
                 for _ in 0..<20 where state.openInView.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
                 if !state.openInView.isEmpty { state.confirming = true }
@@ -169,6 +181,9 @@ struct MacInboxList: View {
             .help(state.accounts.isEmpty ? String(localized: "Add an email account in Manage Accounts first") : String(localized: "New email (⌥⌘N)"))
             Button { state.showAccounts = true } label: { Label("Manage Accounts", systemImage: Theme.Icon.mailAccounts) }
                 .help("Manage Accounts")
+            Button { state.showRules = true } label: { Label("Rules [Inbox Policy]", systemImage: Theme.Icon.inboxRule) }
+                .help("Rules [Inbox Policy]")
+                .accessibilityIdentifier("mac.inbox.rules")
         }
     }
 
@@ -268,6 +283,10 @@ struct MacInboxList: View {
             Button { copy(it.title + "\n" + (it.summary ?? it.preview)) } label: { Label("Copy Contents", systemImage: Theme.Icon.copy) }
             if let url = it.doc.map { $0.link ?? $0.url }, let u = URL(string: url) {
                 Button { NSWorkspace.shared.open(u) } label: { Label("Open in Lark [Feishu Doc Reader 76d0eb]", systemImage: Theme.Icon.openExternal) }
+            }
+            if let mutes = it.mutes, !mutes.isEmpty {
+                Divider()
+                InboxRuleButtons(item: it) { state.ruling = $0 }
             }
         }
         if agents.count == 1, let ix = agents.first {

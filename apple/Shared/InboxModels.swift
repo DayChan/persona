@@ -71,6 +71,15 @@ nonisolated struct InboxItem: Codable, Identifiable, Hashable, Sendable {
             default: String(localized: "Mute This Sender")
             }
         }
+
+        /// The menu's words for setting a rule on it (docs/assistant/inbox.md "Policies").
+        var policyTitle: String {
+            switch tag {
+            case "repo": String(localized: "Rule for This Repository…")
+            case "chat": String(localized: "Rule for This Chat…")
+            default: String(localized: "Rule for This Sender…")
+            }
+        }
     }
 
     nonisolated struct Connector: Codable, Hashable, Sendable {
@@ -456,6 +465,40 @@ extension APIClient {
 
     func unmuteInbox(_ id: String) async throws { try await delete("/api/v1/inbox/mutes/" + id) }
 
+    private nonisolated struct InboxPolicies: Decodable, Sendable { var policies: [InboxPolicy]? }
+    private nonisolated struct PolicyBody: Encodable, Sendable {
+        var itemID: String?
+        var tag: String?
+        var tier: InboxPolicy.Tier
+        var twin: InboxPolicy.Twin
+        enum CodingKeys: String, CodingKey { case tag, tier, twin, itemID = "item_id" }
+    }
+    /// Only the count is read: a rule that setting neither part removed still comes back as an object.
+    private nonisolated struct PolicyApplied: Decodable, Sendable { var applied: Int? }
+
+    /// The user's rules, in every source (docs/assistant/inbox.md "Policies"); an older hub answers 404.
+    func inboxPolicies() async throws -> [InboxPolicy] {
+        try await get("/api/v1/inbox/policies", as: InboxPolicies.self).policies ?? []
+    }
+
+    /// Sets the rule of what the item has under `tag` (the hub reads the value off the item): a rule for the same target is
+    /// changed, one left with neither part is removed. Answers how many open items took its tier at once.
+    @discardableResult
+    func setInboxPolicy(itemID: String, tag: String, tier: InboxPolicy.Tier, twin: InboxPolicy.Twin) async throws -> Int {
+        try await post("/api/v1/inbox/policies", body: PolicyBody(itemID: itemID, tag: tag, tier: tier, twin: twin),
+                       as: PolicyApplied.self).applied ?? 0
+    }
+
+    /// Changes a rule by id, both parts as they should be; neither removes it.
+    @discardableResult
+    func updateInboxPolicy(_ id: String, tier: InboxPolicy.Tier, twin: InboxPolicy.Twin) async throws -> Int {
+        let data = try await request("PATCH", "/api/v1/inbox/policies/" + id, body: PolicyBody(tier: tier, twin: twin))
+        return try JSON.decoder.decode(PolicyApplied.self, from: data).applied ?? 0
+    }
+
+    /// Removes a rule: items keep the tier it gave until new content is triaged again.
+    func deleteInboxPolicy(_ id: String) async throws { try await delete("/api/v1/inbox/policies/" + id) }
+
     private struct InboxText: Codable { var text: String }
     private struct InboxReplyBody: Encodable { var text: String; var changes: [InboxItem.DocChange]?; var card: String? }
     private struct InboxHandoffBody: Encodable { var text: String; var clientID: String
@@ -542,6 +585,109 @@ nonisolated struct InboxMute: Codable, Identifiable, Hashable, Sendable {
         case "chat": String(localized: "Session")
         default: String(localized: "From")
         }
+    }
+}
+
+/// A rule the user set (GET /api/v1/inbox/policies, docs/assistant/inbox.md "Policies"): items of `source` with `value`
+/// under `tag` get its tier after triage, and the AI twin takes them first or never. The hub decides in code.
+nonisolated struct InboxPolicy: Decodable, Identifiable, Hashable, Sendable {
+    /// Where its items go; `unset` leaves it to triage.
+    enum Tier: String, Codable, CaseIterable, Sendable {
+        case unset = "", action, fyi, noise
+
+        var title: String {
+            switch self {
+            case .unset: String(localized: "Leave to Triage [Inbox Policy]")
+            case .action: String(localized: "Always Needs You [Inbox Policy]")
+            case .fyi: String(localized: "FYI [Inbox Policy]")
+            case .noise: String(localized: "Collapsed [Inbox Policy]")
+            }
+        }
+    }
+
+    /// What the AI twin does with them; `unset` as configured.
+    enum Twin: String, Codable, CaseIterable, Sendable {
+        case unset = "", first, never
+
+        var title: String {
+            switch self {
+            case .unset: String(localized: "As Set [Inbox Policy]")
+            case .first: String(localized: "AI Twin First [Inbox Policy]")
+            case .never: String(localized: "Never AI Twin [Inbox Policy]")
+            }
+        }
+    }
+
+    var id: String
+    var source: String
+    var sourceName: String?
+    var tag: String // sender | chat | repo
+    var value: String
+    var name: String
+    var tier: Tier
+    var twin: Twin
+    var createdAt: Date?
+    var updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, tag, value, name, tier, twin
+        case sourceName = "source_name", createdAt = "created_at", updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        source = try c.decode(String.self, forKey: .source)
+        sourceName = try c.decodeIfPresent(String.self, forKey: .sourceName).flatMap { $0.isEmpty ? nil : $0 }
+        tag = try c.decode(String.self, forKey: .tag)
+        value = try c.decode(String.self, forKey: .value)
+        name = try c.decodeIfPresent(String.self, forKey: .name).flatMap { $0.isEmpty ? nil : $0 } ?? value
+        // A part a newer hub added reads as unset rather than failing the whole list.
+        tier = (try? c.decodeIfPresent(String.self, forKey: .tier)).flatMap(Tier.init(rawValue:)) ?? .unset
+        twin = (try? c.decodeIfPresent(String.self, forKey: .twin)).flatMap(Twin.init(rawValue:)) ?? .unset
+        createdAt = try? c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try? c.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    /// What it targets, as an item's mute option.
+    var option: InboxItem.MuteOption { .init(tag: tag, value: value, name: name) }
+
+    /// The tags a rule can name, the most specific first: a sender's rule beats its chat's (the hub's order).
+    static let precedence = ["sender", "chat", "repo"]
+
+    /// The rule that applies to an item, as the hub picks it: the same source, one of its mute options, sender before
+    /// chat before repository.
+    static func applying(to item: InboxItem, in policies: [InboxPolicy]) -> InboxPolicy? {
+        var best: (rank: Int, policy: InboxPolicy)?
+        for o in item.mutes ?? [] {
+            guard let r = precedence.firstIndex(of: o.tag), r < (best?.rank ?? precedence.count) else { continue }
+            if let p = policies.first(where: { $0.source == item.source && $0.tag == o.tag && $0.value == o.value }) { best = (r, p) }
+        }
+        return best?.policy
+    }
+
+    /// The newest first, by time (`created_at`); one without a time last.
+    static func newestFirst(_ list: [InboxPolicy]) -> [InboxPolicy] {
+        list.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
+    /// What it does, for people: "Always Needs You · AI Twin First", one part when it sets one.
+    var summary: String {
+        [tier == .unset ? nil : tier.title, twin == .unset ? nil : twin.title].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// What kind of thing a tag names, for people, in the web's words: Repository / Chat / Sender.
+    static func kindName(_ tag: String) -> String {
+        switch tag {
+        case "repo": String(localized: "Repository [Inbox Rule Kind]")
+        case "chat": String(localized: "Chat [Inbox Rule Kind]")
+        default: String(localized: "Sender [Inbox Rule Kind]")
+        }
+    }
+
+    /// The Rules list's second line: where it is from, what kind of thing, what it does.
+    var detail: String {
+        [sourceName ?? source, Self.kindName(tag), summary].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

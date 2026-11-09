@@ -23,8 +23,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
@@ -48,8 +50,9 @@ import persona.core.navigation.Navigator
 import java.io.File
 
 /**
- * The inbox and Feishu chat additions of #3045 in every style, light and dark: a row's "Mute" options, "Muted", "Pinned messages",
- * and my messages with their read receipts beside a recalled message "Keep recalled messages" kept and an edited one with "Edit history".
+ * The inbox and Feishu chat additions of #3045 in every style, light and dark: a row's "Mute" and "Rule" options, "Muted", "Pinned messages",
+ * and my messages with their read receipts beside a recalled message "Keep recalled messages" kept and an edited one with "Edit history";
+ * the Inbox's menu with "Rules", a new rule and one the hub has (with Remove), and "Rules" with some and with none.
  * Written as PNGs to `build/parity-shots/` to look at.
  */
 @RunWith(AndroidJUnit4::class)
@@ -88,7 +91,19 @@ class ParityInboxShotsTest {
             LarkChatPin("p2", "m2", message("m2", "", mine = false).copy(recalled = true, system = true, parts = emptyList()), createdAt = "2026-11-03T10:00:00Z"),
             LarkChatPin("p3", "m3", null, deleted = true),
         ), nextCursor = "c2", total = 5)
+        var policies = rules
+        override suspend fun inboxPolicies(record: InboxRecord?) = policies
+        override suspend fun savePolicy(target: InboxPolicyTarget, tier: InboxPolicyTier, twin: InboxPolicyTwin): InboxPolicy? = null
+        override suspend fun removePolicy(id: String) = Unit
     }
+
+    private val rules = listOf(
+        InboxPolicy("p1", "github", "GitHub", "sender", "octo", "octo-example", InboxPolicyTier.Action, InboxPolicyTwin.First, "2026-11-04T09:00:00Z"),
+        InboxPolicy("p2", "lark", "飞书", "chat", "oc_1", "周末徒步群", InboxPolicyTier.Noise, createdAt = "2026-11-03T09:00:00Z"),
+        InboxPolicy("p3", "mail", "me@example.com", "sender", "news@example.com", "news@example.com", InboxPolicyTier.Fyi, InboxPolicyTwin.Never,
+            "2026-11-02T09:00:00Z"),
+        InboxPolicy("p4", "github", "GitHub", "repo", "example-org/docs", "example-org/docs", twin = InboxPolicyTwin.Never, createdAt = "2026-11-01T09:00:00Z"),
+    )
 
     private val navigator = object : Navigator {
         override fun navigate(key: NavKey) = Unit
@@ -96,7 +111,7 @@ class ParityInboxShotsTest {
         override fun selectTab(tab: AppTab) = Unit
     }
 
-    private enum class Shot { RowMenu, Mutes, Pins, Bubbles, Thread }
+    private enum class Shot { RowMenu, More, Mutes, Pins, Bubbles, Thread, RuleNew, RuleEdit, Rules, RulesEmpty }
 
     // A thread whose reply was recalled and kept: "Keep recalled messages" shows it there too.
     private val threadRoot = message("t", "周四评审的议程", mine = false).copy(replyCount = 1, thread = LarkThreadSource {
@@ -114,7 +129,7 @@ class ParityInboxShotsTest {
                 key(run) {
                     Box(Modifier.testTag("shot").width(400.dp).height(900.dp).background(PersonaTheme.palette.background)) {
                         when (shot) {
-                            Shot.RowMenu -> InboxScreen(repository, navigator)
+                            Shot.RowMenu, Shot.More -> InboxScreen(repository, navigator)
                             Shot.Mutes -> InboxMutesSheet(repository, onDismiss = {})
                             Shot.Pins -> LarkPinsSheet(repository, "f1", onOpen = {}, onDismiss = {})
                             Shot.Bubbles -> CompositionLocalProvider(LocalLarkMessageDisplay provides LarkMessageDisplay("acct", antiRecall = true, showEditHistory = true)) {
@@ -135,12 +150,17 @@ class ParityInboxShotsTest {
                                 }
                             }
                             Shot.Thread -> LarkChatThreadSheet(threadRoot, repository, LarkMessageDisplay("acct", antiRecall = true), onDismiss = {})
+                            // A repository without a rule; the sender's from the hub's list, prefilled.
+                            Shot.RuleNew -> InboxPolicySheet(repository, InboxPolicyTarget.of(record, record.mutes[0]), onDismiss = {})
+                            Shot.RuleEdit -> InboxPolicySheet(repository, InboxPolicyTarget.of(record, record.mutes[1]), onDismiss = {})
+                            Shot.Rules, Shot.RulesEmpty -> InboxRulesSheet(repository, onDismiss = {})
                         }
                     }
                 }
             }
         }
         for (s in AppStyle.entries) for (d in listOf(false, true)) for (next in Shot.entries) {
+            repository.policies = if (next == Shot.RulesEmpty) emptyList() else rules
             style = s; dark = d; shot = next; run++
             rule.waitForIdle()
             when (next) {
@@ -148,12 +168,23 @@ class ParityInboxShotsTest {
                     rule.onNodeWithText("example-org/example-repo#12").performTouchInput { longClick() }
                     rule.waitForIdle()
                     rule.assertText("静音这个仓库 · example-repo"); rule.assertText("静音这个发件人 · octo-example")
+                    rule.assertText("为这个仓库设规则 · example-repo"); rule.assertText("为这个发件人设规则 · octo-example")
+                }
+                Shot.More -> {
+                    rule.onNodeWithContentDescription("更多").performClick()
+                    rule.waitForIdle()
+                    rule.assertText("已静音"); rule.assertText("规则")
                 }
                 Shot.Mutes -> { rule.assertText("周末徒步群"); rule.assertText("会话") }
                 Shot.Pins -> { rule.assertText("5 条 Pin"); rule.assertText("原消息已不可用"); rule.assertText("消息已撤回") }
                 Shot.Bubbles -> { rule.assertText("已读"); rule.assertText("5 人未读"); rule.assertText("全部已读"); rule.assertText("我先撤回这句")
                     rule.assertText("已撤回"); rule.assertText("消息已撤回") }
                 Shot.Thread -> { rule.assertText("这条回复撤回了但留着"); rule.assertText("已撤回") }
+                Shot.RuleNew -> { rule.assertText("example-repo 的规则"); rule.assertText("GitHub · 仓库"); rule.assertText("交给分拣")
+                    assertTrue(rule.onAllNodesWithText("移除").fetchSemanticsNodes().isEmpty()) }
+                Shot.RuleEdit -> { rule.assertText("octo-example 的规则"); rule.assertText("移除"); rule.assertText("分身优先") }
+                Shot.Rules -> { rule.assertText("周末徒步群"); rule.assertText("GitHub · 发件人 · 始终需要你 · 分身优先"); rule.assertText("编辑") }
+                Shot.RulesEmpty -> rule.assertText("还没有规则")
             }
             capture("parity-inbox-${next.name.lowercase()}-${s.name.lowercase()}-${if (d) "dark" else "light"}", window = next != Shot.Bubbles)
         }

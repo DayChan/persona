@@ -38,11 +38,14 @@ data class InboxMute(
     val createdAt: String? = null,
 ) {
     /** What kind of thing it is, for people: "Repository" / "Chat" / "Sender". */
-    @get:StringRes val tagName: Int get() = when (tag) {
-        "repo" -> R.string.inbox_mute_tag_repo
-        "chat" -> R.string.inbox_mute_tag_chat
-        else -> R.string.inbox_mute_tag_sender
-    }
+    @get:StringRes val tagName: Int get() = muteTagName(tag)
+}
+
+/** What kind of thing a mute or a rule names, for people: "Repository" / "Chat" / "Sender". */
+@StringRes internal fun muteTagName(tag: String): Int = when (tag) {
+    "repo" -> R.string.inbox_mute_tag_repo
+    "chat" -> R.string.inbox_mute_tag_chat
+    else -> R.string.inbox_mute_tag_sender
 }
 
 fun inboxMuteOptions(item: JsonObject): List<InboxMuteOption> =

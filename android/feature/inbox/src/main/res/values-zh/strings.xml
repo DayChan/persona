@@ -173,6 +173,35 @@
     <string name="inbox_unmute_failed">没能取消静音，已恢复</string>
     <string name="inbox_muted_notice">已静音「%1$s」，以后不再进收件箱</string>
 
+    <!-- Rules: where an item's chat, sender or repository goes, and the AI twin (InboxPolicies.kt). -->
+    <string name="inbox_policy_repo">为这个仓库设规则</string>
+    <string name="inbox_policy_chat">为这个会话设规则</string>
+    <string name="inbox_policy_sender">为这个发件人设规则</string>
+    <string name="inbox_policy_title">%1$s 的规则</string>
+    <string name="inbox_policy_intro">%1$s。hub 在 AI 分拣之后按这条规则处理这里进来的内容；静音仍然优先。</string>
+    <string name="inbox_policy_tier">放到哪里</string>
+    <string name="inbox_policy_tier_none">交给分拣</string>
+    <string name="inbox_policy_tier_action">始终需要你</string>
+    <string name="inbox_policy_tier_fyi">知悉</string>
+    <string name="inbox_policy_tier_noise">收起</string>
+    <string name="inbox_policy_twin">AI 分身</string>
+    <string name="inbox_policy_twin_none">按设置</string>
+    <string name="inbox_policy_twin_first">分身优先</string>
+    <string name="inbox_policy_twin_never">分身不碰</string>
+    <string name="inbox_policy_twin_note">分身优先：即使不是“需要你”也交给 AI 分身，并排在其他之前。分身不碰：始终留给你自己。需要先打开 AI 分身。</string>
+    <string name="inbox_policy_save">保存</string>
+    <string name="inbox_policy_cancel">取消</string>
+    <string name="inbox_policy_remove">移除</string>
+    <string name="inbox_policy_edit">编辑</string>
+    <string name="inbox_policy_saved">已为「%1$s」保存规则</string>
+    <string name="inbox_policy_removed">已移除「%1$s」的规则</string>
+    <string name="inbox_policy_failed">规则没保存成功：%1$s</string>
+    <string name="inbox_rules_title">规则</string>
+    <string name="inbox_rules_failed">规则没加载出来：%1$s</string>
+    <string name="inbox_rules_empty_title">还没有规则</string>
+    <string name="inbox_rules_empty_text">在收件箱里长按一条内容，为它的会话、发件人或仓库设规则。</string>
+    <string name="inbox_rules_remove_failed">规则没移除成功：%1$s</string>
+
     <!-- Inbox phase 1: events, suggestions, the Handling chain (InboxEvents.kt). -->
     <string name="inbox_section_working">进行中</string>
     <string name="inbox_handling_looking">AI 正在看</string>

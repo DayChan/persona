@@ -972,6 +972,65 @@ class InboxRepositoryTest {
         }
     }
 
+    @Test fun aRulesTierMovesWhatItCoversAtOnceAndAFailurePutsThemBack() = runBlocking {
+        val directory = Files.createTempDirectory("inbox-policy-test").toFile()
+        val owner = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            fun item(id: String, repo: String, status: String = "action", manager: String? = null) = buildJsonObject {
+                put("id", id); put("source", "github"); put("kind", "mention"); put("title", id)
+                put("tier", "action"); put("status", status); put("urgent", true)
+                if (manager != null) put("manager", manager)
+                putJsonArray("mutes") { add(buildJsonObject { put("tag", "repo"); put("value", repo) }) }
+            }
+            val transport = FakeTransport().apply {
+                items = JsonArray(listOf(item("a", "o/r"), item("b", "o/r", status = "working"), item("c", "o/other"), item("d", "o/r", manager = "m-3")))
+            }
+            val repository = repository(transport, directory, owner, FakeHub())
+            withTimeout(5_000) { repository.snapshot.first { it.contentSource != null } }
+            repository.refresh()
+            fun sections() = repository.snapshot.value.records.associate { it.hubItemId to "${it.item.tier}/${it.item.status}/${it.item.urgent}" }
+            val before = sections()
+            val a = repository.snapshot.value.records.single { it.hubItemId == "a" }
+            val target = InboxPolicyTarget.of(a, a.mutes.single())
+
+            val seen = mutableListOf<Map<String, String>>()
+            transport.onSetPolicy = { _, _, _, _ -> seen += sections(); throw IOException("offline") }
+            assertThrows(IOException::class.java) { runBlocking { repository.savePolicy(target, InboxPolicyTier.Noise, InboxPolicyTwin.First) } }
+            // Moved while the request was out: not the one being handled, the other repository's, or another manager's.
+            assertEquals(before + ("a" to "noise/noise/false"), seen.single())
+            assertEquals(before, sections())
+            assertEquals(listOf("POST a repo noise first "), transport.policyCalls)
+
+            transport.onSetPolicy = { _, tag, tier, twin -> buildJsonObject {
+                putJsonObject("policy") { put("id", "p1"); put("source", "github"); put("tag", tag); put("value", "o/r"); put("tier", tier); put("twin", twin) }
+                put("applied", 1)
+            } }
+            transport.items = JsonArray(transport.items.map { row ->
+                if ((row as JsonObject)["id"]!!.jsonPrimitive.content == "a") JsonObject(row + mapOf("tier" to JsonPrimitive("noise"), "status" to JsonPrimitive("noise"),
+                    "urgent" to JsonPrimitive(false))) else row
+            })
+            val saved = repository.savePolicy(target, InboxPolicyTier.Noise, InboxPolicyTwin.First)
+            assertEquals(InboxPolicy("p1", "github", tag = "repo", value = "o/r", name = "o/r", tier = InboxPolicyTier.Noise, twin = InboxPolicyTwin.First), saved)
+            assertEquals("noise/noise/false", sections()["a"])
+
+            // From "Rules": the rule's id, the default manager's items; clearing both parts removes it.
+            transport.onUpdatePolicy = { _, _, _ -> buildJsonObject { put("applied", 0) } }
+            assertNull(repository.savePolicy(InboxPolicyTarget.of(checkNotNull(saved)), InboxPolicyTier.None, InboxPolicyTwin.None))
+            assertEquals("PATCH p1   null", transport.policyCalls.last())
+            assertEquals("noise/noise/false", sections()["a"])
+
+            transport.policies = JsonArray(listOf(buildJsonObject { put("id", "p1"); put("source", "github"); put("tag", "repo"); put("value", "o/r") }))
+            assertEquals(listOf("p1"), repository.inboxPolicies().map { it.id })
+            val d = repository.snapshot.value.records.single { it.hubItemId == "d" }
+            repository.inboxPolicies(d)
+            repository.removePolicy("p1")
+            assertEquals(listOf("GET null", "GET m-3", "DELETE p1"), transport.policyCalls.takeLast(3))
+        } finally {
+            owner.coroutineContext[Job]!!.cancelAndJoin()
+            directory.deleteRecursively()
+        }
+    }
+
     // A Feishu chat that keeps announcing itself unchanged, and a burst of inbox changes, over a shown list on a slow
     // hub: the list never goes back to loading (which inserts a row and pushes it down), Feishu events do not refresh
     // the inbox (the hub sends {"type":"inbox"} when it changes), the burst is one refresh instead of a queue, and an
@@ -1179,5 +1238,21 @@ class InboxRepositoryTest {
         override suspend fun avatar(ref: String) = media(ref).also { avatarRefs += ref }
         var onMute: suspend (String, String) -> JsonObject = { _, _ -> JsonObject(emptyMap()) }
         override suspend fun muteInbox(itemId: String, tag: String) = onMute(itemId, tag)
+        /** Each policy request: its method, what it named and the manager its request named (RequestManager). */
+        val policyCalls = mutableListOf<String>()
+        private suspend fun manager() = currentCoroutineContext()[RequestManager]?.id
+        var policies = JsonArray(emptyList())
+        override suspend fun inboxPolicies(): JsonObject { policyCalls += "GET ${manager()}"; return buildJsonObject { put("policies", policies) } }
+        var onSetPolicy: suspend (String, String, String, String) -> JsonObject = { _, _, _, _ -> JsonObject(emptyMap()) }
+        override suspend fun setInboxPolicy(itemId: String, tag: String, tier: String, twin: String): JsonObject {
+            policyCalls += "POST $itemId $tag $tier $twin ${manager()}"
+            return onSetPolicy(itemId, tag, tier, twin)
+        }
+        var onUpdatePolicy: suspend (String, String, String) -> JsonObject = { _, _, _ -> JsonObject(emptyMap()) }
+        override suspend fun updateInboxPolicy(id: String, tier: String, twin: String): JsonObject {
+            policyCalls += "PATCH $id $tier $twin ${manager()}"
+            return onUpdatePolicy(id, tier, twin)
+        }
+        override suspend fun removeInboxPolicy(id: String) { policyCalls += "DELETE $id" }
     }
 }

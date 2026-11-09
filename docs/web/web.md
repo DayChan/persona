@@ -1421,6 +1421,7 @@ Compared item by item with iOS as the reference and Android for comparison. #297
 | Moments posts and comments | Yes | #297 | Read-only |
 | Connector items (GitHub, Telegram, Messages, extensions): source filter, chat page, reply or "Open in X", hand to AI | Yes | #1324, #2990 | GitHub timelines and Telegram bubbles are read-only plus reply; images in chats open in the image viewer (#2990); reactions, forwarding, and downloading attachments are not done |
 | Mute this repository / chat / sender, a "Muted" list and unmute | Yes | #2968 | The App uses long press on a row; the web uses right click on a row, or the mute button next to the item page title (for touch); "Muted" is in the list's ⋯ menu, as a dialog |
+| Rule for this repository / chat / sender (tier and AI twin), a "Rules" list with edit and remove | Yes | #2140 | The App's entries sit after the mute options: long press on a row (iOS, Android), right click (Mac), the item page's ⋯ (iOS); "Rules" is in the list's ⋯ menu (Mac: the toolbar and the Inbox menu). The App lists the default manager's rules only |
 
 ### Machines and settings
 
