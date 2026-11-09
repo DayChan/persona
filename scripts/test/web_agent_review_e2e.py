@@ -5,10 +5,10 @@ review's findings arrive as one card on the session's chat — "N 条发现", th
 the card with action send and the card goes, Dismiss with dismiss and the card goes; a review without a count line says
 审查完成.
 
-Needs a running web page against the fake hub with MOCK_AGENT_REVIEW=1 (scripts/mock/mock_agent_review.py: its GET
+Needs a running web page against the fake hub with MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 (scripts/mock/mock_agent_review.py: its GET
 /mock/agent-review switches the state and reads back what the page asked) and Playwright for Python:
 
-    PORT=18873 MOCK_AGENT_REVIEW=1 python3 scripts/mock/mock_hub.py &
+    PORT=18873 MOCK_AGENT_REVIEW=1 MOCK_REVIEW=1 python3 scripts/mock/mock_hub.py &
     (cd web && PERSONA_HUB_URL=http://127.0.0.1:18873 npx vite --port 5193 --strictPort &)
     python3 scripts/test/web_agent_review_e2e.py http://127.0.0.1:5193 --hub http://127.0.0.1:18873 [--shots <dir>]
 
@@ -37,8 +37,8 @@ def fail(msg):
     sys.exit(1)
 
 
-def mock(hub, token, query=""):
-    req = urllib.request.Request(f"{hub}/mock/agent-review{query}", headers={"Authorization": "Bearer " + token})
+def mock(hub, token, query="", route="agent-review"):
+    req = urllib.request.Request(f"{hub}/mock/{route}{query}", headers={"Authorization": "Bearer " + token})
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
@@ -70,14 +70,16 @@ def run(browser, base, hub, token, size, theme, shots):
         return page.get_by_role("menuitem", name="独立审查这项工作")
 
     # the menu entry starts a review; the hub notes the ask
+    mock(hub, token, "?mode=1", route="review")
     open_chat(card=False)
+    mock(hub, token, "?reset=1")
     item = menu_item()
     expect(item).to_be_visible()
     shot("menu")
     item.click()
     expect(page.get_by_text("已开始独立审查，完成后这里会出现结果卡片")).to_be_visible()
     starts = mock(hub, token)["starts"]
-    if not any(s["machine"] == MID and s["session"] == SID for s in starts):
+    if len(starts) != 1 or starts[0]["machine"] != MID or starts[0]["session"] != SID:
         fail(f"{tag}: the hub was not asked to review {SID}: {starts}")
     ok(f"{tag}: the menu entry starts a review of this session")
     page.keyboard.press("Escape")
@@ -93,6 +95,16 @@ def run(browser, base, hub, token, size, theme, shots):
     expect(busy).to_contain_text("它正在忙")
     ok(f"{tag}: a busy chat keeps the entry, disabled with its reason")
     page.keyboard.press("Escape")
+
+    # a clean repository keeps the entry disabled with its reason
+    mock(hub, token, "?mode=clean", route="review")
+    open_chat(card=False)
+    clean = menu_item()
+    expect(clean).to_be_disabled()
+    expect(clean).to_contain_text("没有可审查的改动")
+    ok(f"{tag}: a clean repository disables the entry with its reason")
+    page.keyboard.press("Escape")
+    mock(hub, token, "?mode=1", route="review")
 
     # a refusal comes back in the hub's own words
     open_chat(card=False)
@@ -115,20 +127,22 @@ def run(browser, base, hub, token, size, theme, shots):
     ok(f"{tag}: the findings card shows the count, the report and both buttons")
 
     # Send forwards the findings and the card goes
+    mock(hub, token, "?reset=1")
     card.get_by_role("button", name="发给 Agent").click()
     expect(card).to_have_count(0)
     answers = mock(hub, token)["answers"]
-    if not any(a.get("action") == "send" for a in answers):
+    if len(answers) != 1 or answers[0].get("action") != "send":
         fail(f"{tag}: Send did not answer the card: {answers}")
     ok(f"{tag}: Send answers the card and it goes")
 
     # Dismiss closes it without sending
     open_chat(card=True)
     card = page.locator(f'[data-card^="review_"]')
+    mock(hub, token, "?reset=1")
     card.get_by_role("button", name="不发了").click()
     expect(card).to_have_count(0)
     answers = mock(hub, token)["answers"]
-    if not any(a.get("dismiss") for a in answers):
+    if len(answers) != 1 or not answers[0].get("dismiss"):
         fail(f"{tag}: Dismiss did not answer the card: {answers}")
     ok(f"{tag}: Dismiss closes the card without sending")
 

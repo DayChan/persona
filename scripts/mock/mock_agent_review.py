@@ -7,6 +7,7 @@ The routes answer for the demo chat the Review e2e also uses (the weather app on
     ?state=card|none      whether the finished review's card is up on the session
     ?count=1|0            the card's count line: "3 条发现" (1) or "审查完成" without a count (0)
     ?running=1|0          whether a review is under way (the GET's answer)
+    ?reset=1              clear the recorded starts and answers
     ?refuse=<code>        the POST's refusal instead of a start: session_busy, no_change, review_running,
                           read_only_unavailable or not_supported, with the hub's words for it
     no arguments          the current state and the starts/answers the page made
@@ -85,6 +86,9 @@ def refused(code):
 def control(q):
     """GET /mock/agent-review: switch the state, then read it (with what the page asked so far)."""
     with LOCK:
+        if q.get("reset") == ["1"]:
+            STARTS.clear()
+            ANSWERS.clear()
         if "state" in q:
             STATE["card"] = q["state"][0] == "card"
         if "count" in q:
