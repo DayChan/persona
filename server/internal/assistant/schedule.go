@@ -2083,7 +2083,7 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	text = clip(oneLine(text), 300)
 	s.logf("task %s run %s failed: %s", t.ID, run.ID, text)
 	limited := false
-	if !run.Retried {
+	if !run.Retried && !t.manualLimitRetry {
 		reset, turn, resumes, isLimited := s.runLimit(ctx, m.ID, run.SessionID, full)
 		limited = isLimited
 		if limited && !resumes {
@@ -2114,8 +2114,8 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	if !streak { // the streak notice already said it failed, with this reason
 		s.push(reportCtx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID, Title: i18n.T(s.lang(reportCtx), "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: text})
 	}
-	if run.Retried {
-		return
+	if run.Retried || t.manualLimitRetry {
+		return // replacing an armed retry never schedules another automatic attempt
 	}
 	if limited {
 		return
