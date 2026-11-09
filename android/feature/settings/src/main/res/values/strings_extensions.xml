@@ -346,4 +346,9 @@
     <string name="settings_ext_program_outdated">personad on this computer is too old; update it to run</string>
     <string name="settings_ext_program_error">Program error</string>
     <string name="settings_ext_program_error_detail">Program error: %1$s</string>
+    <string name="settings_ext_more_actions">More actions</string>
+    <string name="settings_ext_tile_on">On</string>
+    <string name="settings_ext_open_image">View image</string>
+    <string name="settings_ext_chosen_count">%1$d selected</string>
+    <string name="settings_ext_pick_time">Time</string>
 </resources>

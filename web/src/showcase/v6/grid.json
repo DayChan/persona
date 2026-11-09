@@ -1,0 +1,300 @@
+{
+  "title": "网格",
+  "sections": [
+    {
+      "title": "房间（最多 2 列）",
+      "items": [
+        {
+          "type": "grid",
+          "key": "rooms",
+          "max_columns": 2,
+          "tiles": [
+            {
+              "key": "room.0",
+              "title": "客厅",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "room.0",
+                "on": true,
+                "action": {
+                  "id": "room_power",
+                  "values": {
+                    "room": "0"
+                  }
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "客厅"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关闭",
+                  "icon": "power",
+                  "action": {
+                    "id": "room_off"
+                  }
+                }
+              ],
+              "subtitle": "3 盏灯开着",
+              "value": "24 °C"
+            },
+            {
+              "key": "room.1",
+              "title": "卧室",
+              "icon": "light",
+              "color": "purple",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "room.1",
+                "on": false,
+                "action": {
+                  "id": "room_power",
+                  "values": {
+                    "room": "1"
+                  }
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "卧室"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关闭",
+                  "icon": "power",
+                  "action": {
+                    "id": "room_off"
+                  }
+                }
+              ],
+              "value": "22 °C"
+            },
+            {
+              "key": "room.2",
+              "title": "厨房",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "room.2",
+                "on": true,
+                "action": {
+                  "id": "room_power",
+                  "values": {
+                    "room": "2"
+                  }
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "厨房"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关闭",
+                  "icon": "power",
+                  "action": {
+                    "id": "room_off"
+                  }
+                }
+              ],
+              "subtitle": "有人",
+              "value": "25 °C"
+            },
+            {
+              "key": "room.3",
+              "title": "书房",
+              "icon": "light",
+              "color": "teal",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "room.3",
+                "on": false,
+                "action": {
+                  "id": "room_power",
+                  "values": {
+                    "room": "3"
+                  }
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "书房"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关闭",
+                  "icon": "power",
+                  "action": {
+                    "id": "room_off"
+                  }
+                }
+              ],
+              "value": "21 °C"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "场景（最多 4 列）",
+      "items": [
+        {
+          "type": "grid",
+          "key": "scenes",
+          "max_columns": 4,
+          "tiles": [
+            {
+              "key": "scene.home",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "home"
+                }
+              }
+            },
+            {
+              "key": "scene.away",
+              "title": "离家",
+              "icon": "lock",
+              "color": "indigo",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "away"
+                }
+              }
+            },
+            {
+              "key": "scene.sleep",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "sleep"
+                }
+              }
+            },
+            {
+              "key": "scene.movie",
+              "title": "观影",
+              "icon": "tv",
+              "color": "pink",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "movie"
+                }
+              }
+            },
+            {
+              "key": "scene.morning",
+              "title": "起床",
+              "icon": "sun",
+              "color": "amber",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "morning"
+                }
+              }
+            },
+            {
+              "key": "scene.eco",
+              "title": "节能",
+              "icon": "leaf",
+              "color": "teal",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "eco"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "带图的格子",
+      "items": [
+        {
+          "type": "grid",
+          "key": "pics",
+          "max_columns": 3,
+          "tiles": [
+            {
+              "key": "pic.front",
+              "title": "前门",
+              "subtitle": "刚刚",
+              "image": {
+                "ref": "camera.front_door"
+              },
+              "badge": {
+                "text": "有人",
+                "tone": "caution"
+              },
+              "action": {
+                "id": "open_camera"
+              }
+            },
+            {
+              "key": "pic.garden",
+              "title": "院子",
+              "subtitle": "1 分钟前",
+              "image": {
+                "ref": "photo.garden"
+              },
+              "action": {
+                "id": "open_camera"
+              }
+            },
+            {
+              "key": "pic.power",
+              "title": "用电",
+              "value": "12.4 kWh",
+              "icon": "bolt",
+              "color": "yellow",
+              "spark": {
+                "values": [
+                  1,
+                  2,
+                  1.5,
+                  3,
+                  2.4,
+                  3.6
+                ],
+                "color": "yellow"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

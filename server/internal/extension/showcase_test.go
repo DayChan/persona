@@ -48,7 +48,7 @@ func TestShowcaseIsDrawable(t *testing.T) {
 				dropped, err = FitWidget(&v, strings.TrimPrefix(name, "widget-"), version)
 			case strings.HasPrefix(name, "shortcut-"): // a shortcut's result card: the large widget's subset
 				dropped, err = FitWidget(&v, "large", version)
-			case name == "card":
+			case name == "card" || strings.HasPrefix(name, "card-"):
 				dropped, err = Fit(&v, slot("overview_card"), version)
 			default:
 				dropped, err = Fit(&v, slot("nav_page"), version)

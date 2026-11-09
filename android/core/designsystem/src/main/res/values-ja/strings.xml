@@ -315,4 +315,8 @@
     <string name="designsystem_color_lavender">ラベンダー</string>
     <string name="designsystem_color_teal">ティール</string>
     <string name="designsystem_color_lark">Lark ブルー</string>
+    <string name="designsystem_candle">始値 %1$s · 高値 %2$s · 安値 %3$s · 終値 %4$s</string>
+    <string name="designsystem_candle_volume">出来高 %1$s</string>
+    <string name="designsystem_stepper_minus">減らす</string>
+    <string name="designsystem_stepper_plus">増やす</string>
 </resources>

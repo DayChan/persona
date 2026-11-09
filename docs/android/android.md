@@ -1263,6 +1263,42 @@ Specification [extensions.md](../extensions/extensions.md) ("UI version 5: code 
 word-level highlight, context expansion, viewed (`mark_viewed` or local SharedPreferences `path@revision`), generated/large/viewed files collapsed, two line-number taps select comment range, drafts/bottom review strip (summary sheet), suggestion, ignore whitespace.
 Context/mark_viewed/auto-load use nonbusy `ExtensionUiState.fetch`, response items replace by key in place. Unified only. `ExtensionCodeReviewTest`, `ExtensionReviewShotsTest`.
 
+### Host-owned extension settings (#2397)
+
+Android follows [the shared settings contract](../extensions/extension-settings.md). Every `ExtensionPage`, including direct navigation,
+installation/sign-in returns and the standalone Settings fallback, delegates the standard sections to `ExtensionSettingsPage`:
+**Enabled → Extension configuration (including Save) → Information → Updates → Danger zone**. The configuration slot retains schema fields,
+secrets, sign-in, machine selection, custom-page links and connector/channel configuration links. Contribution switches, isolation and
+permissions remain host diagnostics after the identity rows. Custom extension views, connector/channel business pages and the marketplace
+consent screen are not replacement extension settings pages.
+
+- Built-in, configured, development, attached, market-installed and other installed sources all use the same renderer. Unsupported check,
+  auto-upgrade and uninstall controls stay visible, disabled and explained. Unknown manager capabilities fail closed. Source metadata, not
+  extension-owned settings or arbitrary URLs, determines lifecycle authority. `attached` is decoded from existing manager metadata.
+- Information always includes installed version, selectable extension ID, source, runtime and installation provenance. Missing values say
+  **Not provided**; local installation directories are never displayed. Homepages must be valid HTTPS URLs without embedded credentials.
+- Save belongs to configuration, before Information. Enabled, Auto-upgrade and Check for updates never submit dirty configuration. A failed
+  canonical read keeps the last detail and draft but blocks lifecycle writes and Save until a successful retry.
+- Checks refresh the owning manager's market catalog and then reload its canonical extension detail. Missing markets, catalog errors and
+  missing catalog entries are not reported as current. The saved auto-upgrade preference stays on while paused; disabled-extension,
+  removed-market and manager-global pauses are explained separately. A global preference read failure is visible rather than assumed on.
+- Catalog/upgrade routes retain the manager through consent, installation and sign-in; operation pushes are filtered by that owner.
+  The application facade forwards the existing per-extension and global auto-upgrade APIs. Uninstall confirmation includes installed version
+  and defaults to keeping data; dependency refusal still uses the existing explicit cascade confirmation.
+
+**Existing API boundaries; no server changes:** the detail response does not provide a declared runtime kind (`kind` is its first contribution
+point), so Runtime says **Not provided**. Rollback has an execution endpoint but no consent preview; when a previous version exists, Roll back
+is visible and disabled with that reason. There is no non-mutating uninstall/dependency preflight endpoint; Android never issues DELETE to
+probe before confirmation. Pack-member uninstall, a complete history list and detailed installed dependency/pack inspection remain outside
+this change; the existing Android member-removal gap is described below. Adding safe runtime metadata or preview contracts requires a
+separate server decision, not a fabricated field or operation in the client.
+
+Regression tests: `ExtensionSettingsStateTest`, `ExtensionSettingsShotsTest`, `CatalogExtensionManagerTest` and
+`ExtensionCatalogRouteCompatibilityTest`. Screenshots render actual `ExtensionPage` instances for built-in realtime voice, installed Example
+Notes and configured Example Weather, in all three styles × light/dark, using Robolectric native graphics. They are Compose/JVM evidence,
+not emulator, physical-device or production deployment evidence. Images go to `android/feature/settings/build/extension-settings-shots/`
+and are attached to the PR, not committed.
+
 ### Extension model and declarative contributions (#2226)
 
 Specification [extensions.md](../extensions/extensions.md) ("Contribution toggles", "Dependencies, exports and bundles", "Declarative contributions", "Sandbox"). Android UI/HTTP only, no extension program execution or generated `ExtensionWire.kt` edits.

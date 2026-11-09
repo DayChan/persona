@@ -1,0 +1,216 @@
+{
+  "title": "输入（v6）",
+  "sections": [
+    {
+      "title": "日期和时间",
+      "items": [
+        {
+          "type": "field",
+          "name": "day",
+          "label": "日期",
+          "kind": "date",
+          "value": "2026-11-06",
+          "earliest": "2026-11-01",
+          "latest": "2027-11-01",
+          "detail": "2026-11-01 到 2027-11-01 之间"
+        },
+        {
+          "type": "field",
+          "name": "at",
+          "label": "时间",
+          "kind": "time",
+          "value": "07:30",
+          "detail": "按你的时区"
+        },
+        {
+          "type": "field",
+          "name": "until",
+          "label": "截止",
+          "kind": "datetime",
+          "value": "2026-11-06T22:00",
+          "earliest": "2026-11-06T08:00"
+        }
+      ]
+    },
+    {
+      "title": "多选",
+      "items": [
+        {
+          "type": "field",
+          "name": "rooms",
+          "label": "房间（4 个选项）",
+          "kind": "multichoice",
+          "value": "[\"kitchen\",\"bedroom\"]",
+          "choices": [
+            {
+              "value": "kitchen",
+              "title": "厨房"
+            },
+            {
+              "value": "bedroom",
+              "title": "卧室"
+            },
+            {
+              "value": "living",
+              "title": "客厅"
+            },
+            {
+              "value": "study",
+              "title": "书房"
+            }
+          ]
+        },
+        {
+          "type": "field",
+          "name": "many",
+          "label": "房间（30 个选项）",
+          "kind": "multichoice",
+          "value": "[\"r0\",\"r3\",\"r7\"]",
+          "choices": [
+            {
+              "value": "r0",
+              "title": "房间 1"
+            },
+            {
+              "value": "r1",
+              "title": "房间 2"
+            },
+            {
+              "value": "r2",
+              "title": "房间 3"
+            },
+            {
+              "value": "r3",
+              "title": "房间 4"
+            },
+            {
+              "value": "r4",
+              "title": "房间 5"
+            },
+            {
+              "value": "r5",
+              "title": "房间 6"
+            },
+            {
+              "value": "r6",
+              "title": "房间 7"
+            },
+            {
+              "value": "r7",
+              "title": "房间 8"
+            },
+            {
+              "value": "r8",
+              "title": "房间 9"
+            },
+            {
+              "value": "r9",
+              "title": "房间 10"
+            },
+            {
+              "value": "r10",
+              "title": "房间 11"
+            },
+            {
+              "value": "r11",
+              "title": "房间 12"
+            },
+            {
+              "value": "r12",
+              "title": "房间 13"
+            },
+            {
+              "value": "r13",
+              "title": "房间 14"
+            },
+            {
+              "value": "r14",
+              "title": "房间 15"
+            },
+            {
+              "value": "r15",
+              "title": "房间 16"
+            },
+            {
+              "value": "r16",
+              "title": "房间 17"
+            },
+            {
+              "value": "r17",
+              "title": "房间 18"
+            },
+            {
+              "value": "r18",
+              "title": "房间 19"
+            },
+            {
+              "value": "r19",
+              "title": "房间 20"
+            },
+            {
+              "value": "r20",
+              "title": "房间 21"
+            },
+            {
+              "value": "r21",
+              "title": "房间 22"
+            },
+            {
+              "value": "r22",
+              "title": "房间 23"
+            },
+            {
+              "value": "r23",
+              "title": "房间 24"
+            },
+            {
+              "value": "r24",
+              "title": "房间 25"
+            },
+            {
+              "value": "r25",
+              "title": "房间 26"
+            },
+            {
+              "value": "r26",
+              "title": "房间 27"
+            },
+            {
+              "value": "r27",
+              "title": "房间 28"
+            },
+            {
+              "value": "r28",
+              "title": "房间 29"
+            },
+            {
+              "value": "r29",
+              "title": "房间 30"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "多行",
+      "items": [
+        {
+          "type": "field",
+          "name": "note",
+          "label": "备注",
+          "kind": "multiline",
+          "value": "第一行\n第二行",
+          "placeholder": "写点什么"
+        },
+        {
+          "type": "button",
+          "title": "提交",
+          "action": {
+            "id": "submit",
+            "submit": true
+          }
+        }
+      ]
+    }
+  ]
+}

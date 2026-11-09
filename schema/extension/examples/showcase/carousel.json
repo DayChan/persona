@@ -1,0 +1,166 @@
+{
+  "title": "横向卡片",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "左右滑动；每张卡露出下一张的一点边。三种宽度：narrow 场景、regular 房间、wide 摄像头画面。"
+        },
+        {
+          "type": "carousel",
+          "key": "scenes",
+          "title": "场景（narrow）",
+          "width": "narrow",
+          "tiles": [
+            {
+              "key": "sc0",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "sc1",
+              "title": "观影",
+              "icon": "tv",
+              "color": "indigo",
+              "active": true,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "sc2",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "sc3",
+              "title": "起床",
+              "icon": "sun",
+              "color": "amber",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "sc4",
+              "title": "离家",
+              "icon": "lock",
+              "color": "gray",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            }
+          ]
+        },
+        {
+          "type": "carousel",
+          "key": "rooms",
+          "title": "房间（regular）",
+          "tiles": [
+            {
+              "key": "rm0",
+              "title": "客厅",
+              "subtitle": "2 盏灯开着",
+              "value": "22.5°C",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "action": {
+                "id": "room"
+              }
+            },
+            {
+              "key": "rm1",
+              "title": "卧室",
+              "subtitle": "关",
+              "value": "21°C",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "room"
+              }
+            },
+            {
+              "key": "rm2",
+              "title": "厨房",
+              "subtitle": "1 盏灯开着",
+              "value": "24°C",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "action": {
+                "id": "room"
+              }
+            },
+            {
+              "key": "rm3",
+              "title": "书房",
+              "subtitle": "关",
+              "value": "20.5°C",
+              "icon": "light",
+              "color": "amber",
+              "active": false,
+              "action": {
+                "id": "room"
+              }
+            }
+          ]
+        },
+        {
+          "type": "carousel",
+          "key": "cams",
+          "title": "摄像头（wide）",
+          "width": "wide",
+          "tiles": [
+            {
+              "key": "c1",
+              "title": "门口",
+              "subtitle": "10 秒前",
+              "image": {
+                "ref": "camera.front_door"
+              },
+              "action": {
+                "id": "cam"
+              }
+            },
+            {
+              "key": "c2",
+              "title": "院子",
+              "subtitle": "1 分钟前",
+              "image": {
+                "ref": "garden"
+              },
+              "action": {
+                "id": "cam"
+              }
+            },
+            {
+              "key": "c3",
+              "title": "车库",
+              "subtitle": "离线",
+              "icon": "car",
+              "action": {
+                "id": "cam"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

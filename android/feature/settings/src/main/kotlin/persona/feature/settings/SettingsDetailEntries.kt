@@ -36,12 +36,13 @@ fun EntryProviderScope<NavKey>.settingsDetailEntries(navigator: Navigator, servi
             providers = services.providers.takeUnless { demo }, manager = route.manager)
     }
     entry<ExtensionRoute> { route ->
+        val manager = remember(route) { ExtensionOwners.of(route.manager) }
         ExtensionPage(services.extensions.takeUnless { demo }, route.extensionId, onBack = navigator::back, startSignIn = route.signIn,
-            manager = route.manager,
-            onPage = { page -> navigator.navigate(ExtensionUiRoute(page.extension.ifBlank { route.extensionId }, page.id, page.title.ifBlank { page.id }, manager = route.manager)) },
+            manager = manager,
+            onPage = { page -> navigator.navigate(ExtensionUiRoute(page.extension.ifBlank { route.extensionId }, page.id, page.title.ifBlank { page.id }, manager = manager)) },
             onChannel = { navigator.navigate(ChannelRoute(it)) }, machines = services.sessions.machines,
-            onUpgrade = { market, id -> navigator.navigate(ExtensionCatalogRoute(market, id)) },
-            connectors = services.connectors.takeUnless { demo }, onConnector = { navigator.navigate(ConnectorRoute(it, route.manager)) })
+            onUpgrade = { market, id -> navigator.navigate(ExtensionCatalogRoute(market, id, manager = manager)) },
+            connectors = services.connectors.takeUnless { demo }, onConnector = { navigator.navigate(ConnectorRoute(it, manager)) })
     }
     entry<ConnectorRoute> { route ->
         HubConnectorPage(services.connectors.takeUnless { demo }, route.connectorId, onBack = navigator::back, manager = route.manager)
@@ -57,8 +58,11 @@ fun EntryProviderScope<NavKey>.settingsDetailEntries(navigator: Navigator, servi
             onExtension = { navigator.navigate(ExtensionCatalogRoute(it.market, it.id)) }, onMarkets = { navigator.navigate(ExtensionMarketsRoute) })
     }
     entry<ExtensionCatalogRoute> { route ->
+        val manager = remember(route) { ExtensionOwners.of(route.manager) }
         ExtensionCatalogPage(services.extensions.takeUnless { demo }, route.marketId, route.extensionId, onBack = navigator::back,
-            onInstalled = { navigator.navigate(ExtensionRoute(it)) }, onSignIn = { navigator.navigate(ExtensionRoute(it, signIn = true)) })
+            manager = manager,
+            onInstalled = { navigator.navigate(ExtensionRoute(it, manager = manager)) },
+            onSignIn = { navigator.navigate(ExtensionRoute(it, signIn = true, manager = manager)) })
     }
     entry<ExtensionMarketsRoute> { ExtensionMarketsPage(services.extensions.takeUnless { demo }, onBack = navigator::back) }
     entry<persona.core.navigation.ManagerRoute> { route ->

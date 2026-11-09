@@ -17,6 +17,7 @@ import persona.core.contracts.api.BindPrompt
 import persona.core.contracts.api.ExtensionPreview
 import persona.core.contracts.api.ExtensionUiContext
 import persona.core.contracts.api.ExtensionUiForbidden
+import persona.core.contracts.api.ExtensionImageExpired
 import persona.core.contracts.api.ExtensionUiNotFound
 import persona.core.contracts.api.ExtensionUiPlace
 import persona.core.contracts.api.ExtensionUiResult
@@ -134,6 +135,34 @@ class HttpExtensionManagement internal constructor(
     override suspend fun uiAction(
         extension: String, ui: String, action: String, context: ExtensionUiContext?, state: String?, values: Map<String, String>?,
     ): ExtensionUiResult = read(uiCall(extension, ui, uiBody(context, state, action, values)), ExtensionUiResult.serializer())
+
+    /**
+     * A picture the extension serves (UI version 6) at the path the hub signed for it. Only a path of the hub's own image
+     * route is asked for (the device's credentials go to the hub and nowhere else); only a PNG, JPEG, WebP or GIF of at
+     * most [MaxImageBytes] is taken. 410: the signature has expired, the page is to be drawn again.
+     */
+    override suspend fun uiImage(path: String): ByteArray {
+        require(isImagePath(path)) { "Invalid image path" }
+        return try {
+            request(path, "GET", null).use { response ->
+                if (!response.isSuccessful) throw HubFailure.from(response)
+                val type = response.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+                if (type !in ImageTypes) throw HubFailure(HubError.Protocol)
+                val body = response.body ?: throw HubFailure(HubError.Protocol)
+                if (body.contentLength() > MaxImageBytes) throw HubFailure(HubError.Protocol)
+                val bytes = body.source().use { source ->
+                    // read at most one byte past the limit, so a body without a length cannot run away
+                    source.request(MaxImageBytes + 1L)
+                    source.buffer.size.takeIf { it <= MaxImageBytes } ?: throw HubFailure(HubError.Protocol)
+                    source.buffer.readByteArray()
+                }
+                bytes.takeIf { it.isNotEmpty() } ?: throw HubFailure(HubError.Protocol)
+            }
+        } catch (failure: HubFailure) {
+            if (failure.status == 410) throw ExtensionImageExpired()
+            throw failure
+        }
+    }
 
     /**
      * Every call says where and for whom it draws (docs/extensions/extensions.md "UI slots" "Context"): the caller's launcher, machine,
@@ -359,9 +388,18 @@ class HttpExtensionManagement internal constructor(
          * The UI version this app draws: 2 has charts, stat grids, segmented controls and `refresh_after`; 3 markdown,
          * tables, empty and loading states, a row's picture, search, filter, "Load more", push / pop and `ui.invalidate`; 4 the
          * code hosting components (header, breadcrumb, file tree, code, diff, comments, composer), tabs, split views and
-         * an action's values; 5 code review (a diff's hidden lines, viewed marks, drafts and the review's bar, #3136).
+         * an action's values; 5 code review (a diff's hidden lines, viewed marks, drafts and the review's bar, #3136); 6
+         * pictures, controls in rows, candlesticks / areas / donuts / pies and sparks, a row's actions, grids and carousels,
+         * date / time / multichoice / multiline fields, title styles, named colours and more icons (#5464).
          */
-        const val UI_VERSION = 5
+        const val UI_VERSION = 6
+
+        /** The hub's own picture route (UI version 6), the one path a view's picture is fetched from with credentials. */
+        private val ImagePath = Regex("/api/v1/extensions/[A-Za-z0-9_-]{1,64}/-/image/[A-Za-z0-9_.-]{1,1900}")
+        fun isImagePath(path: String?): Boolean = path != null && ImagePath.matches(path)
+        private val ImageTypes = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+        /** The hub takes at most 4 MB from an extension; a little room over it. */
+        const val MaxImageBytes = 5L * 1024 * 1024
 
         /** This phone's time zone (IANA) and language (a BCP 47 tag), the platform and the UI version it draws. */
         fun deviceContext() = ExtensionUiContext(tz = java.util.TimeZone.getDefault().id, locale = java.util.Locale.getDefault().toLanguageTag(),

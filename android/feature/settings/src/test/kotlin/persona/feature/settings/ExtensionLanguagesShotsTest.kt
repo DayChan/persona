@@ -103,15 +103,15 @@ class ExtensionLanguagesShotsTest {
     ))
 
     @Config(sdk = [35], qualifiers = "zh-w400dp-h2400dp-xhdpi")
-    @Test fun simplifiedChinese() = shots("zh", listOf("扩展市场", "这台 hub 的扩展", "需要设置"), listOf("运行隔离", "密钥", "提供", "关于"),
+    @Test fun simplifiedChinese() = shots("zh", listOf("扩展市场", "这台 hub 的扩展", "需要设置"), listOf("运行隔离", "密钥", "提供", "信息", "扩展配置"),
         listOf("可以安装的扩展", "可升级"), listOf("这台 hub 读的市场", "官方"), listOf("扩展", "重试"))
 
     @Config(sdk = [35], qualifiers = "en-w400dp-h2400dp-xhdpi")
-    @Test fun english() = shots("en", listOf("Extension market", "This hub's extensions", "Needs setup"), listOf("Isolation", "Secrets", "Provides", "About"),
+    @Test fun english() = shots("en", listOf("Extension market", "This hub's extensions", "Needs setup"), listOf("Isolation", "Secrets", "Provides", "Information", "Extension configuration"),
         listOf("Extensions to install", "Upgrade available"), listOf("Markets this hub reads", "Official"), listOf("Extensions", "Retry"))
 
     @Config(sdk = [35], qualifiers = "ja-w400dp-h2400dp-xhdpi")
-    @Test fun japanese() = shots("ja", listOf("拡張機能マーケット", "このハブの拡張機能", "設定が必要"), listOf("実行の分離", "シークレット", "提供機能", "情報"),
+    @Test fun japanese() = shots("ja", listOf("拡張機能マーケット", "このハブの拡張機能", "設定が必要"), listOf("実行の分離", "シークレット", "提供機能", "情報", "拡張機能の設定"),
         listOf("インストールできる拡張機能", "アップグレード可"), listOf("このハブが読むマーケット", "公式"), listOf("拡張機能", "再試行"))
 
     private enum class Page { List, Detail, Market, Catalog, Markets, Slots }

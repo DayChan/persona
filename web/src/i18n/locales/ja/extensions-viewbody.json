@@ -1,5 +1,19 @@
 {
   "loading": "読み込み中…",
   "load_more": "さらに読み込む",
-  "side_pane": "ファイル"
+  "side_pane": "ファイル",
+  "decrease": "{name}を下げる",
+  "increase": "{name}を上げる",
+  "more_actions": "その他の操作",
+  "view_image": "{alt}を表示",
+  "scroll_back": "前へスクロール",
+  "scroll_on": "次へスクロール",
+  "tile_on": "オン",
+  "read_sep": "、",
+  "list_sep": "、",
+  "none_chosen": "未選択",
+  "chosen_count_other": "{count} 件選択",
+  "done": "完了",
+  "search_choices": "検索",
+  "no_match": "一致する項目はありません"
 }
