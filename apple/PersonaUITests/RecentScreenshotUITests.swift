@@ -54,9 +54,10 @@ final class RecentScreenshotUITests: XCTestCase {
         openPlus(app)
         switch expect {
         case "offer":
-            XCTAssertTrue(offer.waitForExistence(timeout: 5), "no recent screenshot in the menu:\n\(app.debugDescription)")
-            XCTAssertFalse(guide.exists)
+            let found = offer.waitForExistence(timeout: 5)
             shot(app, "offer-menu")
+            XCTAssertTrue(found, "no recent screenshot in the menu:\n\(app.debugDescription)")
+            XCTAssertFalse(guide.exists)
             offer.tap()
             let attached = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "图片 1")).firstMatch
             XCTAssertTrue(attached.waitForExistence(timeout: 10), "the screenshot is not in the composer")
