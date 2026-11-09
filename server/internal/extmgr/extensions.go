@@ -214,8 +214,9 @@ type extensions struct {
 	sentLimit sentLimiter
 	// voice is the hub.json entry the built-in voice extension took over (nil without one); voiceID the built-in's id
 	// once registered, "" when there is none (voice_extension.go).
-	voice   *ExtensionConfig
-	voiceID string
+	voice            *ExtensionConfig
+	voiceID          string
+	voiceGatewaySent string
 	// hubRelay is how a relayed manager's extensions reach the hub's API (hub_relay.go).
 	hubRelay hubRelay
 }
@@ -521,6 +522,17 @@ func (ps *extensions) changed(c extension.Change) {
 		ps.nodes.drop(ps.root, c.Old.Record.ID, "")
 	}
 	ps.apply(ctx, c.ID)
+	if ps.voiceID != "" && c.ID != ps.voiceID {
+		next := string(ps.voiceGatewaySpec(ctx))
+		ps.mu.Lock()
+		changedGW := next != ps.voiceGatewaySent
+		ps.mu.Unlock()
+		if changedGW {
+			if vp := ps.reg.Get(ps.voiceID); vp != nil && vp.Record.Enabled {
+				ps.apply(ctx, ps.voiceID)
+			}
+		}
+	}
 	ps.forgetAuth(c.ID) // another version, removed, switched, set up again: ask again
 	switch c.Kind {
 	case "removed", "upgraded", "rolled_back": // only the version installed now keeps its packages for computers

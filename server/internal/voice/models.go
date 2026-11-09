@@ -91,10 +91,14 @@ type providerModels struct {
 
 // providerModels: the configured models, else the service's own list (live dialect), else the dialect's default.
 func (c *catalog) providerModels(ctx context.Context, p *Provider) (providerModels, error) {
-	if len(p.Models) > 0 || p.Dialect == DialectCodex || p.Dialect == DialectFake {
+	if len(p.Models) > 0 || p.Dialect == DialectCodex || p.Dialect == DialectRealtime || p.Dialect == DialectFake {
 		ids := p.Models
 		if len(ids) == 0 {
-			ids = []string{p.defaultModel()}
+			if p.Dialect == DialectRealtime {
+				ids = []string{"gpt-realtime", "gpt-realtime-mini"}
+			} else {
+				ids = []string{p.defaultModel()}
+			}
 		}
 		out := providerModels{def: p.defaultModel()}
 		for _, id := range ids {
@@ -219,6 +223,8 @@ func (c *catalog) voices(ctx context.Context, id string) (voiceList, error) {
 	switch p.Dialect {
 	case DialectCodex:
 		return builtin(codexVoices, "cove"), nil
+	case DialectRealtime:
+		return builtin(liveVoices, "marin"), nil
 	case DialectFake:
 		return voiceList{Voices: []VoiceChoice{}}, nil // it speaks no audio
 	}

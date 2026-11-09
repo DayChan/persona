@@ -169,3 +169,57 @@ func TestConfiguredTargetRefusesInside(t *testing.T) {
 		t.Fatal(errNotForSettings)
 	}
 }
+
+// A loopback address in a configured target lets through that loopback port only (via LocalHost or literal loopback),
+// and refuses other loopback ports, the proxy's own port and the hub's port.
+func TestConfiguredLoopbackTarget(t *testing.T) {
+	srv := newEcho(t)
+	_, port, err := net.SplitHostPort(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Proxy{HubAddr: "127.0.0.1:18660"}
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	_, ownPort, _ := net.SplitHostPort(p.Addr())
+
+	for _, targetHost := range []string{"127.0.0.1", "localhost"} {
+		purl := p.Register("aster", Rule{Targets: []Target{{Host: targetHost, Port: port, HTTP: true}}})
+		c := client(purl)
+		resp, err := c.Get("http://" + LocalHost + ":" + port + "/me/usage")
+		if err != nil {
+			t.Fatalf("%s via LocalHost: %v", targetHost, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s via LocalHost: status %d", targetHost, resp.StatusCode)
+		}
+		for _, forbiddenPort := range []string{"9", ownPort, "18660"} {
+			resp, err := c.Get("http://" + LocalHost + ":" + forbiddenPort + "/me/usage")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("%s port %s: status %d, want 403", targetHost, forbiddenPort, resp.StatusCode)
+			}
+		}
+	}
+	if ln6, err := net.Listen("tcp6", "[::1]:0"); err == nil {
+		srv6 := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })}
+		go srv6.Serve(ln6)
+		t.Cleanup(func() { srv6.Close() })
+		_, port6, _ := net.SplitHostPort(ln6.Addr().String())
+		purl := p.Register("aster6", Rule{Targets: []Target{{Host: "::1", Port: port6, HTTP: true}}})
+		resp, err := client(purl).Get("http://" + LocalHost + ":" + port6 + "/me/usage")
+		if err != nil {
+			t.Fatalf("::1 via LocalHost: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("::1 via LocalHost: status %d", resp.StatusCode)
+		}
+	}
+}

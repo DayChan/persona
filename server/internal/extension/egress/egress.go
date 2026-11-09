@@ -60,11 +60,30 @@ type Target struct {
 	HTTP bool
 }
 
+// IsLoopbackHost reports whether h is a loopback host on this machine (127.0.0.1, localhost, ::1 or LocalHost).
+func IsLoopbackHost(h string) bool {
+	h = strings.ToLower(strings.TrimSuffix(strings.Trim(strings.TrimSpace(h), "[]"), "."))
+	return slices.Contains(loopbackNames, h)
+}
+
 // target says whether host:port is one of r's Targets, for a CONNECT tunnel (connect) or a plain http request.
 func (r Rule) target(host, port string, connect bool) bool {
 	return slices.ContainsFunc(r.Targets, func(t Target) bool {
 		return t.Host == host && t.Port == port && (connect || t.HTTP)
 	})
+}
+
+// loopbackTarget says whether r has a loopback Target on port for connect/http, returning the loopback IP to dial.
+func (r Rule) loopbackTarget(port string, connect bool) (string, bool) {
+	for _, t := range r.Targets {
+		if IsLoopbackHost(t.Host) && t.Port == port && (connect || t.HTTP) {
+			if strings.Trim(t.Host, "[]") == "::1" {
+				return "::1", true
+			}
+			return "127.0.0.1", true
+		}
+	}
+	return "", false
 }
 
 // Local says whether the rule lets its extension reach LocalHost: its permissions.network lists a loopback address
@@ -141,6 +160,15 @@ func (p *Proxy) Addr() string {
 func (p *Proxy) ownPort(port string) bool {
 	_, own, err := net.SplitHostPort(p.Addr())
 	return err == nil && own == port
+}
+
+// hubPort says whether port is the hub's own listener port (or 18660 when HubAddr is unset).
+func (p *Proxy) hubPort(port string) bool {
+	if p.HubAddr == "" {
+		return port == "18660"
+	}
+	_, hp, err := net.SplitHostPort(p.HubAddr)
+	return err != nil || hp == port
 }
 
 // Close stops every listener.
@@ -462,16 +490,31 @@ func (p *Proxy) handler(fixed string) http.Handler {
 		}
 		host = strings.ToLower(strings.Trim(host, "[]"))
 		hub, local := host == HubHost, host == LocalHost
+		connect := r.Method == http.MethodConnect || r.URL.Scheme == "https"
 		var allowed, configured bool
+		loopbackDial := "127.0.0.1"
 		switch {
 		case hub:
 			allowed = rule.Hub
 		case local:
-			allowed = rule.Local() && !p.ownPort(port)
+			if rule.Local() && !p.ownPort(port) {
+				allowed = true
+			} else if lip, ok := rule.loopbackTarget(port, connect); ok && !p.ownPort(port) && !p.hubPort(port) {
+				allowed, loopbackDial = true, lip
+			}
 		default:
 			allowed = Matches(host, rule.Hosts)
-			if !allowed && rule.target(host, port, r.Method == http.MethodConnect || r.URL.Scheme == "https") {
-				allowed, configured = true, true
+			if !allowed && rule.target(host, port, connect) {
+				if IsLoopbackHost(host) {
+					if !p.ownPort(port) && !p.hubPort(port) {
+						allowed, local = true, true
+						if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+							loopbackDial = "::1"
+						}
+					}
+				} else {
+					allowed, configured = true, true
+				}
 			}
 		}
 		p.count(ext, host, allowed)
@@ -492,7 +535,7 @@ func (p *Proxy) handler(fixed string) http.Handler {
 			case hub:
 				c, err = p.dial(ctx, "tcp", p.HubAddr)
 			case local:
-				c, err = p.dial(ctx, "tcp", net.JoinHostPort("127.0.0.1", port))
+				c, err = p.dial(ctx, "tcp", net.JoinHostPort(loopbackDial, port))
 			case configured:
 				if broker {
 					c, err = p.runtimeDial(ctx, host, port, true)

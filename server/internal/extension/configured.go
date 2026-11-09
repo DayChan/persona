@@ -100,6 +100,15 @@ func (m *Manifest) checkConfigured() []error {
 	return errs
 }
 
+// isLoopbackHost reports whether h is a loopback host on this machine (127.0.0.1, localhost or ::1).
+func isLoopbackHost(h string) bool {
+	switch strings.ToLower(strings.TrimSuffix(strings.Trim(strings.TrimSpace(h), "[]"), ".")) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
 // ConfiguredTarget is the host:port a "config:" entry lets through, from the field's value now ("" when it has none
 // that may be reached: unset, not a URL, http where only https is allowed, user info in it). The value is the user's:
 // only the settings pages and the hub write an extension's configuration, never the extension itself.
@@ -115,6 +124,10 @@ func ConfiguredTarget(c ConfiguredNetwork, config json.RawMessage) (egress.Targe
 	if err != nil || u.Host == "" || u.User != nil || u.Opaque != "" {
 		return egress.Target{}, "not a URL"
 	}
+	host := strings.ToLower(strings.TrimSuffix(strings.Trim(u.Hostname(), "[]"), "."))
+	if host == "" || net.ParseIP(host) == nil && !hostPattern.MatchString(host) {
+		return egress.Target{}, "not a host"
+	}
 	port := u.Port()
 	switch strings.ToLower(u.Scheme) {
 	case "https":
@@ -122,7 +135,7 @@ func ConfiguredTarget(c ConfiguredNetwork, config json.RawMessage) (egress.Targe
 			port = "443"
 		}
 	case "http":
-		if !c.HTTP {
+		if !c.HTTP && !isLoopbackHost(host) {
 			return egress.Target{}, "http (only https)"
 		}
 		if port == "" {
@@ -130,10 +143,6 @@ func ConfiguredTarget(c ConfiguredNetwork, config json.RawMessage) (egress.Targe
 		}
 	default:
 		return egress.Target{}, "not http(s)"
-	}
-	host := strings.ToLower(strings.Trim(u.Hostname(), "[]"))
-	if host == "" || net.ParseIP(host) == nil && !hostPattern.MatchString(host) {
-		return egress.Target{}, "not a host"
 	}
 	return egress.Target{Host: host, Port: port, HTTP: strings.EqualFold(u.Scheme, "http")}, ""
 }

@@ -249,3 +249,59 @@ func TestFakeDialectOnlyFromHubJSON(t *testing.T) {
 		t.Fatal("the form made a fake upstream")
 	}
 }
+
+// Quota gateway linkage and OpenAI Realtime (/v1/realtime) dialect: https and loopback http gateway_urls map to wss/ws
+// /v1/live, non-loopback http and management keys are rejected, and /v1/realtime speaks the realtimeWire dialect.
+func TestGatewayProviderAndRealtimeDialect(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+		ok   bool
+	}{
+		{"https://gw.example.com", "wss://gw.example.com/v1/live", true},
+		{"https://gw.example.com/v1/", "wss://gw.example.com/v1/live", true},
+		{"http://127.0.0.1:8080", "ws://127.0.0.1:8080/v1/live", true},
+		{"http://localhost:8080/v1", "ws://localhost:8080/v1/live", true},
+		{"http://[::1]:8080", "ws://[::1]:8080/v1/live", true},
+		{"http://127.0.0.1", "ws://127.0.0.1/v1/live", true},
+		{"http://gw.example.com:8080", "", false},
+		{"http://192.0.2.10:8080", "", false},
+		{"ftp://127.0.0.1:8080", "", false},
+	} {
+		got, ok := GatewayLiveURL(tc.raw)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("GatewayLiveURL(%q) = (%q, %v), want (%q, %v)", tc.raw, got, ok, tc.want, tc.ok)
+		}
+	}
+
+	if _, ok := GatewayProviderFromConfig(json.RawMessage(`{"gateway_url":"https://gw.example.com","key_kind":"management"}`), "Relay", "mgmt-key"); ok {
+		t.Fatal("management key must not create a voice provider")
+	}
+	prov, ok := GatewayProviderFromConfig(json.RawMessage(`{"gateway_url":"http://127.0.0.1:8080","key_kind":"api"}`), "Relay", "gw-api-key")
+	if !ok || prov.ID != GatewayProvider || prov.Name != "Relay" || prov.URL != "ws://127.0.0.1:8080/v1/live" || prov.Dialect != DialectCodex || prov.DefaultModel != "gpt-live-1-codex" {
+		t.Fatalf("GatewayProviderFromConfig: %+v (%v)", prov, ok)
+	}
+	gwRaw, _ := json.Marshal(prov)
+	cfg, err := Merge(Sources{Gateway: gwRaw})
+	if err != nil || cfg.Setup != "" || len(cfg.Providers) != 1 || cfg.Providers[0].ID != GatewayProvider {
+		t.Fatalf("Merge with Gateway: %+v (%v)", cfg, err)
+	}
+
+	// OpenAI Realtime dialect (/v1/realtime, gpt-realtime).
+	rtCfg, err := Merge(Sources{Form: json.RawMessage(`{"url":"wss://gw.example.com/v1/realtime","dialect":"realtime"}`), Key: "gw-key"})
+	if err != nil || len(rtCfg.Providers) != 1 || rtCfg.Providers[0].Dialect != DialectRealtime || rtCfg.Providers[0].defaultModel() != "gpt-realtime" {
+		t.Fatalf("Merge realtime dialect: %+v (%v)", rtCfg, err)
+	}
+	cat := &catalog{cfg: &rtCfg}
+	models, def, err := cat.models(t.Context(), func(string, ...any) {})
+	if err != nil || def != "custom/gpt-realtime" || len(models) != 2 {
+		t.Fatalf("realtime models: %+v def=%q err=%v", models, def, err)
+	}
+	w := newWire(DialectRealtime)
+	if u, err := w.url("wss://gw.example.com/v1/realtime", "gpt-realtime"); err != nil || u != "wss://gw.example.com/v1/realtime?model=gpt-realtime" {
+		t.Fatalf("realtime wire url: %q (%v)", u, err)
+	}
+	if evs := w.decode([]byte(`{"type":"session.created"}`)); len(evs) != 1 || evs[0].kind != evStarted {
+		t.Fatalf("realtime session.created: %+v", evs)
+	}
+}

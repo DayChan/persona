@@ -33,7 +33,7 @@ const voiceConfig = `{
   "properties": {
     "url": {"type": "string", "title": "服务地址", "description": "GPT-Live 兼容的会话地址，wss://<主机>/v1/live；ws:// 只用于内网，Key 会明文传输。换了主机，设置的 Key 会被清掉", "pattern": "^wss?://[^/?#\\s]+"},
     "name": {"type": "string", "title": "名字", "description": "有几个服务时显示在模型名后面", "default": "GPT-Live"},
-    "dialect": {"type": "string", "title": "协议", "oneOf": [{"const": "live", "title": "GPT-Live"}, {"const": "codex", "title": "Codex（gpt-live-1-codex）"}], "default": "live"},
+    "dialect": {"type": "string", "title": "协议", "oneOf": [{"const": "live", "title": "GPT-Live"}, {"const": "codex", "title": "Codex（gpt-live-1-codex）"}, {"const": "realtime", "title": "OpenAI Realtime（gpt-realtime）"}], "default": "live"},
     "models": {"type": "array", "title": "模型", "description": "不填时读服务自己的模型列表", "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}, "uniqueItems": true},
     "default_model": {"type": "string", "title": "默认模型", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
     "input_rate": {"type": "integer", "title": "麦克风采样率", "description": "不填时 GPT-Live 用 16000，Codex 用 24000", "enum": [16000, 24000]},
@@ -117,24 +117,86 @@ func (ps *extensions) isVoice(p *extension.Extension) bool {
 	return p != nil && ps.voiceID != "" && p.Record.ID == ps.voiceID && p.Record.Source == extension.SourceBuiltin
 }
 
+const gatewaySecretKey = "gateway_key"
+
 // voiceSpec gives the built-in voice extension what the hub.json entry it took over had (docs/assistant/voice.md "How the
 // extension gets its configuration"): its config as PERSONA_VOICE_HUB_CONFIG (upstreams, default, owner, notes), its
-// env and its directory. The form's settings and key come as any extension's (PERSONA_EXTENSION_CONFIG,
-// PERSONA_EXTENSION_SECRETS).
+// env and its directory, plus PERSONA_VOICE_GATEWAY_CONFIG when a quota gateway extension is configured with an API key.
+// The form's settings and key come as any extension's (PERSONA_EXTENSION_CONFIG, PERSONA_EXTENSION_SECRETS).
 func (ps *extensions) voiceSpec(p *extension.Extension, s *host.Spec) {
-	c := ps.voice
-	if c == nil || !ps.isVoice(p) {
+	if !ps.isVoice(p) {
 		return
 	}
-	if c.Dir != "" {
-		s.Dir = expandHome(c.Dir)
+	if c := ps.voice; c != nil {
+		if c.Dir != "" {
+			s.Dir = expandHome(c.Dir)
+		}
+		for k, v := range c.Env {
+			s.Env = append(s.Env, k+"="+v)
+		}
+		if len(c.Config) > 0 {
+			s.Env = append(s.Env, "PERSONA_VOICE_HUB_CONFIG="+string(c.Config))
+		}
 	}
-	for k, v := range c.Env {
-		s.Env = append(s.Env, k+"="+v)
+	raw := ps.voiceGatewaySpec(context.Background())
+	ps.mu.Lock()
+	ps.voiceGatewaySent = string(raw)
+	ps.mu.Unlock()
+	if len(raw) > 0 {
+		s.Env = append(s.Env, "PERSONA_VOICE_GATEWAY_CONFIG="+string(raw))
 	}
-	if len(c.Config) > 0 {
-		s.Env = append(s.Env, "PERSONA_VOICE_HUB_CONFIG="+string(c.Config))
+}
+
+// voiceGatewaySpec returns the serialized voice.Provider derived from an enabled quota gateway extension's settings
+// and secret when it has a valid gateway_url and an API key.
+func (ps *extensions) voiceGatewaySpec(ctx context.Context) json.RawMessage {
+	if ps == nil || ps.reg == nil {
+		return nil
 	}
+	for _, p := range ps.reg.List() {
+		if !p.Record.Enabled || p.Manifest.Kind() != "quota" {
+			continue
+		}
+		secrets, err := ps.reg.Secrets(ctx, p.Record.ID)
+		if err != nil {
+			continue
+		}
+		name := p.Manifest.Name
+		if p.Full != nil && p.Full.Name != "" {
+			name = p.Full.Name
+		}
+		prov, ok := voice.GatewayProviderFromConfig(ps.reg.Config(p), name, secrets[gatewaySecretKey])
+		if !ok {
+			continue
+		}
+		b, _ := json.Marshal(prov)
+		return b
+	}
+	return nil
+}
+
+// voiceGatewayState returns a placeholder voice.Provider derived from an enabled quota gateway extension's settings
+// without unsealing the secret (only checking whether gateway_key is set).
+func (ps *extensions) voiceGatewayState(ctx context.Context) json.RawMessage {
+	if ps == nil || ps.reg == nil {
+		return nil
+	}
+	for _, p := range ps.reg.List() {
+		if !p.Record.Enabled || p.Manifest.Kind() != "quota" || !ps.reg.SecretsSet(ctx, p)[gatewaySecretKey] {
+			continue
+		}
+		name := p.Manifest.Name
+		if p.Full != nil && p.Full.Name != "" {
+			name = p.Full.Name
+		}
+		prov, ok := voice.GatewayProviderFromConfig(ps.reg.Config(p), name, "set")
+		if !ok {
+			continue
+		}
+		b, _ := json.Marshal(prov)
+		return b
+	}
+	return nil
 }
 
 // voiceHubJSON is the config of the hub.json entry the built-in voice extension took over (nil without one).
@@ -153,7 +215,7 @@ func (ps *extensions) voiceState(ctx context.Context, p *extension.Extension) (s
 	if ps.reg.SecretsSet(ctx, p)[voiceSecretKey] {
 		key = "set"
 	}
-	cfg, err := voice.Merge(voice.Sources{Form: ps.reg.Config(p), Key: key, HubJSON: ps.voiceHubJSON()})
+	cfg, err := voice.Merge(voice.Sources{Form: ps.reg.Config(p), Key: key, HubJSON: ps.voiceHubJSON(), Gateway: ps.voiceGatewayState(ctx)})
 	if err != nil {
 		return "", nil // the extension does not start and says why itself
 	}

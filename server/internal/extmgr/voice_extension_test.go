@@ -616,3 +616,48 @@ func toStrings(v any) []string {
 	}
 	return out
 }
+
+// When a quota gateway extension is configured with gateway_url (https or loopback http) and an API key, the built-in
+// voice extension automatically receives PERSONA_VOICE_GATEWAY_CONFIG and runs without needing separate voice setup.
+func TestVoiceLinksQuotaGatewayConfig(t *testing.T) {
+	store := newExtensionStore()
+	h := voiceHub(t, store)
+	ctx := context.Background()
+	reg := h.extensions.reg
+
+	gwManifest := `{"manifest_version":1,"id":"quota-relay","name":"Relay","version":"2.3.0",` +
+		`"contributes":{"quota":[{"id":"relay","name":"Relay"}]},` +
+		`"configuration":{"type":"object","properties":{"gateway_url":{"type":"string","format":"uri"},"key_kind":{"type":"string","default":"management"}}},` +
+		`"permissions":{"network":["config:gateway_url"],"launcher_keys":true},"secrets":[{"name":"gateway_key","title":"Key"}]}`
+	if err := store.PutExtension(ctx, extension.Record{
+		ID:          "quota-relay",
+		Source:      extension.SourceInstalled,
+		Version:     "2.3.0",
+		Manifest:    json.RawMessage(gwManifest),
+		Config:      json.RawMessage(`{"gateway_url":"http://127.0.0.1:8080","key_kind":"api"}`),
+		Enabled:     true,
+		InstalledAt: time.Now(),
+		UpdatedAt:   time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetSecret(ctx, "quota-relay", gatewaySecretKey, "gw-api-key-123456", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	vp := reg.Get(voiceExtensionID)
+	if setup, warns := h.extensions.voiceState(ctx, vp); setup != "" || len(warns) != 0 {
+		t.Fatalf("voiceState with quota gateway api key: setup=%q warns=%v", setup, warns)
+	}
+	env := envOf(t, h, voiceExtensionID)
+	var gwProv voice.Provider
+	if err := json.Unmarshal([]byte(env["PERSONA_VOICE_GATEWAY_CONFIG"]), &gwProv); err != nil {
+		t.Fatalf("PERSONA_VOICE_GATEWAY_CONFIG: %q (%v)", env["PERSONA_VOICE_GATEWAY_CONFIG"], err)
+	}
+	if gwProv.ID != voice.GatewayProvider || gwProv.Name != "Relay" || gwProv.URL != "ws://127.0.0.1:8080/v1/live" || gwProv.Dialect != voice.DialectCodex || gwProv.Key != "gw-api-key-123456" {
+		t.Fatalf("gwProv: %+v", gwProv)
+	}
+}

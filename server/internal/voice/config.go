@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,6 +31,10 @@ const (
 	// session.update, input_audio.append, delegation.created{item} and delegation.context.append. No function tools:
 	// the model hands work over as delegations.
 	DialectCodex = "codex"
+	// DialectRealtime: the OpenAI Realtime v2 WebSocket wire (/v1/realtime, gpt-realtime / gpt-realtime-mini):
+	// session.update, input_audio_buffer.append, response.audio.delta / response.output_audio.delta,
+	// conversation.item.create and response.create.
+	DialectRealtime = "realtime"
 	// DialectFake: no service at all, for development (fake.go; hub.json only, never the settings form): what the app
 	// types is handed over as it is, and what the model would be told comes back as its words.
 	DialectFake = "fake"
@@ -70,6 +75,9 @@ const (
 // FormProvider is the id of the settings form's upstream: its models are "custom/<model>".
 const FormProvider = "custom"
 
+// GatewayProvider is the id of the upstream derived from a quota gateway extension's settings when configured with an API key.
+const GatewayProvider = "gateway"
+
 // Form is the built-in extension's settings form (its manifest's configuration, extmgr/voice_extension.go): one upstream
 // and how the model talks; the upstream's key is the extension's secret "key".
 type Form struct {
@@ -91,6 +99,9 @@ type Sources struct {
 	// HubJSON is the config of the hub.json entry the hub took over (PERSONA_VOICE_HUB_CONFIG): providers, default,
 	// owner, notes.
 	HubJSON json.RawMessage
+	// Gateway is an upstream provider derived from a quota gateway extension's settings
+	// (PERSONA_VOICE_GATEWAY_CONFIG) when the extension has a gateway_url and an API key.
+	Gateway json.RawMessage
 }
 
 // Merge makes one configuration of the sources: hub.json's upstreams first, then the form's (id custom) once it has
@@ -143,6 +154,18 @@ func Merge(s Sources) (Config, error) {
 			return Config{}, fmt.Errorf("settings form: %w", err)
 		}
 		c.Providers = append(c.Providers, p)
+	}
+	if raw := bytes.TrimSpace(s.Gateway); len(raw) > 0 {
+		var gw Provider
+		if err := json.Unmarshal(raw, &gw); err != nil {
+			return Config{}, fmt.Errorf("gateway config: %w", err)
+		}
+		if err := gw.validate(); err != nil {
+			return Config{}, fmt.Errorf("gateway %w", err)
+		}
+		if !slices.ContainsFunc(c.Providers, func(p Provider) bool { return p.ID == gw.ID }) {
+			c.Providers = append(c.Providers, gw)
+		}
 	}
 	if c.Default != "" {
 		if id, _, ok := splitModel(c.Default); !ok || !slices.ContainsFunc(c.Providers, func(p Provider) bool { return p.ID == id }) {
@@ -210,7 +233,79 @@ func LoadConfig() (Config, error) {
 		}
 	}
 	return Merge(Sources{Form: json.RawMessage(extensionEnv("CONFIG")), Key: secrets["key"],
-		HubJSON: json.RawMessage(identity.Getenv("PERSONA_VOICE_HUB_CONFIG"))})
+		HubJSON: json.RawMessage(identity.Getenv("PERSONA_VOICE_HUB_CONFIG")),
+		Gateway: json.RawMessage(identity.Getenv("PERSONA_VOICE_GATEWAY_CONFIG"))})
+}
+
+// isLoopbackHost reports whether h is a loopback host on this machine (127.0.0.1, localhost or ::1).
+func isLoopbackHost(h string) bool {
+	switch strings.ToLower(strings.TrimSuffix(strings.Trim(strings.TrimSpace(h), "[]"), ".")) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+// GatewayLiveURL converts a quota gateway_url (https:// or loopback http://127.0.0.1 / localhost / [::1])
+// into its /v1/live WebSocket URL. Returns "", false for invalid or non-loopback http:// URLs.
+func GatewayLiveURL(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || u.Hostname() == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	var scheme string
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		scheme = "wss"
+	case "http":
+		if !isLoopbackHost(u.Hostname()) {
+			return "", false
+		}
+		scheme = "ws"
+	default:
+		return "", false
+	}
+	basePath := strings.TrimRight(u.Path, "/")
+	for _, suffix := range []string{"/openai/v1", "/backend-api/codex", "/v1"} {
+		if strings.HasSuffix(basePath, suffix) {
+			basePath = strings.TrimSuffix(basePath, suffix)
+			break
+		}
+	}
+	return scheme + "://" + u.Host + basePath + "/v1/live", true
+}
+
+// GatewayProviderFromConfig builds a voice Provider from a quota gateway extension's configuration and gateway_key when
+// gateway_url is valid and key_kind is "api" (management keys cannot authenticate model/realtime routes).
+func GatewayProviderFromConfig(config json.RawMessage, name, key string) (Provider, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return Provider{}, false
+	}
+	var c struct {
+		URL  string `json:"gateway_url"`
+		Kind string `json:"key_kind"`
+	}
+	if err := json.Unmarshal(config, &c); err != nil || c.Kind != "api" {
+		return Provider{}, false
+	}
+	liveURL, ok := GatewayLiveURL(c.URL)
+	if !ok {
+		return Provider{}, false
+	}
+	if name = strings.TrimSpace(name); name == "" {
+		name = "Gateway"
+	}
+	return Provider{
+		ID:           GatewayProvider,
+		Name:         name,
+		URL:          liveURL,
+		Dialect:      DialectCodex,
+		Key:          key,
+		Models:       []string{"gpt-live-1-codex"},
+		DefaultModel: "gpt-live-1-codex",
+		InputRate:    24000,
+	}, true
 }
 
 // extensionEnv is PERSONA_EXTENSION_<name>, else its former PERSONA_PLUGIN_<name> name.
@@ -251,10 +346,14 @@ func (p *Provider) validate() error {
 		return fmt.Errorf("config: provider id %q: a-z0-9_-, at most 32", p.ID)
 	}
 	if p.Dialect == "" {
-		p.Dialect = DialectLive
+		if u, err := url.Parse(p.URL); err == nil && strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/realtime") {
+			p.Dialect = DialectRealtime
+		} else {
+			p.Dialect = DialectLive
+		}
 	}
-	if p.Dialect != DialectLive && p.Dialect != DialectCodex && p.Dialect != DialectFake {
-		return fmt.Errorf("config: provider %s: dialect %q (live, codex or fake)", p.ID, p.Dialect)
+	if p.Dialect != DialectLive && p.Dialect != DialectCodex && p.Dialect != DialectRealtime && p.Dialect != DialectFake {
+		return fmt.Errorf("config: provider %s: dialect %q (live, codex, realtime or fake)", p.ID, p.Dialect)
 	}
 	if p.Dialect == DialectFake {
 		if p.URL != "" || p.SSH != "" {
@@ -285,7 +384,7 @@ func (p *Provider) name() string {
 // unset): only then does a session the service refuses them on start again without them (connect).
 func (p *Provider) toolsMode() (declare, auto bool) {
 	switch {
-	case p.Dialect != DialectLive:
+	case p.Dialect != DialectLive && p.Dialect != DialectRealtime:
 		return false, false
 	case p.Tools == nil:
 		return true, true
@@ -297,7 +396,7 @@ func (p *Provider) inputRate() int {
 	switch {
 	case p.InputRate != 0:
 		return p.InputRate
-	case p.Dialect == DialectCodex:
+	case p.Dialect == DialectCodex || p.Dialect == DialectRealtime:
 		return 24000
 	default:
 		return 16000
@@ -313,6 +412,8 @@ func (p *Provider) defaultModel() string {
 		return p.Models[0]
 	case p.Dialect == DialectCodex:
 		return "gpt-live-1-codex"
+	case p.Dialect == DialectRealtime:
+		return "gpt-realtime"
 	case p.Dialect == DialectFake:
 		return "fake"
 	}
