@@ -146,8 +146,6 @@ func TestTodayCardOmitsEmptyPendingReview(t *testing.T) {
 	}
 }
 
-// POST .../today reads the conversation's feed twice (is today's card there; what finished since yesterday 18:00) and
-// looks only at the items: it loads none of the plans its plan cards name, and the card is the same as before.
 // dayStart is the first instant of the user's day, also where the clocks jump forward at midnight: there time.Date
 // answers 23:00 the evening before, and the Today card was filed under yesterday's date.
 func TestDayStart(t *testing.T) {
@@ -190,6 +188,8 @@ func TestDayStart(t *testing.T) {
 	}
 }
 
+// POST .../today reads the conversation's feed twice (is today's card there; what finished since yesterday 18:00) and
+// looks only at the items: it loads none of the plans its plan cards name, and the card is the same as before.
 func TestTodayCardReadsNoPlans(t *testing.T) {
 	st := &countingPlans{DB: todoTestDB(t)}
 	// planReads are the plan reads that reached the database, one plan at a time or in one batch.
