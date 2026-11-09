@@ -201,7 +201,8 @@ func (s *Service) threadHintDue(key string) bool {
 
 // threadRoutes are who can get what was said in the topic of open todo t, best first: the agent it has that is running
 // (the one that most needs it, pickTaskAgent; a closed one, offline or interrupted, is not counted), then the
-// conversation that opened it, then the main conversation. One the bot's switches do not allow, or that is not there,
+// conversation that opened it (for a question's to-do, which has none, the conversation that asked: its record,
+// ask_todo.go), then the main conversation. One the bot's switches do not allow, or that is not there,
 // is left out; the error is why none is left (nil when there are routes).
 func (s *Service) threadRoutes(ctx context.Context, t Todo, f FeishuFeatures) ([]botTarget, error) {
 	var tried []botTarget
@@ -217,6 +218,8 @@ func (s *Service) threadRoutes(ctx context.Context, t Todo, f FeishuFeatures) ([
 	}
 	if t.Origin != "" {
 		tried = append(tried, botTarget{Kind: targetPersona, SessionID: t.Origin})
+	} else if a, ok := s.askTodoOf(ctx, t.ID); ok {
+		tried = append(tried, botTarget{Kind: targetPersona, SessionID: a.SessionID})
 	}
 	tried = append(tried, botTarget{Kind: targetMain})
 	l := s.botLang(ctx)

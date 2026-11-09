@@ -77,7 +77,7 @@ func (e *askTodoEnv) expire() (proto.Interaction, string) {
 func (e *askTodoEnv) askTodos() []Todo {
 	var out []Todo
 	for _, t := range e.list() {
-		if t.Origin == "c1x1x1" {
+		if isAskTodo(t.ID) {
 			out = append(out, t)
 		}
 	}
@@ -108,13 +108,13 @@ func (e *askTodoEnv) told(id string) []string {
 }
 
 // An ask_user whose card expires unanswered becomes one to-do: the question its title, the options (descriptions and the
-// recommended one as written), when and where it was asked in its notes, the asking conversation its origin, no Agent.
-// The tool says it is that to-do now and that the answer comes as a new message.
+// recommended one as written), when and where it was asked in its notes, no Agent and no origin (it is no task of the
+// asking conversation, #1852). The tool says it is that to-do now and that the answer comes as a new message.
 func TestExpiredAskUserBecomesATodo(t *testing.T) {
 	e := newAskTodoEnv(t, nil)
 	ix, text := e.expire()
 	todo := e.onlyAskTodo()
-	if todo.Title != "Merge the release PR now?" || len(todo.Agents) != 0 || todo.DoneAt != nil {
+	if todo.Title != "Merge the release PR now?" || len(todo.Agents) != 0 || todo.DoneAt != nil || todo.Origin != "" {
 		t.Fatalf("to-do %+v", todo)
 	}
 	for _, want := range []string{"Merge (Recommended)", "CI is green", "Wait", "until the review is in", "Release chat",
@@ -269,6 +269,45 @@ func TestAskTodoTopicReplyGoesBackToTheConversation(t *testing.T) {
 	}
 	if list := decisionsOf(t, database, todo.ID); len(list) != 1 {
 		t.Fatalf("decisions %+v", list)
+	}
+}
+
+// A question's to-do is no task (#1852, #1909): no origin, so no app counts it among the asking conversation's tasks, and
+// an agent handed it works on it as on a to-do of the owner's own. Its turn ending posts no receipt and no judgment
+// closes it: the question still waits for the owner's call, who closing it tells the conversation once.
+func TestAskTodoHandedToAnAgentIsNoTask(t *testing.T) {
+	e := newAskTodoEnv(t, nil)
+	e.f.judge = `{"verdict":"done","reason":"the options are compared"}`
+	e.expire()
+	todo := e.onlyAskTodo()
+	ctx := context.Background()
+	e.must("PUT", "/api/v1/todos/"+todo.ID+"/agents/server/a1", "")
+	agent := func(status, state, text string) {
+		e.sessions("server", proto.Session{SessionID: "m1", Assistant: true, Status: proto.StatusIdle},
+			proto.Session{SessionID: "c1x1x1", Title: "Release chat", Assistant: true, Status: proto.StatusIdle},
+			proto.Session{SessionID: "a1", Agent: "claude", Cwd: "/code/app", Status: status, State: state, LastText: text, UpdatedAt: time.Now()})
+	}
+	agent(proto.StatusWorking, proto.StateWorking, "")
+	e.s.taskWorking(ctx, "server", "a1")
+	if got, ok := e.s.taskOf(ctx, "server", "a1"); ok {
+		t.Fatalf("the agent counts as working on task %+v", got)
+	}
+	agent(proto.StatusDone, proto.StateUnread, "Merging is safe: CI is green and the review is in.")
+	e.s.taskTurnEnded(ctx, "server", "a1")
+	time.Sleep(100 * time.Millisecond) // a judgment would have closed it by now
+	if cur := e.get(todo.ID); cur == nil || cur.DoneAt != nil || len(cur.Agents) != 1 {
+		t.Fatalf("the to-do after the agent's turn: %+v", cur)
+	}
+	if kinds := feedKinds(e.s, "c1x1x1"); strings.Contains(kinds, "receipt") {
+		t.Fatalf("a task receipt in the asking conversation: %s", kinds)
+	}
+	if snap := e.s.contextSnapshot(ctx); !strings.Contains(snap, todo.ID) {
+		t.Fatalf("the question no longer waits in the snapshot:\n%s", snap)
+	}
+	e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":true}`)
+	waitFor(t, "the dropped notice", func() bool { return len(e.told("c1x1x1")) > 0 })
+	if got := e.told("c1x1x1"); len(got) != 1 || !strings.Contains(got[0], "没有在待办里给答案") {
+		t.Fatalf("told %q, want one dropped notice", got)
 	}
 }
 
