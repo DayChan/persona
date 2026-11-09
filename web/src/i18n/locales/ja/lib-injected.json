@@ -1,4 +1,5 @@
 {
+  "supervise_other": "タスクの確認：委任したタスク{count}件に対応が必要",
   "task_done": "タスク「{title}」が完了しました",
   "task_needs": "タスク「{title}」が対応を待っています",
   "task_interrupted": "タスク「{title}」が中断されました",

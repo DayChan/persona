@@ -1,7 +1,11 @@
 // The chat's lines other than an exchange (iOS ChatView.lineView): the wake that opens new work, the chip under an
 // answer for background tasks that reported back (and its drawer), recaps (and their drawer, and the strip above the
 // composer), model API errors as cards, and the header of a split exchange.
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
+import { lineItemIds } from "../../lib/chat-search";
+import { useChatContext } from "./chat-context";
+import { useExpanded } from "./expanded";
+import { useReveal } from "./search-reveal";
 import { ago, clock } from "../../lib/format";
 import { retryable, type APIErrorInfo } from "../../lib/api-errors";
 import { runAction, turnErrorFix } from "../../lib/readiness";
@@ -30,6 +34,8 @@ export interface LineProps {
   assistant?: boolean;
   /** The session is waiting out a subscription usage limit: the last error card says that, not that the turn was interrupted. */
   limit?: string;
+  /** Inside an opened supervision trace, show complete injected inputs. */
+  trace?: boolean;
 }
 
 export const ChatLineView = memo(function ChatLineView(props: LineProps) {
@@ -41,12 +47,15 @@ export const ChatLineView = memo(function ChatLineView(props: LineProps) {
   );
 });
 
-function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assistant, limit }: LineProps) {
+function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assistant, limit, trace }: LineProps) {
   switch (line.kind) {
+    case "supervision":
+      return <SupervisionLine line={line} mid={mid} sid={sid} streaming={streaming} expandFold={expandFold} assistant={assistant} />;
     case "segment":
       return (
         <SegmentView
           seg={line.seg}
+          trace={trace}
           live={line.live}
           mid={mid}
           sid={sid}
@@ -69,6 +78,29 @@ function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assista
       return <APIErrorCard info={line.info} count={line.count} at={line.item.ts} fix={f} onRetry={onRetry && retryable(line.info) && !f ? onRetry : undefined} />;
     }
   }
+}
+
+/** One gray line for a whole triage round; expansion uses the actual transcript renderer, not a lossy summary. */
+function SupervisionLine({ line, ...props }: LineProps & { line: Extract<ChatLine, { kind: "supervision" }> }) {
+  const { scope } = useChatContext();
+  const [open, setOpen] = useExpanded(`${scope}supervision:${line.id}`);
+  const ids = useMemo(() => lineItemIds(line), [line]);
+  useReveal(scope, ids, () => {
+    if (open) return;
+    setOpen(true);
+    return () => setOpen(false);
+  });
+  return (
+    <section className="flex min-w-0 flex-col gap-3" data-supervision={line.live ? "running" : "done"}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="touch-hit flex w-full min-w-0 items-center gap-1.5 rounded-control py-1 text-left text-[length:var(--chat-secondary)] whitespace-nowrap text-ink-3 hover:text-ink-2">
+        <span className="min-w-0 truncate">{t(line.live ? "chat-lines.supervision_running" : "chat-lines.supervision_done")}</span>
+        <Icon name="chevronRight" size={14} className="shrink-0" style={{ transform: open ? "rotate(90deg)" : undefined }} />
+      </button>
+      {open && <div className="flex min-w-0 flex-col gap-3 border-l-2 border-tool-rail pl-3" data-supervision-trace>
+        {line.lines.map((child) => <LineBody key={child.id} {...props} line={child} trace />)}
+      </div>}
+    </section>
+  );
 }
 
 /** A notice on a line of its own: a wake opening new work (a centered capsule), "Interrupted", a long local command's output. */

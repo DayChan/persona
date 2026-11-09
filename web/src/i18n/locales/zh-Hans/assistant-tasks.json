@@ -1,4 +1,6 @@
 {
+  "receipt_review_followup": "由 Persona 跟进",
+  "report_progress": "进度更新 · {title}",
   "removed": "已移除「{title}」",
   "remove_failed": "没移除：{error}",
   "remove_ellipsis": "移除任务…",

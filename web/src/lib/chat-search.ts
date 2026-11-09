@@ -136,11 +136,13 @@ export function nodeItemIds(nodes: WorkNode[]): string[] {
   return nodes.flatMap((n) => (n.kind === "group" ? nodeItemIds(n.children) : stepItemIds(n.step)));
 }
 
-function lineItemIds(line: ChatLine): string[] {
+export function lineItemIds(line: ChatLine): string[] {
   switch (line.kind) {
+    case "supervision":
+      return line.lines.flatMap(lineItemIds);
     case "segment": {
       const s = line.seg;
-      return [...(s.user ? [s.user.id, ...s.user.images.map((i) => i.id)] : []), ...s.steps.flatMap(stepItemIds), ...(s.answer ? [s.answer.id] : []), ...s.folds.map((f) => f.id)];
+      return [...(s.user ? [s.user.id, ...(s.user.rawInput ?? s.user.images).map((i) => i.id)] : []), ...s.steps.flatMap(stepItemIds), ...(s.answer ? [s.answer.id] : []), ...s.folds.map((f) => f.id)];
     }
     case "recaps":
       return line.items.map((i) => i.id);

@@ -68,6 +68,7 @@ func FoldWork(items []proto.Item) []proto.Item {
 			it := fold(items[i:j])
 			it.Fold.Tasks = foldTaskSnapshots(items[i:j], taskUses)
 			it.Fold.Images = ViewedImages(items[i:j], taskUses)
+			it.Fold.SupervisionUser = supervisionUserAction(items[i:j], taskUses)
 			out = append(out, it)
 		}
 		i = j
