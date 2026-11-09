@@ -202,6 +202,9 @@ func (e *Engine) ForgetSource(source string, archiveSources ...string) (Forgotte
 			}
 		}
 	}
+	if err := e.Store.forgetSelect(source); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 

@@ -125,12 +125,14 @@ func readExtensionJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 
 func (h *Manager) extensionRoutes(api *http.ServeMux) {
 	h.extensionUIRoutes(api)
+	h.extensionImageRoutes(api)
 	h.extensionSystemRoutes(api)
 	h.marketRoutes(api)
 	h.operationRoutes(api)
 	h.upgradeRoutes(api)
 	h.auditRoutes(api)
 	h.extensionDevRoutes(api)
+	h.storageRoutes(api)
 	h.sandboxRoutes(api)
 	h.contributionRoutes(api)
 	h.declaredRoutes(api)

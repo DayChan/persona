@@ -12,5 +12,6 @@
   "empty_body_setup": "あと一歩で始められます。足りないものを下に示します。",
   "needs_calendar": "スマホのカレンダーを使います",
   "load_failed": "メインチャットを読み込めませんでした：{error}",
-  "retry": "再試行"
+  "retry": "再試行",
+  "still_starting": "{launcher} を起動しています…"
 }

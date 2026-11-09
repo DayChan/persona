@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"maps"
@@ -30,18 +31,19 @@ const (
 	maxProfileEvents    = 50
 	modelProfileName    = 40  // runes
 	modelProfileAbout   = 300 // runes
+	modelTierAbout      = 100 // runes: a tier's description is in every turn's snapshot
 	modelProfileValue   = 200 // bytes of a provider, model or launcher name
 	shownProfileEvents  = 20
 	modelProfileRolling = "rollback" // not an id: POST /api/v1/model-profiles/rollback
+	// seededProfile is the template marked in use when the templates are made: a copy of the configuration, so
+	// nothing switches, and the tiers work from the start.
+	seededProfile = "performance"
 )
 
 var (
 	modelProfileID = lazyre.New(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 	modelTierName  = lazyre.New(`^[a-z][a-z0-9_-]{0,23}$`)
 )
-
-// modelProfileFields are the model fields of a managed launcher a profile can set, by their JSON names.
-var modelProfileFields = []string{"model", "small_model", "subagent_model", "opus_model", "sonnet_model", "haiku_model", "fable_model", "effort"}
 
 // ModelProfile is one profile: what it sets, and nothing else (a category or field it leaves out stays as it is).
 type ModelProfile struct {
@@ -71,7 +73,8 @@ type LauncherModels struct {
 	Effort        *string `json:"effort,omitempty"`
 }
 
-// fields pairs each of modelProfileFields with its value in m and the field of l it sets (nil: only m's).
+// fields pairs each model field of a managed launcher a profile can set (by its JSON name) with its value in m and
+// the field of l it sets (nil: only m's).
 func (m *LauncherModels) fields(l *proto.ManagedLauncher) []launcherField {
 	if l == nil {
 		l = &proto.ManagedLauncher{}
@@ -91,27 +94,41 @@ type launcherField struct {
 func profileValue(v string) *string { return &v }
 
 // ModelTier is what an Agent started on a tier runs on: a launcher, and its model and effort ("" for its defaults).
+// Description says when to use it (Paseo's "When to use"): the assistant reads it to pick a tier, the New Agent
+// form shows it.
 type ModelTier struct {
-	Launcher string `json:"launcher"`
-	Model    string `json:"model,omitempty"`
-	Effort   string `json:"effort,omitempty"`
+	Launcher    string `json:"launcher"`
+	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
-// ProfileActor is who switched or edited a profile: a device (its name, from the hub), the hub's own token, or the
-// assistant (a conversation's tool call).
+// runs is what the tier runs on, in a line: its launcher, then the model and effort it sets.
+func (t ModelTier) runs() string {
+	parts := []string{t.Launcher}
+	for _, v := range []string{t.Model, t.Effort} {
+		if v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// ProfileActor is who switched or edited a profile: a device (its name, from the hub), the hub's own token, the
+// assistant (a conversation's tool call), or the manager itself (system: the templates' first use).
 type ProfileActor struct {
-	Kind string `json:"kind"` // device, hub, assistant
+	Kind string `json:"kind"` // device, hub, assistant, system
 	Name string `json:"name,omitempty"`
 }
 
 // ModelProfileEvent is one entry of the history.
 type ModelProfileEvent struct {
 	At      time.Time    `json:"at"`
-	Action  string       `json:"action"` // switch, rollback, save, delete
+	Action  string       `json:"action"` // switch, rollback, save, delete, seed
 	From    string       `json:"from,omitempty"`
 	To      string       `json:"to,omitempty"` // switch, rollback: the profile now in use; save, delete: the profile
 	By      ProfileActor `json:"by"`
-	Changed []string     `json:"changed,omitempty"` // what a switch or rollback changed: categories, <launcher>.<field>
+	Changed []string     `json:"changed,omitempty"` // what a switch or rollback changed: categories, <launcher>.<field>; a tier edit: tiers.<name>
 }
 
 type modelProfiles struct {
@@ -134,6 +151,17 @@ type modelProfileImage struct {
 	At        time.Time                 `json:"at"`
 	Purposes  map[string]ModelBinding   `json:"purposes,omitempty"`
 	Launchers map[string]LauncherModels `json:"launchers,omitempty"`
+}
+
+// seed marks seededProfile in use when the templates are made (modelProfilesLocked said so): it is a copy of the
+// configuration, so nothing switches and there is nothing to roll back to.
+func (st *modelProfileState) seed() {
+	if st.Active != "" {
+		return
+	}
+	now := time.Now().UTC()
+	st.Active, st.At, st.By = seededProfile, now, ProfileActor{Kind: "system"}
+	st.record(ModelProfileEvent{At: now, Action: "seed", To: seededProfile, By: st.By})
 }
 
 func (st *modelProfileState) record(e ModelProfileEvent) {
@@ -187,7 +215,7 @@ func (s *Service) putModelProfileSettings(ctx context.Context, values map[string
 }
 
 // modelProfilesLocked reads profiles or builds two templates from the current configuration (models.mu held).
-// The caller persists templates only after its operation has passed all checks.
+// The caller persists templates only after its operation has passed all checks, with the state seed() marks.
 func (s *Service) modelProfilesLocked(ctx context.Context) (modelProfiles, bool, error) {
 	ps, ok, err := s.readModelProfiles(ctx)
 	if err != nil || ok {
@@ -218,6 +246,7 @@ func (s *Service) captureModels(ctx context.Context) (map[string]ModelBinding, m
 	purposes := map[string]ModelBinding{}
 	used := map[string]bool{}
 	tiers := map[string]ModelTier{}
+	l := s.requestCtxLang(ctx)
 	for _, id := range modelCategoryIDs {
 		r, err := s.modelRecord(ctx, id)
 		if err != nil {
@@ -237,7 +266,12 @@ func (s *Service) captureModels(ctx context.Context) (map[string]ModelBinding, m
 		used[name] = true
 		tier := map[string]string{"assistant": "strong", "agent.new": "standard"}[id]
 		if tier != "" {
-			tiers[tier] = ModelTier{Launcher: name, Model: effective.Model, Effort: effective.Effort}
+			model := effective.Model
+			if !proto.ValidModelID(model) {
+				model = "" // configured before #1644 held models to the rule: the launcher's default, as applyModel runs it
+			}
+			tiers[tier] = ModelTier{Launcher: name, Model: model, Effort: effective.Effort,
+				Description: i18n.T(l, "assistant-model_profiles.tier_"+tier)}
 		}
 	}
 	launchers := map[string]LauncherModels{}
@@ -261,22 +295,19 @@ func (s *Service) captureModels(ctx context.Context) (map[string]ModelBinding, m
 
 // tierModel is what an Agent started on tier runs on: the tier in the profile in use.
 func (s *Service) tierModel(ctx context.Context, tier string) (ModelTier, error) {
-	ps, _, err := s.readModelProfiles(ctx)
+	p, active, err := s.activeModelProfile(ctx)
 	if err != nil {
 		return ModelTier{}, err
 	}
-	state, err := s.readModelProfileState(ctx)
-	if err != nil {
-		return ModelTier{}, err
+	if p == nil && active != "" {
+		return ModelTier{}, errors.New("the model profile in use (" + active + ") no longer exists: switch to another with model_profile_switch, or leave tier out")
 	}
-	i := slices.IndexFunc(ps.Profiles, func(p ModelProfile) bool { return p.ID == state.Active })
-	if state.Active == "" || i < 0 {
+	if p == nil {
 		return ModelTier{}, errors.New("no model profile is in use: switch to one with model_profile_switch, or leave tier out")
 	}
-	p := ps.Profiles[i]
 	t, ok := p.Tiers[tier]
 	if !ok {
-		return ModelTier{}, errors.New("the model profile in use (" + p.Name + ") has no tier " + strings.TrimSpace(tier) + "; its tiers: " + strings.Join(slices.Sorted(maps.Keys(p.Tiers)), ", "))
+		return ModelTier{}, errors.New("the model profile in use (" + cmp.Or(p.Name, p.ID) + ") has no tier " + strings.TrimSpace(tier) + "; its tiers: " + strings.Join(slices.Sorted(maps.Keys(p.Tiers)), ", "))
 	}
 	return t, nil
 }

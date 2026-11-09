@@ -961,15 +961,17 @@ func (h *Hub) broadcastTo(typ string, b []byte, elicitation bool) {
 		h.events = newEventLog()
 	}
 	b = h.events.add(b, elicitation, time.Now())
+	// Each broadcast has one type and localizer; keep its language forms local to this call.
+	localize := i18n.ExtensionEvent
+	if typ == "machines" {
+		localize = localizedMachineEvent
+	}
+	forms := map[i18n.Lang][]byte{}
 	for c := range h.clients {
 		if elicitation && !c.has("elicitation") {
 			continue
 		}
-		if typ == "machines" {
-			c.queue(localizedMachineEvent(c.lang(), b))
-		} else {
-			c.queue(i18n.ExtensionEvent(c.lang(), b))
-		}
+		c.queue(localizedOnce(forms, c.lang(), b, localize))
 	}
 }
 
@@ -981,10 +983,14 @@ func (h *Hub) toSubscribers(machineID, sessionID string, v any) {
 // URL's ?features= or in client_hello. v is encoded only once some client follows the session: most streamed deltas
 // are for sessions no app has open.
 func (h *Hub) toSubscribersWith(machineID, sessionID, feature string, v any) {
-	key := [2]string{machineID, sessionID}
-	var b []byte
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.toSubscribersLocked(machineID, sessionID, feature, v)
+}
+
+func (h *Hub) toSubscribersLocked(machineID, sessionID, feature string, v any) {
+	key := [2]string{machineID, sessionID}
+	var b []byte
 	for c := range h.clients {
 		c.mu.Lock()
 		sub := c.subs[key]

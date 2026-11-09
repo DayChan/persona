@@ -347,7 +347,7 @@ func (n *Node) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	go n.startWhenConfigured(ctx) // polling and the engine's events, once the hub said which engine (engine.go)
 	go n.warmTranscripts(ctx)
 	go n.reapAssistants(ctx)
-	go n.meterUsage(ctx)
+	go n.meterUsage(ctx, n.stateReady)
 	go n.runUsageWindows(ctx.Done())
 	go n.sampleMetrics(ctx)
 	go n.watchPorts(ctx)
@@ -1038,6 +1038,12 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 			return n.worktreeStatus(ctx, p.Kind, p.Cwd)
 		}
 		return n.worktreeRemove(ctx, p.Kind, p.Path, a.DeleteBranch, a.Force)
+	case "worktree.snapshot": // a reviewer's own copy of an agent's change (reviewsnapshot.go, #2173)
+		var a struct {
+			NameHint string `json:"name_hint"`
+		}
+		_ = json.Unmarshal(params, &a)
+		return n.worktreeSnapshot(ctx, p.Kind, p.Cwd, a.NameHint)
 	case "tabs.close":
 		return ok(n.closeTab(ctx, p.Kind, p.TabID))
 	case "tabs.rename":
@@ -1248,7 +1254,11 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 	case "fs.stat":
 		return map[string]any{"stats": n.statPaths(p.Paths, p.Cwd)}, nil
 	case "space.rename":
-		return ok(n.renameSpace(ctx, p.WorkspaceID, p.Name))
+		name, err := n.renameSpace(ctx, p.WorkspaceID, p.Name)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "name": name}, nil
 	case "worktree.rename":
 		return ok(n.renameWorktree(ctx, p.Kind, p.WorkspaceID, p.Name))
 	case "session.rename":

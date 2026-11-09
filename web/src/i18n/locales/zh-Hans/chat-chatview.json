@@ -1,7 +1,7 @@
 {
   "forked": "已分支到新聊天",
   "fork_failed": "分支失败：{error}",
-  "session_loading": "正在读取会话信息，稍后再试",
+  "session_unavailable": "这条对话暂时不可用，稍后再试，或开一段新对话",
   "not_delivered": "没送到：{error}",
   "interrupted": "已中断",
   "interrupt_failed": "中断失败：{error}",

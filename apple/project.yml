@@ -298,6 +298,7 @@ targets:
       - path: LiveActivity/FleetIslandViews.swift
     dependencies:
       - target: PersonaVisionShare
+      - target: PersonaVisionNotify
       - package: MarkdownUI
       - package: BeautifulUI
       - package: PersonaSSH
@@ -508,6 +509,35 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
+  # PersonaNotify on Apple Vision Pro (#1981): opens pushes that came through the relay before they are shown. Same code,
+  # Info.plist and bundle id as the iPhone's (the Vision app has the iPhone's bundle id, so its extension does too).
+  PersonaVisionNotify:
+    type: app-extension
+    platform: visionOS
+    sources:
+      - path: PersonaNotify
+        excludes: ["*.plist", "*.entitlements"]
+      - path: Shared/PushCrypto.swift
+      - path: Shared/NativeStateMigration.swift
+      - path: Shared/Generated/ExtensionWire.swift
+      - path: Shared/JSONValue.swift
+      - path: Shared/ExtensionNotificationActions.swift
+    entitlements:
+      path: PersonaNotify/PersonaVisionNotify.entitlements
+      properties:
+        keychain-access-groups: ["$(AppIdentifierPrefix)$(PERSONA_BUNDLE_ID).push"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PERSONA_BUNDLE_ID).notify
+        PRODUCT_MODULE_NAME: PersonaNotify
+        PRODUCT_NAME: PersonaNotify
+        INFOPLIST_FILE: PersonaNotify/Info.plist
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) NATIVE_MIGRATION_STORAGE_ONLY"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
   # The Mac's PersonaNotify (#432): opens pushes that came through the relay before they are shown. Same code, Info.plist
   # and bundle id as the iPhone's (one UNIVERSAL App ID); a Mac extension must be sandboxed.
   PersonaMacNotify:
@@ -545,6 +575,8 @@ targets:
     sources:
       - path: PersonaWatch
       - path: Shared
+      # What the watch face's Milk Frog draws, for the debug preview of it (-openWatchItem complication).
+      - path: PersonaWatchWidgets/PetComplicationView.swift
     dependencies:
       - target: PersonaWatchWidgets
     entitlements:
@@ -597,6 +629,9 @@ targets:
       - path: Shared/ExtensionSurfaceView.swift
       - path: Shared/ExtensionSystemWidget.swift
       - path: Shared/Design/ExtensionSurfaceTokens.swift
+      # The Milk Frog on the watch face (docs/apple/persona.md): what the watch app wrote into the watch App Group.
+      - path: Shared/WatchPetSnapshot.swift
+      - path: Shared/Design/WatchFaceTokens.swift
       - path: Shared/Localization
     entitlements:
       path: PersonaWatchWidgets/PersonaWatchWidgets.entitlements
@@ -675,6 +710,8 @@ targets:
       - path: PersonaTests/ExtensionStreamTreeTests.swift
       - path: PersonaTests/ExtensionPageStreamTests.swift
       - path: PersonaTests/DelegateTests.swift
+      - path: PersonaTests/ChatSupervisionLinesTests.swift
+      - path: PersonaTests/SupervisionTests.swift
       - path: PersonaTests/FakeHub.swift
     dependencies:
       - target: PersonaMac
@@ -691,6 +728,7 @@ targets:
     platform: macOS
     sources:
       - path: PersonaUITests/ExtensionStreamUITests.swift
+      - path: PersonaUITests/SupervisionRoundUITests.swift
       - path: PersonaUITests/UITestStyle.swift
     dependencies:
       - target: PersonaMac

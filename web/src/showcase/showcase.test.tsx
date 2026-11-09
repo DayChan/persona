@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { INERT, ViewSections } from "../views/extensions/ViewBody";
-import { SHOWCASE, showcaseKind } from "./snapshots";
+import { SHOWCASE, SHOWCASE_V6, showcaseKind } from "./snapshots";
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -34,5 +34,22 @@ describe("组件展示", () => {
     for (const t of ["text", "metric", "progress", "row", "button", "link", "field", "divider", "chart", "stat_grid", "segmented", "markdown", "table", "empty", "loading"]) {
       expect(types).toContain(t);
     }
+  });
+
+  // UI version 6 (#829): its pages, and every new component, chart, control, field and style drawn by one of them
+  it("has UI version 6's pages, each drawing all it has", () => {
+    expect(SHOWCASE_V6).toEqual(["carousel", "chart-v6", "controls", "grid", "home-demo", "image", "inputs-v6", "markets-demo", "row-actions", "spark", "styles"]);
+    const items = SHOWCASE_V6.flatMap((n) => SHOWCASE[n].sections.flatMap((s) => s.items));
+    const types = new Set(items.map((i) => i.type));
+    for (const t of ["image", "grid", "carousel"]) expect(types).toContain(t);
+    const kinds = new Set(items.map((i) => (i.type === "chart" || i.type === "field" ? i.kind : i.control?.kind)).filter(Boolean));
+    for (const k of ["candlestick", "area", "donut", "pie", "date", "time", "datetime", "multichoice", "multiline", "switch", "slider", "stepper"]) expect(kinds).toContain(k);
+    expect(items.some((i) => i.actions?.length)).toBe(true);
+    expect(items.some((i) => i.spark)).toBe(true);
+    expect(new Set(items.map((i) => i.style))).toContain("title");
+    // a picture the extension serves reaches the web with the hub's path (here the fake hub's)
+    const pics = items.filter((i) => i.type === "image" && i.src?.ref);
+    expect(pics.length).toBeGreaterThan(0);
+    for (const p of pics) expect(p.src?.path).toMatch(/^\/api\/v1\/extensions\/showcase\/-\/image\//);
   });
 });

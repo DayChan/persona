@@ -13,5 +13,7 @@
   "title_recording_days": "Keep recordings in the knowledge base",
   "change_recording_days": "Keep recordings in the knowledge base: {before} → {after} days",
   "title_done_needs_delivery": "Done means live and checked",
-  "change_done_needs_delivery": "“Done means live and checked”: {before} → {after}"
+  "change_done_needs_delivery": "“Done means live and checked”: {before} → {after}",
+  "title_model_tiers": "Agent presets",
+  "change_model_tier": "{profile} · {tier}: {before} → {after}"
 }

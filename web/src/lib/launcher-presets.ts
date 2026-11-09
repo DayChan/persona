@@ -104,6 +104,11 @@ export function launcherNameProblem(name: string): string {
 /** The categories a provider added in the wizard takes over while they are still at their default (docs/assistant/onboarding.md 5.4). */
 export const ASSIGN_PURPOSES = ["assistant", "agent.new"] as const;
 
+/** Whether the main conversation and Agents can run on a provider added from p (docs/assistant/model-config.md): Claude Code
+ *  needs a Messages endpoint, so a direct API on Responses or Chat Completions serves only the hub's own calls. An
+ *  empty `api` is Messages. */
+export const presetRunsClaude = (p: LauncherPreset) => p.kind !== "api" || !p.api || p.api === "messages";
+
 /** The hub says the provider blocks this region: no key will work here, only another provider (#4482, #4526). */
 export const regionBlocked = (r: TestResult | null | undefined) => !!r && !r.ok && r.code === "region_blocked";
 

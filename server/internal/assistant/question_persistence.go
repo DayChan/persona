@@ -15,7 +15,7 @@ type questionPersistence struct {
 }
 
 func durableQuestion(ix proto.Interaction) bool {
-	return ix.Kind == proto.IxQuestion && ix.ToolName == workCardTool
+	return ix.Kind == proto.IxQuestion && (ix.ToolName == workCardTool || ix.ToolName == toolLoopCardTool)
 }
 
 // These owner cards are reconstructed from snapshots. A successful response must

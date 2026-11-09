@@ -28,7 +28,7 @@ DEFAULT_LANG = "zh-Hans"  # i18n.Default: the hub's words were Chinese before i1
 SCENARIOS = {
     "zero": {"machine": "none", "start": "no_machine"},
     "offline": {"machine": "offline", "start": "node_unreachable"},
-    "pending": {"machine": "pending", "start": "no_machine"},
+    "pending": {"machine": "pending", "start": "machine_pending"},
     "no_claude": {"machine": "ok", "claude": "missing", "start": "claude_missing"},
     "not_logged_in": {"machine": "ok", "model": "not_logged_in"},
     "bad_key": {"machine": "ok", "model": "auth_failed"},
@@ -130,10 +130,12 @@ def blocks(st):
 
 def readiness(sc, machine, lang, launcher="claude", dismissed=False, probe=None):
     """GET /api/v1/assistant/readiness for scenario sc on machine (the main conversation's: a dict with id, name,
-    online, claude_version, node_outdated; None when there is none). probe: the one-word check's result, already run."""
+    online, pending, claude_version, node_outdated; None when there is none). probe: the one-word check's result, already run."""
     out = {"version": 1, "mode": "full", "ready": True, "next": None, "machine": None, "launcher": launcher}
     if machine is None:
         computer = step(lang, "computer", "todo", "no_machine", "", launcher, "add_computer")
+    elif machine.get("pending"):
+        computer = step(lang, "computer", "todo", "machine_pending", machine["name"], launcher, "confirm_computer")
     elif not machine.get("online"):
         computer = step(lang, "computer", "problem", "node_unreachable", machine["name"], launcher, "wake_computer")
     elif machine.get("node_outdated"):

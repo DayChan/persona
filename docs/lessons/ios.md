@@ -2,6 +2,11 @@
 
 Pitfalls, odd behavior and the decisions made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
 
+## A relay push keeps the fallback's sound unless the service extension sets it (#1862)
+
+- The relay writes the outer `aps` itself, `"sound":"default"` included, so the "New message" fallback rings. The notification service extension starts from `request.content.mutableCopy()`, which keeps that sound: replacing the texts, category and interruption level from the sealed payload is not enough. `PushCrypto.apply` sets the sound from the sealed `aps` and clears it when there is none; a silent notification that rings through the relay but not with direct APNs points here.
+- `apple/Shared` compiles for watchOS 10 too, and some UserNotifications APIs don't exist there: `UNNotificationSound(named:)` builds for iOS and the Mac and fails only in the watch build (hosted "iOS and Watch" job). A Mac unit test of shared code does not catch it.
+
 ## Idle-energy profiling and caller attribution (#1634)
 
 - Use an isolated mock hub and keep the build, simulator profile, data and visible-page history identical. Frame-count probes and frozen animations change the workload. A runtime-CLI root rebuild can pin `scenePhase`; use a cold launch and real tab actions instead. Home is asynchronous: verify the background transition before starting its window.
@@ -244,7 +249,7 @@ Use an invalidation revision as the task key and handle the flag after completio
   Real hub pushes a machine's sessions every 2 seconds with new `updated_at`; state + last-update sorting reordered spaces on 36% of pushes and jumped the screen.
   - Sort by a time independent of each output: working sessions by work start (`Session.sortDate`, `SpaceGroup.sortDate`).
   - Hold pushes during touch, inertia, covered pages or another tab; land together 0.5 seconds after stopping, at most 5 seconds even with continuous scrolling;
-    never hold needs-you, questions, offline or errors (`docs/apple/ios-state.md` ("Timeliness")). The list reads only an intermediary (`AgentsFeed`,
+    never hold needs-you, questions, offline or errors (`docs/apple/ios-state.md` ("Timely (bounded)")). The list reads only an intermediary (`AgentsFeed`,
     `withObservationTracking` following the model), with an unobserved hold switch. A list `@State` snapshot would redraw at scroll start.
   - Holding must actually block pushes. These leaks still reevaluate each push:
     - Reading the model in `onChange` / `onScrollPhaseChange` counts as body observation.
@@ -371,6 +376,7 @@ Use an invalidation revision as the task key and handle the flag after completio
 
 - Under iPhone Duo's vertical bars the system draws the navigation bar's title as a row over the content, not in the side column with the buttons: a page that draws its own title shows the name twice. Remove the system's with `.toolbar(removing: .title)` while yours is on screen (`ChatView`, 2026-11-08).
 - A `GeometryReader` that ignores the safe area on an edge reports no inset of its own there (`safeAreaInsets.trailing` was 0 on iPhone Duo's outer display, where the system's bars take the right-hand column): a rail meant for that column came out 59 pt wide against the screen edge, half off it. Measure the column as a reader inside the safe area less one that ignores it (`ShellSideRail`, 2026-11-07).
+- Every page on the shell's strip draws its own bar, so each one has to switch to `ShellSideRail` on `\.shellRailEdge`; the moving bar only stands in while the strip slides. The optional Messages page was missed and put its bar back across the top whenever it was in front (#2318); `ShellSideRailTests` checks the pages' rails on an iPhone Duo.
 - When capping chips in horizontal scrolling, do not put `frame(maxWidth:)` / `scaledFrame(maxWidth:)` outside the background (2026-11-05, #3010): `ScrollView(.horizontal)` proposes no width,
   and flexible frames pass that unlimited proposal through. The chip and background measure the entire title while only the frame's occupied space is capped;
   background and space diverge: shorter chips leave larger gaps, large text does not truncate and capsules overlap neighbors.
@@ -660,6 +666,11 @@ Use an invalidation revision as the task key and handle the flag after completio
   (`Tab.workbench` collided with `-workbench`, renamed `-openWorkbench`). Use `open…` / `show…` names unlike type members and register in `release.sh`.
   Stored properties also collide (2026-10-31, `AgentsListMenu.Actions`.openMonitor vs `-openMonitor` stopped TestFlight 50). For new properties,
   first build locally `xcodebuild build -configuration Release -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` and run `release.sh` `strings` checks on `Release-iphoneos/Persona.app/Persona`.
+  It happened again with `WorkspaceSidebarCard.openAgent` vs `-openAgent` (2026-11-09, #1675 stopped TestFlight 214, renamed `selectAgent` in #2179):
+  name closure properties `select…` / `on…`, not `open…` / `show…`. `@State` / `@Binding` / `@Environment` properties are stored as `_name` and never collide.
+  A quick check against the source: the list in `release.sh` into a file, then
+  `git grep -hoE '(var|let|case)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' -- 'apple/*.swift' ':!apple/PersonaTests' ':!apple/PersonaUITests' ':!apple/Persona/Debug' | awk '{print $2}' | sort -u | grep -xF -f <list>`
+  (each hit that is not a property wrapper or a Mac-only case is a collision).
 - Launch-argument defaults are `strings` (`-dev.compact YES` is "YES"). Read booleans / numbers with `bool(forKey:)` / `integer(forKey:)` / `double(forKey:)` like AppStorage,
   not `object(forKey:) as? Bool`, which silently falls back (#1473 `StoredValue` broke `-dev.compact YES`; `CompactListShots` showed cards instead of compact rows, #2147).
 - Live Activities (`docs/apple/live-activity.md`): ActivityKit uses default JSONDecoder for `content-state`; `Date` values start 2001; pass Unix-second numbers.
@@ -669,11 +680,11 @@ Use an invalidation revision as the task key and handle the flag after completio
   Island numbers (TPM, tokens, load) consume push budget: hub sends only displayed fields, two significant figures, at most once per minute per device.
   Sharing with another app on 18 Pro gives two width-limited 28 pt compact activities (second clipped);17 Pro and others use minimal.
   Only iOS 27 `isDynamicIslandLimitedInWidth` reports width limitation; app cannot know presentation or other apps. Compact / minimal provide no width, making `ViewThatFits` useless.
-  Screenshot both models (`scripts/app/island_peer.sh` + `LiveActivityShots`, `docs/apple/live-activity.md` ("Sharing Dynamic Island with other apps")).
+  Screenshot both models (`scripts/app/island_peer.sh` + `LiveActivityShots`, `docs/apple/live-activity.md` ("Sharing the Dynamic Island with other apps")).
 - Missing shared keychain groups (push-relay `.push` private key; avatar `.look` also used builds 92–103) silently fall back, while simulator always works:
   build 92 extension signatures had no groups (unsigned archive + ad-hoc signing without entitlements, empty `$(AppIdentifierPrefix)`), always default avatar / system blue.
   Use `$(DEVELOPMENT_TEAM).` prefix in plist; after entitlement / signing changes run `scripts/release/entitlements.py check` on exported ipa (`docs/operations/release.md` ("entitlements")).
-- Simulator Live Activity rendering is insufficient (2026-11-02, build 98 signing fixed but device still default, even built-in avatar; `docs/apple/live-activity.md` ("Why build 98 still failed")):
+- Simulator Live Activity rendering is insufficient (2026-11-02, build 98 signing fixed but device still default, even built-in avatar; `docs/apple/live-activity.md` ("Why build 98 was still wrong")):
   - Put rendered data in ContentState and oversized images in App Group files. **Live Activity extensions cannot read / write keychain on device**:
     build 103 app shared-group write / read succeeded, extension never wrote one diagnostic (simulator both work; Apple only documents its separate sandbox).
     Unchanged-content updates may not redraw; content must really change.

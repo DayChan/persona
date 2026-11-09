@@ -65,6 +65,9 @@ func (c *conversation) readApp() {
 			c.gate.typed = c.gate.user
 			w := c.w
 			held := c.holdText(text) // paused or waking: it wakes the upstream, and goes to the next session (suspend.go)
+			if !held && c.ready && c.up != nil {
+				c.owe(c.gate.user, owedTyped, false) // the model owes it an answer (nudge.go); a held one, once it is sent
+			}
 			c.mu.Unlock()
 			if !held && !c.sendUp(-1, w.text(text)) {
 				c.fail("语音会话还没连上，这句没发出去", false)

@@ -632,12 +632,18 @@ func (ps *extensions) apply(ctx context.Context, id string) {
 	ps.mu.Unlock()
 	why := tokenStopReason(ps.reg.GetExact(id))
 	if ps.h != nil {
+		ps.h.widgetsDropExtension(id)
+		// Wake after the replacement is published, so a catalog refresh sees the new contributions.
+		defer ps.h.widgetsWake(id, nil, true)
 		ps.h.pageDropExtension(id)
 		// Switched off, upgraded (maybe to fewer scopes), uninstalled or reconfigured: its token goes now, and a new
 		// one comes with its next start.
 		ps.h.extTokens.revoke(id, why)
 	}
 	ps.forgetEgress(id) // the same for its proxy credential (extension_sandbox.go)
+	if ps.h != nil {
+		ps.h.forgetImages(id) // and the pictures it served (extension_images.go)
+	}
 	if old != nil {
 		ps.removeAgentSources(old)
 		for _, c := range old.conns {
@@ -773,7 +779,7 @@ func (hp *hubExtension) closeIdle() {
 	}
 }
 
-// serveExtensionHTTP hands one request to the plugin's HTTP side, counted by route (extension_metrics.go).
+// serveExtensionHTTP hands one request to the plugin's HTTP side, counted by route (extension_metrics_relay.go).
 func (hp *hubExtension) serveExtensionHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Del("Cache-Control") // set by the hub's auth for its own answers: the plugin's own goes instead
 	if hp.stats == nil {
@@ -1004,6 +1010,9 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 			hp.contributions = params.ContributionsToMe
 			hp.contributionsMu.Unlock()
 		}
+		if err := ps.storageStart(ctx, p); err != nil {
+			return extension.InitializeParams{}, storeError(ctx, err)
+		}
 		return params, nil
 	}
 	if builtin && id == wechat.ID && ps.h != nil {
@@ -1028,6 +1037,11 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 	s.Handle = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 		if current := ps.reg.SnapshotExact(id); current == nil || current.Record.Version != p.Record.Version || !current.Record.UpdatedAt.Equal(p.Record.UpdatedAt) {
 			return nil, &rpc.Error{Code: extension.CodePermissionDenied, Message: "retired extension runtime"}
+		}
+		if strings.HasPrefix(method, "storage.") {
+			// Keep this process's captured epoch/grants. Re-resolving after the
+			// preliminary fence could lend a retired run the replacement's scope.
+			return ps.storageCall(ctx, p, method, params)
 		}
 		switch method {
 		case "kb.list", "kb.get", "kb.day", "kb.search", "kb.update", "kb.owner", "kb.recent":

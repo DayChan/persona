@@ -5,6 +5,7 @@
   "send_failed": "届きませんでした：{error}",
   "hand_back": "コンピューターで対応",
   "question": "質問",
+  "tool_loop_kicker": "ツール呼び出しのループの可能性",
   "previous_question": "前の質問",
   "question_n": "質問{n}",
   "next_question": "次の質問",

@@ -152,7 +152,22 @@ func (h *Hub) mergeList(w http.ResponseWriter, r *http.Request, key string, ask 
 	for _, id := range ids {
 		bw := newBufferedWriter()
 		ask(bw, withBody(r, body), id)
-		answers = append(answers, listAnswer{id: id, status: cmp.Or(bw.status, http.StatusOK), header: bw.header, body: bw.body.Bytes()})
+		ans := listAnswer{id: id, status: cmp.Or(bw.status, http.StatusOK), header: bw.header, body: bw.body.Bytes()}
+		if key == "todos" && ans.ok() {
+			var t struct {
+				Todos []struct {
+					ID string `json:"id"`
+				} `json:"todos"`
+			}
+			if json.Unmarshal(ans.body, &t) == nil {
+				for _, td := range t.Todos {
+					if td.ID != "" {
+						h.noteTodoOwner(td.ID, id)
+					}
+				}
+			}
+		}
+		answers = append(answers, ans)
 	}
 	writeMerged(w, key, answers)
 }

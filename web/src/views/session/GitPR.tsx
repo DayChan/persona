@@ -27,7 +27,7 @@ export function useGitPR(base: string, cwd: string, s: GitStatus | null, on: boo
   const [refusal, setRefusal] = useState<GitRefusal | null>(null);
   const [reads, setReads] = useState(0);
   // gh asks GitHub each time: read again only when the branch, its upstream or what is on it moved
-  const pushed = s?.is_repo && s.branch ? `${s.branch}|${s.upstream ?? ""}|${s.ahead ?? 0}|${s.head?.hash ?? ""}` : "";
+  const pushed = s?.is_repo && s.branch ? `${s.branch}|${s.upstream ?? ""}|${s.gone ? "gone" : ""}|${s.ahead ?? 0}|${s.head?.hash ?? ""}` : "";
   useEffect(() => {
     if (!on || !pushed) return;
     const ac = new AbortController();
@@ -74,9 +74,9 @@ export type GitPRState = ReturnType<typeof useGitPR>;
 // what kept gh from answering that is not worth a card: no GitHub remote, no branch
 const QUIET = new Set(["git_not_github", "git_detached", "git_not_repo"]);
 
-/** Whether the branch can have a pull request opened: on a branch, pushed, nothing left to push. */
+/** Whether the branch can have a pull request opened: on a branch, pushed (and still there), nothing left to push. */
 function pushedAll(s: GitStatus): boolean {
-  return Boolean(s.branch && s.upstream && (s.ahead ?? 0) === 0);
+  return Boolean(s.branch && s.upstream && !s.gone && (s.ahead ?? 0) === 0);
 }
 
 /** The card under the summary: the pull request in a line (state, checks, open threads), or a way to open one. */

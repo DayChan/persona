@@ -2,7 +2,8 @@
 package sessionorigin
 
 import (
-	"github.com/nwverse/persona/server/internal/host"
+	"strings"
+
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -16,7 +17,9 @@ func Of(s proto.Session) string {
 	if s.PaneID == "" {
 		return "unknown"
 	}
-	if host.ParsePane(s.PaneID).Kind == host.Botmux {
+	// A stored pane names its host before ":" (host.ParsePane). Read here so the hub, which links this package, does
+	// not link the manager-side host package (depguard).
+	if kind, _, ok := strings.Cut(s.PaneID, ":"); ok && kind == "botmux" {
 		return "feishu"
 	}
 	return "terminal"

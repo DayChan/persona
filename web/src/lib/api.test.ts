@@ -67,6 +67,14 @@ describe("readable hub errors", () => {
   });
 });
 
+describe("an error page from a proxy in front of the hub", () => {
+  it.each(["<!DOCTYPE html><html><title>502: Bad gateway</title></html>", "\n  <html><body>Bad Gateway</body></html>"])("shows the status, not the markup: %s", async (body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 502 })));
+    const text = errorText(await api("/missing", { token: "test-token" }).catch((e: unknown) => e));
+    expect(text).toBe(t("lib-api.hub_unavailable", { detail: "HTTP 502" }));
+  });
+});
+
 // What the hub answers when the computer did not (server/internal/apierr Body and Call): the summary may already be in the
 // page's language, the raw text in detail; the code is what the page goes by (#5031).
 describe("a computer that did not answer", () => {

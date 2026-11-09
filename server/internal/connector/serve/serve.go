@@ -7,8 +7,9 @@
 // A write (actions.do) comes only once the hub's gate let it through; the program never starts one itself.
 //
 // A program answers two openings: init and the bare method names (connector protocol 2 on its own), and the plugin
-// protocol's initialize with the same methods in the connector namespace (connector.status, …; docs/extensions/extensions.md). The
-// hub starts its connector programs as plugins; the bare opening stays for one release.
+// protocol's initialize with the same methods in the connector namespace (connector.status, …; docs/extensions/extensions.md).
+// The extension manager runs connector programs as plugins (connector/proc with a Link). connector/proc still opens a
+// program it starts itself (Config.Path) with init, as its tests and the conformance kit do, so both openings stay.
 package serve
 
 import (
@@ -34,22 +35,24 @@ import (
 
 // Methods the hub calls.
 const (
-	MInit      = "init" // InitParams → Manifest: build the connector and start it
-	MManifest  = "manifest"
-	MStatus    = "status"
-	MLoginStep = "login.step"
-	MLogout    = "logout"
-	MChanges   = "archive.changes"
-	MCollect   = "inbox.collect"
-	MReply     = "inbox.reply"
-	MTools     = "tools.list"
-	MCall      = "tools.call"
-	MActions   = "actions.list"
-	MDescribe  = "actions.describe"
-	MDo        = "actions.do" // only once the hub's gate let it through
-	MRecall    = "recall"     // take a sent message back: only once the user agreed, and only for a connector that declares recall
-	MThread    = "thread.page"
-	MMedia     = "thread.media"
+	MInit        = "init" // InitParams → Manifest: build the connector and start it
+	MManifest    = "manifest"
+	MStatus      = "status"
+	MLoginStep   = "login.step"
+	MLogout      = "logout"
+	MChanges     = "archive.changes"
+	MCollect     = "inbox.collect"
+	MReply       = "inbox.reply"
+	MCatalog     = "catalog.list"
+	MCatalogCall = "catalog.call"
+	MTools       = "tools.list"
+	MCall        = "tools.call"
+	MActions     = "actions.list"
+	MDescribe    = "actions.describe"
+	MDo          = "actions.do" // only once the hub's gate let it through
+	MRecall      = "recall"     // take a sent message back: only once the user agreed, and only for a connector that declares recall
+	MThread      = "thread.page"
+	MMedia       = "thread.media"
 	// The knowledge base's items (connector.Items) and an archived message's attachment (connector.ArchiveMedia).
 	MItems        = "items.list"
 	MDocTitle     = "items.doc_title"
@@ -604,6 +607,16 @@ func (s *server) handle(ctx context.Context, method string, params json.RawMessa
 			return nil, err
 		}
 		return struct{}{}, in.Reply(ctx, p)
+	case MCatalog:
+		sources, err := connector.ReadCatalog(ctx, c)
+		return connector.CatalogResult{Sources: sources}, err
+	case MCatalogCall:
+		var p connector.CatalogQuery
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		text, err := connector.CallCatalog(ctx, c, p)
+		return CallResult{Text: text}, err
 	case MTools:
 		t, ok := connector.As[connector.ReadTools](c)
 		if !ok {

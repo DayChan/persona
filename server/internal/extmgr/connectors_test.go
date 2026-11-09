@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -294,5 +295,27 @@ func TestGhTokenFromAMachine(t *testing.T) {
 	}
 	if _, err := h.ghToken("nope")(context.Background(), "github.com"); !errors.Is(err, github.ErrNoMachine) {
 		t.Fatalf("unknown machine: %v", err)
+	}
+}
+
+// A connector's realtime event reaches the knowledge base with who changed and what (kb.kick {connector, scope}), so
+// that connector is read at the next round rather than at its poll; the inbox scope goes to the inbox (#1562).
+func TestConnectorChangedKicksThatConnector(t *testing.T) {
+	h := newTestManager(t)
+	var mu sync.Mutex
+	var told []string
+	h.opts.AssistantEvent = func(event string, params json.RawMessage) {
+		mu.Lock()
+		defer mu.Unlock()
+		told = append(told, event+" "+string(params))
+	}
+	h.connectorChanged("example", connector.ScopeChats)
+	h.connectorChanged("example", connector.ScopeItems)
+	h.connectorChanged("example", connector.ScopeInbox)
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{`kb.kick {"connector":"example","scope":"chats"}`, `kb.kick {"connector":"example","scope":"items"}`}
+	if !slices.Equal(told, want) {
+		t.Fatalf("told the assistant %q, want %q", told, want)
 	}
 }

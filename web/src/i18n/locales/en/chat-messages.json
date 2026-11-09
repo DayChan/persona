@@ -3,5 +3,10 @@
   "message_count_other": "{count} messages",
   "from": "From {name}",
   "loop_tick": "Loop wake-up",
+  "source_conversation": "Conversation",
+  "source_patrol": "Scheduled patrol",
+  "source_followup": "Follow-up",
+  "source_supervision": "Supervision",
+  "source_other": "Source",
   "open_task": "{line}, open task"
 }

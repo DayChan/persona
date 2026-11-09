@@ -76,13 +76,29 @@ class AppUpdateState(
         if (!gate.tryLock()) return
         try {
             if (!validSource()) return
-            val latest = state.value.latest ?: return
+            if (state.value.latest == null) return
             mutable.update { it.copy(installing = true, message = null) }
             try {
+                // Automatic discovery may be throttled for hours while releases keep advancing.
+                val latest = try { api.check()?.takeIf { it.versionCode > installed } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { throw AppUpdateFailure(UpdateStage.Metadata, error) }
+                if (!validSource()) return
+                saveLatest(latest)
+                mutable.update { it.copy(latest = latest, notice = latest != null) }
+                if (latest == null) {
+                    mutable.update { it.copy(message = R.string.settings_update_none) }
+                    return
+                }
                 action(latest)
                 mutable.update { it.copy(message = R.string.settings_update_verified) }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { mutable.update { it.copy(message = R.string.settings_update_failed) } }
+            catch (error: Exception) {
+                val stage = (error as? AppUpdateFailure)?.stage ?: UpdateStage.Install
+                // Do not log exception messages: transport exceptions can contain credential-bearing URLs.
+                android.util.Log.w("AppUpdate", "Update failed: stage=$stage type=${error.cause?.javaClass?.simpleName ?: error.javaClass.simpleName}")
+                mutable.update { it.copy(message = stage.message) }
+            }
             finally { mutable.update { it.copy(installing = false) } }
         } finally { gate.unlock() }
     }

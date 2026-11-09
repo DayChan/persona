@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import type { Todo } from "./todos";
 import type { Injected, Item } from "./types";
 import { timeMs } from "./times";
+import { userSourceSentinel } from "./message-source";
 
 // Messages Persona types into a conversation for the model (a task's notice, a scheduled run, a wake-up, the
 // background tasks a node restart stopped): one line instead of a user bubble, never the instructions inside
@@ -81,7 +82,7 @@ export function injectedOf(it: Item): Injected | null {
     const n = it.injected;
     return n.state === "supervise" && n.level === undefined ? { ...n, level: parseInjected(it.text ?? "")?.level ?? "triage" } : n;
   }
-  if (it.client_msg_id || it.from) return null;
+  if (it.client_msg_id || it.from || userSourceSentinel(it.text ?? "")) return null;
   return parseInjected(it.text ?? "");
 }
 

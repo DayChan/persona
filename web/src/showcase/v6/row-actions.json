@@ -1,0 +1,133 @@
+{
+  "title": "行动作",
+  "sections": [
+    {
+      "title": "右键、长按或点「⋯」",
+      "footer": "这些动作只是捷径：点这一行进去的详情页里同样能做。",
+      "items": [
+        {
+          "type": "row",
+          "key": "a1",
+          "title": "一个动作",
+          "icon": "light",
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail",
+              "title": "主灯"
+            }
+          },
+          "actions": [
+            {
+              "title": "重命名",
+              "icon": "edit",
+              "action": {
+                "id": "rename"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "a2",
+          "title": "两个动作",
+          "subtitle": "带左滑",
+          "icon": "door",
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail"
+            }
+          },
+          "actions": [
+            {
+              "title": "开锁",
+              "icon": "unlock",
+              "swipe": true,
+              "action": {
+                "id": "unlock",
+                "confirm": "开门锁？"
+              }
+            },
+            {
+              "title": "分享",
+              "icon": "share",
+              "action": {
+                "id": "share"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "a4",
+          "title": "四个动作",
+          "subtitle": "最后一个是删除",
+          "icon": "camera",
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail"
+            }
+          },
+          "actions": [
+            {
+              "title": "刷新",
+              "icon": "refresh",
+              "action": {
+                "id": "refresh"
+              }
+            },
+            {
+              "title": "全屏",
+              "icon": "video",
+              "action": {
+                "id": "full"
+              }
+            },
+            {
+              "title": "重命名",
+              "icon": "edit",
+              "action": {
+                "id": "rename"
+              }
+            },
+            {
+              "title": "删除",
+              "icon": "trash",
+              "role": "destructive",
+              "swipe": true,
+              "action": {
+                "id": "remove",
+                "confirm": "删除这个摄像头？"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "a5",
+          "title": "带开关和动作",
+          "icon": "plug",
+          "control": {
+            "kind": "switch",
+            "name": "plug.tv",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          },
+          "actions": [
+            {
+              "title": "定时关闭",
+              "icon": "clock",
+              "action": {
+                "id": "timer"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

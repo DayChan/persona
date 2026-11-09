@@ -15,7 +15,7 @@ func listKeyFmt(list []proto.Session) string {
 	var b strings.Builder
 	for _, s := range list {
 		fmt.Fprintf(&b, "%s|%s|%s|%s|%s|%s|%s|%s|%d|%q|%s|%s\n", s.SessionID, s.Status, s.Title, s.PaneID, s.SpaceName, s.ParentSpaceID, s.SlotName, s.LastText, s.UpdatedAt.Unix()/10, s.Queued, s.Suggestion, s.SpawnFrom)
-		fmt.Fprintf(&b, "hierarchy:%q/%q/%q/%v/%q/%q/%q\n", s.ParentThreadID, s.ParentSessionID, s.RootSessionID, s.IsSubagent, s.RepoRoot, s.SpaceID, s.SpaceKind)
+		fmt.Fprintf(&b, "hierarchy:%q/%q/%q/%v/%q/%q/%q/%q/%q\n", s.ParentThreadID, s.ParentSessionID, s.RootSessionID, s.IsSubagent, s.RepoRoot, s.Worktree, s.Branch, s.SpaceID, s.SpaceKind)
 		if s.Activity != "" {
 			fmt.Fprintf(&b, "activity:%s/%d\n", s.Activity, unixOf(s.ActivityAt))
 		}
@@ -46,7 +46,7 @@ func listKeyFmt(list []proto.Session) string {
 				if a.LatestTool != nil {
 					name = a.LatestTool.Name
 				}
-				fmt.Fprintf(&b, "%s/%d,", name, a.Calls)
+				fmt.Fprintf(&b, "%s/%s/%d,", a.ID, name, a.Calls)
 			}
 		}
 		if s.Loop != nil {
@@ -126,6 +126,8 @@ func listKeyVariants() (proto.Session, map[string]proto.Session) {
 		"root_session_id":   func(s *proto.Session) { s.RootSessionID = "root-public" },
 		"is_subagent":       func(s *proto.Session) { s.IsSubagent = true },
 		"repo_root":         func(s *proto.Session) { s.RepoRoot = "/work/project" },
+		"worktree":          func(s *proto.Session) { s.Worktree = "/work/project-fix" },
+		"branch":            func(s *proto.Session) { s.Branch = "fix/x" },
 		"space_id":          func(s *proto.Session) { s.SpaceID = "project-id" },
 		"space_kind":        func(s *proto.Session) { s.SpaceKind = "codex_app" },
 
@@ -281,6 +283,7 @@ func TestListKeyWorkflowProgress(t *testing.T) {
 			w.Agents[2].LatestTool, w.Agents[2].Calls = &proto.WorkflowTool{Name: "Read"}, 1
 		}, true},
 		"same tool again":    {func(w *proto.Workflow) { w.Agents[1].Calls++ }, true},
+		"retried agent":      {func(w *proto.Workflow) { w.Agents[2].ID = "a4" }, true}, // #2323: no count changes
 		"timestamp":          {func(w *proto.Workflow) { w.UpdatedAt = time.Now() }, false},
 		"tokens":             {func(w *proto.Workflow) { w.Agents[1].Tokens += 10; w.Tokens += 10 }, false},
 		"last text":          {func(w *proto.Workflow) { w.Agents[1].LastText = "halfway" }, false},

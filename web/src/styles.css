@@ -18,6 +18,9 @@
   --line: #ecedef;
   --line-strong: #e0e2e5;
   --field: #f2f2f3;
+  /* A dropdown's arrow (#2314, the select rule below): ui/icons.tsx `chevron` stroked in --ink-3. A background image
+     cannot read var(), so the color is written out here; ui/select-chevron.test.tsx keeps it equal to --ink-3. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2366696f' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --stripe: #49494913;
   --stripe-bg: #f5f5f5;
   --accent: #0285ff;
@@ -57,6 +60,7 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1018280a, 0 2px 6px #10182808;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #0000000b;
   --shadow-overlay: 0 0 0 1px var(--line), 0 8px 28px #0001;
+  --shadow-nav-preview: 0 12px 40px #00000014;
   --shadow-inset-field: inset 0 1px 2px #0000001f;
 }
 
@@ -73,6 +77,7 @@
   --line: #2e3033;
   --line-strong: #3a3c40;
   --field: #2b2c2f;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23979aa0' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --stripe: #ffffff0e;
   --stripe-bg: #1b1c1e;
   --accent: #3d9aff;
@@ -99,7 +104,38 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #0003, 0 2px 6px #0003;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #00000038;
   --shadow-overlay: 0 0 0 1px var(--line-strong), 0 8px 28px #00000057;
+  --shadow-nav-preview: 0 12px 40px #00000060;
   --shadow-inset-field: inset 0 1px 2px #0006;
+}
+
+/* Source messages share the chat's typography and neutral surfaces in every theme. */
+@layer components {
+  .chat-source {
+    @apply flex min-w-0 flex-col items-start gap-1.5 rounded-card bg-inset p-3 text-ink-2;
+  }
+  .chat-source-label {
+    @apply max-w-full truncate font-medium text-accent-ink;
+    font-size: var(--chat-secondary);
+  }
+  .chat-source-body {
+    @apply min-w-0 w-full;
+    font-size: var(--chat-secondary);
+    line-height: 1.6;
+  }
+  .chat-source-body .prose-j {
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+  .chat-source-body .prose-j > :first-child { margin-top: 0; }
+  .chat-source-body .prose-j > :last-child { margin-bottom: 0; }
+  .chat-source-folded {
+    max-height: 3lh;
+    overflow: hidden;
+  }
+  .chat-source-toggle {
+    @apply rounded-control font-medium whitespace-nowrap text-ink-3 hover:text-ink-2;
+    font-size: var(--chat-secondary);
+  }
 }
 
 /* Expose the tokens as Tailwind utilities. */
@@ -146,11 +182,13 @@
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-nav-preview: var(--shadow-nav-preview);
   --shadow-inset-field: var(--shadow-inset-field);
 
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
+  --radius-nav-preview: 16px;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
@@ -315,6 +353,10 @@ button:disabled { cursor: default; }
  * Checked as a set (adjacent pairs, light and dark) with the dataviz palette validator. */
 :root { --series-1: #0285ff; --series-2: #1baf7a; --series-3: #6250d6; --series-4: #e87ba4; }
 .dark { --series-1: #3987e5; --series-2: #199e70; --series-3: #9085e9; --series-4: #d55181; }
+/* Extensions' named colors (UI version 6, schema Color): on badges, icons, tiles, chart series and sparks, never on text.
+ * Each reads on the surface in its theme (3:1 at least, as an icon); a tile that is on lays it at 14% under the ink. */
+:root { --hue-red: #e3474c; --hue-orange: #e2680a; --hue-amber: #b57a00; --hue-yellow: #9c8500; --hue-green: #189a4d; --hue-teal: #0f8a9c; --hue-blue: #0285ff; --hue-indigo: #5b5bd6; --hue-purple: #9a4fd0; --hue-pink: #d6407f; --hue-gray: #7c8087; }
+.dark { --hue-red: #ee5c61; --hue-orange: #f68f3c; --hue-amber: #f0b429; --hue-yellow: #e8d04a; --hue-green: #3dbb72; --hue-teal: #3fb8c8; --hue-blue: #3d9aff; --hue-indigo: #8b8ef0; --hue-purple: #c08af0; --hue-pink: #ef7aa8; --hue-gray: #9a9ea5; }
 
 /* ── Phones (#1996) ─────────────────────────────────────── */
 /* The chat's reading sizes: 15 / 14 on wide screens, 16 / 15 on a phone (the user's call: iOS reads at 17, but tool rows
@@ -336,6 +378,19 @@ button:disabled { cursor: default; }
    over the text-[13px] utilities. */
 @media (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select { font-size: max(16px, 1em); }
+}
+/* Dropdowns (#2314): left to the browser, a <select>'s arrow ignores the field's padding. Chrome pins a bold black arrow
+   2 px from the right edge, Safari drops the padding and draws ⇕. A single-line select draws the icon set's chevron
+   (--select-chevron) instead, 10 px in like the fields' text (px-2.5) and 12 px wide like a menu's, and keeps its text
+   6 px clear of it. Unlayered on purpose, so its right padding wins over the px-* utilities; a select that draws its
+   own arrow sets appearance-none (Machines › Usage's filter pills). */
+select:not([multiple], [size], .appearance-none) {
+  appearance: none;
+  padding-right: 28px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
 }
 
 /* ══ #3559 status marks and the segmented thumb (follows Moshi; own block, kept apart from the reduced-motion work of #3475) ══ */
@@ -368,3 +423,17 @@ button:disabled { cursor: default; }
 .seg-thumb { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; background: var(--surface); box-shadow: var(--shadow-btn); transition: transform var(--seg-dur) var(--ease-out-strong), width var(--seg-dur) var(--ease-out-strong), height var(--seg-dur) var(--ease-out-strong); }
 .seg-thumb[data-ready="false"] { transition: none; }
 @media (prefers-reduced-motion: reduce) { .seg-thumb { transition: none !important; } }
+
+/* ── Slider (ui/Slider.tsx) ─────────────────────────────── */
+/* A native range input in the design system: a 4px track the accent fills up to the thumb (--fill), a white thumb. */
+.range { -webkit-appearance: none; appearance: none; height: 22px; background: transparent; cursor: pointer; touch-action: pan-y; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--hover-2) var(--fill, 0%)); }
+.range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--hover-2); }
+.range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-btn); transition: transform 150ms var(--ease-out-strong); }
+.range::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: #fff; box-shadow: var(--shadow-btn); }
+.range:active::-webkit-slider-thumb { transform: scale(1.1); }
+.range:focus-visible { outline: none; }
+.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--accent), var(--shadow-btn); }
+.range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(--accent), var(--shadow-btn); }
+.range:disabled { opacity: 0.5; cursor: default; }

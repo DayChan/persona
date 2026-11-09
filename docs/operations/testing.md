@@ -10,103 +10,90 @@ cd apple && xcodegen generate -q && xcodebuild -project Persona.xcodeproj -schem
 ./scripts/app/sim.sh [-openSession <machine>/<id>]                    # run in simulator, pair automatically to the real hub
 cd apple/Packages/PersonaKit && swift test                             # PersonaKit unit tests: directly on Mac, no App build or simulator
 python3 -B scripts/test/test_sim_boot.py                               # sim-boot.sh (fake xcrun / simslim, no simulator)
-n=0 failed=""; for f in $(find scripts -name 'test_*.py' -not -path '*/node_modules/*' | sort); do n=$((n + 1)); (cd "$(dirname "$f")" && python3 -B -m unittest -q "$(basename "$f" .py)") || failed="$failed $f"; done; echo "$n suites, failed:${failed:- none}"; [ -z "$failed" ]   # all Python tests in scripts/, like CI; any failure exits nonzero
+n=0 failed=""; for f in $(find scripts -name 'test_*.py' -not -path '*/node_modules/*' | sort); do grep -q unittest "$f" || continue; n=$((n + 1)); (cd "$(dirname "$f")" && python3 -B -m unittest -q "$(basename "$f" .py)") || failed="$failed $f"; done; echo "$n suites, failed:${failed:- none}"; [ -z "$failed" ]   # all Python suites in scripts/, like CI (it skips files that never mention unittest); any failure exits nonzero
 ```
 
 ## Hosted CI
 
-`.github/workflows/ci.yml` runs on every PR and manual dispatch. There is no merge-queue trigger while the repository has no merge queue.
-Automatic PR CI allocates **one runner, named CI required**. That job performs repository/commit privacy and path safety, documentation
-paths and README checks, CI-regression tests, then the complete Web and runtime/SDK checks when selected by `scripts/ci/paths.py`.
-`scripts/ci/guards.sh` also runs `scripts/ci/migration_freeze.py`. An edit, deletion or rename of a `.sql` file already on the base under
-`server/internal/db/migrations/hub` or `server/internal/db/migrations/manager` fails that check. Comment-only and whitespace-only edits pass;
-add a new migration instead.
-The same step runs `scripts/ci/sleep_ratchet.py`. Each `_test.go` file under `server/` and `sdk/go/` has a committed count of `time.Sleep` calls (`scripts/ci/sleep_baseline.json`). The count may stay the same or go down, never up, and a new file starts at zero. Comments, string literals and a line carrying `// sleep-ok: <reason>` (the reason must be non-empty) do not count. `python3 scripts/ci/sleep_ratchet.py --update` only lowers the baseline; it refuses to raise a count or to add a file that still sleeps. See `docs/lessons/testing.md`.
-It does not queue separate guards, script shards and an aggregate runner. Any executed step failure still fails the real check.
-On a PR, all of these compare with the base branch as it is now: `scripts/ci/paths.py --print-base` takes the first parent of the
-merge commit that `actions/checkout` checks out (`refs/pull/<n>/merge`, whose second parent is the PR head), so the commit privacy range,
-the migration freeze, the sleep ratchet and lane selection see only the PR's commits. The event's `pull_request.base.sha` stays where
-the PR was opened and is only the fallback when HEAD is not that merge commit.
-Require **CI required** only; no repository rulesets are changed. A workflow change needs green hosted verification on the PR head.
+**No workflow runs automatically for a pull request, branch push, merge queue or schedule.** Before merging a PR, run the relevant
+commands in "Build and verify" locally, inspect required screenshots and run `scripts/privacy_check.py`. The `CI required` check is
+not a PR gate. A scheduler explicitly dispatches full CI on the latest `main`; a failure is fixed separately. Local PR verification
+and scheduled post-merge CI are both required operational checks, not substitutes for one another.
 
-By maintainer decision, **server, Android, iOS/Watch, Mac and the full scripts suite are manual-only**. Sharding improved execution time,
-but the post-merge documentation and Web verification PRs still took 20m35s and 21m13s because repeated Linux allocations queued for
-minutes. The merged server/Android manual run was green but took 23m14s including queues. These failed latency samples remain evidence,
-not passing acceptance claims (#1474). Keeping heavy lanes manual reduces shared runner pressure and preserves their complete tests.
-On a PR, their selector outputs are explicitly false: a skipped platform is not claimed as tested. Fast documentation and CI-regression
-checks still run on every PR. Full script-suite, catalog, translation/token and workflow-lint checks remain in the manual scripts lane.
-Image build/smoke and issue-link enforcement remain manual; release `v*` tag publishing is retained.
-
-Manual CI still uses independent reusable platform workflows and the tested **CI required** aggregator, rejecting failed, cancelled,
-missing or unexpectedly skipped selected jobs. Selected iOS/Watch contributes to that aggregate; Mac reports its real independent result
-without `continue-on-error`. All manual lane overrides remain available; manual duration is not a passing automatic PR budget claim.
-
-Manual `lanes` accepts `auto` (the default), `all`, or comma-separated `server,web,android,apple,runtimes,scripts`. Unknown names fail.
-`auto` compares with the PR base when present, otherwise `origin/main`; `base` can override that comparison. A dispatch of unchanged `main`
-with `auto` is not a full-platform check. Inspect selection with `python3 scripts/ci/paths.py --base origin/main`.
+`ci.yml` accepts only `workflow_dispatch`. Its `full` boolean defaults to **true**, so a plain dispatch runs all six required
+platform lanes plus the independently reported Mac lane even on unchanged `main`; path filtering cannot silently turn a default run
+into a collection of skipped jobs. Set `full=false` to use `lanes`: `all`, `auto` (diff against `origin/main`), or comma-separated
+`server,web,android,apple,runtimes,scripts`. `base` overrides the comparison for `auto`. Unknown lane names fail.
+Inspect selection locally with `python3 scripts/ci/paths.py --all` or `python3 scripts/ci/paths.py --base origin/main`.
 
 ```sh
-gh workflow run ci.yml --ref <branch>                             # auto
-gh workflow run ci.yml --ref <branch> -f lanes=server,web
-gh workflow run ci.yml --ref main -f lanes=all                     # includes Apple
-gh workflow run apple-test.yml --ref main -f lane=ios              # iOS and embedded Watch
+gh workflow run ci.yml --ref main -f full=true                       # full suite (the default)
+gh workflow run ci.yml --ref main -f lanes=all -f full=false         # equivalent explicit lane choice
+gh workflow run ci.yml --ref <branch> -f full=false -f lanes=server,web
+gh workflow run ci.yml --ref <branch> -f full=false -f lanes=auto -f base=<commit>
+gh workflow run apple-test.yml --ref main -f lane=ios                # iOS and embedded Watch
 gh workflow run apple-test.yml --ref main -f lane=macos
-gh workflow run pr-needs-issue.yml --ref main -f pr_number=<number> # metadata enforcement
+gh workflow run pr-needs-issue.yml --ref main -f pr_number=<number>  # metadata enforcement
 ```
 
-All PR code runs with `contents: read`, without persisted checkout credentials, private config or new secrets. Forks use `pull_request`,
-never privileged execution. Issue-link enforcement remains manual and runs its metadata-only write-token job only from the default branch.
-Image publishing has `packages: write` only in its publishing job. Concurrency keys use a stable workflow-file prefix, the qualified
-repository/branch, and lane. PRs use `pr-fast`; manual CI uses the requested `lanes` string. Use a stable comma-separated lane order when
-dispatching the same bundle. New work in the same group cancels stale pending/running work; different lanes and same-named fork branches
-remain independent. Direct and reusable Apple/server/Android/scripts calls share their file-specific lane group, never the CI caller's
-key: reusing only the caller-derived `github.workflow` would let a called workflow cancel its caller.
+The six required lanes have independent reusable workflows. **CI required** rejects failed, cancelled, missing or unexpectedly skipped
+selected jobs. iOS/Watch contributes to that aggregate; **Mac (non-blocking)** reports its actual independent result without
+`continue-on-error` and is not part of the aggregate. An unselected lane is never claimed as tested.
+All workflows except the image publisher accept only `workflow_dispatch` and, for reusable platform workflows, `workflow_call`.
+The image and Release publisher additionally retains `push` for **`v*` release tags**: Docker installations use its version and `latest` images, and the same tag gets a GitHub Release.
+No branch push or PR starts it. The issue-link Action also requires explicit dispatch from the default branch with a PR number.
+
+The `changes` job runs repository/commit privacy and path safety, including `scripts/ci/guards.sh`, migration freeze and sleep ratchet.
+An edit, deletion or rename of a `.sql` file already on the base under `server/internal/db/migrations/hub` or
+`server/internal/db/migrations/manager` fails that check. Comment-only and whitespace-only edits pass; add a new migration instead.
+Each `_test.go` file under `server/` and `sdk/go/` has a committed count of `time.Sleep` calls (`scripts/ci/sleep_baseline.json`). The
+count may stay the same or go down, never up, and a new file starts at zero. Comments, string literals and a line carrying
+`// sleep-ok: <reason>` (the reason must be non-empty) do not count. `python3 scripts/ci/sleep_ratchet.py --update` only lowers
+the baseline; it refuses to raise a count or to add a file that still sleeps. See `docs/lessons/testing.md`.
+With `lanes=auto`, the base defaults to `origin/main`; an explicit `base` is resolved to a commit before guards and path selection.
+
+Dispatched code runs with `contents: read`, without persisted checkout credentials, private config or new secrets. The issue-link
+workflow uses metadata-only write permissions and runs only from the default branch. Image and GitHub Release publishing have `packages: write` and `contents: write` only in the publish job. CI concurrency keys use the repository/branch and full/lanes selection; dispatches in the same group cancel stale
+pending/running work, while different selections stay independent. Reusable workflows retain their file-specific lane groups: deriving
+a caller and callee's group only from `github.workflow` would let a called workflow cancel its caller.
 
 Manual server and Android matrices allow at most **two** simultaneous shards each; the full scripts matrix allows **one**. All shards
-still execute with `fail-fast: false`; the caps trade manual wall-clock latency for available PR runner slots. These code-level controls
-apply to newly scheduled workflow versions, not retroactive cancellation of existing queued runs. Peak hosted queue time is a capacity
-issue, not test execution time. Do not change repository settings/rulesets or procure paid/self-hosted capacity as part of these controls.
+still execute with `fail-fast: false`; these caps trade wall-clock latency for available runner slots. Hosted queue time is outside
+repository control and must be reported separately from test execution. Do not change repository settings/rulesets or procure paid or
+self-hosted capacity as part of these controls.
 
 Server keeps four independent shards (at most two concurrent runners): browser/node, hub/voice/assistant, all other packages, and
-formatting/vet/build/Windows/SDK checks.
-Every package from `go list ./...` belongs to exactly one test shard, including future packages. Browser tests remain isolated from other
-packages. Go module/build caches are keyed by exact Go version, shard, dependency sums and source inputs, with same-shard fallback keys;
-`-count=1` keeps test execution uncached. Test-event summaries report the slowest real tests, rather than inferring runtime from `Sleep`
-inside fake-clock tests. The full manual scripts suite splits complete sorted discovery across two independently isolated jobs, scheduled
-one at a time; each has its own synthetic HOME and mock ports. Automatic PR checks run the fast CI-regression and documentation subset, not the full suite.
-Platform paths retain shared client contracts read by Go compatibility tests, and manual `auto` selects those dependencies.
+formatting/vet/build/Windows/SDK checks. Every package from `go list ./...` belongs to exactly one test shard, including future packages.
+Browser tests remain isolated from other packages. Go module/build caches are keyed by exact Go version, shard, dependency sums and
+source inputs, with same-shard fallback keys; `-count=1` keeps test execution uncached. Test-event summaries report the slowest real
+tests, rather than inferring runtime from `Sleep` inside fake-clock tests. The full scripts suite splits complete sorted discovery
+across two independently isolated jobs, scheduled one at a time; each has its own synthetic HOME and mock ports.
 
 Android keeps five independently isolated shards, at most two concurrent: lint/build, core tests, two disjoint sorted feature-test shards,
-and platform/app tests. Module declarations are dynamically partitioned; unknown
-module prefixes use a fallback shard, while unsupported declarations fail rather than skip coverage. Every module's complete test selector
-retains all variants. Gradle workers remain bounded; build and public Robolectric dependency caches do not contain private config. Per-shard
-Gradle profiles and test/lint reports are uploaded for diagnosis. Local entry points without shard options still run complete verification.
-
-The target is **15 minutes from push start through CI required completion, including all queue time**, not 15 minutes per job. Record UTC
-push-start, workflow creation, job start/end and aggregate completion separately. Hosted queues are outside this repository's control;
-job timeouts are failure bounds, not evidence that tests completed within the target. Keep any lane that cannot meet measured acceptance
-manual-only rather than removing assertions or turning timeouts into passes. Execution improvements are tracked in #1422; the repeated
-queue correction and fresh post-merge acceptance are tracked in #1474. A single allocation removes repeated queue boundaries, but the
-initial hosted queue is still outside repository control: report any over-budget sample and never promise an unmeasured queue SLA.
+and platform/app tests. Module declarations are dynamically partitioned; unknown module prefixes use a fallback shard, while unsupported
+declarations fail rather than skip coverage. Every module's complete test selector retains all variants. Gradle workers remain bounded;
+build and public Robolectric dependency caches do not contain private config. Per-shard Gradle profiles and test/lint reports are uploaded
+for diagnosis. Local entry points without shard options still run complete verification.
 
 | Platform / reusable workflow | Local entry | Checks | Hosted runner | Planning duration (warm / cold) |
 | --- | --- | --- | --- | --- |
 | Server / `.github/workflows/server-test.yml` | `scripts/ci/server.sh` | gofmt, vet, complete Go tests against disposable Postgres 18, build, Windows cross-build/vet, extension schema/examples/SDK bundle, Go SDK tests; hub route/architecture, prompts and hub i18n guards are Go tests | ubuntu-latest | 8–15 / 15–30 min |
 | Web / `.github/workflows/web-test.yml` | `scripts/ci/web.sh` | npm ci, scoped ESLint, TypeScript, complete Vitest, production build and privacy | ubuntu-latest | 2–4 / 4–7 min |
 | Android / `.github/workflows/android-test.yml` | `scripts/ci/android.sh` | i18n/token checker tests, translations/literals, token ratchet, all-module lint and unit-test variants, debug APK | ubuntu-latest | 8–15 / 15–30 min |
-| Apple / `.github/workflows/apple-test.yml` | `scripts/ci/apple.sh ios` and `scripts/ci/apple.sh macos` | manual-only PersonaKit/iOS/Watch/HTML and Mac build/unit tests; synthetic configuration, no distribution signing; real results remain visible | macos-26 runners, Xcode 26.0.1 (Swift 6.2) | outside the PR budget; queue and execution measured separately |
+| Apple / `.github/workflows/apple-test.yml` | `scripts/ci/apple.sh ios` and `scripts/ci/apple.sh macos` | PersonaKit/iOS/Watch/HTML and Mac build/unit tests; synthetic configuration, no distribution signing; real results remain visible | macos-26 runners, Xcode 26.0.1 (Swift 6.2) | queue and execution measured separately |
 | Scripts/docs / `.github/workflows/scripts-tests.yml` | `scripts/ci/scripts.sh` | every Python script test, doc/code paths and index, layout/shell/Python compatibility, privacy-rule regression, catalog/translation/token checks, actionlint, issue-link logic, website worker | ubuntu-latest | 2–4 / 4–7 min |
 | Runtimes / `.github/workflows/runtimes-test.yml` | `scripts/ci/runtimes.sh` | TypeScript SDK typecheck/test/portability, Agent SDK build, every runtime integration's npm tests | ubuntu-latest | 2–4 / 4–7 min |
-| Container / `.github/workflows/hub-image.yml` | `scripts/ci/hub-image.sh` | amd64 build; isolated Compose Postgres, HTTP/TLS health, pairing, web, admin isolation, file ownership/0600; non-PR publish remains amd64+arm64 | ubuntu-latest | 8–15 / 15–30 min |
+| Container and Release / `.github/workflows/release.yml` | `scripts/ci/hub-image.sh` | amd64 build; isolated Compose Postgres, HTTP/TLS health, pairing, web, admin isolation, file ownership/0600; publication remains amd64+arm64, then a version-tag run creates the GitHub Release | ubuntu-latest | 8–15 / 15–30 min |
 
 These planning estimates predate sharding and are not measured success claims; use job timestamps and each script's PASS/FAIL/TIMEOUT
 durations for an actual run. Parallelism reduces wall-clock latency but can increase total runner minutes through repeated setup and
 compilation. Cancellation reduces wasted old runs, not already-used minutes. Public-repository standard hosted runners do not consume
 private Actions minutes; billing multipliers and plans may change. Measure actual queue and runner time before budgeting.
-Apple is never automatically selected on a PR. Manual `auto` selects it by Apple/shared schema/spec/simulator/localization inputs,
-not by a plain docs/web/server edit. Go/npm/Gradle/SPM download/build caches are used; PR Gradle caches are read-only and no credentials
-are stored. The initial SPM/runtime download makes a cold Apple run materially slower. Further Apple cache/parallelization work remains
-tracked in #1214; moving it off the PR path does not introduce cache-based test substitution.
+With `full=false` and `lanes=auto`, Apple is selected by Apple/shared schema/spec/simulator/localization inputs,
+not by a plain docs/web/server edit. The default `full=true` always includes it. Go/npm/Gradle/SPM download/build caches are used;
+caches on dispatched branches are read-only except for the cache-writing paths explicitly restricted to `main`, and no credentials
+are stored. The initial SPM/runtime download makes a cold Apple run materially slower. Cache and parallelization work remains
+tracked in #1214; cache-based test substitution is not allowed.
 
 Local prerequisites: Go from `server/go.mod`, Node from `web/.nvmrc`, Python 3.9+ (CI uses 3.11), Docker/Compose for server/image,
 `pip install -r scripts/ci/requirements.txt` and `go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` for scripts, Bun 1.4.2 for
@@ -129,7 +116,7 @@ The offline web tests still run completely. Apple explicitly excludes five fixtu
 and five `ExtensionStreamSnapshotTests` Mac cases needing a live extension/hub pair. Apple result parsing rejects any unexpected skip and
 requires the four design-system suites; UI suites, visionOS, Persona Link and SSH-package integration remain outside this lane.
 Full simulator screenshots, device/instrumentation/UI suites, real Agent/phone integrations, release entitlements,
-production signing and publication are not PR gates. They need devices, explicit lab inputs or secrets; retain the manual checks below.
+production signing and publication need devices, explicit lab inputs or secrets; retain the manual checks below.
 The stock iOS unit-test simulator is granted Reminders access for the synthetic CI app, and `TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1`
 runs the existing EventKit create/list/update/delete round-trip against its disposable store. This does not use a personal device or account.
 Platform-gated and explicitly opt-in tests still report their own skips; they are not evidence of device/live integration coverage.
@@ -139,9 +126,9 @@ Manual server CI's Postgres does run ordinary database tests (unlike the old dat
 container/migration inputs are not supplied. Private-value scanning of commits and PR metadata remains in `scripts/hooks/merge-pr.sh` on
 the merge machine; CI runs the generic privacy rules without those values. No baseline is raised to make a gate green.
 
-`hub image` uses only public dependencies and GHCR's existing `GITHUB_TOKEN`; no private registry or machine service is required. Its
+`release` uses only public dependencies, the GitHub CLI preinstalled on hosted runners, and the existing `GITHUB_TOKEN`; no private registry or machine service is required. Its
 repository enablement is a separate setting: enable only after confirming the hosted build/smoke result. Do not dispatch publication just
-to test PR CI. Runner migration removes workflow label variables; after green CI, delete unused repository variables and unregister
+to test workflow dispatch. Runner migration removes workflow label variables; after green CI, delete unused repository variables and unregister
 repository runners if present. Do not uninstall machine services or delete their files; organization-provided runners require their owner.
 
 
@@ -159,19 +146,20 @@ Runs only relevant second-scale checks based on git changes, with independent ch
 
 Without `--base`, the base is the clone's default branch, read from local refs only (it works offline): `origin/HEAD` if it points at a commit, else `origin/main`, else `origin/master`. With none of them it stops with exit 2 and says how to fix it (`git fetch origin` then `git remote set-head origin --auto`, or `--base <ref>`).
 
-`--all` also runs all `scripts/**/test_*.py` like CI’s Scripts tests job (the same `find`; it skips only tests already covered by dedicated checks: `test_external_service_refs.py`, `test_sdk_bundle.py`, `test_extension_schema.py`, and `scripts/app/test_android_*`, see `script_test_add`; update this skip list when renaming or removing dedicated checks). They run sequentially in one check, each suite from its own directory with its own `CHECK_FAST_TIMEOUT_OTHER`. One failure does not stop the rest; the final summary lists failed and timed-out files.
+`--all` also runs all `scripts/**/test_*.py` like CI’s Scripts tests job (the same `find`; it skips only tests already covered by dedicated checks: `test_external_service_refs.py`, `test_sdk_bundle.py`, `test_extension_schema.py`, and `scripts/app/test_android_*`, see `script_test_add`; update this skip list when renaming or removing dedicated checks). They run sequentially in one check, each suite from its own directory with its own `CHECK_FAST_TIMEOUT_OTHER`. One failure does not stop the rest; the final summary lists failed and timed-out files. A `test_*.py` that never mentions `unittest` is a verification script, not a suite: like CI (`scripts/ci/python-tests.py`), check-fast prints `SKIP <path> (not a unittest suite)` for it instead of running it, in diff mode too (`python -m unittest` runs no tests there and exits 5, "NO TESTS RAN", from Python 3.12); `scripts/test/test_check_fast.py` compares the `--all` selection with CI's.
 
 Path mapping:
 
 | Changed path | Checks |
 | --- | --- |
-| `web/**` | `npm ci` (only if `node_modules` missing or `package.json` / `package-lock.json` changed) + `npm run typecheck` + `npm test` (vitest run) |
+| `web/**` | `npm ci` (only if `node_modules` missing or `package.json` / `package-lock.json` changed) + `npm run typecheck` (incremental, state kept in web's `node_modules/.cache/tsc/`: a second run only checks what changed, and a type error fails every run) + `npm test` (vitest run) |
 | `schema/extension/**`, `spec/fixtures/injected/**`, `spec/fixtures/sync/**`, `scripts/mock/inbox_events.json` | In addition to other checks in this table, the `web/**` checks: `web/src` and its vitest suite read these files. They are the inputs outside `web/` of the web lane in `scripts/ci/paths.py`; `scripts/test/test_check_fast.py` fails when the two lists drift apart |
 | `integrations/<pkg>/**` | Package `node --test test/*.test.{js,mjs}` (skip packages without tests) |
 | `site/**` | `node --test site/worker.test.mjs` |
 | `sdk/ts/**` | `bun test` (skip with reason if bun absent) |
 | `sdk/go/**` | `go test ./...` in sdk/go module |
-| `server/internal/foo/**`, `server/cmd/bar/**` | Affected packages, e.g. `go test ./internal/foo/...`; unmappable server changes fall back to `go build ./...` |
+| `server/internal/foo/**`, `server/cmd/bar/**`, `server/plugins/baz/**` | Affected packages, e.g. `go test ./internal/foo/...`; unmappable server changes fall back to `go build ./...` |
+| `server/**`, `sdk/go/**` | In addition to other checks in this table, the server's repo-wide guards (`job_go_guards` in `scripts/test/check-fast.sh`): `go test` on `internal/lazyre`, `internal/archguard`, `internal/tzguard` and `plugins`, and the named guard tests of `internal/hub` and `internal/assistant`. They read other packages' source, `go list` output, the migrations or `sdk/go`, so they fail on code outside their own package (#1936). The list is curated: not every `*guard*_test.go` is repo-wide. `--all` runs them within `go test ./...` |
 | `server/internal/db/migrations/**`, `scripts/ci/migration_freeze.py` | `python3 scripts/ci/migration_freeze.py`: a migration already on the base cannot be edited, deleted or renamed (comment-only and whitespace-only edits pass; a new file may be added). A rename out of the directory counts. `--all` runs it when the script is present |
 | `server/**/*_test.go`, `sdk/go/**/*_test.go`, `scripts/ci/sleep_ratchet.py`, `scripts/ci/sleep_baseline.json` | `python3 scripts/ci/sleep_ratchet.py`: the number of `time.Sleep` calls in each Go test file may stay or fall, never rise (comments, string literals and a `// sleep-ok: <reason>` line do not count; a new file starts at zero). `--update` only lowers the baseline. A rename out of those trees counts. `--all` runs it when the script is present |
 | `spec/fixtures/**`, `schema/extension/**`, `integrations/**`, `docs/<file>`, `scripts/test/server_test_env.py` | In addition to other checks in this table, `go test ./internal/<package>/...` for server packages reading these files (repository inputs covered by `server-test.yml` filters). At runtime, `git grep` finds packages referencing the path in `server/**/*_test.go` (strings or `filepath.Join` components; `//` comment lines excluded), so new readers need no script changes; other `spec/` files remain unmapped |
@@ -179,7 +167,7 @@ Path mapping:
 | `.github/**` | `scripts/test/pr_needs_issue_test.mjs` |
 | `schema/**` | `scripts/test/test_extension_schema.py`, `scripts/test/test_sdk_bundle.py`, plus `go test ./...` in sdk/go (the same three checks as CI's Extension schema job) |
 | `scripts/test/test_external_service_refs.py`, `scripts/{gen,test}/sdk_bundle*` | The scripts' own tests |
-| `scripts/**` | Select second-scale privacy / PR / schema / refs / bundle / i18n checks by path; when uncertain run PR and schema. Also run changed `scripts/<subdirectory>/test_*.py`, and `test_<name>.py` for changed `<name>.py` / `<name>.sh` scripts (`-`→`_`; `.sh` also checks `test_<name>_sh.py`), from the test directory like CI (#3968) |
+| `scripts/**` | Select second-scale privacy / PR / schema / refs / bundle / i18n checks by path; when uncertain run PR and schema. Also run changed `scripts/<subdirectory>/test_*.py`, and `test_<name>.py` for changed `<name>.py` / `<name>.sh` scripts (`-`→`_`; `.sh` also checks `test_<name>_sh.py`), from the test directory like CI (#3968). `scripts/hooks/**` also runs `scripts/test/test_privacy_check.py` (it runs the hooks in its temp repositories); `scripts/privacy_check.py` also runs `scripts/release/test_check_bundle_privacy.py` (it imports `privacy_check`) |
 | `docs/**`, any `*.md` | `scripts/test/test_doc_paths.py`, `scripts/test/test_doc_go_paths.py` (quoted paths and CLAUDE.md documentation index), `scripts/test/test_doc_wire.py` (protocol.md and extensions.md list every WebSocket type, feature flag, extension point and manifest field the code has) |
 | `server/internal/{proto,hub,extension}/**`, `schema/extension/manifest.schema.json` | Also `scripts/test/test_doc_wire.py`: these hold the code side of the lists it compares with the docs |
 | `apple/**` | `scripts/test/test_apple_l10n.py` (complete String Catalogs and Swift Chinese literals included in catalogs); iOS / macOS builds and tests need a Mac and are reported as skipped |
@@ -220,7 +208,7 @@ API smoke tests: `curl -H "Authorization: Bearer $TOKEN" …/api/v1/machines`, `
 | Plan approval | ExitPlanMode → deny + feedback → revise plan → allow + setMode | Both branches correct (`docs/integrations/claude-integration.md`) |
 | Phone tools | claude on hub machine calls `mcp__persona__phone_device_info` | node → hub → simulator App returns iPhone 17 Pro / iOS 26.5 |
 | Live stream | App opens a working session on another Mac | Tool steps append live; status bar shows spinner line |
-| Watch | Watch simulator `-pairURL` | "Needs you" (waiting Agents + Inbox items), running sessions; `-openInboxFirst YES` opens first item, `-showWatchPet YES` shows the Milk Frog as if chosen on the phone (mock with `MOCK_PERSONAS=builtin`), `-showPetState <state>` forces its state, `-openWatchItem pet` opens its page, `-openWatchItem question\|plan\|permission\|screen\|session` opens first request of that type / first running session (`running`: hides "Needs you" to screenshot running rows; `inbox`: only Inbox rows under "Needs you"); `-showWatchMissing Work,Home` shows groups missing watch credentials (`""` is default group; no `-pairURL` opens "No watch credentials yet", #1185) |
+| Watch | Watch simulator `-pairURL` | "Needs you" (waiting Agents + Inbox items), running sessions; `-openInboxFirst YES` opens first item, `-showWatchPet YES` shows the Milk Frog as if chosen on the phone (mock with `MOCK_PERSONAS=builtin`), `-showPetState <state>` forces its state, `-openWatchItem pet` opens its page, `-openWatchItem complication` shows the watch face's frog in every family (a simulator cannot add a complication from the command line), `-openWatchItem question\|plan\|permission\|screen\|session` opens first request of that type / first running session (`running`: hides "Needs you" to screenshot running rows; `inbox`: only Inbox rows under "Needs you"); `-showWatchMissing Work,Home` shows groups missing watch credentials (`""` is default group; no `-pairURL` opens "No watch credentials yet", #1185) |
 
 ## UI checklist (inspect screenshots after every UI change)
 
@@ -945,17 +933,17 @@ read, so every scan that takes them from `privacy_check.py` honours it (the hook
 **Names blocked on every machine** (#4967): specific vendor and internal-repository names never enter the repo, in any spelling (case, hyphens, underscores, spaces, camel case). Rules live in `BANNED_NAMES` in the script, their only location in the repo.
 CI enforces them without private config. Needed capabilities belong in extensions that supply their own names; the main repo uses generic wording ("relay", "extension-provided IM connector"). Test examples concatenate pieces to avoid matching themselves.
 A word listed only lowercase/uppercase/titlecase isn't matched across an internal lowercase→uppercase camel boundary (`fooBar`): ordinary-word identifiers (tokens/SF Symbols) can accidentally contain sensitive words, falsely blocking repo scans/web `prebuild` (#3819). To block camelcase too, list a boundary-bearing form (`FooBar`).
-**Only tracked files** (`git ls-files`): `git add` new files first or they're missed (2026-11-05, a new design doc's machine id escaped to PR).
+**Only tracked files** (`git ls-files`): `git add` new files first or they're missed (2026-11-05, a new design doc's machine id escaped to PR). Every mode reads what Git records: a symlink is its link text, never the file it points to; `--staged` and `--range` include type changes (a file turned into a symlink); a tracked file the worktree lacks (sparse checkout, skip-worktree, deleted but not staged) is read from the index.
 Not private: loopback (`127.0.0.0/8`, `::1`, `localhost`, including protocol/ports, even configured, e.g. `http://127.0.0.1:<port>` or database `127.0.0.1:<port>`; private addresses with ports still reported), documentation/IETF protocol reserved ranges (`192.0.0.0/24`, SDK uses `192.0.0.192` as cloud metadata), configured Xcode under `/Applications` (same on Macs), defaults already in `config.example.json` (e.g. external group), repo Go module path (GitHub username included),
 backtick paths/commands/config keys in `CLAUDE.local.md` (only ID/host/email/IP-like values count), and `site/` contact/site domain
 (`app_store.feedback_email`, `privacy_url`, already public for App Store/OAuth). Docs say hub machine/another Mac;
 example machine ids `server` / `laptop`. `release.sh` scans before packaging;
-precommit hooks: `git config core.hooksPath scripts/hooks` (`pre-commit` staged content, `commit-msg` commit message, `pre-push` changed files/messages against `origin/master`).
+precommit hooks: `git config core.hooksPath scripts/hooks` (`pre-commit` staged content, `commit-msg` commit message, `pre-push` changed files/messages against the first of `origin/HEAD`, `origin/main`, `origin/master` that shares history with the pushed commit, every file and message of an orphan branch).
 **Message lines** (#1107): `--message <file>` checks every line, Markdown headings included (a PR's title and body become the squash commit's message as they are).
 `commit-msg` passes `--commit-msg`, which checks only what `git commit` records: when git opened an editor it skips the comment lines (hints, branch, paths) and everything from the scissors line down (the `commit -v` diff);
 a `-m` / `-F` message keeps its `#` lines, so they are checked. It follows git's comment string and `commit.cleanup` (`commit_msg_lines`), but cannot see `--cleanup` or `-v` on the command line; `pre-push` still reads every recorded line.
-**Block again before merge** (#3696): `scripts/hooks/merge-pr.sh <PR number>` fetches the PR's base and head, runs `privacy_check.py --range origin/<base>..<head> --message <title/body>`,
-then only passes to `gh pr merge --squash --match-head-commit <head>` (exact scanned head merges) and deletes a same-repository branch through the API. `--range <base>..<head>` checks changed head-file contents and commit messages, not worktree, in seconds.
+**Block again before merge** (#3696): `scripts/hooks/merge-pr.sh <PR number>` reads the PR once (`gh pr view --json`), fetches its base and head, runs `privacy_check.py --range <fetched base sha>..<head> --message <file>` on the squash message (`<title> (#N)`, blank line, body),
+then only passes to `gh pr merge --squash --match-head-commit <head> --subject <title> (#N) --body-file <body>` (exact scanned head and message merge; an edit after the scan does not reach `main`) and deletes a same-repository branch through the API. `--range <base>..<head>` checks changed head-file contents and commit messages, not worktree, in seconds. Tests: `scripts/test/test_merge_pr_sh.py` (fake `gh`).
 Why not CI: private values come from local configs unavailable to CI, which only checks generic private-IP/email/npm rules; merge machine must possess values to block them.
 2026-11-05–06 six scheduled releases failed initial repo scan because machine-name docs had already been merged directly with `gh pr merge`.
 

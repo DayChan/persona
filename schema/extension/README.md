@@ -16,6 +16,7 @@ from them instead of being written once per platform:
 | `kb.schema.json` | **Plugin-side.** The knowledge base an extension reads and writes directly (`docs/extensions/extensions.md` "Knowledge base RPC"): `kb.list`, `kb.get`, `kb.day`, `kb.search`, `kb.update`, `kb.owner`, and the events `event.kb.changed` / `event.kb.forgotten` |
 | `assistant.schema.json` | **Plugin-side.** Reading the user's conversations with the assistant (`docs/extensions/extensions.md` "Assistant conversations"): `assistant.conversations`, `assistant.messages` with the permission `assistant.read` |
 | `models.schema.json` | **Plugin-side.** Calling a model through the hub (`docs/extensions/extensions.md` "Model calls"): `model.complete` with the permission `models` |
+| `storage.schema.json` | **Plugin-side.** Default-deny installation-owned business storage (#1187): CAS/atomic transactions, bounded request receipts and queues, and opaque chunked blobs; manager-owned authentication/retention/restore are not guest RPC methods. See `docs/extensions/extensions.md` ("Installation-owned business storage") |
 | `todos.schema.json` | **Plugin-side.** The to-do events an extension subscribed to and was granted `todos.read` is told of (`docs/extensions/extensions.md` "Events"): `event.todo.changed`, `event.todo.decision` |
 | `examples/` | Examples: `<definition>.<name>.json` must hold to the schema; those under `examples/invalid/` must not. The plugin-side schemas' are in `examples/plugin/` (and `examples/plugin/invalid/`) |
 

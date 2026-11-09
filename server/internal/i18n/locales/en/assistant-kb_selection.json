@@ -1,0 +1,9 @@
+{
+  "no_db": "The selection needs the database, which is not available.",
+  "invalid": "The selection is not valid: {detail}",
+  "read_only_device": "A read-only device cannot change the selection.",
+  "no_source": "Name the source: ?source=<connector id>.",
+  "no_history": "{source} cannot list its chats now: it does not offer its history, or it is not connected.",
+  "list_stopped": "Listing the chats stopped the history import ({reason}); nothing more is asked until it is resumed.",
+  "list_failed": "The chats could not be listed ({code})."
+}

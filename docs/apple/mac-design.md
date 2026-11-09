@@ -4,7 +4,7 @@ The Mac app (`PersonaMac`) adds a layer of conventions on top of the iOS design 
 with rules only for **layout**, **density**, and **what to leave out** on Mac. The goal is the quiet, compact, keyboard-and-mouse-first feel of Mail, Notes, Things, and the Codex desktop app,
 not an enlarged iPhone screen. The default style (Liquid Glass) and all other styles follow these layouts; each style's surfaces and colors still come from its `ComponentSpec`.
 
-Requested 2026-11-05: define this language first, then produce mockups and implement the changes one by one (#2318). Development mockups are not stored in the repository.
+The native Mac app is frozen ([mac.md](mac.md)): these rules apply to bug fixes in its existing screens, and no new Mac design work is planned (#2214). Development mockups are not stored in the repository.
 
 ## Four principles
 
@@ -38,6 +38,8 @@ Requested 2026-11-05: define this language first, then produce mockups and imple
 - Do not change structures whose performance has already been measured: section pages stay mounted (`MacPageStack`, #390), and the toolbar changes one frame later. Compare changes with `-showPerfRun sections` (`docs/apple/mac.md`, "Switching sections: persistent pages").
 
 ## Reference layouts
+
+The changes this language called for, per screen. With the app frozen, the ones not made yet are not planned.
 
 | Screen | Changes |
 | --- | --- |

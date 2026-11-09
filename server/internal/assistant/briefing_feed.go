@@ -164,8 +164,9 @@ func (s *Service) briefRoutes() {
 			return
 		}
 		if err != nil { // a decision's recommendation that did not reach the agent: nothing taken, the button works again
-			apierr.Write(w, http.StatusBadGateway, errors.New(i18n.T(s.botLang(r.Context()), "assistant-reports.accept_not_sent",
-				i18n.Args{"error": clip(oneLine(err.Error()), 120)})))
+			// In the request's language, the reason too when the hub words it (an offline computer, no agent).
+			apierr.Write(w, http.StatusBadGateway, i18n.Err("assistant-reports.accept_not_taken",
+				i18n.Args{"error": clip(oneLine(i18n.Localize(err, s.requestCtxLang(r.Context()))), 120)}))
 			return
 		}
 		if !ok {

@@ -167,12 +167,13 @@ func Launch(ctx context.Context, name string, args []string) error {
 		return fmt.Errorf("personad launch %s: %w", name, err)
 	}
 	var resp struct {
-		Agent string   `json:"agent"`
-		Model string   `json:"model"`
-		Env   []string `json:"env"`
-		Clear []string `json:"clear"` // what to drop from the shell's env first (envClearFor)
-		Args  []string `json:"args"`
-		Error string   `json:"error"`
+		Agent  string   `json:"agent"`
+		Model  string   `json:"model"`
+		Effort string   `json:"effort"`
+		Env    []string `json:"env"`
+		Clear  []string `json:"clear"` // what to drop from the shell's env first (envClearFor)
+		Args   []string `json:"args"`
+		Error  string   `json:"error"`
 		// for a provider whose bypass list joins the inherited ones (mergesNoProxy): the user's settings env's lists, which
 		// come before the shell's. An older node does not send it: the provider's list alone.
 		NoProxyMerge map[string]string `json:"no_proxy_merge"`
@@ -211,18 +212,34 @@ func Launch(ctx context.Context, name string, args []string) error {
 		// What the launcher sets replaces the shell's: with both, the agent would read the shell's (the first).
 		env = append(withoutEnv(os.Environ(), envNames(resp.Env)), resp.Env...)
 	}
+	argv := launchArgv(agent, args, resp.Args, resp.Effort, resp.Model, resp.Env)
+	exe, argv, env, _ = launchExec(agent, exe, argv, env)
+	return osproc.Exec(exe, argv, env)
+}
+
+// launchArgv builds the argument vector for starting an agent.
+// For Claude Code, provider effort is passed as --effort only when the arguments carry no --effort (#2307).
+func launchArgv(agent string, args, respArgs []string, respEffort, respModel string, respEnv []string) []string {
 	hasModelArg := false
 	hasSettingsArg := false
+	hasEffortArg := false
+	cleanRespArgs := slices.Clone(respArgs)
 	for _, arg := range args {
+		if arg == "--effort" || strings.HasPrefix(arg, "--effort=") {
+			hasEffortArg = true
+		}
 		if arg == "-m" || arg == "--model" || strings.HasPrefix(arg, "--model=") {
 			hasModelArg = true
-			resp.Args = withoutModelArgs(resp.Args)
+			cleanRespArgs = withoutModelArgs(cleanRespArgs)
 		}
 		if arg == "--settings" || strings.HasPrefix(arg, "--settings=") {
 			hasSettingsArg = true
 		}
 	}
-	for _, arg := range resp.Args {
+	for _, arg := range cleanRespArgs {
+		if arg == "--effort" || strings.HasPrefix(arg, "--effort=") {
+			hasEffortArg = true
+		}
 		if arg == "-m" || arg == "--model" || strings.HasPrefix(arg, "--model=") {
 			hasModelArg = true
 		}
@@ -230,22 +247,25 @@ func Launch(ctx context.Context, name string, args []string) error {
 			hasSettingsArg = true
 		}
 	}
-	launchArgs := append([]string{agent}, resp.Args...)
-	if agent == "codex" && resp.Model != "" && !hasModelArg {
-		launchArgs = append(launchArgs, "-m", resp.Model)
+	launchArgs := append([]string{agent}, cleanRespArgs...)
+	if agent == "claude" {
+		if respEffort != "" && !hasEffortArg {
+			launchArgs = append(launchArgs, "--effort", respEffort)
+		}
+	} else if agent == "codex" && respModel != "" && !hasModelArg {
+		launchArgs = append(launchArgs, "-m", respModel)
 	} else if agent == "agy" {
-		if resp.Model != "" && !hasModelArg {
-			launchArgs = append(launchArgs, "--model", resp.Model)
+		if respModel != "" && !hasModelArg {
+			launchArgs = append(launchArgs, "--model", respModel)
 		}
-		for _, kv := range resp.Env {
+		for _, kv := range respEnv {
 			if strings.HasPrefix(kv, "GEMINI_API_KEY=") && len(kv) > len("GEMINI_API_KEY=") && !hasSettingsArg {
 				launchArgs = append(launchArgs, "--settings", `{"modelProvider":"gemini"}`)
 				break
 			}
 		}
 	}
-	exe, argv, env, _ := launchExec(agent, exe, append(launchArgs, args...), env)
-	return osproc.Exec(exe, argv, env)
+	return append(launchArgs, args...)
 }
 
 // launchExec is what `personad launch` execs (exe, argv, env; argv[0] is the agent's name): in the agent sandbox when
@@ -279,6 +299,9 @@ func (n *Node) launcherEnv(name string) map[string]any {
 		return map[string]any{"error": "no launcher " + name + " in Persona (设置 › 模型), or the hub has not sent it yet"}
 	}
 	out := map[string]any{"env": managedEnv(l), "clear": envClearFor(l), "args": l.Args, "agent": l.AgentType(), "model": l.Model}
+	if effort := launcherDefaultEffort(l); effort != "" {
+		out["effort"] = effort
+	}
 	if mergesNoProxy(l) {
 		out["no_proxy_merge"] = n.userNoProxy(l)
 	}

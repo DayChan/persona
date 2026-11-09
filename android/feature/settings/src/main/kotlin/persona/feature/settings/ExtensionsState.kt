@@ -2,6 +2,9 @@ package persona.feature.settings
 
 import android.content.res.Resources
 import persona.core.contracts.MachineComputer
+import persona.core.contracts.pushManager
+import persona.core.contracts.api.AssistantManagerChoice
+import persona.core.contracts.api.ManagerRoster
 import persona.core.contracts.api.HubExtension
 import persona.core.contracts.api.ExtensionConfigRejected
 import persona.core.contracts.api.ExtensionAuth
@@ -155,8 +158,20 @@ internal object ExtensionText {
         else -> ""
     }
 
-    /** The auto-upgrade switch as shown: off while it is paused (the extension switched off), else the extension's own. */
-    fun autoUpgradeShown(e: HubExtension): Boolean = e.autoUpgradePaused == null && (e.autoUpgrade ?: true)
+    /** The persisted preference is distinct from the reason automatic upgrades are paused. */
+    fun autoUpgradeShown(e: HubExtension): Boolean = e.autoUpgrade ?: false
+
+    /**
+     * The Auto-upgrade footer: why the switch does not apply now, by the hub's `auto_upgrade_paused` (docs/extensions/extensions.md);
+     * a reason this app does not know says only that it is paused, not that the extension is off (#1895).
+     */
+    @androidx.annotation.StringRes
+    fun upgradeFooter(e: HubExtension): Int = when (e.autoUpgradePaused) {
+        null -> R.string.settings_ext_upgrade_footer
+        "disabled" -> R.string.settings_ext_upgrade_paused_footer
+        "market_removed" -> R.string.settings_ext_upgrade_market_removed_footer
+        else -> R.string.settings_ext_upgrade_paused_other_footer
+    }
 
     /** When the line asks something of the user, what its button says (it opens the upgrade in the market); null otherwise. */
     fun upgradeAction(res: Resources, u: ExtensionUpgrade): String? = when (u.state) {
@@ -314,6 +329,15 @@ internal object ExtensionChanges {
     fun of(api: ExtensionManagement): Flow<Unit> = changes.filter { it === api }.map { }
 }
 
+/**
+ * Whose an extension, a page or a list's item is: the manager it names, else the default manager (the hub answers what
+ * names none from it). Compared with a push's [pushManager] (#1834).
+ */
+internal object ExtensionOwners {
+    fun of(manager: String?): String = manager?.takeIf { it.isNotBlank() } ?: default
+    val default: String get() = AssistantManagerChoice.current.value.defaultId.ifBlank { ManagerRoster.ASSISTANT_MANAGER }
+}
+
 /** Settings › Extensions: the list. */
 internal class ExtensionListModel(private val api: ExtensionManagement, private val res: Resources) {
     private val mutable = MutableStateFlow(ExtensionListState())
@@ -330,14 +354,29 @@ internal class ExtensionListModel(private val api: ExtensionManagement, private 
         finally { mutable.update { it.copy(loading = false) } }
     }
 
-    /** Follows the hub's `extension_auth` pushes while the list is open. */
+    /** Follows the hub's `extension_auth` pushes while the list is open: each changes its own manager's copy (#1834). */
     suspend fun watchAuth() = api.authUpdates.collect { event ->
-        mutable.update { s -> s.copy(extensions = s.extensions?.map { if (it.id == event.extension) it.copy(auth = event.auth) else it }) }
+        mutable.update { s ->
+            s.copy(extensions = s.extensions?.map {
+                if (it.id == event.extension && ExtensionOwners.of(it.manager) == pushManager(event.manager)) it.copy(auth = event.auth) else it
+            })
+        }
     }
 }
 
+internal data class ExtensionSettingsUpdates(
+    val checking: Boolean = false,
+    val checked: Boolean = false,
+    val candidate: persona.core.contracts.api.CatalogExtension? = null,
+    val error: String? = null,
+    val globalAuto: Boolean? = null,
+)
+
 internal data class ExtensionState(
     val detail: ExtensionDetail? = null,
+    /** A failed canonical read retains the page but blocks lifecycle writes until a successful retry. */
+    val loadFailed: Boolean = false,
+    val updates: ExtensionSettingsUpdates = ExtensionSettingsUpdates(),
     /** The configuration being edited; saved as a whole (PUT replaces it). */
     val draft: JsonObject = JsonObject(emptyMap()),
     /** What number fields hold as typed, by path, until saved. */
@@ -356,7 +395,7 @@ internal data class ExtensionState(
 ) {
     val editable: Boolean get() = detail?.readOnly == false
     val dirty: Boolean get() = detail != null && (draft != detail.config || numberProblems.isNotEmpty())
-    val canSave: Boolean get() = dirty && numberProblems.isEmpty() && !saving && !busy
+    val canSave: Boolean get() = editable && dirty && numberProblems.isEmpty() && !saving && !busy && !loading && !loadFailed && !updates.checking
 
     fun value(path: List<String>): JsonElement? = ExtensionDraft.value(draft, path)
 
@@ -367,14 +406,48 @@ internal data class ExtensionState(
 internal data class ExtensionCascade(val names: List<String>, val keepData: Boolean? = null)
 
 /** Settings › Extensions › one: its switch, its form (a draft saved as a whole), its secrets. */
-internal class ExtensionModel(private val api: ExtensionManagement, private val id: String, private val res: Resources) {
+internal class ExtensionModel(
+    private val api: ExtensionManagement, private val id: String, private val res: Resources,
+    /** Whose extension the page shows (several managers); null: the default's. */
+    private val manager: String? = null,
+) {
     private val mutable = MutableStateFlow(ExtensionState())
     val state = mutable.asStateFlow()
 
     suspend fun load() {
         if (state.value.loading) return
         mutable.update { it.copy(loading = true) }
-        try { run { api.extension(id) } } finally { mutable.update { it.copy(loading = false) } }
+        try {
+            val loaded = run { api.extension(id) }
+            mutable.update { it.copy(loadFailed = !loaded) }
+            if (loaded && state.value.detail?.let { ExtensionSettingsCapabilities(it).automatic } == true) {
+                val global = try { api.autoUpgrades() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+                mutable.update { it.copy(updates = it.updates.copy(globalAuto = global)) }
+            }
+        } finally { mutable.update { it.copy(loading = false) } }
+    }
+
+    /** Read-only catalog refresh and canonical detail reload; never submits the configuration draft. */
+    suspend fun checkForUpdates() {
+        val before = state.value
+        val detail = before.detail ?: return
+        val capabilities = ExtensionSettingsCapabilities(detail)
+        val market = capabilities.market ?: return
+        if (!capabilities.check || before.busy || before.saving || before.loading || before.loadFailed || before.updates.checking) return
+        mutable.update { it.copy(updates = it.updates.copy(checking = true, checked = false, candidate = null, error = null)) }
+        try {
+            val catalog = api.catalog(market = market, refresh = true)
+            val source = catalog.markets.firstOrNull { it.id == market }
+            if (source == null || !source.error.isNullOrBlank()) throw IllegalStateException(res.getString(R.string.settings_extension_market_unavailable))
+            val candidate = catalog.extensions.firstOrNull { it.market == market && it.id == id }
+                ?: throw IllegalStateException(res.getString(R.string.settings_extension_market_missing))
+            val loaded = run { api.extension(id) }
+            mutable.update { it.copy(loadFailed = !loaded) }
+            if (!loaded) throw IllegalStateException(state.value.error.orEmpty())
+            mutable.update { it.copy(updates = it.updates.copy(checked = true, candidate = candidate)) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) { mutable.update { it.copy(updates = it.updates.copy(error = failureReasonText(error).resolve(res))) } }
+        finally { mutable.update { it.copy(updates = it.updates.copy(checking = false)) } }
     }
 
     suspend fun setEnabled(on: Boolean, cascade: Boolean = false) = busy { run { api.setEnabled(id, on, cascade) } }
@@ -388,8 +461,10 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
 
     fun dismissCascade() = mutable.update { it.copy(cascade = null) }
 
-    /** Follows the hub's `extension_auth` pushes for this extension while the page is open (#4507). */
-    suspend fun watchAuth() = api.authUpdates.collect { event -> if (event.extension == id) setAuth(event.auth) }
+    /** Follows the hub's `extension_auth` pushes for this extension while the page is open (#4507), its manager's only (#1834). */
+    suspend fun watchAuth() = api.authUpdates.collect { event ->
+        if (event.extension == id && ExtensionOwners.of(manager) == pushManager(event.manager)) setAuth(event.auth)
+    }
 
     /** The sign-in as the hub says it is now (a push, signing out). */
     fun setAuth(auth: ExtensionAuth) = mutable.update { s ->
@@ -445,7 +520,7 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
      */
     suspend fun saveNow(path: List<String>, value: JsonElement?): Boolean {
         val saved = state.value.detail?.config ?: return false
-        if (state.value.busy || state.value.saving) return false
+        if (state.value.busy || state.value.saving || state.value.loading || state.value.loadFailed || state.value.updates.checking) return false
         mutable.update { it.copy(busy = true, error = null, draft = ExtensionDraft.set(it.draft, path, value)) }
         return try {
             val detail = api.setConfig(id, ExtensionDraft.compact(ExtensionDraft.set(saved, path, value)))
@@ -463,7 +538,7 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
 
     /** Removes an extension installed from a market; its data folder stays when [keepData]. */
     suspend fun uninstall(keepData: Boolean, cascade: Boolean = false): Boolean {
-        if (state.value.busy || state.value.saving) return false
+        if (state.value.busy || state.value.saving || state.value.loading || state.value.loadFailed || state.value.updates.checking) return false
         mutable.update { it.copy(busy = true, error = null) }
         return try {
             api.uninstall(id, keepData, cascade)
@@ -480,7 +555,7 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
     }
 
     private suspend fun busy(block: suspend () -> Boolean): Boolean {
-        if (state.value.busy || state.value.saving) return false
+        if (state.value.busy || state.value.saving || state.value.loading || state.value.loadFailed || state.value.updates.checking) return false
         mutable.update { it.copy(busy = true) }
         return try { block().also { if (it) ExtensionChanges.changed(api) } } finally { mutable.update { it.copy(busy = false) } }
     }
@@ -496,6 +571,7 @@ internal class ExtensionModel(private val api: ExtensionManagement, private val 
             val follow = saved || !it.dirty
             it.copy(
                 detail = detail, error = null,
+                updates = if (it.detail?.extension?.version != detail.extension.version) it.updates.copy(checked = false, candidate = null) else it.updates,
                 draft = if (follow) detail.config else it.draft,
                 numberText = if (follow) emptyMap() else it.numberText,
                 numberProblems = if (follow) emptyMap() else it.numberProblems,

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_extension_enabled_note">When off, this extension’s capabilities are unavailable. Your configuration is kept.</string>
+    <string name="settings_extension_configured">Configured (manager.json)</string>
+    <string name="settings_extension_configuration">Extension configuration</string>
+    <string name="settings_extension_empty">No configuration required</string>
+    <string name="settings_extension_information">Information</string>
+    <string name="settings_extension_updates">Updates</string>
+    <string name="settings_extension_danger">Danger zone</string>
+    <string name="settings_extension_missing">Not provided</string>
+    <string name="settings_extension_id">Extension ID</string>
+    <string name="settings_extension_runtime">Runtime</string>
+    <string name="settings_extension_installed_from">Installed from</string>
+    <string name="settings_extension_attached">Attached</string>
+    <string name="settings_extension_development">Development</string>
+    <string name="settings_extension_local_source">Local installation</string>
+    <string name="settings_extension_check">Check for updates</string>
+    <string name="settings_extension_check_hint">Check the extension market for a newer version.</string>
+    <string name="settings_extension_current">Up to date</string>
+    <string name="settings_extension_builtin_updates">Built-in extensions update with Persona.</string>
+    <string name="settings_extension_builtin_uninstall">Built-in extensions cannot be uninstalled.</string>
+    <string name="settings_extension_external_updates">This extension is not managed by an extension market. Update it at its source.</string>
+    <string name="settings_extension_external_uninstall">This extension is managed outside the app. Remove it at its source.</string>
+    <string name="settings_extension_external_enabled">Enablement is managed at this extension’s source.</string>
+    <string name="settings_extension_unknown">This manager does not provide this action.</string>
+    <string name="settings_extension_market_unavailable">The extension market is unavailable. Restore it and try again.</string>
+    <string name="settings_extension_market_missing">This extension is no longer listed in its market.</string>
+    <string name="settings_extension_market_removed">Auto-upgrade is paused because the extension market was removed. The saved preference is kept.</string>
+    <string name="settings_extension_global_off">Auto-upgrade is off for this manager. The saved preference for this extension is kept.</string>
+    <string name="settings_extension_global_unknown">This manager’s global auto-upgrade setting could not be read.</string>
+    <string name="settings_extension_rollback">Roll back</string>
+    <string name="settings_extension_rollback_unavailable">This manager does not provide a rollback consent preview. No rollback is sent from this page.</string>
+    <string name="settings_extension_remove_version">Installed version: %1$s</string>
+</resources>

@@ -240,6 +240,14 @@
     <string name="chat_draft_save_failed">下書きを保存できませんでした。入力内容はこのページに残っています。アプリを終了しないでください</string>
     <string name="chat_dictation_prompt">どうぞ。話した内容は入力欄に入ります</string>
     <string name="chat_dictation_unavailable">このスマートフォンには音声入力がありません</string>
+    <string name="chat_source_label">@%1$s</string>
+    <string name="chat_source_conversation">会話</string>
+    <string name="chat_source_patrol">定期チェック</string>
+    <string name="chat_source_followup">フォローアップ</string>
+    <string name="chat_source_supervision">進捗確認</string>
+    <string name="chat_source_unknown">送信元</string>
+    <string name="chat_source_expand">もっと見る</string>
+    <string name="chat_source_collapse">折りたたむ</string>
     <string name="chat_injected_open_task">タスクを開く</string>
     <string name="chat_injected_view_request">タスクの依頼内容を見る</string>
     <string name="chat_read_only_history">過去のセッションは閲覧のみです。先にこのセッションを再開してください</string>

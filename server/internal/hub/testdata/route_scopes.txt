@@ -139,6 +139,8 @@ assistant.ask        GET /api/v1/assistant/reporters
 -                    GET /api/v1/extensions/-/widgets
 -                    GET /api/v1/extensions/{id}/-/auth
 -                    GET /api/v1/extensions/{id}/-/dev/logs
+-                    GET /api/v1/extensions/{id}/-/image/{token}
+-                    GET /api/v1/extensions/{id}/-/storage/retained
 -                    GET /api/v1/extensions/{id}/-/{$}
 -                    GET /api/v1/fleet
 -                    GET /api/v1/health
@@ -158,6 +160,8 @@ kb.read              GET /api/v1/kb-search
 kb.read              GET /api/v1/kb/chats/{id}/context
 kb.read              GET /api/v1/kb/chats/{id}/days/{day}
 kb.read              GET /api/v1/kb/moments/{id}
+-                    GET /api/v1/kb/selection
+-                    GET /api/v1/kb/selection/candidates
 kb.read              GET /api/v1/kb/{kind}
 kb.read              GET /api/v1/kb/{kind}/{id}
 -                    GET /api/v1/launchers
@@ -327,6 +331,7 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/extensions/{id}/-/dev/restart
 -                    POST /api/v1/extensions/{id}/-/rollback
 -                    POST /api/v1/extensions/{id}/-/shortcut/{sid}
+-                    POST /api/v1/extensions/{id}/-/storage/restore
 -                    POST /api/v1/extensions/{id}/-/ui/{ui}
 -                    POST /api/v1/extensions/{id}/-/upgrade
 -                    POST /api/v1/extensions/{id}/-/widget/{ui}
@@ -469,6 +474,7 @@ todos.write          POST /api/v1/todos/{id}/decisions
 -                    PUT /api/v1/hub/update/settings
 -                    PUT /api/v1/imessage/settings
 inbox.write          PUT /api/v1/inbox/{id}/parent
+-                    PUT /api/v1/kb/selection
 kb.write             PUT /api/v1/kb/{kind}/{id}
 -                    PUT /api/v1/launchers/{name}
 -                    PUT /api/v1/looks/current

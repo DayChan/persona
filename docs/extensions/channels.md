@@ -185,6 +185,13 @@ While the assistant process is restarting or disconnected from hub, **receivers 
 With `push`, a channel can enable `pushes` (send a copy when `notify_user` pushes to the phone; also send scheduled-task chat answers) and `sync` (send the answer when a main chat turn started outside this channel ends).
 The Lark bot already had both; extension channels use the same switches, off by default.
 
+When a `notify_user` copy reaches a channel with `pushes` on, that channel skips the main-chat or scheduled-task mirror
+for that conversation during the existing three-minute deduplication window. Delivery is tracked separately for each
+channel and conversation (machine and session): the Lark bot records delivery after its first card succeeds (or a
+notifications companion accepts the push); an extension channel records it only after all text pieces are sent.
+A failed push leaves that channel's mirror eligible, regardless of whether another channel received its copy.
+A channel with `pushes` off and `sync` on still receives main-chat mirrors.
+
 ### Source markers
 
 - **Per message**: channel messages sent into chats have `client_msg_id = <channel id>-<message id>` (the Lark bot has always used `feishu-…`, WeChat `wechat-…`), and node carries it onto the transcript item (`Item.client_msg_id`).

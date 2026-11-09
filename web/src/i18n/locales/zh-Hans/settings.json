@@ -7,15 +7,14 @@
   "theme_light": "浅色",
   "theme_dark": "深色",
   "appearance": "外观",
+  "agent_preferences": "Agent 偏好",
   "reply_motion": "回复动效",
   "reply_motion_hint": "新到的回复逐词淡入；系统开了「减弱动态效果」时不播。",
   "sidebar_terminals": "侧边栏显示终端",
   "sidebar_terminals_hint": "在 Agent 按机器分组里，每台电脑的 Agent 下面列出它终端里的普通 shell，点开就是「终端」页。默认关；只对这个浏览器生效。",
   "avatar": "形象",
   "avatar_footer": "Persona 的名字、头像、网页的标志和标签页图标，以及对话里会动的状态；hub 支持时在你的各台设备上同步。主题色选「跟随形象」时，网页的颜色也跟着形象走。扩展可以加形象。",
-  "assistant": "Persona 助手",
   "assistant_footer": "每段对话在 {machine} 上后台运行。模型统一在「模型配置」中选择，连接与凭据在「模型供应商」中管理。",
-  "runs_on": "运行在",
   "this_browser": "这个浏览器",
   "this_browser_footer": "断开会撤销这个浏览器的 token，下次要重新贴 hub 的 token。hub 默认是明文 HTTP，只在内网 / VPN 里用。",
   "hub_address": "hub 地址",
@@ -147,5 +146,9 @@
   "sync_footer": "每台电脑这次有没有把列表发回来；没回应的显示上次的结果，并在供应商上标出来。",
   "stale": "{machines} 未更新",
   "stale_mark": "未更新",
-  "launchers_failed": "没有拿到供应商列表：{error}"
+  "launchers_failed": "没有拿到供应商列表：{error}",
+  "search_settings": "搜索设置",
+  "search_in_page": "页面内",
+  "search_no_results": "没有匹配的设置",
+  "search_placeholder_settings": "搜索设置"
 }

@@ -1,4 +1,4 @@
-import type { AgentState, Session, SessionCapabilities } from "./types";
+import type { AgentState, Interaction, Session, SessionCapabilities } from "./types";
 import { formatDate, formatRelative, t } from "../i18n";
 import { usageLimitLabel } from "./usage-limit";
 import { workLine } from "./work";
@@ -8,6 +8,12 @@ export function sessionCan(s: Session | undefined, operation: keyof SessionCapab
   if (!s) return false;
   if (operation === "attach") return Boolean(s.source_kind && s.capabilities?.attach === true && !s.attached);
   return !s.source_kind || s.capabilities?.[operation] === true;
+}
+
+/** A script request explicitly outside a session has no session-source approval
+ *  policy. A nonempty session id still requires its real session metadata. */
+export function interactionCanAnswer(ix: Pick<Interaction, "session_id">, session: Session | undefined): boolean {
+  return ix.session_id === "" || sessionCan(session, "approve");
 }
 
 export function sourceSubtitle(s?: Session): string {
@@ -98,10 +104,6 @@ export function byAttention(a: Session, b: Session): number {
   const ta = stateOf(a) === "working" ? a.state_since || a.updated_at : a.updated_at;
   const tb = stateOf(b) === "working" ? b.state_since || b.updated_at : b.updated_at;
   return (tb ?? "").localeCompare(ta ?? "") || a.session_id.localeCompare(b.session_id) || a.machine_id.localeCompare(b.machine_id);
-}
-
-export function isLive(s: Session) {
-  return stateOf(s) !== "offline";
 }
 
 /** Why it waits for you, in its host's words (a botmux attention), while it needs you; a reason left over from before

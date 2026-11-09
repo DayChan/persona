@@ -191,7 +191,7 @@ type modelsState struct {
 func (s *Service) modelRecord(ctx context.Context, id string) (modelRecord, error) {
 	var r modelRecord
 	if st := s.store(); st != nil {
-		_, err := st.Setting(ctx, modelRecordKey(id), &r)
+		_, err := memoSetting(ctx, st, modelRecordKey(id), &r)
 		return r, err
 	}
 	return r, nil

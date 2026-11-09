@@ -153,12 +153,64 @@ type Item struct {
 	// scheduled run, a wake-up…), not something the user wrote. Set by the hub from the line's text
 	// (prompts.ParseInjected) on its way to the apps; docs/protocol/protocol.md "Messages Persona injects".
 	Injected *Injected `json:"injected,omitempty"`
-	Fold     *Fold     `json:"fold,omitempty"`
+	// Source is the author of an automated input, independent of its model role.
+	// Unknown nonempty kinds are still not user-authored input.
+	Source *MessageSource `json:"source,omitempty"`
+	Fold   *Fold          `json:"fold,omitempty"`
 	// Task: this notice is a background task reporting back (a command, a Monitor, a subagent, or a workflow).
 	Task         *TaskNote     `json:"task,omitempty"`
 	TurnDuration *TurnDuration `json:"turn_duration,omitempty"`
 	// Compact: this notice is where the context was compacted (Claude Code's compact_boundary).
 	Compact *Compact `json:"compact,omitempty"`
+	// ModelRefusal preserves Claude Code's refusal record on a notice.
+	ModelRefusal *ModelRefusal `json:"model_refusal,omitempty"`
+}
+
+// ModelRefusal is a Claude Code model_refusal_* record. Values are kept as recorded, including unknown categories
+// and scopes; Raw preserves the complete JSONL row for clients that need the original signal.
+type ModelRefusal struct {
+	Subtype       string `json:"subtype"`
+	OriginalModel string `json:"original_model,omitempty"`
+	FallbackModel string `json:"fallback_model,omitempty"`
+	Category      string `json:"category,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	Explanation   string `json:"explanation,omitempty"`
+	Raw           string `json:"raw,omitempty"`
+}
+
+// MessageSource preserves an input's provenance without changing the model's role.
+// ConversationID is a stable session id, never a peer's display name (Item.From).
+type MessageSource struct {
+	Kind           string `json:"kind"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	Title          string `json:"title,omitempty"`
+}
+
+const (
+	SourceConversation = "conversation"
+	SourcePatrol       = "patrol"
+	SourceFollowup     = "followup"
+	SourceSupervision  = "supervision"
+)
+
+// SourceFromInjected upgrades existing metadata without guessing from ordinary text.
+func SourceFromInjected(in *Injected) *MessageSource {
+	if in == nil {
+		return nil
+	}
+	kind := ""
+	switch {
+	case in.Kind == InjectedFollowup && (in.State == "daily" || in.State == "interval"):
+		kind = SourcePatrol
+	case in.Kind == InjectedFollowup:
+		kind = SourceFollowup
+	case in.Kind == InjectedSystem && in.State == "supervise":
+		kind = SourceSupervision
+	}
+	if kind == "" {
+		return nil
+	}
+	return &MessageSource{Kind: kind, Title: in.Title}
 }
 
 // Injected says what a message Persona wrote for the model is, for the apps to show one line instead of it.

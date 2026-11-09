@@ -1,0 +1,345 @@
+{
+  "title": "家",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "text",
+          "text": "晚上好",
+          "style": "title"
+        },
+        {
+          "type": "stat_grid",
+          "key": "env",
+          "stats": [
+            {
+              "label": "室内",
+              "value": "23.5 °C",
+              "detail": "湿度 48%"
+            },
+            {
+              "label": "室外",
+              "value": "12 °C",
+              "detail": "小雨"
+            },
+            {
+              "label": "今日用电",
+              "value": "12.4 kWh",
+              "spark": {
+                "values": [
+                  0.4,
+                  0.6,
+                  1.2,
+                  0.9,
+                  1.6,
+                  2.1,
+                  1.8,
+                  2.4
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "items": [
+        {
+          "type": "carousel",
+          "key": "scenes",
+          "title": "场景",
+          "width": "narrow",
+          "tiles": [
+            {
+              "key": "h.scene.home",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "home"
+                }
+              }
+            },
+            {
+              "key": "h.scene.away",
+              "title": "离家",
+              "icon": "lock",
+              "color": "indigo",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "away"
+                }
+              }
+            },
+            {
+              "key": "h.scene.sleep",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "sleep"
+                }
+              }
+            },
+            {
+              "key": "h.scene.movie",
+              "title": "观影",
+              "icon": "tv",
+              "color": "pink",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "movie"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "items": [
+        {
+          "type": "carousel",
+          "key": "cams",
+          "title": "摄像头",
+          "width": "wide",
+          "tiles": [
+            {
+              "key": "h.cam.front",
+              "title": "前门",
+              "subtitle": "刚刚",
+              "image": {
+                "ref": "camera.front_door"
+              },
+              "badge": {
+                "text": "有人",
+                "tone": "caution"
+              },
+              "action": {
+                "id": "open_camera"
+              }
+            },
+            {
+              "key": "h.cam.garden",
+              "title": "院子",
+              "subtitle": "1 分钟前",
+              "image": {
+                "ref": "photo.garden"
+              },
+              "action": {
+                "id": "open_camera"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "房间",
+      "items": [
+        {
+          "type": "grid",
+          "key": "rooms",
+          "tiles": [
+            {
+              "key": "h.room.0",
+              "title": "客厅",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "h.room.0",
+                "on": true,
+                "action": {
+                  "id": "room_power"
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "客厅"
+                }
+              },
+              "subtitle": "3 盏灯开着",
+              "value": "24 °C"
+            },
+            {
+              "key": "h.room.1",
+              "title": "卧室",
+              "icon": "light",
+              "color": "purple",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "h.room.1",
+                "on": false,
+                "action": {
+                  "id": "room_power"
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "卧室"
+                }
+              },
+              "value": "22 °C"
+            },
+            {
+              "key": "h.room.2",
+              "title": "厨房",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "h.room.2",
+                "on": true,
+                "action": {
+                  "id": "room_power"
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "厨房"
+                }
+              },
+              "subtitle": "有人",
+              "value": "25 °C"
+            },
+            {
+              "key": "h.room.3",
+              "title": "书房",
+              "icon": "light",
+              "color": "teal",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "h.room.3",
+                "on": false,
+                "action": {
+                  "id": "room_power"
+                }
+              },
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "书房"
+                }
+              },
+              "value": "21 °C"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "客厅",
+      "items": [
+        {
+          "type": "row",
+          "key": "h.main",
+          "title": "主灯",
+          "icon": "light",
+          "icon_color": "amber",
+          "control": {
+            "kind": "switch",
+            "name": "h.light.main",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          },
+          "actions": [
+            {
+              "title": "重命名",
+              "icon": "edit",
+              "action": {
+                "id": "rename"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "h.bri",
+          "title": "亮度",
+          "icon": "sun",
+          "control": {
+            "kind": "slider",
+            "name": "h.brightness",
+            "value": 70,
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit": "%",
+            "action": {
+              "id": "brightness"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "h.temp",
+          "title": "空调",
+          "subtitle": "制冷",
+          "icon": "thermometer",
+          "icon_color": "blue",
+          "control": {
+            "kind": "stepper",
+            "name": "h.temperature",
+            "value": 24,
+            "min": 16,
+            "max": 30,
+            "step": 0.5,
+            "unit": "°C",
+            "action": {
+              "id": "temperature"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "h.lock",
+          "title": "门锁",
+          "subtitle": "已锁",
+          "icon": "lock",
+          "icon_color": "green",
+          "badge": {
+            "text": "安全",
+            "color": "green"
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail"
+            }
+          },
+          "actions": [
+            {
+              "title": "开锁",
+              "icon": "unlock",
+              "action": {
+                "id": "unlock",
+                "confirm": "开门锁？"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@ package proto
 
 // PanesResponse is a machine's terminal host layout for the terminal browser (docs/integrations/terminal.md "Standalone terminal"): every
 // workspace, tab and pane of each host, agent or plain shell. It is read from the snapshot the node already takes;
-// ids are host-local.
+// ids are host-local (classic herdr's also per herdr session: a named session's are "@<session>:<id>", herdr.QualifyID).
 type PanesResponse struct {
 	Hosts []PaneHost `json:"hosts"`
 }
@@ -95,6 +95,16 @@ type WorktreeAdded struct {
 	Path   string `json:"path"`
 	Branch string `json:"branch"`
 	Root   string `json:"root"`
+}
+
+// WorktreeSnapshot is what worktree.snapshot made (#2173): a detached checkout of Root's HEAD at Path with Root's
+// uncommitted change in it, for a reviewer to read without touching Root. Skipped counts the untracked files left
+// out (over the copy's limits).
+type WorktreeSnapshot struct {
+	Path    string `json:"path"`
+	Root    string `json:"root"`
+	Head    string `json:"head"`
+	Skipped int    `json:"skipped,omitempty"`
 }
 
 // WorktreeStatus is what worktree.status says of a directory (#6115): whether it is a linked Git worktree, whether

@@ -514,3 +514,46 @@ describe("showsWorktreeLevel", () => {
   });
 });
 
+
+describe("the node's git place (#1805): machine → project → branch → sessions", () => {
+  const mac = (id: string, worktree: string, branch: string, patch: Partial<Session> = {}) =>
+    session(id, worktree, { repo_root: "/home/u/Code/app", worktree, branch, ...patch });
+
+  it("puts linked worktrees under their main repository, labelled by branch, main first", () => {
+    const fix = "/home/u/orca/workspaces/app/fix-login";
+    const tree = buildRepoTree([
+      mac("fix", fix, "fix/login"),
+      mac("main", "/home/u/Code/app", "main"),
+      mac("sub", fix, "fix/login", { cwd: `${fix}/web` }),
+      session("other", "/home/u/Code/notes", { repo_root: "/home/u/Code/notes", worktree: "/home/u/Code/notes", branch: "trunk" }),
+    ], machines);
+    expect(names(tree)).toEqual(["app", "notes"]);
+    expect(worktrees(tree[0]!)).toEqual(["main*", "fix/login"]);
+    expect(ids(tree[0]!.worktrees[1]!.sessions).sort()).toEqual(["fix", "sub"]);
+  });
+
+  it("joins Orca-hosted and other agents of one repository into one project", () => {
+    const fix = "/home/u/orca/workspaces/app/fix-login";
+    const tree = buildRepoTree([
+      mac("orca", fix, "fix/login", { space_kind: "orca", space_id: spaceId("repo-a", fix) }),
+      mac("cli", "/home/u/Code/app", "main"),
+    ], machines);
+    expect(names(tree)).toEqual(["app"]);
+    expect(worktrees(tree[0]!)).toEqual(["main*", "fix/login"]);
+  });
+
+  it("keeps the branch level under a project with only its main checkout", () => {
+    const tree = buildRepoTree([mac("main", "/home/u/Code/app", "main")], machines);
+    expect(showsWorktreeLevel(tree[0]!)).toBe(true);
+    expect(worktrees(tree[0]!)).toEqual(["main*"]);
+  });
+
+  it("lists projects by name inside each machine, in the hub's machine order", () => {
+    const tree = buildRepoMachineTree([
+      session("a", "/code/zeta", { repo_root: "/code/zeta", worktree: "/code/zeta", branch: "main" }),
+      session("b", "/code/alpha", { repo_root: "/code/alpha", worktree: "/code/alpha", branch: "main", machine_id: "machine-b" }),
+      session("c", "/code/beta", { repo_root: "/code/beta", worktree: "/code/beta", branch: "main" }),
+    ], machines);
+    expect(tree.map((m) => [m.machine.id, m.repos.map((r) => r.name)])).toEqual([["machine-b", ["alpha"]], ["machine-a", ["beta", "zeta"]]]);
+  });
+});

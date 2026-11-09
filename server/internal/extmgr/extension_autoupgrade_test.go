@@ -66,13 +66,14 @@ func TestExtensionIdentitySuccessorPreviewAndNotificationOnly(t *testing.T) {
 
 // upgradeMarket is a site market serving one plugin's versions: the index lists the last one published.
 type upgradeMarket struct {
-	t     *testing.T
-	mu    sync.Mutex
-	index []byte
-	pkgs  map[string][]byte
-	reads int
-	down  bool
-	srv   *httptest.Server
+	t         *testing.T
+	mu        sync.Mutex
+	index     []byte
+	pkgs      map[string][]byte
+	reads     int
+	downloads int
+	down      bool
+	srv       *httptest.Server
 }
 
 func newUpgradeMarket(t *testing.T) *upgradeMarket {
@@ -87,6 +88,7 @@ func newUpgradeMarket(t *testing.T) *upgradeMarket {
 			mk.reads++
 			_, _ = w.Write(mk.index)
 		case mk.pkgs[strings.TrimPrefix(r.URL.Path, "/plugins/pkg/")] != nil:
+			mk.downloads++
 			_, _ = w.Write(mk.pkgs[strings.TrimPrefix(r.URL.Path, "/plugins/pkg/")])
 		default:
 			http.NotFound(w, r)
@@ -298,6 +300,107 @@ func TestExtensionAutoUpgradeMorePermissions(t *testing.T) {
 		_, d := call(t, mux, "GET", "/api/v1/plugins/example-ui/-/", phone, "")
 		return d["version"] == "1.2.0" && d["upgrade_note"] == nil && d["upgrade"] == nil
 	})
+}
+
+func TestExtensionAutoUpgradeNewHubSecretNeedsConsent(t *testing.T) {
+	h, mux, phone, mk, dir, mid := upgradeHub(t)
+	ctx := context.Background()
+	u := h.extensionUpgrades()
+	old := h.extensions.reg.Snapshot("example-ui")
+	downloads := func() int {
+		mk.mu.Lock()
+		defer mk.mu.Unlock()
+		return mk.downloads
+	}
+	before := downloads()
+	setUIVersion(t, dir, "1.1.0")
+	editManifest(t, dir, func(m map[string]any) {
+		m["secrets"] = []any{map[string]any{"name": "api_key", "title": "API key", "required": true}}
+	})
+	mk.publish(dir)
+	if _, err := h.marketRead(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+
+	// A hub-only secret leaves the digest unchanged but still needs consent before any download.
+	up, _, entry, ok := u.candidateIn(old, i18n.En)
+	if !ok || up.State != upgradeNeedsConsent || extension.Digest(entry.Parsed) != granted(old) {
+		t.Fatalf("secret-only candidate: %+v, found %v", up, ok)
+	}
+	if len(up.AddedPermissions) != 1 || up.AddedPermissions[0].Key != "secrets" ||
+		up.AddedPermissions[0].Title != "Use more secrets" || up.AddedPermissions[0].Detail != "API key" {
+		t.Fatalf("secret disclosure: %+v", up.AddedPermissions)
+	}
+	if up := upgradeOf(t, mux, phone); up["state"] != upgradeNeedsConsent {
+		t.Fatalf("before the first upgrade check: %v", up)
+	}
+	u.upgrade(ctx)
+	var saved extensionUpgradeSettings
+	if ok, err := h.store.Setting(ctx, extensionUpgradesKey, &saved); err != nil || !ok {
+		t.Fatalf("saved consent notice: %v, %v", ok, err)
+	}
+	note := saved.Last["example-ui"]
+	if saved.Notified["example-ui"] != "1.1.0" || note.Kind != upgradeNeedsConsent ||
+		note.To != "1.1.0" || !strings.Contains(note.Detail, "API key") {
+		t.Fatalf("saved consent notice: %+v", saved)
+	}
+
+	// Repeated checks, a refreshed index and reloading the saved settings must not tell the user again.
+	u.upgrade(ctx)
+	if _, err := h.marketRead(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+	u.upgrade(ctx)
+	reloaded := &extensionUpgrades{h: h, busy: h.extensionBusy}
+	reloaded.load(ctx)
+	reloaded.upgrade(ctx)
+	if reloaded.settings.Last["example-ui"] != note || reloaded.settings.Notified["example-ui"] != "1.1.0" {
+		t.Fatalf("consent notice changed after reload: %+v", reloaded.settings)
+	}
+	if got := downloads(); got != before || installedVersion(h) != "1.0.0" {
+		t.Fatalf("automatic work before consent: downloads %d -> %d, version %s", before, got, installedVersion(h))
+	}
+	th := hubOf(h)
+	th.mu.Lock()
+	var pushes []map[string]any
+	for _, push := range th.pushes {
+		if push["collapse_id"] == "plugin_upgrade.example-ui" {
+			pushes = append(pushes, push)
+		}
+	}
+	th.mu.Unlock()
+	if len(pushes) != 1 {
+		t.Fatalf("consent pushes: %v", pushes)
+	}
+	for _, l := range i18n.Langs {
+		payload := pushes[0]["payloads"].(map[string]any)[string(l)].(map[string]any)
+		n := payload["extension_upgrade"].(map[string]any)
+		if n["kind"] != upgradeNeedsConsent || n["version"] != "1.1.0" {
+			t.Fatalf("%s push: %v", l, payload)
+		}
+	}
+	if up := upgradeOf(t, mux, phone); up["state"] != upgradeNeedsConsent {
+		t.Fatalf("after repeated upgrade checks: %v", up)
+	}
+
+	code, pv := call(t, mux, "POST", "/api/v1/plugins/-/catalog/preview", phone, fmt.Sprintf(`{"market": %q, "plugin": "example-ui"}`, mid))
+	if code != 200 || pv["more_permissions"] != true {
+		t.Fatalf("manual preview: %d %v", code, pv)
+	}
+	if code, out := call(t, mux, "POST", "/api/v1/plugins/example-ui/-/upgrade", phone, fmt.Sprintf(`{"preview_id": %q}`, pv["preview_id"])); code == 200 {
+		t.Fatalf("upgrade without consent succeeded: %v", out)
+	}
+	if v := installedVersion(h); v != "1.0.0" {
+		t.Fatalf("upgraded without consent: %s", v)
+	}
+	if code, out := call(t, mux, "POST", "/api/v1/plugins/example-ui/-/upgrade", phone, fmt.Sprintf(`{"preview_id": %q, "permissions_digest": %q}`, pv["preview_id"], pv["permissions_digest"])); code != 200 {
+		t.Fatalf("confirmed upgrade: %d %v", code, out)
+	}
+	u.upgrade(ctx)
+	_, detail := call(t, mux, "GET", "/api/v1/plugins/example-ui/-/", phone, "")
+	if detail["version"] != "1.1.0" || detail["upgrade_note"] != nil || detail["upgrade"] != nil {
+		t.Fatalf("after confirmation: %v", detail)
+	}
 }
 
 // A version that adds a channel (whose messages reach the assistant as the owner's own) waits for the user even

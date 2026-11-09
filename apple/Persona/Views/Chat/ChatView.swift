@@ -65,8 +65,13 @@ struct ChatView: View {
     @State private var pane: SessionPane = .chat
     @State private var git: GitStatus?
     @State private var menu = MessageMenu()
+    #if os(iOS)
+    /// Full Page in this chat's system screenshot (#1609).
+    @State private var fullPage = ChatFullPage()
+    #endif
     /// Work lines the user tapped open (by line id; kept here so lazy rows coming back keep their state).
     @State private var openWork: Set<String> = []
+    @State private var openSupervision: Set<String> = []
     /// Runs of tool calls (`ChatLine.toolRun`) opened into a row per call.
     @State private var openRuns: Set<String> = []
     /// While you read history, the chat is drawn from the items it had when you left the newest end (inserting at the
@@ -319,10 +324,12 @@ struct ChatView: View {
     private var hasWorkflows: Bool { pane == .chat && !(session?.shownWorkflows().isEmpty ?? true) }
 
     /// 「后台 workflow」 above the subagents: a card per running workflow, its phases, progress and agents; an agent opens
-    /// here like a subagent (its `session_id` reads as one).
+    /// here like a subagent (its `session_id` reads as one). Beside the side bars the header never folds: the cards are
+    /// their heads until tapped.
     @ViewBuilder private var workflowBar: some View {
         if hasWorkflows, let session {
-            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil) { a in
+            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil,
+                            compact: sideBars) { a in
                 openWorkflowAgent(a)
             }
         }
@@ -775,16 +782,56 @@ struct ChatView: View {
             if viewing != nil { model.subscribe(shownKey, by: owner) }
             model.show(key, by: owner)
             model.markSeen(key)
+            #if os(iOS)
+            fullPage.document = { fullPageDocument() }
+            fullPage.setShown(true)
+            #endif
         }, disappear: {
             rememberReadPosition()
             if viewing != nil { model.unsubscribe(shownKey, by: owner) }
             model.unsubscribe(key, by: owner)
             model.hide(by: owner)
+            #if os(iOS)
+            fullPage.setShown(false)
+            fullPage.document = nil // it holds this view, whose state holds the page
+            #endif
         })
+        #if DEBUG && os(iOS)
+        // `-fullPagePDF <path>`: once the chat has loaded, writes its Full Page PDF there and the report beside it
+        // (<path>.json); `-fullPageMaxHeight <pt>` lowers the height limit (#1609).
+        .task(id: "full-page-debug") {
+            guard let path = UserDefaults.standard.string(forKey: "fullPagePDF"), !path.isEmpty else { return }
+            for _ in 0..<120 where !store.loadedOnce { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .seconds(3))
+            var limits = fullPage.limits
+            let max = UserDefaults.standard.double(forKey: "fullPageMaxHeight")
+            if max > 0 { limits.maxHeight = max }
+            if case .success(let pdf) = await fullPage.export(limits: limits) {
+                try? pdf.data.write(to: URL(fileURLWithPath: path))
+            }
+            if let report = fullPage.lastReport, let data = try? JSONEncoder().encode(report) {
+                try? data.write(to: URL(fileURLWithPath: path + ".json"))
+            }
+        }
+        #endif
         .onChange(of: session?.state) { _, st in
             if st == .unread && model.visibleSession == key { model.markSeen(key) }
         }
     }
+
+    #if os(iOS)
+    /// What Full Page draws (#1609): the loaded lines, oldest first, as the list draws them; where the screen was.
+    /// Unsent messages, the live text and the composer are not part of it.
+    private func fullPageDocument() -> ChatFullPage.Document? {
+        let lines = currentLines()
+        guard !lines.isEmpty, let environment = fullPage.environment, scratch.listFrame.width > 0 else { return nil }
+        let visible = Set(scratch.visibleLines)
+        let anchor = scratch.atNewest ? nil : lines.first { visible.contains($0.id) }?.id
+        return ChatFullPage.Document(lines: lines.map { line in .init(id: line.id, view: AnyView(lineView(line))) },
+                                     width: scratch.listFrame.width, background: UIColor(Theme.pageBackground),
+                                     environment: environment, anchor: anchor, viewport: scratch.listFrame.height)
+    }
+    #endif
 
     /// The chat as a flat list of lines (see `ChatLine`): every message of a turn opens its own exchange — the
     /// message, one work line for what the agent did after it, and the agent's last words before the next message.
@@ -800,7 +847,8 @@ struct ChatView: View {
                                        runs: openRuns, frozen: frozen, feed: feed.map(\.id),
                                        streaming: drawsLive && (frozen.map { !$0.text.isEmpty } ?? liveShown),
                                        quietAgents: quietSubagents, workflowCalls: workflowCalls,
-                                       day: style == .assistant ? Calendar.current.startOfDay(for: .now) : nil)
+                                       day: style == .assistant ? Calendar.current.startOfDay(for: .now) : nil,
+                                       supervision: openSupervision, active: shownRoundActive)
         if scratch.linesKey == key { return scratch.lines }
         var blocks = store.blocks
         if frozen != nil {
@@ -813,6 +861,7 @@ struct ChatView: View {
             // The hand-offs the task cards take in are drawn there, not among the lines (#1542).
             lines = ChatLines.daySections(ChatLines.quickResults(ChatLines.mergeFeed(lines, SentToAgents.shown(feed))))
         }
+        lines = ChatLines.sourceRuns(lines)
         scratch.lines = lines
         scratch.linesKey = key
         ChatTrace.shared.note(shownKey, ChatTrace.screen(lines, live: store.liveText.count, streaming: key.streaming, running: key.live != nil,
@@ -820,13 +869,42 @@ struct ChatView: View {
         return lines
     }
 
+    /// A later turn must not make a frozen historical question look like a live one.
+    private var shownRoundActive: Bool { frozen.map { $0.live != nil } ?? status.isActive }
+
     /// What builds the lines from the blocks, with what is open now.
     private var lineBuilder: ChatLines {
-        ChatLines(openWork: openWork, openAll: Self.debugOpenAll, openRuns: openRuns, openAllRuns: Self.debugOpenRuns, chipRuns: AppStyle.current.usesBeautifulUI,
-                  foldsIntoRun: foldsIntoRun, showsFolded: showsFolded)
+        ChatLines(openWork: openWork, openAll: Self.debugOpenAll, opensLive: Self.opensLiveWork(style), openRuns: openRuns,
+                  openAllRuns: Self.debugOpenRuns, chipRuns: AppStyle.current.usesBeautifulUI,
+                  foldsIntoRun: foldsIntoRun, showsFolded: showsFolded, foldSupervision: style == .assistant,
+                  openSupervision: openSupervision, openAllSupervision: Self.debugOpenSupervision, active: shownRoundActive)
     }
     private func unfoldWork(_ lines: [ChatLine]) -> [ChatLine] { lineBuilder.unfold(lines) }
-    private func isOpen(_ work: String) -> Bool { lineBuilder.isOpen(work) }
+    private func isOpen(_ work: String) -> Bool { lineBuilder.isOpen(work, live: work == liveWorkID) }
+    private func isOpen(_ work: String, live: Bool) -> Bool { lineBuilder.isOpen(work, live: live) }
+    /// Opens or folds a work line from wherever it is (a jump to a step): flipping it in `openWork` flips it from how
+    /// it starts, folded or (running, `opensLive`) open.
+    private func flipWork(_ id: String) {
+        if openWork.contains(id) { openWork.remove(id) } else { openWork.insert(id) }
+    }
+
+    /// The assistant shows its running work line open, its tool calls listed as they come; the Agents chat folds it (#1614).
+    static func opensLiveWork(_ style: ChatStyle) -> Bool { style == .assistant }
+
+    /// The running turn's work line, if one is drawn.
+    private var liveWorkID: String? {
+        guard Self.opensLiveWork(style) else { return nil } // only the assistant's chat needs it: no lookup elsewhere
+        return currentLines().last { if case .work(_, _, true, _, _) = $0.content { true } else { false } }?.id
+    }
+
+    /// The running work line stopped running (its turn ended, or a message started the next exchange): folded again,
+    /// whatever the user did with it while it ran (#1614). Only where running lines start open.
+    private func liveWorkEnded(_ id: String?) {
+        guard let id, Self.opensLiveWork(style), id != liveWorkID, openWork.contains(id) else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { _ = openWork.remove(id) }
+    }
     private func isRunOpen(_ id: String) -> Bool { openRuns.contains(id) != Self.debugOpenRuns }
     private func runID(holding call: String, group: String, items: [WorkItem]) -> String? {
         lineBuilder.runID(holding: call, group: group, items: items)
@@ -1185,7 +1263,7 @@ struct ChatView: View {
 
     /// Where a work line's header is, by its top: the open header is taller than the folded one, and held by its
     /// middle it pushed what is above it 10 pt up. The content is upside down: the top on screen is its far edge there.
-    nonisolated private static func headSpot(_ g: GeometryProxy) -> ChatPin.Spot {
+    nonisolated fileprivate static func headSpot(_ g: GeometryProxy) -> ChatPin.Spot {
         ChatPin.Spot(y: g.frame(in: .global).minY, content: g.frame(in: .named(ChatPin.space)).maxY)
     }
 
@@ -1204,8 +1282,18 @@ struct ChatView: View {
 
     @ViewBuilder private func lineView(_ line: ChatLine) -> some View {
         switch line.content {
+        case .supervision(let id, _, let live):
+            SupervisionRecordLine(live: live, open: openSupervision.contains(id) != Self.debugOpenSupervision) {
+                Haptics.tap()
+                toggleInPlace(pin, id, animation: Theme.Motion.state) {
+                    if openSupervision.contains(id) { openSupervision.remove(id) } else { openSupervision.insert(id) }
+                }
+            }
+            .chatPinned(id)
+        case .supervisionInput(let item):
+            SupervisionInputLine(item: item)
         case .row(let r):
-            if r.errorCandidate != nil, let card = turnErrorCard(line, raw: r.errorCandidate?.text) { card } else { rowView(r, isLatest: false, live: true) }
+            if r.errorCandidate != nil, let card = turnErrorCard(line, raw: r.errorCandidate?.text) { card } else { rowView(r, isLatest: false, live: true, showsSource: line.showsSource) }
         case .feed(let item): FeedLine(item: item, group: shownKey.group)
         case .quick(let result): QuickResultCard(result: result)
         case .day(let date): DayLine(date: date)
@@ -1221,12 +1309,12 @@ struct ChatView: View {
             // Close to the bubble below it, like the photos on a message being sent (the list's spacing is 14).
             SentPhotos(images: items.compactMap(\.image)).padding(.bottom, -8)
         case .work(let id, let items, let live, let start, let end):
-            WorkLine(items: items, live: live, start: start, end: end, open: isOpen(id), agents: live ? agentsWorking : nil,
+            WorkLine(items: items, live: live, start: start, end: end, open: isOpen(id, live: live), agents: live ? agentsWorking : nil,
                      openTerminal: live && style == .dev && session?.canTerminal == true ? { openTerminal() } : nil) {
                 toggleWork(id, fromHeader: true)
             }
             .equatable()
-            .onGeometryChange(for: ChatPin.Spot.self, of: Self.headSpot) { workHeadMoved(id, $0) }
+            .modifier(WorkHeadReport(id: id, moved: workHeadMoved))
         case .workStep(let group, let item, let first):
             WorkStepView(item: item, first: first).equatable()
                 .unfolding(stepUnfolding(group, item: item))
@@ -1243,7 +1331,7 @@ struct ChatView: View {
             ToolRunRow(calls: calls, open: open, first: first) { toggleRun(id, calls: calls) }
                 .equatable()
                 .unfolding(stepUnfolding(id.components(separatedBy: "/run-")[0])) // a run's id is "<work line>/run-<first call>"
-                .onGeometryChange(for: ChatPin.Spot.self, of: Self.headSpot) { workHeadMoved(id, $0) }
+                .modifier(WorkHeadReport(id: id, moved: workHeadMoved))
         case .workEnd(let group, let count, let files):
             if AppStyle.current.usesBeautifulUI {
                 // The foot of the open work line's card: the files it changed, then Collapse.
@@ -1311,7 +1399,7 @@ struct ChatView: View {
         var results = Array(groups.reversed().joined())
         let items = ChatLines.workItems(process)
         if !items.isEmpty || live {
-            results.append(.work(id: "dw-" + t.id, items: items, live: live,
+            results.append(.work(id: ChatLines.drawerWork + t.id, items: items, live: live,
                                  start: process.first?.firstTS, end: process.last?.lastTS))
         }
         return results
@@ -1929,13 +2017,13 @@ struct ChatView: View {
             switch line.content {
             case .row, .recaps:
                 if line.holds(ref.msg) { target = line.id }
-            case .work(let wid, let items, _, _, _):
+            case .work(let wid, let items, let live, _, _):
                 // The agent's words before its last ones are in the work line: open it, go to that step.
                 if let item = items.first(where: { if case .text(let i) = $0 { i.id == ref.msg } else { false } }) {
-                    if !isOpen(wid) {
+                    if !isOpen(wid, live: live) {
                         var t = Transaction()
                         t.disablesAnimations = true
-                        withTransaction(t) { if Self.debugOpenAll { openWork.remove(wid) } else { openWork.insert(wid) } }
+                        withTransaction(t) { flipWork(wid) }
                     }
                     target = wid + "/" + item.id
                 }
@@ -1968,13 +2056,13 @@ struct ChatView: View {
         var target: String?
         for line in currentLines() {
             switch line.content {
-            case .work(let wid, let items, _, _, _):
+            case .work(let wid, let items, let live, _, _):
                 let steps = items.compactMap { if case .step(let s) = $0 { s } else { nil } }
                 if let step = holds(steps) {
                     var t = Transaction()
                     t.disablesAnimations = true
-                    if !isOpen(wid) {
-                        withTransaction(t) { if Self.debugOpenAll { openWork.remove(wid) } else { openWork.insert(wid) } }
+                    if !isOpen(wid, live: live) {
+                        withTransaction(t) { flipWork(wid) }
                     }
                     if AppStyle.current.usesBeautifulUI, let run = runID(holding: step, group: wid, items: items), !isRunOpen(run) {
                         withTransaction(t) { _ = openRuns.insert(run) }
@@ -2284,7 +2372,9 @@ struct ChatView: View {
             }
             // Streamed text, the typing line and unsent messages sit at the newest end too: while you read
             // history they wait with the rest, as they were drawn then (`Frozen`).
-            if drawsLive { ChatLiveText(store: store, held: frozen?.text) }
+            if drawsLive, !ChatLines.hidesLiveSupervision(lines, open: openSupervision, openAll: Self.debugOpenSupervision) {
+                ChatLiveText(store: store, held: frozen?.text)
+            }
             // Sent, and the agent not on it yet: the line the new-conversation page showed under the first message
             // (`FirstMessagePending`), where the turn's work line comes in. Without it the chat that took over showed
             // the message a line lower, then pushed it up when the turn began (#1911).
@@ -2441,6 +2531,12 @@ struct ChatView: View {
         return list
         .environment(menu)
         .environment(\.chatPin, pin)
+        #if os(iOS)
+        .background {
+            FullPageEnvironmentReader(page: fullPage)
+            FullPageAnchor { [fullPage] in fullPage.setAnchor($0) }
+        }
+        #endif
         .onAppear {
             pin.letGo = { [position = $position] in position.wrappedValue = ScrollPosition(idType: String.self) }
             pin.onRising = { [rising = $pinRising] in rising.wrappedValue = $0 }
@@ -2494,6 +2590,7 @@ struct ChatView: View {
         .onChange(of: lines.count, initial: true) { _, _ in landEntry(lines) }
         .onChange(of: store.backlogBuilt) { _, _ in landEntry(lines) }
         .onChange(of: liveTurnID) { _, _ in contentArrived(foldChrome: false) }
+        .onChange(of: liveWorkID) { old, _ in liveWorkEnded(old) }
         .task(id: awaitDeadline) {
             guard let end = awaitDeadline, end > .now else { return }
             try? await Task.sleep(for: .seconds(end.timeIntervalSinceNow + 0.1))
@@ -3516,6 +3613,14 @@ struct ChatView: View {
     }
     #endif
 
+    private static var debugOpenSupervision: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "showSupervisionOpen")
+        #else
+        false
+        #endif
+    }
+
     private static var debugOpenAll: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: "openAllWork")
@@ -3658,10 +3763,12 @@ struct ChatView: View {
         return [s.sourceSubtitle, machine, place.isEmpty ? nil : place, s.hasSource ? nil : s.agentLabel, s.stateLabel(muted: model.isMuted(s))].compactMap { $0 }.joined(separator: " · ")
     }
 
-    @ViewBuilder private func rowView(_ row: ChatRow, isLatest: Bool, live: Bool) -> some View {
+    @ViewBuilder private func rowView(_ row: ChatRow, isLatest: Bool, live: Bool, showsSource: Bool = true) -> some View {
         switch row {
         case .user(let i):
-            if let n = Injected.of(i) {
+            if let source = MessageSource.of(i) {
+                SourceMessage(item: i, source: source, showsSource: showsSource).equatable()
+            } else if let n = Injected.of(i) {
                 // Persona's message for the model: one line in its place, never its words (docs/protocol/protocol.md「Persona 注入的消息」).
                 InjectedLine(item: i, injected: n, conversation: style == .assistant ? shownKey.sessionID : nil)
             } else if (i.text ?? "").hasPrefix("/loop") {
@@ -5133,8 +5240,13 @@ struct SessionInfoSheet: View {
 struct ChatLine: Identifiable {
     let id: String
     let content: Content
+    /// Computed after the final row ordering, not in a lazy view's appearance callbacks.
+    var showsSource = true
 
     indirect enum Content {
+        /// One compact header for the entire quiet round; children are flattened only when it is opened.
+        case supervision(id: String, lines: [ChatLine], live: Bool)
+        case supervisionInput(Item)
         case row(ChatRow)
         case work(id: String, items: [WorkItem], live: Bool, start: Date?, end: Date?)
         case userImages(id: String, items: [Item])
@@ -5165,6 +5277,8 @@ struct ChatLine: Identifiable {
 
         var id: String {
             switch self {
+            case .supervision(let id, _, _): id
+            case .supervisionInput(let item): item.id
             case .row(let r): r.id
             case .work(let id, _, _, _, _): id
             case .workStep(let group, let item, _): group + "/" + item.id
@@ -5189,6 +5303,8 @@ struct ChatLine: Identifiable {
         self.content = content
     }
 
+    static func supervision(id: String, lines: [ChatLine], live: Bool) -> Self { Self(.supervision(id: id, lines: lines, live: live)) }
+    static func supervisionInput(_ item: Item) -> Self { Self(.supervisionInput(item)) }
     static func row(_ row: ChatRow) -> Self { Self(.row(row)) }
     static func work(id: String, items: [WorkItem], live: Bool, start: Date?, end: Date?) -> Self {
         Self(.work(id: id, items: items, live: live, start: start, end: end))
@@ -5218,6 +5334,8 @@ struct ChatLine: Identifiable {
     func holds(_ id: String?) -> Bool {
         guard let id else { return false }
         switch content {
+        case .supervision(_, let lines, _): return lines.contains { $0.holds(id) }
+        case .supervisionInput(let item): return item.id == id
         case .row(let r): return r.id == id
         case .recaps(_, let items): return items.contains { $0.id == id }
         default: return false
@@ -5696,6 +5814,22 @@ struct WorkLine: View, Equatable {
 
 private struct EditIndex: Identifiable { var id: Int }
 
+/// Where a work line's or tool run's header is, told to the chat's pin (`workHeadMoved`). Not from Full Page's copies of
+/// the lines (#1609): they are off screen, and their positions moved the list the next time a header was tapped.
+private struct WorkHeadReport: ViewModifier {
+    let id: String
+    let moved: (String, ChatPin.Spot) -> Void
+    @Environment(\.fullPageExport) private var exporting
+
+    func body(content: Content) -> some View {
+        if exporting {
+            content
+        } else {
+            content.onGeometryChange(for: ChatPin.Spot.self, of: ChatView.headSpot) { moved(id, $0) }
+        }
+    }
+}
+
 
 /// The chat list's offset and visible height, watched together (see `scrolled`).
 private struct ListScroll: Equatable {
@@ -5868,6 +6002,8 @@ final class ChatScratch {
         /// Today, in an assistant conversation: on a new day yesterday's task cards are lines and give back the hand-offs
         /// they took in (`SentToAgents.takenIn`, #1668).
         var day: Date?
+        var supervision: Set<String> = []
+        var active = false
     }
     /// What was sent from this chat lately: its transcript copy arriving brings you to the newest, others do not.
     var sentHere: [(id: UUID, text: String)] = []

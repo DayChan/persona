@@ -34,6 +34,7 @@ type callLog struct {
 	observed           int
 	cards              int // cards the model was told to ask
 	reconnects         int
+	nudges             int    // the model was nudged for an answer it owed (nudge.go)
 	reason             string // why the call ended: the first one said
 }
 
@@ -88,8 +89,8 @@ func (c *conversation) summary(n callLines) string {
 		took = time.Since(l.opened).Round(time.Second)
 	}
 	return fmt.Sprintf("after %v (%s): user lines %d (typed %d), model lines %d, delegations %d, function calls %d, runs %d%s, "+
-		"observed turns %d, cards asked %d, reconnects %d, pauses %d", took, firstNonEmpty(l.reason, "ended"), n.user,
-		l.typed, n.model, l.delegations, l.calls, len(l.runs), byState, l.observed, l.cards, l.reconnects, n.pauses)
+		"observed turns %d, cards asked %d, reconnects %d, pauses %d, nudges %d", took, firstNonEmpty(l.reason, "ended"), n.user,
+		l.typed, n.model, l.delegations, l.calls, len(l.runs), byState, l.observed, l.cards, l.reconnects, n.pauses, l.nudges)
 }
 
 // errorRunes is the most of the service's own words on an error of a live session that the log keeps.

@@ -21,7 +21,7 @@ import { Button, copyText, cx, IconButton, Loading, Menu, useMenu } from "../../
 import type { MenuAt } from "../../ui/menu-model";
 import { Icon } from "../../ui/icons";
 import { scrollBehavior } from "../../ui/stream/motion";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { FileView } from "./files/FileView";
 import { DropHint, dragHasFiles, RowCheck, rowClick, rowFrameProps, RowMore, SelectionBar, useFileOps, type OpTarget, type RowOps } from "./files/FileOps";
 import { FilesTree } from "./files/FilesTree";

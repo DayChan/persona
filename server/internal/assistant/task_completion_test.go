@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -399,4 +400,136 @@ func TestTaskCompletionReconcilesAnAnswerArrivingDuringTheRead(t *testing.T) {
 	}})
 	s.taskTurnEnded(ctx, "box", "s1")
 	waitFor(t, "completion without another session update", func() bool { return todoNow(s, todo.ID).DoneAt != nil })
+}
+
+func TestAutoDoneSkipRecognizesCancellation(t *testing.T) {
+	now := time.Now()
+	// Hand-made todo
+	hand := Todo{}
+	if got := autoDoneSkip(hand, now, true); got != "not_a_task" {
+		t.Fatalf("hand-made todo: got %q, want not_a_task", got)
+	}
+
+	// Normal task
+	task := Todo{Origin: "conv1"}
+	if got := autoDoneSkip(task, now, true); got != "" {
+		t.Fatalf("normal task: got %q, want empty", got)
+	}
+
+	// Cancelled by DoneBy
+	cancelled := Todo{Origin: "conv1", DoneBy: db.DoneByCancelled}
+	if got := autoDoneSkip(cancelled, now, true); got != "cancelled" {
+		t.Fatalf("cancelled task by DoneBy: got %q, want cancelled", got)
+	}
+
+	// Cancelled by CancelledAt
+	cancelledAt := Todo{Origin: "conv1", CancelledAt: &now}
+	if got := autoDoneSkip(cancelledAt, now, true); got != "cancelled" {
+		t.Fatalf("cancelled task by CancelledAt: got %q, want cancelled", got)
+	}
+
+	// Normal done task
+	done := Todo{Origin: "conv1", DoneAt: &now, DoneBy: db.DoneByAuto}
+	if got := autoDoneSkip(done, now, true); got != "done" {
+		t.Fatalf("done task: got %q, want done", got)
+	}
+}
+
+func TestCancelledTaskSettledAgentDoesNotIssueDoneReceipt(t *testing.T) {
+	s, f := newTaskService(t)
+	todo := startedTask(t, s, f)
+	ctx := context.Background()
+	s.taskWorking(ctx, "box", "s1")
+	f.judge = `{"verdict":"done","reason":"Delivery verified"}`
+
+	// Cancel the task
+	s.todos.writing.Lock()
+	now := time.Now().UTC()
+	row := db.TodoRow{
+		ID: todo.ID, Title: todo.Title, Notes: todo.Notes, CreatedAt: todo.CreatedAt, Origin: todo.Origin,
+		PlanID: todo.PlanID, DoneAt: &now, DoneBy: db.DoneByCancelled, DoneReason: "User cancelled", UpdatedAt: now,
+	}
+	s.setTodoRow(todo.ID, row, nil)
+	s.todos.writing.Unlock()
+
+	beforeFeed, beforeNotices := feedKinds(s, "conv1"), len(f.notices())
+
+	// The agent finishes and settles
+	idle := proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone,
+		LastText: "Done with work", UpdatedAt: time.Now()}
+	f.setSessions("box", idle)
+	s.fleetKeepPrevious("box", []proto.Session{idle})
+	f.setItems(proto.Item{Kind: proto.KindText, Role: "assistant", Text: "Done with work"},
+		proto.Item{Kind: "turn_duration", Role: "system"})
+
+	s.taskTurnEnded(ctx, "box", "s1")
+
+	// Verify no receipt in feed and no notices
+	if got := feedKinds(s, "conv1"); got != beforeFeed || len(f.notices()) != beforeNotices {
+		t.Fatalf("cancelled task produced a receipt or notice: feed %q, notices %v", got, f.notices())
+	}
+	if current := todoNow(s, todo.ID); current.DoneBy != db.DoneByCancelled {
+		t.Fatalf("task completion overwrote cancellation status: DoneBy=%s", current.DoneBy)
+	}
+}
+
+// When a task is reassigned and its original agent is released, that agent settling must not mark the task done.
+func TestReassignedAbortedAgentSettledDoesNotCompleteTask(t *testing.T) {
+	s, f := newTaskService(t)
+	todo := startedTask(t, s, f)
+	ctx := context.Background()
+	s.taskWorking(ctx, "box", "s1")
+	f.judge = `{"verdict":"done","reason":"Delivery verified"}`
+
+	// Reassign task: link a new agent on box/s2, releasing box/s1
+	now := time.Now().UTC()
+	s.todos.writing.Lock()
+	tptr := s.todos.todos[todo.ID]
+	for i := range tptr.Agents {
+		if tptr.Agents[i].MachineID == "box" && tptr.Agents[i].SessionID == "s1" {
+			tptr.Agents[i].ReleasedAt = &now
+		}
+	}
+	tptr.Agents = append(tptr.Agents, TodoAgent{
+		MachineID: "box", SessionID: "s2", LinkedAt: now, Title: todo.Title,
+	})
+	s.todos.mu.Lock()
+	delete(s.todos.activeBySession, [2]string{"box", "s1"})
+	s.todos.activeBySession[[2]string{"box", "s2"}] = todo.ID
+	s.todos.mu.Unlock()
+	s.todos.writing.Unlock()
+
+	beforeFeed := feedKinds(s, "conv1")
+
+	// The original released agent box/s1 finishes and settles
+	idle1 := proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone,
+		LastText: "Old agent finished", UpdatedAt: time.Now()}
+	f.setSessions("box", idle1)
+	s.fleetKeepPrevious("box", []proto.Session{idle1})
+	f.setItems(proto.Item{Kind: proto.KindText, Role: "assistant", Text: "Old agent finished"},
+		proto.Item{Kind: "turn_duration", Role: "system"})
+
+	s.taskTurnEnded(ctx, "box", "s1")
+
+	// Must NOT complete the task
+	if current := todoNow(s, todo.ID); current.DoneAt != nil {
+		t.Fatalf("aborted agent completing prematurely marked task done: %+v", current)
+	}
+	if got := feedKinds(s, "conv1"); got != beforeFeed {
+		t.Fatalf("aborted agent settling issued receipt: %+v", got)
+	}
+
+	// Now the new active agent box/s2 finishes and settles
+	s.taskWorking(ctx, "box", "s2")
+	idle2 := proto.Session{MachineID: "box", SessionID: "s2", Status: proto.StatusDone,
+		LastText: "New agent really finished", UpdatedAt: time.Now()}
+	f.setSessions("box", idle2)
+	s.fleetKeepPrevious("box", []proto.Session{idle2})
+	f.setItems(proto.Item{Kind: proto.KindText, Role: "assistant", Text: "New agent really finished"},
+		proto.Item{Kind: "turn_duration", Role: "system"})
+
+	s.taskTurnEnded(ctx, "box", "s2")
+
+	// Now the task SHOULD complete properly by the real agent!
+	waitFor(t, "task completion by active agent", func() bool { return todoNow(s, todo.ID).DoneAt != nil })
 }

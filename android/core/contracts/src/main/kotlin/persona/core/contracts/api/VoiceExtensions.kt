@@ -44,6 +44,8 @@ data class HubExtension(
     val manager: String? = null,
     /** The command-line programs this version runs with (manifest `tools`, #4507). */
     val tools: List<ExtensionToolView>? = null,
+    /** Manager-owned attachment metadata; an attached process is externally managed, not a market installation. */
+    val attached: kotlinx.serialization.json.JsonObject? = null,
 ) {
     val isRunningVoice: Boolean get() = kind == "voice" && status == "running"
 }

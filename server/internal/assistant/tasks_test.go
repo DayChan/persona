@@ -40,9 +40,13 @@ func newTaskServiceOn(t *testing.T, st Store) (*Service, *fakeHub) {
 }
 
 func planArgs(readonly bool) json.RawMessage {
+	permission := "acceptEdits"
+	if readonly {
+		permission = "plan"
+	}
 	raw, _ := json.Marshal(map[string]any{"tasks": []map[string]any{{
 		"title": "修登录崩溃", "prompt": "iPad 横屏时登录页崩溃，修好并补测试", "machine": "box", "cwd": "/code/app",
-		"readonly": readonly, "why": "这个仓库最近在 box 上", "permission": "acceptEdits",
+		"readonly": readonly, "why": "这个仓库最近在 box 上", "permission": permission,
 	}}})
 	return raw
 }

@@ -1,4 +1,8 @@
 <resources>
     <string name="settings_update_auto_notice">Persona checks for updates when opened. Installation always needs your confirmation.</string>
     <string name="settings_update_later">Later</string>
+    <string name="settings_update_metadata_failed">Could not refresh the update details. Check the hub connection and try again.</string>
+    <string name="settings_update_download_failed">The APK download failed. Check the hub connection and retry the download.</string>
+    <string name="settings_update_verification_failed">The APK did not match the update details. Check for updates again; if it repeats, contact the publisher.</string>
+    <string name="settings_update_install_failed">Could not open the system installer. Finish or cancel any pending installation, then retry.</string>
 </resources>

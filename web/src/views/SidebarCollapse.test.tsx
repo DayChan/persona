@@ -283,6 +283,20 @@ describe("the main conversation: the column's first row, Persona with the app's 
     await flush();
   };
 
+  it("offers a labeled New chat at the top and an icon in the rail, only with an assistant", async () => {
+    const newChat = () => host.querySelector<HTMLAnchorElement>('a[href="/persona/new"]');
+    act(() => root.render(<Sidebar route={{ name: "home" }} onSearch={() => {}} onNewAgent={() => {}} />));
+    await flush();
+    expect(newChat()).toBeNull();
+    await load();
+    expect(newChat()!.textContent).toBe("新对话");
+    expect(newChat()!.closest("[data-sidebar-rows]")).toBeNull();
+    act(() => root.render(<SidebarRail route={{ name: "persona-new" }} onSearch={() => {}} onNewAgent={() => {}} />));
+    await flush();
+    expect(newChat()!.getAttribute("aria-label")).toBe("新对话");
+    expect(newChat()!.getAttribute("aria-current")).toBe("page");
+  });
+
   it("is the first row, above the pages, with the app's mark, a 主对话 mark, a line under it, and nowhere else", async () => {
     await load();
     const rows = [...host.querySelectorAll<HTMLAnchorElement>("[data-sidebar-rows] a")];

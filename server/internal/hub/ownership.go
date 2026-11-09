@@ -357,6 +357,55 @@ func (h *Hub) byConversation(r *http.Request) (string, error) {
 	return h.requestManager(r)
 }
 
+func (h *Hub) todoOwner(id string) string {
+	if id == "" {
+		return ""
+	}
+	h.todoOwnersMu.RLock()
+	defer h.todoOwnersMu.RUnlock()
+	return h.todoOwners[id]
+}
+
+func (h *Hub) noteTodoOwner(id, manager string) {
+	if id == "" || manager == "" {
+		return
+	}
+	h.todoOwnersMu.Lock()
+	if h.todoOwners == nil {
+		h.todoOwners = make(map[string]string)
+	}
+	h.todoOwners[id] = manager
+	h.todoOwnersMu.Unlock()
+}
+
+func (h *Hub) forgetTodoOwner(id string) {
+	if id == "" {
+		return
+	}
+	h.todoOwnersMu.Lock()
+	delete(h.todoOwners, id)
+	h.todoOwnersMu.Unlock()
+}
+
+// byTodo: the manager that owns todo {id}; when not known or not named, goes by the request.
+// An extension's token reaches only its own manager's todos.
+func (h *Hub) byTodo(r *http.Request) (string, error) {
+	if p := principalOf(r.Context()); p.Role == roleExtension && p.Manager != "" {
+		if id := h.todoOwner(r.PathValue("id")); id != "" {
+			if _, err := h.extensionsOwn(r, id); err != nil {
+				return "", err
+			}
+		}
+		return h.requestManager(r)
+	}
+	if named := namedManager(r); named == "" {
+		if id := h.todoOwner(r.PathValue("id")); id != "" {
+			return id, nil
+		}
+	}
+	return h.requestManager(r)
+}
+
 // owner resolves r's manager with by, answering 404 no_manager itself (403 codeOtherManager for an extension's token
 // of another manager); false once it answered.
 func (h *Hub) owner(w http.ResponseWriter, r *http.Request, by ownerOf) (string, bool) {

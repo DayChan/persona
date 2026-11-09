@@ -83,8 +83,21 @@ func note(id, reason, typ, url, updated string) string {
 const (
 	api12 = "/repos/example-org/example-repo/pulls/12"
 	api7  = "/repos/example-org/example-repo/issues/7"
-	t1    = "2026-11-02T09:00:00Z"
-	t2    = "2026-11-02T09:30:00Z"
+)
+
+// fixtureDay is midnight UTC the day before the test run, and fixture times are offsets from it (from dayBefore for
+// times on the day before that). Fixed dates would age past the windows the code measures against the clock
+// (forgetAfter, archiveFirstDays, archiveForget) and fail the tests once the real date moves on.
+var fixtureDay = time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+
+const dayBefore = -24 * time.Hour
+
+// fixtureAt is fixtureDay plus d, as GitHub writes times.
+func fixtureAt(d time.Duration) string { return fixtureDay.Add(d).Format(time.RFC3339) }
+
+var (
+	t1 = fixtureAt(9 * time.Hour)
+	t2 = fixtureAt(9*time.Hour + 30*time.Minute)
 )
 
 func openPR(reviewers string) string {
@@ -107,7 +120,7 @@ func TestNotificationsBecomeThings(t *testing.T) {
 		"/repos/example-org/example-repo/issues/12": `{"comments":1}`,
 		api7: `{"title":"Example bug","state":"open","user":{"login":"bob"},"body":"出错了","html_url":"https://github.com/example-org/example-repo/issues/7","comments":0}`,
 	}, comments: map[string]string{
-		"/repos/example-org/example-repo/issues/12/comments": `[{"user":{"login":"bob"},"body":"请看一下示例","created_at":"2026-11-02T08:59:00Z"}]`,
+		"/repos/example-org/example-repo/issues/12/comments": `[{"user":{"login":"bob"},"body":"请看一下示例","created_at":"` + fixtureAt(8*time.Hour+59*time.Minute) + `"}]`,
 	}}
 	f.notifications = "[" + strings.Join([]string{
 		note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, t1),
@@ -146,19 +159,26 @@ func TestNotificationsBecomeThings(t *testing.T) {
 	}
 
 	// Answered: my comment is the newest; the review request withdrawn without a review: read; the issue is gone
-	// from the unread list: read elsewhere.
+	// from the unread list: read elsewhere, at the second read it is missing from (inbox_read_test.go).
 	f.notModified = false
 	c.inbox.fullAt = time.Time{}
-	f.comments["/repos/example-org/example-repo/issues/12/comments"] = `[{"user":{"login":"bob"},"body":"请看一下示例","created_at":"2026-11-02T08:59:00Z"},
-		{"user":{"login":"me"},"body":"看过了","created_at":"2026-11-02T09:29:00Z"}]`
+	f.comments["/repos/example-org/example-repo/issues/12/comments"] = `[{"user":{"login":"bob"},"body":"请看一下示例","created_at":"` + fixtureAt(8*time.Hour+59*time.Minute) + `"},
+		{"user":{"login":"me"},"body":"看过了","created_at":"` + fixtureAt(9*time.Hour+29*time.Minute) + `"}]`
 	f.notifications = "[" + note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, t2) + "]"
 	c.poll(context.Background())
 	got = things(t, c)
 	if got["example-org/example-repo#12"].Done != connector.DoneReplied {
 		t.Errorf("answered: %+v", got["example-org/example-repo#12"])
 	}
-	if !got["example-org/example-repo#7"].Read {
+	if got["example-org/example-repo#7"].Read {
+		t.Errorf("read at the first list it is missing from: %+v", got["example-org/example-repo#7"])
+	}
+	c.poll(context.Background())
+	if got = things(t, c); !got["example-org/example-repo#7"].Read {
 		t.Errorf("no longer unread: %+v", got)
+	}
+	if since := f.sinceSeen[len(f.sinceSeen)-1]; since != "" {
+		t.Errorf("the read that settles #7 asked If-Modified-Since %q", since)
 	}
 }
 
@@ -172,7 +192,7 @@ func TestReviewRequestWithdrawnOrMerged(t *testing.T) {
 		t.Errorf("withdrawn: %+v", th)
 	}
 
-	f.comments["/repos/example-org/example-repo/pulls/12/reviews"] = `[{"user":{"login":"me"},"state":"APPROVED","body":"","submitted_at":"2026-11-02T09:10:00Z"}]`
+	f.comments["/repos/example-org/example-repo/pulls/12/reviews"] = `[{"user":{"login":"me"},"state":"APPROVED","body":"","submitted_at":"` + fixtureAt(9*time.Hour+10*time.Minute) + `"}]`
 	f.notifications = "[" + note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, t2) + "]"
 	c.inbox.fullAt = time.Time{}
 	c.poll(context.Background())
@@ -181,7 +201,7 @@ func TestReviewRequestWithdrawnOrMerged(t *testing.T) {
 	}
 
 	f.prs[api12] = strings.Replace(openPR(`{"login":"me"}`), `"merged":false`, `"merged":true`, 1)
-	f.notifications = "[" + note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, "2026-11-02T10:00:00Z") + "]"
+	f.notifications = "[" + note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, fixtureAt(10*time.Hour)) + "]"
 	c.inbox.fullAt = time.Time{}
 	c.poll(context.Background())
 	if th := things(t, c)["example-org/example-repo#12"]; th.Done != connector.DoneRead {

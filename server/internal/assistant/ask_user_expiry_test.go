@@ -337,7 +337,7 @@ func TestAskUserLateAnswerFindsNoQuestion(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	// What askOnPhone sends to the question when its card expires (fleet_ix.go): a dismiss.
+	// What askOnPhone sends to the question when its card expires (fleet_ix_own.go): a dismiss.
 	if _, err := s.Action(ctx, Action{Op: "answer", InteractionID: ix.ID, Answer: json.RawMessage(`{"dismiss":true}`)}); err != nil {
 		t.Fatal(err)
 	}

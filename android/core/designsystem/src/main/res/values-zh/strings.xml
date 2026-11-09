@@ -315,4 +315,8 @@
     <string name="designsystem_color_lavender">薰衣草紫</string>
     <string name="designsystem_color_teal">青</string>
     <string name="designsystem_color_lark">飞书蓝</string>
+    <string name="designsystem_candle">开 %1$s · 高 %2$s · 低 %3$s · 收 %4$s</string>
+    <string name="designsystem_candle_volume">量 %1$s</string>
+    <string name="designsystem_stepper_minus">减少</string>
+    <string name="designsystem_stepper_plus">增加</string>
 </resources>

@@ -38,7 +38,7 @@ var snakeKey = lazyre.New(`^[a-z][a-z0-9_]*$`)
 
 // opaqueKeys are keys whose value the protocol does not describe: a tool's JSON schema (its own keywords), the blocks
 // of a migrated connector's items, and a manifest's descriptions by kind.
-var opaqueKeys = []string{"input_schema", "lark", "doc", "moment", "kind_descriptions"}
+var opaqueKeys = []string{"input_schema", "args", "lark", "doc", "moment", "kind_descriptions"}
 
 // decodeStrict decodes one JSON value into out, refusing a field out does not have and anything after the value.
 func decodeStrict(raw json.RawMessage, out any) error {

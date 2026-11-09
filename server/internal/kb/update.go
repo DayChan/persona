@@ -18,6 +18,10 @@ import (
 // exact source and chat, and first-write-wins: replay or an edited body with the
 // same ID adds nothing. Missing IDs retain legacy append behavior. Old Markdown
 // has no recoverable IDs, so only messages ingested with receipts are replay-safe.
+//
+// With a selection (Engine.Selection), every message goes through it first (Selection.Evaluate): only what it
+// stores is written, with its rule's days, and the mine rule's context is kept per chat between batches
+// (select_context.go). A chat outside the selection (Selected false) is archived as before.
 func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []SourceMessage) (int, error) {
 	if e.Store.ReadOnly() {
 		return 0, ErrReadOnly
@@ -37,33 +41,105 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	if err := attributeChat(c, src); err != nil {
 		return 0, err
 	}
-	var lines []Line
-	var kept []SourceMessage
+	sel, ret, facts := e.selection(), e.Retention(), ChatFactsOf(src.Name(), sc)
+	selecting := sel != nil && facts.Selected()
+	unchanged := func() (int, error) {
+		if exists {
+			e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
+		}
+		return 0, nil
+	}
+	span := 0
+	var win mineWindow
+	if selecting {
+		if !sel.ReadChat(ret, facts).Read {
+			return unchanged()
+		}
+		if span = sel.MineContext(); span > 0 {
+			if win, err = e.Store.mineWindow(c.ID, src.Name(), sc.ID); err != nil {
+				return 0, err
+			}
+		}
+	}
+	type pick struct {
+		m    SourceMessage
+		d    Decision
+		late bool // stored with a later message of the owner's: older than lines written before it
+	}
+	var picks []pick
 	for _, m := range msgs {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		if m.At.Before(cut) {
+		if _, seen := r.IDs[m.ID]; m.ID != "" && seen {
+			continue
+		}
+		if !selecting {
+			if !m.At.Before(cut) {
+				picks = append(picks, pick{m: m, d: Decision{Store: true, Days: or(e.TextDays, 365), AttachmentDays: e.AttachmentDaysFor(src.Name())}})
+			}
+			continue
+		}
+		if span > 0 && win.seen(m.ID) {
+			continue
+		}
+		mf := MessageFactsOf(m)
+		switch {
+		case m.Mine && span > 0:
+			for _, b := range win.Before {
+				if b.Stored {
+					continue
+				}
+				bf := MessageFactsOf(b.M)
+				bf.NearMine = true
+				if d := sel.Evaluate(ret, facts, bf); d.Store {
+					picks = append(picks, pick{m: b.M, d: d, late: true})
+				}
+			}
+			win.Before, win.After = nil, span
+		case win.After > 0:
+			mf.NearMine = true
+			win.After--
+		}
+		d := sel.Evaluate(ret, facts, mf)
+		if d.Store {
+			picks = append(picks, pick{m: m, d: d})
+		}
+		if span > 0 {
+			win.push(m, d.Store, span)
+		}
+	}
+	saveWindow := func() error {
+		if span == 0 {
+			return nil
+		}
+		return e.Store.putMineWindow(c.ID, win)
+	}
+	var lines []ingestLine
+	var kept []SourceMessage
+	for _, p := range picks {
+		m := p.m
+		if m.At.Before(e.CutoffFor(p.d.Days)) {
 			continue
 		}
 		if _, seen := r.IDs[m.ID]; m.ID != "" && seen {
 			continue
 		}
-		l := e.line(ctx, src.Download, c, m)
+		l := e.buildLine(ctx, src.Download, c, m, false, p.d.AttachmentDays)
 		if l.Text == "" {
 			continue
 		}
-		lines = append(lines, l)
+		lines = append(lines, ingestLine{Line: l, rule: p.d.Rule, late: p.late})
 		if m.ID != "" {
 			r.IDs[m.ID] = m.At
 		}
 		kept = append(kept, m)
 	}
 	if len(lines) == 0 {
-		if exists {
-			e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
+		if err := saveWindow(); err != nil {
+			return 0, err
 		}
-		return 0, nil
+		return unchanged()
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -94,8 +170,17 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	}
 	c.Messages += len(lines)
 	c.Pending += len(lines)
-	if err := e.Store.commitIngest(c, lines, r); err != nil {
+	usual := ""
+	if selecting {
+		usual = sel.UsualRule(ret, facts)
+		c.Rule = usual
+	}
+	if err := e.Store.commitIngest(c, lines, r, selecting, usual); err != nil {
 		return 0, err
+	}
+	// After the commit: a window saved before it would say messages are stored that a failed commit never wrote.
+	if err := saveWindow(); err != nil {
+		e.logf("selection context of %s: %v", c.ID, err)
 	}
 	e.index(KindChat, c.ID, c.Name, c.Tagging, c.OneLine, c.LastAt)
 	return len(lines), nil

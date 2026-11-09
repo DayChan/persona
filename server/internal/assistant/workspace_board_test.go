@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -486,6 +487,123 @@ func TestWorkspaceBoardLateMachineAlias(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list.Workspaces) != 1 || list.Workspaces[0].Cwd != "/work/weather" {
 		t.Fatalf("stale alias catalog revived: %s", w.Body)
+	}
+}
+
+func TestWorkspacesFailedSourcesKeepQualifiedAliasSnapshot(t *testing.T) {
+	store := newMemoryBoardStore()
+	main, unread := true, false
+	cached := []proto.Workspace{
+		{ID: "retained", Source: "orca", SourceID: "retained", Title: "Retained", Cwd: "/work/retained/.",
+			ParentSourceID: "root", ProjectID: "project", ProjectName: "Project", ProjectPath: "/work/project",
+			IsMain: &main, Unread: &unread, SidebarStatus: "working", WorkspaceKind: "worktree", Head: "example", Index: 3,
+			Branch: "topic", Online: true, Available: true, LastSeen: "2026-01-01T00:00:00Z"},
+		{ID: "current", Source: "orca", SourceID: "current", Title: "Old title", Cwd: "/work/current"},
+		{ID: "legacy", MachineID: "alias", Title: "Legacy", Cwd: "/work/legacy/.", LastSeen: "2026-01-01T00:00:00Z"},
+		{ID: "removed", Source: "herdr", SourceID: "removed", Title: "Removed", Cwd: "/work/removed"},
+	}
+	cached[0] = qualifyWorkspace("alias", cached[0])
+	cached[1] = qualifyWorkspace("alias", cached[1])
+	raw, err := json.Marshal(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The latest alias catalog wins even when an older canonical snapshot was listed first.
+	store.snapshots["canonical"] = db.WorkspaceSnapshotRow{MachineID: "canonical", Data: json.RawMessage(`[]`), UpdatedAt: time.Unix(1, 0)}
+	store.snapshots["alias"] = db.WorkspaceSnapshotRow{MachineID: "alias", Data: raw, UpdatedAt: time.Unix(2, 0)}
+	d := newBoardDevs()
+	d.absorbed["alias"] = "canonical"
+	current := proto.Workspace{ID: "current", Source: "orca", SourceID: "current", Title: "Current", Cwd: "/work/current", Available: true}
+	d.add("canonical", func(context.Context, string, json.RawMessage) (any, error) {
+		return proto.WorkspacesResponse{Workspaces: []proto.Workspace{current}, Errors: []proto.WorkspaceSourceError{
+			{Source: "orca", Error: "catalog unavailable"}, {Source: "workspace", Error: "catalog unavailable"},
+		}}, nil
+	})
+	s, _ := newBoardService(t, store, d)
+	read := func(t *testing.T, service *Service, expectedErrors int) map[string]proto.Workspace {
+		t.Helper()
+		w := boardCall(service, "GET", "/api/v1/workspaces", "", roleFull)
+		var response struct {
+			Workspaces []proto.Workspace         `json:"workspaces"`
+			Errors     []workspaceDiscoveryError `json:"errors"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != 200 {
+			t.Fatalf("workspace catalog: HTTP %d, error %v, body %s", w.Code, err, w.Body)
+		}
+		if len(response.Workspaces) != 3 || len(response.Errors) != expectedErrors {
+			t.Fatalf("workspace catalog lost cached rows or errors: %s", w.Body)
+		}
+		for _, failure := range response.Errors {
+			if failure.MachineID != "canonical" {
+				t.Fatalf("failure retained an alias: %+v", failure)
+			}
+		}
+		out := map[string]proto.Workspace{}
+		for _, item := range response.Workspaces {
+			out[item.ID] = item
+		}
+		return out
+	}
+	got := read(t, s, 2)
+	want := map[string]proto.Workspace{}
+	for _, item := range []proto.Workspace{current, cached[0], cached[2]} {
+		item = qualifyWorkspace("canonical", item)
+		item.Online = true
+		if item.SourceID == "current" {
+			item.LastSeen = got[item.ID].LastSeen
+			if _, err := time.Parse(time.RFC3339Nano, item.LastSeen); err != nil {
+				t.Fatal("current workspace lost its discovery time")
+			}
+		} else {
+			item.Available = false
+		}
+		want[item.ID] = item
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("qualified failed-source catalog: got %+v, want %+v", got, want)
+	}
+	// Qualification must precede duplicate checks, not just final response encoding: the stored catalog has no
+	// second copy of the current row, preserves Orca metadata and drops the successful source's deleted space.
+	var persisted []proto.Workspace
+	if err := json.Unmarshal(store.snapshots["canonical"].Data, &persisted); err != nil || len(persisted) != len(want) {
+		t.Fatalf("persisted catalog has duplicate or missing rows: %+v, error %v", persisted, err)
+	}
+	for _, item := range persisted {
+		if !reflect.DeepEqual(item, want[item.ID]) {
+			t.Fatalf("persisted workspace differs: %+v", item)
+		}
+	}
+	if string(store.snapshots["alias"].Data) != string(raw) {
+		t.Fatal("projecting an alias changed its durable snapshot")
+	}
+	saved := string(store.snapshots["canonical"].Data)
+	for _, c := range []struct {
+		name   string
+		online bool
+		errors int
+	}{{"offline restart", false, 0}, {"failed catalog restart", true, 1}} {
+		t.Run(c.name, func(t *testing.T) {
+			rd := newBoardDevs()
+			rd.absorbed["alias"] = "canonical"
+			if c.online {
+				rd.add("canonical", func(context.Context, string, json.RawMessage) (any, error) {
+					return nil, errors.New("catalog unavailable")
+				})
+			} else {
+				rd.add("canonical", nil)
+			}
+			restarted, _ := newBoardService(t, store, rd)
+			got := read(t, restarted, c.errors)
+			for id, item := range want {
+				item.Online, item.Available = c.online, false
+				if !reflect.DeepEqual(got[id], item) {
+					t.Fatalf("restart changed cached metadata or identity: got %+v, want %+v", got[id], item)
+				}
+			}
+			if string(store.snapshots["canonical"].Data) != saved {
+				t.Fatal("an unavailable node rewrote its last successful snapshot")
+			}
+		})
 	}
 }
 

@@ -1,0 +1,121 @@
+{
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "metric",
+          "key": "temp",
+          "label": "客厅",
+          "value": "22.5°C",
+          "icon": "thermometer",
+          "icon_color": "orange",
+          "spark": {
+            "values": [
+              21.73,
+              21.45,
+              21.56,
+              21.61,
+              21.61,
+              21.9,
+              21.9,
+              21.73,
+              22.06,
+              21.83,
+              21.56,
+              21.4,
+              21.72,
+              21.68,
+              21.6,
+              21.53,
+              21.46,
+              21.64,
+              21.74,
+              21.62,
+              21.44,
+              21.65,
+              21.7,
+              21.72
+            ],
+            "color": "orange"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-main",
+          "title": "主灯",
+          "control": {
+            "kind": "switch",
+            "name": "main",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-ac",
+          "title": "空调",
+          "control": {
+            "kind": "stepper",
+            "name": "ac",
+            "value": 24,
+            "min": 16,
+            "max": 30,
+            "step": 0.5,
+            "unit": "°C",
+            "action": {
+              "id": "set"
+            }
+          }
+        },
+        {
+          "type": "grid",
+          "key": "c-scenes",
+          "tiles": [
+            {
+              "key": "c-sc0",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "c-sc1",
+              "title": "观影",
+              "icon": "tv",
+              "color": "indigo",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "c-sc2",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "c-sc3",
+              "title": "离家",
+              "icon": "lock",
+              "color": "gray",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

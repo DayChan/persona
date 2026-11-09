@@ -204,6 +204,91 @@ func TestKBConnectorsWhenDue(t *testing.T) {
 	}
 }
 
+// A connector that says its chats changed (connector.changed, relayed as kb.kick {connector, scope}) is read at the
+// next round, before its poll interval, but not more often than kbChangedFloor; a kick without a connector (a manager
+// before #1562) only starts the round, and the other connectors keep their poll (#1562).
+func TestKBConnectorsChangedReadSoon(t *testing.T) {
+	f := newFakeHub()
+	f.answerApp(AppConnectors, assistantwire.ConnectorsArchives, func(json.RawMessage) (any, error) {
+		return assistantwire.Archives{Archives: []assistantwire.ArchiveSource{{ID: "example"}, {ID: "other"}}}, nil // the default poll
+	})
+	f.answerApp(AppConnectors, assistantwire.ConnectorsChanges, func(json.RawMessage) (any, error) {
+		return assistantwire.ChangesResult{Next: "1"}, nil
+	})
+	s := newKBService(t, f)
+	e := kbEng(t, s)
+	ctx := context.Background()
+	asked := func(id string) int {
+		n := 0
+		for _, p := range f.appParams(AppConnectors, assistantwire.ConnectorsChanges) {
+			if p["id"] == id {
+				n++
+			}
+		}
+		return n
+	}
+	ago := func(d time.Duration) {
+		s.kb.mu.Lock()
+		s.kb.archivedAt["example"], s.kb.archivedAt["other"] = time.Now().Add(-d), time.Now().Add(-d)
+		s.kb.mu.Unlock()
+	}
+	kick := func(params string) {
+		t.Helper()
+		if ok, err := s.kbEvent(ctx, assistantwire.EventKBKick, json.RawMessage(params)); !ok || err != nil {
+			t.Fatalf("kb.kick %s: %v %v", params, ok, err)
+		}
+	}
+	s.kbConnectors(ctx, e)
+	if asked("example") != 1 || asked("other") != 1 {
+		t.Fatal("not asked the first time")
+	}
+
+	kick(`{}`) // a manager before #1562: only the round
+	ago(2 * time.Minute)
+	s.kbConnectors(ctx, e)
+	if asked("example") != 1 {
+		t.Fatal("a kick without a connector read one before its poll")
+	}
+
+	kick(`{"connector":"example","scope":"chats"}`)
+	ago(10 * time.Second) // within kbChangedFloor: not yet
+	s.kbConnectors(ctx, e)
+	if asked("example") != 1 {
+		t.Fatal("read again within kbChangedFloor")
+	}
+	ago(2 * time.Minute)
+	s.kbConnectors(ctx, e)
+	if asked("example") != 2 || asked("other") != 1 {
+		t.Fatalf("after its change: example asked %d, other %d", asked("example"), asked("other"))
+	}
+	ago(2 * time.Minute)
+	s.kbConnectors(ctx, e)
+	if asked("example") != 2 {
+		t.Fatal("one change read it twice")
+	}
+}
+
+// A connector that says its items changed has them collected the round after (at most every kbChangedFloor), not
+// only every kbItemsPoll (#1562).
+func TestKBItemsChangedCollectedSoon(t *testing.T) {
+	s := newKBService(t, newFakeHub())
+	if !s.kbItemsDue(time.Time{}) || s.kbItemsDue(time.Now().Add(-5*time.Minute)) {
+		t.Fatal("the items' own poll")
+	}
+	if _, err := s.kbEvent(context.Background(), assistantwire.EventKBKick, json.RawMessage(`{"connector":"example","scope":"items"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if s.kbItemsDue(time.Now().Add(-10 * time.Second)) {
+		t.Fatal("collected again within kbChangedFloor")
+	}
+	if !s.kbItemsDue(time.Now().Add(-5 * time.Minute)) {
+		t.Fatal("not collected after a change")
+	}
+	if s.kbItemsDue(time.Now().Add(-5 * time.Minute)) {
+		t.Fatal("one change collected twice")
+	}
+}
+
 // What a connector hands over comes through the hub as data: its batches (connectors.changes), under its other names
 // too, and its attachments (connectors.archive_media) when the hub says it has them.
 func TestKBConnectorsReadThroughTheHub(t *testing.T) {
@@ -219,7 +304,8 @@ func TestKBConnectorsReadThroughTheHub(t *testing.T) {
 			return assistantwire.ChangesResult{Next: a.Cursor}, nil
 		}
 		return assistantwire.ChangesResult{Next: "1", Batches: []connector.ChatBatch{
-			{Chat: kb.SourceChat{ID: "g1", Name: "示例群", Kind: "group"}, Messages: []kb.SourceMessage{{ID: "m1", SenderName: "示例用户",
+			// A direct chat: the default selection keeps every message of one (a plain group message it does not).
+			{Chat: kb.SourceChat{ID: "g1", Name: "示例群", Kind: "dm"}, Messages: []kb.SourceMessage{{ID: "m1", SenderName: "示例用户",
 				Type: "FILE", Text: "周报", At: at, Media: []string{"file:ok"}}}},
 			{Source: "posts", Chat: kb.SourceChat{ID: "p9", Name: "公司圈 · 帖子", Kind: "moment"}, Messages: []kb.SourceMessage{{ID: "c1",
 				SenderName: "王五", Type: "TEXT", Text: "评论", At: at}}},

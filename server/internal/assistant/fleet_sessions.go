@@ -47,7 +47,11 @@ func (s *Service) setSessions(machine string, list []proto.Session) {
 			s.turnsBook().working(key, now)
 			s.replyWorked(machine, sess.SessionID) // answered: a question it asks next is a new one (agents_reply.go)
 			ref := SessionRef{MachineID: machine, SessionID: sess.SessionID}
-			s.inOrder(func() { s.TurnStarted(context.Background(), ref) }) // after the items that came before it
+			// A first list or an offline-to-working transition can be a
+			// reconnect to the same turn. Only a known stopped turn proves a
+			// new one and resets its persisted loop state.
+			newTurn := prev == proto.StatusDone || prev == proto.StatusIdle || prev == proto.StatusInterrupted
+			s.inOrder(func() { s.turnStartedObserved(context.Background(), ref, newTurn) }) // after the items that came before it
 		case prev == proto.StatusWorking && (sess.Status == proto.StatusDone || sess.Status == proto.StatusIdle):
 			go s.notifyFinished(machine, sess.SessionID, s.turnsBook().ended(key, now, backgroundRunning(sess)))
 			// A new assistant conversation is named after its first turn; a task from one may be done. After the
@@ -129,6 +133,16 @@ func (s *Service) publishList(machine string) []proto.Session {
 	f.sentMu.Lock()
 	defer f.sentMu.Unlock()
 	list := s.decorated(machine)
+	// A review's reviewer is no agent of the user's (supervise_autoreview.go): its result is on the task it reviewed.
+	if hide := s.reviewerSessions(); len(hide) > 0 {
+		kept := make([]proto.Session, 0, len(list))
+		for _, sess := range list {
+			if !hide[[2]string{machine, sess.SessionID}] {
+				kept = append(kept, sess)
+			}
+		}
+		list = kept
+	}
 	msg := assistantwire.FleetSessions{MachineID: machine, Sessions: list, Muted: s.mutedSessions(machine, list)}
 	// json.Marshal's bytes, compared with the list told last as they are written: a list that is the same (most of them)
 	// is not kept, and one that differs is copied once.
@@ -208,7 +222,7 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 			}
 		}
 	}
-	seen := make(map[string]time.Time, len(list))
+	seen := make(map[string]time.Time, min(len(list), len(s.fleet.seen)))
 	for _, sess := range list {
 		if t, ok := s.fleet.seen[[2]string{machine, sess.SessionID}]; ok {
 			seen[sess.SessionID] = t
@@ -253,11 +267,10 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 		list[i].BackgroundWaiting = backgroundWaiting(list[i])
 		list[i].TurnError, list[i].TurnErrorKind = turnError(list[i])
 		decorateLimit(&list[i]) // a subscription's usage limit and when it resets (usage_limit.go)
-		list[i].TurnErrorCode = ""
+		list[i].TurnErrorCode = sessionTurnErrorCode(list[i])
 		if list[i].TurnError != "" {
-			list[i].TurnErrorCode = proto.TurnErrorRateLimited
-			if list[i].TurnErrorKind != proto.TurnErrorUsageLimit {
-				list[i].TurnErrorCode = turnErrorCode(list[i].TurnError)
+			if list[i].TurnErrorCode == proto.TurnErrorModelFallbackUnavailable {
+				list[i].TurnErrorKind = proto.TurnErrorUser
 			}
 			// Not worth a "Continue": the user signs in, fixes the key or the model. Only where agents_work would not retry it
 			// anyway: a gateway's 5xx that mentions the model stays transient.

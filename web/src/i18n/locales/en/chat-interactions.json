@@ -5,6 +5,7 @@
   "send_failed": "Not delivered: {error}",
   "hand_back": "Hand back to the computer",
   "question": "Question",
+  "tool_loop_kicker": "Possible tool loop",
   "previous_question": "Previous question",
   "question_n": "Question {n}",
   "next_question": "Next question",

@@ -93,6 +93,7 @@ function SupervisionLine({ line, ...props }: LineProps & { line: Extract<ChatLin
   return (
     <section className="flex min-w-0 flex-col gap-3" data-supervision={line.live ? "running" : "done"}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="touch-hit flex w-full min-w-0 items-center gap-1.5 rounded-control py-1 text-left text-[length:var(--chat-secondary)] whitespace-nowrap text-ink-3 hover:text-ink-2">
+        <span className="shrink-0 text-accent-ink">@{t("chat-messages.source_supervision")} · </span>
         <span className="min-w-0 truncate">{t(line.live ? "chat-lines.supervision_running" : "chat-lines.supervision_done")}</span>
         <Icon name="chevronRight" size={14} className="shrink-0" style={{ transform: open ? "rotate(90deg)" : undefined }} />
       </button>

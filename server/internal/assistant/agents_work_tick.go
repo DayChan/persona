@@ -22,6 +22,7 @@ func (s *Service) workLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
+			s.checkToolLoops(ctx)
 			if s.workOn(ctx) {
 				s.workTick(ctx, now)
 			}
@@ -141,6 +142,8 @@ func (s *Service) workGuard(v *workView, e db.SessionWork, ownCard bool) (proto.
 		return c, "looked at in herdr"
 	case c.Status != proto.StatusDone:
 		return c, "not stopped"
+	case !ownCard && sessionTurnErrorCode(c) == proto.TurnErrorModelFallbackUnavailable:
+		return c, "refusal fallback needs recovery" // also cancels a continuation queued before the fallback was known
 	case len(c.Queued) > 0:
 		return c, "input queued"
 	case c.PendingInteractions > 0 && !(ownCard && c.PendingInteractions == 1 && e.InteractionID != ""):

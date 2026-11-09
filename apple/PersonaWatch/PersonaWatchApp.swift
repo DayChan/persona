@@ -19,6 +19,8 @@ struct PersonaWatchApp: App {
                 Task { await model.refreshExtensionSurfaces() }
             }
         }
+        // The watch face's frog stays current while the app is not open (docs/apple/persona.md).
+        .backgroundTask(.appRefresh(WatchModel.petRefresh)) { await model.backgroundRefresh() }
     }
 }
 
@@ -54,6 +56,10 @@ final class WatchModel {
     var persona = UserDefaults.standard.string(forKey: WatchModel.personaKey)
     /// The Milk Frog's files on this watch.
     let pet = WatchPetPack()
+    /// The Milk Frog on the watch face.
+    @ObservationIgnored private let complication = WatchPetComplication()
+    static let petRefresh = "pet"
+    private static let petRefreshEvery: TimeInterval = 30 * 60
     private static let personaKey = "persona"
     private var petWanted: Bool { WatchPet.supports(persona) }
 
@@ -151,6 +157,7 @@ final class WatchModel {
             self.apply(sessions: s.sessions, interactions: s.interactions, machines: s.machines,
                        at: WatchGroupRefresh.dataDate(ofSummaryAt: s.at))
             if let inbox = s.inbox { self.applyInbox(inbox) }
+            self.publishPet()
         }
         syncExtensionSurfaces()
         WatchRecordingTransfer.shared.start()
@@ -237,6 +244,24 @@ final class WatchModel {
         if let xx = try? await first.inbox(connectors: true) { applyInbox(xx) }
         error = failure.flatMap { allFailed ? $0.watchShown : nil }
         await fetchPet()
+        publishPet()
+    }
+
+    /// The watch face's frog follows what this refresh learned; a face from before the frog was chosen goes away.
+    private func publishPet() {
+        complication.publish(petWanted ? petStatus : nil, at: lastUpdate, pack: pet)
+        if petWanted { schedulePetRefresh() }
+    }
+
+    /// Wakes the app in the background now and then, so the face does not go stale while the app is closed. watchOS
+    /// decides when; past an hour without one the face says it does not know (WatchPetSnapshot.staleAfter).
+    private func schedulePetRefresh() {
+        WKApplication.shared().scheduleBackgroundRefresh(withPreferredDate: .now.addingTimeInterval(Self.petRefreshEvery),
+                                                         userInfo: Self.petRefresh as NSString) { _ in }
+    }
+
+    func backgroundRefresh() async {
+        await refresh()
     }
 
     /// The first group's hub, like the inbox's: every hub has the same built-in package.
@@ -322,9 +347,15 @@ final class WatchModel {
     }
 
     func interrupt(_ key: SessionKey) async {
-        guard sessions.first(where: { $0.key == key })?.canInterrupt == true else { return }
-        try? await api(key.group)?.interrupt(key)
-        WKInterfaceDevice.current().play(.stop)
+        guard sessions.first(where: { $0.key == key })?.canInterrupt == true, let api = api(key.group) else { return }
+        // The stop haptic says the Agent stopped, so it plays only once the hub accepts the interrupt.
+        do {
+            try await api.interrupt(key)
+            WKInterfaceDevice.current().play(.stop)
+        } catch {
+            self.error = error.watchShown
+            WKInterfaceDevice.current().play(.failure)
+        }
     }
 
     func machine(_ ref: MachineRef) -> Machine? { machines.first { $0.ref == ref } }
@@ -337,7 +368,7 @@ struct WatchRootView: View {
     #if DEBUG
     @State private var openedInteraction: Interaction?
     @State private var openedSession: Session?
-    @State private var openedPet = false
+    @State private var openedPetPage: String?
     /// `-openWatchItem running`: the list without Needs You, so the running sessions are on screen (screenshots).
     private static let runningFirst = UserDefaults.standard.string(forKey: "openWatchItem") == "running"
     /// `-openWatchItem inbox`: Needs You without the agents' requests, so the inbox rows are on screen (screenshots).
@@ -470,12 +501,17 @@ struct WatchRootView: View {
                     for _ in 0..<20 where model.inbox.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
                     openedItem = model.inbox.first
                 }
-                // `-openWatchItem pet`: the Milk Frog's page (screenshots).
-                .navigationDestination(isPresented: $openedPet) { WatchPetView() }
+                // `-openWatchItem pet|complication`: the Milk Frog's page, or the watch face's frog in every family
+                // (screenshots). One destination: two isPresented ones on this stack left both closed.
+                .navigationDestination(item: $openedPetPage) { page in
+                    if page == "complication" { PetComplicationPreview() } else { WatchPetView() }
+                }
                 .task {
-                    guard UserDefaults.standard.string(forKey: "openWatchItem") == "pet" else { return }
-                    for _ in 0..<120 where model.petStatus == nil { try? await Task.sleep(for: .milliseconds(500)) }
-                    openedPet = model.petStatus != nil
+                    guard let want = UserDefaults.standard.string(forKey: "openWatchItem"), want == "pet" || want == "complication" else { return }
+                    for _ in 0..<120 where model.petStatus == nil || (want == "complication" && WatchPetSnapshot.read() == nil) {
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                    openedPetPage = want
                 }
                 // `-openWatchItem question|plan|permission|screen|session`: open the first request of that kind, or the
                 // first running session (screenshots); `session:<session id>` that one. `running` and `inbox` are handled
@@ -756,7 +792,9 @@ struct WatchSessionView: View {
                 ForEach(liveCards.lines(messages).suffix(WatchMessage.limit)) { line in
                     switch line {
                     case .message(let it):
-                    if let n = it.injected {
+                    if let source = it.source {
+                        WatchSourceMessage(message: it, source: source)
+                    } else if let n = it.injected {
                         // Persona's message for the model (a task's notice, a scheduled run…): its line, centered, never
                         // its words (docs/protocol/protocol.md「Persona 注入的消息」).
                         Label { Text(n.line) } icon: { Image(systemName: InjectedLook.icon(n)).foregroundStyle(InjectedLook.tint(n)) }

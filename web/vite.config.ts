@@ -37,6 +37,31 @@ const adminFallback: Plugin = {
   },
 };
 
+// Dev only: the component showcase's pictures (showcase.html, #829). The hub serves an extension's own picture (a ref) at
+// /api/v1/extensions/<id>/-/image/<token>; the showcase's fake hub writes "dev-showcase.<ref>" as the token (a real one
+// never starts so), and this serves the file of that name from src/showcase/images (anything else goes on to the hub).
+const showcaseImages: Plugin = {
+  name: "showcase-images",
+  apply: "serve",
+  configureServer(server) {
+    const dir = fileURLToPath(new URL("./src/showcase/images/", import.meta.url));
+    server.middlewares.use(async (req, res, next) => {
+      const m = /^\/api\/v1\/extensions\/showcase\/-\/image\/dev-showcase\.([A-Za-z0-9_.-]+)(?:\?|$)/.exec(req.url ?? "");
+      if (!m || m[1].includes("..")) return next();
+      const { readFile } = await import("node:fs/promises");
+      try {
+        const body = await readFile(dir + m[1] + ".png");
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.end(body);
+      } catch {
+        res.statusCode = 404;
+        res.end();
+      }
+    });
+  },
+};
+
 // Build only: main.tsx loads the language catalog, then React, then App, each a dynamic import that starts only when
 // the one before is in, so a cold first load waits for them one after another. This lets the client page's <head>
 // start fetching all of them at once (modulepreload fetches and parses, it does not run them: App still runs after
@@ -99,8 +124,22 @@ const classicWorker: Plugin = {
   },
 };
 
+// KaTeX's CSS (src/ui/stream/math.ts) lists each font as woff2, woff and ttf. Every browser the build targets (es2022)
+// takes woff2, so the other two are only bytes in every personad: drop them from @font-face, and Rollup no longer
+// emits those 40 files. The build fails if a KaTeX update writes its fonts some other way.
+const katexFonts: Plugin = {
+  name: "katex-fonts",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/\/katex\/dist\/katex(?:\.min)?\.css$/.test(id.split("?")[0])) return;
+    const css = code.replace(/,\s*url\([^)]*\)\s*format\(["'](?:woff|truetype)["']\)/g, "");
+    if (/\.(?:woff|ttf)\b/.test(css) || !css.includes(".woff2")) this.error(`katex-fonts: ${id} still lists woff or ttf fonts, or no woff2`);
+    return { code: css, map: null };
+  },
+};
+
 export default defineConfig({
-  plugins: [i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, startupPreload, classicWorker, thirdPartyLicenses],
+  plugins: [katexFonts, i18nCatalogs, pageTokensPlugin, react(), tailwindcss(), adminFallback, showcaseImages, startupPreload, classicWorker, thirdPartyLicenses],
   // Text size (src/lib/text-scale.ts): font sizes become calc(size * var(--text-scale, 1)), after Tailwind wrote them.
   css: { postcss: { plugins: [textScale()] } },
   server: {

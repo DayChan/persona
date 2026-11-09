@@ -1,5 +1,24 @@
 # Lessons: Android
 
+## Host-owned lifecycle controls need real application wiring (#2397)
+
+A fake `ExtensionManagement` can make Auto-upgrade tests pass while the application's handwritten facade silently uses the interface's
+unsupported default. Forward both per-extension and global preferences. A manager-bound detail page must also bind catalog/global reads
+and carry its owner into upgrade consent and operation filtering; an extension-ID-only pin does not cover `extensions/-/catalog`.
+Keep a persisted preference separate from its pause reason. HTTP operation receipts belong to the captured request owner even when
+older responses omit `manager`; broadcasts must still be filtered by their explicit hub-stamped owner. Treating both alike loses a
+non-default manager's start/retry receipt. Finally, `HubExtension.kind` is a contribution point, not a declared runtime:
+missing runtime metadata must say **Not provided**, never infer execution details from a UI category.
+
+## Register new native wire examples, not just generated models (#1187)
+
+A generated permission DTO can compile while `ExtensionWireTest.examplesRoundTrip` cannot select its serializer.
+Go's generated definition registry does not prove the Kotlin test's explicit registry covers the same new fixture.
+Register each new app-visible definition, retain the shared example and original round-trip assertion, and test
+sparse permissions with the production codec so absent storage and explicit false queue/blob flags stay distinct.
+Plugin-only storage RPC examples remain under `schema/extension/examples/plugin/`; do not expose those methods to clients or move
+an app-visible permission fixture there just to avoid the failure.
+
 ## Negotiated capabilities are not queued-event completion (#1669)
 
 The connection stores its authenticated hello before catch-up, but a separate queued event consumer can still be
@@ -366,3 +385,9 @@ When the APK download reuses the constrained paired connection, HTTP metadata an
 ## Wait for screenrecord to exit before pulling the file (2026-11-05, #2835)
 
 After sending SIGINT to `screenrecord`, wait for the recording process on the device to exit before `adb pull`. Pulling while it still writes the index can give an MP4 whose `mdat` length is a placeholder and which lacks the final `moov`; `file` still says MP4, so check the top-level atoms, `moov/mvhd` and duration before archiving. If pulled too early, pull the finished file again after the process exits.
+
+## Pin update downloads to the advertised APK (#2331)
+
+An update card can retain metadata for hours. A content-addressed file on disk is not enough if the download route always resolves the latest manifest: publishing another release makes the cached checksum reject the new bytes before installation. Return a hash-pinned `download_url` (older clients already preserve the query), retain those APKs, and refresh metadata before a new install attempt. Keep the unpinned route for bootstrap downloads. Test publication between discovery and download.
+
+Separate metadata, download, verification, permission and installer failures. Log the stage and exception class without transport messages that could contain credentials. Returning from unknown-source settings requires checking the actual grant before continuing; a result code alone does not establish permission. A committed PackageInstaller session only proves handoff, never installation success. A signing receipt or publication message also does not prove the online verifier ran: retain and inspect its terminal result.

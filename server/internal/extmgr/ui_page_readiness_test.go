@@ -224,7 +224,10 @@ func TestPageNativeFiniteLoadStillStartsWithLoading(t *testing.T) {
 		t.Fatal("native mount waited for snapshot readiness")
 	}
 	pageAwait(t, func() bool { return pageTree(h, tree.Session()).Snapshot().View.Sections[0].Items[0].Text == "loaded" })
-	if len(output.all()) < 2 || pageStats(t, process)["loadCanceled"] != 0 {
+	// The tree changes before the delivery goroutine sends the delta (ui_page_delivery.go): wait for the frame too,
+	// or a busy machine reads the frames in between (#2152). A delta never delivered still fails, by the wait's timeout.
+	pageAwait(t, func() bool { return len(output.all()) >= 2 })
+	if pageStats(t, process)["loadCanceled"] != 0 {
 		t.Fatal("native finite load did not publish its existing delta path")
 	}
 	t.Log("PASS native initial loading and loaded delta")
