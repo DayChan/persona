@@ -16,7 +16,7 @@ import (
 
 // claimMethods are the calls that ask the connected runtimes about a session nobody claimed yet: what the apps do
 // with a session they show (open it, page it, send to it, stop it).
-var claimMethods = map[string]bool{"session.send": true, "session.items": true, "session.item": true, "session.image": true,
+var claimMethods = map[string]bool{"session.user-inputs": true, "session.send": true, "session.items": true, "session.item": true, "session.image": true,
 	"session.watch": true, "session.info": true, "session.interrupt": true}
 
 // runtimeClaimTimeout bounds asking one runtime whether it has a session.
@@ -150,6 +150,9 @@ func (n *Node) runtimeHandle(ctx context.Context, h *runtimeConn, method string,
 		}
 	}
 	switch method {
+	case "session.user-inputs":
+		index, err := n.runtimeUserInputs(ctx, p.SessionID, func(params any) (json.RawMessage, error) { return call("session.items", params) })
+		return index, err, true
 	case "session.items":
 		out, err := call("session.items", params)
 		if err != nil {

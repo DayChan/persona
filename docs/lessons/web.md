@@ -35,6 +35,10 @@
 - The current viewport input is not an interactive preview (#2298). Without a preview, every mark stays at the short tick width and height; current-position emphasis uses color only. Generate bell-shaped shoulders only for hover, keyboard selection or captured dragging, and check equal idle geometry after scrolling and pointer exit in the actual browser.
 - An interactive preview can appear under a stationary pointer while keyboard selection moves. Entering that card must retain the selected identity/window, not recenter it on the viewport owner. Browser tests must move outside both hit zones before checking idle fade, and measure actual exit-to-removal time rather than waiting for the old delay to expire.
 
+## Full-history positions are not a tail-window count (#2338)
+
+The web's `turns=2` initial page and two-turn cache deliberately preserve a small first screen; projecting ticks from those lines cannot enumerate the conversation. Fetch only server count/identity/sequence metadata for the rail, and wait for selection before loading older bodies. Keep backward coverage contiguous; do not merge isolated target windows into live coverage. Count genuine queued inputs by identity, deduplicate text/image siblings, and never use model-role `user` or `session.info.turns` alone as the total. If a richer independent navigation API is being developed elsewhere, keep the temporary adapter narrow and document its migration boundary rather than taking over that task.
+
 ## Render-count tests must separate store pushes from live clocks (#1989)
 
 A Profiler counts every commit beneath it, including status clocks and deferred mount work unrelated to the store update under test. Drain mount timers before taking the baseline, keep time fixed during the measured push sequence, and explicitly flush the real store's batched notifications inside `act`. Freezing timers without delivering those notifications can make a zero-redraw test pass vacuously: retain all negative assertions and add a positive control proving a current-conversation update still redraws and changes the DOM. Clear timers and restore real time after unmounting each test.

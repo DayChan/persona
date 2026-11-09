@@ -184,13 +184,13 @@ func (n *Node) unwatch(id string) {
 // refresh parses new transcript lines and pushes them to the hub when the session is watched — also when the new
 // lines hold no items (titles, modes): the batch still tells clients they have everything up to its to_seq, so the
 // next one does not look like it skipped something.
-func (n *Node) refresh(id string, f *transcript.File) {
+func (n *Node) refresh(id string, f *transcript.File) error {
 	mu := n.pushLock(id)
 	mu.Lock()
 	defer mu.Unlock()
 	fresh, span, err := f.RefreshSpan()
 	if err != nil || span.To == span.From {
-		return
+		return err
 	}
 	n.mu.Lock()
 	_, watched := n.watches[id]
@@ -198,6 +198,7 @@ func (n *Node) refresh(id string, f *transcript.File) {
 	if watched {
 		n.pushItems(id, fresh, span)
 	}
+	return nil
 }
 
 // watchLoop pushes new transcript lines four times a second. (It used to read the pane's screen every 400 ms too, a

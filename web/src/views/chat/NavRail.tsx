@@ -11,8 +11,9 @@ function labelOf(tick: NavRailTick): string {
   return tick.preview || (tick.attachmentsOnly ? t("chat-navrail.attachments", { count: tick.attachmentsOnly }) : "");
 }
 
-export function NavRail({ ticks, scroller, onJump, reset }: {
+export function NavRail({ ticks, total, scroller, onJump, reset }: {
   ticks: NavRailTick[];
+  total?: number;
   scroller: HTMLDivElement | null;
   onJump: (id: string) => void | Promise<void>;
   reset: string;
@@ -70,7 +71,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
       }
       const top = scroller.getBoundingClientRect().top;
       offsets.current = list.current.flatMap((tick, index) => {
-        const row = rows.get(tick.id);
+        const row = rows.get(tick.lineId ?? tick.id);
         return row ? [{ index, top: row.getBoundingClientRect().top - top + scroller.scrollTop }] : [];
       });
     }
@@ -193,6 +194,8 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
       aria-description={t("chat-navrail.keys")}
       aria-describedby={previewTick ? previewId : undefined}
       data-nav-rail
+      data-nav-total={total ?? ticks.length}
+      data-nav-source={total === undefined ? "loaded" : "server"}
       data-visible={visible}
       tabIndex={0}
       className={cx("absolute inset-y-0 z-10 flex flex-col justify-center py-6 transition-opacity duration-200 motion-reduce:transition-none", visible ? "opacity-100" : "opacity-0")}

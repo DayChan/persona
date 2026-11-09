@@ -22,6 +22,8 @@ const EARLIER_RETRY_MAX_MS = 30_000;
 
 export interface Transcript {
   items: Item[];
+  /** Identity of the currently loaded history, independent of how many earlier pages are visible. */
+  history?: string;
   loading: boolean;
   error: string;
   hasMore: boolean;
@@ -317,6 +319,11 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
     try {
       const p = await api<ItemsPage>(`${sessionPath(mid, sid)}/items?${PAGE}&before_seq=${first.seq}`);
       if (gen !== generation.current) return;
+      if (p.history && history.current && p.history !== history.current) {
+        generation.current++;
+        setNonce((n) => n + 1);
+        return;
+      }
       apply(p.items ?? []);
       setHasMore(Boolean(p.has_more));
       earlierRetryAt.current = 0;
@@ -354,5 +361,5 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
     [mid, sid, apply],
   );
 
-  return { items, loading, error, hasMore, loadingEarlier, loadEarlier, expandFold, streaming, notLive, reload: () => setNonce((x) => x + 1) };
+  return { items, history: history.current, loading, error, hasMore, loadingEarlier, loadEarlier, expandFold, streaming, notLive, reload: () => setNonce((x) => x + 1) };
 }

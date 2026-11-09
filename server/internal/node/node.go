@@ -1087,6 +1087,18 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		}
 		it.Image = nil // images come from session.image
 		return n.echoed(p.SessionID, f, []proto.Item{it})[0], nil
+	case "session.user-inputs":
+		f, err := n.file(p.SessionID)
+		if err != nil {
+			if n.startingSession(p.SessionID) {
+				return proto.UserInputIndex{Inputs: []proto.UserInputPosition{}}, nil
+			}
+			return nil, err
+		}
+		if err := n.refresh(p.SessionID, f); err != nil {
+			return nil, err
+		}
+		return f.UserInputs(ctx)
 	case "session.items":
 		f, err := n.file(p.SessionID)
 		if err != nil {

@@ -90,6 +90,7 @@ type HTTPResponse struct {
 // Routes are the routes the assistant answers (net/http patterns): the hub relays the apps' requests on them as
 // http.request. The assistant registers exactly these (assistant.TestRoutesAreTheWireOnes).
 var Routes = []string{
+	"GET /api/v1/sessions/{mid}/{sid}/user-inputs",
 	"GET /api/v1/sessions/archived",
 	"POST /api/v1/sessions/{mid}/{sid}/archive",
 	"POST /api/v1/sessions/{mid}/{sid}/unarchive",
