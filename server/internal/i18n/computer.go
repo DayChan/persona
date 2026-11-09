@@ -15,8 +15,8 @@ func ComputerText(l Lang, text string) string {
 		return text
 	}
 	forms := computerTemplates()
-	for i := range forms { // by index: a range value copies each template, for every text
-		form := &forms[i]
+	for _, n := range forms.candidates(text) {
+		form := &forms.forms[n]
 		match := form.match(text)
 		if match == nil {
 			continue
@@ -30,7 +30,7 @@ func ComputerText(l Lang, text string) string {
 	return text
 }
 
-var computerTemplates = sync.OnceValue(makeComputerTemplates)
+var computerTemplates = sync.OnceValue(func() *templateIndex { return indexTemplates(makeComputerTemplates()) })
 
 func makeComputerTemplates() []deploymentTemplate {
 	forms := makeCatalogTemplates(func(key string) bool {

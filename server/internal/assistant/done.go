@@ -91,8 +91,7 @@ func autoDoneSkip(t Todo, work time.Time, worked bool) string {
 
 // taskReplies are the last replies of t's active agents: the whole last answer read from the agent's transcript, or
 // the session list's clipped last_text when that cannot be read.
-func (s *Service) taskReplies(ctx context.Context, t Todo) []prompts.TaskDoneReply {
-	var out []prompts.TaskDoneReply
+func (s *Service) taskReplies(ctx context.Context, t Todo) (out []prompts.TaskDoneReply, sideTurnBlocked bool) {
 	for _, a := range t.Agents {
 		if a.ReleasedAt != nil || a.DismissedAt != nil {
 			continue
@@ -103,9 +102,21 @@ func (s *Service) taskReplies(ctx context.Context, t Todo) []prompts.TaskDoneRep
 		}
 		items, read := s.lastTurnItems(ctx, m.ID, a.SessionID)
 		if read && taskTurnAwaitingAnswer(items) {
-			return nil // one unfinished agent invalidates the whole task's completion evidence
+			return nil, false // one unfinished agent invalidates the whole task's completion evidence
 		}
 		ask, text := turnExchange(items)
+		from, source := taskTurnSource(t, items)
+		if source != "" {
+			current, ok := s.todoNow(t.ID)
+			s.tasks.mu.Lock()
+			since := s.tasks.working[t.ID]
+			s.tasks.mu.Unlock()
+			if report, evidence, valid := freshTaskDoneReport(current, items, since); ok && valid {
+				text = strings.Join(append([]string{text, report}, evidence...), "\n")
+			} else {
+				sideTurnBlocked = true
+			}
+		}
 		if text == "" {
 			if c, ok := s.session(ctx, m.ID, a.SessionID); ok {
 				text = strings.TrimSpace(c.LastText)
@@ -114,17 +125,16 @@ func (s *Service) taskReplies(ctx context.Context, t Todo) []prompts.TaskDoneRep
 		if text == "" {
 			continue
 		}
-		if sameRequest(ask, t.Notes) {
+		if source == "" && sameRequest(ask, t.Notes) {
 			ask = "" // the turn that answers the task's own prompt: the prompt is already in the input
 		}
-		out = append(out, prompts.TaskDoneReply{Machine: m.Name, Ask: clipMiddle(ask, 500), Text: clipMiddle(text, 1500)})
+		out = append(out, prompts.TaskDoneReply{Machine: m.Name, From: from, Source: source, Ask: clipMiddle(ask, 500), Text: clipMiddle(text, 1500)})
 	}
-	return out
+	return out, sideTurnBlocked
 }
 
-// lastTurn is the agent's latest turn: what the user asked in it (its first user message; "" when none) and its last
-// reply ("" when the turn cannot be read). The user may have sent the agent a follow-up since the task's prompt: the
-// work to judge is then that.
+// lastTurn reads the latest exchange, not necessarily a user request about the task.
+// Completion separately retains and gates its peer/injected provenance.
 func (s *Service) lastTurn(ctx context.Context, machine, sid string) (ask, answer string) {
 	items, _ := s.lastTurnItems(ctx, machine, sid)
 	return turnExchange(items)
@@ -215,8 +225,13 @@ func clipMiddle(s string, n int) string {
 
 // judgeTaskDone asks the judge model whether t's work is finished. An error: no model, or no answer to go by.
 func (s *Service) judgeTaskDone(ctx context.Context, t Todo) (taskDoneCheck, error) {
-	replies := s.taskReplies(ctx, t)
+	replies, sideTurnBlocked := s.taskReplies(ctx, t)
 	c := taskDoneCheck{Replies: len(replies), Signals: doneSignals(replies)}
+	if sideTurnBlocked {
+		c.Verdict, c.Reason = verdictNotDone, verdictWords[verdictNotDone]
+		s.logf("task %s: side-conversation reply without current task completion evidence: left open", t.ID)
+		return c, nil
+	}
 	if len(replies) == 0 {
 		c.Verdict, c.Reason = verdictUnsure, "没读到 Agent 的回复"
 		return c, nil
@@ -229,7 +244,11 @@ func (s *Service) judgeTaskDone(ctx context.Context, t Todo) (taskDoneCheck, err
 	}
 	delivery := s.doneNeedsDelivery(ctx)
 	system := prompts.RenderTaskDone(prompts.TaskDone{Owner: s.owner(ctx), Delivery: delivery})
-	input := prompts.RenderTaskDoneInput(prompts.TaskDoneInput{Title: t.Title, Prompt: clipMiddle(strings.TrimSpace(t.Notes), 1500),
+	var criteria []string
+	if t.Supervision != nil {
+		criteria = t.Supervision.DoneWhen
+	}
+	input := prompts.RenderTaskDoneInput(prompts.TaskDoneInput{Title: t.Title, Prompt: clipMiddle(strings.TrimSpace(t.Notes), 1500), Criteria: criteria,
 		Replies: replies, MergedPR: c.Signals.MergedPR, Build: c.Signals.Build})
 	var out struct {
 		Verdict  string `json:"verdict"`

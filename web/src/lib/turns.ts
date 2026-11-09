@@ -36,6 +36,8 @@ export interface UserMessage {
   photos?: string[];
   /** Persona typed it in for the model (a task's notice, a scheduled run…): one line, not a bubble (lib/injected.ts). */
   injected?: Injected;
+  /** Original injected input blocks, before display parsing or shortening. */
+  rawInput?: Item[];
 }
 
 /** A <persona-file kind="video" path="…" name="…" size="…" duration="…"/> in a message (docs/protocol/protocol.md "Sending video"). */
@@ -65,6 +67,8 @@ export interface Segment {
   thoughts: number;
   replies: number;
   folds: Item[];
+  /** Part of a supervision round: its visibility tools stay outside the ordinary work fold. */
+  supervision?: boolean;
 }
 
 function blockOrder(a: Item, b: Item) {
@@ -82,11 +86,21 @@ export function sortItems(items: Item[]): Item[] {
 // is here (the fold was expanded, or a later page overlaps it) the fold goes.
 export function mergeItems(have: Item[], batch: Item[]): Item[] {
   const byId = new Map(have.map((i) => [i.id, i]));
-  for (const it of batch) byId.set(it.id, it);
+  for (const it of batch) {
+    const old = byId.get(it.id);
+    let next = old?.supervisionUser ? { ...it, supervisionUser: true } : it;
+    if (old?.fold?.supervision_user && next.fold && old.fold.through_seq === next.fold.through_seq) next = { ...next, fold: { ...next.fold, supervision_user: true } };
+    byId.set(it.id, next);
+  }
   const all = [...byId.values()];
   const work = all.filter((i) => i.kind === "tool_use" || i.kind === "tool_result" || i.kind === "thinking");
+  const promotedFolds = all.filter((i) => i.fold?.supervision_user);
   const kept = all.filter((f) => f.kind !== "fold" || !f.fold || !work.some((i) => i.seq >= f.seq && i.seq <= f.fold!.through_seq));
-  return sortItems(kept);
+  // An overlapping page may replace only part of a fold. Its authoritative promotion must survive that replacement,
+  // even if the real visibility tool is on the part that has not arrived yet, or a later receipt says silent.
+  if (!promotedFolds.length) return sortItems(kept);
+  const realWork = new Set(work);
+  return sortItems(kept.map((i) => realWork.has(i) && promotedFolds.some((f) => i.seq >= f.seq && i.seq <= f.fold!.through_seq) ? { ...i, supervisionUser: true } : i));
 }
 
 // Only the canonical persona-context tag is recognized.
@@ -171,7 +185,7 @@ function isUserMessage(i: Item) {
   return i.role === "user" && (i.kind === "text" || (i.kind === "image" && !i.tool_use_id));
 }
 
-export function segments(items: Item[]): Segment[] {
+export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Segment[] {
   const out: Segment[] = [];
   let cur: Segment | null = null;
   let lastUserEntry = "";
@@ -186,17 +200,22 @@ export function segments(items: Item[]): Segment[] {
   for (const it of items) {
     const entry = it.id.split("#")[0];
     if (isUserMessage(it)) {
+      if (cur?.user?.injected && entry === lastUserEntry && !cur.steps.length && !cur.answer && !cur.user.rawInput!.some((i) => i.id === it.id)) {
+        cur.user.rawInput!.push(it);
+        if (it.kind === "image") cur.user.images.push(it);
+        continue;
+      }
       const injected = injectedOf(it);
       if (injected) {
-        // Persona's message for the model: its line stands for it, the words inside are not shown
+        // The line stands for the input; the complete original remains available in the supervision trace.
         cur = open(`seg:${it.id}`);
-        cur.user = { id: it.id, text: injected.line, images: [], ts: it.ts, contexts: [], injected };
+        cur.user = { id: it.id, text: injected.line, images: [], ts: it.ts, contexts: [], injected, rawInput: [it] };
         cur.start = it.ts;
-        lastUserEntry = "";
+        lastUserEntry = entry;
         continue;
       }
       // blocks of one transcript line (text + its images) are one message
-      if (!cur || !cur.user || entry !== lastUserEntry || cur.steps.length || cur.answer) {
+      if (!cur || !cur.user || cur.user.injected || entry !== lastUserEntry || cur.steps.length || cur.answer) {
         cur = open(`seg:${it.id}`);
         cur.user = { id: it.id, text: "", images: [], queued: it.queued, ts: it.ts, contexts: [], from: it.from || undefined };
         cur.start = it.ts;
@@ -220,7 +239,7 @@ export function segments(items: Item[]): Segment[] {
     if (it.ts) cur.end = it.ts;
     switch (it.kind) {
       case "tool_use": {
-        const st: Extract<Step, { kind: "tool" }> = { kind: "tool", id: it.id, use: it, images: [] };
+        const st: Extract<Step, { kind: "tool" }> = { kind: "tool", id: it.id, use: it, result: it.tool_use_id ? results?.get(it.tool_use_id) : undefined, images: [] };
         if (it.tool_use_id) tools.set(it.tool_use_id, st);
         cur.steps.push(st);
         cur.tools++;
@@ -494,6 +513,41 @@ function collectWakeRuns(t: Turn) {
   if (first >= 0) t.afterWake = t.ordered.slice(first).filter((x) => !isUserInput(x));
 }
 
+/** Only Persona's visibility tools, not similarly named tools on unrelated MCP servers. */
+export function supervisionTool(name?: string): "notify_user" | "ask_user" | "supervision_finish" | "task_review" | undefined {
+  const bare = name?.startsWith("mcp__") && isPersonaTool(name) ? name.slice(name.lastIndexOf("__") + 2) : name;
+  return bare === "notify_user" || bare === "ask_user" || bare === "supervision_finish" || bare === "task_review" ? bare : undefined;
+}
+
+/** Visibility is round-wide and derived again after every page merge. Arguments alone never prove success. */
+export function supervisionVisible(ordered: Item[], results: ReadonlyMap<string, Item>, live: boolean): boolean {
+  if (ordered.some((i) => i.supervisionUser || i.fold?.supervision_user || (injectedOf(i)?.state === "supervise" && injectedOf(i)?.level === "user"))) return true;
+  for (const use of ordered) {
+    if (use.kind !== "tool_use") continue;
+    const name = supervisionTool(use.tool_name);
+    if (!name) continue;
+    const result = use.tool_use_id ? results.get(use.tool_use_id) : undefined;
+    // ask_user waits for a person before it has a result; never bury its pending answer card.
+    if (!result) {
+      if (name === "ask_user" && live) return true;
+      continue;
+    }
+    if (result.is_error) continue;
+    if (name === "task_review") {
+      if (use.tool_input?.verdict === "accepted" || use.tool_input?.verdict === "needs_user") return true;
+      continue;
+    }
+    if (name !== "supervision_finish") return true;
+    try {
+      const value: unknown = JSON.parse(result.text ?? "");
+      if (value && typeof value === "object" && !Array.isArray(value) && "visibility" in value && value.visibility === "user") return true;
+    } catch {
+      // A failed or malformed receipt cannot promote the round from its requested visibility.
+    }
+  }
+  return false;
+}
+
 export function buildBlocks(items: Item[]): Block[] {
   const blocks: Block[] = [];
   let cur: Turn | null = null;
@@ -502,6 +556,7 @@ export function buildBlocks(items: Item[]): Block[] {
   // (a holder: the closure assigns these, which the loop's narrowing would not see)
   const last: { raw: Turn | null; index: number; reopenedAt: number | null } = { raw: null, index: 0, reopenedAt: null };
   let lastUserEntry = "";
+  let supervisionRound = false;
 
   const close = () => {
     if (!cur) return;
@@ -528,8 +583,11 @@ export function buildBlocks(items: Item[]): Block[] {
     if (isUserInput(it)) {
       const entry = it.id.split("#")[0];
       const prev: Item | undefined = cur ? cur.ordered[cur.ordered.length - 1] : undefined;
-      // the blocks of one line (a text and its pictures) are one message; input typed mid-turn joins the exchange
-      if (cur && ((prev && isUserInput(prev) && entry === lastUserEntry) || it.queued)) {
+      // Supervision is a separate round even when queued. A later real message must never join its fold.
+      const sameMessage = prev && isUserInput(prev) && entry === lastUserEntry;
+      const supervision = injectedOf(it)?.state === "supervise";
+      const supervising = supervisionRound;
+      if (cur && (sameMessage || (it.queued && !supervision && !supervising))) {
         cur.users.push(it);
         add(cur, it, false);
       } else {
@@ -538,6 +596,7 @@ export function buildBlocks(items: Item[]): Block[] {
         cur.users.push(it);
         add(cur, it, false);
       }
+      if (!sameMessage) supervisionRound = supervision;
       lastUserEntry = entry;
       continue;
     }
@@ -589,6 +648,8 @@ export function buildBlocks(items: Item[]): Block[] {
 }
 
 export type ChatLine =
+  /** A quiet supervision round, including all its segments and notices, never the next real input. */
+  | { kind: "supervision"; id: string; lines: ChatLine[]; live: boolean }
   /** A message (or none), one work row for what the agent did after it, the agent's last words. */
   | { kind: "segment"; id: string; seg: Segment; live: boolean; wakes?: Turn }
   /** A notice of its own line: a wake that opens new work, "Interrupted" after an exchange. */
@@ -622,7 +683,7 @@ export function workSegment(id: string, items: Item[]): Segment {
   return out;
 }
 
-function turnLines(t: Turn, live: boolean): ChatLine[] {
+function turnLines(t: Turn, live: boolean, results?: ReadonlyMap<string, Item>): ChatLine[] {
   const out: ChatLine[] = [];
   let ordered = t.ordered;
   let wokeAt: string | undefined;
@@ -632,7 +693,7 @@ function turnLines(t: Turn, live: boolean): ChatLine[] {
     wokeAt = ordered[0].ts;
     ordered = ordered.slice(1);
   }
-  const segs = segments(ordered);
+  const segs = segments(ordered, results);
   segs.forEach((seg, k) => {
     if (k === 0 && !seg.user && wokeAt) seg.start = wokeAt;
     const last = k === segs.length - 1;
@@ -649,12 +710,39 @@ export function chatLines(items: Item[], opts: ChatLinesOptions = {}): ChatLine[
   const last = blocks[blocks.length - 1];
   const liveId = opts.live && last?.kind === "turn" ? last.turn.id : undefined;
   const out: ChatLine[] = [];
+  // A result can land after another segment or user input; associate it with its original call, not its position.
+  const results = new Map(items.filter((i) => i.kind === "tool_result" && i.tool_use_id).map((i) => [i.tool_use_id!, i]));
+  // A recap or compaction can split one round into several blocks. Supervision lasts until the next actual input,
+  // not merely until one Turn closes; orphan continuation segments and live prose still belong to that round.
+  let round: { lines: ChatLine[]; ordered: Item[]; live: boolean } | undefined;
+  const flush = () => {
+    if (!round) return;
+    if (supervisionVisible(round.ordered, results, round.live)) out.push(...round.lines);
+    else out.push({ kind: "supervision", id: round.lines[0].id, lines: round.lines, live: round.live });
+    round = undefined;
+  };
+  const append = (lines: ChatLine[], ordered: Item[], live: boolean) => {
+    if (!round) { out.push(...lines); return; }
+    for (const line of lines) if (line.kind === "segment") line.seg.supervision = true;
+    round.lines.push(...lines);
+    round.ordered.push(...ordered);
+    round.live ||= live;
+  };
   for (const b of blocks) {
-    if (b.kind === "row") out.push(isCompaction(b.item) ? { kind: "compact", id: b.item.id, item: b.item } : { kind: "recaps", id: b.item.id, items: [b.item] });
-    else out.push(...turnLines(b.turn, b.turn.id === liveId));
+    if (b.kind === "turn" && b.turn.users.length) {
+      flush();
+      if (b.turn.users.some((i) => injectedOf(i)?.state === "supervise")) round = { lines: [], ordered: [], live: false };
+    }
+    if (b.kind === "row") {
+      append([isCompaction(b.item) ? { kind: "compact", id: b.item.id, item: b.item } : { kind: "recaps", id: b.item.id, items: [b.item] }], [b.item], false);
+    } else {
+      const live = b.turn.id === liveId;
+      append(turnLines(b.turn, live, results), b.turn.ordered, live);
+    }
   }
-  // working with nothing of this turn yet (the last thing is a recap): the work row still shows
-  if (opts.live && !liveId) out.push({ kind: "segment", id: "live", seg: { id: "live", steps: [], tools: 0, thoughts: 0, replies: 0, folds: [] }, live: true });
+  // Working with nothing of this run yet (the last thing is a recap): retain the supervision round's visibility.
+  if (opts.live && !liveId) append([{ kind: "segment", id: "live", seg: { id: "live", steps: [], tools: 0, thoughts: 0, replies: 0, folds: [] }, live: true }], [], true);
+  flush();
   return foldRecaps(foldAPIErrors(out));
 }
 

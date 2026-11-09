@@ -446,7 +446,7 @@ func (h *Manager) attachExtensions(ctx context.Context) {
 	reg.Reserve("looks", extension.RetiredLookIDs...)
 	// No agent_sources id is reserved: the hub has no personal agents source of its own (extension_agents.go).
 	if path := siblingProgram(wechat.Program); path != "" {
-		if err := reg.AddBuiltin(wechatManifest(h, path), filepath.Dir(path), true); err != nil {
+		if err := h.addWeChatBuiltin(reg, path); err != nil {
 			h.logf("plugin wechat: %v", err)
 		}
 	}

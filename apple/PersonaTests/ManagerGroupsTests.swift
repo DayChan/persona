@@ -10,7 +10,7 @@ import Testing
 struct ManagerGroupsTests {
     private static let header = "X-Persona-Manager"
 
-    /// The mock hub's three installed managers (助手 the default, 工作 online, 家里 offline) and one still installing.
+    /// The mock hub's roster: the default (`assistant`), `m-1` online, `m-2` offline, and `m-3` still installing.
     private static let roster = #"""
     {"default":"assistant","managers":[
       {"id":"assistant","name":"助手","online":true,"default":true,"builtin":true},

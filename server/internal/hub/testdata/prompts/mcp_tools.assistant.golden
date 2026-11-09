@@ -242,6 +242,32 @@
     }
   },
   {
+    "name": "supervision_finish",
+    "description": "Finish handling a supervision wake-up without cluttering the user's main conversation. Use visibility=\"silent\" when no user decision or useful result needs to be shown, with a short summary of what you checked or changed; then end the turn. The complete turn stays available in the expandable supervision record. Use visibility=\"user\" to explicitly show the turn without sending a notification. notify_user, ask_user, and task_review user conclusion cards also promote the turn. A promoted turn cannot be made silent again. This tool is only for supervision-triggered turns, not normal user messages.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "visibility",
+        "summary"
+      ],
+      "properties": {
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "silent",
+            "user"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "schedule_followup",
     "description": "Wake yourself up later: at the given time Persona sends `prompt` into this conversation (or a new one) as if the user wrote it, you do the work, and the user gets a push with your answer (with `push: \"asked\"`, only what you send with notify_user). Use for \"remind me…\", \"check again in an hour\", meeting prep 10 minutes before a meeting, watching something until it changes. `at` is RFC 3339 (2026-10-27T09:50:00+08:00) or relative (\"30m\", \"2h\", \"1d\"). For something to do again and again (a patrol every 30 minutes) pass `every` (\"30m\", \"2h\", at least 5m) once: Persona repeats it by itself and the user sees, edits and stops it in the app; never schedule the next run from inside a run. An `every` task can take `until`, an instant after which the task stops (RFC 3339 or 30m / 2h / 1d, the same forms as `at`, not a bare clock time and not a condition to watch for): after that instant Persona turns it off and records a skipped run instead of running. A one-off ignores `until`. Omit it to keep an existing task's end time; null clears it. Which model and permission mode a task runs with is the user's choice in the app.",
     "input_schema": {

@@ -155,15 +155,17 @@ func (s *Service) boardRefresh() {
 	}
 	// The status first: it starts the chat afresh when the bot was paired again, and the board of the old owner goes
 	// with it.
+	// The workbench (feishu_workbench_pin.go) is the board drawn as a home card: either switch keeps it current.
 	f, ready := s.feishuFeatures(ctx)
+	on := ready && (f.Board || s.workbenchOn(f, ready))
 	p.mu.Lock()
-	if ready && f.Board {
+	if on {
 		p.offAt = time.Time{}
 	} else {
 		p.offAt = p.clock()
 	}
 	p.mu.Unlock()
-	if !ready || !f.Board {
+	if !on {
 		return
 	}
 	ref := s.boardRef(ctx)
@@ -208,7 +210,7 @@ func (s *Service) standingBoardCommand(ctx context.Context) bool {
 // that would say what the board already says is not made (the settle-time refresh; /tasks always writes). p.run is held.
 func (s *Service) boardPut(ctx context.Context, ref *botBoardRef, quiet bool) (edited bool, err error) {
 	p := &s.standing
-	card, fallback, rows := s.boardCard(ctx)
+	card, fallback, rows := s.standingCard(ctx)
 	if ref != nil && p.clock().Sub(ref.At) < boardEditFor {
 		if quiet && p.written.id == ref.MessageID && p.written.rows == rows {
 			return false, nil
@@ -226,6 +228,9 @@ func (s *Service) boardPut(ctx context.Context, ref *botBoardRef, quiet bool) (e
 	mid, err := s.botPostKeyed(ctx, "", card, fallback, s.boardKey(ctx, ref))
 	if err != nil {
 		return false, err
+	}
+	if s.workbench.on.Load() {
+		s.workbenchPin(ctx, mid) // the workbench that replaces one is pinned in its place
 	}
 	s.setBoardRef(ctx, &botBoardRef{MessageID: mid, At: p.clock()})
 	p.written.id, p.written.rows = mid, rows

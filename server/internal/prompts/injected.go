@@ -98,7 +98,14 @@ func ParseInjected(text string) *proto.Injected {
 		if m == nil || !strings.Contains(rest, superviseMarker) {
 			return nil
 		}
-		return &proto.Injected{Kind: proto.InjectedSystem, State: "supervise", Line: "督办：" + m[1] + " 个派出去的任务要处理"}
+		level := "triage" // Messages from before levels were added are routine triage too.
+		for _, candidate := range []string{"info", "triage", "user"} {
+			if strings.Contains(rest, `<persona-supervision level="`+candidate+`" />`) {
+				level = candidate
+				break
+			}
+		}
+		return &proto.Injected{Kind: proto.InjectedSystem, State: "supervise", Level: level, Line: "督办：" + m[1] + " 个派出去的任务要处理"}
 	case strings.HasPrefix(head, "📥 收件箱事件「"):
 		// Only hubs that write it mark it: it is not in the shared fixtures the apps' own recognition runs.
 		m := inboxHeadRe.FindStringSubmatch(head)

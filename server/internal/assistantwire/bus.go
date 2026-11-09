@@ -165,6 +165,12 @@ var Routes = []string{
 	"POST /api/v1/assistant/conversations/{id}/views/{key}/actions",
 	"POST /api/v1/assistant/conversations/{id}/views/{key}/html-actions",
 	"POST /api/v1/channels/{id}/test",
+	// The Lark bot's workbench: companion bots and their notices (feishu_companions.go there, docs/extensions/bots.md
+	// "Companion bots").
+	"PUT /api/v1/assistant/feishu/companions",
+	"GET /api/v1/assistant/feishu/notices",
+	"POST /api/v1/assistant/feishu/notices/action",
+	"POST /api/v1/assistant/feishu/workbench",
 	// The knowledge base (the assistant's kb_routes.go, docs/assistant/knowledge.md "App API").
 	"GET /api/v1/kb/{kind}",
 	"GET /api/v1/kb/{kind}/{id}",

@@ -37,13 +37,15 @@ export interface WorkProps {
   nested?: boolean;
   /** The exchange these steps are of (its segment's id): what of it the reader opened is kept under it. */
   segment?: string;
+  /** Show every tool's original input/result in place in an opened supervision trace. */
+  trace?: boolean;
 }
 
 /** A Workflow call that draws its run's card (the hub lists the run); one that does not is the row it always was. */
 const workflowCard = (s: ToolStep, p: WorkProps) => isWorkflowStep(s) && Boolean(s.use.tool_use_id && p.workflowCalls?.known.has(s.use.tool_use_id));
 
 /** A step drawn as an action row, sitting with the rows next to it. */
-const drawnAsRow = (s: Step, p: WorkProps): s is ToolStep => isRowStep(s) || (isWorkflowStep(s) && !workflowCard(s, p));
+const drawnAsRow = (s: Step, p: WorkProps): s is ToolStep => (p.trace && s.kind === "tool") || isRowStep(s) || (isWorkflowStep(s) && !workflowCard(s, p));
 
 /** Every fold under a group, nested ones too: opening it fetches their steps. */
 function foldsOf(g: WorkGroupNode): Item[] {
@@ -58,12 +60,12 @@ function useThinkingNow(mid: string, sid: string) {
 }
 
 /** A live group's newest steps, peeking out while it is closed, and the thinking card after them. */
-function LivePreview({ preview, open, mid, sid }: { preview: Step[]; open: boolean; mid: string; sid: string }) {
+function LivePreview({ preview, open, mid, sid, trace }: { preview: Step[]; open: boolean; mid: string; sid: string; trace?: boolean }) {
   const thinkingNow = useThinkingNow(mid, sid);
   if (!(preview.length > 0 || (thinkingNow && !open))) return null;
   return (
     <div className="mt-1 flex min-w-0 flex-col border-l-2 border-tool-rail py-[2px] pl-3" data-live-preview>
-      {preview.map((s) => (s.kind === "tool" ? <ActionRow key={s.id} step={s} running={!s.result} mid={mid} sid={sid} /> : <ThinkingLine key={s.id} item={s.item} />))}
+      {preview.map((s) => (s.kind === "tool" ? <ActionRow key={s.id} step={s} running={!s.result} mid={mid} sid={sid} trace={trace} /> : <ThinkingLine key={s.id} item={s.item} />))}
       {thinkingNow}
     </div>
   );
@@ -142,7 +144,7 @@ export const WorkGroup = memo(function WorkGroup({ g, p }: { g: WorkGroupNode; p
         </div>
       )}
       {/* only a live group has a preview or a thinking card (previewSteps is empty otherwise) */}
-      {g.live && <LivePreview preview={preview} open={open} mid={p.mid} sid={p.sid} />}
+      {g.live && <LivePreview preview={preview} open={open} mid={p.mid} sid={p.sid} trace={p.trace} />}
       <Collapse open={open} lazy>
         <div className="mt-1 flex min-w-0 flex-col gap-2 border-l-2 border-tool-rail py-[2px] pl-3" data-work-detail>
           <WorkNodes nodes={g.children} p={inside} live={g.live} />
@@ -180,7 +182,7 @@ export function WorkNodes({ nodes, p, live, fade }: { nodes: WorkNode[]; p: Work
         ) : Array.isArray(run) ? (
           <div key={run[0].id} className="flex min-w-0 flex-col">
             {run.map((s) => (
-              <ActionRow key={s.id} step={s} running={live && !s.result} mid={p.mid} sid={p.sid} />
+              <ActionRow key={s.id} step={s} running={live && !s.result} mid={p.mid} sid={p.sid} trace={p.trace} />
             ))}
           </div>
         ) : run.kind === "group" ? (
@@ -234,6 +236,7 @@ const FreshAnswer = memo(function FreshAnswer({ item, mid, sid }: { item: Item; 
 export const StepView = memo(function StepView({ step, p, live, fade }: { step: Step; p: WorkProps; live?: boolean; fade?: boolean }) {
   switch (step.kind) {
     case "tool":
+      if (p.trace) return <ActionRow step={step} running={live && !step.result} mid={p.mid} sid={p.sid} trace />;
       if (isAgentStep(step)) return <SubagentCard step={step} status={p.agentStatus(step)} mid={p.mid} scope={p.scope} />;
       if (isPlanStep(step)) return <PlanCard id={step.id} todos={planTodos(step)} live={live} mid={p.mid} sid={p.sid} />;
       if (workflowCard(step, p)) return <WorkflowCallCard step={step} mid={p.mid} sid={p.sid} scope={p.scope} />;

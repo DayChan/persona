@@ -27,6 +27,7 @@ const FEATURES: { key: keyof BotFeatures; icon: IconName; title: string; detail:
   { key: "sync", icon: "loop", title: t("settings-feishubot.feature_sync_title"), detail: t("settings-feishubot.feature_sync_detail") },
   { key: "reports", icon: "list", title: t("settings-feishubot.feature_reports_title"), detail: t("settings-feishubot.feature_reports_detail") },
   { key: "board", icon: "pin", title: t("settings-feishubot.feature_board_title"), detail: t("settings-feishubot.feature_board_detail") },
+  { key: "workbench", icon: "home", title: t("settings-feishubot.feature_workbench_title"), detail: t("settings-feishubot.feature_workbench_detail") },
   { key: "only_conclusions", icon: "check", title: t("settings-feishubot.feature_only_conclusions_title"), detail: t("settings-feishubot.feature_only_conclusions_detail") },
   { key: "agents", icon: "agent", title: t("settings-feishubot.feature_agents_title"), detail: t("settings-feishubot.feature_agents_detail") },
 ];

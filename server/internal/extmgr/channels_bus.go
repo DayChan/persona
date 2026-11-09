@@ -97,6 +97,7 @@ func (h *Manager) feishuCall(ctx context.Context, method string, params json.Raw
 		Reason     string               `json:"reason"`
 		ChatID     string               `json:"chat_id"`   // feishu.post / feishu.text: the chat to send into (default: the owner's)
 		InThread   bool                 `json:"in_thread"` // feishu.post / feishu.text: a reply goes into the parent's thread
+		Exclusive  bool                 `json:"exclusive"` // feishu.pin: the bot's other pins in the chat come off
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &a); err != nil {
@@ -179,6 +180,24 @@ func (h *Manager) feishuCall(ctx context.Context, method string, params json.Raw
 		return map[string]any{"message_id": id}, err
 	case assistantwire.FeishuUpdateCard:
 		return map[string]any{}, api.UpdateCard(ctx, a.MessageID, a.Card)
+	case assistantwire.FeishuPin:
+		if err := checkOwnDMMessage(ctx, api, set, a.MessageID); err != nil {
+			return nil, err
+		}
+		if err := api.Pin(ctx, a.MessageID); err != nil {
+			return nil, feishuCoded(err)
+		}
+		if a.Exclusive {
+			if err := unpinBotOthers(ctx, api, set.Owner.ChatID, a.MessageID); err != nil {
+				return nil, feishuCoded(err)
+			}
+		}
+		return map[string]any{}, nil
+	case assistantwire.FeishuRecall:
+		if err := checkOwnDMMessage(ctx, api, set, a.MessageID); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, feishuCoded(api.Recall(ctx, a.MessageID))
 	case assistantwire.FeishuCotCreate:
 		// The agent message is made in the owner's DM, so the message it answers has to be in the DM too.
 		parent, err := h.checkReplyParent(ctx, api, set, a.ReplyTo)
@@ -300,4 +319,44 @@ func (h *Manager) checkReactTarget(ctx context.Context, api *feishubot.Client, s
 	}
 	_, err := h.checkReplyParent(ctx, api, set, messageID)
 	return err
+}
+
+// errNotBotDMMessage: a pin or a withdrawal named a message that is not the bot's own in the owner's private chat.
+var errNotBotDMMessage = errors.New("feishu: only the bot's own messages in the owner's private chat can be pinned or withdrawn")
+
+// checkOwnDMMessage: messageID is a message the bot sent in the owner's private chat, the only ones feishu.pin and
+// feishu.recall take (the workbench's cards).
+func checkOwnDMMessage(ctx context.Context, api *feishubot.Client, set FeishuBotSettings, messageID string) error {
+	if messageID == "" || set.Owner == nil || set.Owner.ChatID == "" {
+		return errNotBotDMMessage
+	}
+	items, err := api.Message(ctx, messageID)
+	if err != nil {
+		return feishuCoded(err)
+	}
+	if len(items) == 0 {
+		return errNotBotDMMessage
+	}
+	it := items[0]
+	if it.ChatID != set.Owner.ChatID || it.Sender.SenderType != "app" || it.Sender.ID != api.AppID() {
+		return errNotBotDMMessage
+	}
+	return nil
+}
+
+// unpinBotOthers takes off the pins the bot made in chatID, but keep's; the owner's own pins stay.
+func unpinBotOthers(ctx context.Context, api *feishubot.Client, chatID, keep string) error {
+	pins, err := api.Pins(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	for _, p := range pins {
+		if p.MessageID == keep || !p.ByApp(api.AppID()) {
+			continue
+		}
+		if err := api.Unpin(ctx, p.MessageID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

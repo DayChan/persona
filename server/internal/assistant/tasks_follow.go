@@ -194,7 +194,7 @@ type receiptBody struct {
 }
 
 type receiptReview struct {
-	State    string `json:"state"` // awaiting
+	State    string `json:"state"` // checking: Persona follows up; awaiting: completion already judged
 	Criteria int    `json:"criteria"`
 }
 
@@ -640,7 +640,11 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	// needs_user waits on the user instead. Read the latest todo in case it changed while reading the reply.
 	if current, ok := s.todoNow(t.ID); ok && current.DoneAt == nil {
 		if v := current.Supervision; v != nil && v.state(current) != reviewNeedsUser {
-			body.Review = &receiptReview{State: "awaiting", Criteria: len(v.DoneWhen)}
+			state := "checking" // receipt stays ahead of the model; a stopped turn is not a completion verdict
+			if v.state(current) == reviewPending {
+				state = "awaiting"
+			}
+			body.Review = &receiptReview{State: state, Criteria: len(v.DoneWhen)}
 		}
 	}
 	if body.Summary == "" {

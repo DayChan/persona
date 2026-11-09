@@ -22,6 +22,8 @@ const superviseTool = "supervise"
 // dropped.
 func (s *Service) sendDigest(ctx context.Context) {
 	b := &s.supervise
+	b.dedupMu.Lock()
+	defer b.dedupMu.Unlock()
 	b.mu.Lock()
 	b.timer, b.timerAt = nil, time.Time{}
 	list := make([]superviseSignal, 0, len(b.pending))
@@ -80,6 +82,26 @@ func (s *Service) sendDigest(ctx context.Context) {
 	if len(entries) == 0 {
 		return
 	}
+	entries, kept, rollback, err := s.reserveSupervision(ctx, entries, kept, now)
+	if err != nil {
+		s.logf("supervise: deduplication unavailable; retrying: %v", err)
+		s.restoreDigest(kept, now, prev)
+		return
+	}
+	if len(entries) == 0 {
+		b.mu.Lock()
+		if b.last.Equal(now) {
+			b.last = prev
+		}
+		b.mu.Unlock()
+		return
+	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			rollback()
+		}
+	}()
 	b.mu.Lock()
 	queued := b.queued
 	b.mu.Unlock()
@@ -95,6 +117,7 @@ func (s *Service) sendDigest(ctx context.Context) {
 		}
 		msg.Text = prompts.RenderSupervise(prompts.Supervise{Entries: sortEntries(allEntries)})
 		if s.replaceQueuedSupervise(here.Main, msg) {
+			accepted = true
 			b.mu.Lock()
 			b.queued = all
 			b.mu.Unlock()
@@ -109,6 +132,7 @@ func (s *Service) sendDigest(ctx context.Context) {
 		if !s.queueDigest(here.Main, msg, kept, now, prev) {
 			return
 		}
+		accepted = true
 		s.publish(ctx)
 		if ok && c.Status != proto.StatusWorking && !c.Starting {
 			s.drainRelays(here.MachineID, []proto.Session{c})
@@ -118,10 +142,12 @@ func (s *Service) sendDigest(ctx context.Context) {
 	if err := s.deliverRelay(ctx, here.MachineID, here.Main, msg); err != nil {
 		s.logf("supervise: %v; queued", err)
 		if s.queueDigest(here.Main, msg, kept, now, prev) {
+			accepted = true
 			s.publish(ctx)
 		}
 		return
 	}
+	accepted = true
 	b.mu.Lock()
 	b.queued = nil
 	b.mu.Unlock()
@@ -239,6 +265,7 @@ func (s *Service) digestEntry(ctx context.Context, g superviseSignal, web string
 	}
 	if last.SessionID != "" {
 		e.Session = short(last.SessionID)
+		e.AgentID = last.SessionID
 		if m, ok := s.device(ctx, last.MachineID); ok {
 			e.Machine = m.Name
 		}
@@ -283,6 +310,7 @@ func (s *Service) holdPushes(ctx context.Context, id string) {
 	b.mu.Lock()
 	b.init()
 	b.hold[id] = time.Now()
+	delete(b.visible, id)
 	b.mu.Unlock()
 	s.publish(ctx)
 }
@@ -293,6 +321,7 @@ func (s *Service) releasePushes(ctx context.Context, id string) {
 	b.mu.Lock()
 	_, held := b.hold[id]
 	delete(b.hold, id)
+	delete(b.visible, id)
 	b.mu.Unlock()
 	if held {
 		s.publish(ctx)

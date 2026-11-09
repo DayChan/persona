@@ -88,6 +88,7 @@ export function noteWritten(id: string, at: number) {
 /** When a line was written, for placeFailed: an exchange's message (this page's time for one sent from here; else the
  *  computer's, two minutes' slack for its clock, so a near tie leaves the failed message below); none for other lines. */
 function lineWritten(line: ChatLine): number | undefined {
+  if (line.kind === "supervision") return line.lines.map(lineWritten).find((at) => at !== undefined);
   if (line.kind !== "segment" || !line.seg.user) return undefined;
   const mine = line.seg.user.client_msg_id ? written.get(line.seg.user.client_msg_id) : undefined;
   if (mine !== undefined) return mine;

@@ -68,11 +68,13 @@ type fleetBook struct {
 	// sent: each machine's last session list told the hub (fleet.sessions), as JSON. sentMu is held while a list is
 	// decorated and told (publishList), so the lists reach the hub in the order they were made.
 	sentMu sync.Mutex
-	sent   map[string]string
+	sent   map[string][]byte
 	// shown: the list last told the hub for each machine, decorated (the reminders of agents awaiting a reply read it
 	// instead of decorating every list each minute, agents_reply.go).
 	shownMu sync.Mutex
 	shown   map[string][]proto.Session
+	// asks: what each session's last words ask, while they stay the same (fleet_asks.go).
+	asks asksMemo
 
 	// rep is the last snapshot's parts the session lists show (fleetTakeSnapshot).
 	rep fleetReport

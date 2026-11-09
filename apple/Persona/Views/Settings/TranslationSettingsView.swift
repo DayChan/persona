@@ -16,7 +16,7 @@ struct TranslationSettingsView: View {
     var body: some View {
         SettingsForm {
             Section {
-                Toggle(isOn: $enabled) { Label("Auto-Translate", systemImage: Theme.Icon.translate) }
+                SettingsSwitchRow(title: String(localized: "Auto-Translate"), symbol: Theme.Icon.translate, isOn: $enabled)
                 ModelConfigurationLink(title: String(localized: "Translation Model"), purposeID: "translate")
             } footer: {
                 Text("Content not in the target language is translated automatically, and you can switch back to the original anytime. Translation uses the translation model in Model Configuration.")
@@ -28,7 +28,7 @@ struct TranslationSettingsView: View {
                     }
                 }
                 Section {
-                    Toggle(isOn: $mail) { Label("Mail [Assistant View 3d708e]", systemImage: Theme.Icon.mail) }
+                    SettingsSwitchRow(title: String(localized: "Mail [Assistant View 3d708e]"), symbol: Theme.Icon.mail, isOn: $mail)
                     // Feishu chats are picked from the hub's (`/api/v1/lark/…`, the Lark extension's).
                     if larkChats {
                         Button { picking = true } label: {

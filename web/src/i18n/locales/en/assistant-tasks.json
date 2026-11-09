@@ -1,4 +1,6 @@
 {
+  "receipt_review_followup": "Persona follows up",
+  "report_progress": "Progress update · {title}",
   "removed": "Removed \"{title}\"",
   "remove_failed": "Couldn't remove: {error}",
   "remove_ellipsis": "Remove task…",

@@ -67,6 +67,8 @@ type botState struct {
 	// Board is the standing "waiting for you" card: its message and when it was sent (feishu_board.go). Only the bot's
 	// `board` switch uses it.
 	Board *botBoardRef `json:"board,omitempty"`
+	// Companions are the other Lark bots an extension registered for the workbench (feishu_companions.go).
+	Companions []CompanionBot `json:"companions,omitempty"`
 	// NudgeOffAt is when the nudge sweep first saw nudges off (nudge_after 0), cleared when it sees them on again: the
 	// first sweep with them on lets the cards already due go (feishu_nudge.go). Kept here so a restart while they are
 	// off does not nudge the backlog.
@@ -431,7 +433,9 @@ func (s *Service) feishuForgetStatus() {
 
 func (s *Service) feishuFeatures(ctx context.Context) (FeishuFeatures, bool) {
 	st, err := s.feishuStatus(ctx)
-	return st.Features, err == nil && st.Ready
+	ready := err == nil && st.Ready
+	s.workbenchOn(st.Features, ready) // what the posts' workbench button follows (feishu_workbench_pin.go)
+	return st.Features, ready
 }
 
 // ---- the chat's state ----

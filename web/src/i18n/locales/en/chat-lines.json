@@ -1,4 +1,7 @@
 {
+  "supervision_done": "Supervision handled",
+  "supervision_running": "Handling supervision…",
+  "supervision_input": "Original input",
   "wake_count_one": "{count} background task done",
   "wake_count_other": "{count} background tasks done",
   "wake_single": "Background task done",

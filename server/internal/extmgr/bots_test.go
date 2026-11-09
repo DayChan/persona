@@ -98,10 +98,11 @@ type fakeOpenAPI struct {
 	read  map[string]any // message id -> what GET /messages/:id answers (its items)
 	// rejectInteractive, when set, is the business code returned for interactive message sends (card rejection).
 	rejectInteractive int
-	rejectReply       int            // business code for /reply, e.g. 230011 parent withdrawn
-	readCode          map[string]int // message id -> business code GET /messages/:id answers instead of its items
-	readFail          map[string]int // message id -> how many more GETs answer HTTP 500 (the client reads again)
-	botInfoFail       bool           // GET /bot/v3/info answers a business error
+	rejectReply       int              // business code for /reply, e.g. 230011 parent withdrawn
+	readCode          map[string]int   // message id -> business code GET /messages/:id answers instead of its items
+	readFail          map[string]int   // message id -> how many more GETs answer HTTP 500 (the client reads again)
+	botInfoFail       bool             // GET /bot/v3/info answers a business error
+	pins              []map[string]any // what GET /pins answers (its items)
 }
 
 func newFakeOpenAPI(t *testing.T) *fakeOpenAPI {
@@ -135,6 +136,15 @@ func newFakeOpenAPI(t *testing.T) *fakeOpenAPI {
 		case strings.HasSuffix(p, "/reactions") && r.Method == "POST":
 			reply(map[string]any{"code": 0, "data": map[string]any{"reaction_id": fmt.Sprintf("r%d", n)}})
 		case strings.Contains(p, "/reactions/"):
+			reply(map[string]any{"code": 0})
+		case p == "/open-apis/im/v1/pins" && r.Method == "GET":
+			f.mu.Lock()
+			items := f.pins
+			f.mu.Unlock()
+			reply(map[string]any{"code": 0, "data": map[string]any{"items": items, "has_more": false}})
+		case strings.HasPrefix(p, "/open-apis/im/v1/pins") && (r.Method == "POST" || r.Method == "DELETE"):
+			reply(map[string]any{"code": 0})
+		case r.Method == "DELETE" && strings.HasPrefix(p, "/open-apis/im/v1/messages/") && !strings.Contains(p, "/reactions/"):
 			reply(map[string]any{"code": 0})
 		case r.Method == "GET" && strings.HasPrefix(p, "/open-apis/im/v1/messages/"):
 			id := strings.TrimPrefix(p, "/open-apis/im/v1/messages/")

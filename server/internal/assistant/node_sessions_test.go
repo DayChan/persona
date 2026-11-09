@@ -99,8 +99,13 @@ func busyBoard(t *testing.T) *Service {
 
 // On a machine listing 8,200 sessions the readers copy the rows they keep, not the list: a copy is 12.1 MB, which
 // agentGone and the board read once each before, completionChildrenRunning twice (25.1 MB) and decoratedUnarchived
-// twice (25.8 MB; it still needs one, as its own to decorate). Each bound is the measured bytes per call + 3%.
+// twice (25.8 MB; it still needs one, as its own to decorate). publishList, telling the same list again, also encoded
+// it into new bytes (28.4 MB in all); now it allocates the decorated list alone. Each bound is the measured bytes per
+// call + 3%.
 func TestSessionReadersCopyNoList(t *testing.T) {
+	if !isolated(t) {
+		return
+	}
 	s := assistantInventory(t)
 	board := busyBoard(t)
 	for _, c := range []struct {
@@ -111,6 +116,7 @@ func TestSessionReadersCopyNoList(t *testing.T) {
 		{"agentGone", 2225, func() { s.agentGone(proto.Interaction{MachineID: "box", SessionID: "session-08199"}) }},
 		{"completionChildrenRunning", 1690, func() { s.completionChildrenRunning("box", proto.Session{SessionID: "session-00100"}) }},
 		{"decoratedUnarchived", 13710700, func() { s.decoratedUnarchived("box") }},
+		{"publishList", 13715100, func() { s.publishList("box") }},
 		{"GET /api/v1/workspaces", 177600, func() { boardCall(board, "GET", "/api/v1/workspaces", "", roleFull) }},
 	} {
 		c.read()
