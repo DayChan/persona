@@ -626,6 +626,9 @@ func (s *Service) Action(ctx context.Context, a Action) (ActionResult, error) {
 	if mine, err := s.workAnswer(ctx, a.InteractionID, r); mine {
 		return ActionResult{OK: err == nil}, err
 	}
+	if mine, err := s.reviewAnswer(ctx, a.InteractionID, r); mine { // a review card (agents_review.go)
+		return ActionResult{OK: err == nil}, err
+	}
 	s.questions.mu.Lock()
 	q := s.questions.m[a.InteractionID]
 	s.questions.mu.Unlock()

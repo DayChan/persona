@@ -160,3 +160,20 @@ func TestGoldenTodoThreadReply(t *testing.T) {
 	in.Topic = true
 	golden(t, "bot_message.topic", prompts.RenderBotMessage(in))
 }
+
+// The independent reviewer's first message (agents/review), and the wrapper its findings reach the agent under
+// review in (agents/review_findings, #1808).
+func TestGoldenAgentReview(t *testing.T) {
+	three := 3
+	golden(t, "agent_review.prompt", prompts.RenderAgentReview(prompts.AgentReview{
+		Cwd: "/code/app", Scope: "分支相对默认分支的改动（自 abc1234「修复登录页」起，含未提交）",
+		Asks: []string{"修一下登录页的报错", "顺带把测试补上"},
+		Diff: "diff --git a/login.go b/login.go\n--- a/login.go\n+++ b/login.go\n@@ -10,2 +10,3 @@\n func login() {\n+\tcheck()\n }\n", Omitted: 2}))
+	golden(t, "agent_review.prompt_en", prompts.RenderAgentReview(prompts.AgentReview{
+		Language: "English", Cwd: "/code/app", Scope: "未提交的改动（工作区相对 HEAD）",
+		Diff: "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,2 @@\n+hello\n"}))
+	golden(t, "agent_review.findings", prompts.RenderAgentReviewFindings(prompts.AgentReviewFindings{
+		Findings: "- P1 main.go:1 缺少错误处理\n建议：补上 err 判断。", Count: &three}))
+	golden(t, "agent_review.findings_no_count", prompts.RenderAgentReviewFindings(prompts.AgentReviewFindings{
+		Findings: "没有发现问题。"}))
+}

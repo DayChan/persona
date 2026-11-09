@@ -127,6 +127,17 @@ func (s *Service) publishList(machine string) []proto.Session {
 	f.sentMu.Lock()
 	defer f.sentMu.Unlock()
 	list := s.decorated(machine)
+	// A review's reviewer agent is never the user's to open: it is reached only through its card on the source
+	// session (agents_review.go). Manager internals still find it (decoratedSession reads the decorated list itself).
+	if reviewers := s.reviewers(); len(reviewers) > 0 {
+		kept := list[:0]
+		for _, sess := range list {
+			if !reviewers[sess.SessionID] {
+				kept = append(kept, sess)
+			}
+		}
+		list = kept
+	}
 	msg := assistantwire.FleetSessions{MachineID: machine, Sessions: list, Muted: s.mutedSessions(machine, list)}
 	b, _ := json.Marshal(msg)
 	if f.sent == nil {

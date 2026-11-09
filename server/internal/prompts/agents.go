@@ -137,3 +137,28 @@ type DelegateOption struct {
 func RenderAgentDelegateInput(in AgentDelegateInput) string {
 	return render("agents/delegate_input", in)
 }
+
+// AgentReview is the first message of the independent reviewer of another agent's work (agents/review, #1808,
+// docs/assistant/agent-work.md "Independent review"): it sees only the user's asks and the change, never the agent
+// under review, and answers with a machine-readable count line at the end.
+type AgentReview struct {
+	Language string   // the language to answer in by its own name ("" is Chinese), as claude_md says it
+	Cwd      string   // the repository directory the reviewer may read
+	Scope    string   // what the diff is compared with, one line
+	Asks     []string // the user's own messages to the agent under review, oldest first, already clipped
+	Diff     string   // the capped diff text
+	Omitted  int      // files left out of the diff once the budget ran out
+}
+
+func RenderAgentReview(r AgentReview) string { return render("agents/review", r) }
+
+// AgentReviewFindings is the wrapper that carries the reviewer's findings to the agent under review
+// (agents/review_findings): verify each against the current code, fix the real ones, name the false positives.
+type AgentReviewFindings struct {
+	Findings string // the reviewer's report, verbatim
+	Count    *int   // its finding count when the reviewer said one (nil when it did not)
+}
+
+func RenderAgentReviewFindings(f AgentReviewFindings) string {
+	return render("agents/review_findings", f)
+}

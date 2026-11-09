@@ -218,6 +218,29 @@ Any next step involving **pushing code, deploying / releasing, messaging others,
 Sending a message yourself or typing on the computer starts the session working: all retries, wakeups, and cards for that turn become invalid. Triage again after the new turn ends.
 The same applies to "Retry" on an App error card (work begins, invalidating queued automatic retries). Persona records continuations and wakeups in `session_work`, sending each only once per turn.
 
+## Independent review (#1808)
+
+An **explicit** user ask from the web (the session menu; `POST /api/v1/machines/{mid}/sessions/{sid}/review`, feature
+`agent_review`, `docs/web/review.md` "Agent review"): the manager starts a fresh, **read-only reviewer agent** on the same machine and directory and reports its findings on one card. Nothing runs on its own — no switch, no triage hook.
+
+- **Read-only by permission mode, never by prompt.** The reviewer starts with `permission_mode: "plan"` (Claude Code's plan
+  mode; the node's `--permission-mode plan`). Because that rests on the launcher, only a Claude session can be reviewed: a
+  session whose agent is Codex or a runtime is refused `read_only_unavailable`, and a node that refuses the start answers
+  `not_supported`. The reviewer is never started "anyway" with only its prompt to keep it in line.
+- **The seed is the user's asks and the change, nothing else.** The user's own messages of that session (the last 30, clipped)
+  and its git review scope (`git.review`, branch first, `uncommitted` when the branch has no base; the diff capped at
+  150 000 characters, files without hunks listed as one line). The agent under review's reasoning never reaches the reviewer:
+  it must verify against the diff and the files it reads, not against claims.
+- **The reviewer is not in the session lists** (`publishList` drops it): it is reached only through its card on the source
+  session. Its tab is named `review-<session>`; a review older than 30 minutes failed, its reviewer is interrupted best
+  effort, and `review_running` clears.
+- **Findings reach the agent only when the user sends them.** The card (`kind: "review"`, `tool_name: persona_review`, 7-day
+  expiry) says the finding count; **Send to agent** forwards the report wrapped in one message (`prompts/agents/review_findings.md`
+  — verify each finding against the current code, fix the real ones, name the false positives), **Dismiss** closes it. A failed
+  send keeps the card for another answer. A newer review of the same session replaces a pending card.
+- **The book survives a restart** (settings key `assistant.agent_reviews`): pending cards ride the snapshot again, running
+  reviews past their deadline became failed. At most 50 entries; answered ones go oldest first.
+
 ## Switches (requested 2026-11-05: all off by default)
 
 Triage calls a model after every stopped turn; continuation and wakeups also make the Agent run another turn on its own model. All consume the user's tokens. Therefore **everything defaults to off**.

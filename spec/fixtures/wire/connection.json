@@ -85,6 +85,7 @@
         "upload_dir",
         "file_edit",
         "task_push",
+        "agent_review",
         "sessions_list",
         "sessions_lookup",
         "machine_rename"
@@ -185,6 +186,7 @@
           "upload_dir",
           "file_edit",
           "task_push",
+          "agent_review",
           "sessions_list",
           "sessions_lookup",
           "machine_rename"
@@ -276,6 +278,7 @@
         "upload_dir",
         "file_edit",
         "task_push",
+        "agent_review",
         "sessions_list",
         "sessions_lookup",
         "machine_rename"
@@ -366,6 +369,7 @@
           "upload_dir",
           "file_edit",
           "task_push",
+          "agent_review",
           "sessions_list",
           "sessions_lookup",
           "machine_rename"
