@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,6 +176,21 @@ func (h *Manager) archiveSources(c connector.Connector) []string {
 		}
 	}
 	return out
+}
+
+// forgetArchiveSources allows legacy records without connector attribution to be deleted only when their
+// source name belongs to this connector alone. Explicitly attributed records are matched by the knowledge base.
+func (h *Manager) forgetArchiveSources(c connector.Connector) []string {
+	sources := h.archiveSources(c)
+	for _, other := range h.connectors.All() {
+		if other.ID() == c.ID() {
+			continue
+		}
+		sources = slices.DeleteFunc(sources, func(source string) bool {
+			return slices.Contains(other.Manifest().ArchiveSources, source)
+		})
+	}
+	return sources
 }
 
 // kbConnectorOwner exposes only identity metadata to the assistant, never account credentials or server settings.

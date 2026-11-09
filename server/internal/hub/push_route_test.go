@@ -133,6 +133,50 @@ func TestRoutesByCredential(t *testing.T) {
 	}
 }
 
+// An Android phone or a browser that only saved notification settings never registers for APNs (it is notified over
+// the WebSocket): Settings › Devices shows no push line for its token (#1911), as `hub doctor` leaves it out. An iPhone
+// that registered without a token still says why.
+func TestRoutesByCredentialSkipsSettingsOnlyRows(t *testing.T) {
+	h := newTestHub(t)
+	if err := h.push.setPrefsBy("android-1", "cred-android", defaultPrefs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.push.setPrefsBy("web-1", "cred-web", defaultPrefs()); err != nil {
+		t.Fatal(err)
+	}
+	h.push.register(Device{DeviceID: "ios-1", Kind: "ios", Credential: "cred-ios", CredentialID: "cred-ios"})
+	// A settings row saved after a registration under the same token does not hide the registered device, even when
+	// it is the newer row (the database stamps it now(), db.SetDevicePrefs).
+	h.push.register(Device{DeviceID: "ipad-1", Kind: "ipad", APNSToken: "aa", Credential: "cred-ipad", RelayError: "403 topic not served"})
+	if err := h.push.setPrefsBy("ipad-browser", "cred-ipad", defaultPrefs()); err != nil {
+		t.Fatal(err)
+	}
+	h.push.mu.Lock()
+	row := h.push.devices["ipad-browser"]
+	row.UpdatedAt = time.Now().Add(time.Hour)
+	h.push.devices["ipad-browser"] = row
+	h.push.mu.Unlock()
+
+	got := h.push.routesByCredential()
+	for _, cred := range []string{"cred-android", "cred-web"} {
+		if r, ok := got[cred]; ok {
+			t.Fatalf("%s: a settings-only row has a push way %+v", cred, r)
+		}
+	}
+	if r := got["cred-ios"]; r.Route != pushNone || r.Reason != pushNoToken {
+		t.Fatalf("iPhone without a token: %+v", r)
+	}
+	if r := got["cred-ipad"]; r.Reason != pushRelayFailed {
+		t.Fatalf("registered iPad: %+v", r)
+	}
+
+	code, out := call(t, h.routes(), "GET", "/api/v1/auth/tokens", h.cfg.Token, "")
+	push, _ := out["push"].(map[string]any)
+	if code != 200 || len(push) != 2 || push["cred-android"] != nil || push["cred-web"] != nil || push["cred-ios"] == nil {
+		t.Fatalf("tokens list: %d %v", code, out)
+	}
+}
+
 // `hub doctor` lists every device and its way; a watch cannot read the list.
 func TestDoctorListsPushRoutes(t *testing.T) {
 	h := newTestHub(t)

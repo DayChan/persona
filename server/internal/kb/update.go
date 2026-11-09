@@ -34,6 +34,9 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	if err != nil {
 		return 0, err
 	}
+	if err := attributeChat(c, src); err != nil {
+		return 0, err
+	}
 	var lines []Line
 	var kept []SourceMessage
 	for _, m := range msgs {
@@ -69,6 +72,9 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	defer e.Store.chatMu.Unlock()
 	c, _, r, err = e.Store.ingestState(src.Name(), sc, cut)
 	if err != nil {
+		return 0, err
+	}
+	if err := attributeChat(c, src); err != nil {
 		return 0, err
 	}
 	for _, m := range kept {

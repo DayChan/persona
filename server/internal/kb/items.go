@@ -21,7 +21,14 @@ type ItemSource interface {
 }
 
 // CollectItems stores new meetings and events and fills in titles of documents seen in chats.
-func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
+func (e *Engine) CollectItems(ctx context.Context, src ItemSource, sources ...string) error {
+	if e.Store.ReadOnly() {
+		return ErrReadOnly
+	}
+	source := ""
+	if len(sources) > 0 {
+		source = sources[0]
+	}
 	items, err := src.Items(ctx)
 	if err != nil {
 		return err
@@ -29,9 +36,16 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 	now := time.Now().UTC()
 	for _, w := range items {
 		it := ItemFromWire(w)
+		it.Source = source
 		old, ok := e.Store.Item(it.Kind, it.ID)
 		if ok {
-			if old.Title == it.Title && old.At.Equal(it.At) {
+			// An ID alone cannot identify an owner: legacy or colliding items stay
+			// with their original source unless a stored chat proves ownership.
+			owner := e.itemSource(old)
+			if owner != source {
+				continue
+			}
+			if old.Source == it.Source && old.Title == it.Title && old.At.Equal(it.At) {
 				continue
 			}
 			it.Tagging, it.Projects, it.Note, it.Seen = old.Tagging, old.Projects, old.Note, old.Seen
@@ -45,9 +59,10 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 	}
 	n := 0
 	for _, it := range e.Store.Items(KindDoc) {
-		if it.Title != "" || n >= 10 || ctx.Err() != nil {
+		if it.Title != "" || n >= 10 || ctx.Err() != nil || e.itemSource(it) != source {
 			continue
 		}
+		it.Source = source
 		n++
 		if t := src.DocTitle(ctx, it.URL); t != "" {
 			it.Title = t
@@ -57,6 +72,20 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 		_ = e.Store.PutItem(it)
 	}
 	return nil
+}
+
+// itemSource recovers legacy attribution only from an existing source chat.
+func (e *Engine) itemSource(it *Item) string {
+	if it.Source != "" {
+		return it.Source
+	}
+	if c, found := e.Store.Chat(it.Where); found {
+		if c.Connector != "" {
+			return c.Connector
+		}
+		return c.Source
+	}
+	return ""
 }
 
 type itemTags struct {
@@ -108,10 +137,14 @@ func (e *Engine) TagItems(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		e.Store.applyMu.Lock()
 		now := time.Now().UTC()
 		for _, t := range out.Items {
 			it := byID[t.ID]
 			if it == nil {
+				continue
+			}
+			if _, exists := e.Store.Item(it.Kind, it.ID); !exists {
 				continue
 			}
 			applyTags(&it.Tagging, t.Importance, int(t.Relevance), t.Tags, now)
@@ -127,6 +160,7 @@ func (e *Engine) TagItems(ctx context.Context) error {
 			_ = e.Store.PutItem(it)
 			e.index(it.Kind, it.ID, it.Title, it.Tagging, it.Note, it.At)
 		}
+		e.Store.applyMu.Unlock()
 		// Ones the model skipped: mark tagged anyway so they do not come back every run.
 		for _, it := range batch {
 			if it.TaggedAt.IsZero() {

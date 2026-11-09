@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -507,6 +508,23 @@ func (h *Hub) pushPayloadAllowed(from string, payload map[string]any) error {
 	return nil
 }
 
+// localizedPayload is the payload of an extension's push.localized for a device in lang. One it left lang out of
+// gets the one its text would fall back to (i18n.T: the fallback language, then the default), else the first by
+// language code, so the pick does not change between pushes. nil: no language has one.
+func localizedPayload(payloads map[string]map[string]any, lang i18n.Lang) map[string]any {
+	for _, l := range []i18n.Lang{lang, i18n.Fallback, i18n.Default} {
+		if pl := payloads[string(l)]; len(pl) > 0 {
+			return pl
+		}
+	}
+	for _, l := range slices.Sorted(maps.Keys(payloads)) {
+		if pl := payloads[l]; len(pl) > 0 {
+			return pl
+		}
+	}
+	return nil
+}
+
 // ---- an extension's token on the hub's own routes ----
 
 // extTokenPrefix starts every extension's token (the manager makes them).
@@ -586,13 +604,16 @@ func (h *Hub) extAppCall(ctx context.Context, from string, p assistantwire.AppCa
 	}
 	switch p.Method {
 	case extwire.HubPushLocalized:
+		if localizedPayload(a.Payloads, i18n.Default) == nil {
+			return nil, true, errors.New("hub: push.localized without a payload in any language")
+		}
 		for _, pl := range a.Payloads {
 			if err := h.pushPayloadAllowed(from, pl); err != nil {
 				return nil, true, err
 			}
 		}
 		// the manager's extension's: not to the devices that turned that manager's pushes off
-		h.push.sendFrom(from, func(l i18n.Lang) map[string]any { return a.Payloads[string(l)] }, a.CollapseID, nil, quietNone, nil)
+		h.push.sendFrom(from, func(l i18n.Lang) map[string]any { return localizedPayload(a.Payloads, l) }, a.CollapseID, nil, quietNone, nil)
 		out = map[string]any{}
 	case extwire.HubPushBackground:
 		if err := h.pushPayloadAllowed(from, a.Payload); err != nil {

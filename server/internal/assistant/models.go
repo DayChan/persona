@@ -852,10 +852,14 @@ func (s *Service) validateModel(ctx context.Context, p ModelPurpose, b ModelBind
 	return nil
 }
 
-// providerModelUses are the categories that run on provider: a provider in use is not deleted underneath them.
+// providerModelUses are the current configurable purposes that run on provider: a provider in use is not deleted underneath them.
 func (s *Service) providerModelUses(ctx context.Context, provider string) ([]string, error) {
 	uses := []string{}
-	for _, id := range modelConfigIDs {
+	ids := slices.Clone(modelConfigIDs)
+	for _, x := range s.modelExtensions(ctx) {
+		ids = append(ids, assistantwire.ExtensionPurposePrefix+x.StorageKey())
+	}
+	for _, id := range ids {
 		p, err := s.modelPurposeDef(ctx, id)
 		if err != nil {
 			return nil, err

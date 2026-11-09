@@ -5,7 +5,8 @@ import "time"
 // Item is a document, meeting or calendar event as a connector hands it over (connectors.items, docs/extensions/connectors.md):
 // the same JSON as the knowledge base's own item (kb.Item), which adds what only the store keeps.
 type Item struct {
-	Kind     string    `json:"kind"` // docs | meetings | events
+	Kind     string    `json:"kind"`             // docs | meetings | events
+	Source   string    `json:"source,omitempty"` // the collector replaces this with its trusted connector ID
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
 	URL      string    `json:"url,omitempty"`

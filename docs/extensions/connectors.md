@@ -11,7 +11,7 @@ This document has three parts:
 - **III. Migration order**, **IV. Decisions**.
 
 The process and history (why it was split this way, acceptance for each step) are in `docs/plans/plan-connectors.md`; Telegram is in `docs/archive/extensions/plan-telegram.md` (an extension since 2026-11-05, #1704; code in `nwverse/persona-extensions`, #2057).
-Planned Discord support (the user's own bot, extension, #2828) is in `docs/plans/plan-discord.md`.
+Planned Discord support (the user's own bot, extension, #917) is in `docs/plans/plan-discord.md`.
 
 ## I. Current structure (v1)
 
@@ -147,7 +147,9 @@ are still dispatched to connectors by the hub (the manager asks through `app.cal
 
 `GET /api/v1/connectors?all=1` (without `all`, omits Lark and mail for pre-M6 Apps); each entry is `{id, name, status, account, via, error, guide, capabilities, hosts, enabled, options, archive, inbox}`.
 `archive` / `inbox` are the "Add to knowledge base" / "Add to Inbox" toggles (`Registry.SetFeed`, on by default, stored in hub settings). Turning knowledge-base ingestion off stops new content from its conversations, documents, meetings, calendar events and posts: the connector is omitted from both knowledge-base source lists, calls to `Archive`, `Items` and document-title lookup are refused, and the program's `kb.posts_*` calls are refused too. Content already saved stays. The connector keeps running and tools remain available. Turning the connector's main `enabled` switch off also blocks these knowledge-base paths, even if its extension process remains running for another capability.
-"Delete stored knowledge-base content" (`DELETE …/{id}/archive`) turns knowledge-base ingestion off and deletes only its conversations and people in the knowledge base. Disabling Inbox ingestion stops `Collect` without changing existing inbox items.
+"Delete stored knowledge-base content" (`DELETE …/{id}/archive`) turns knowledge-base ingestion off and deletes the connector's conversations and people, including its `archive_sources`, archived posts, and documents, meetings and events. It also removes their indexes and project associations and resets archive cursors and deleted chats' history-import state. The connector keeps running; Inbox entries and tools stay available.
+"Delete stored data" (`DELETE …/{id}/data`) performs the same knowledge-base cleanup, disables the connector itself, and deletes its Inbox entries. Both responses include `chats`, `people`, `posts`, `items` and `inbox` counts (`inbox` is zero for knowledge-base-only deletion). Deletion does not sign out or change data at the remote service.
+Ownership is recorded when data enters the knowledge base. Older records without ownership are deleted only when their source or source chat identifies this connector; ambiguous records are retained to protect other sources. See `docs/assistant/knowledge.md` ("Deleting a connector's saved knowledge") for the legacy and shared-source rules. Disabling Inbox ingestion stops `Collect` without changing existing inbox items.
 The App draws the whole section from this list: Lark and mail retain their original rows (status still comes from their own APIs), Messages has its own page, and others use the generic connector page. API details in `docs/protocol/protocol.md` ("Connector API").
 
 Audit: signing in or out, the switch, the two feeds, the connector's own settings, deleting its data or knowledge base content and GitHub's token source are recorded in `plugin_audit`

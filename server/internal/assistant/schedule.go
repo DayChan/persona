@@ -226,6 +226,9 @@ type ScheduleRun struct {
 	// Adopt records a manual retry's new task conversation until its claim is settled.
 	Adopt    bool   `json:"adopt,omitempty"`
 	Launcher string `json:"launcher,omitempty"`
+	// NotReady: skipped because a required computer or model was not ready, including temporary offline states.
+	// It stays in the history but neither counts toward nor ends a failure streak (schedule_streak.go).
+	NotReady bool `json:"not_ready,omitempty"`
 	// StreakTold: this run made its task's streak of runs that did not go through long enough to tell the user, who
 	// was told then (schedule_streak.go): the rest of that streak is not told again.
 	StreakTold bool `json:"streak_told,omitempty"`
@@ -284,6 +287,30 @@ type schedule struct {
 	limitWatchTimeout time.Duration // test override for the retry watcher deadline
 	// limitActive contains claims owned by this process, never claims restored from storage.
 	limitActive map[string]bool
+}
+
+// missedRuns returns scheduled failures that have not been followed by a successful run.
+// The caller must hold sc.mu. Runs are appended when they end, so compare start times
+// across the whole history, using append order only to break equal-time ties.
+func (sc *schedule) missedRuns(since time.Time) []ScheduleRun {
+	var missed []ScheduleRun
+	for i, r := range sc.runs {
+		if r.At.Before(since) || (r.Status != runFailed && r.Status != runSkipped) || r.Manual {
+			continue
+		}
+		recovered := false
+		for j, o := range sc.runs {
+			if o.RefID == r.RefID && o.Status == runOK &&
+				(o.At.After(r.At) || (o.At.Equal(r.At) && j > i)) {
+				recovered = true
+				break
+			}
+		}
+		if !recovered {
+			missed = append(missed, r)
+		}
+	}
+	return missed
 }
 
 // defaultRoutines are the tasks a new hub starts with, titled in l (the user edits them as their own afterwards).
@@ -1956,6 +1983,7 @@ func (s *Service) waitKey(machine, session string, c proto.Session) string {
 
 func (s *Service) skipRun(run ScheduleRun, why error) error {
 	run.Status, run.Error = runSkipped, i18n.Localize(why, s.lang(context.Background())) // the history keeps it in the user's language
+	run.NotReady = errors.Is(why, errNotReady)
 	s.recordRun(run)
 	return why
 }

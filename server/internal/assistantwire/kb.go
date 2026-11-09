@@ -61,8 +61,8 @@ const (
 	// MethodKBProjects: {machine_id, cwd} → {projects: [KBProject]}: the projects whose code directories hold cwd on
 	// that machine (an agent's turn is triaged with their names).
 	MethodKBProjects = "kb.projects"
-	// MethodKBForget: {source} → KBForgotten: a source's chats and people go, with their index rows, their places in
-	// projects and the cursor ("Delete saved data").
+	// MethodKBForget: KBForget → KBForgotten: a connector's knowledge content goes, with its index rows, project
+	// associations and cursors ("Delete saved data").
 	MethodKBForget = "kb.forget"
 	// The posts a connector's program hands the hub (connector.KnowledgeBase, docs/protocol/connector-protocol.md "Knowledge base"),
 	// for that connector (KBPosts.Connector; the hub checked it may write now):
@@ -111,10 +111,19 @@ type KBProject struct {
 	Name string `json:"name"`
 }
 
-// KBForgotten is kb.forget's answer: how many chats and people went.
+// KBForget identifies the connector and the additional sources its archive may write to.
+// ArchiveSources comes from the registered manifest, never from a client deletion request.
+type KBForget struct {
+	Source         string   `json:"source"`
+	ArchiveSources []string `json:"archive_sources,omitempty"`
+}
+
+// KBForgotten is kb.forget's answer: how many entities were removed.
 type KBForgotten struct {
 	Chats  int `json:"chats"`
 	People int `json:"people"`
+	Posts  int `json:"posts"`
+	Items  int `json:"items"`
 }
 
 // KBContextResult is kb.context's answer.

@@ -1,7 +1,9 @@
 package hub
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +98,41 @@ func TestWithdrawAtMostOnceAMinute(t *testing.T) {
 	}
 	if ids, _ := open(second)["resolved_interaction_ids"].([]any); len(ids) != 2 || ids[0] != "ix_b" || ids[1] != "ix_c" {
 		t.Fatalf("second %v", ids)
+	}
+}
+
+// Runtime ids may be 128 characters: forty of them do not fit one push (the relay seals about 2.7 KB, APNs takes 4 KB),
+// so they go in several, each within the limit, and every card is named once.
+func TestWithdrawSplitsLongIDsBySize(t *testing.T) {
+	h, f, open := withdrawHub(t, "withdraw")
+	var ids []string
+	for i := range withdrawMost {
+		id := fmt.Sprintf("ix_%03d_", i) + strings.Repeat("a", 120)
+		ids = append(ids, id)
+		h.push.cardPushedTo(id, "phone") // as sendCard notes it; forty card pushes would hit the relay's burst limit
+	}
+	for _, id := range ids {
+		h.push.withdraw(id)
+	}
+	var got []string
+	for n := 1; len(got) < len(ids); n++ {
+		r := f.wait(t, n)[n-1]
+		if r.PushType != "background" || len(r.Body) > apnsMaxAlert {
+			t.Fatalf("withdrawal %d: %s push of %d bytes", n, r.PushType, len(r.Body))
+		}
+		batch, _ := open(r)["resolved_interaction_ids"].([]any)
+		if len(batch) == 0 || len(batch) == len(ids) {
+			t.Fatalf("withdrawal %d named %d cards", n, len(batch))
+		}
+		for _, id := range batch {
+			got = append(got, id.(string))
+		}
+	}
+	if !slices.Equal(got, ids) {
+		t.Fatalf("withdrawn %d cards, want the %d in order", len(got), len(ids))
+	}
+	if r, _ := h.push.routeOfID("phone"); r.Reason != "" {
+		t.Fatalf("route %+v", r)
 	}
 }
 

@@ -52,8 +52,8 @@ func TestKBOffAtTheSources(t *testing.T) {
 	if _, err := h.kbFor("example").PendingPosts(ctx, 10); err == nil || err.Error() != "这个管理者没开知识库" {
 		t.Fatalf("posts: %v", err)
 	}
-	if c, p, err := h.forgetArchive(ctx, "example"); c != 0 || p != 0 || err != nil {
-		t.Fatalf("forget asked: %d %d %v", c, p, err)
+	if f, err := h.forgetArchive(ctx, "example"); f != (assistantwire.KBForgotten{}) || err != nil {
+		t.Fatalf("forget asked: %+v %v", f, err)
 	}
 	if got := a.got(assistantwire.MethodKBForget); len(got) != 0 {
 		t.Fatalf("the knowledge base was asked to forget: %v", got)

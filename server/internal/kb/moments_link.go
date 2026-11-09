@@ -189,8 +189,15 @@ func (e *Engine) judgeMoments(ctx context.Context, p *Project, cands []*MomentPo
 		prompts.RenderKBMomentsLinkInput(in), 3000, &d); err != nil {
 		return 0, err
 	}
+	e.Store.applyMu.Lock()
+	defer e.Store.applyMu.Unlock()
 	byID := map[string]*MomentPost{}
-	for _, m := range cands {
+	judged = e.Store.judged(p.Slug)
+	for _, candidate := range cands {
+		m, exists := e.Store.MomentPost(candidate.ID)
+		if !exists {
+			continue
+		}
 		byID[m.ID] = m
 		judged[m.ID] = true // asked: an answer the model left out counts as not related
 	}

@@ -31,6 +31,8 @@ var kbPostsWait = 30 * time.Second
 
 // call passes one of the program's calls on, when this connector may write to the knowledge base now.
 func (k kbPosts) call(ctx context.Context, method string, p assistantwire.KBPosts, out any) error {
+	k.h.kbPostsMu.RLock()
+	defer k.h.kbPostsMu.RUnlock()
 	if k.h.kbReadOnly() {
 		return kb.ErrReadOnly
 	}

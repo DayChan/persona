@@ -42,25 +42,29 @@ func (h *Hub) deviceRoutes(api *http.ServeMux) {
 		writeJSON(w, h.prefsView(h.push.prefs(r.PathValue("id"))))
 	})
 	api.HandleFunc("PUT /api/v1/devices/{id}/prefs", func(w http.ResponseWriter, r *http.Request) {
-		prefs := h.push.prefs(r.PathValue("id"))
-		before := prefs
-		if prefs.Look != nil {
-			look := *prefs.Look
-			before.Look = &look // decoding a partial look mutates the existing pointer
-		}
-		if err := decodeJSONBody(w, r, &prefs, 16<<10); err != nil {
+		// The body is read before the settings are, so a slow upload holds no other change of them.
+		var body json.RawMessage
+		if err := decodeJSONBody(w, r, &body, 16<<10); err != nil {
 			writeBodyErr(w, err, err)
 			return
 		}
-		if err := prefs.Quiet.validate(); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		var bad error // the body's: 400; any other error is the store's
+		before, prefs, err := h.push.editPrefs(r.PathValue("id"), principalOf(r.Context()).ID, func(prefs *NotifyPrefs) error {
+			if bad = json.Unmarshal(body, prefs); bad == nil {
+				bad = prefs.Quiet.validate()
+			}
+			if bad != nil {
+				return bad
+			}
+			// only the roster's managers: a removed one's id would hold one of the 64 places for good (notify.go)
+			prefs.MutedManagers = h.rosterManagers(r.Context(), prefs.MutedManagers)
+			return nil
+		})
+		if bad != nil {
+			writeErr(w, http.StatusBadRequest, bad)
 			return
 		}
-		// only the roster's managers: a removed one's id would hold one of the 64 places for good (notify.go)
-		prefs.MutedManagers = h.rosterManagers(r.Context(), prefs.MutedManagers)
-		raw, _ := json.Marshal(prefs)
-		prefs = devicePrefs(raw) // normalizes an unknown "done"
-		if err := h.push.setPrefsBy(r.PathValue("id"), principalOf(r.Context()).ID, prefs); err != nil {
+		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}

@@ -49,6 +49,23 @@ As part of moving hub business logic into managers (`docs/assistant/assistant.md
 - **Visible differences**: only those under "disconnected" above. The old connector interface the hub read one chat at a time (`connector.Chats`; no connector implements it since the Lark gateway path was removed)
   is no longer read; plugin posts never used it.
 
+## Deleting a connector's saved knowledge (#1836)
+
+The connector settings actions `DELETE /api/v1/connectors/{id}/archive` and `DELETE /api/v1/connectors/{id}/data` share the same knowledge-base cleanup.
+The former switches off knowledge ingestion; the latter switches off the connector and also removes its Inbox entries. They remove:
+
+- Chats and people owned by the connector, including conversations filed under its declared `archive_sources`, with messages, attachments and summaries.
+- Archived posts whose `source` is this connector, including their Markdown and metadata; the Moments index is rewritten from the remaining posts.
+- Documents, meetings and events whose `source` is this connector, with their database index rows.
+- References to the removed entities in projects, the connector's archive cursor and deleted chats' history-import state. Affected projects are marked dirty for rewriting from the remaining content.
+
+The deletion result and audit include `chats`, `people`, `posts` and `items` counts; the HTTP result also includes `inbox` (zero for archive-only deletion).
+New connector ingestion records `connector` on chats and people and `source` on items; document links discovered in chats inherit the chat's connector.
+These fields identify the writer separately from the archive namespace. Explicit ownership prevents one connector from deleting another's records even when their archive source names overlap.
+For older chats and people without `connector`, the connector's own namespace and its unshared archive aliases remain usable for deletion; another registered connector's ID is never an alias for this purpose.
+Legacy items without `source` are deleted only when `where` identifies a chat being deleted. Items without a known owner or source chat, posts without `source`, and legacy records under shared aliases remain saved because their writer cannot be established safely. Old timeline lines that identify chats only by a shared display name also remain; deleting those lines would risk removing another source's history.
+Turning knowledge ingestion off stops items as well as conversations and posts (`docs/extensions/connectors.md`, "Settings › Connectors"). Re-enabling it lets the connector sync again from the reset cursor.
+
 ## Recordings (#3235)
 
 Transcribed text from phone recordings (and watch recordings relayed through the phone) is synced by the phone via `PUT /api/v1/recordings/{id}` ([protocol.md](../protocol/protocol.md) ("Recording sync"), [recording.md](../apple/recording.md)); audio is not uploaded.
