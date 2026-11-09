@@ -20,3 +20,6 @@ repository documentation; when instructions conflict, follow this file.
    open the issue and wait for `chyroc`'s explicit approval before proceeding.
 
    Future super rules must be added as numbered items through this same approval process.
+
+2. **User input message list quick scrolling and selection** follows [the interaction contract](interaction/user-input-navigation.md).
+   Changes to this interaction require updating the contract first and repository-owner review.

@@ -2,9 +2,10 @@
 
 ## Status, scope and change control
 
-**Draft interaction contract for #2061.** This is not a release or acceptance report. It specifies the intended
+**Interaction contract for user-input navigation (#2061).** This is not a release or acceptance report. It specifies the
 shared behavior for navigating the user's inputs in a conversation, with separate touch and desktop-pointer controls.
-No change to the super rules, publication approval, merged implementation or deployed behavior is implied.
+Changes to this contract or its super-rule reference require repository-owner review before merge. Implementation and
+runtime-verification claims are scoped explicitly below.
 
 Read [the super rules](../SUPER_RULES.md) first. **Before changing any behavior or visual effect described here, update
 this specification and obtain review from the repository owner.** That includes reveal/fade behavior, viewport ownership,
@@ -16,13 +17,13 @@ Implementation evidence inspected on 2026-11-09:
 | Area | Evidence and remaining boundary |
 | --- | --- |
 | iOS and server, #2035 | Read-only inspection of an actively edited, unmerged implementation. Independent user-input indexing, bounded landing windows and request fencing are present in source. This does not establish build, simulator, device or server acceptance. |
-| iOS appearance | The inspected navigator opens during a right-edge drag and closes on release/cancellation. Center-touch reveal, scroll-driven idle fade and persistent viewport-owner highlighting are requirements below, **not established by that source**. |
-| Desktop web, #2060 | `NavRail.tsx`, `nav-rail.ts` and the `ChatView.tsx` loaded-message adapter implement the fine-pointer contract below. Unit and browser verification are recorded separately; the independent index remains gated on #2035 being merged. |
+| iOS appearance | The inspected unmerged source now includes passive scroll reveal, a first-visible-row input-interval highlight, token-driven idle fade and a gesture preview containing the input plus an available short answer. These are source observations, not simulator/device acceptance. |
+| Desktop web, #2060 | [PR #2080](https://github.com/nwverse/persona/pull/2080) is merged and deployed. `NavRail.tsx`, `nav-rail.ts` and the `ChatView.tsx` loaded-message adapter implement the fine-pointer contract below; its latest-head browser and unit evidence is linked separately. The independent index remains gated on #2035 being merged. |
 | Other clients and layouts | No implementation claim for native Mac, Vision Pro, Android or watch. The inspected iOS integration is confined to Persona's new conversation layout on iPhone/iPad; existing layouts remain unchanged. |
 
 The current [iOS layout guide](../apple/ios.md#new-conversation-layout-1666) describes the merged baseline, including its
 older tick-range limitation. #2035's unmerged column keeps every fetched mark selectable instead. Reconcile the module
-guide after implementation and owner review; this draft does not silently redefine the shipped baseline.
+guide after implementation and owner review; unmerged source does not silently redefine the shipped baseline.
 
 ## Vocabulary and invariants
 
@@ -36,14 +37,15 @@ guide after implementation and owner review; this draft does not silently redefi
   The web anchor is the scroller's top plus the shared `activeOffset` token (40 CSS pixels), excluding the header and
   composer. Before the first input, the first available input owns the view. An exchange extends to the next genuine
   input, so a long answer keeps its input highlighted across multiple screens. Missing anchors remain unknown. The
-  corresponding iOS scroll-owned highlight is not yet established by the inspected #2035 source.
+  inspected iOS source maps the first source-ordered visible row (visibility threshold 0.01) to its genuine input's
+  sequence and binary-searches the prepared marks; it does not infer ownership from the dragged preview.
 - **Preview selection:** the mark being hovered, dragged over or selected with the keyboard. It may differ from the
   viewport owner; previewing must not scroll the conversation or change reading ownership.
 - **Reading window:** a bounded, contiguous body window around a selected old input, isolated from the live tail.
 
 A preview shows the genuine input and a short available, extractive answer excerpt; it does not fetch bodies or ask a
-model to summarize while the pointer/finger moves. The current web implementation does this. The inspected #2035 iOS
-overlay currently omits the answer, so that part of shared conformance is explicitly pending rather than silently removed.
+model to summarize while the pointer/finger moves. The web implementation and the inspected unmerged iOS source both
+carry an optional short answer; an absent answer must not be borrowed from a later injected or cross-session exchange.
 
 A navigation action is read-only. It must not send a message, resume a runtime, edit the composer, open another session,
 mark an unloaded range as read or claim that skipped bodies have been synchronized.
@@ -55,7 +57,7 @@ mark an unloaded range as read or claim that skipped bodies have been synchroniz
 | Idle conversation | Keep the rail unobtrusive; no open preview and no conversation-layout shift. |
 | Normal conversation scrolling or touch in the central reading area | Reveal the rail and its viewport-owner highlight only. Keep normal scrolling, tapping and selection behavior. No preview selection or jump is caused by this touch. |
 | Pointer enters the rail, or touch begins a qualifying edge drag | Reveal/retain the rail; show the selected mark's preview. Keep viewport-owner and preview-selection states distinguishable. |
-| Pointer remains over the rail/preview, edge drag is active, keyboard focus is inside, or a landing is pending | Do not fade the interactive control out from under the user. A loading state must not look like a completed jump. |
+| Pointer remains over the rail, edge drag is active, keyboard focus is inside, or a landing is pending | Do not fade the interactive control out from under the user. A loading state must not look like a completed jump. |
 | Scroll/pointer/touch activity ends | Briefly retain the rail and transient preview, then fade them after the shared idle delay without moving the conversation. Cancellation closes the preview immediately. |
 | Session changes, view becomes hidden, or interaction is cancelled | Close previews and retire obsolete selections, loading completions and fade timers. Cancellation does not jump. |
 
@@ -63,7 +65,9 @@ Use design-system tokens for rail geometry, hit areas, highlight, preview surfac
 motion tokens where suitable; add missing tokens before UI code. The inspected web geometry/timing token is
 `NAV_RAIL_METRICS`: a 2,000 ms quiet delay followed by a 200 ms opacity transition (disabled under Reduce Motion).
 Hover, focus and an active drag retain visibility; on pointer leave the preview and rail remain briefly, then clear
-without a jump. iOS scroll-driven fade remains pending implementation and owner review.
+without a jump. The inspected iOS source uses `Theme.Motion.edgeScrubLinger` and `Theme.Motion.state` for passive
+fade; its scroll phase/visibility observers reveal and update marks without accepting a central scrub gesture.
+Simulator/device and accessibility acceptance remain separate from these source observations.
 
 Highlight the viewport owner's mark, not merely the nearest visible user bubble: the owning input can be above the loaded
 viewport while its answer is visible. If ownership cannot be established from the available index/window, show it as
@@ -96,7 +100,7 @@ turning every touch into a desktop hover.
 1. Open from the available index; do not wait for conversation bodies. If the independent index is unavailable, use the
    already loaded, filtered inputs and make the limited coverage clear.
 2. During the drag, show a compact preview of the selected **user input** beside the rail. The inspected iOS overlay uses
-   at most two lines and a localized photo label when there is no text. It does not show an answer snippet.
+   at most two input lines and two optional answer lines, with a localized photo label when there is no input text.
 3. An opening haptic and a selection haptic may acknowledge activation and a changed input; do not tick on every movement
    callback over the same input. Haptics are feedback, not the only way to discover or operate the navigator.
 4. Movement changes the preview only. Older-index prefetch is allowed under the rule below; body loading is not.
@@ -131,7 +135,9 @@ it does not implement the iOS edge recognizer or claim touch conformance.
 
 Answer snippets are optional on the wire and bounded. Render plain text, not executable markup or a full tool trace.
 The preview uses plain text capped at 120 characters for the input and 200 for the answer, with three rendered answer
-lines. The current web focus stays on the `nav` landmark (`tabIndex=0`), with Arrow keys, Home/End, Enter/Space and
+lines. It is non-hit-testing (`pointer-events: none`): moving off the edge starts the shared fade delay rather than
+extending a mouse hit zone over conversation text. The current web focus stays on the `nav` landmark (`tabIndex=0`),
+with Arrow keys, Home/End, Enter/Space and
 local Escape. Per-mark labels and `aria-current` distinguish destination and viewport owner; `aria-describedby` ties
 selection to the visible preview, while keyboard-only polite announcements avoid mouse-hover chatter. The invisible
 edge remains Tab-reachable. Pointer capture freezes stable target identities and suppresses the release's synthetic
@@ -255,14 +261,14 @@ implemented in #2060. Browser assertions do not substitute for testing with a ph
 ## Source map and verification boundaries
 
 Paths below identify inspected code, **not merged availability**. New #2035 files are deliberately plain-text references
-until that implementation lands; do not add broken links or waive path checks to make a draft look implemented.
+until that implementation lands; do not add broken links or waive path checks to imply merged availability.
 
 | Responsibility | Source / status |
 | --- | --- |
-| iOS edge recognizer, mark filtering, stable dense column and overlay | `apple/Persona/Views/Chat/ChatEdgeScrub.swift` — inspected unmerged edits. |
+| iOS edge recognizer, passive viewport bookkeeping, mark filtering, stable dense column and input/answer overlay | `apple/Persona/Views/Chat/ChatEdgeScrub.swift` — inspected unmerged edits; `EdgeScrubViewport` maps visible rows to prepared input intervals. |
 | iOS activation, release landing, rendered-group identity, highlight and reading-source switch | `apple/Persona/Views/Chat/ChatView.swift` — inspected unmerged edits. |
 | iOS index warm-up, half-prefetch, history/window isolation and fencing | apple/Persona/Views/Chat/SessionNavigationModel.swift — new unmerged file, absent from the documentation branch baseline. |
-| iOS wire decoder and index/window requests | `apple/Shared/APIClient.swift` — inspected unmerged edits; decodes optional answer, but the touch mark/preview does not retain/display it. |
+| iOS wire decoder and index/window requests | `apple/Shared/APIClient.swift` — inspected unmerged edits; decodes the optional answer retained by `EdgeMark` and rendered in the gesture preview. |
 | Live coverage and non-tail-caching reading store | `apple/Shared/ChatStore.swift`; edge geometry tokens in `apple/Shared/Design/ChatLayoutTokens.swift` — inspected unmerged edits. |
 | Hub forwarding, around/history query and node dispatch | `server/internal/hub/session_routes.go`, `server/internal/hub/http.go`, `server/internal/node/node.go` — inspected unmerged edits. |
 | Lightweight wire marks and parser index/window selection | server/internal/proto/navigation.go; server/internal/transcript/navigation.go; server/internal/node/navigation.go — new unmerged files. |
@@ -270,10 +276,10 @@ until that implementation lands; do not add broken links or waive path checks to
 | Server navigation tests | server/internal/transcript/navigation_test.go; server/internal/node/navigation_test.go; server/internal/hub/navigation_test.go — new unmerged tests for index filtering/paging, bounded windows and forwarding. Read relevant coverage, not executed by this documentation task. |
 | Desktop rail, preview and pointer/keyboard selection | `web/src/views/chat/NavRail.tsx` — right-edge transient overlay, stable pointer capture, preview and scoped keyboard control. |
 | Desktop loaded-message projection and adapter | `web/src/lib/nav-rail.ts`, `web/src/views/chat/ChatView.tsx` — `NavRailSource` keeps selection separate from loaded marks. No remote index or isolated around window is claimed before #2035 integration. |
-| Desktop geometry/timing and browser acceptance | web/src/ui/nav-rail-metrics.ts; web/e2e/user-navigation.mjs — new #2060 files; mock-only wide/narrow, light/dark, hover, click/release, keyboard/Tab, idle fade and 240-input reachability. |
+| Desktop geometry/timing and browser acceptance | `web/src/ui/nav-rail-metrics.ts`; `web/e2e/user-navigation.mjs` — merged in #2080; mock-only wide/narrow, light/dark, hover, click/release, keyboard/Tab, idle fade and 240-input reachability. |
 | Desktop regressions | `web/src/lib/nav-rail.test.ts`, `web/src/views/chat/NavRail.test.tsx` — model, filtering, moving window, cached viewport ownership, stable prepends, focus/fade and StrictMode empty-to-loaded frame cleanup. |
 
-Before marking this contract accepted, verify:
+Any change to this interaction must re-verify:
 
 - [ ] Touch central scroll/reveal does not scrub; vertical edge drag does; horizontal pager/drawer and left back swipe survive.
 - [ ] Reveal, idle fade and destination/viewport-owner highlights work during long replies, image groups, folding and window paging.
@@ -283,7 +289,8 @@ Before marking this contract accepted, verify:
 - [ ] Unloaded commit loads one around window, not the intervening history; live coverage/cache/unread state remain unchanged; latest restores the live source.
 - [ ] Slow/error/missing/stale/unsupported cases and late replies after hide/session/credential replacement never land in the wrong conversation.
 - [ ] Actual light/dark screenshots, touch/pointer interaction and keyboard/screen-reader/Reduce Motion checks pass on the affected clients; long-history performance is measured.
-- [ ] Implementation owner supplies exact PC paths/results; module docs are reconciled; repository owner reviews the specification and any applicable approval gate is satisfied.
+- [ ] Exact implementation paths and module docs stay current; the repository owner reviews the specification and any applicable approval gate is satisfied.
 
-For this documentation-only task, run the [documentation checks](../operations/testing.md) and privacy scan. Those results
-validate documentation, **not** the unmerged iOS/server implementation or pending desktop UX.
+Run the [documentation checks](../operations/testing.md) and privacy scan for documentation changes. Those results
+validate documentation, **not** runtime acceptance of the unmerged iOS/server implementation. Web runtime evidence is
+recorded separately in [PR #2080](https://github.com/nwverse/persona/pull/2080#issuecomment-6733695670).
