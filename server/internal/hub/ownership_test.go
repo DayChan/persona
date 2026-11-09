@@ -257,6 +257,39 @@ func TestMergeListOneManager(t *testing.T) {
 	}
 }
 
+// The done items' history is one manager's page, never merged (a cursor is one manager's): the one the request names,
+// else the default. Its items are stamped with it as a merged list's are, and the rest of the answer (the cursor) is as
+// the manager gave it; a manager named but away is 503, an unknown one 404.
+func TestInboxHistoryIsOneManagersPage(t *testing.T) {
+	h, srv, _ := newBusHub(t)
+	connectFakeManager(t, h, srv, assistantwire.AssistantID)
+	b := connectFakeManager(t, h, srv, "m-0a0b0c")
+	for _, tc := range []struct {
+		path   string
+		header map[string]string
+		want   string
+	}{
+		{"/api/v1/inbox/done?limit=2", nil, assistantwire.AssistantID},
+		{"/api/v1/inbox/done?limit=2", map[string]string{ManagerHeader: "m-0a0b0c"}, "m-0a0b0c"},
+		{"/api/v1/inbox/done?manager=m-0a0b0c", nil, "m-0a0b0c"},
+	} {
+		code, out := ownershipGet(t, h, srv, http.MethodGet, tc.path, tc.header)
+		items, _ := out["items"].([]any)
+		if code != http.StatusOK || out["who"] != tc.want || out["as_of"] != "t" || len(items) != 1 ||
+			items[0].(map[string]any)["manager"] != tc.want || items[0].(map[string]any)["id"] != "item-"+tc.want {
+			t.Fatalf("%s %v: %d %v, want %s's page alone", tc.path, tc.header, code, out, tc.want)
+		}
+	}
+	if code, out := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/inbox/done", map[string]string{ManagerHeader: "m-ffffff"}); code != http.StatusNotFound || out["code"] != "no_manager" {
+		t.Fatalf("unknown manager: %d %v", code, out)
+	}
+	_ = b.bus.ws.Close(websocket.StatusNormalClosure, "test")
+	eventually(t, 5*time.Second, "m-0a0b0c offline", func() bool { return h.busConnOf("m-0a0b0c") == nil })
+	if code, out := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/inbox/done", map[string]string{ManagerHeader: "m-0a0b0c"}); code != http.StatusServiceUnavailable || out["code"] != assistantwire.CodeAssistantOffline {
+		t.Fatalf("offline manager named: %d %v", code, out)
+	}
+}
+
 // Acting on an inbox item's suggestion or handing it off goes to the item's manager, as its reply does: the one the
 // request names, else the default; the assistant being offline says nothing of another manager's item.
 func TestInboxSuggestionGoesToTheItemsManager(t *testing.T) {

@@ -434,7 +434,14 @@ To-dos do not store a separate tree. Code: `assistant/inbox_parent.go`.
   Moments, and other connectors (their events / setting changes also trigger this full round); mail every 3 minutes. Previously every Lark event read all of them (#674). Pull-to-refresh
   (`POST /api/v1/inbox/refresh`) collects everything immediately. Changes write `inbox_items` and push `{"type":"inbox"}`, prompting App refetch; new plugin-connector items store / push only after triage ("AI triage").
 - **Done** is recorded only in Persona (`done_at`, `done_by=user`; ignored items use `dismissed`, see "Clean up all"; one replaced by the new thread rule uses `superseded`). It does not change Lark or mail read state. Done items remain listed for 3 days, reopenable at the bottom,
-  and are deleted from the database after 8 days (meanwhile preventing old still-unread Lark messages from resurfacing).
+  and the manager holds them in memory for 8 days (meanwhile preventing old still-unread Lark messages from resurfacing); it loads only open items and those done within 8 days.
+- **History** (#2200): done rows stay in `inbox_items` for 90 days (`inboxKeepHistory`); the manager deletes older ones at load and from the collection rounds at most hourly.
+  `GET /api/v1/inbox/done` pages them newest done first (`inbox_history.go`, `docs/protocol/protocol.md`), keyset on `(done_at, id)`: a bulk action files many items at one instant,
+  so a `done_at`-only cursor would repeat or skip them. The existing index `inbox_items_open` (`done_at` first) serves the pages; no migration. A manager without a database pages the done items it holds.
+  Each manager pages its own: the hub stamps the items with `manager` but never merges pages (a cursor is one manager's); the apps ask each manager and merge.
+  A history item memory no longer holds still opens (`GET /api/v1/inbox/{id}` reads its row, read-only) and can be reopened (`/{id}/done` with `done:false`, `/bulk` `reopen`,
+  `/done` with `done:false` load its row into memory first); filing it again finds no item (404 / `missing`), as before. Without a database there is nothing to fall back to.
+  Deleting a source's data (`inbox.forget`) deletes its history rows too.
 - Read elsewhere (Lark / another mail client): mark `read`; non-Needs you items become done (`done_by=read`). Needs you remains open, but unread count becomes zero and me / everyone mention flags clear (no longer unread mentions). Rule-tiered items are retiered using current rules after reading; no longer Needs you means done.
   Already-read open items with remaining unread count or stale rule tiers (read before a rule change) are reconciled next round (#798).
 - A reply by me in Lark (latest chat message is mine, newer than the item) handles it (`done_by=replied`).

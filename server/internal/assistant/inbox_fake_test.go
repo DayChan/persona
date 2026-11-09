@@ -19,6 +19,7 @@ import (
 	"github.com/nwverse/persona/server/internal/ai"
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/connector"
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/kb"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -388,14 +389,74 @@ func (s *inboxMemStore) InboxItems(_ context.Context, doneSince time.Time) ([][]
 	return out, nil
 }
 
-func (s *inboxMemStore) DeleteInboxItems(_ context.Context, ids []string) error {
+func (s *inboxMemStore) DeleteInboxSource(_ context.Context, source string, ids []string) ([]string, error) {
 	s.imu.Lock()
 	defer s.imu.Unlock()
-	for _, id := range ids {
-		delete(s.rows, id)
-		delete(s.done, id)
+	var gone []string
+	for id, raw := range s.rows {
+		var it struct {
+			Source string `json:"source"`
+		}
+		_ = json.Unmarshal(raw, &it)
+		if slices.Contains(ids, id) || it.Source == source {
+			delete(s.rows, id)
+			delete(s.done, id)
+			gone = append(gone, id)
+		}
 	}
-	return nil
+	return gone, nil
+}
+
+func (s *inboxMemStore) PurgeInboxItems(_ context.Context, doneBefore time.Time) (int64, error) {
+	s.imu.Lock()
+	defer s.imu.Unlock()
+	var n int64
+	for id, d := range s.done {
+		if d != nil && d.Before(doneBefore) {
+			delete(s.rows, id)
+			delete(s.done, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (s *inboxMemStore) DoneInboxItemsByID(_ context.Context, ids []string) ([][]byte, error) {
+	s.imu.Lock()
+	defer s.imu.Unlock()
+	if s.fail != nil {
+		return nil, s.fail
+	}
+	var out [][]byte
+	for _, id := range ids {
+		if raw, ok := s.rows[id]; ok && s.done[id] != nil {
+			out = append(out, raw)
+		}
+	}
+	return out, nil
+}
+
+// DoneInboxItems pages the done rows as the database does (newest done first by done_at and id), through the order
+// memory pages its own in (inboxBook.doneItems).
+func (s *inboxMemStore) DoneInboxItems(_ context.Context, q db.InboxDoneQuery) ([]db.InboxRow, error) {
+	s.imu.Lock()
+	defer s.imu.Unlock()
+	if s.fail != nil {
+		return nil, s.fail
+	}
+	b := newInbox()
+	for id, raw := range s.rows {
+		var it InboxItem
+		if json.Unmarshal(raw, &it) == nil && s.done[id] != nil {
+			it.ID, it.DoneAt = id, s.done[id]
+			b.items[id] = &it
+		}
+	}
+	var out []db.InboxRow
+	for _, it := range b.doneItems(q) {
+		out = append(out, db.InboxRow{ID: it.ID, Data: s.rows[it.ID], UpdatedAt: it.UpdatedAt, DoneAt: it.DoneAt})
+	}
+	return out, nil
 }
 
 // writeFails makes every row write fail (on) or succeed again.

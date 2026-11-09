@@ -26,6 +26,13 @@ var mergedLists = map[string]string{
 	"GET /api/v1/connectors": "connectors",
 }
 
+// pagedLists are list routes paged by a cursor (route → the array that is the list): a cursor is one manager's, so
+// these are never merged. The manager the request names answers, else the default (pagedList); each item gets
+// "manager" as in a merged list, so it is reached the same way. The apps ask each manager and merge the pages.
+var pagedLists = map[string]string{
+	"GET /api/v1/inbox/done": "items",
+}
+
 // listAnswer is one manager's answer to a list request.
 type listAnswer struct {
 	id     string
@@ -155,6 +162,18 @@ func (h *Hub) mergeList(w http.ResponseWriter, r *http.Request, key string, ask 
 		answers = append(answers, listAnswer{id: id, status: cmp.Or(bw.status, http.StatusOK), header: bw.header, body: bw.body.Bytes()})
 	}
 	writeMerged(w, key, answers)
+}
+
+// pagedList answers a request on one of pagedLists: the one manager's answer (the one it names, an extension's own,
+// else the default), each item under key stamped with it; the rest of the answer (the cursor) as it is.
+func (h *Hub) pagedList(w http.ResponseWriter, r *http.Request, key string, ask func(w http.ResponseWriter, r *http.Request, id string)) {
+	id, ok := h.owner(w, r, h.byRequest)
+	if !ok {
+		return
+	}
+	bw := newBufferedWriter()
+	ask(bw, r, id)
+	writeMerged(w, key, []listAnswer{{id: id, status: cmp.Or(bw.status, http.StatusOK), header: bw.header, body: bw.body.Bytes()}})
 }
 
 // writeMerged writes answers merged (see mergeList).

@@ -47,11 +47,11 @@ func (s *inboxOrderStore) InboxItems(ctx context.Context, doneSince time.Time) (
 	return s.inboxMemStore.InboxItems(ctx, doneSince)
 }
 
-func (s *inboxOrderStore) DeleteInboxItems(ctx context.Context, ids []string) error {
+func (s *inboxOrderStore) DeleteInboxSource(ctx context.Context, source string, ids []string) ([]string, error) {
 	if s.deleteEntered != nil {
 		s.deleteOnce.Do(func() { close(s.deleteEntered) })
 	}
-	return s.inboxMemStore.DeleteInboxItems(ctx, ids)
+	return s.inboxMemStore.DeleteInboxSource(ctx, source, ids)
 }
 
 func (s *inboxOrderStore) hasRow(id string) bool {
@@ -197,12 +197,12 @@ type inboxForgetStore struct {
 	calls      atomic.Int32
 }
 
-func (s *inboxForgetStore) DeleteInboxItems(ctx context.Context, ids []string) error {
+func (s *inboxForgetStore) DeleteInboxSource(ctx context.Context, source string, ids []string) ([]string, error) {
 	s.calls.Add(1)
 	if s.deleteFail != nil {
-		return s.deleteFail
+		return nil, s.deleteFail
 	}
-	return s.inboxMemStore.DeleteInboxItems(ctx, ids)
+	return s.inboxMemStore.DeleteInboxSource(ctx, source, ids)
 }
 
 // InboxForget deletes the rows before dropping items from memory: a failed delete keeps everything in place, and the

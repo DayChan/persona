@@ -519,12 +519,13 @@ func TestInboxForgottenItemsDropTheirDeliveryLocks(t *testing.T) {
 	if got := tellingLocks(h); got != n {
 		t.Fatalf("%d delivery locks after %d deliveries", got, n)
 	}
-	// Half are settled long ago: the next round forgets them.
+	// Half are settled long ago (and stored so: their rows stay as history): the next round forgets them.
 	h.inbox.mu.Lock()
 	for _, it := range items[:n/2] {
 		it.Source, it.DoneAt = "kept", &old
 	}
 	h.inbox.mu.Unlock()
+	h.saveInbox(ctx, items[:n/2])
 	h.collectInbox(ctx, roundPoll)
 	h.inbox.mu.Lock()
 	for _, it := range items[:n/2] {

@@ -283,6 +283,7 @@ func TestAnswerRoleOnlyWhatTheWatchDoes(t *testing.T) {
 		{"GET", "/api/v1/devices/x/prefs", false},
 		{"GET", "/api/v1/devices/x/sessions", false},
 		{"GET", "/api/v1/inbox/x", false},
+		{"GET", "/api/v1/inbox/done", false},       // the done items' history: the watch lists only the inbox
 		{"POST", "/api/v1/inbox/x/handoff", false}, // it writes in the main conversation
 		{"GET", "/api/v1/inbox/mutes", false},
 		{"GET", "/api/v1/plugins/x/y", false},

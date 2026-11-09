@@ -33,5 +33,7 @@
   "cannot_policy": "この項目にはその条件でルールを設定できません。",
   "policy_tier": "tier は action・fyi・noise または空にしてください。",
   "policy_twin": "twin は first・never または空にしてください。",
-  "no_policy": "その受信箱ルールはありません。"
+  "no_policy": "その受信箱ルールはありません。",
+  "history_limit": "limit は1〜{max}の数値にしてください。",
+  "history_cursor": "before はRFC 3339形式の時刻にしてください。before_id は before と一緒に指定します。"
 }

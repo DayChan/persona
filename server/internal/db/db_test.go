@@ -1001,7 +1001,7 @@ func TestInboxItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(rows) != 1 {
-		t.Fatalf("rows = %d, want the old done item gone", len(rows))
+		t.Fatalf("rows = %d, want the old done item left out", len(rows))
 	}
 	var it struct {
 		Count int `json:"count"`
@@ -1010,9 +1010,9 @@ func TestInboxItems(t *testing.T) {
 		t.Fatalf("row = %s", rows[0])
 	}
 	// Deleted for good: a source taken back.
-	_ = d.PutInboxItem(ctx, "imessage:1", []byte(`{"id":"imessage:1"}`), now, nil)
-	if err := d.DeleteInboxItems(ctx, []string{"imessage:1"}); err != nil {
-		t.Fatal(err)
+	_ = d.PutInboxItem(ctx, "imessage:1", []byte(`{"id":"imessage:1","source":"imessage"}`), now, nil)
+	if gone, err := d.DeleteInboxSource(ctx, "imessage", nil); err != nil || len(gone) != 1 || gone[0] != "imessage:1" {
+		t.Fatalf("delete the source: %v %v", gone, err)
 	}
 	if rows, _ := d.InboxItems(ctx, now.Add(-8*24*time.Hour)); len(rows) != 1 {
 		t.Fatalf("rows after delete = %d", len(rows))

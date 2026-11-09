@@ -33,5 +33,7 @@
   "cannot_policy": "this item cannot get a rule by that",
   "policy_tier": "tier must be action, fyi, noise or empty",
   "policy_twin": "twin must be first, never or empty",
-  "no_policy": "no such inbox rule"
+  "no_policy": "no such inbox rule",
+  "history_limit": "limit must be a number from 1 to {max}",
+  "history_cursor": "before must be an RFC 3339 time, and before_id comes with it"
 }

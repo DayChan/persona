@@ -33,5 +33,7 @@
   "cannot_policy": "这条内容不能按该选项设置规则。",
   "policy_tier": "档位只能是 action、fyi、noise 或留空。",
   "policy_twin": "AI 分身只能是 first、never 或留空。",
-  "no_policy": "没有这条收件箱规则。"
+  "no_policy": "没有这条收件箱规则。",
+  "history_limit": "limit 必须是 1–{max} 之间的数字。",
+  "history_cursor": "before 必须是 RFC 3339 时间，before_id 需要与 before 一起提供。"
 }

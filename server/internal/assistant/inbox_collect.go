@@ -84,6 +84,7 @@ func (s *Service) InboxCollected(ctx context.Context, r assistantwire.InboxRound
 	readsChanged := b.recordReads(r)
 	batch := b.batch
 	batch.registered = r.Names
+	// Done past inboxForget leaves memory; its row stays as history until purgeInboxHistory (below) deletes it.
 	for id, it := range b.items {
 		if it.DoneAt != nil && time.Since(*it.DoneAt) > inboxForget {
 			b.drop(id)
@@ -103,6 +104,9 @@ func (s *Service) InboxCollected(ctx context.Context, r assistantwire.InboxRound
 	b.batch = nil
 	b.mu.Unlock()
 	s.saveInboxUndo(ctx, changed, s.undoWrites(ws, "what the round changed"))
+	if st := s.inboxDB(); st != nil {
+		s.purgeInboxHistory(ctx, st, now)
+	}
 	if readsChanged && len(changed) == 0 {
 		s.inboxChanged(ctx, nil) // nothing came in, but which sources could be read did (saveInbox tells otherwise)
 	}

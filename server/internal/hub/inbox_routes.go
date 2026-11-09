@@ -27,6 +27,10 @@ func (h *Hub) inboxRoutesRelayed(api *http.ServeMux) {
 			api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.mergeList(w, r, key, h.forwardHTTP) })
 			continue
 		}
+		if key, ok := pagedLists[pattern]; ok { // the done items' history: one manager's page, its items stamped
+			api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.pagedList(w, r, key, h.forwardHTTP) })
+			continue
+		}
 		if pattern == "POST /api/v1/inbox/{id}/reply" {
 			receipt := h.withReplyReceipt("inbox_reply", func(w http.ResponseWriter, r *http.Request) {
 				h.forwardSend(w, r, managerOfContext(r))

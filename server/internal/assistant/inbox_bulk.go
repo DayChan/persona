@@ -149,6 +149,13 @@ func (s *Service) setInboxBulk(ctx context.Context, action string, targets []inb
 	res := inboxBulkResult{Changed: []InboxItem{}, Unchanged: []string{}, Skipped: []inboxBulkSkip{}, Failed: []string{}}
 	var writes []*inboxFiling
 	seen := map[string]bool{}
+	if !done { // the done past inboxForget come back from their rows to be reopened (inbox_history.go)
+		ids := make([]string, 0, len(targets))
+		for _, t := range targets {
+			ids = append(ids, t.ID)
+		}
+		s.restoreInbox(ctx, ids)
+	}
 	b := &s.inbox
 	b.mu.Lock()
 	if filter != nil {

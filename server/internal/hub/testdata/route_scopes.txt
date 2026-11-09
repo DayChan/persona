@@ -148,6 +148,7 @@ assistant.ask        GET /api/v1/assistant/reporters
 -                    GET /api/v1/imessage/chats
 -                    GET /api/v1/imessage/chats/{id}/messages
 inbox.read           GET /api/v1/inbox
+inbox.read           GET /api/v1/inbox/done
 inbox.read           GET /api/v1/inbox/mutes
 inbox.read           GET /api/v1/inbox/policies
 inbox.read           GET /api/v1/inbox/tree/{kind}/{id...}
