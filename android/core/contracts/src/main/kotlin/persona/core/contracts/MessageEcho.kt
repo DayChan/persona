@@ -44,14 +44,17 @@ object MessageEcho {
     fun tag(item: Item): String? = item.clientMsgId?.takeIf { it.isNotEmpty() }
 
     /** [item] may be the copy of a message sent from here: tagged (whatever its kind: a notice, an image), or a user text. */
-    fun candidate(item: Item): Boolean = tag(item) != null || (item.role == "user" && item.kind == "text")
+    private fun userText(item: Item): Boolean = item.role == "user" && item.kind == "text" &&
+        item.source == null && item.injected == null && item.from.isNullOrBlank()
+
+    fun candidate(item: Item): Boolean = tag(item) != null || userText(item)
 
     /**
      * [item] carries the message sent as [clientMessageId]: tagged with it (a tagged item is no other message's), or,
      * untagged, a user text with it as its own id (runtimes that keep the client message id).
      */
     fun carries(item: Item, clientMessageId: String): Boolean =
-        tag(item)?.let { it == clientMessageId } ?: (item.role == "user" && item.kind == "text" && item.id == clientMessageId)
+        tag(item)?.let { it == clientMessageId } ?: (userText(item) && item.id == clientMessageId)
 
     /**
      * [item] is the message [text] written at [createdAt] (epoch millis): an untagged user message (a tagged one is
@@ -60,7 +63,7 @@ object MessageEcho {
      * "continue") is not it.
      */
     fun arrived(text: String, createdAt: Long, item: Item): Boolean {
-        if (tag(item) != null || item.role != "user" || item.kind != "text") return false
+        if (tag(item) != null || !userText(item)) return false
         val at = item.ts?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         if (at != null && at < createdAt - CLOCK_SLACK_MILLIS) return false
         val words = item.text.orEmpty()

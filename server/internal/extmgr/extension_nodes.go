@@ -396,7 +396,7 @@ func (h *Manager) syncExtensionNodes(ctx context.Context, m *Machine) {
 	var programs []proto.PluginNodeProgram
 	var installed []string
 	var slots []proto.PluginNodeIdentity
-	all := ps.reg.List()
+	all := ps.reg.Snapshots()
 	online := m.isOnline()
 	var capability proto.PluginNodeIdentityReply
 	if online {
@@ -570,7 +570,7 @@ func (h *Manager) extensionLeaseLoop(ctx context.Context) {
 				continue
 			}
 			var ids []string
-			for _, p := range h.extensions.reg.List() {
+			for _, p := range h.extensions.reg.Snapshots() {
 				if h.extensions.nodeRunsOn(ctx, p, m) {
 					ids = append(ids, p.Record.ID)
 				}

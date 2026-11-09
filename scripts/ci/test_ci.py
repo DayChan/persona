@@ -1,7 +1,7 @@
 import json
 import os
-import re
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -67,13 +67,9 @@ class PathTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), paths.select_lanes([], "server,web"))
 
-    def test_heavy_lanes_are_explicitly_manual_without_hiding_failures(self):
-        selected = paths.select_lanes([], "all")
-        for event in ("pull_request", "merge_group"):
-            automatic = paths.apply_event_policy(selected, event)
-            self.assertEqual({name for name, needed in automatic.items() if needed}, {"web", "runtimes"})
-        self.assertTrue(all(paths.apply_event_policy(selected, "workflow_dispatch").values()))
-        self.assertTrue(all(selected.values()))
+    def test_explicit_all_selects_every_platform(self):
+        self.assertTrue(all(paths.select_lanes([], "all").values()))
+        self.assertTrue(all(paths.select_lanes([], all_platforms=True).values()))
 
     def test_unrelated_client_screens_do_not_start_server(self):
         for filename in ("android/feature/settings/Screen.kt", "android/app/build.gradle.kts", "apple/Mac/Screen.swift"):
@@ -174,30 +170,45 @@ class PullRequestBaseTests(unittest.TestCase):
         self.assertEqual(self.run_paths("--print-base", "--base", self.tip)[0], self.tip)
 
 
-class AutomaticWorkflowTests(unittest.TestCase):
-    def test_pr_checks_allocate_only_the_final_job(self):
+class ManualWorkflowTests(unittest.TestCase):
+    def test_dispatch_defaults_to_every_platform(self):
         root = Path(__file__).resolve().parents[2]
-        workflow = (root / '.github/workflows/ci.yml').read_text()
-        changes = workflow.split('\n  changes:\n', 1)[1].split('\n  server:\n', 1)[0]
-        self.assertIn("if: github.event_name == 'workflow_dispatch'", changes)
+        workflows = sorted((root / '.github/workflows').glob('*.yml'))
+        self.assertTrue(workflows)
+        for workflow in workflows:
+            text = workflow.read_text()
+            trigger = text.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
+            self.assertNotIn('    branches:', trigger, workflow.name)
+            self.assertNotIn('    branch:', trigger, workflow.name)
+            if workflow.name == 'hub-image.yml':
+                self.assertIn("    tags: ['v*']", trigger)
+                self.assertIn('  push:', trigger, workflow.name)
+            else:
+                self.assertNotIn('  push:', trigger, workflow.name)
+            triggers = {name for name in ('merge_group', 'pull_request', 'pull_request_target',
+                                          'schedule', 'workflow_dispatch', 'workflow_run')
+                        if f'  {name}:' in trigger}
+            for name in ('merge_group', 'pull_request', 'pull_request_target', 'schedule', 'workflow_run'):
+                self.assertNotIn(name, triggers, workflow.name)
+            self.assertIn('workflow_dispatch', triggers, workflow.name)
+        ci = (root / '.github/workflows/ci.yml').read_text()
+        self.assertNotIn('pull_request:', ci)
+        full = ci.split('      full:\n', 1)[1].split('      lanes:\n', 1)[0]
+        self.assertIn('type: boolean', full)
+        self.assertIn('default: true', full)
+        selection = ci.split('      - id: paths\n', 1)[1].split('\n  server:\n', 1)[0]
+        self.assertIn('CI_FULL: ${{ inputs.full }}', selection)
+        self.assertIn('if [ "$CI_FULL" = true ]; then', selection)
+        self.assertIn('python3 scripts/ci/paths.py --all', selection)
         for name in ('server', 'web', 'android', 'apple', 'apple_macos', 'runtimes', 'scripts'):
-            block = re.split(r'\n  [a-z_]+:\n', workflow.split('\n  ' + name + ':\n', 1)[1], maxsplit=1)[0]
+            block = re.split(r'\n  [a-z_]+:\n', ci.split('\n  ' + name + ':\n', 1)[1], maxsplit=1)[0]
             self.assertIn('needs: changes', block)
             self.assertIn('needs.changes.outputs.', block)
-        gate = workflow.split('\n  required:\n', 1)[1]
+        gate = ci.split('\n  required:\n', 1)[1]
         self.assertIn('if: always()', gate)
-        for command in ('scripts/ci/guards.sh', 'scripts/ci/web.sh', 'scripts/ci/runtimes.sh',
-                        'scripts/test/test_doc_paths.py', 'scripts/test/test_doc_go_paths.py',
-                        'scripts/test/test_doc_wire.py',
-                        "python3 -m unittest discover -s scripts/ci -p 'test_*.py'"):
-            self.assertIn(command, gate)
-        dependencies = gate.index('run: python3 -m pip install -r scripts/ci/requirements.txt')
-        self.assertLess(dependencies, gate.index('python3 scripts/test/test_readme_languages.py'))
-        self.assertIn("python-version: '3.11'", gate)
-        manual_gate = gate.split('- name: Verify selected manual platform results', 1)[1]
-        self.assertIn("if: github.event_name == 'workflow_dispatch'", manual_gate)
-        self.assertIn('run: python3 scripts/ci/required.py', manual_gate)
-        self.assertNotIn('continue-on-error:', workflow)
+        self.assertIn('run: python3 scripts/ci/required.py', gate)
+        self.assertNotIn('continue-on-error:', ci)
+        self.assertNotIn('pull_request', ci)
 
 
 class RequiredTests(unittest.TestCase):
@@ -249,7 +260,7 @@ class AppleWorkflowTests(unittest.TestCase):
         mac = workflow.split('\n  apple_macos:\n', 1)[1].split('\n  runtimes:\n', 1)[0]
         for block, lane in ((ios, 'ios'), (mac, 'macos')):
             self.assertIn('    needs: changes\n', block)
-            self.assertIn("    if: needs.changes.outputs.apple == 'true' && github.event_name == 'workflow_dispatch'", block)
+            self.assertIn("    if: needs.changes.outputs.apple == 'true'", block)
             self.assertIn('    uses: ./.github/workflows/apple-test.yml', block)
             self.assertIn('      lane: ' + lane, block)
         gate = workflow.split('\n  required:\n', 1)[1]

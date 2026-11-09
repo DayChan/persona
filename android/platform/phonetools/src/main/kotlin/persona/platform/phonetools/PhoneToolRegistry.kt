@@ -13,7 +13,7 @@ class PhoneToolRegistry(
     private val available: () -> Boolean,
     private val foreground: () -> Boolean,
     private val permitted: (String, PhoneSource) -> Boolean,
-    private val confirm: suspend (PhoneConfirmationText) -> Boolean,
+    private val confirm: suspend (PhoneConfirmationText) -> PhoneConfirmation,
     private val execute: suspend (String, JsonObject) -> PhoneToolResult,
 ) {
     private val lock = Mutex()
@@ -31,11 +31,16 @@ class PhoneToolRegistry(
                 ?: return@withLock PhoneToolText.unknownTool(call.name, enabledSpecs().map { it.name }).also { remember(call, it) }
             refusal(tool)?.let { return@withLock it.also { result -> remember(call, result) } }
             // Arguments that cannot even be shown are refused before anyone is asked.
-            val approved = tool.confirmation?.let { summary -> confirm(summary(call.args)) } ?: true
-            if (!approved) PhoneToolText.declined()
-            else {
-                refusal(tool)?.let { return@withLock it.also { result -> remember(call, result) } }
-                withTimeoutOrNull(EXECUTION_TIMEOUT_MILLIS) { execute(call.name, call.args) } ?: PhoneToolText.timedOut()
+            when (tool.confirmation?.let { summary -> confirm(summary(call.args)) } ?: PhoneConfirmation.Allowed) {
+                PhoneConfirmation.Allowed -> {
+                    refusal(tool)?.let { return@withLock it.also { result -> remember(call, result) } }
+                    withTimeoutOrNull(EXECUTION_TIMEOUT_MILLIS) { execute(call.name, call.args) } ?: PhoneToolText.timedOut()
+                }
+                // only a tap on Deny is a refusal (#1875)
+                PhoneConfirmation.Denied -> PhoneToolText.declined()
+                PhoneConfirmation.Unanswered -> PhoneToolText.unanswered()
+                PhoneConfirmation.NotShown -> PhoneToolText.notShown()
+                PhoneConfirmation.Withdrawn -> PhoneToolText.interrupted()
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: PhoneToolFailure) {
@@ -74,6 +79,19 @@ internal object PhoneToolText {
     const val DECLINED = "The user declined on the phone."
 
     fun declined() = PhoneToolResult.text(DECLINED, true)
+
+    /** Nobody answered the confirmation in time: not a refusal, and nothing was saved. */
+    fun unanswered() = PhoneToolResult.text(
+        "手机上没人确认 / Nobody approved or declined this on the phone within " +  // i18n-ignore: tool result for the model
+            "${PhoneConfirmations.TIMEOUT_MILLIS / 1000} seconds, so it was not saved and the confirmation was taken back. " +
+            "This is not a refusal: tell the user, and call it again when they can approve it on the phone.", true)
+
+    /** The confirmation could not be shown at all: Persona was in the background with its notifications off. */
+    fun notShown() = PhoneToolResult.text(
+        "手机上没能显示确认 / The confirmation could not be shown on the phone: Persona is in the background and its " +  // i18n-ignore: tool result for the model
+            "notifications (or the Phone action confirmations channel) are turned off. Nothing was saved, and the user " +
+            "did not refuse. Ask the user to open Persona on the phone, or turn its notifications on in Android Settings › " +
+            "Apps › Persona › Notifications, then call it again.", true)
 
     fun unknownTool(name: String, available: List<String>) = PhoneToolResult.text(
         "未知工具 / Unknown tool: $name. 可用工具 / Available tools: ${available.joinToString(", ")}.", true)  // i18n-ignore: tool result for the model

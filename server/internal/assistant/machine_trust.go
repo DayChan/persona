@@ -22,6 +22,29 @@ type MachineTrust interface {
 	PendingMachineIDs(ctx context.Context) ([]string, error)
 }
 
+// pendingAssistantMachine names a computer to confirm when the main conversation has no confirmed computer.
+// The pending list can include other managers' computers: only offer one of our own, excluding work computers.
+// Read it fresh so confirmation or deletion is reflected without waiting for the authorization cache to expire.
+func (s *Service) pendingAssistantMachine(ctx context.Context) (Device, bool) {
+	if s.trustSrc == nil || s.devs == nil {
+		return Device{}, false
+	}
+	pending, err := s.trustSrc.PendingMachineIDs(ctx)
+	if err != nil {
+		return Device{}, false // unknown trust is not evidence of a computer waiting for confirmation
+	}
+	var chosen Device
+	for _, d := range s.devs.List() {
+		if d.ID == "" || d.Trust == "work" || !slices.Contains(pending, d.ID) {
+			continue
+		}
+		if chosen.ID == "" || d.ID < chosen.ID {
+			chosen = Device{ID: d.ID, Name: firstNonEmpty(d.Name, d.ID)}
+		}
+	}
+	return chosen, chosen.ID != ""
+}
+
 // trustFor is how long a read of the pending computers is used.
 const trustFor = 5 * time.Second
 

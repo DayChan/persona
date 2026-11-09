@@ -4,7 +4,7 @@
 - Agents：需要你 0 个，完成未看 1 个，工作中 2 个（详情用 agents_list）
   - 完成未看：整理文档（mac-a，session_id=a9b8c7d6）；计划 2/2
   - 工作中：修横屏崩溃（计划 3/5：Reproducing the crash in landscape）；没有计划
-- 从对话开的任务（task_plan；用 agent_send 对它的 Agent 说话）：
+- 从对话开的任务（task_plan；问已有结果看这里，不够用 agent_read 读它的对话；要它新查、新做或改方向才用 agent_send）：
   - 修横屏崩溃（todo_1）：在做，mac-a session_id=e1f2a3b4：先复现；计划 3/5：Reproducing the crash in landscape
   - 修横屏布局（todo_4）：在做，mac-a session_id=e1f2a3b4：先复现；计划 3/5：Reproducing the crash in landscape；它最近向你汇报（11 分钟前）：进度：在找视图
   - 修竖屏（todo_2）：在做，mac-a session_id=e1f2a3b4：先复现；它最近向你汇报（2 分钟前）：进度，第 4/5 步：崩溃复现了，在改

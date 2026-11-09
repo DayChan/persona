@@ -30,7 +30,6 @@
   "server/internal/assistant/feishu_cards_test.go": 5,
   "server/internal/assistant/feishu_elsewhere_test.go": 3,
   "server/internal/assistant/feishu_mirror_retry_test.go": 4,
-  "server/internal/assistant/feishu_push_test.go": 2,
   "server/internal/assistant/feishu_thread_open_test.go": 1,
   "server/internal/assistant/feishu_thread_posts_test.go": 1,
   "server/internal/assistant/feishu_thread_test.go": 1,

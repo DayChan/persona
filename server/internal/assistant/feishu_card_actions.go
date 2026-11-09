@@ -51,8 +51,8 @@ func (s *Service) botCardAction(ctx context.Context, a *feishubot.CardAction, ac
 		if errors.Is(err, errAcceptStore) { // the asks could not be read or saved: not accepted, the button works again
 			return toast("error", i18n.T(l, "http-status.unavailable"))
 		}
-		if err != nil { // a recommendation that did not reach the agent: not taken, the button works again
-			return toast("error", i18n.T(l, "assistant-reports.accept_not_sent", i18n.Args{"error": clip(oneLine(err.Error()), 120)}))
+		if err != nil { // a recommendation that did not reach the agent: not taken, nothing recorded, the button works again
+			return toast("error", i18n.T(l, "assistant-reports.accept_not_taken", i18n.Args{"error": clip(oneLine(i18n.Localize(err, l)), 120)}))
 		}
 		if ok {
 			return toast("success", acceptedNote(l, &ask)) // "verified", "got it", or the recommendation taken (conclusion.go)

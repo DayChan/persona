@@ -25,14 +25,17 @@ func tt(l i18n.Lang, key string, args ...i18n.Args) string {
 	return i18n.T(l, transcriptNS+key, args...)
 }
 
-// localizedItems is items as an app reading l gets them: a copy with the node's Chinese lines rewritten, or items
-// itself when nothing changes (zh-Hans, nothing recognized). items is never written to: the node's slice is shared.
+// localizedItems is items as an app reading l gets them: a copy with recognized notices localized, or items itself
+// when nothing changes. Refusal records receive an explanation in every language. The node's slice is shared.
 func localizedItems(l i18n.Lang, items []proto.Item) []proto.Item {
-	if l == i18n.ZhHans || !i18n.Valid(l) {
-		return items
+	if !i18n.Valid(l) {
+		l = i18n.ZhHans
 	}
 	var out []proto.Item
 	for i := range items {
+		if l == i18n.ZhHans && items[i].ModelRefusal == nil {
+			continue
+		}
 		it, ok := localizedItem(l, items[i])
 		if !ok {
 			continue
@@ -57,6 +60,8 @@ func localizedItem(l i18n.Lang, it proto.Item) (proto.Item, bool) {
 		}
 	}
 	switch {
+	case it.Kind == proto.KindNotice && it.ModelRefusal != nil:
+		set(&it.Text, modelRefusalText(l, it.ModelRefusal))
 	case it.Kind == proto.KindNotice && it.Task != nil:
 		set(&it.Text, taskNoteText(l, it.Task, it.Text))
 	case it.Kind == proto.KindNotice:
@@ -70,6 +75,16 @@ func localizedItem(l i18n.Lang, it proto.Item) (proto.Item, bool) {
 		set(&it.Text, loadedTools(l, it.Text))
 	}
 	return it, changed
+}
+
+// The explanation is localized, but Claude Code's refusal signal and unknown fields remain verbatim.
+func modelRefusalText(l i18n.Lang, r *proto.ModelRefusal) string {
+	key := "model_refusal"
+	if r.Subtype == "model_refusal_fallback" && r.FallbackModel != "" {
+		key = "model_refusal_fallback"
+	}
+	return tt(l, key, i18n.Args{"subtype": r.Subtype, "original": r.OriginalModel,
+		"fallback": r.FallbackModel, "category": r.Category, "scope": r.Scope}) + "\n" + r.Raw
 }
 
 // ---- notices ----

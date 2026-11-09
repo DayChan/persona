@@ -1126,3 +1126,53 @@ func TestUninstallMovesToolsAndPreviewSweepSparesIt(t *testing.T) {
 		t.Fatal("tools left after uninstall:", err)
 	}
 }
+
+func TestRegistrySnapshotsAreIndependent(t *testing.T) {
+	p := &Extension{
+		Record: Record{
+			ID: "alpha", Enabled: true,
+			Manifest: json.RawMessage(`{"name":"original"}`), Config: json.RawMessage(`{"value":"original"}`),
+			Aliases: []string{"old-alpha"}, Granted: Permissions{Network: []string{"example.invalid"}, Hub: []string{"sessions:read"}},
+			DisabledContributions: []string{"tools/disabled"}, Remote: &Remote{RPCSocket: "original.sock"},
+		},
+		Manifest: &Manifest{}, Full: &Manifest{}, Schema: &Schema{}, Warnings: []string{"original warning"},
+	}
+	r := &Registry{extensions: map[string]*Extension{"zulu": {Record: Record{ID: "zulu"}}, "alpha": p}}
+	before, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := r.Snapshots()
+	if len(all) != 2 || all[0].Record.ID != "alpha" || all[1].Record.ID != "zulu" {
+		t.Fatal("snapshots do not include every extension sorted by id")
+	}
+	copy := all[0]
+	if copy == p || copy.Manifest != p.Manifest || copy.Full != p.Full || copy.Schema != p.Schema {
+		t.Fatal("snapshot must clone the entry and share immutable parsed definitions")
+	}
+	copy.Record.Enabled = false
+	copy.Record.Manifest[0] = ' '
+	copy.Record.Config[0] = ' '
+	copy.Record.Aliases[0] = "changed"
+	copy.Record.Granted.Network[0] = "changed"
+	copy.Record.Granted.Hub[0] = "changed"
+	copy.Record.DisabledContributions[0] = "changed"
+	copy.Record.Remote.RPCSocket = "changed.sock"
+	copy.Warnings[0] = "changed"
+	after, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("mutating a snapshot changed the registry entry")
+	}
+	fresh := r.Snapshots()[0]
+	if fresh == copy || fresh.Record.Remote == copy.Record.Remote || string(fresh.Record.Config) != `{"value":"original"}` {
+		t.Fatal("a later snapshot reused a previous snapshot's mutable state")
+	}
+	p.Record.Config[0] = '['
+	p.Record.Remote.RPCSocket = "updated.sock"
+	if string(fresh.Record.Config) != `{"value":"original"}` || fresh.Record.Remote.RPCSocket != "original.sock" {
+		t.Fatal("registry changes reached an earlier snapshot")
+	}
+}

@@ -1,8 +1,17 @@
 # macOS App
 
+**Status: frozen.** The native Mac app gets bug fixes, security fixes and the changes that keep it building, nothing else.
+New features skip it, and no other desktop client (Electron, Tauri, a WebView shell) takes its place.
+The Mac target compiles the iOS app's code (`Shared/`, `Persona/`), so iOS work reaches it as a side effect, and that code must keep building for the Mac.
+New features need no Mac-only code (`apple/Mac/`), no Mac screenshots and no Mac acceptance. Plans and rules elsewhere that name iOS / Mac, or every client, cover the Mac app only within these limits.
+
+On a computer, use the web app, in the browser or installed as an app ([web.md](../web/web.md), "On computers").
+Persona Link adds what a browser cannot do ([link.md](../operations/link.md), "On computers: the web app and Persona Link").
+A desktop need goes into the web app first, and into Persona Link only when the browser cannot meet it.
+
 The native macOS version of Persona (the `PersonaMac` target in `apple/`, also used by the old `PersonaMac` scheme) shares the iOS App's logic layer (`Shared/`, `Persona/App`) and content views,
-inside a Mac-specific shell (`apple/Mac/`): windows, sidebar, toolbar, menus, shortcuts and menu bar. The goal is every iOS App feature, with nothing missing,
-using native macOS interaction, with scrolling and animation at least 60 fps (120 fps on ProMotion displays).
+inside a Mac-specific shell (`apple/Mac/`): windows, sidebar, toolbar, menus, shortcuts and menu bar. It uses native macOS interaction. Fixes must not drop scrolling and animation below 60 fps
+(120 fps on ProMotion displays). The rest of this page describes the app as it is.
 
 ## Approach
 
@@ -602,7 +611,7 @@ chat image decoding is off-main (`ChatThumbnail` already decodes in `Task.detach
 
 ## Acceptance checklist
 
-Below are all iOS App features, checked individually for Mac (check each completed item).
+Below are all iOS App features as checked for Mac before the freeze. This is a record: open items are not planned work, and new features add no rows.
 
 All reviewed on 2026-11-01: five parallel groups checked offscreen screenshots (demo and `scripts/mock/mock_hub.py` fake data, light/dark) and unit tests (`PersonaMacTests`), fixing what they could; a reviewer then tried to disprove every check, unchecking disproved items and stating what was and was not observed.
 After review: 106 [x], 118 [ ]. Each unchecked item explains why: "check at the Mac" means unlock and click/type/look, "not done" means unimplemented, "not on Mac" means intentionally unavailable.
@@ -1221,7 +1230,7 @@ Why: about 70% of #403's overnight tokens went to cua operation, screenshots and
 | `Shared/WatchSync.swift` | WatchConnectivity, not UIKit (`#if os(iOS)` / `os(watchOS)` branches) |
 | `Shared/Keychain.swift` | Security only; already portable |
 
-Notable UIKit outside those two folders (the macOS work will hit these too):
+Notable UIKit outside those two folders (the Mac build has to work around these too):
 - **Terminal:** `Session/Terminal/TerminalView.swift` is a full UIKit view: `UIScrollView`, gestures, `UIEditMenuInteraction`, `UIFont`, `UIGraphicsGetCurrentContext`. `TerminalInput.swift` uses `UIKeyInput`/`UITextInput` and `UIKeyCommand` for arrows and esc. `Chat/TerminalKeys.swift` handles raw `UITouch`.
 - **Assistant drawer:** `Assistant/AssistantSidebar.swift` uses `UIPanGestureRecognizer`, `UIHostingController`, `UITabBar` and `UIView.animate`.
 - **Code and text views:** `Code/CodeLinesView.swift` (reused `UILabel`s, `UIContextMenuInteraction`), `Chat/MonoTextView.swift` (`UITextView` inside `UIScrollView`), `Chat/MessageMenu.swift` (long-press and swipe recognizers, `UITextView`), `Chat/ImageViewer.swift` (zooming `UIScrollView`).

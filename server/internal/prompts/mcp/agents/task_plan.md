@@ -60,7 +60,7 @@ Hand the user a plan of one or more tasks for agents on their computers, instead
               "plan",
               "bypassPermissions"
             ],
-            "description": "permission mode; empty: the default"
+            "description": "permission mode; empty: the default for writable tasks. readonly=true always uses plan, overriding this field"
           },
           "ultracode": {
             "type": "boolean",
@@ -68,7 +68,7 @@ Hand the user a plan of one or more tasks for agents on their computers, instead
           },
           "readonly": {
             "type": "boolean",
-            "description": "true when the task only reads (looks things up, reads code, writes nothing anywhere)"
+            "description": "true when the task only reads (looks things up, reads code, does not change project files). Forces permission=plan, including retries and card edits; a launcher that cannot honor plan mode is refused"
           },
           "user_requested": {
             "type": "boolean",

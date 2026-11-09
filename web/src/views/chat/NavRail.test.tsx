@@ -4,6 +4,7 @@ import { act, Profiler, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NAV_RAIL_MIN_TICKS, type NavRailTick } from "../../lib/nav-rail";
+import { NAV_RAIL_METRICS as M } from "../../ui/nav-rail-metrics";
 
 // `matches` is read live and `set` notifies subscribers: viewport.ts caches the MediaQueryList, so a later test (or a
 // later flip in one test) changes the pointer the mounted rail already follows.
@@ -165,6 +166,97 @@ describe("NavRail", () => {
     await settle();
     expect(host.querySelectorAll("[data-nav-rail] button")).toHaveLength(8);
     expect(host.querySelector("[data-nav-rail-preview]")).toBeNull();
+  });
+
+  it("dismisses a hover card synchronously while the rail's independent idle timer remains", async () => {
+    const sc = scrollerWith(700, 600);
+    act(() => root.render(<NavRail ticks={[{ ...tick(1), answerExcerpt: "A short response." }, tick(2)]} scroller={sc} onJump={() => {}} reset="example/exit" />));
+    await settle();
+    vi.useFakeTimers();
+    const button = host.querySelector("button")!;
+    act(() => button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    const surface = host.querySelector<HTMLElement>("[data-nav-preview-surface]")!;
+    expect(surface.style.padding).toBe(`${M.previewPadding}px`);
+    expect(surface.classList.contains("rounded-nav-preview")).toBe(true);
+    expect(host.querySelector("[data-nav-preview-title]")?.classList.contains("truncate")).toBe(true);
+    expect(host.querySelector("[data-nav-preview-excerpt]")?.classList.contains("line-clamp-2")).toBe(true);
+    act(() => button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    expect(host.querySelector("[data-nav-preview]")).toBeNull(); // no timer advancement
+    expect(host.querySelector<HTMLElement>("[data-nav-rail]")!.dataset.visible).toBe("true");
+  });
+
+  it("keeps a preview across the rail/card hit zones but closes immediately when both are left", async () => {
+    const sc = scrollerWith(700, 600);
+    const jump = vi.fn();
+    act(() => root.render(<NavRail ticks={[tick(1), tick(2)]} scroller={sc} onJump={jump} reset="example/card" />));
+    await settle();
+    const button = host.querySelector("button")!;
+    act(() => button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    const card = host.querySelector<HTMLElement>("[data-nav-preview]")!;
+    act(() => button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: card })));
+    expect(host.querySelector("[data-nav-preview]")).toBe(card);
+    expect(card.style.paddingRight).toBe(`${M.previewGap}px`);
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    rail.setPointerCapture = vi.fn();
+    const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 });
+    Object.defineProperty(press, "pointerId", { value: 7 });
+    act(() => card.dispatchEvent(press));
+    expect(press.defaultPrevented).toBe(false); // selecting card text must not scrub or jump
+    expect(rail.setPointerCapture).not.toHaveBeenCalled();
+    expect(jump).not.toHaveBeenCalled();
+    act(() => card.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    expect(host.querySelector("[data-nav-preview]")).toBeNull();
+  });
+
+  it("retains a keyboard-owned preview until focus leaves, independently of mouse exit", async () => {
+    const sc = scrollerWith(700, 600);
+    act(() => root.render(<NavRail ticks={[tick(1), tick(2)]} scroller={sc} onJump={() => {}} reset="example/keyboard" />));
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    const button = host.querySelector("button")!;
+    act(() => button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    act(() => rail.focus());
+    act(() => rail.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    act(() => button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    expect(host.querySelector("[data-nav-preview]")?.textContent).toBe("question 2");
+    act(() => rail.blur());
+    expect(host.querySelector("[data-nav-preview]")).toBeNull();
+  });
+
+  it("does not move a keyboard selection out of the window when entering its card", async () => {
+    const sc = scrollerWith(700, 120);
+    act(() => root.render(<NavRail ticks={Array.from({ length: 50 }, (_, i) => tick(i))} scroller={sc} onJump={() => {}} reset="example/card-window" />));
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    act(() => rail.focus());
+    act(() => rail.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    const card = host.querySelector<HTMLElement>("[data-nav-preview]")!;
+    act(() => card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    expect(host.querySelector('[data-tick="0"]')).not.toBeNull();
+    expect(card.textContent).toBe("question 0");
+  });
+
+  it("holds a captured drag preview outside the rail and clears it at outside release", async () => {
+    const sc = scrollerWith(700, 600);
+    const jump = vi.fn();
+    act(() => root.render(<NavRail ticks={[tick(1), tick(2), tick(3)]} scroller={sc} onJump={jump} reset="example/drag-exit" />));
+    await settle();
+    const rail = host.querySelector<HTMLElement>("[data-nav-rail]")!;
+    const button = host.querySelector("button")!;
+    rail.setPointerCapture = vi.fn();
+    rail.releasePointerCapture = vi.fn();
+    const pointer = (type: string) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: 300 });
+      Object.defineProperty(e, "pointerId", { value: 7 });
+      act(() => rail.dispatchEvent(e));
+    };
+    act(() => button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    pointer("pointerdown");
+    act(() => button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    expect(host.querySelector("[data-nav-preview]")).not.toBeNull();
+    pointer("pointerup");
+    expect(jump).toHaveBeenCalledWith("seg:2");
+    expect(host.querySelector("[data-nav-preview]")).toBeNull();
   });
 
   it("starts hidden, wakes for scrolling and keyboard focus, and fades after quiet", async () => {

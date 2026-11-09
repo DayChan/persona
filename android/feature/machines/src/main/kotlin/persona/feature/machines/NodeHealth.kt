@@ -137,7 +137,7 @@ private val Unreachable = Regex(
 @StringRes
 internal fun connectionFailureText(machine: Machine): Int? {
     val text = machine.error.orEmpty()
-    if (machine.online || machine.deploying || text.isBlank()) return null
+    if (machine.online || deploying(machine) || text.isBlank()) return null
     val link = machine.kind == "link" || machine.kind == "service"
     return when {
         AuthFailed.containsMatchIn(text) -> if (link) R.string.machines_offline_auth_link else R.string.machines_offline_auth_ssh

@@ -13,6 +13,7 @@ import persona.core.contracts.ExtensionUiEvent
 import persona.core.contracts.ExtensionOperationEvent
 import persona.core.contracts.ExtensionAuthEvent
 import persona.core.contracts.Hello
+import persona.core.contracts.ServerEvent
 import persona.core.contracts.api.*
 import persona.core.hub.HttpConnectorsManagement
 import persona.core.hub.HttpComputerPairing
@@ -58,11 +59,15 @@ object MachineManagementModule {
     }
 
     // The machine ids come from the merged lists: each call goes to the group the id names, on that group's connection.
-    // Subscription quota belongs to a hub: the selected group's, like the other hub-level pages.
-    @Provides @Singleton fun machines(stacks: GroupStacks, runtime: ConnectionRuntime): MachineManagement = mergedMachineManagement(object : MachineRoutes {
+    // Subscription quota belongs to a hub: every open group's, each on its own hub, as the overview lists every group's machines.
+    @Provides @Singleton fun machines(stacks: GroupStacks): MachineManagement = mergedMachineManagement(object : MachineRoutes {
         override suspend fun <T> on(machineId: String, call: suspend (MachineManagement) -> T): T =
             stacks.use(GroupKeys.namespaceOf(machineId)) { call(HttpMachineManagement(it.connection).inGroup(it.names)) }
-    }, selected = { HttpMachineManagement(runtime.connection()) })
+    }, usage = {
+        stacks.stacks.value.map { stack ->
+            GroupUsageRead(stack.namespace.orEmpty()) { stacks.use(stack.namespace) { HttpMachineManagement(it.connection).usageWindows() } }
+        }
+    })
 
     // A hub-level page: the selected group's hub, whose own plain ids it reads and sends back (docs/android/android.md "Multiple hubs").
     // Bound to the pairing at each call, like model configuration: switching hubs reads the new hub's switches.
@@ -166,12 +171,11 @@ object MachineManagementModule {
         // a newer one under both.
         private fun api() = runtime.connection().let { HttpExtensionManagement(it, available, legacy = "extensions" !in it.serverFeatures.value) }
         private val updates = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-        // Installs in steps (docs/protocol/protocol.md "Extension install, upgrade and uninstall progress"): the hub's pushes, and each hello (null: list
-        // them again, what was missed is not replayed).
+        // Installs in steps (docs/protocol/protocol.md "Extension install, upgrade and uninstall progress"): the hub's pushes, and
+        // null to list them again ([extensionOperationUpdates]).
         override val operationsAvailable: Flow<Boolean> = features.map { "extension_operations" in it }.distinctUntilChanged()
-        override val operationUpdates: Flow<ExtensionOperation?> = (application as PersonaApp).hub
-            .flatMapLatest { hub -> hub?.connection?.events ?: emptyFlow() }
-            .transform { event -> if (event is Hello) emit(null) else if (event is ExtensionOperationEvent) emit(event.operation) }
+        override val operationUpdates: Flow<ExtensionOperation?> = extensionOperationUpdates((application as PersonaApp).hub
+            .flatMapLatest { hub -> hub?.connection?.events ?: emptyFlow() })
         // One that ended well changed the list as a synchronous call would have.
         override val changes: Flow<Unit> = kotlinx.coroutines.flow.merge(updates,
             operationUpdates.filter { it?.state == ExtensionOperation.Succeeded }.map { })
@@ -288,4 +292,13 @@ object MachineManagementModule {
         override suspend fun messagesChats(before: String?) = api().messagesChats(before)
         override suspend fun messagesThread(chatId: String, before: String?) = api().messagesThread(chatId, before)
     }
+}
+
+/**
+ * The hub's extension operation pushes, and null to list them again: after each hello (what was missed is not replayed)
+ * and each managers push. A manager keeps its operations only in memory, and one that restarts (its own update, a crash)
+ * while the socket stays up loses them with only a managers push to tell (#1832).
+ */
+internal fun extensionOperationUpdates(events: Flow<ServerEvent>): Flow<ExtensionOperation?> = events.transform { event ->
+    if (event is Hello || event is ManagersEvent) emit(null) else if (event is ExtensionOperationEvent) emit(event.operation)
 }

@@ -138,5 +138,15 @@
   "sent_to": "发给「{title}」",
   "sent_interrupting": "打断「{title}」后发送",
   "sent_count_other": "已发 {count} 条指令",
-  "copy": "复制"
+  "copy": "复制",
+  "auto_review_title": "独立评审",
+  "auto_review_running": "进行中",
+  "auto_review_clean": "没有阻断问题",
+  "auto_review_blocking_one": "还剩 {count} 条阻断问题",
+  "auto_review_blocking_other": "还剩 {count} 条阻断问题",
+  "auto_review_failed": "没评审完",
+  "auto_review_findings_one": "{count} 条发现",
+  "auto_review_findings_other": "{count} 条发现",
+  "auto_review_show": "展开报告",
+  "auto_review_hide": "收起报告"
 }

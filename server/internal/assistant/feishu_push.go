@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/channel"
 	"github.com/nwverse/persona/server/internal/feishubot"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -38,7 +39,7 @@ func (s *Service) feishuPush(machine, session, title, body string) {
 		}
 	}
 	if s.divertAnswer(ctx, "push", cards) { // a notifications companion takes it (feishu_companions.go)
-		s.markPushed(session)
+		s.markPushed(channel.Feishu, machine, session)
 		return
 	}
 	var missing []int // the pieces that did not get out (1-based): said at the end
@@ -53,7 +54,7 @@ func (s *Service) feishuPush(machine, session, title, body string) {
 			continue
 		}
 		if i == 0 {
-			s.markPushed(session) // only after the first card lands: a failed push must not suppress the mirror
+			s.markPushed(channel.Feishu, machine, session) // only after the first card lands: a failed push must not suppress the mirror
 		}
 		if session != "" {
 			s.rememberBotThread(mid, botTarget{Kind: targetPersona, MachineID: machine, SessionID: session}, title)
@@ -81,7 +82,7 @@ func (s *Service) feishuMirror(ctx context.Context, machine, session string) {
 	default:
 		return
 	}
-	if s.pushedLately(session) && f.Pushes {
+	if s.pushedLately(channel.Feishu, machine, session) && f.Pushes {
 		return // its notify_user already went to Feishu
 	}
 	sess, ok := s.session(ctx, machine, session)
@@ -142,7 +143,7 @@ func (s *Service) mirrorStillDue(ctx context.Context, m *mirrorSend) bool {
 	switch {
 	case !ready, m.main && !f.Sync, !m.main && !f.Pushes:
 		return false
-	case f.Pushes && s.pushedLately(m.target.SessionID):
+	case f.Pushes && s.pushedLately(channel.Feishu, m.target.MachineID, m.target.SessionID):
 		return false
 	}
 	_, answer, turn, ok := s.channelLastTurnOf(ctx, m.target.MachineID, m.target.SessionID)

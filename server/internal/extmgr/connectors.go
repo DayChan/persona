@@ -56,7 +56,7 @@ func (h *Manager) connectorChanged(id string, scope connector.Scope) {
 	case connector.ScopeInbox:
 		h.kickInbox()
 	case connector.ScopeChats, connector.ScopeItems:
-		h.kbKick()
+		h.kbKick(id, scope)
 	}
 }
 
@@ -431,7 +431,7 @@ func (h *Manager) setConnectorFeed(ctx context.Context, id string, f connector.F
 	if on && f == connector.FeedInbox {
 		h.kickInbox()
 	} else if on {
-		h.kbKick()
+		h.kbKick(id, connector.ScopeChats)
 	}
 	return nil
 }

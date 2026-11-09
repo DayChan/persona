@@ -31,6 +31,7 @@ const session = (id: string, state: AgentState, since?: string): Session => ({
 
 const posted: { title: string; body?: string; tag?: string }[] = [];
 const closed: string[] = [];
+const notifications: FakeNotification[] = [];
 class FakeNotification {
   tag?: string;
   static permission = "granted";
@@ -41,6 +42,7 @@ class FakeNotification {
     this.title = title;
     this.tag = opts?.tag;
     posted.push({ title, body: opts?.body, tag: opts?.tag });
+    notifications.push(this);
   }
   close() {
     closed.push(this.title);
@@ -60,9 +62,12 @@ beforeEach(() => {
   vi.setSystemTime(T0);
   vi.stubGlobal("Notification", FakeNotification);
   vi.spyOn(document, "hasFocus").mockImplementation(() => focused);
+  vi.spyOn(window, "focus").mockImplementation(() => {});
+  history.replaceState(null, "", "/");
   localStorage.setItem("persona.systemNotify", "1");
   posted.length = 0;
   closed.length = 0;
+  notifications.length = 0;
   interactions = [];
   focused = false;
   mutes = { spaces: [], sessions: [], allowed: [] };
@@ -312,4 +317,26 @@ describe("已在需要你时又来一张卡（#4058）", () => {
       expect(posted.map((p) => p.title)).toEqual(["a 要你批准"]);
     });
   });
+});
+
+it("posts independent notifications for sessionless requests and closes only the settled one", async () => {
+  await show([], []);
+  const card = (id: string): Interaction => ({ id, machine_id: "example-computer", session_id: "", kind: "permission", tool_name: "personad_ask", agent_label: "Script", summary: "Publish the draft?" });
+  await show([], [card("request-one"), card("request-two")]);
+  expect(posted.map((p) => p.tag)).toEqual(["card:request-one#needs", "card:request-two#needs"]);
+  notifications[1].onclick?.();
+  expect(window.location.pathname).toBe("/requests/request-two");
+  expect(closed).toHaveLength(1);
+  closed.length = 0;
+  await show([], [card("request-one"), card("request-two")]);
+  expect(posted).toHaveLength(2);
+  await show([], [card("request-two")]);
+  expect(closed).toHaveLength(1);
+});
+
+it("keeps sessionless request notifications under the existing device switch", async () => {
+  localStorage.removeItem("persona.systemNotify");
+  await show([], []);
+  await show([], [{ id: "quiet-request", machine_id: "example-computer", session_id: "", kind: "permission", summary: "Publish the draft?" }]);
+  expect(posted).toEqual([]);
 });

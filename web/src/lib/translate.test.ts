@@ -10,8 +10,9 @@ vi.mock("./api", () => ({
 }));
 
 import {
-  detectLanguage, family, getTranslatePrefs, hubTranslation, isForeign, languageName, parseChats, requestTranslation, resetTranslateForTests,
-  setTranslatePrefs, strippedHTML, translateMail, translatesChat, translatesMail, translationOf,
+  detectLanguage, family, getTranslatePrefs, hubTranslation, isForeign, languageName, MAILS_KEPT, parseChats, requestTranslation,
+  resetTranslateForTests, setTranslatePrefs, strippedHTML, TEXTS_KEPT, translateCacheSizesForTests, translateMail, translatesChat,
+  translatesMail, translationOf,
 } from "./translate";
 
 function memoryStorage() {
@@ -144,6 +145,56 @@ describe("translations", () => {
     expect(a).toEqual({ subject: "主题", text: "正文" });
     expect(b).toBe(a);
     expect(calls.list).toEqual([{ path: "/translate/mail", init: { method: "POST", json: { account_id: "acc1", uid: 504, mailbox: "INBOX", target: "zh-Hans" } } }]);
+  });
+
+  it("keeps only the translations read last", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.reply = (_p, json) => ({ texts: (json as { texts: string[] }).texts.map((t) => `译：${t}`) });
+    const msg = (i: number) => `Could we move review number ${i} to Tuesday?`;
+    for (let i = 0; i < TEXTS_KEPT; i++) requestTranslation(msg(i), "zh-Hans");
+    await vi.advanceTimersByTimeAsync(350);
+    expect(calls.list).toHaveLength(Math.ceil(TEXTS_KEPT / 30));
+    expect(translateCacheSizesForTests().texts).toBe(TEXTS_KEPT);
+    expect(translationOf(msg(0), "zh-Hans")).toBe(`译：${msg(0)}`); // read again: now the last to go
+
+    for (let i = TEXTS_KEPT; i < TEXTS_KEPT + 100; i++) requestTranslation(msg(i), "zh-Hans");
+    await vi.advanceTimersByTimeAsync(350);
+    expect(translateCacheSizesForTests().texts).toBe(TEXTS_KEPT);
+    expect(translationOf(msg(TEXTS_KEPT + 99), "zh-Hans")).toBe(`译：${msg(TEXTS_KEPT + 99)}`);
+    expect(translationOf(msg(0), "zh-Hans")).toBe(`译：${msg(0)}`);
+    expect(translationOf(msg(1), "zh-Hans")).toBeUndefined();
+    expect(translationOf(msg(100), "zh-Hans")).toBeUndefined();
+    expect(translationOf(msg(101), "zh-Hans")).toBe(`译：${msg(101)}`);
+
+    const asked = calls.list.length;
+    requestTranslation(msg(1), "zh-Hans"); // dropped: asked again, as on first view
+    await vi.advanceTimersByTimeAsync(350);
+    expect(calls.list).toHaveLength(asked + 1);
+    expect(translationOf(msg(1), "zh-Hans")).toBe(`译：${msg(1)}`);
+  });
+
+  it("keeps only the newest failures", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.reply = () => ({ texts: [] });
+    for (let i = 0; i < TEXTS_KEPT + 50; i++) requestTranslation(`Untranslatable message ${i}`, "zh-Hans");
+    await vi.advanceTimersByTimeAsync(350);
+    expect(translateCacheSizesForTests()).toMatchObject({ texts: 0, failed: TEXTS_KEPT });
+    const asked = calls.list.length;
+    requestTranslation(`Untranslatable message ${TEXTS_KEPT + 49}`, "zh-Hans"); // still failed: not again
+    await vi.advanceTimersByTimeAsync(350);
+    expect(calls.list).toHaveLength(asked);
+  });
+
+  it("keeps the newest mail translations", async () => {
+    calls.reply = (_p, json) => ({ subject: `主题 ${(json as { uid: number }).uid}`, text: "正文" });
+    for (let uid = 0; uid <= MAILS_KEPT; uid++) await translateMail("acc1", uid, "INBOX", "zh-Hans");
+    expect(calls.list).toHaveLength(MAILS_KEPT + 1);
+    expect(translateCacheSizesForTests().mails).toBe(MAILS_KEPT);
+    await translateMail("acc1", MAILS_KEPT, "INBOX", "zh-Hans"); // the newest: still here
+    expect(calls.list).toHaveLength(MAILS_KEPT + 1);
+    expect(await translateMail("acc1", 0, "INBOX", "zh-Hans")).toEqual({ subject: "主题 0", text: "正文" }); // dropped: asked again
+    expect(calls.list).toHaveLength(MAILS_KEPT + 2);
+    expect(translateCacheSizesForTests().mails).toBe(MAILS_KEPT);
   });
 
   it("strips mail HTML down to its text", () => {

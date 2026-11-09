@@ -5,14 +5,14 @@ import { memo, useContext, useEffect, useLayoutEffect, useMemo, useState } from 
 import { useSessionLive } from "../../lib/live";
 import { subagentFor } from "../../lib/tasks";
 import type { Item } from "../../lib/types";
-import { groupOpens, groupTitle, isAgentStep, isPlanStep, isRowStep, isWorkflowStep, planTodos, previewSteps, workDuration, type AgentStatus, type ToolStep, type WorkGroupNode, type WorkNode } from "../../lib/work-groups";
+import { groupTitle, nestedLineDefault, togglesLiveOverride, workLineOpen, workLineOpens, isAgentStep, isPlanStep, isRowStep, isWorkflowStep, planTodos, previewSteps, workDuration, type AgentStatus, type ToolStep, type WorkGroupNode, type WorkLineStyle, type WorkNode } from "../../lib/work-groups";
 import type { WorkflowCalls } from "../../lib/workflows";
 import type { Step } from "../../lib/turns";
 import { Collapse, cx, Spinner, useNow } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { ActionRow } from "./ActionRow";
 import { FreshWords, LiveClockContext, useChatContext } from "./chat-context";
-import { inOpenedFold, openFoldRange, useExpanded } from "./expanded";
+import { inOpenedFold, openFoldRange, useExpanded, useLiveOverride } from "./expanded";
 import { useReveal } from "./search-reveal";
 import { nodeItemIds } from "../../lib/chat-search";
 import { PlanCard } from "./PlanCard";
@@ -39,6 +39,10 @@ export interface WorkProps {
   segment?: string;
   /** Show every tool's original input/result in place in an opened supervision trace. */
   trace?: boolean;
+  /** How its work lines open (work-groups.ts workLineOpen): "assistant" in a Persona conversation; "agents" when unset. */
+  lineStyle?: WorkLineStyle;
+  /** The exchange these steps are of is still running. */
+  turnLive?: boolean;
 }
 
 /** A Workflow call that draws its run's card (the hub lists the run); one that does not is the row it always was. */
@@ -77,11 +81,19 @@ function LiveThinking({ mid, sid }: { mid: string; sid: string }) {
 
 export const WorkGroup = memo(function WorkGroup({ g, p }: { g: WorkGroupNode; p: WorkProps }) {
   // an outer group whose folded steps the reader just opened: open under whatever key it has once they are in
-  const [remembered, setOpen] = useExpanded(`${p.scope}${g.id}`, !p.nested && inOpenedFold(p.scope, g.seq));
+  const style = p.lineStyle ?? "agents";
+  const turnLive = Boolean(p.turnLive);
+  const key = `${p.scope}${g.id}`;
+  const [remembered, setRemembered] = useExpanded(key, p.nested ? nestedLineDefault(style) : inOpenedFold(p.scope, g.seq));
+  // in a running assistant exchange the reader's toggle holds only for the run (#1614): it goes elsewhere
+  const runToggle = togglesLiveOverride(style, turnLive);
+  const [liveOverride, setLiveOverride] = useLiveOverride(key, runToggle);
+  const setOpen = runToggle ? setLiveOverride : setRemembered;
   const [loading, setLoading] = useState(false);
-  const opens = groupOpens(g);
-  const open = remembered && opens;
-  const preview = g.live && !open ? previewSteps(g) : [];
+  const opens = workLineOpens(g, style, turnLive);
+  const open = workLineOpen({ style, turnLive, remembered, liveOverride }) && opens;
+  // a line the reader folded during a running assistant exchange is just its summary: no steps peek out (#1614)
+  const preview = g.live && !open && !(runToggle && liveOverride === false) ? previewSteps(g) : [];
   const inside = useMemo(() => ({ ...p, nested: true }), [p]);
   const toggle = () => {
     const next = !open;
@@ -105,7 +117,9 @@ export const WorkGroup = memo(function WorkGroup({ g, p }: { g: WorkGroupNode; p
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!foldKey) return;
+    // every fold is in: done. A run cut short by the last fold coming in (its key changed) does not get to say so, and
+    // the header's spinner kept spinning (#1614)
+    if (!foldKey) return setLoading(false);
     let live = true;
     setLoading(true);
     setFailed(false);

@@ -1727,9 +1727,11 @@ nonisolated struct Item: Codable, Identifiable, Hashable, Sendable {
     /// User text Persona typed in for the model (a task's notice, a scheduled run…; docs/protocol/protocol.md「Persona 注入的消息」):
     /// drawn as one line, not a bubble. Set by the hub; nil from older hubs, which `Injected.of` reads off the text.
     var injected: Injected? = nil
+    /// Additive display provenance; kept as JSON so future kinds and malformed optional fields remain readable.
+    var source: JSONValue? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, seq, ts, role, kind, text, image, queued, from, wake, fold, task, compact, injected
+        case id, seq, ts, role, kind, text, image, queued, from, wake, fold, task, compact, injected, source
         case toolUseID = "tool_use_id", toolName = "tool_name", toolInput = "tool_input", isError = "is_error", fullSize = "full_size",
              clientMsgID = "client_msg_id"
     }

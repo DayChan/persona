@@ -113,7 +113,8 @@ export function detectNewCards(known: ReadonlyMap<string, number> | undefined, i
   const first = new Map<string, Interaction>();
   for (const ix of waiting) {
     if (known.has(ix.id)) continue;
-    const key = agentKey(ix);
+    const key = ix.session_id === "" ? `card:${ix.id}` : agentKey(ix);
+    if (ix.session_id === "") { first.set(key, ix); continue; }
     if (quiet.has(key) || was.get(key) !== "needs_you" || next.get(key) !== "needs_you") continue;
     const had = first.get(key);
     if (!had || byTime(ix.created_at, had.created_at) < 0) first.set(key, ix);

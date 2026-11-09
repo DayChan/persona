@@ -1,5 +1,6 @@
 package persona.feature.machines
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -20,26 +21,48 @@ import persona.core.designsystem.*
 import persona.core.designsystem.icons.PhIcons
 import persona.core.domain.engines.Engines
 
-/** What the machine card says about its personad build, with "Redeploy" while it differs from the hub's (iOS `DeployRow`). */
+/**
+ * What the machine card says about its personad build, with "Redeploy" while it differs from the hub's (iOS `DeployRow`).
+ * It follows the hub's answer (#1868, as the web's `machineDeployment`): no Redeploy the hub would refuse (`can_deploy`
+ * false, with its `deploy_reason`), and a redeploy under way names its stage; an older hub that says neither keeps Redeploy.
+ */
 @Composable
 internal fun MachineDeployLine(machine: Machine, starting: Boolean, onDeploy: (() -> Unit)?) {
-    val busy = machine.deploying || starting
+    val busy = deploying(machine) || starting
+    val refused = !busy && machine.canDeploy == false
     val text = when {
-        busy -> stringResource(R.string.machines_deploying)
+        busy -> stringResource(deployStage(machine.deployPhase))
         !machine.deployError.isNullOrBlank() -> stringResource(R.string.machines_deploy_failed_last, machine.deployError.orEmpty())
         else -> stringResource(R.string.machines_node_mismatch)
     }
+    val why = if (refused) machine.deployReason?.takeIf { it.isNotBlank() } ?: stringResource(R.string.machines_deploy_unsupported) else null
     JInlineStatus(
-        text, Modifier.padding(top = Tokens.Space.s),
+        listOfNotNull(text, why).joinToString("\n"), Modifier.padding(top = Tokens.Space.s),
         tone = when { busy -> InlineTone.Busy; machine.deployError.isNullOrBlank() -> InlineTone.Caution; else -> InlineTone.Failed },
-        action = if (busy || onDeploy == null || !machine.online) null else ({
+        action = if (busy || onDeploy == null || !offersRedeploy(machine)) null else ({
             JButton(stringResource(R.string.machines_redeploy), onDeploy, kind = JButtonKind.Secondary, size = JButtonSize.Small)
         }),
     )
 }
 
 /** Whether the card shows the deploy line: a node that is not the hub's build, or one being replaced. */
-internal fun showsDeploy(machine: Machine?): Boolean = machine != null && (machine.nodeMismatch == true || machine.deploying)
+internal fun showsDeploy(machine: Machine?): Boolean = machine != null && (machine.nodeMismatch == true || deploying(machine))
+
+/** A redeploy under way: the hub's flag, or a stage it names. */
+internal fun deploying(machine: Machine): Boolean = machine.deploying || machine.deployPhase != null
+
+/** Redeploy is offered while none is under way, the machine is online and the hub doesn't say it would refuse. */
+internal fun offersRedeploy(machine: Machine): Boolean = !deploying(machine) && machine.online && machine.canDeploy != false
+
+/** What a redeploy under way is doing (docs/operations/node-update.md); a hub that names no stage: installing. */
+@StringRes
+internal fun deployStage(phase: String?): Int = when (phase) {
+    "waiting_idle" -> R.string.machines_deploy_waiting_idle
+    "transferring" -> R.string.machines_deploy_transferring
+    "restarting" -> R.string.machines_deploy_restarting
+    "confirming" -> R.string.machines_deploy_confirming
+    else -> R.string.machines_deploying
+}
 
 /**
  * The machine page's controls: its engine (opens the choice), "Also show botmux sessions" right under it when the hub has the

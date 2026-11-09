@@ -29,7 +29,7 @@ import (
 // (docs/assistant/prompts.md).
 var toolNames = []string{"ask_user", "notify_user", "supervision_finish", "schedule_followup", "schedule_routine", "delete_routine", "list_followups",
 	"cancel_followup", "list_places", "save_place", "machines_list", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
-	"kb_search", "kb_list", "kb_get", "kb_update", "persona_settings", "secret_run",
+	"kb_search", "kb_list", "kb_get", "kb_update", "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume", "persona_settings", "secret_run",
 	"model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback",
 	"conversations_list", "conversation_read", "conversation_rename", "conversation_archive", "conversation_unarchive",
 	"conversation_new", "conversation_send", "task_plan", "task_review",
@@ -91,7 +91,9 @@ func (s *Service) appTool(ctx context.Context, app string, call ToolCall, args j
 }
 
 func (s *Service) runTool(ctx context.Context, machine, self, name string, args json.RawMessage) (string, error) {
-	if name == "kb_update" { // health stays in the health space (docs/assistant/health.md "Isolation")
+	// Health stays in the health space (docs/assistant/health.md "Isolation"): it writes nothing to the knowledge base,
+	// nor changes or starts what is imported into it (kb_history_status only reads).
+	if name == "kb_update" || strings.HasPrefix(name, "kb_history_") && name != "kb_history_status" {
 		if space, _ := s.selfSpace(ctx, self); space == SpaceHealth {
 			return "", errors.New("the health space doesn't write the knowledge base: health information stays in its conversations and memory")
 		}
@@ -122,6 +124,8 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolTodo(ctx, machine, self, name, args) // todo_tools.go
 	case "kb_search", "kb_list", "kb_get", "kb_update":
 		return s.toolKB(ctx, name, args)
+	case "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume":
+		return s.toolKBHistory(ctx, name, args) // kb_history_tools.go
 	case "interaction_answer":
 		return s.toolInteractionAnswer(ctx, self, args)
 	case "secret_run":
@@ -648,6 +652,9 @@ func (s *Service) Action(ctx context.Context, a Action) (ActionResult, error) {
 		if err := json.Unmarshal(a.Answer, &r); err != nil {
 			return ActionResult{}, err
 		}
+	}
+	if mine, err := s.toolLoopAnswer(ctx, a.InteractionID, r); mine {
+		return ActionResult{OK: err == nil}, err
 	}
 	if mine, err := s.workAnswer(ctx, a.InteractionID, r); mine {
 		return ActionResult{OK: err == nil}, err

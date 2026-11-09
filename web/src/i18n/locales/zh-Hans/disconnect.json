@@ -1,0 +1,9 @@
+{
+  "failed_title": "没能撤销这个浏览器的访问权限",
+  "failed_body": "hub 没有撤销这个浏览器的 token。如果仍然退出，这个 token 在 hub 上继续有效，直到在「设置 › 设备」里撤销它。",
+  "sign_out_anyway": "仍然退出",
+  "retry": "重试",
+  "nothing_title": "没有可撤销的 token",
+  "nothing_body": "这个浏览器用的是 hub 自己的 token，或者这台 hub 不给浏览器发单独的 token，所以没有属于这个浏览器的 token 可撤销。退出只会把它从这个浏览器里删掉。",
+  "sign_out": "退出"
+}

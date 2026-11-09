@@ -70,6 +70,21 @@ class InboxFacadeTest {
     }
 
     @Test
+    fun assistantFacadeOverridesMainConversationResolution() {
+        val moduleFile = facadeSource(File("."))
+        assertNotNull("InboxModule.kt must exist in the current checkout", moduleFile)
+
+        val facadeBlock = requireNotNull(moduleFile).readText()
+            .substringAfter("val assistant = object : AssistantConversations {")
+        assertTrue(
+            "AssistantConversations facade must resolve the main conversation through the active scoped repository",
+            facadeBlock.contains(
+                "override suspend fun mainConversationOf(manager: String) = use { it.assistant.mainConversationOf(manager) }"
+            )
+        )
+    }
+
+    @Test
     fun facadeSourceSupportsRepositoryAndroidAndAppWorkingDirectories() {
         val root = Files.createTempDirectory("inbox-facade-source-").toFile().canonicalFile
         try {

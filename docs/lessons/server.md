@@ -1,5 +1,37 @@
 # Lessons: hub / node and networking
 
+## Durable storage receipts do not extend authority (#1187)
+
+Check current declared keys and queue/blob flags before replay lookup, including
+queue operations inside an atomic transaction. A prior success receipt cannot
+bypass a withdrawn flag. A claim receipt describes its original lease: replay
+must reject it after expiry, retry, completion or worker replacement, rather than
+returning an old `leased` result as fresh work. Time-relative admission checks for
+a new retry belong after replay lookup so a committed retry can still recover a
+lost reply after its next-attempt deadline passes.
+
+Carry the process's captured installation epoch and grants into the transaction.
+Re-resolving a replacement after an initial memory fence can lend an old callback
+the new scope; the persisted row lock must compare the original capture. Cancel
+attempt-bound callbacks before child cleanup, not after waiting for a dead child.
+Postgres owns mutation/receipt atomicity and uninstall retention; managers own
+business validation, so the DB package must not import a manager implementation.
+A recreated pool is not a database-server restart, and a canceled precommit update
+is not an injected unknown commit. Name and report those tests accurately.
+
+Do not pre-truncate every database fixture's timestamps: that masks an actual
+install's nanosecond registry record failing authorization against Postgres's
+microsecond `timestamptz`. Compare at the persisted precision in start, restore
+replay and uninstall, and test that a one-microsecond epoch/revision difference
+still rejects the stale operation. Real installed-source acceptance catches this
+edge even when synthetic transport fixtures all pass.
+
+A successful owner restore must restart the extension under the manager's context,
+not the HTTP request's. The committed data can be correct while a lazy runtime is
+canceled as soon as the 200 response returns, making its next page time out. Drive
+restore through the real API and open a fresh page after the response; DB-only
+restore tests do not exercise this lifetime boundary.
+
 ## The first gh on PATH may not be the GitHub CLI (#2081)
 
 Some Linux hosts have an unrelated program named `gh` in `/usr/local/bin`, and `New` puts that directory ahead of
@@ -177,6 +209,12 @@ not replace a live session notification received while that RPC was in flight. A
 and a local session revision protect that boundary without changing the node protocol.
 
 Pitfalls, odd behavior, and the trade-offs made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
+
+## Usage scans must wait for launcher state (#2220)
+
+- Transcript scans consume file offsets and reply deduplication IDs. Looking up launcher ownership before persisted session state is available permanently assigns those replies to the unknown launcher; later state loading cannot repair the consumed history.
+- Start the first full usage scan only after a successful state load, not merely after the load attempt finishes. On a failed load, preserve the hub's previous window rather than publishing unknown attribution: the meter waits until a later try on the same connection (`reloadState`) loads the state, or the connection ends. Cancellation must release the waiting meter.
+- Regressions use synthetic transcripts and a captured RPC writer, with historical and current replies in the first report; no real transcript directories or hub database are needed.
 
 ## One silent address must not take the whole dial (2026-11-08, #1181)
 
@@ -705,6 +743,31 @@ against disposable Git with an independent writer at the last read before remova
   newline as they are, and test it as a property (original lines an exact subsequence of the result, count included) plus a fuzz target. The fuzzer found within seconds that a
   sender name with a line break formatted into two physical lines no reader took for one message, so its duplicate was written again; `Line.Format` now folds line breaks in
   the sender. Day files have no message ids: duplicates are "same minute, sender and text", which is exactly the formatted line.
+- History import (#1239): a source's page `limit` is a hint (one real source answers limit+10 around a position, limit+5 paging back), so go on only from the cursor or
+  positions a page answers, and treat "the same cursor again" as stuck, or a chat is read forever. A paced answer is empty with `more` false too: read `pace` first, then
+  `unreadable`, and only then take it as the start (`HistoryPage.AtStart`).
+- Never retry a history read that timed out, and never cancel one in flight to stop: the source may have served it (and counted it against a limit that trips a circuit
+  breaker after a few failures). The driver's call context is detached from the run's (`context.WithoutCancel` plus its own timeout); every stop switch is checked before the
+  next call instead, and any timeout or unknown code stops everything until a person looks.
+- A slowness baseline must be per method: an image's first chunk legitimately takes 1–2 s where a page takes 0.3 s, so measured against pages every image looks slow. Count
+  the "three slow among the last twenty" window over all calls, though, or a burst of image calls hides slow pages.
+- Positional windows from a search: windows grow when a read finds an anchor the search missed, so persist the anchors and the ranges covered, not the windows; and every read
+  must add coverage (give the gap up when one adds nothing), or a deleted message at a window's edge is asked for forever. Count as covered only what was kept (the read
+  inside the windows as they are then): a review probe showed positions read and dropped outside one window, then inside another a later anchor widened, missing with no
+  omission line. Omission lines need the edge messages' times, so keep those too: after a restart nothing else knows them.
+- "Fall back for a year the search found nothing in" must not include years before the conversation existed: with a 10-year retention every empty year streamed a whole
+  chat below its windows. Learn when the conversation began (one page around position 0) and skip the years before it.
+- Pacing state is safety state: a rest, a `retry_after` pause, the multiplier and the very-slow watch kept only in memory are gone after a redeploy, and the next call goes
+  out after one ordinary interval. Persist them with the status and wait out what is left before the first call.
+- A write that downloads images inside it must be able to abort as a whole: written with placeholders after a stop cut the downloads short, the page's cursor moves on and
+  the images are lost for good (a later read only adds the same message again, with its image, as a duplicate line). `kb.ErrDownloadAborted` from the download aborts
+  `WriteHistory`, and the page is read again after the resume.
+- Every call to a fragile source goes through the same safety path, a tool's too: a list call made from a chat turn was cancelled with the turn and its timeout only made a
+  note, so the next call of the tool asked again. Detach its context, and stop the import on a timeout as the driver does.
+- `filepath.WalkDir` does not follow a link at its root: a backup of a data directory that is a link archived nothing, succeeded, and three runs later had pruned every real
+  backup. Resolve the root first, and fail a backup that kept no file.
+- Attachment days longer than `text_days` only keep files no line points to (the day file is pruned, and a message past the text retention is never written, so its image is
+  never downloaded): `Engine.AttachmentDaysFor` caps them at `text_days`.
 
 ## Port forwarding (docs/operations/ports.md)
 
@@ -930,6 +993,7 @@ and add that directory to image workflow PR paths.
 - `plugin.Digest` is what users consented to (stored in `plugins.granted`, compared on install / upgrade). New manifest fields (here `node`) enter digests as `omitempty` pointers:
   plugins lacking the field must produce byte-identical old digests, or every installed plugin appears to request more permissions after hub upgrade. `TestDigestWithoutNodeIsAsBefore` recomputes using the old structure and compares.
 - "More permissions" (`MorePermissions`) mustn't inspect only `Permissions` in `granted`: node permissions aren't there; compare old/new manifests (`NodeAdds`).
+- Top-level secrets are absent from the consent digest too (#1829). Compare secret names through the same helper in `MorePermissions` and `AddedIn`: otherwise the marketplace candidate permits an automatic upgrade that its own preview rejects as asking for more. Cover required and optional hub-only secrets, unchanged names, and the persisted once-per-version consent notice without changing existing digests.
 
 ## State surviving node connections can't belong to `Node` (2026-11-05, #1830)
 
@@ -1328,3 +1392,7 @@ A connector that folds several notifications into one thread (GitHub CI failures
 A `runtime` session can be an Orca native desktop chat, a CLI in a terminal pane, a botmux topic or an unhosted runtime. Classify pane/host origins from the metadata, with desktop markers taking precedence, and keep transport filtering separate. New query keys need an independent advertised capability because an old hub may silently ignore them and return the wrong membership. Count the full matching index revision, and bind the origin to frozen cursors and delta membership even when the transport and timestamp never change.
 
 When adding scalars beside an embedded session DTO, account for its custom JSON methods: Go promotes them and can silently hide sibling fields. Preserve the compatibility encoding and explicitly serialize the additional list fields.
+
+## Catalog recipes carry opaque tool argument keys (#2037)
+
+A catalog's recipe contains the upstream tool's argument object. Protocol field names are snake_case, but argument and input-schema keys belong to that tool and may be camelCase. Keep both opaque to the recursive wire-key check, while still validating their object shape and the surrounding recipe. Check original JSON before decoding optional limits or generated recipe types; otherwise mistyped fields and explicit zero values can disappear before semantic validation.

@@ -367,6 +367,7 @@ Chat page:
   Mock `MOCK_CHAT_LINES=1`, `-openSession <machine>/a1f3c2d4-0000-4000-8000-0000000c1e01` for screenshots.
   Agents with running children show "👥 Sub-Agents N", not idle. Id `<main session>@<agent id>`, history/live/paging identical to normal.
   Running or finished goes by the chat's own lines (`Subagent.running(in:)`, #5602, as Claude Desktop): done once its Agent call's result is in (whatever the hub's list says; one dropped from the list kept Running for ever), one sent to the background once its notice came; the list's word only until then or when the call is not loaded. A running child's write time and last line are no change for its session's page (`Session.sameForItsPage`), and a tool run whose first call goes to the background keeps its id (an opened run stays open). Task-notice and long-notice rows keep their open state in the chat's `OpenTools`.
+  In the assistant's chat the running work line starts open (`ChatLines.opensLive`, #1614): its thoughts and tool calls list one by one as they come, so you watch which tools it calls. When it stops running (the turn ended, or a new message started the next exchange) it folds by itself, whatever the user did with it while it ran (`ChatView.liveWorkEnded` forgets the flip in `openWork`), and opened it lists every call (a hub fold fetches its steps). The Agents chat keeps running lines folded, and so does the wake drawer's work line (`ChatLines.drawerWork`).
   In a work line each Agent / Task call is its subagent's card (`SubagentCard`, #5602, as the web's and Claude Desktop's): its description; under it, while it runs, what it is doing (`last_tool.summary`, else its name, "Starting…" before its first call) and its steps, once over Done / Failed / Stopped · N steps · time (a background one's time runs to its last line, not its receipt). Open: what it was asked, its report (a background one's: its notice's detail), its latest three tool calls as they come (`SubagentRecentSteps`: the card subscribes to the subagent's own conversation while open, as the web's `RecentSteps`; the hub replays a run folded, so the card opens its newest fold when it holds at most 40 calls and fewer than three follow it, a longer one is not fetched for three rows), View Subagent. `-showSubagentDetails YES` opens every card for screenshots; on the mock, `GET /mock/subagent-step` (`MOCK_SUBAGENT_CARDS=1`) moves the background one a step on. A card never folds into a run of chips. While it runs its card stays in view under its folded work line (`ChatLine.agentOut`, same id as its step, so opening the line does not draw it twice); done, it folds with the line. A foreground one with no result stays out only while its line runs. Subagents launched one after another share one line (`SubagentGrid`): "Running 3 agents" while any runs, "Ran 3 agents · 12 steps" after, their cards in a grid two side by side from about 540 pt (iPad, Mac; `Theme.Size.subagentColumn`), one column on a phone; folded, the running ones of a grid stay out together. While the agent waits on subagents it launched in the foreground (running, call unanswered), the running work line says so instead of its counts: "Working 6m · 2 subagents working — <what the newest does>… · +1 more" (`AgentsWorking`, the web's running bar), the count alone where the line is narrow. The plan (TodoWrite) is one line in its work: "Update To-dos  Step 3 of 4 · <the step it is on>" over a thin bar of how far along it is (`PlanBar`); a tap opens the plan sheet (`PlanSheet`), which shows the chat's newest plan whole and follows it. While that plan's line is not on screen (scrolled away, its work line folded, or folded by the hub, whose `fold.tasks` keeps the list), a pill over the composer says "Step 3 of 4" (`PlanPill`) and opens the sheet. A plan's call never joins a run of chips. A finished subagent's report ending in its `agentId` is not a background receipt (it read as Background · Running).
   A subagent's report reads as one line until opened (`FoldedReport`): its first line when that is a heading, else its first 80 characters, and Expand; open, the whole of it and Collapse. In the card, in a background subagent's notice, and in a message from another session that is a subagent of this one handing its report back (its name is the subagent's id, type or description; an older node shows a handback so). Open or not is kept by the card's id on disk (`OpenReports`, StateCache, the latest 400); `-openChatsFresh` folds them all again. A report of one line of 80 characters or fewer is not folded.
 - Background workflows (#2935, `workflows` in `docs/protocol/protocol.md`): Claude Workflow tool multi-Agent background scripts keep Agent Working after turn ends while waiting for completion,
@@ -1092,15 +1093,44 @@ Apple clients do not draw them as user bubbles or show the model's instructions:
 
 - Recognition: `Injected.of(item)` (`Shared/Injected.swift`) first checks the hub's `item.injected`; on old hubs without the field it recognizes text using the same rules as the hub's `prompts.ParseInjected`,
   tested by `InjectedTests` with shared fixtures `spec/fixtures/injected/cases.json`. App-sent messages (with `client_msg_id`) and messages from another session (`from`) do not count.
-- Chat page: `ChatView.rowView` draws `InjectedLine`, a centered capsule like the "Answered" row (`AnsweredLine`), with an icon and `line`. `InjectedLook` determines icons and colors, shared by phone, Mac and watch:
-  finished is a green checkmark, waiting for you an accent-colored raised hand, interrupted or failed to start a red warning, scheduled tasks an alarm clock, wake-ups a bell, node restart gray information.
+- Chat page: task notices and system explanations use `InjectedLine`, a centered capsule like the "Answered" row (`AnsweredLine`), with an icon and `line`. `InjectedLook` determines icons and colors, shared by phone, Mac and watch:
+  finished is a green checkmark, waiting for you an accent-colored raised hand, interrupted or failed to start a red warning, node restart gray information.
   Tap a task notice for task details: use the hub's `todo_id`, otherwise find the newest same-name task created by this chat; without a match it is not tappable.
-  A scheduled-task or follow-up row can be opened to see the task's actual request (`detail`).
+  Scheduled runs and follow-ups now use the source-mention rows below.
 - When a turn has multiple messages, each gets its own row; the injected one uses the centered row above.
   Nor is it treated as delivery of a pending bubble (`PendingMessage.arrived`).
 - Watch: a small centered line (icon plus `line`), no bubble (screenshots: mock `MOCK_INJECTED_WATCH=1`, watch `-openWatchItem session`).
 - Chat-list previews use the assistant's words (`last_text`), which already exclude these messages.
 - `ChatCache` bumped to v9: old cached items lack `injected`.
+
+### Source mentions in the assistant conversation (#2130)
+
+Display provenance does not change model input roles. Relayed conversation messages and automated updates use the
+shared `SourceMessage` component on iOS and macOS, and `WatchSourceMessage` on Watch, never a right-aligned user bubble.
+The existing single-conversation navigation and Assistant / Agents tabs stay unchanged: no group title, participants,
+announcement or per-message avatar.
+
+- `MessageSource.of` follows the source contract in `docs/protocol/protocol.md` ("Message source"): explicit `source`
+  wins, then persisted `kind="message-source"` context, existing `injected`, and exact legacy relay envelopes.
+  Kinds are `conversation`, `patrol`, `followup`, and `supervision`; daily/interval followups map to `patrol`.
+  `conversation_id` and `title` are optional. Unknown kinds remain external sources, and malformed optional
+  fields do not drop an item. `Item.source` retains the JSON object for cache round-trips.
+  The first persisted metadata block is authoritative: `{"author":"user"}` or malformed metadata prevents nested
+  source inference. Provenance blocks never become selectable Context cards; genuine selected contexts remain available.
+- With an older server, only a complete leading relay context with the fixed non-user delivery sentence is recognized.
+  Exact scheduled envelopes reuse `Injected`; supervision requires both its exact header and non-user notice.
+  App-sent text with `client_msg_id` is never heuristically reclassified. A bare clock, clipboard, title or quoted
+  protocol example is not a source. This fallback is a presentation heuristic, not authentication.
+- The accent `@source` label appears only on the first adjacent row of the same source identity (kind + conversation
+  id, or title when no id exists). A reply, genuine user input, work row or date separator starts a new run. Grouping
+  is prepared after final row ordering rather than in lazy-row lifecycle callbacks.
+- Long content starts at three lines with Expand / Collapse; short messages have no extra control. The source side
+  uses design-system surface/type/color tokens in both appearances. These attribution corrections apply with the
+  optional new conversation layout on or off. Genuine user bubbles are unchanged.
+- Source rows are excluded from the genuine-input edge navigator and pending-message text matching. `ChatCache` v12
+  prevents old cached copies without provenance from keeping the user-bubble presentation.
+- Verification uses `MessageSourceTests`, `MessageSourceUITests`, and the loopback-only synthetic fixture
+  `scripts/mock/message_sources_hub.py` (`--legacy` omits source metadata, `--watch` restricts the session inventory).
 
 ## New conversation layout (#1666)
 
@@ -1109,8 +1139,8 @@ Off, the conversation is drawn exactly as before. The Agents chat, the Mac and V
 `ChatView` reads the choice once and hands rows `\.chatLayout` through the environment, so no row observes UserDefaults (`Persona/Views/Chat/ChatLayout.swift`).
 
 - **Who talks to whom**, from the hub's existing fields only: feed `routed` that Persona wrote (`from` `assistant`, #1542) reads "Persona → @task" (`RoutedExchange`; off, #1542's folded `AgentSentLine`), what the user sent a task (`routed` without `from`) "Me → @task" in the user's box (`UserRoutedExchange`), feed `report` reads "task → @Persona" (`ReportExchange`),
-  and injected `system` / `supervise` (the supervision digest) and `followup` (scheduled runs, follow-ups, wake-ups) read "Supervision · Persona → @Persona" (`Injected.isPatrol`, `InjectedLine.patrol`): Persona writing to itself,
-  on Persona's side, never where the user's messages are. Task notices, node-restart and Inbox lines keep their centered line. The addressee is in the accent; there is no group name, member list or avatar per speaker.
+  while supervision, scheduled runs, follow-ups and wake-ups use the source mentions above, on the source's side, never where the user's messages are.
+  Task notices, node-restart and Inbox lines keep their centered line. The addressee is in the accent; there is no group name, member list or avatar per speaker.
 - **Boxes**: every message sits in a box, the user's pale blue (`Theme.ChatBox.user`) and Persona's, its exchanges' and its notes' pale gray (`Theme.ChatBox.persona`), words in the primary color in both modes (`ChatLayoutTests` checks the contrast). The answer streams in the box it settles in.
 - **Folding**: what Persona and a task say to each other shows its first N lines (3 by default) with Expand / Collapse under it (`ExchangeText`, measured against the whole text, so a short one has no button); the setting offers Folded / Show N Lines / Expand All.
   No evidence list under a report (it was not tappable); web links in the words are links (`ExchangeText.linked`).

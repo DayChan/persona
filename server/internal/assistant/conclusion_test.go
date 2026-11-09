@@ -13,6 +13,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/feishubot"
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -20,7 +21,13 @@ import (
 // posts and the notes it writes are kept.
 func conclusionService(t *testing.T, onlyConclusions bool) (s *Service, f *fakeHub, todo Todo, posts, notes func() []string) {
 	t.Helper()
-	s, f, todo = newSupervisedService(t)
+	return conclusionServiceOn(t, nil, onlyConclusions)
+}
+
+// conclusionServiceOn is conclusionService with st as its database (nil: none).
+func conclusionServiceOn(t *testing.T, st Store, onlyConclusions bool) (s *Service, f *fakeHub, todo Todo, posts, notes func() []string) {
+	t.Helper()
+	s, f, todo = newSupervisedServiceOn(t, st)
 	s.reports.mu.Lock()
 	s.reports.delay = testReportDelay
 	s.reports.mu.Unlock()
@@ -314,15 +321,16 @@ func TestRecommendationThatCannotReachTheAgentIsNotTaken(t *testing.T) {
 	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "node down") {
 		t.Fatalf("the web button: %d %s", rec.Code, rec.Body.String())
 	}
-	// The Lark button: an error toast with the reason.
+	// The Lark button: an error toast with the reason, saying nothing was taken (not "kept in the todo").
+	notTaken := i18n.T(s.botLang(ctx), "assistant-reports.accept_not_taken", i18n.Args{"error": "node down"})
 	press := &feishubot.CardAction{}
 	press.Action.Value = map[string]any{"a": "accept", "id": todo.ID}
 	if r := s.botCardAction(ctx, press, ""); r == nil || r.Toast == nil ||
-		r.Toast.Type != "error" || !strings.Contains(r.Toast.Content, "node down") {
+		r.Toast.Type != "error" || r.Toast.Content != notTaken {
 		t.Fatalf("the Lark button: %+v", r)
 	}
 	s.acceptReply(ctx, "om_ok", "OK", false, a.MessageID)
-	if n := notes(); len(n) == 0 || !strings.Contains(n[len(n)-1], "node down") {
+	if n := notes(); len(n) == 0 || n[len(n)-1] != notTaken {
 		t.Fatalf("the reply is not told it did not go: %q", n)
 	}
 	if got := askOf(s, todo.ID); !got.AcceptedAt.IsZero() || todoNow(s, todo.ID).Supervision.State != reviewNeedsUser {
@@ -382,5 +390,69 @@ func TestRecommendationIsRecordedOnlyOnceItReachedTheAgent(t *testing.T) {
 	}
 	if list := decisions(); len(list) != 1 || list[0].Choice != "先灰度 10%" {
 		t.Fatalf("decisions after the retry: %+v", list)
+	}
+}
+
+// The web button's 502 for a recommendation that did not reach the agent says nothing was taken: it used to say the
+// choice was kept in the to-do, while no decision was recorded and the ask still waits.
+func TestAcceptRouteSaysTheRecommendationWasNotTaken(t *testing.T) {
+	database := todoTestDB(t)
+	s, f, todo, _, _ := conclusionServiceOn(t, database, false)
+	ctx := context.Background()
+	waitsForReview(t, s, f, todo.ID, "两种走法：A 先灰度，B 直接全量。")
+	reviewTask(t, s, todo.ID, map[string]any{"verdict": "needs_user", "reason": "先灰度还是直接全量", "recommend": "先灰度 10%"})
+	decisions := func() int {
+		list, err := database.ListTodoDecisions(ctx, todo.ID, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list)
+	}
+	before := decisions()
+	a := askOf(s, todo.ID)
+	f.mu.Lock()
+	f.failSend = errors.New("node down")
+	f.mu.Unlock()
+	asked, _ := json.Marshal(a.AskedAt)
+	status, body := serveJSON(t, s, "POST", "/api/v1/todos/"+todo.ID+"/accept", "zh-Hans", `{"asked_at":`+string(asked)+`}`)
+	want := i18n.T(i18n.ZhHans, "assistant-reports.accept_not_taken", i18n.Args{"error": "node down"})
+	if status != http.StatusBadGateway || body["error"] != want {
+		t.Fatalf("%d %v, want %q", status, body, want)
+	}
+	if n := decisions(); n != before {
+		t.Fatalf("decisions %d → %d though nothing was taken", before, n)
+	}
+	if got := askOf(s, todo.ID); !got.AcceptedAt.IsZero() {
+		t.Fatalf("taken after all: %+v", got)
+	}
+}
+
+// The web button's 502 says it in the request's language (whatever the bot's), as its error: a plain error there became
+// the generic "the request did not complete" with the sentence moved to its detail. A reason the hub words itself (an
+// offline computer) reads in that language too, not the default one.
+func TestAcceptRouteNotTakenReadsInTheRequestLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		bot, request string
+		want         i18n.Lang
+	}{
+		{"en", "zh-Hans", i18n.ZhHans},
+		{"zh-Hans", "en", i18n.En},
+	} {
+		s, f, todo, _, _ := conclusionService(t, false)
+		f.mu.Lock()
+		f.hello.Locale = tc.bot
+		f.mu.Unlock()
+		waitsForReview(t, s, f, todo.ID, "两种走法：A 先灰度，B 直接全量。")
+		reviewTask(t, s, todo.ID, map[string]any{"verdict": "needs_user", "reason": "先灰度还是直接全量", "recommend": "先灰度 10%"})
+		a := askOf(s, todo.ID)
+		f.mu.Lock()
+		f.failSend = i18n.Err("assistant-tasks.route_offline")
+		f.mu.Unlock()
+		asked, _ := json.Marshal(a.AskedAt)
+		status, body := serveJSON(t, s, "POST", "/api/v1/todos/"+todo.ID+"/accept", tc.request, `{"asked_at":`+string(asked)+`}`)
+		want := i18n.T(tc.want, "assistant-reports.accept_not_taken", i18n.Args{"error": i18n.T(tc.want, "assistant-tasks.route_offline")})
+		if status != http.StatusBadGateway || body["error"] != want {
+			t.Fatalf("bot %s, request %s: %d %v, want %q", tc.bot, tc.request, status, body, want)
+		}
 	}
 }

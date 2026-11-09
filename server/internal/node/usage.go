@@ -87,7 +87,18 @@ func (n *Node) usageFiles(cutoff time.Time) []string {
 }
 
 // meterUsage scans every usageEvery and reports what changed.
-func (n *Node) meterUsage(ctx context.Context) {
+func (n *Node) meterUsage(ctx context.Context, stateLoaded <-chan struct{}) {
+	// A first full scan cannot be reattributed after offsets and reply IDs are consumed. Do not replace the hub's
+	// window until launcher state has loaded successfully (stateReady); a failed first try leaves this waiting until a
+	// later try on this connection loads it (reloadState), or the connection ends.
+	select {
+	case <-ctx.Done():
+		return
+	case <-stateLoaded:
+	}
+	if ctx.Err() != nil {
+		return
+	}
 	m := newUsageMeter()
 	m.launcherOf = func(session string) string {
 		st, _ := n.state.get(session)

@@ -724,6 +724,7 @@ func (n *Node) assistantSessions() []proto.Session {
 				s.Title, s.Model, s.LastText, s.Rev = m.title, m.model, snippet(m.lastText), st.Size()
 				s.PermissionMode, s.Effort = n.currentModes(p.id, m)
 				setContext(&s, m)
+				s.ModelFallback = m.modelFallback
 				untitled(&s, m)
 				if !busy {
 					s.UpdatedAt = lastUsed(m, st)

@@ -117,6 +117,21 @@ func (n *Node) resumeOtherWith(ctx context.Context, id string, st sessionState, 
 	if fi, err := os.Stat(st.Cwd); err != nil || !fi.IsDir() {
 		return fmt.Errorf("directory %s does not exist", st.Cwd)
 	}
+	codex := n.codexPath(id) != ""
+	var argv []string
+	if codex {
+		var ok bool
+		argv, ok = n.codexLauncher(ctx, st.Launcher)
+		if !ok {
+			return fmt.Errorf("启动器「%s」不再运行 Codex，没法接着这个会话", st.Launcher)
+		}
+		if argv, err = n.codexReadonlyArgs(st.Launcher, argv, st.AppMode); err != nil {
+			return err // Refuse conflicting permissions before creating a workspace, tab or attachment.
+		}
+		if st.Model != "" {
+			argv = append(withoutModelArgs(argv), "--model", st.Model)
+		}
+	}
 	paths, err := n.saveImages(images)
 	if err != nil {
 		return err
@@ -129,16 +144,9 @@ func (n *Node) resumeOtherWith(ctx context.Context, id string, st sessionState, 
 		return err
 	}
 	tab := n.resumeTabName(id)
-	if n.codexPath(id) == "" { // a compatible CLI: `<launcher> resume <id> <message>`
+	if !codex { // a compatible CLI: `<launcher> resume <id> <message>`
 		_, err = n.startOtherAgent(ctx, launch, st.Cwd, st.Launcher, traexAgent, text, id, ws, tab)
 		return uncertain(err)
-	}
-	argv, ok := n.codexLauncher(ctx, st.Launcher)
-	if !ok {
-		return fmt.Errorf("启动器「%s」不再运行 Codex，没法接着这个会话", st.Launcher)
-	}
-	if st.Model != "" {
-		argv = append(withoutModelArgs(argv), "--model", st.Model)
 	}
 	return uncertain(n.resumeCodex(ctx, launch, id, st, argv, text, ws, tab))
 }

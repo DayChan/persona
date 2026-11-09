@@ -138,5 +138,15 @@
   "sent_to": "「{title}」に送信",
   "sent_interrupting": "「{title}」を止めて送信",
   "sent_count_other": "指示を{count}件送信",
-  "copy": "コピー"
+  "copy": "コピー",
+  "auto_review_title": "独立レビュー",
+  "auto_review_running": "実行中",
+  "auto_review_clean": "ブロッカーなし",
+  "auto_review_blocking_one": "ブロッカーが {count} 件残っています",
+  "auto_review_blocking_other": "ブロッカーが {count} 件残っています",
+  "auto_review_failed": "完了しませんでした",
+  "auto_review_findings_one": "指摘 {count} 件",
+  "auto_review_findings_other": "指摘 {count} 件",
+  "auto_review_show": "レポートを表示",
+  "auto_review_hide": "レポートを隠す"
 }
