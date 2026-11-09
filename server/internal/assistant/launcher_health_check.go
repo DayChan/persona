@@ -200,25 +200,29 @@ func rehome(dir string, from, to Device) string {
 
 // healthDetour is where a start with launcher on machine m goes instead: another machine when its last check failed
 // there and another has it healthy (moved), with a line saying so for whoever started it; no other: m, and the line
-// says it may fail. A usage limit with a known reset says when that is.
+// says it may fail. A usage limit with a known reset says when that is, and a saturated account pool (capacity.go)
+// adds the fleet-wide "no schedulable account" fact and its nearest recovery when the data is fresh.
 func (s *Service) healthDetour(ctx context.Context, m Device, launcher string) (Device, string, bool) {
 	r, bad := s.launcherUnusable(ctx, m.ID, launcher)
 	if !bad {
 		return m, "", false
 	}
+	// The pool is provider-level: resolve it once from the failed machine. Missing or stale data gives no note, and
+	// a pool with any schedulable account stays quiet too.
+	poolNote := poolSuffix(s.capacityNote(ctx, s.launcherProvider(ctx, m.ID, launcher)))
 	alt, moved := s.healthyMachine(ctx, launcher, m.ID)
 	if note := r.resetNote(); note != "" {
 		what := fmt.Sprintf("launcher %s is at its subscription usage limit on %s (%s)", launcher, m.ID, note)
 		if moved {
-			return alt, fmt.Sprintf("%s, so this runs on %s instead", what, alt.ID), true
+			return alt, what + poolNote + fmt.Sprintf(", so this runs on %s instead", alt.ID), true
 		}
-		return m, what + " and no other machine has it healthy; started there anyway", false
+		return m, what + poolNote + " and no other machine has it healthy; started there anyway", false
 	}
 	why := fmt.Sprintf("%s: %s", r.Kind, clip(r.Error, 160))
 	if moved {
-		return alt, fmt.Sprintf("launcher %s failed its health check on %s (%s), so this runs on %s instead", launcher, m.ID, why, alt.ID), true
+		return alt, fmt.Sprintf("launcher %s failed its health check on %s (%s), so this runs on %s instead%s", launcher, m.ID, why, alt.ID, poolNote), true
 	}
-	return m, fmt.Sprintf("launcher %s failed its last health check on %s (%s) and no other machine has it healthy; started there anyway", launcher, m.ID, why), false
+	return m, fmt.Sprintf("launcher %s failed its last health check on %s (%s) and no other machine has it healthy; started there anyway%s", launcher, m.ID, why, poolNote), false
 }
 
 // healthLines are agents_list's lines about the launchers that do not work (machine: only there).

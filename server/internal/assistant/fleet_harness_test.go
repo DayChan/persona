@@ -27,6 +27,7 @@ type fleetDevs struct {
 	machines map[string]*fleetNode
 	order    []string
 	usage    assistantwire.UsageSummary
+	capacity proto.CapacitySnapshot // what CapacitySnapshot answers (capacity_test.go)
 }
 
 type fleetNode struct {
@@ -189,6 +190,12 @@ func (d *fleetDevs) Usage() assistantwire.UsageSummary {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.usage
+}
+
+func (d *fleetDevs) CapacitySnapshot(context.Context) proto.CapacitySnapshot {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.capacity
 }
 
 // fleetMem is the in-memory store of the fleet's tests: the assistant's settings, the interactions table, "Always Allow in Session",

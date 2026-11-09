@@ -113,6 +113,21 @@ Decided with the user: gray out with the reason, never hide.
 - The assistant's launcher menus (headless `claude -p` in the login shell) are unchanged: `not_in_terminal` does not apply there, and the main chat's readiness covers its model.
 - A failed start whose session has `start_error_code` (#1642) shows the hub's whole sentence under "Didn't Start" in the chat (iOS `StartingNote`, web chat page) instead of clipping it after three lines; without a code it is shown as before.
 
+## Capacity-aware notes
+
+The health record is per machine; the account-pool gateways know a different, fleet-wide fact: how many subscription accounts of each upstream
+provider are schedulable right now and when the nearest one recovers (`docs/server/usage-windows.md` "Account-pool gateways"). The manager derives a
+read-only `proto.CapacitySnapshot` (`devices.CapacitySnapshot`, from the gateway inventory and the merged usage windows; no gateway or machine is
+asked for it) and uses it only on the detour path (`healthDetour`, the chokepoint `agent_start` and task plans share):
+
+- A provider whose accounts are all unavailable with **fresh** data is *saturated* (`ProviderCapacity.Saturated`); the detour line then adds
+  "no schedulable `<provider>` account in the pool right now" and, when known, "the nearest one recovers …". Stale data or any schedulable account
+  says nothing, and no pool configured means the original wording, unchanged.
+- The launcher's provider is its health record's `agent`, falling back to a Persona-managed launcher's `agent`; an unknown provider gets no note.
+- This first cut never reorders machines or blocks a start: one launcher maps to one provider, so every machine offering it sees the same
+  provider-level capacity, and two different providers are not equivalent (an explicit model configuration is never silently changed,
+  `docs/assistant/model-config.md`). Deferring starts until recovery, per-machine gateway attribution and the App/Lark entries are later work.
+
 ## Not done
 
 - An Agent that starts but fails on its first turn (the gateway rejecting the model name; `session.start` succeeded) is not recorded from the session; periodic checks find it. Only a usage limit with a known reset is recorded from the session.

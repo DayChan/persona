@@ -187,6 +187,14 @@ Any account-pool gateway that wants to feed usage into the sidebar implements on
 `id` is optional (a stable identifier for the account in the gateway, used to guarantee that two accounts are never merged); `label` (`5h`, `7d`, `45m`) is used if its length can be read, otherwise `window_minutes`; `used_percent` is 0–100, kept as sent and clamped when out of range;
 `sampled_at` defaults to the time of reading; each source has at most 500 accounts and each account at most 32 windows; accounts with an empty `provider` are dropped.
 
+### Scheduler capacity view
+
+Besides the sidebar, the same in-memory data feeds Agent scheduling: `devices.CapacitySnapshot` builds a `proto.CapacitySnapshot` of one `ProviderCapacity` per upstream provider
+(known account count, schedulable count, earliest recovery, all-stale flag) from the gateway inventory and the merged windows. A gateway account counts once, from the inventory
+(it is authoritative for the accounts it lists; a sidebar account with a gateway source is skipped); accounts only the computers saw fill the rest, an exhausted plan window making
+one unavailable until its reset. It is read-only like everything here — the call performs no gateway or machine read beyond the windows' own short poll cache — and carries no
+credential or gateway-side account id. How the launcher picker consumes it is in `docs/server/launcher-health.md` ("Capacity-aware notes").
+
 
 ## Who owns this (2026-11-05)
 

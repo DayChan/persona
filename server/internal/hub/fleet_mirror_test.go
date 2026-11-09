@@ -115,6 +115,10 @@ func (d *mirrorDevices) Usage() assistantwire.UsageSummary {
 	return assistantwire.UsageSummary{Machines: []assistantwire.MachineUsage{}}
 }
 
+func (d *mirrorDevices) CapacitySnapshot(context.Context) proto.CapacitySnapshot {
+	return proto.CapacitySnapshot{}
+}
+
 // mirrors are the tests' hubs' mirror devices.
 var mirrors sync.Map // *Hub → *mirrorDevices
 

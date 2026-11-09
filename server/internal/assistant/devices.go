@@ -46,6 +46,10 @@ type Devices interface {
 	Session(id, session string) (proto.Session, bool)
 	ConnectedAt(id string) time.Time
 	Usage() assistantwire.UsageSummary
+	// CapacitySnapshot is the account-pool capacity view for scheduling (proto.CapacitySnapshot): how many
+	// subscription accounts of each upstream provider are schedulable now and when the nearest one recovers.
+	// Read-only, from the manager's in-memory caches; the zero value when no pool is configured.
+	CapacitySnapshot(ctx context.Context) proto.CapacitySnapshot
 	// Follow has the node send the manager a session's items and text as they are made (on), or stop.
 	Follow(ctx context.Context, machine, session string, on bool) error
 }
