@@ -38,6 +38,9 @@ Pitfalls, odd behavior and the trade-offs made at the time (formerly in `CLAUDE.
   do your fix in `git worktree add --detach /tmp/x origin/main`.
 - Database migration numbers are split into ranges per lane (00x1…); before picking a number, check `server/internal/db/migrations/` in every worktree and `schema_migrations` in the `persona_test` database:
   another lane's unmerged migration may already hold the number (2026-10-30, 0051 collided; switched to 0061).
+- Open PRs hold numbers too (`gh pr list --state open --json number,files`), and while a PR waits others merge: #1852's
+  migration went 0443 → 0451 → 0453 in a day. Check the number again right before merging. A data fix that merges under a
+  number databases already recorded never runs there, so keep the code that copes with the old rows as a backstop.
 - A migration already on the default branch is frozen (`scripts/ci/migration_freeze.py`, also from `scripts/check-fast.sh`): editing, deleting or renaming it fails. A comment-only or whitespace-only change passes. Repair an applied migration by adding a new one.
 - On 2026-11-01 `ios/` was renamed to `apple/` (the iOS, watch and macOS Apps and shared code are in the same XcodeGen project): when rebasing an old branch / worktree,
   files newly created under `ios/` must be moved to `apple/` by hand (git follows the rename for changes to existing files).
