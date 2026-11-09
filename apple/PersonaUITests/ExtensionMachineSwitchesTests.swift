@@ -33,6 +33,13 @@ final class ExtensionMachineSwitchesTests: XCTestCase {
             try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appending(path: "plugins-machines-\(look).png"))
         }
 
+        let setup = app.buttons["extension-machine-setup-studio"].firstMatch
+        XCTAssertTrue(setup.exists, "no way to open Cua Driver's installation and permissions")
+        setup.tap()
+        XCTAssertTrue(app.buttons["computer-install"].waitForExistence(timeout: 15), "the existing computer setup did not open:\n\(app.debugDescription)")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(studio.waitForExistence(timeout: 10), "back to the extension settings")
+
         // In effect at once, no Save: the hub turns it on for that Mac (the machine page's switch).
         studio.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         XCTAssertTrue(waitFor(studio, value: "1"), "turned on")

@@ -78,7 +78,7 @@ Why it works this way (tried on real claude on 2026-11-04):
 - `formats` are per-column Excel number formats. When a format looks like a date (contains `yy`, `dd` or `mmm`), text like `"2026-01-31"` becomes a real date.
 - The 1900 date system starts at `1900-01-01`; earlier or invalid date strings stay text.
 - Sheet names have characters Excel rejects removed, are truncated to 31 characters, and duplicates get a sequence number.
-- CSV: the first row is the header. Anything that looks like a number is a number, but IDs with leading zeros such as `007` stay text.
+- CSV: the first row is the header. Numeric-looking fields become numbers when the workbook keeps their value: integers such as long IDs must survive exactly, while decimals and exponents may round to the 15 significant digits a spreadsheet keeps (a float written as `0.30000000000000004` becomes `0.3`). IDs with leading zeros such as `007`, non-finite values, integers that would lose digits and decimals that would change further (underflow, subnormals) stay as their original text.
 
 ## Formula values
 

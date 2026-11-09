@@ -1,3 +1,4 @@
+import AppIntents
 import Foundation
 import Testing
 @testable import Persona
@@ -347,10 +348,15 @@ struct IntentsTests {
 
         let plan = ApproveFirstIntent.resolution(for: interaction(.plan))
         #expect(plan?.approve == true)
-        #expect(plan?.mode == "bypassPermissions")
+        #expect(plan?.mode == "acceptEdits") // never auto-run everything from Siri
 
         #expect(ApproveFirstIntent.resolution(for: interaction(.question)) == nil)
         #expect(ApproveFirstIntent.resolution(for: interaction(.screen)) == nil)
+    }
+
+    /// Same rule as the notification and Live Activity buttons: saying yes from a locked phone needs Face ID.
+    @Test func approvingFromSiriNeedsUnlock() {
+        #expect(ApproveFirstIntent.authenticationPolicy == .requiresAuthentication)
     }
 
     @Test func approveRepliesDescribeWhatHappened() {

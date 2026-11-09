@@ -1,7 +1,8 @@
 {
-  "rail": "Questions",
-  "jump": "Jump to question {index}: {preview}",
+  "rail": "User input navigation",
+  "jump": "Jump to user input {index}: {preview}",
+  "keys": "Use arrow keys to preview, Home or End for the first or last input, and Enter or Space to jump. Escape cancels the preview.",
+  "selection": "User input {index} of {count}: {preview}. {answer}",
   "attachments_one": "{count} attachment",
-  "attachments_other": "{count} attachments",
-  "earlier": "{count} earlier questions"
+  "attachments_other": "{count} attachments"
 }

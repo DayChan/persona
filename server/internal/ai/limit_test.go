@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -419,5 +420,49 @@ func TestClassify(t *testing.T) {
 	}
 	if d := retryAfter("999999"); d != afterMost {
 		t.Errorf("retryAfter(huge) = %s", d)
+	}
+}
+
+// Transient tells a failure worth one more try (no answer in time, a gateway's 5xx) from one that answers the same
+// again: a request turned down, a model that isn't set up (#1532).
+func TestTransient(t *testing.T) {
+	status := func(code int) error {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, `{"error":{"message":"no"}}`, code)
+		}))
+		defer srv.Close()
+		_, err := New(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Complete(context.Background(), "", "hi", 10)
+		return err
+	}
+	slow := func() error {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body) // the server notices the client went only once the body is read
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+		}))
+		defer srv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		_, err := New(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Complete(ctx, "", "hi", 10)
+		return err
+	}
+	_, unset := New(Config{}).Complete(context.Background(), "", "hi", 10)
+	for _, c := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"502", status(http.StatusBadGateway), true},
+		{"500", status(http.StatusInternalServerError), true},
+		{"timed out", slow(), true},
+		{"400", status(http.StatusBadRequest), false},
+		{"not configured", unset, false},
+		{"nil", nil, false},
+	} {
+		if got := Transient(c.err); got != c.want {
+			t.Errorf("%s: Transient(%v) = %v, want %v", c.name, c.err, got, c.want)
+		}
 	}
 }

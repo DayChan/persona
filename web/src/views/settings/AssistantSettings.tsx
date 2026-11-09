@@ -2,14 +2,15 @@
 // AssistantMemoryView, Android's assistant settings): what Persona does on its own (a line into "Scheduled tasks"), what it knows about you
 // ("About me" = `notes`, saved on "Save" or when leaving; "Memory" = its memory files: read, edit the whole file, delete), and where
 // it runs (read-only here). Its model is Settings › Models › Main chat, not here (#1291).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../../i18n";
 import { BASE } from "../../lib/base";
 import { settingsHref } from "./nav";
-import { api, enc, errorText } from "../../lib/api";
+import { api, credentialOwner, enc, errorText, subscribeCredentialOwner } from "../../lib/api";
 import { MANAGER_HEADER } from "../../lib/manager-choice";
 import { PERMISSION_MODES } from "../../lib/session-actions";
 import { ConfigurationManager } from "./ConfigurationManager";
+import { aboutMeSaves } from "./about-me-saves";
 import { ago } from "../../lib/format";
 import { MEMORY_INDEX, memoryEntries, memoryTypeLabel, memoryTypeTone, parseMemory, type MemoryEntry, type MemoryFile } from "../../lib/memory";
 import { navigate } from "../../lib/router";
@@ -40,10 +41,12 @@ interface AssistantState {
 }
 
 export function AssistantSettings({ bare }: { /** Without its header (the profile page has its own). */ bare?: boolean } = {}) {
-  return <ConfigurationManager>{(manager) => <AssistantSettingsForManager manager={manager} bare={bare} />}</ConfigurationManager>;
+  const owner = useSyncExternalStore(subscribeCredentialOwner, credentialOwner);
+  return <ConfigurationManager>{(manager) => <AssistantSettingsForManager key={JSON.stringify([manager, owner])} manager={manager} owner={owner} bare={bare} />}</ConfigurationManager>;
 }
 
-function AssistantSettingsForManager({ manager, bare }: { manager: string; bare?: boolean }) {
+function AssistantSettingsForManager({ manager, owner, bare }: { manager: string; owner: string; bare?: boolean }) {
+  const [notesSaves] = useState(() => aboutMeSaves(manager, owner));
   const scopedApi: typeof api = (path, init) => api(path, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), [MANAGER_HEADER]: manager } });
   const persona = usePersona();
   const machines = useStore((s) => s.machines);
@@ -188,7 +191,7 @@ function AssistantSettingsForManager({ manager, bare }: { manager: string; bare?
       </Group>
 
       <Group title={t("settings-assistantsettings.knows_title")} footer={t("settings-assistantsettings.knows_footer")}>
-        {info && <AboutMe scopedApi={scopedApi} info={info} onSaved={(notes) => setInfo((i) => (i ? { ...i, notes, notes_effective: notes.trim() } : i))} />}
+        {info && <AboutMe notesSaves={notesSaves} info={info} onSaved={(notes) => setInfo((i) => (i ? { ...i, notes, notes_effective: notes.trim() } : i))} />}
         <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
           <span className="flex-1 text-[13px] font-medium text-ink">{t("settings-assistantsettings.memory")}</span>
           {files && entries.length > 0 && <span className="text-[11.5px] text-ink-3 tabular-nums">{t("settings-assistantsettings.memory_count", { count: entries.length })}</span>}
@@ -246,43 +249,50 @@ function AssistantSettingsForManager({ manager, bare }: { manager: string; bare?
 
 /** "About me": what Persona is told about you. Until saved here it shows hub.json's text; saving (even empty) makes this the
  *  one. Saved with "Save", and when leaving the page with changes. */
-function AboutMe({ scopedApi, info, onSaved }: { scopedApi: typeof api; info: AssistantState; onSaved: (notes: string) => void }) {
+function AboutMe({ notesSaves, info, onSaved }: { notesSaves: ReturnType<typeof aboutMeSaves>; info: AssistantState; onSaved: (notes: string) => void }) {
   const original = info.notes ?? info.notes_effective ?? "";
-  const [text, setText] = useState(original);
-  const [base, setBase] = useState(original);
+  const [text, setText] = useState(() => notesSaves.pending?.value ?? notesSaves.saved ?? original);
+  const [base, setBase] = useState(() => notesSaves.saved ?? original);
   const [busy, setBusy] = useState(false);
   const changed = text !== base;
   const latest = useRef({ text, changed });
   latest.current = { text, changed };
+  const editor = useRef({ generation: 0, mounted: false });
 
-  const save = async (value = text, quiet = false) => {
-    setBusy(true);
+  const acknowledge = async (value: string, promise: Promise<boolean>, quiet: boolean, notify = true) => {
+    const generation = editor.current.generation;
+    if (editor.current.mounted) setBusy(true);
+    const current = () => notesSaves.current(generation) && (quiet || editor.current.mounted);
     try {
-      await scopedApi("/assistant", { method: "PUT", json: { notes: value } });
-      setBase(value);
-      onSaved(value);
-      void refreshAssistant().catch(() => {});
-      if (!quiet) toast(t("settings-assistantsettings.saved_new_chats"), "ok");
+      if (!await promise || !current()) return;
+      if (editor.current.mounted) {
+        // Acknowledging A advances the baseline only; a newer edited B stays dirty.
+        setBase(value);
+        onSaved(value);
+        void refreshAssistant().catch(() => {});
+      }
+      if (notify) toast(t(quiet ? "settings-assistantsettings.about_saved" : "settings-assistantsettings.saved_new_chats"), "ok");
     } catch (e) {
-      toast(t("settings-assistantsettings.about_save_failed", { error: errorText(e) }), "error");
+      if (current() && (notify || latest.current.text === value)) toast(t("settings-assistantsettings.about_save_failed", { error: errorText(e) }), "error");
     } finally {
-      setBusy(false);
+      if (current() && editor.current.mounted) setBusy(false);
     }
   };
+  const save = (value = text, quiet = false) => acknowledge(value, notesSaves.save(value), quiet);
 
-  // leaving the page (another settings tab, another page) keeps what was typed
-  useEffect(
-    () => () => {
-      const { text: value, changed: c } = latest.current;
-      if (c) {
-        scopedApi("/assistant", { method: "PUT", json: { notes: value } }).then(
-          () => toast(t("settings-assistantsettings.about_saved"), "ok"),
-          (e) => toast(t("settings-assistantsettings.about_save_failed", { error: errorText(e) }), "error"),
-        );
-      }
-    },
-    [],
-  );
+  useEffect(() => {
+    editor.current = { generation: notesSaves.attach(), mounted: true };
+    // A remount may have read the hub before its predecessor's queued write committed.
+    const pending = notesSaves.pending;
+    if (pending) void acknowledge(pending.value, pending.promise, true, false);
+    else if (notesSaves.saved !== undefined) { setBase(notesSaves.saved); onSaved(notesSaves.saved); }
+    return () => {
+      editor.current.mounted = false;
+      const { text: value, changed: dirty } = latest.current;
+      if (dirty || (notesSaves.pending && notesSaves.pending.value !== value)) void save(value, true);
+      notesSaves.detach();
+    };
+  }, [notesSaves]);
 
   return (
     <div className="px-4 py-3">

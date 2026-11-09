@@ -594,21 +594,20 @@ struct InboxSourcePage: View {
 // MARK: - iPhone
 
 /// One event opened on the iPhone: the summary with 'view original', the processing state, recap, the suggestion and its buttons,
-/// the chain, the thread line and related items, then draft reply / hand to AI. The source is a push away (view original, the received entry).
+/// the chain, the thread line and related items; Hand to AI (with Draft Reply among its chips) is the bar along the bottom
+/// (`InboxHandOffBar`). The source is a push away (view original, the received entry).
 struct InboxEventPage: View {
     var item: InboxItem
     var accounts: [MailAccount]
     var draft: () -> Void
-    var handOff: () -> Void
     @State private var suggestion: InboxSuggestionModel
     @State private var editing = false
     @State private var line: InboxTree?
 
-    init(item: InboxItem, accounts: [MailAccount], draft: @escaping () -> Void, handOff: @escaping () -> Void) {
+    init(item: InboxItem, accounts: [MailAccount], draft: @escaping () -> Void) {
         self.item = item
         self.accounts = accounts
         self.draft = draft
-        self.handOff = handOff
         _suggestion = State(initialValue: InboxSuggestionModel.live(item.id))
     }
 
@@ -618,12 +617,16 @@ struct InboxEventPage: View {
                 header
                 InboxEventBlocks(item: item, model: suggestion, edit: { editing = true })
                 InboxLineSection(tree: line)
-                actions
             }
             .padding(.horizontal, Theme.Space.page)
             .padding(.vertical, Theme.Space.l)
             .frame(maxWidth: Theme.Size.readable, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            InboxHandOffBar(item: item, draft: canDraft ? draft : nil,
+                            draftTitle: item.agentDraft == nil ? nil : String(localized: "View Draft"))
         }
         .themedPage()
         .inboxLine(item, tree: $line)
@@ -665,16 +668,9 @@ struct InboxEventPage: View {
         return [source, it.title].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// draft reply (when there is no suggested reply already) and hand to AI, as the old detail's strip had them.
-    private var actions: some View {
-        HStack(spacing: Theme.Space.s) {
-            let canReply = item.connector.map { $0.canReply == true } ?? true
-            if canReply && item.currentSuggestion?.kind != "reply" && !item.isDone {
-                InboxSuggestionButton(title: item.agentDraft == nil ? String(localized: "AI Draft Reply") : String(localized: "View Draft"),
-                                      prominent: false, spinning: false, perform: draft)
-            }
-            InboxSuggestionButton(title: String(localized: "Hand to AI"), prominent: false, spinning: false, perform: handOff)
-            Spacer(minLength: 0)
-        }
+    /// Draft Reply is offered when the item can be answered from here and no suggested reply is there already.
+    private var canDraft: Bool {
+        let canReply = item.connector.map { $0.canReply == true } ?? true
+        return canReply && item.currentSuggestion?.kind != "reply" && !item.isDone
     }
 }

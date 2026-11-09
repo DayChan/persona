@@ -226,7 +226,20 @@ func (h *Manager) callBrowserTool(ctx context.Context, sessionID, name string, a
 	if callErr != nil {
 		return proto.TextResult(callErr.Error(), true)
 	}
-	return computerResult(&res)
+	return browserResult(&res)
+}
+
+// browserResult preserves a script's error as a failed tool call. The node returns it in JSON alongside page metadata
+// and an optional screenshot so the model can diagnose the page; transport success does not mean the script succeeded.
+func browserResult(r *proto.ComputerResult) proto.ToolResult {
+	out := computerResult(r)
+	var result struct {
+		Error string `json:"error"`
+	}
+	if len(r.Output) > 0 && json.Unmarshal(r.Output, &result) == nil && strings.TrimSpace(result.Error) != "" {
+		out.IsError = true
+	}
+	return out
 }
 
 // browserMachine is the Mac the assistant named, when the plugin is on for it and it is online.

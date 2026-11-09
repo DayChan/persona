@@ -9,6 +9,7 @@ import type { Launcher, Machine } from "../lib/types";
 
 const state = vi.hoisted(() => ({ loaded: true, features: [] as string[], machines: [] as Machine[] }));
 vi.mock("../lib/store", () => ({
+  getState: () => state,
   useStore: (selector: (value: typeof state) => unknown) => selector(state),
   hubHas: (features: string[], feature: string, unknown = false) => (features.length ? features.includes(feature) : unknown),
 }));

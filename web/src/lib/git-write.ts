@@ -16,6 +16,8 @@ export interface GitBranch {
 
 export interface GitStashEntry {
   index: number;
+  /** Missing on older nodes: never write by index alone. */
+  oid?: string;
   message: string;
   date: string;
 }
@@ -29,6 +31,10 @@ export interface GitWriteResult {
 }
 
 export type GitWriteOp = "stage" | "commit" | "push" | "switch" | "stash";
+
+export function hasStashIdentity(e: GitStashEntry): boolean {
+  return typeof e.oid === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(e.oid);
+}
 
 export function gitWrite(base: string, op: GitWriteOp, body: Record<string, unknown>): Promise<GitWriteResult> {
   return api<GitWriteResult>(`${base}/${op}`, { method: "POST", json: body });
@@ -59,6 +65,8 @@ const KNOWN = new Set([
   "git_busy",
   "git_no_branch",
   "git_no_stash",
+  "git_stash_stale",
+  "git_stash_unsupported",
   "git_not_pushed",
   "git_no_pr",
   "git_not_github",

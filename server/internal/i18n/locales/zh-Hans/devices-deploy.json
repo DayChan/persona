@@ -29,6 +29,7 @@
   "node_temporary": "当前连接使用临时 node，请先安装常驻 node 服务",
   "node_unmanaged": "常驻 node 未由 launchd/systemd 管理，无法保证失败后恢复",
   "node_no_ps": "缺少 ps，无法核对回滚进程身份",
+  "node_ps_no_start": "ps 读不出进程的启动时间，无法核对回滚进程身份",
   "node_no_systemd_run": "缺少 systemd-run，无法启动独立回滚守护",
   "node_no_executable": "无法定位常驻 node 的实际执行文件",
   "node_bad_executable": "常驻 node 的执行文件不可用",

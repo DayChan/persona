@@ -414,7 +414,7 @@ func browserScript(session, script string, look, full, screenshot bool, shot str
 	b.WriteString("const __r = {};\n")
 	b.WriteString("try {\n")
 	if look {
-		scope := `"viewport"`
+		scope := `"only_within_viewport"`
 		if full {
 			scope = `"full_page"`
 		}

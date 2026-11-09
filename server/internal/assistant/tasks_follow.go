@@ -124,7 +124,7 @@ func (s *Service) taskWaits(ctx context.Context, t Todo) bool {
 }
 
 // taskWorking: one of the task's agents started a turn. The agent of a task the hub closed meanwhile (judged done,
-// reviewed) works on it again — sent more by agent_send, which resumes a closed one, or by the user: the task is open
+// accepted) works on it again — sent more by agent_send, which resumes a closed one, or by the user: the task is open
 // again first, as a change asked for on its "Please verify" card reopens it (#3457), so this turn is followed
 // (interrupted or done receipt, judgment) and the task shows in progress, not done (#5892).
 func (s *Service) taskWorking(ctx context.Context, mid, sid string) {

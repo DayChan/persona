@@ -13,6 +13,8 @@ struct InboxHandOffModelTests {
         var asked: [String] = []
         var started: [String] = []
         var agents: [(key: SessionKey, text: String)] = []
+        /// What `open()` went to.
+        var went: [(target: InboxHandOffModel.Target, key: SessionKey)] = []
         var done = 0
         /// What the hand-off throws first, in order; then it answers.
         var failures: [Error] = []
@@ -25,6 +27,7 @@ struct InboxHandOffModelTests {
     }
 
     private static let main = SessionKey(machineID: "server", sessionID: "main-1")
+    private static let fresh = SessionKey(machineID: "server", sessionID: "new-1")
     private static let look = String(localized: "It may have reached the computer already. Check the chat before sending it again.")
     /// A failed retry of a hand-off already in doubt, which the same ask never hands over under a new id.
     private static let lookAgain = look + "\n" + String(localized: "To send it anyway, change the instructions or open Hand to AI again.")
@@ -36,6 +39,7 @@ struct InboxHandOffModelTests {
     private func model(_ calls: Calls, hub: APIClient? = nil) -> InboxHandOffModel {
         InboxHandOffModel(itemID: "lark:f1:11", deps: .init(
             load: { _ in
+                try Task.checkCancellation() // as URLSession does
                 if !calls.loadFailures.isEmpty { throw calls.loadFailures.removeFirst() }
                 var it = try JSON.decoder.decode(InboxItem.self, from: Data(Self.item.utf8))
                 if let p = calls.preview { it.preview = p }
@@ -47,13 +51,18 @@ struct InboxHandOffModelTests {
                 if !calls.failures.isEmpty { throw calls.failures.removeFirst() }
                 return Self.main
             },
-            openMain: { calls.opened.append(($0, $1, $2)) },
+            showMain: { calls.opened.append(($0, $1, $2)) },
             plainToMain: {
                 calls.asked.append($0)
                 if !calls.askFailures.isEmpty { throw calls.askFailures.removeFirst() }
+                return Self.main
             },
-            startNew: { calls.started.append($0) },
+            startNew: {
+                calls.started.append($0)
+                return Self.fresh
+            },
             sendToAgent: { calls.agents.append(($0, $1)) },
+            open: { calls.went.append(($0, $1)) },
             markDone: { calls.done += 1 }))
     }
 
@@ -405,5 +414,84 @@ struct InboxHandOffModelTests {
         """)
         let answer = try await hub.client.inboxHandoff("lark:f1:11", text: "看看", clientID: UUID())
         #expect(answer.session == Self.main && answer.item == nil)
+    }
+
+    // MARK: The detail page's bar (InboxHandOffBar)
+
+    @Test func sendingMovesNothingAndOpenGoesWhereItWent() async {
+        let calls = Calls(), m = model(calls)
+        #expect(await m.send(ask: "a"))
+        #expect(calls.went.isEmpty)
+        m.open()
+        #expect(calls.went.count == 1 && calls.went[0].target == .main && calls.went[0].key == Self.main)
+
+        m.target = .newChat
+        #expect(await m.send(ask: "b"))
+        m.open()
+        #expect(calls.went.last?.target == .newChat && calls.went.last?.key == Self.fresh)
+
+        let agent = SessionKey(machineID: "m", sessionID: "a")
+        m.target = .agent(agent)
+        #expect(await m.send(ask: "c"))
+        m.open()
+        #expect(calls.went.last?.target == .agent(agent) && calls.went.last?.key == agent && calls.went.count == 3)
+    }
+
+    @Test func aFailedSendHasNowhereToOpen() async {
+        let calls = Calls(), m = model(calls)
+        calls.failures = [APIError(status: 400, message: "no")]
+        #expect(!(await m.send(ask: "a")))
+        m.open()
+        #expect(calls.went.isEmpty && m.sent == nil && m.lastAsk == "a")
+    }
+
+    @Test func undoInTheWindowSendsNothing() async throws {
+        let calls = Calls(), m = model(calls)
+        m.queue(ask: "a", after: .seconds(60))
+        #expect(m.queued == "a")
+        #expect(m.undo() == "a")
+        #expect(m.queued == nil && m.undo() == nil)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(calls.handOffs.isEmpty && calls.done == 0)
+    }
+
+    @Test func aQueuedAskGoesWhenTheWindowRunsOut() async throws {
+        let calls = Calls(), m = model(calls)
+        m.queue(ask: "a", after: .milliseconds(10))
+        for _ in 0..<200 where calls.handOffs.isEmpty || m.sending { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(calls.handOffs.count == 1 && ContextRef.parse(calls.handOffs[0].text).rest == "a")
+        #expect(m.queued == nil && m.sent?.key == Self.main && calls.went.isEmpty)
+    }
+
+    @Test func viewSendsTheQueuedAskAtOnceAndOnlyOnce() async throws {
+        let calls = Calls(), m = model(calls)
+        m.queue(ask: "a", after: .milliseconds(30))
+        #expect(await m.sendQueued())
+        #expect(!(await m.sendQueued()))
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(calls.handOffs.count == 1 && m.queued == nil)
+    }
+
+    @Test func aNewAskReplacesTheQueuedOne() async throws {
+        let calls = Calls(), m = model(calls)
+        m.queue(ask: "a", after: .seconds(60))
+        m.queue(ask: "b", after: .milliseconds(10))
+        for _ in 0..<200 where calls.handOffs.isEmpty || m.sending { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(calls.handOffs.count == 1 && ContextRef.parse(calls.handOffs[0].text).rest == "b")
+    }
+
+    @Test func theTargetIsRememberedAsAString() {
+        let agent = SessionKey(group: "work", machineID: "m", sessionID: "a")
+        for t: InboxHandOffModel.Target in [.main, .newChat, .agent(agent), .agent(SessionKey(machineID: "m", sessionID: "b"))] {
+            #expect(InboxHandOffModel.Target(stored: t.stored) == t)
+        }
+        #expect(InboxHandOffModel.Target(stored: "") == .main)
+        #expect(InboxHandOffModel.Target(stored: "agent:nonsense") == .main)
+    }
+
+    @Test func theChipsAsksAreTheSheetsPresets() {
+        #expect(InboxAsk.allCases.count == 3)
+        #expect(Set(InboxAsk.allCases.map(\.ask)).count == 3)
+        #expect(Set(InboxAsk.allCases.map(\.title)).count == 3)
     }
 }

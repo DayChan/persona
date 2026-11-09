@@ -8,6 +8,7 @@ package extmgr
 // with no app).
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -263,8 +265,26 @@ func (h *Manager) approveApps(ctx context.Context, m *Machine, by asker, tool st
 	return true, ok
 }
 
+// computerAppsOwner binds an opt-in request to the manager whose settings the client displayed. The hub routes
+// machine requests to their current owner, regardless of ManagerHeader; checking here also works through an older
+// hub. The receiver's identity is immutable, so a delayed handover cannot turn this into another manager's write.
+func (h *Manager) computerAppsOwner(w http.ResponseWriter, r *http.Request) bool {
+	if expected := r.URL.Query().Get("expected_manager"); expected != "" && expected != h.computerAppsManager() {
+		writeErrCode(w, http.StatusConflict, "machine_owner_changed", i18n.Err("hub-computer_apps.owner_changed"))
+		return false
+	}
+	return true
+}
+
+func (h *Manager) computerAppsManager() string {
+	return cmp.Or(h.opts.ManagerID, assistantwire.AssistantID)
+}
+
 // getComputerApps: GET /api/v1/machines/{mid}/computer/apps, the apps always allowed on this Mac.
 func (h *Manager) getComputerApps(w http.ResponseWriter, r *http.Request, m *Machine) {
+	if !h.computerAppsOwner(w, r) {
+		return
+	}
 	all, err := h.approvedApps(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -279,11 +299,25 @@ func (h *Manager) getComputerApps(w http.ResponseWriter, r *http.Request, m *Mac
 	if apps == nil {
 		apps = []approvedApp{}
 	}
-	writeJSON(w, map[string]any{"apps": apps})
+	// The identity acknowledges support for expected_manager; old clients ignore this extra field.
+	writeJSON(w, map[string]any{"apps": apps, "manager": h.computerAppsManager()})
 }
 
-// deleteComputerApp: DELETE /api/v1/machines/{mid}/computer/apps/{bundle}, asked again next time.
+// revokeComputerApp is safe through an older hub: legacy managers do not match this alias, while this receiver
+// requires and enforces its immutable identity before delegating to the existing persisted mutation.
+func (h *Manager) revokeComputerApp(w http.ResponseWriter, r *http.Request, m *Machine) {
+	if r.URL.Query().Get("expected_manager") == "" {
+		writeErrCode(w, http.StatusPreconditionRequired, "expected_manager_required", i18n.Err("hub-computer_apps.owner_required"))
+		return
+	}
+	h.deleteComputerApp(w, r, m)
+}
+
+// deleteComputerApp: DELETE /api/v1/machines/{mid}/computer/apps/{bundle}, removing only the saved approval.
 func (h *Manager) deleteComputerApp(w http.ResponseWriter, r *http.Request, m *Machine) {
+	if !h.computerAppsOwner(w, r) {
+		return
+	}
 	id := r.PathValue("bundle")
 	computerAppsMu.Lock()
 	all, err := h.approvedApps(r.Context())
