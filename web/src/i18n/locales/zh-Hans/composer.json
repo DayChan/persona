@@ -15,5 +15,10 @@
   "locked": "这个启动器固定了自己的模型，在这里选了也不会生效。",
   "busy": "Agent 正在工作，这一轮结束后再切换模型",
   "keys_hint": "↑↓ 模型 · ←→ 思考",
-  "apply": "应用"
+  "apply": "应用",
+  "forget": "忘记「{id}」",
+  "forget_failed": "没能忘记「{id}」：{error}",
+  "other_model": "其他模型…",
+  "enter_model": "输入模型 ID…",
+  "typed_note": "点「应用」后 Claude Code 切换到它。"
 }

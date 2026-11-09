@@ -4,6 +4,7 @@
 import { chooseManager, noteConversation, otherManager, ownerHeaders } from "../../lib/manager-choice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, errorText } from "../../lib/api";
+import { startConversation } from "../../lib/assistant-start";
 import { adoptConversation, askPersonaOf, noteSent, sendToSession } from "../../lib/outbox";
 import { sessionTitle, stateOf, uuid } from "../../lib/format";
 import {
@@ -271,7 +272,7 @@ export function HandOffDialog({ item, onClose }: { item: InboxItem; onClose: () 
       }
       // Persona here is the item's own manager's (docs/assistant/managers.md "Clients"), whatever the assistant page shows now;
       // the page then shows that manager, where the conversation is
-      const r = await api<{ session: Session }>("/assistant/conversations", { method: "POST", json: { prompt: text }, headers: ownerHeaders(item.manager) });
+      const r = await startConversation({ prompt: text }, ownerHeaders(item.manager));
       // its requests (feed, stop…) go to that manager whatever the page shows later
       noteConversation(r.session.session_id, otherManager(item.manager));
       if (item.manager) chooseManager(item.manager);

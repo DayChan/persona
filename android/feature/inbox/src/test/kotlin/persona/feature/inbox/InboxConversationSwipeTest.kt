@@ -53,7 +53,16 @@ class InboxConversationSwipeTest {
         override val entries = MutableStateFlow(emptyList<InboxEntry>())
         override val snapshot = MutableStateFlow(InboxSnapshot(records = records))
         override val connectionState = MutableStateFlow(ConnectionState.Online)
-        override val preferences = flowOf(InboxPreferences(query = query, expanded = listOf("action", "fyi", "read-pending", "done")))
+        override val preferences = MutableStateFlow(InboxPreferences(query = query, expanded = listOf("action", "fyi", "read-pending", "done")))
+        override suspend fun savePreferences(value: InboxPreferences) { preferences.value = value }
+        val reads = mutableListOf<String>()
+        var failRead = false
+        override suspend fun markLatestRead(feedId: String): Boolean {
+            reads += feedId
+            if (failRead) throw IllegalStateException("Synthetic read failure")
+            snapshot.value = snapshot.value.copy(records = snapshot.value.records.map { if (it.feedId == feedId) it.copy(read = true) else it })
+            return true
+        }
         override val conversationInbox = MutableStateFlow<InboxConversations?>(null)
         val calls = mutableListOf<Pair<List<InboxDoneTarget>, InboxBulkAction>>()
         val handoffs = mutableListOf<InboxHandOffRequest>()
@@ -93,6 +102,111 @@ class InboxConversationSwipeTest {
     private fun swipe(right: Boolean) {
         row().performTouchInput { if (right) swipeRight() else swipeLeft() }
         rule.waitForIdle()
+    }
+
+    @Test fun completingUnreadConversationLeavesOpenSectionsAndSurvivesRefresh() {
+        val inbox = FakeInbox(listOf(record("a").copy(read = false), record("b").copy(read = false)))
+        screen(inbox)
+        swipe(true)
+        rule.runOnIdle {
+            assertTrue(inbox.snapshot.value.records.all { it.item.isDone && !it.read })
+            assertEquals(InboxConversationSection.Done, inbox.conversationInbox.value!!.state.value.rows.single().section)
+        }
+        rule.onNodeWithText("Needs you", substring = true).performClick()
+        rule.onNodeWithText("Synthetic conversation").assertDoesNotExist()
+        rule.onNodeWithText("Done", substring = true).performClick()
+        row().assertExists()
+        rule.runOnIdle {
+            // Rebuild from the persisted server snapshot rather than retaining the old controller's projection.
+            inbox.conversationInbox.value = InboxConversations(inbox, "synthetic-pairing", owner, ReplyComposers(inbox, owner))
+        }
+        rule.waitForIdle()
+        row().assertExists()
+    }
+
+    @Test fun failedUnreadCompletionRestoresTheOpenRowAndReportsFailure() {
+        val inbox = FakeInbox(listOf(record("a").copy(read = false)))
+        inbox.response = { _, _ -> throw IllegalStateException("Synthetic write failure") }
+        screen(inbox)
+        swipe(true)
+        row().assertExists()
+        rule.onNodeWithText("previous state is back", substring = true).assertExists()
+        rule.runOnIdle {
+            assertFalse(inbox.snapshot.value.records.single().item.isDone)
+            assertEquals(InboxConversationSection.Action, inbox.conversationInbox.value!!.state.value.rows.single().section)
+            assertEquals(1, inbox.calls.size)
+        }
+    }
+
+    @Test fun needsYouReadAllWorksFoldedAndExpandedWithoutFilingAndRetriesFailure() {
+        val inbox = FakeInbox(listOf(record("a").copy(read = false),
+            record("fyi").let { it.copy(feedId = "other-room", read = false, item = it.item.copy(tier = "fyi", title = "Other section")) }))
+        inbox.preferences.value = inbox.preferences.value.copy(expanded = emptyList())
+        screen(inbox)
+        row().assertDoesNotExist()
+        rule.onAllNodesWithText("Mark all as read").assertCountEquals(2)
+        inbox.failRead = true
+        rule.onAllNodesWithText("Mark all as read")[0].performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Some messages could not be marked as read. Try again.").assertExists()
+        rule.runOnIdle { assertTrue(inbox.calls.isEmpty()); assertTrue(inbox.snapshot.value.records.none { it.item.isDone || it.read }) }
+        inbox.failRead = false
+        rule.onNodeWithText("Retry").performClick()
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertEquals(listOf("synthetic-room", "synthetic-room"), inbox.reads)
+            assertTrue(inbox.snapshot.value.records.first().read)
+            assertFalse(inbox.snapshot.value.records.last().read)
+            assertTrue(inbox.calls.isEmpty())
+        }
+    }
+
+    @Test fun expandedNeedsYouReadsOnlyUnreadConversationsAndLeavesOtherAssistantUntouched() {
+        val inbox = FakeInbox(listOf(record("a").copy(read = false),
+            record("already-read").copy(feedId = "read-room"),
+            record("other").copy(feedId = "other-room", read = false, manager = "other-assistant")))
+        inbox.conversationInbox.value = InboxConversations(inbox, "synthetic-pairing", owner, ReplyComposers(inbox, owner))
+        val roster = ManagerRoster(listOf(HubManager("assistant", "Assistant", online = true, isDefault = true),
+            HubManager("other-assistant", "Other assistant", online = true)), "assistant")
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            CompositionLocalProvider(LocalManagerRoster provides roster) { InboxScreen(inbox, navigator) }
+        } }
+        rule.waitForIdle()
+        rule.onAllNodesWithText("Mark all as read").assertCountEquals(2)
+        rule.onAllNodesWithText("Mark all as read")[0].performClick()
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertEquals(listOf("synthetic-room"), inbox.reads)
+            assertTrue(inbox.snapshot.value.records[0].read)
+            assertTrue(inbox.snapshot.value.records[1].read)
+            assertFalse(inbox.snapshot.value.records[2].read)
+            assertTrue(inbox.snapshot.value.records.none { it.item.isDone })
+            assertTrue(inbox.calls.isEmpty())
+        }
+        rule.onAllNodesWithText("Mark all as read").assertCountEquals(1)
+    }
+
+    @Test fun needsYouReadControlIsVisibleInBothFoldStatesAcrossAllStyles() {
+        val inbox = FakeInbox(listOf(record("a").copy(read = false),
+            record("fyi").let { it.copy(feedId = "other-room", read = false, item = it.item.copy(tier = "fyi", title = "Other section")) }))
+        inbox.conversationInbox.value = InboxConversations(inbox, "synthetic-pairing", owner, ReplyComposers(inbox, owner))
+        var dark by mutableStateOf(false)
+        var style by mutableStateOf(AppStyle.Glass)
+        rule.setContent { PersonaTheme(style = style, darkTheme = dark, reduceMotion = true) {
+            Box(Modifier.testTag("inbox-state-page")) { InboxScreen(inbox, navigator) }
+        } }
+        for (s in AppStyle.entries) for (d in listOf(false, true)) for (folded in listOf(false, true)) {
+            rule.runOnIdle {
+                style = s; dark = d
+                inbox.preferences.value = inbox.preferences.value.copy(expanded = if (folded) emptyList() else listOf("action", "fyi"))
+            }
+            rule.waitForIdle()
+            rule.onAllNodesWithText("Mark all as read").assertCountEquals(2)
+            val dir = File("build/reports/tests/inbox-state-shots").apply { mkdirs() }
+            File(dir, "${s.name}-${if (d) "dark" else "light"}-${if (folded) "folded" else "expanded"}.png").outputStream().use {
+                assertTrue(rule.onNodeWithTag("inbox-state-page").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        }
     }
 
     @Test fun rightSwipeFilesEveryDisplayedVersionThenReopensWithTheSameSemantics() {

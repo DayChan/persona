@@ -321,8 +321,8 @@ func provisionOwn(ctx context.Context, home, shared string, kept managerconf.Own
 func provisionContainer(ctx context.Context, home string, kept managerconf.OwnDatabase) (managerconf.OwnDatabase, bool, error) {
 	id := ownContainerID(home)
 	if kept.Container != "" {
-		name, ok := strings.CutPrefix(kept.Container, "persona-mgr-")
-		if name, ok = strings.CutSuffix(name, "-pg"); !ok || name == "" {
+		name, ok := managerContainerID(kept.Container)
+		if !ok {
 			return kept, false, fmt.Errorf("database_container %q is not one a manager makes", kept.Container)
 		}
 		id = name
@@ -336,6 +336,17 @@ func provisionContainer(ctx context.Context, home string, kept managerconf.OwnDa
 		return kept, false, err
 	}
 	return managerconf.OwnDatabase{URL: url, Container: pgdocker.ManagerContainer(id), Location: kept.Location}, created, nil
+}
+
+// managerContainerID is the manager id in a database container a manager makes (pgdocker.ManagerContainer:
+// persona-mgr-<id>-pg); ok is false for any other name.
+func managerContainerID(container string) (id string, ok bool) {
+	id, prefixed := strings.CutPrefix(container, "persona-mgr-")
+	id, suffixed := strings.CutSuffix(id, "-pg")
+	if !prefixed || !suffixed || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // provisionSecond is the second database name in the hub's Postgres server (made when its role may: CREATE

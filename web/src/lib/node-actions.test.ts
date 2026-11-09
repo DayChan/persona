@@ -89,6 +89,28 @@ describe("splitting and running an agent", () => {
     expect(d.post).toHaveBeenCalledWith("m1", "panes/agent", { pane: "w1:p2", launcher: "work" });
   });
 
+  it("says why a launcher this computer's terminal can't run, after the usable ones, and still lets it run (#1643)", async () => {
+    const d = deps({
+      launchers: vi.fn(async () => [
+        { name: "claude", health: { state: "ok" } },
+        { name: "work", health: { state: "blocked", kind: "not_in_terminal", error: "bash: work: command not found" } },
+        { name: "slow", health: { state: "failing", kind: "timeout" } },
+      ]),
+    });
+    const list = await (by(nodeActions(tab, d), "node-agent").children as () => Promise<MenuItem[]>)();
+    // usable first (still being retried by the hub counts: offered as before), the blocked one after a line, with why
+    expect(list.map((i) => i.label)).toEqual(["claude", "slow", "work"]);
+    expect(list[2].detail).toBe("这台电脑的终端里用不了");
+    expect(list[2].divider).toBe(true);
+    expect(list[0].detail).toBeUndefined();
+    expect(list[1].detail).toBeUndefined();
+    expect(list[1].divider).toBeUndefined();
+    // the same as iOS's sheet and New agent's "Try anyway": once fixed, a start that works is what clears the record
+    expect(list.some((i) => i.disabled)).toBe(false);
+    await list[2].onSelect();
+    expect(d.post).toHaveBeenCalledWith("m1", "panes/agent", { pane: "w1:p2", launcher: "work" });
+  });
+
   it("is for a plain shell only", () => {
     const withAgent = nodeActions({ ...tab, agent: "claude", sessionId: "sid-1" }, deps());
     expect(keys(withAgent)).not.toContain("node-agent");

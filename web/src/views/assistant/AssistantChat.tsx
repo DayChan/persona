@@ -11,7 +11,10 @@ import {
 import {
   archivedMainTitle, COMPACT_FEATURE, compactBody, compactionView, compactPath, NEW_MAIN_FEATURE, NEW_MAIN_PATH, newMainBody, type CompactionView,
 } from "../../lib/compaction";
-import { defaultLabel, launcherModels, machineLaunchers, modelName, oneOff, type AgentModel, type LauncherDefault } from "../../lib/launcher-models";
+import {
+  defaultLabel, forgetCustomModel, launcherModels, machineLaunchers, modelName, oneOff, takesTypedModel, type AgentModel, type LauncherDefault,
+} from "../../lib/launcher-models";
+import { modelIdRule, TYPED_MODELS_FEATURE, typedModelProblem } from "../../lib/model-id";
 import { runtimeFallbackText } from "../../lib/model-config";
 import { personaState } from "../../lib/persona";
 import { navigate } from "../../lib/router";
@@ -80,7 +83,8 @@ export function AssistantLauncherChip({ session }: { session: Session }) {
   const key = conversationKey(session.machine_id, session.session_id);
   const picked = usePickedLauncher(key);
   const pickedM = usePickedModel(key);
-  const [modelsFor, setModelsFor] = useState<{ name: string; options: AgentModel[]; loading: boolean } | null>(null);
+  // `locked`: why a pick doesn't reach this launcher's agent (it passes its own --model)
+  const [modelsFor, setModelsFor] = useState<{ name: string; options: AgentModel[]; loading: boolean; locked?: string } | null>(null);
   const [knownModels, setKnownModels] = useState<{ machine: string; name: string; options: AgentModel[] } | null>(null);
   const isMain = assistant?.main === session.session_id;
   const { list, def, error } = useAssistantLaunchers(session.machine_id, isMain || Boolean(menu.anchor));
@@ -102,7 +106,7 @@ export function AssistantLauncherChip({ session }: { session: Session }) {
     void launcherModels(session.machine_id, name)
       .then((r) => {
         const options = r?.models ?? [];
-        setModelsFor((cur) => (cur?.name === name ? { name, options, loading: false } : cur));
+        setModelsFor((cur) => (cur?.name === name ? { name, options, loading: false, locked: r?.locked } : cur));
         setKnownModels({ machine: session.machine_id, name, options });
       })
       .catch(() => setModelsFor((cur) => (cur?.name === name ? { name, options: [], loading: false } : cur)));
@@ -111,6 +115,22 @@ export function AssistantLauncherChip({ session }: { session: Session }) {
     pickModel(key, id);
     toast(id ? t("assistant-assistantchat.using_model", { launcher: name, model: id }) : t("assistant-assistantchat.using_default_model", { launcher: name }), "ok");
   };
+  // Forget an ID typed before (#1644): off the submenu at once, back when the hub says no.
+  const forget = (name: string, id: string) => {
+    const drop = (options: AgentModel[]) => options.filter((m) => m.id !== id);
+    const before = modelsFor?.name === name ? modelsFor.options : knownModels?.name === name ? knownModels.options : [];
+    setModelsFor((cur) => (cur?.name === name ? { ...cur, options: drop(cur.options) } : cur));
+    setKnownModels((cur) => (cur?.name === name ? { ...cur, options: drop(cur.options) } : cur));
+    forgetCustomModel(session.machine_id, name, id).catch((e) => {
+      setModelsFor((cur) => (cur?.name === name ? { ...cur, options: before } : cur));
+      setKnownModels((cur) => (cur?.name === name && cur.machine === session.machine_id ? { ...cur, options: before } : cur));
+      toast(t("assistant-assistantchat.forget_failed", { id, error: errorText(e) }), "error");
+    });
+  };
+  // the launchers whose agent takes a typed model ID (#1644): Claude Code and Codex
+  const typable = (name: string) => takesTypedModel(list?.find((l) => l.name === name)?.agent || "claude");
+  // the hub keeps a typed pick for the next message; an older one dropped it without a word
+  const keepsTyped = useStore((s) => hubHas(s.features, TYPED_MODELS_FEATURE));
 
   const items: MenuItem[] = modelsFor
     ? [
@@ -118,20 +138,62 @@ export function AssistantLauncherChip({ session }: { session: Session }) {
         { key: "default", label: t("assistant-assistantchat.default_model"), radio: true, checked: !pickedM, onSelect: () => pick(modelsFor.name, undefined) },
         ...(modelsFor.loading
           ? [{ key: "loading", label: t("assistant-assistantchat.models_loading"), disabled: true, onSelect: () => {} }]
-          : modelsFor.options.map((m) => ({
-              key: m.id,
-              label: modelName(m),
-              detail: m.description,
-              radio: true,
-              // the launcher's own default entry picks the same as "Default model" above, which carries the check then
-              checked: pickedM === m.id,
-              onSelect: () => pick(modelsFor.name, m.default ? undefined : m.id),
-            }))),
+          : modelItems(modelsFor.name, modelsFor.options, modelsFor.locked)),
       ]
     : [
         { key: "default", label: defaultLabel(fallback), checked: !picked, onSelect: () => pickLauncher(key, undefined) },
         ...launcherItems(list, error, picked, openModels).map((it) => ({ ...it, submenu: true })),
       ];
+
+  /** A launcher's models: its own, then the IDs typed before under their heading (#1644), "Other model…" (a field for an
+   *  ID, checked with the typed pick when the list doesn't have it; where the hub keeps one, and why not when the
+   *  launcher passes its own --model), and a submenu to forget the typed ones. */
+  function modelItems(name: string, options: AgentModel[], locked?: string): MenuItem[] {
+    const row = (m: AgentModel): MenuItem => ({
+      key: m.id,
+      label: modelName(m),
+      detail: m.description,
+      radio: true,
+      // the launcher's own default entry picks the same as "Default model" above, which carries the check then
+      checked: pickedM === m.id,
+      onSelect: () => pick(name, m.default ? undefined : m.id),
+    });
+    const own = options.filter((m) => !m.custom);
+    const typed = options.filter((m) => m.custom);
+    if (!typable(name)) return own.map(row);
+    const unlisted = pickedM && picked === name && !options.some((m) => m.id === pickedM) ? pickedM : "";
+    const other: MenuItem[] = !keepsTyped
+      ? []
+      : locked
+        ? [{ key: "locked", label: locked, note: true, divider: true, onSelect: () => {} }]
+        : [{
+            key: "other",
+            label: t("assistant-assistantchat.other_model"),
+            icon: "keyboard" as const,
+            divider: true,
+            hint: unlisted || undefined,
+            radio: true,
+            checked: Boolean(unlisted),
+            onSelect: () => {},
+            rename: { value: "", placeholder: t("assistant-assistantchat.model_id_placeholder"), validate: typedModelProblem, hint: modelIdRule(), commit: (id: string) => pick(name, id) },
+          }];
+    return [
+      ...own.map(row),
+      ...(typed.length ? [{ key: "typed", label: t("assistant-assistantchat.typed_before"), heading: true, divider: true, onSelect: () => {} }] : []),
+      // the heading says what they are: no line under each, and the ID as it was typed
+      ...typed.map((m) => ({ ...row(m), detail: undefined, mono: true })),
+      ...other,
+      ...(typed.length
+        ? [{
+            key: "forget",
+            label: t("assistant-assistantchat.forget_typed"),
+            icon: "trash" as const,
+            onSelect: () => {},
+            children: typed.map((m) => ({ key: `forget:${m.id}`, label: m.id, mono: true, onSelect: () => forget(name, m.id) })),
+          }]
+        : []),
+    ];
+  }
 
   return (
     <>

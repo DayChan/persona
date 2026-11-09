@@ -1,0 +1,10 @@
+{
+  "not_in_terminal": "Not available in this computer's terminal",
+  "auth": "Its key or sign-in was rejected",
+  "model_route": "Its gateway can't use this model",
+  "cli_outdated": "Its CLI is too old",
+  "timeout": "Didn't answer in its last check",
+  "other": "Failed its last check on this computer",
+  "title_terminal": "Not available in the terminal",
+  "title_failed": "Unavailable on this computer"
+}

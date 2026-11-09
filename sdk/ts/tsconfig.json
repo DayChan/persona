@@ -11,5 +11,5 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@persona/extension"
   },
-  "include": ["src", "scripts/**/*.ts"]
+  "include": ["src", "scripts/**/*.ts", "typechecks/exact-init.ts"]
 }

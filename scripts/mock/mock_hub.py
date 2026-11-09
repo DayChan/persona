@@ -1607,6 +1607,36 @@ def put_routines(body):
     return schedule_routines(), None
 
 
+# Saved places (Settings › Assistant › Saved Places, #1598): the user's named places that reminders by place go off at.
+PLACES = [
+    {"id": "pl1", "name": "家", "address": "上海市黄浦区示例路 1 号", "latitude": 31.2304, "longitude": 121.4737,
+     "radius_meters": 150, "created_at": ago(days=3), "updated_at": ago(days=3)},
+    {"id": "pl2", "name": "公司", "address": "上海市浦东新区示例大道 100 号", "latitude": 31.2397, "longitude": 121.4998,
+     "radius_meters": 300, "created_at": ago(days=2), "updated_at": ago(days=2)},
+]
+
+
+def save_place(body, pid):
+    """Adds a saved place (pid None) or changes place pid, as the manager does (assistant/places.go): (answer, status)."""
+    name = str(body.get("name") or "").strip()
+    if not name or body.get("latitude") is None or body.get("longitude") is None:
+        return {"error": "地点需要名称和经纬度"}, 400
+    if any(x["name"] == name and x["id"] != pid for x in PLACES):
+        return {"error": f"已经有叫「{name}」的地点了。"}, 409
+    radius = min(max(int(body.get("radius_meters") or 150), 100), 2000)
+    place = {"name": name, "address": str(body.get("address") or "").strip(), "latitude": float(body["latitude"]),
+             "longitude": float(body["longitude"]), "radius_meters": radius, "updated_at": ago()}
+    if pid:
+        for x in PLACES:
+            if x["id"] == pid:
+                x.update(place)
+                return {"place": x}, 200
+        return {"error": "这个常用地点已经不在了。"}, 404
+    place.update(id=f"pl{uuid.uuid4().hex[:8]}", created_at=place["updated_at"])
+    PLACES.append(place)
+    return {"place": place}, 200
+
+
 MEMORY = [
     {"name": "MEMORY.md", "content": "- [早报格式](morning-format.md) — 一屏以内，结论先行", "updated_at": ago(days=1)},
     {"name": "morning-format.md", "content": "---\nname: morning-format\ndescription: 早报一屏以内\nmetadata:\n  type: feedback\n---\n\n早报一屏以内，结论先行。",
@@ -6875,6 +6905,64 @@ LAUNCHER_MODELS = {
 }
 LAUNCHER_MODELS["sonnetcc"] = dict(LAUNCHER_MODELS["claude"], locked="启动器固定了模型参数，不能覆盖具体模型")
 
+# Typing a model ID (#1644, docs/assistant/model-config.md "Typing a model ID"): MOCK_CUSTOM_MODELS=1 lists the IDs typed
+# before after a Claude Code / Codex launcher's own models (`custom: true`, none for a locked one), takes Forget
+# (DELETE …/launchers/{name}/models/custom?model=) and remembers a start's or a running session's typed model the list
+# doesn't have, as the hub does once it ran. =forgetfail: Forget answers 500 (the app puts the row back); =empty: Claude
+# Code's list is empty ("Enter Model ID…"); =fail: no list can be read (502). Every mode lists "typed_models" in the
+# features. GET /mock/custom_models: what is remembered (`?reset=1` puts the first IDs back).
+CUSTOM_MODELS_MODE = os.environ.get("MOCK_CUSTOM_MODELS", "")
+CUSTOM_MODELS_START = {"claude": ["vendor/model-x", "~vendor/model-latest[1m]"], "codex": ["gpt-next-preview"]}
+CUSTOM_MODELS = copy.deepcopy(CUSTOM_MODELS_START) if CUSTOM_MODELS_MODE else {}
+
+
+def custom_models_list(launcher, listing):
+    """A launcher's /model list with the typed IDs after its own (MOCK_CUSTOM_MODELS); None: it can't be read."""
+    if CUSTOM_MODELS_MODE == "fail": return None
+    if CUSTOM_MODELS_MODE == "empty" and listing.get("agent") == "claude": return dict(listing, models=[])
+    if listing.get("agent") not in ("claude", "codex") or listing.get("locked"): return listing
+    known = {m["id"] for m in listing["models"]}
+    typed = [{"id": i, "name": i, "description": "之前用过的模型 ID", "custom": True} for i in CUSTOM_MODELS.get(launcher, []) if i not in known]
+    return dict(listing, models=listing["models"] + typed)
+
+
+def custom_models_used(launcher, model):
+    """A start or a model switch went through with `model`: kept first unless the launcher's own list has it (at most 8)."""
+    listing = LAUNCHER_MODELS.get(launcher or "claude")
+    if not CUSTOM_MODELS_MODE or not model or not listing or listing.get("locked") or model in {m["id"] for m in listing["models"]}: return
+    CUSTOM_MODELS[launcher or "claude"] = ([model] + [i for i in CUSTOM_MODELS.get(launcher or "claude", []) if i != model])[:8]
+
+
+def custom_models_route(h, method, p, q, body=b""):
+    """MOCK_CUSTOM_MODELS: Forget, GET /mock/custom_models, and remembering what a start / a switch ran. False otherwise."""
+    if not CUSTOM_MODELS_MODE: return False
+    if p == "/mock/custom_models":
+        if q.get("reset"):
+            CUSTOM_MODELS.clear(); CUSTOM_MODELS.update(copy.deepcopy(CUSTOM_MODELS_START))
+        h.send_json({"custom": CUSTOM_MODELS, "mode": CUSTOM_MODELS_MODE}); return True
+    if method == "POST" and p == "/api/v1/sessions":
+        b = json.loads(body or b"{}")
+        custom_models_used(b.get("launcher"), b.get("model")); return False
+    m = re.fullmatch(r"/api/v1/sessions/([^/]+)/([^/]+)/modes", p)
+    if method == "POST" and m:
+        s = next((x for x in all_sessions() if x["session_id"] == m.group(2)), None)
+        custom_models_used((s or {}).get("launcher") or "claude", json.loads(body or b"{}").get("model")); return False
+    m = re.fullmatch(r"/api/v1/machines/([^/]+)/launchers/([^/]+)/models/custom", p)
+    if not m or method != "DELETE": return False
+    if CUSTOM_MODELS_MODE == "forgetfail":
+        h.send_json({"error": "数据库暂时不可用"}, 500); return True
+    model, launcher = (q.get("model") or [""])[0], unquote(m.group(2))
+    CUSTOM_MODELS[launcher] = [i for i in CUSTOM_MODELS.get(launcher, []) if i != model]
+    h.send_json({"ok": True}); return True
+
+
+_features_without_custom_models = features
+
+
+def features():
+    # The hub keeps a typed pick (proto "typed_models"): the Persona chat's chip offers "Other Model…".
+    return _features_without_custom_models() + (["typed_models"] if CUSTOM_MODELS_MODE else [])
+
 
 # Settings › Model providers: ~/.zshrc launchers, two of them through made-up example gateways a quota plugin can read.
 LAUNCHERS = [
@@ -10558,9 +10646,14 @@ def churn(rounds, ms, steps=1, final=False, inbox=False, waiting=False, real=Fal
             working[0]["updated_at"] = ago(minutes=30)
         for m in MACHINES:
             m["last_seen"] = now
-        if waiting and INTERACTIONS:  # the hub's own list follows what is pushed below (/mock/truth reads it)
-            INTERACTIONS[:] = [x for x in INTERACTIONS if x["id"] != "ix_churn"]
-            if k % 2 == 0: INTERACTIONS.append(dict(INTERACTIONS[0], id="ix_churn", created_at=now))
+        churn_removed = []
+        churn_added = None
+        if waiting:  # Resolved identities never become a different question on the real hub.
+            churn_removed = [x["id"] for x in INTERACTIONS if x["id"].startswith("ix_churn")]
+            INTERACTIONS[:] = [x for x in INTERACTIONS if x["id"] not in churn_removed]
+            if k % 2 == 0 and INTERACTIONS:
+                churn_added = "ix_churn_" + uuid.uuid4().hex
+                INTERACTIONS.append(dict(INTERACTIONS[0], id=churn_added, created_at=now))
         by = {}
         for s in out_by_machine(all_sessions()): by.setdefault(s["machine_id"], []).append(s)
         for send, subscribed in list(LIVE):
@@ -10571,11 +10664,13 @@ def churn(rounds, ms, steps=1, final=False, inbox=False, waiting=False, real=Fal
                 if inbox:
                     send({"type": "inbox"})
                     for ix in pending: send({"type": "interaction", "interaction": ix})
-                if waiting and pending:  # another agent starts waiting, then is answered elsewhere
-                    if k % 2 == 0:
-                        send({"type": "interaction", "interaction": dict(pending[0], id="ix_churn", created_at=now)})
-                    else:
-                        send({"type": "interaction_resolved", "id": "ix_churn"})
+                if waiting:  # another agent starts waiting, then is answered elsewhere
+                    for retired in churn_removed:
+                        send({"type": "interaction_resolved", "id": retired})
+                    if churn_added:
+                        added = next((ix for ix in pending if ix["id"] == churn_added), None)
+                        if added:
+                            send({"type": "interaction", "interaction": added})
                 for sid in list(subscribed):
                     items = ITEMS.get(sid)
                     if not items: continue
@@ -12846,8 +12941,8 @@ def model_defaults_launchers(h, p, q):
         default = {"provider": b.get("provider", "").removeprefix("launcher."), "model": b.get("model", ""), "effort": b.get("effort", "")}
         if purpose.get("runtimes"):
             default["runtime"] = b.get("runtime") or "cli"
-    h.send_json({"launchers": [{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
-                               {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}], "default": default})
+    h.send_json({"launchers": launcher_health_list([{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
+                                                    {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}]), "default": default})
     return True
 
 
@@ -12856,6 +12951,54 @@ if MODEL_DEFAULTS:
         if _s["session_id"] == ASSISTANT_CONFIG["main"]:
             _s["runtime_fallback"] = MODEL_DEFAULTS_FALLBACK
 # ---------- end of area: model defaults ----------
+
+
+# ---------- area: launcher health (#1643) ----------
+# MOCK_LAUNCHER_HEALTH=1: "New Agent"'s launchers carry their health on the computer (docs/server/launcher-health.md): claude
+# checked fine, work_gw blocked because new terminal tabs can't run it (not_in_terminal, #1642), team_gw blocked on its key.
+# MOCK_LAUNCHER_HEALTH=default: Model Settings' New Agent default is work_gw too. Either way a start that runs work_gw fails
+# after MOCK_START_SECONDS with the hub's coded sentence (start_error_code launcher_missing, where terminal), and a session
+# that already failed so is listed (macbook/f1643000-0000-4000-8000-000000000001, for -openSession).
+LAUNCHER_HEALTH = os.environ.get("MOCK_LAUNCHER_HEALTH", "")
+LAUNCHER_HEALTH_FAILED = "f1643000-0000-4000-8000-000000000001"
+
+
+def launcher_health_list(launchers):
+    """The machine's launchers with health records (MOCK_LAUNCHER_HEALTH), else as they are."""
+    if not LAUNCHER_HEALTH:
+        return launchers
+    out = [dict(l, health={"state": "ok", "checked_at": ago(minutes=12)}) if l["name"] == "claude" else dict(l) for l in launchers]
+    out[1:1] = [
+        {"name": "work_gw", "model": "glm-5.3", "health": {"state": "blocked", "kind": "not_in_terminal", "checked_at": ago(minutes=3),
+                                                          "error": "bash: work_gw: command not found"}},
+        {"name": "team_gw", "model": "sonnet", "health": {"state": "blocked", "kind": "auth", "checked_at": ago(minutes=40),
+                                                         "error": 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'}},
+    ]
+    return out
+
+
+# MOCK_LANG=en|ja|zh-Hans (default zh-Hans, the hub's default): the language of the hub's sentence, as a hub answering a
+# client in that language would write it, so a screenshot in English or Japanese is not checked against Chinese words.
+LAUNCHER_HEALTH_LANG = os.environ.get("MOCK_LANG", "zh-Hans")
+
+
+def launcher_health_refusal(machine_name):
+    """What the hub says of a start the new tab's shell could not run work_gw in: its sentence, code and details."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import readiness_mock  # the hub's own catalogs (server/internal/i18n)
+    args = {"launcher": "work_gw", "where": "terminal", "missing": "work_gw", "kind": "not_found", "pane_shell": "bash",
+            "launcher_shell": "zsh", "rc_file": "~/.zshrc", "line": "bash: work_gw: command not found"}
+    text = readiness_mock.t(LAUNCHER_HEALTH_LANG, "apierr-apierr.launcher_missing_terminal", machine=machine_name, **args)
+    return {"start_error": text, "start_error_code": "launcher_missing", "start_error_args": args}
+
+
+if LAUNCHER_HEALTH == "default":
+    MODEL_BINDINGS["agent.new"] = {"revision": 1, "override": {"provider": "launcher.work_gw"}}
+if LAUNCHER_HEALTH:
+    SESSIONS.append(sess("macbook", LAUNCHER_HEALTH_FAILED, "整理天气数据", "/Users/me/code/weather-app", "offline", "offline",
+                         "weather-app", 2, "agent-3", 3, 1, "", launcher="work_gw",
+                         **launcher_health_refusal(next((m["name"] for m in MACHINES if m["id"] == "macbook"), "macbook"))))
+# ---------- end of area: launcher health ----------
 
 
 # ---------- HTTP ----------
@@ -12936,6 +13079,7 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/v1/assistant/conversations/" + ASK1 + "/always":
             return self.send_json({"grants": ALWAYS_GRANTS})
         if recordings_route(self, "GET", p): return
+        if custom_models_route(self, "GET", p, q): return
         if managers_route(self, "GET", p): return
         if _sent and _sent.route(self, "GET", p, q): return
         if providers_route(self, "GET", p, q, b""): return
@@ -13383,6 +13527,8 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/v1/assistant/runs":
             ref = parse_qs(urlparse(self.path).query).get("ref", [""])[0]
             return self.send_json({"runs": [r for r in RUNS if not ref or r["ref_id"] == ref]})
+        if p == "/api/v1/assistant/places":
+            return self.send_json({"places": PLACES})
         if p == "/api/v1/assistant/memory":
             if parse_qs(urlparse(self.path).query).get("space", [""])[0] == "health":
                 return self.send_json({"files": HEALTH_MEMORY, "dir": "/home/me/.persona/health/memory"})
@@ -13578,11 +13724,16 @@ class H(BaseHTTPRequestHandler):
             return self.send_json(dict(LAUNCHER_MODELS["claude"], machine="macbook"))
         if p.startswith("/api/v1/machines/") and "/launchers/" in p and p.endswith("/models"):  # "New Agent"'s model picker
             time.sleep(float(os.environ.get("MOCK_MODELS_SECONDS", "0.8")))
-            return self.send_json(LAUNCHER_MODELS.get(unquote(p.split("/")[6]), {"agent": "traex", "models": []}))
+            name = unquote(p.split("/")[6])
+            listing = LAUNCHER_MODELS.get(name, {"agent": "traex", "models": []})
+            if CUSTOM_MODELS_MODE:
+                listing = custom_models_list(name, listing)
+                if listing is None: return self.send_json({"error": "claude 没有登录：claude /login 之后再试"}, 502)
+            return self.send_json(listing)
         if doctor_route(self, p, "GET"): return
         if p.startswith("/api/v1/machines/") and p.endswith("/launchers"):
-            return self.send_json({"launchers": [{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
-                                                 {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}]})  # Codex: "Create from the phone"
+            return self.send_json({"launchers": launcher_health_list([{"name": "claude", "model": "opus"}, {"name": "sonnetcc", "model": "sonnet"},
+                                                                      {"name": "codex", "model": "gpt-5.5", "agent": "codex", "agent_type": "codex"}])})  # Codex: "Create from the phone"
         if p.startswith("/api/v1/machines/") and p.endswith("/claude-settings"):
             return self.send_json({"settings": CLAUDE_SETTINGS.setdefault(p.split("/")[4], _claude_settings())})
         if p.startswith("/api/v1/machines/") and p.endswith("/claude-dirs"):
@@ -13790,6 +13941,7 @@ class H(BaseHTTPRequestHandler):
         self.last_body = self.body()
         p = urlparse(self.path).path
         if preview_route and preview_route(self, self.command, p, parse_qs(urlparse(self.path).query)): return
+        if custom_models_route(self, self.command, p, parse_qs(urlparse(self.path).query), self.last_body): return
         if PERSONAL_AGENTS and p.startswith("/api/v1/agents/sessions/") and p.rsplit("/", 1)[-1] in ("hide", "unhide"):
             sid, op = unquote(p[len("/api/v1/agents/sessions/"):].rsplit("/", 1)[0]), p.rsplit("/", 1)[-1]
             if sid not in [r["id"] for r in personal_rows()]: return self.send_json({"error": "no such session"}, 404)
@@ -14564,6 +14716,14 @@ class H(BaseHTTPRequestHandler):
             mute, settled = mute_item(body.get("item_id"), body.get("tag"), other[0] if other else None)
             if not mute: return self.send_json({"error": "这一条没有可静音的" + str(body.get("tag"))}, 400)
             return self.send_json({"mute": mute, "settled": settled})
+        if p == "/api/v1/assistant/places" and self.command == "POST":
+            return self.send_json(*save_place(json.loads(self.last_body or b"{}"), None))
+        if p.startswith("/api/v1/assistant/places/") and self.command == "PUT":
+            return self.send_json(*save_place(json.loads(self.last_body or b"{}"), p.rsplit("/", 1)[1]))
+        if p.startswith("/api/v1/assistant/places/") and self.command == "DELETE":
+            pid = p.rsplit("/", 1)[1]
+            PLACES[:] = [x for x in PLACES if x["id"] != pid]
+            return self.send_json({"ok": True})
         if p == "/api/v1/inbox/policies" and self.command == "POST":
             other = other_manager(self)
             if other and other[1]: return self.send_json(*other[1])
@@ -14902,10 +15062,13 @@ class H(BaseHTTPRequestHandler):
                 ITEMS[s["session_id"]] = [it("user", "text", 0, text=body["prompt"])]
             if body.get("async"):  # answered at once, claude still starting (node/starting.go); MOCK_START_SECONDS later it is up
                 s.update(status="idle", state="idle", starting=True, title=body.get("name_hint") or s["title"])
-                def started(s=s):
+                runs = body.get("launcher") or ("work_gw" if LAUNCHER_HEALTH == "default" else "claude")
+                def started(s=s, runs=runs):
                     s.pop("starting", None)
                     # MOCK_START_ERROR=<why>: claude never gets ready; the chat says "Failed to start" and sends get the error.
                     if os.environ.get("MOCK_START_ERROR"): s.update(status="offline", state="offline", start_error=os.environ["MOCK_START_ERROR"])
+                    if LAUNCHER_HEALTH and runs == "work_gw":  # the new tab's shell has no work_gw (MOCK_LAUNCHER_HEALTH)
+                        s.update(status="offline", state="offline", **launcher_health_refusal(next((m["name"] for m in MACHINES if m["id"] == s["machine_id"]), s["machine_id"])))
                 threading.Timer(float(os.environ.get("MOCK_START_SECONDS", "6")), started).start()
             SESSIONS.append(s)
             if todo_id:
@@ -16965,6 +17128,9 @@ MOCK_HELP.append("MOCK_ULTRACODE=1  Claude Code 的 ultracode 开关（#3428）�
                  "发布说明那个带版本太旧的原因、博客那个关着、菜谱那个离线（node 还记着开）；Codex 的订单会话在「极高」档；Mac Studio 的 Claude Code 太旧，新建时不能开。"
                  "POST …/modes 的 ultracode 闲着立刻生效、工作中排队 MOCK_ULTRACODE_SECONDS 秒（默认 4）；有排队时发消息回 409 ultracode_pending；"
                  "GET /mock/ultracode 看请求和消息，?reset=1 复原")
+MOCK_HELP.append("MOCK_CUSTOM_MODELS=1|forgetfail|empty|fail  手动输入模型 ID（#1644）：features 带 typed_models；Claude Code / Codex 的模型列表后面带输入过的 ID（custom），"
+                 "DELETE …/models/custom?model= 忘掉；新建和 …/modes 用了列表里没有的 ID 就记下。forgetfail：忘掉回 500；empty：Claude Code 的列表是空的；"
+                 "fail：读不到列表（502）。GET /mock/custom_models 看记着的，?reset=1 复原")
 
 # Agent session archives (docs/protocol/protocol.md "Agent session archives"; web "Archived agents"): MOCK_AGENT_ARCHIVES=1
 # advertises archives and "Archive and close" (=archive: archives only, as behind an older manager), with two agents

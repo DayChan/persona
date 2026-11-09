@@ -31,5 +31,10 @@
   "new_main": "新規作成",
   "new_main_body": "現在のメインチャットは「{title}」という名前でアーカイブされ、「アーカイブ済み」から確認できます。新しいメインチャットは次に送るメッセージから始まります。",
   "carry_summary": "以前のチャットの要約を引き継ぐ",
-  "carry_summary_hint": "圧縮していない場合は直近の数件だけを引き継ぎます。完全な要約を引き継ぐには、先にコンテキストを圧縮してください。"
+  "carry_summary_hint": "圧縮していない場合は直近の数件だけを引き継ぎます。完全な要約を引き継ぐには、先にコンテキストを圧縮してください。",
+  "typed_before": "以前入力したもの",
+  "other_model": "その他のモデル…",
+  "model_id_placeholder": "モデルID（例：vendor/model-name）",
+  "forget_typed": "入力したモデルを削除",
+  "forget_failed": "「{id}」を削除できませんでした：{error}"
 }

@@ -15,5 +15,10 @@
   "locked": "This launcher fixes its own model, so a choice here won't take effect.",
   "busy": "The agent is working. Switch the model after this turn ends",
   "keys_hint": "↑↓ model · ←→ thinking",
-  "apply": "Apply"
+  "apply": "Apply",
+  "forget": "Forget “{id}”",
+  "forget_failed": "Couldn't forget “{id}”: {error}",
+  "other_model": "Other model…",
+  "enter_model": "Enter model ID…",
+  "typed_note": "Claude Code switches to it after Apply."
 }

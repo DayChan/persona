@@ -470,8 +470,8 @@ struct TaskNowLine: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let since {
                     // How long the step has gone on: a long test run or CI wait reads as one, not as a stuck card.
-                    TimelineView(.periodic(from: .now, by: TaskClock.tick)) { context in
-                        if let t = TaskClock.since(since, now: context.date) {
+                    VisibleTimelineView(interval: TaskClock.tick) { now in
+                        if let t = TaskClock.since(since, now: now) {
                             Text(t).font(Theme.Font.caption).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
                         }
                     }

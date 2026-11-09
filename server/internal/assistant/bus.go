@@ -139,14 +139,45 @@ func NewBusHub(o BusOptions) *BusHub {
 }
 
 // Run keeps the connection to the hub up and serves it with svc, and runs svc's own work (its schedule) from when it
-// first connected (it needs the hub's hello: where it runs, the user's time zone), until ctx ends.
+// first connected (it needs the hub's hello: where it runs, the user's time zone), until Serve ends.
 func (b *BusHub) Run(ctx context.Context, svc *Service) error {
+	return runBusService(ctx, b.client.Wait, svc.Run, func() error { return b.Serve(ctx, svc) }, func(done <-chan struct{}) {
+		timer := time.NewTimer(serviceShutdownTimeout)
+		defer timer.Stop()
+		waitBusService(done, timer.C, b.opts.Logf)
+	})
+}
+
+const serviceShutdownTimeout = 30 * time.Second
+
+// runBusService owns the service context, including the wait for the first connection. The bus retains its own context.
+func runBusService(ctx context.Context, wait func(context.Context) error, run func(context.Context), serve func() error, shutdown func(<-chan struct{})) error {
+	serviceCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
-		if b.client.Wait(ctx) == nil {
-			svc.Run(ctx)
+		defer close(done)
+		if wait(serviceCtx) == nil && serviceCtx.Err() == nil {
+			run(serviceCtx)
 		}
 	}()
-	return b.Serve(ctx, svc)
+	err := serve()
+	cancel()
+	shutdown(done)
+	return err
+}
+
+// waitBusService leaves any unfinished work to restart recovery if the service does not stop in time.
+func waitBusService(done <-chan struct{}, timeout <-chan time.Time, logf func(string, ...any)) {
+	select {
+	case <-done:
+		return
+	default:
+	}
+	select {
+	case <-done:
+	case <-timeout:
+		logf("assistant: service shutdown timed out after %s; unfinished work will be recovered on restart", serviceShutdownTimeout)
+	}
 }
 
 // Serve is Run without svc's own work: the connection alone. It lets svc's knowledge base go when it ends.

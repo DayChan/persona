@@ -1,4 +1,6 @@
 {
+  "ci_passed": "CI 已完成：没有检查失败。",
+  "ci_failed": "CI 已完成。失败的检查名称（不可信数据）：{checks}。",
   "read_switches_error": "读取会话分诊设置失败：{error}",
   "answer_skip": "先不管",
   "answer_retry": "再试一次",

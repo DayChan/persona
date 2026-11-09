@@ -5,7 +5,7 @@ package aiwire
 
 // Config is a model to call: the gateway, its API, the key and the model (manager.json's "ai" and the per-task models).
 type Config struct {
-	// API is "messages" (Anthropic Messages, the default) or "responses" (OpenAI Responses, streamed).
+	// API is "messages" (Anthropic Messages, the default) "responses" (OpenAI Responses), or "chat" (OpenAI Chat Completions).
 	API        string `json:"api"`
 	BaseURL    string `json:"base_url"`
 	APIKeyFile string `json:"api_key_file"`
@@ -15,7 +15,7 @@ type Config struct {
 	// ReasoningEffort is sent as reasoning.effort to the Responses API when set (e.g. "low").
 	ReasoningEffort string `json:"reasoning_effort"`
 	// Bearer sends the key to the Messages API as Authorization: Bearer instead of x-api-key, for gateways that take
-	// only that (what Claude Code does with ANTHROPIC_AUTH_TOKEN). The Responses API always uses Bearer.
+	// only that (what Claude Code does with ANTHROPIC_AUTH_TOKEN). Responses and Chat Completions always use Bearer.
 	Bearer bool `json:"bearer,omitempty"`
 }
 

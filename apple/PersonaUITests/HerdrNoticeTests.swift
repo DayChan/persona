@@ -27,8 +27,10 @@ final class HerdrNoticeTests: XCTestCase {
     @MainActor private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
-        app.launchArguments = ["-pairURL", pair, "-dev.openChat", "", "-tab", "dev", "-openAgentsFresh", "YES"]
+        app.launchArguments = ["-openWelcome", "YES", "-demo.on", "NO", "-pairURL", pair,
+                               "-app.tab", "chats", "-dev.openChat", "", "-tab", "dev", "-openAgentsFresh", "YES"]
         app.launchPinned()
+        LiveActivityShots.allowNotifications()
         return app
     }
 
@@ -94,5 +96,43 @@ final class HerdrNoticeTests: XCTestCase {
         wait(for: [gone], timeout: 10)
         sleep(12) // past a read of the list (HerdrWatch.interval)
         XCTAssertFalse(row.exists, "the row came back after the start")
+    }
+
+    private func herdrReads() throws -> Int {
+        let data = try Data(contentsOf: URL(string: hub + "/mock/hits")!)
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let hits = root?["hits"] as? [String: Int] ?? [:]
+        return hits.filter { $0.key.hasPrefix("GET /api/v1/machines/") && $0.key.hasSuffix("/herdr") }
+            .values.reduce(0, +)
+    }
+
+    @MainActor func testBackgroundStopsPollingAndForegroundResumesIt() throws {
+        try mock("?stopped=macbook")
+        let app = launch()
+        XCTAssertTrue(app.buttons["herdrNotice.start"].waitForExistence(timeout: 20))
+        XCTAssertGreaterThan(try herdrReads(), 0)
+        shot(app, "before-background")
+        XCUIDevice.shared.press(.home)
+        let backgrounded = expectation(for: NSPredicate(format: "state == %d OR state == %d",
+                                                         XCUIApplication.State.runningBackground.rawValue,
+                                                         XCUIApplication.State.runningBackgroundSuspended.rawValue),
+                                       evaluatedWith: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 5), .completed,
+                       "Home did not background the app; state=\(app.state.rawValue)")
+        let home = XCTAttachment(screenshot: XCUIApplication(bundleIdentifier: "com.apple.springboard").screenshot())
+        home.name = "after-home"
+        home.lifetime = .keepAlways
+        add(home)
+        sleep(1) // Let the scene transition and any request already on the wire finish.
+        let background = try herdrReads()
+        sleep(12) // Longer than the existing foreground polling interval.
+        XCTAssertEqual(try herdrReads(), background, "a selected tab must not keep polling in the background")
+        app.activate()
+        for _ in 0..<50 {
+            if try herdrReads() > background { break }
+            usleep(100_000)
+        }
+        XCTAssertGreaterThan(try herdrReads(), background, "returning must resume the existing status feature")
+        shot(app, "background-resume")
     }
 }

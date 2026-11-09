@@ -4,5 +4,5 @@
     <string name="inbox_conversations_read_pending">Read, still needs action</string>
     <string name="inbox_conversations_read_failed">Some messages could not be marked as read. Try again.</string>
     <string name="inbox_conversations_read_skipped">Some conversations need loading or have newer messages. Open them to read; new messages stay unread.</string>
-    <string name="inbox_conversations_read_success">These FYI messages are read.</string>
+    <string name="inbox_conversations_read_success">These messages are read.</string>
 </resources>

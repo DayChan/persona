@@ -39,6 +39,7 @@ extensions.call:{id} /api/v1/extensions/{id}/
 -                    DELETE /api/v1/assistant/conversations/{id}/always/{hash}
 -                    DELETE /api/v1/assistant/followups/{id}
 -                    DELETE /api/v1/assistant/memory/{name}
+-                    DELETE /api/v1/assistant/places/{id}
 -                    DELETE /api/v1/assistant/tasks/{id}
 -                    DELETE /api/v1/auth/tokens/{id}
 -                    DELETE /api/v1/bots/feishu/owner
@@ -102,6 +103,7 @@ assistant.ask        GET /api/v1/assistant/capabilities
 assistant.ask        GET /api/v1/assistant/conversations/{id}/feed
 -                    GET /api/v1/assistant/followups
 -                    GET /api/v1/assistant/memory
+-                    GET /api/v1/assistant/places
 -                    GET /api/v1/assistant/readiness
 assistant.ask        GET /api/v1/assistant/reporters
 -                    GET /api/v1/assistant/routines
@@ -289,6 +291,7 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/assistant/followups/{id}/run
 -                    POST /api/v1/assistant/main/new
 -                    POST /api/v1/assistant/origins/backfill
+-                    POST /api/v1/assistant/places
 -                    POST /api/v1/assistant/readiness/dismiss
 -                    POST /api/v1/assistant/routines/{id}/run
 -                    POST /api/v1/assistant/tasks
@@ -441,6 +444,7 @@ todos.write          POST /api/v1/todos
 -                    PUT /api/v1/agents/triage
 -                    PUT /api/v1/assistant
 -                    PUT /api/v1/assistant/memory/{name}
+-                    PUT /api/v1/assistant/places/{id}
 -                    PUT /api/v1/assistant/routines
 -                    PUT /api/v1/assistant/tasks/{id}
 -                    PUT /api/v1/bots/feishu

@@ -60,6 +60,7 @@ nonisolated struct ExtensionSurfaceClient: Sendable {
     var credential: ExtensionSurfaceCredential
     var transport: Transport? = nil
     var helloTransport: HelloTransport? = nil
+    var clientMetadata: RequestClientMetadata = .current
 
     func request<T: Decodable>(_ path: String, body: (any Encodable & Sendable)? = nil, method: String? = nil) async throws -> T {
         guard ["https", "http"].contains(credential.url.scheme?.lowercased() ?? ""),
@@ -73,6 +74,7 @@ nonisolated struct ExtensionSurfaceClient: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method ?? (body == nil ? "GET" : "POST")
         request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        clientMetadata.apply(to: &request)
         request.setValue(ExtensionUIContext.appLocale, forHTTPHeaderField: "Accept-Language")
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
@@ -144,6 +146,7 @@ nonisolated struct ExtensionSurfaceClient: Sendable {
         guard let endpoint = url.url else { throw URLError(.badURL) }
         var request = URLRequest(url: endpoint, timeoutInterval: 15)
         request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        clientMetadata.apply(to: &request)
         if let helloTransport { return try await helloTransport(request) }
         let socket = ExtensionSurfaceSession.session.webSocketTask(with: request)
         socket.resume()

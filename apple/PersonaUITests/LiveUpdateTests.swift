@@ -106,11 +106,20 @@ final class LiveUpdateTests: XCTestCase {
         menuButton.tap()
         let machines = app.buttons["全部机器"]
         XCTAssertTrue(machines.waitForExistence(timeout: 5), "the menu opened")
-        // Scrolled down to the machines, as when choosing one.
-        machines.swipeUp(velocity: .slow)
+        if !machines.isHittable {
+            // The long native menu exposes offscreen rows. Drag inside its visible bounds, not an empty row frame.
+            let first = app.buttons["按仓库"]
+            let display = app.buttons["细列表"]
+            XCTAssertTrue(first.isHittable && display.isHittable, "visible menu rows for the scroll gesture")
+            let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: display.frame.midX, dy: display.frame.midY))
+            let end = origin.withOffset(CGVector(dx: first.frame.midX, dy: first.frame.midY))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 600, thenHoldForDuration: 0)
+        }
+        XCTAssertTrue(machines.isHittable, "machine choices must really be on screen")
         sleep(1)
         let last = app.buttons["训练机"]
-        XCTAssertTrue(last.exists, "the last machine")
+        XCTAssertTrue(last.isHittable, "the last machine must really be on screen")
         let lastY = last.frame.minY
         let machinesY = machines.frame.minY
         let before = counts()
@@ -130,8 +139,8 @@ final class LiveUpdateTests: XCTestCase {
 
     // A row's long-press menu stays open through updates of that very agent (it is working: a new line every push).
     @MainActor func testRowMenuHoldsStillThroughUpdates() {
-        launch()
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "给天气 App 加主屏幕小组件")).firstMatch
+        launch(["-dev.machineFilter", "macbook"])
+        let row = app.buttons.matching(NSPredicate(format: "identifier == 'agents.row' AND label CONTAINS %@", "给天气 App 加主屏幕小组件")).firstMatch
         XCTAssertTrue(app.buttons["agents.filter.all"].waitForExistence(timeout: 15))
         sleep(2)
         // Below the cards that need you, out of sight and not built yet (#836).

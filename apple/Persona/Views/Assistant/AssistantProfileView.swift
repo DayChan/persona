@@ -9,6 +9,7 @@ struct AssistantProfileView: View {
     @State private var tasks: [APIClient.ScheduledTask]?
     @State private var runs: [APIClient.ScheduleRun]?
     @State private var memoryCount: Int?
+    @State private var placeCount: Int?
     #if DEBUG
     @State private var debugPage: String?
     #endif
@@ -43,6 +44,7 @@ struct AssistantProfileView: View {
             case "routines", "routine", "newRoutine", "followups", "followup", "intervalTask", "bypassTask": AssistantRoutinesView()
             case "runs": AssistantRunsView()
             case "memory", "memoryFile", "memoryEdit": AssistantMemoryView()
+            case "places", "place", "newPlace": SavedPlacesView()
             default: AssistantNotesView()
             }
         }
@@ -83,6 +85,9 @@ struct AssistantProfileView: View {
                 }
                 NavigationLink { AssistantMemoryView() } label: {
                     row("Memory [Assistant Profile View 7a6335]", "brain", detail: memoryCount.flatMap { $0 > 0 ? String(localized: "\($0) items [Assistant Profile View 29b8db]", comment: "Memory count") : nil })
+                }
+                NavigationLink { SavedPlacesView() } label: {
+                    row("Saved Places", Theme.Icon.place, detail: placesDetail)
                 }
             } header: {
                 Text("Knowing You")
@@ -154,6 +159,9 @@ struct AssistantProfileView: View {
                     }
                     NavigationLink { AssistantMemoryView() } label: {
                         buiRow("Memory [Assistant Profile View 7a6335]", "brain", detail: memoryCount.flatMap { $0 > 0 ? String(localized: "\($0) items [Assistant Profile View 29b8db]", comment: "Memory count") : nil })
+                    }
+                    NavigationLink { SavedPlacesView() } label: {
+                        buiRow("Saved Places", Theme.Icon.place, detail: placesDetail)
                     }
                 }
                 if let quiet = quietTasks {
@@ -269,11 +277,18 @@ struct AssistantProfileView: View {
         async let r = try? api.scheduledTasks()
         async let h = try? api.scheduleRuns()
         async let m = try? api.assistantMemory()
+        async let p = try? api.savedPlaces()
         // The switch shows once the hub says it has the setting (#1731): a hub updated since the app read it, too.
         if model.assistantConfig?.mainTasksQuiet == nil { await model.refreshAssistant() }
         tasks = await r
         runs = await h
         if let files = await m { memoryCount = files.filter { $0.name != AssistantMemoryEntry.index }.count }
+        placeCount = (await p)?.count
+    }
+
+    /// Saved Places' row detail: how many there are, nothing when none.
+    private var placesDetail: String? {
+        placeCount.flatMap { $0 > 0 ? String(localized: "\($0) places", comment: "Saved places count") : nil }
     }
 }
 

@@ -4,5 +4,5 @@
     <string name="inbox_conversations_read_pending">已读待处理</string>
     <string name="inbox_conversations_read_failed">部分消息未能同步已读，可以重试。</string>
     <string name="inbox_conversations_read_skipped">部分会话尚未加载或内容已更新，请打开查看；新消息仍为未读。</string>
-    <string name="inbox_conversations_read_success">这些知悉消息已读。</string>
+    <string name="inbox_conversations_read_success">这些消息已读。</string>
 </resources>

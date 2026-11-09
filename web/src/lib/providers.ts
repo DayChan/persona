@@ -7,6 +7,8 @@ import { launcherNameProblem } from "./launcher-presets";
 import { EFFORTS } from "./session-actions";
 import { t } from "../i18n";
 
+export type ProviderAPI = "messages" | "responses" | "chat";
+
 /** Claude Code's thinking levels (proto.EffortLevels), in order. */
 export const EFFORT_LEVELS = EFFORTS.map((e) => e.id);
 
@@ -27,7 +29,7 @@ export interface ProviderView {
   display_name?: string;
   kind?: "launcher" | "api";
   agent?: "claude" | "codex" | "agy" | "omp" | string;
-  api?: "messages" | "responses";
+  api?: ProviderAPI;
   base_url?: string;
   model?: string;
   small_model?: string;
@@ -69,7 +71,7 @@ export interface FormModel {
 export interface ProviderForm {
   kind: "launcher" | "api";
   agent: "claude" | "codex" | "agy" | "omp";
-  api: "messages" | "responses";
+  api: ProviderAPI;
   name: string;
   base_url: string;
   auth: "bearer" | "api_key";
@@ -184,13 +186,17 @@ export const AUTO_CHECK = 8;
 
 /** Discovered models merged in: new ones added unchecked (all checked when nothing was there and the list is short),
  *  what was typed kept. */
-export function mergeDiscovered(models: FormModel[], found: ProviderModel[]): FormModel[] {
+export function mergeDiscovered(models: FormModel[], found: ProviderModel[], chat = false): FormModel[] {
   const out = [...models];
   const first = models.length === 0 && found.length <= AUTO_CHECK;
   for (const m of found) {
     const i = out.findIndex((x) => x.id === m.id);
-    if (i < 0) out.push(formModel(m, first));
-    else if (!out[i].context_window && m.context_window) out[i] = { ...out[i], context_window: String(m.context_window), efforts: out[i].efforts.length ? out[i].efforts : [...(m.efforts ?? [])] };
+    if (i < 0) {
+      const mismatch = chat && m.default_effort && m.efforts?.length && !m.efforts.includes(m.default_effort);
+      out.push(formModel(mismatch ? { ...m, efforts: [], default_effort: "" } : m, first));
+    } else if (!out[i].context_window && m.context_window) {
+      out[i] = { ...out[i], context_window: String(m.context_window), ...(!chat && !out[i].efforts.length ? { efforts: [...(m.efforts ?? [])] } : {}) };
+    }
   }
   return out;
 }
@@ -268,6 +274,7 @@ export function formProblems(f: ProviderForm, isNew: boolean, hadKey = false): F
     (requiresUrlAndKey && !f.api_key.trim() && (isNew || !hadKey) && t("lib-providers.key_required")) ||
     "";
 
+  const chat = f.kind === "api" && f.api === "chat";
   let models = "";
   const checked = f.models.filter((m) => m.checked);
   const ids = new Set<string>();
@@ -284,12 +291,12 @@ export function formProblems(f: ProviderForm, isNew: boolean, hadKey = false): F
   else if (!models && !ids.has(f.model.trim())) models = t("lib-providers.default_unchecked");
 
   const advanced =
-    (f.headers_touched && headersProblem(f.headers)) ||
-    (f.env_touched && envProblem(f.env)) ||
-    proxyProblem(f.proxy) ||
-    (!nonNegInt(f.timeout_ms) && t("lib-providers.timeout_int")) ||
-    (!nonNegInt(f.compact_window) && t("lib-providers.compact_int")) ||
-    (!nonNegInt(f.max_context) && t("lib-providers.max_context_int")) ||
+    (!chat && f.headers_touched && headersProblem(f.headers)) ||
+    (!chat && f.env_touched && envProblem(f.env)) ||
+    (!chat && proxyProblem(f.proxy)) ||
+    (!chat && !nonNegInt(f.timeout_ms) && t("lib-providers.timeout_int")) ||
+    (!chat && !nonNegInt(f.compact_window) && t("lib-providers.compact_int")) ||
+    (!chat && !nonNegInt(f.max_context) && t("lib-providers.max_context_int")) ||
     (f.kind !== "api" && f.args.split(/\s+/).some((a) => a && !a.startsWith("-")) && t("lib-providers.args_dash")) ||
     "";
   return { connect, models, advanced };
@@ -330,12 +337,29 @@ function extraFields(f: ProviderForm): Record<string, unknown> {
   };
 }
 
+/** Explicit clears for settings an older Chat provider may have stored but cannot use. */
+export function legacyChatClears(v: ProviderView | null): Record<string, string | number | boolean> {
+  if (!v || v.kind !== "api" || v.api !== "chat") return {};
+  const clears: Record<string, string | number | boolean> = {};
+  if (v.has_headers) clears.headers = "";
+  if (v.has_env) clears.env = "";
+  for (const key of ["proxy", "no_proxy", "effort", "opus_model", "sonnet_model", "haiku_model", "fable_model"] as const) {
+    if (v[key]) clears[key] = "";
+  }
+  for (const key of ["timeout_ms", "compact_window", "max_context"] as const) {
+    if (v[key]) clears[key] = 0;
+  }
+  if (v.subagent_force) clears.subagent_force = false;
+  return clears;
+}
+
 /** POST / PUT /api/v1/launchers' body. The base fields always go (the hub replaces them); #2455's fields on a PUT only
  *  when they changed from `old` (left out keeps what is stored), the headers and the environment only when touched (""
  *  clears them), the key only when typed. */
-export function providerBody(f: ProviderForm, old: ProviderView | null): Record<string, unknown> {
+export function providerBody(f: ProviderForm, old: ProviderView | null, clearLegacyChat = false): Record<string, unknown> {
   const api = f.kind === "api";
-  const responses = api && f.api === "responses";
+  const chat = api && f.api === "chat";
+  const openAI = api && (f.api === "responses" || f.api === "chat");
   const body: Record<string, unknown> = {
     name: f.name.trim(),
     kind: f.kind,
@@ -349,16 +373,18 @@ export function providerBody(f: ProviderForm, old: ProviderView | null): Record<
     custom_model_name: api ? "" : f.custom_model_name.trim(),
     custom_model_description: api ? "" : f.custom_model_description.trim(),
     args: api ? [] : f.args.split(/\s+/).filter(Boolean),
-    auth: responses ? "api_key" : f.auth,
+    auth: openAI ? "api_key" : f.auth,
   };
   if (f.api_key.trim()) body.api_key = f.api_key.trim();
   const extra = extraFields(f);
   const before = old && extraFields(formFromView(old));
   for (const [k, v] of Object.entries(extra)) {
+    if (chat && ["proxy", "no_proxy", "timeout_ms", "compact_window", "max_context", "effort", "opus_model", "sonnet_model", "haiku_model", "fable_model", "subagent_force"].includes(k)) continue;
     if (before ? !sameJSON(before[k], v) : v !== "" && v !== 0 && v !== false && !(Array.isArray(v) && v.length === 0)) body[k] = v;
   }
-  if (f.headers_touched) body.headers = f.headers.trim();
-  if (f.env_touched) body.env = f.env.replace(/\s+$/, ""); // the start kept: the hub's line numbers match the box
+  if (!chat && f.headers_touched) body.headers = f.headers.trim();
+  if (!chat && f.env_touched) body.env = f.env.replace(/\s+$/, ""); // the start kept: the hub's line numbers match the box
+  if (chat && clearLegacyChat) Object.assign(body, legacyChatClears(old));
   return body;
 }
 
@@ -367,7 +393,7 @@ export function probeBody(f: ProviderForm, stored: string | null, model?: string
   const b: Record<string, unknown> = { base_url: f.base_url.trim(), auth: f.auth, api: f.api };
   if (stored) b.name = stored;
   if (f.api_key.trim()) b.api_key = f.api_key.trim();
-  if (f.headers_touched) b.headers = f.headers.trim();
+  if (!(f.kind === "api" && f.api === "chat") && f.headers_touched) b.headers = f.headers.trim();
   if (model !== undefined) b.model = model;
   return b;
 }

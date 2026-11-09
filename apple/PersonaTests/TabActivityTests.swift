@@ -105,6 +105,8 @@ struct TabActiveTaskTests {
 
     @Observable @MainActor final class Front {
         var active = true
+        var phase: ScenePhase = .active
+        var key = 0
     }
 
     private struct Page: View {
@@ -113,7 +115,7 @@ struct TabActiveTaskTests {
 
         var body: some View {
             Color.clear
-                .tabActiveTask {
+                .tabActiveTask(id: front.key) {
                     calls.log.append("start")
                     await withTaskCancellationHandler {
                         try? await Task.sleep(for: .seconds(60))
@@ -122,6 +124,7 @@ struct TabActiveTaskTests {
                     }
                 }
                 .environment(\.tabIsActive, front.active)
+                .environment(\.scenePhase, front.phase)
         }
     }
 
@@ -132,6 +135,7 @@ struct TabActiveTaskTests {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
         window.rootViewController = UIHostingController(rootView: Page(front: front, calls: calls))
         window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
         await settle()
         #expect(calls.log == ["start"])
 
@@ -142,7 +146,55 @@ struct TabActiveTaskTests {
         front.active = true
         await settle()
         #expect(calls.log == ["start", "cancel", "start"]) // back in front: from the top
-        window.isHidden = true
+    }
+
+    @Test func backgroundCancelsAndManualKeysCannotStartUntilOneResume() async {
+        let front = Front(), calls = Calls()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        window.rootViewController = UIHostingController(rootView: Page(front: front, calls: calls))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await settle()
+        #expect(calls.log == ["start"])
+
+        front.phase = .background
+        await settle()
+        #expect(calls.log == ["start", "cancel"])
+        front.key += 1
+        await settle()
+        front.active = false
+        front.key += 1
+        await settle()
+        #expect(calls.log == ["start", "cancel"], "manual refresh keys cannot start background work")
+
+        front.phase = .active
+        await settle()
+        #expect(calls.log == ["start", "cancel"], "an active scene does not resume a hidden tab")
+        front.active = true
+        await settle()
+        #expect(calls.log == ["start", "cancel", "start"])
+        front.phase = .inactive
+        await settle()
+        #expect(calls.log == ["start", "cancel", "start", "cancel"])
+        front.phase = .active
+        await settle()
+        #expect(calls.log == ["start", "cancel", "start", "cancel", "start"])
+    }
+
+    @Test func initiallyBackgroundManualKeyWaitsForForeground() async {
+        let front = Front(), calls = Calls()
+        front.phase = .background
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        window.rootViewController = UIHostingController(rootView: Page(front: front, calls: calls))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await settle()
+        front.key += 1
+        await settle()
+        #expect(calls.log.isEmpty)
+        front.phase = .active
+        await settle()
+        #expect(calls.log == ["start"])
     }
 }
 #endif

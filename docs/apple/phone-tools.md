@@ -60,10 +60,18 @@ See `docs/android/android.md` ("App shell and direct page navigation," the Setti
 "Remind me to buy milk on the way home": the assistant writes a reminder with a location alarm (`EKAlarm.structuredLocation` and `proximity`), and iOS watches the circle itself, like a reminder made in the Reminders app. Persona needs no background location and no "Always" permission; the alarm goes off on the phone and the watch even when Persona is closed. A location alarm goes off once.
 
 - **When it goes off is the assistant's call** (`server/internal/prompts/assistant/claude_md.md`): something to do on the way is leaving where the user set out from; something to do once there is arriving. It says which it chose, and `phone_reminders_update` changes it.
-- **Places** (home, office) live in the assistant's memory as names and coordinates, from `phone_location_current` while the user is there or `phone_location_search` from an address.
+- **Places** (home, office) are the user's saved places, below; the assistant reads them with `list_places` and never takes a place's coordinates from memory.
 - **No duplicates**: the assistant lists reminders first and changes the matching one. "Done" completes it and "not needed" deletes it.
 - The radius defaults to 150 m (100–2000): fixes indoors are often 50–100 m off, so a smaller circle misses.
 - Not yet: going off near any shop of a kind ("when I pass a supermarket"), and Android, which has no reminder tools.
+
+### Saved places (#1598)
+
+The places reminders by place go off at belong to the user, not to the assistant's memory: **Settings › Assistant › Saved Places** lists them and lets the user add, change and delete them (`SavedPlacesView`, `SavedPlacesModel`). A place is a name (what the user calls it in a chat), an address, coordinates and the reminder's radius (150 m by default, 100–2000). In the editor it is found by searching an address or a name (MapKit, `LocationTool.find`, the same search as `phone_location_search`) or from the current location, and a map shows the circle.
+
+- **Kept by the manager** in its settings (`assistant.places`, `server/internal/assistant/places.go`), per manager. `GET/POST /api/v1/assistant/places`, `PUT/DELETE /api/v1/assistant/places/{id}` (`docs/protocol/protocol.md`); names are unique (case aside), writes need full credentials.
+- **The assistant** reads them with `list_places` before a reminder by place. When a place is missing, it finds it with the user (`phone_location_current` there, or `phone_location_search` and the user's pick) and keeps it with `save_place`, which adds the place or changes the one of the same name; so whatever it uses, the user sees and can correct.
+- Changing a saved place does not move the reminders already set: each reminder keeps the coordinates it was made with.
 
 Tools by platform:
 

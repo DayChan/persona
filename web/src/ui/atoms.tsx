@@ -639,7 +639,18 @@ function MenuPanel({
         {!loading && !loadError && depth > 0 && items.length === 0 && <div className="relative z-10 flex h-8 items-center px-2 text-[12.5px] text-ink-3 pointer-coarse:min-h-11">{t("ui-atoms.menu_empty")}</div>}
         {items.map((it, i) => [
           it.divider && i > 0 && <div key={`${it.key}-sep`} role="separator" className="mx-1 my-1 h-px bg-line" />,
-          it.note ? (
+          it.heading ? (
+            <div
+              key={it.key}
+              ref={(el) => {
+                els.current[i] = el;
+              }}
+              role="presentation"
+              className="relative z-10 px-2 pt-1.5 pb-1 text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase"
+            >
+              {it.label}
+            </div>
+          ) : it.note ? (
             <NoteRow
               key={it.key}
               item={it}
@@ -715,7 +726,7 @@ function MenuRow({ item: it, asking, working, refCb, onHover, onChoose }: { item
           <span id={detailId} className="mt-0.5 block text-[11.5px] leading-snug break-words text-ink-3">{it.detail}</span>
         </span>
       ) : (
-        <span className={cx("min-w-0 flex-1", it.wrap ? "break-all" : "truncate")}>{label}</span>
+        <span className={cx("min-w-0 flex-1", it.wrap ? "break-all" : "truncate", it.mono && "font-mono")}>{label}</span>
       )}
       {it.state && <StatePill state={it.state} />}
       {working ? <Spinner size={12} /> : it.hint && <span className="shrink-0 text-[11px] text-ink-3">{it.hint}</span>}
@@ -740,33 +751,64 @@ function NoteRow({ item: it, refCb }: { item: MenuItem; refCb: (el: HTMLElement 
 function RenameRow({ item, busy, onCommit, onCancel, refCb }: { item: MenuItem; busy: boolean; onCommit: (name: string) => void; onCancel: () => void; refCb: (el: HTMLElement | null) => void }) {
   const rename = item.rename!;
   const [text, setText] = useState(rename.value);
+  const hintId = useId();
+  // what is wrong with it as typed (rename.validate), said under the input; Enter waits for a good one
+  const problem = text.trim() ? (rename.validate?.(text) ?? "") : "";
+  const below = problem || (rename.validate ? rename.hint : "");
+  const input = (
+    <input
+      autoFocus
+      value={text}
+      disabled={busy}
+      aria-label={item.label.replace(/…$/, "")}
+      aria-invalid={problem ? true : undefined}
+      aria-describedby={below ? hintId : undefined}
+      placeholder={rename.placeholder}
+      spellCheck={rename.validate ? false : undefined}
+      autoComplete={rename.validate ? "off" : undefined}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onKeyDown={(e) => {
+        if (composing(e.nativeEvent)) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (problem) return;
+          const name = renameCommit(rename.value, text);
+          if (name === null) onCancel();
+          else onCommit(name);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        } else e.stopPropagation();
+      }}
+      className={cx(
+        "h-7 min-w-0 flex-1 rounded-[6px] bg-inset px-2 text-[12.5px] text-ink outline-none placeholder:text-ink-3 pointer-coarse:h-9",
+        rename.validate && "font-mono placeholder:font-sans",
+        // one ring or the other: both set the same shadow, and the hairline would win
+        problem ? "shadow-[0_0_0_1px_var(--red)]" : "shadow-hairline",
+      )}
+    />
+  );
+  if (!rename.validate)
+    return (
+      <div ref={refCb} className="relative z-10 flex h-8 items-center gap-2 px-1 pointer-coarse:min-h-11">
+        {input}
+        {busy && <Spinner size={12} />}
+      </div>
+    );
   return (
-    <div ref={refCb} className="relative z-10 flex h-8 items-center gap-2 px-1 pointer-coarse:min-h-11">
-      <input
-        autoFocus
-        value={text}
-        disabled={busy}
-        aria-label={item.label.replace(/…$/, "")}
-        placeholder={rename.placeholder}
-        onChange={(e) => setText(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-        onKeyDown={(e) => {
-          if (composing(e.nativeEvent)) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-            const name = renameCommit(rename.value, text);
-            if (name === null) onCancel();
-            else onCommit(name);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onCancel();
-          } else e.stopPropagation();
-        }}
-        className="h-7 min-w-0 flex-1 rounded-[6px] bg-inset px-2 text-[12.5px] text-ink shadow-hairline outline-none placeholder:text-ink-3 pointer-coarse:h-9"
-      />
-      {busy && <Spinner size={12} />}
+    <div ref={refCb} className="relative z-10 flex flex-col gap-1 px-1 py-0.5">
+      <div className="flex h-8 items-center gap-2 pointer-coarse:min-h-11">
+        {input}
+        {busy && <Spinner size={12} />}
+      </div>
+      {below && (
+        <p id={hintId} role={problem ? "alert" : undefined} className={cx("px-0.5 pb-0.5 text-[11.5px] leading-snug break-words", problem ? "text-red" : "text-ink-3")}>
+          {below}
+        </p>
+      )}
     </div>
   );
 }

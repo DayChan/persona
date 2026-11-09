@@ -280,9 +280,29 @@ extension View {
 
 private struct NodeActionPrompts: ViewModifier {
     @State private var actions = NodeActions.shared
+    #if DEBUG
+    @Environment(AppModel.self) private var model
+    @State private var debugShownHere = false
+    #endif
 
     func body(content: Content) -> some View {
         content
+            #if DEBUG
+            // `-showRunAgentHere <machine id>`: Run Agent Here for that computer's first herdr space once its agents are
+            // in, for screenshots (#1643). It polls `sessionsNow`, which nothing watches, so the view is not redrawn on
+            // each push; without the argument it reads nothing.
+            .task {
+                guard !debugShownHere, let mid = UserDefaults.standard.string(forKey: "showRunAgentHere") else { return }
+                for _ in 0..<60 {
+                    if let g = SpaceGroup.build(model.sessionsNow).first(where: { $0.machineID == mid && NodeMenu.offersSpaceActions($0) }) {
+                        debugShownHere = true
+                        actions.runningHere = g
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
+            #endif
             .confirmationDialog(actions.closingTab.map { $0.name.isEmpty ? String(localized: "Close This Tab?") : String(localized: "Close Tab “\($0.name)”?") } ?? "",
                                 isPresented: Binding(get: { actions.closingTab != nil }, set: { if !$0 { actions.closingTab = nil } }),
                                 titleVisibility: .visible, presenting: actions.closingTab) { c in
@@ -420,7 +440,15 @@ struct RunAgentHereSheet: View {
                         Text("This computer has no Claude Code launcher that can start directly").font(Theme.Font.secondary).foregroundStyle(.secondary)
                     } else {
                         Picker("Launcher", selection: $launcher) {
-                            ForEach(launchers) { l in Text(l.name).lineLimit(1).tag(l.name) }
+                            // One this computer can't start now (#1643) is said before it is picked: after the usable
+                            // ones, under its reason (a menu shows a section's title; an option's second line it drops).
+                            // It can still be picked (a start that works clears it), as New Agent's Try Anyway.
+                            ForEach(launchers.filter { $0.block == nil }) { l in Text(l.name).lineLimit(1).tag(l.name) }
+                            ForEach(LauncherChoices.blockedByReason(launchers), id: \.reason) { group in
+                                Section(group.reason) {
+                                    ForEach(group.launchers) { l in Text(l.name).lineLimit(1).tag(l.name) }
+                                }
+                            }
                         }
                     }
                 } header: {
@@ -428,6 +456,9 @@ struct RunAgentHereSheet: View {
                 } footer: {
                     if let failure {
                         Text(failure).foregroundStyle(Theme.danger)
+                    } else if let block = launchers.first(where: { $0.name == launcher })?.block {
+                        // The pane's shell is a terminal's too: what New Agent grays out is said here (#1643), not hidden.
+                        LauncherBlockLine(block: block)
                     } else {
                         Text("Starts in the selected shell without opening a new tab. Codex needs a first message, so use New Session.")
                     }
@@ -442,12 +473,16 @@ struct RunAgentHereSheet: View {
         state = .loading
         do {
             async let panes = api.terminalPanes(machine: group.machineID)
-            async let launchers = model.launchers(group.machineRef)
+            async let launchers = model.launchersForStart(group.machineRef) // health read fresh (#1643)
             let loaded = Loaded(panes: try await panes, launchers: try await launchers)
             let shells = NodeMenu.shells(in: loaded.panes, workspaceID: workspaceID)
             if !shells.contains(where: { $0.pane == pane }) { pane = shells.first?.pane ?? "" }
             let usable = loaded.launchers.filter(NodeMenu.launchableHere)
-            if !usable.contains(where: { $0.name == launcher }) { launcher = usable.first?.name ?? "" }
+            if !usable.contains(where: { $0.name == launcher }) { launcher = LauncherChoices.initial(saved: nil, in: usable) }
+            #if DEBUG
+            // `-showRunHereLauncher <name>`: that launcher picked, for screenshots (a menu item takes no synthesized tap).
+            if let pick = UserDefaults.standard.string(forKey: "showRunHereLauncher"), usable.contains(where: { $0.name == pick }) { launcher = pick }
+            #endif
             state = .loaded(loaded)
         } catch {
             state = .failed(error.shown ?? error.localizedDescription)

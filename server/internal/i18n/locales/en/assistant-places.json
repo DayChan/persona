@@ -1,0 +1,10 @@
+{
+  "err_store": "Saved places are not available: the assistant has no database.",
+  "err_read_only": "This device can only view saved places.",
+  "err_not_found": "That saved place is gone.",
+  "err_coordinates": "A place needs a latitude between -90 and 90 and a longitude between -180 and 180.",
+  "err_name": "A place needs a name of at most {max} characters on one line.",
+  "err_address": "The address must be at most {max} characters on one line.",
+  "err_too_many": "You can save at most {max} places.",
+  "err_name_taken": "There is already a place called “{name}”."
+}

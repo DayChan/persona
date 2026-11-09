@@ -19,6 +19,8 @@
   "busy_skipped": "上一轮还在运行，这次跳过",
   "busy_wait": "上一轮还在运行，等它跑完再试",
   "run_failed": "定时任务失败：{name}",
+  "retry_restart_unknown": "中枢重启后，无法确定重试是否执行。再次运行前请先检查对话。",
+  "retry_delivery_unknown": "重试可能已经发送，但无法确认结果。再次运行前请先检查对话。",
   "gone": "这个定时任务已经不在了",
   "not_ready_skipped": "还没接好电脑或模型，这次跳过",
   "ready_again": "电脑和模型接好了，定时任务恢复运行，这次是「{name}」",

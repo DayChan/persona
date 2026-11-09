@@ -4,6 +4,7 @@ vi.mock("./store", () => {
   const state = {
     outbox: {} as Record<string, import("./outbox").OutboxEntry[]>,
     assistant: null as null | { machine_id: string; main?: string; conversations: unknown[] },
+    features: [] as string[], // a hub without start receipts: the start goes as it always did (lib/assistant-start.ts)
   };
   return {
     getState: () => state,
