@@ -107,11 +107,15 @@ func startPrompt(n int) string {
 		"\"double\" 'single' $HOME ${PATH} $(whoami) `date` \\n back\\slash; & | > < * ? ~ #\n第二行：中文、标点「」——\t制表符\n%s", n, strings.Repeat("测试长文本", 300))
 }
 
-// liveStartRound starts one Codex the phone's way in a fresh directory and checks what came of it.
+// liveStartRound starts one Codex the phone's way in a fresh directory and checks what came of it. The directory is a
+// git repository, like a fresh clone: Codex asks to trust only those (#2351), and the start answers that.
 func liveStartRound(t *testing.T, n *Node, c *herdr.Client, work, launcher, variant string, r int) error {
 	lastServiceError = ""
 	dir := mkdir(t, filepath.Join(work, fmt.Sprintf("start-%s%s-%d", variant, os.Getenv("PERSONA_CODEX_COLS"), r)))
 	dir, _ = filepath.EvalSymlinks(dir)
+	if _, err := liveRun("git", "-C", dir, "init", "-q"); err != nil {
+		return fmt.Errorf("git init: %w", err)
+	}
 	defer closeWorkspaceOf(c, dir)
 	prompt := startPrompt(r)
 	began := time.Now()
@@ -123,6 +127,10 @@ func liveStartRound(t *testing.T, n *Node, c *herdr.Client, work, launcher, vari
 	t.Logf("LIVE start-%s round %d: answered %s in %s", variant, r, s.SessionID, took.Round(100*time.Millisecond))
 	if took > codexStartWait {
 		return fmt.Errorf("answered after %s", took)
+	}
+	// Codex asked whether to trust the folder and the start said yes: Codex saved the answer.
+	if cfg, _ := os.ReadFile(filepath.Join(n.codexHome(), "config.toml")); !strings.Contains(string(cfg), "[projects.\""+dir+"\"]\ntrust_level = \"trusted\"") {
+		return fmt.Errorf("%s is not trusted in config.toml", dir)
 	}
 	lc := &liveCodex{t: t, n: n, c: c, pane: s.PaneID, dir: dir, id: s.SessionID}
 	// The thread is the one the message began, byte for byte.

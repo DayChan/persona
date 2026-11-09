@@ -190,21 +190,112 @@ func TestCodexStartFailures(t *testing.T) {
 	}
 }
 
-// Codex's trust dialog for the folder the user chose is answered (enter: the selected trust option).
-func TestCodexStartTrustsTheFolder(t *testing.T) {
-	withCodexLaunchers(t, map[string][]string{"codex": {"codex"}})
-	n, f, _, _ := codexStartHerdr(t, 2*time.Second)
-	f.screenSteps("w1:p2", isKeys("enter"), "  Trust this folder? Codex can read, edit, and run files here.\n\n› 1. Trust and continue\n  2. Quit\n\n  enter continue · esc quit\n",
-		"› Ask Codex to do anything\n")
-	res, err := request(t, n, "session.start", map[string]any{"cwd": "~/proj", "launcher": "codex", "prompt": "hello"})
+// codexTrustDialogs are Codex's folder trust dialogs by version: 0.167's as `herdr pane read --source visible` read it
+// off a new tab (Codex 0.167.0 in a fresh git repository, 2026-11-09), 0.163's, and 0.153's as the earlier match knew it.
+func codexTrustDialogs(t *testing.T) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "codexstart", "trust-0.167.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := decodeSessions(t, []any{res["session"]})[0]; s.SessionID != startThread {
-		t.Errorf("answered %+v", s)
+	return map[string]string{
+		"0.167": string(b),
+		"0.163": "  Trust this folder? Codex can read, edit, and run files here.\n\n› 1. Trust and continue\n  2. Quit\n\n  enter continue · esc quit\n",
+		"0.153": "> You are in /tmp/proj\n\n  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt injection.\n\n" +
+			"› 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue\n",
 	}
-	if keys := f.trace("pane.send_keys"); len(keys) == 0 || !strings.Contains(keys[0], `"enter"`) {
-		t.Errorf("keys %v", keys)
+}
+
+// tallPane answers pane.read the way herdr does for a pane rows tall whose screen is drawn from its top (fakeHerdr's
+// screen): "visible" leaves out the blank rows under it, "recent" counts them, so the last 40 recent rows of a 51-row
+// pane showing Codex 0.167's trust dialog are all blank (#2351).
+func tallPane(f *fakeHerdr, rows int) {
+	f.handle("pane.read", func(p map[string]any) any {
+		f.mu.Lock()
+		text := f.screen[str(p["pane_id"])]
+		f.mu.Unlock()
+		all := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+		for len(all) < rows {
+			all = append(all, "")
+		}
+		if p["source"] == "visible" {
+			for len(all) > 0 && strings.TrimSpace(all[len(all)-1]) == "" {
+				all = all[:len(all)-1]
+			}
+		}
+		if lines, _ := p["lines"].(float64); lines > 0 && int(lines) < len(all) {
+			all = all[len(all)-int(lines):]
+		}
+		return map[string]any{"read": map[string]any{"text": strings.Join(all, "\n") + "\n"}}
+	})
+}
+
+// Codex's trust dialog for the folder the user chose is answered in a pane taller than the dialog (enter: the selected
+// trust option), whatever its other option says.
+func TestCodexStartTrustsTheFolder(t *testing.T) {
+	for name, dialog := range codexTrustDialogs(t) {
+		t.Run(name, func(t *testing.T) {
+			withCodexLaunchers(t, map[string][]string{"codex": {"codex"}})
+			n, f, _, _ := codexStartHerdr(t, 2*time.Second)
+			tallPane(f, 51)
+			// The rollout only comes 2 s after the command: the start waits on, and the dialog stays until it is answered.
+			f.screenSteps("w1:p2", isKeys("enter"), dialog, "› Ask Codex to do anything\n")
+			res, err := request(t, n, "session.start", map[string]any{"cwd": "~/proj", "launcher": "codex", "prompt": "hello"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s := decodeSessions(t, []any{res["session"]})[0]; s.SessionID != startThread {
+				t.Errorf("answered %+v", s)
+			}
+			if keys := f.trace("pane.send_keys"); len(keys) != 1 || !strings.Contains(keys[0], `["enter"]`) {
+				t.Errorf("keys %v", keys)
+			}
+		})
+	}
+}
+
+// A start that gives up on a dialog drawn from the top of a tall pane says what the tab shows, not its blank bottom rows.
+func TestCodexStartFailureShowsATopDialog(t *testing.T) {
+	withCodexLaunchers(t, map[string][]string{"codex": {"codex"}})
+	old := codexStartWait
+	codexStartWait = 1500 * time.Millisecond
+	t.Cleanup(func() { codexStartWait = old })
+	n, f, _, _ := codexStartHerdr(t, time.Hour)
+	tallPane(f, 51)
+	f.setScreen("w1:p2", "  Sign in with ChatGPT\n\n› 1. Sign in with ChatGPT\n  2. Sign in with Device Code\n  3. Sign in another way\n\n  Press enter to continue\n")
+	_, err := request(t, n, "session.start", map[string]any{"cwd": "~/proj", "launcher": "codex", "prompt": "hi"})
+	if err == nil || !strings.Contains(err.Error(), "没认出它这次的会话") || !strings.Contains(err.Error(), "Sign in another way") {
+		t.Errorf("err %v", err)
+	}
+	if keys := f.trace("pane.send_keys"); len(keys) != 0 {
+		t.Errorf("answered a screen that is not the trust dialog: %v", keys)
+	}
+}
+
+// codexTrustKeys walks the cursor to the option that trusts the folder, and answers no other dialog.
+func TestCodexTrustKeys(t *testing.T) {
+	dialogs := codexTrustDialogs(t)
+	onSecond := strings.Replace(strings.Replace(dialogs["0.167"], "› 1. Trust", "  1. Trust", 1), "  2. Back", "› 2. Back", 1)
+	trustSecond := "  Trust this folder?\n\n› 1. Back to Agent Command Center\n  2. Trust and continue\n\n  enter continue · esc back\n"
+	for name, tc := range map[string]struct {
+		screen string
+		want   []string
+	}{
+		"0.167":                      {dialogs["0.167"], []string{"enter"}},
+		"0.163":                      {dialogs["0.163"], []string{"enter"}},
+		"0.153":                      {dialogs["0.153"], []string{"enter"}},
+		"cursor on the other option": {onSecond, []string{"up", "enter"}},
+		"trust listed second":        {trustSecond, []string{"down", "enter"}},
+		"no cursor drawn yet":        {strings.Replace(dialogs["0.167"], "› 1.", "  1.", 1), nil},
+		"no trust option":            {"  Trust this folder?\n\n› 1. Back to Agent Command Center\n  2. Quit\n", nil},
+		"update prompt":              {"  ✨ Update available! 0.166.0 -> 0.167.0\n\n› 1. Update now\n  2. Skip\n  3. Skip until next version\n\n  Press enter to continue\n", nil},
+		"approval of a command naming trust": {"  Would you like to run the following command?\n\n  $ cat trust.txt\n\n› 1. Yes, proceed (y)\n" +
+			"  2. No, and tell Codex what to do differently (esc)\n\n  Press enter to confirm or esc to cancel\n", nil},
+		"composer": {"› Ask Codex to do anything\n\n  gpt-6 default · ~/proj\n", nil},
+	} {
+		if got := codexTrustKeys(tc.screen); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: keys %q, want %q", name, got, tc.want)
+		}
 	}
 }
 

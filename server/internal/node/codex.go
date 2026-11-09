@@ -175,8 +175,10 @@ func rollouts(home string) []codexRollout {
 		}
 		meta, ok := c.metas[f.path]
 		if !ok {
-			meta = readRolloutMeta(f.path)
-			c.metas[f.path] = meta
+			var whole bool
+			if meta, whole = readRolloutMeta(f.path); whole {
+				c.metas[f.path] = meta
+			}
 		}
 		out = append(out, codexRollout{id: f.id, path: f.path, mtime: st.ModTime(), rolloutMeta: meta})
 	}
@@ -199,15 +201,19 @@ func (c *rolloutCache) pruneMetas(recent []rolloutFile) {
 	c.metas = metas
 }
 
-// readRolloutMeta reads a rollout's first line (session_meta, tens of KB of instructions).
-func readRolloutMeta(path string) rolloutMeta {
+// readRolloutMeta reads a rollout's first line (session_meta, tens of KB of instructions); whole says that line was all
+// written, and only then is what it says worth keeping. Codex 0.167 creates the file empty and writes the line 8–19 ms
+// later: a meta read in between and kept left the thread without a directory for good, and a start in that directory
+// never found its thread (#2351).
+func readRolloutMeta(path string) (m rolloutMeta, whole bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return rolloutMeta{}
+		return rolloutMeta{}, false
 	}
 	defer f.Close()
 	r := bufio.NewReaderSize(f, 256<<10)
-	line, _ := r.ReadBytes('\n')
+	line, err := r.ReadBytes('\n')
+	whole = err == nil
 	var l struct {
 		Type    string `json:"type"`
 		Payload struct {
@@ -220,10 +226,10 @@ func readRolloutMeta(path string) rolloutMeta {
 		} `json:"payload"`
 	}
 	if json.Unmarshal(line, &l) != nil || l.Type != "session_meta" {
-		return rolloutMeta{}
+		return rolloutMeta{}, whole
 	}
 	p := l.Payload
-	m := rolloutMeta{cwd: p.Cwd}
+	m = rolloutMeta{cwd: p.Cwd}
 	var source map[string]json.RawMessage
 	m.sub = p.ThreadSource == "subagent" || (json.Unmarshal(p.Source, &source) == nil && source["subagent"] != nil)
 	if m.sub {
@@ -234,10 +240,11 @@ func readRolloutMeta(path string) rolloutMeta {
 			}
 		}
 	}
-	return m
+	return m, whole
 }
 
-// metaOf is a rollout's session_meta, read once (rollouts older than the scan window are read on demand).
+// metaOf is a rollout's session_meta, read once it is all written (rollouts older than the scan window are read on
+// demand).
 func metaOf(home, path string) rolloutMeta {
 	rolloutCaches.Lock()
 	m, ok := cacheFor(home).metas[path]
@@ -245,10 +252,12 @@ func metaOf(home, path string) rolloutMeta {
 	if ok {
 		return m
 	}
-	m = readRolloutMeta(path)
-	rolloutCaches.Lock()
-	cacheFor(home).metas[path] = m
-	rolloutCaches.Unlock()
+	m, whole := readRolloutMeta(path)
+	if whole {
+		rolloutCaches.Lock()
+		cacheFor(home).metas[path] = m
+		rolloutCaches.Unlock()
+	}
 	return m
 }
 

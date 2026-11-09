@@ -167,6 +167,11 @@ Pitfalls, odd behavior, and the trade-offs made at the time (formerly in `CLAUDE
   Scrolling doesn't affect keypresses. The 0.153 Ctrl+T pager covers subsequent approvals (`esc` in the pager edits the last message; close with `q`); 0.163 Ctrl+T only expands details.
   Headless herdr splits don't narrow panes; test small windows with `stty cols <n>` before starting Codex. `pane.send_text` forwards unchanged; bracketed paste (`\x1b[200~…\x1b[201~`) works in Codex.
 - Trusting a directory while testing Codex locally writes `~/.codex/config.toml` (`codex exec` does too). `-c projects.…trust_level` doesn't suppress the trust dialog; remove your added entry after testing.
+- Codex 0.167 asks to trust a folder only when it is a git repository (a plain `mkdir` never shows the dialog), and draws the dialog from the top of the pane. herdr's
+  `pane read --source recent --lines N` counts the blank rows under it, so the last 40 rows of a 51-row pane were all blank and the start never saw the dialog (#2351);
+  `--source visible` leaves those rows out. Headless herdr panes are 40 rows, which hides this: a live test that needs a tall pane keeps a herdr client attached in a pty
+  of that size (unset the `HERDR_*` variables, or it refuses to nest), and the size is lost once the client leaves.
+- Codex 0.167 creates a rollout empty and writes its `session_meta` line 8–19 ms later. Anything that caches what a rollout's first line says must not cache a read made before that line ends in a newline.
 - The 0.163 app-server control socket (daemon `<CODEX_HOME>/app-server-control/app-server-control.sock`, likewise `--listen unix://<path>`)
   is a symlink; the actual socket is at `<canonical /tmp>/codex-daemon-<uid>/<SHA-256 of the alias's canonical path>`. Identifying it by "Lstat says socket, not symlink"
   makes the daemon impossible to discover or connect to (as before 2026-11-02); follow only the target Codex itself computes (`codexSocketPath`). 0.153 uses a normal socket file.
