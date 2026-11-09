@@ -89,16 +89,10 @@ and the tags collapse into one line next to the bubble, "Context · N items", fo
 
 Model selection is stored by the manager through `GET` / `PUT /api/v1/model-config/purposes/lark.agent` (PATCH remains compatible). Read the current revision, save the selected fields, and read back `override` and `effective`. To follow Agents again, send `provider: null`, `model: null`, and `effort: null` with the current revision. This does not authorize sending Lark messages or alter the extension's trigger and reply settings.
 
-The legacy trigger configuration below illustrates the pre-extension shape; its `launcher` field no longer selects a model. Current trigger and machine settings belong to the Lark extension.
-
-```json
-"lark_agent": {
-  "enabled": true,
-  "launcher": "<your strongest launcher>",
-  "prefix": "/agent",
-  "context_messages": 40
-}
-```
+Trigger, machine and reply settings belong to the Lark extension and are kept in the hub's database, not in a file: turn /agent on and choose
+where it runs in **Settings › Extensions › <the Lark extension> › Settings** on any App or the web (its machine and launcher are picked from the hub's lists), or ask the
+assistant ("turn on /agent in Lark"), which changes them through `persona_settings` `extension.<id>` after a confirmation on the phone (`docs/extensions/extensions.md`,
+"Configuration: the form subset", #2385). The old `lark_agent` block in `hub.json` no longer takes effect.
 
 ## /agent in document comments (in the extension; formerly the hub's lark_agent_docs.go)
 

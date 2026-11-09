@@ -17,9 +17,11 @@ import { composing } from "../../lib/send-history";
 import {
   changed, checkError, choiceLabel, clearedSecrets, clearExtensionSecret, compact, configError, fieldLabel, fieldTitle, isDirty, listItems, listExtensionsInfo, listSummary, numberProblems,
   placeholder, extensionDetail, extensionState, extensionTone, pointText, readNumber, runNote, same, secretState, setAt, setContribution, setExtensionConfig, setExtensionEnabled,
-  channelOf, machineStatus, nodeProgramStatus, sandboxEgress, sandboxState, saveFooter, setExtensionAutoUpgrade, setExtensionSecret, sourceText, stateLine, upgradeAction, upgradeDetail, upgradeNote, valueAt,
+  channelOf, machineStatus, nodeProgramStatus, pickerChoices, sandboxEgress, sandboxState, saveFooter, setExtensionAutoUpgrade, setExtensionSecret, sourceText, stateLine, upgradeAction, upgradeDetail, upgradeNote, valueAt,
   type HubExtension, type HubExtensionDetail, type Json, type JsonObject, type ExtensionField, type ExtensionNodeState, type ExtensionSandbox, type ExtensionSecret,
+  type PickerLauncher,
 } from "../../lib/extensions";
+import { loadLaunchers } from "../../lib/launcher-list";
 import { Button, cx, Dialog, EASE, IconButton, Loading, Spinner, toast } from "../../ui/atoms";
 import { TriageRuleField } from "../../ui/TriageRuleField";
 import { Icon } from "../../ui/icons";
@@ -582,6 +584,7 @@ function ExtensionDetail({ id, manager, onBack, onPage, onUpgrade, onChannel, on
   };
   const computers = !!detail?.contributes?.computer;
   const nodes = detail?.node_machines ? { field: detail.node_machines, states: detail.nodes ?? [] } : undefined;
+  const launchers = useFormLaunchers(!!detail?.form?.fields?.some((f) => f.format === "launcher" || f.fields?.some((g) => g.format === "launcher")), detail?.id);
 
   // A secret's answer is a whole detail too; keep the form's draft as it is.
   // The dialog's request is numbered as it leaves, like the page's own writes.
@@ -691,7 +694,7 @@ function ExtensionDetail({ id, manager, onBack, onPage, onUpgrade, onChannel, on
                   {fields
                     .filter((f) => f.type !== "object")
                     .map((f) => (
-                      <FieldRow key={f.name} field={f} path={[f.name]} draft={draft} typed={typed} errors={fieldErrors} problems={problems} onEdit={edit} onType={type} onSaveNow={saveNow} computers={computers} nodes={nodes} />
+                      <FieldRow key={f.name} field={f} path={[f.name]} draft={draft} typed={typed} errors={fieldErrors} problems={problems} onEdit={edit} onType={type} onSaveNow={saveNow} computers={computers} nodes={nodes} launchers={launchers} />
                     ))}
                 </Group>
               )}
@@ -700,7 +703,7 @@ function ExtensionDetail({ id, manager, onBack, onPage, onUpgrade, onChannel, on
                 .map((g) => (
                   <Group key={g.name} title={fieldLabel(g)} footer={g.description}>
                     {(g.fields ?? []).map((f) => (
-                      <FieldRow key={f.name} field={f} path={[g.name, f.name]} draft={draft} typed={typed} errors={fieldErrors} problems={problems} onEdit={edit} onType={type} onSaveNow={saveNow} computers={computers} nodes={nodes} />
+                      <FieldRow key={f.name} field={f} path={[g.name, f.name]} draft={draft} typed={typed} errors={fieldErrors} problems={problems} onEdit={edit} onType={type} onSaveNow={saveNow} computers={computers} nodes={nodes} launchers={launchers} />
                     ))}
                   </Group>
                 ))}
@@ -909,6 +912,13 @@ interface FieldProps {
   computers: boolean;
   /** The plugin's program on computers: the field that picks them, and how it is on each (their rows say). */
   nodes?: { field: string; states: ExtensionNodeState[] };
+  /** The hub's launchers, for a field of format launcher. */
+  launchers: FormLaunchers;
+}
+
+interface FormLaunchers {
+  list: PickerLauncher[] | null;
+  loading: boolean;
 }
 
 /** One field of the form, by its type; its title above (or beside a switch), its description and error below. */
@@ -954,7 +964,7 @@ function FieldRow(props: FieldProps) {
   );
 }
 
-function Control({ field: f, path, draft, typed, onEdit, onType, onSaveNow, computers, nodes, id, invalid }: FieldProps & { id: string; invalid: boolean }) {
+function Control({ field: f, path, draft, typed, onEdit, onType, onSaveNow, computers, nodes, launchers, id, invalid }: FieldProps & { id: string; invalid: boolean }) {
   const ring = invalid ? "shadow-[inset_0_0_0_1px_var(--red)]" : "shadow-inset-field";
   const v = valueAt(draft, path);
 
@@ -964,6 +974,9 @@ function Control({ field: f, path, draft, typed, onEdit, onType, onSaveNow, comp
     return <MachineSwitches field={f} path={path} draft={draft} onSaveNow={onSaveNow} computers={computers} nodes={nodes?.field === f.name ? nodes.states : undefined} id={id} />;
   }
   if (f.type === "array") return <ListControl field={f} path={path} draft={draft} onEdit={onEdit} id={id} ring={ring} />;
+  if (f.type === "string" && (f.format === "machine" || f.format === "launcher") && !f.enum?.length) {
+    return <PickerControl field={f} path={path} draft={draft} onEdit={onEdit} launchers={launchers} id={id} ring={ring} />;
+  }
 
   if (f.enum?.length) {
     const at = f.enum.findIndex((c) => v !== undefined && same(c.value, v));
@@ -1013,6 +1026,60 @@ function Control({ field: f, path, draft, typed, onEdit, onType, onSaveNow, comp
       autoCapitalize="off"
       className={cx(inputClass, ring, f.format && "font-mono")}
     />
+  );
+}
+
+/** The hub's launchers for the form's launcher pickers, read once while the page is open (GET /launchers asks every
+ *  machine): null while they load, or when they could not be read. */
+function useFormLaunchers(on: boolean, page: string | undefined): FormLaunchers {
+  const [state, setState] = useState<FormLaunchers>({ list: null, loading: false });
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    setState({ list: null, loading: true });
+    loadLaunchers<PickerLauncher>().then(
+      (r) => live && setState({ list: r.launchers, loading: false }),
+      () => live && setState({ list: null, loading: false }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [on, page]);
+  return state;
+}
+
+/** One of the hub's machines (format machine, of the systems x-os names) or launchers (format launcher) by name, "Not set"
+ *  first; a value naming none of them still shows. Launchers that are not in yet, or could not be read, are typed. */
+function PickerControl({ field: f, path, draft, onEdit, launchers, id, ring }: Pick<FieldProps, "field" | "path" | "draft" | "onEdit" | "launchers"> & { id: string; ring: string }) {
+  const machines = useStore((s) => s.machines);
+  const v = valueAt(draft, path);
+  const choices = pickerChoices(f, v, machines, launchers.list);
+  if (!choices) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          value={typeof v === "string" ? v : ""}
+          onChange={(e) => onEdit(path, e.target.value === "" ? undefined : e.target.value)}
+          placeholder={placeholder(f)}
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          className={cx(inputClass, ring, "max-w-[320px] font-mono")}
+        />
+        {launchers.loading && <span className="text-[11px] whitespace-nowrap text-ink-3">{t("lib-extensions.launchers_loading")}</span>}
+      </div>
+    );
+  }
+  return (
+    <select id={id} value={typeof v === "string" ? v : ""} onChange={(e) => onEdit(path, e.target.value === "" ? undefined : e.target.value)} className={cx(inputClass, ring, "max-w-[320px]")}>
+      <option value="">{placeholder(f)}</option>
+      {choices.map((c) => (
+        <option key={c.value} value={c.value}>
+          {c.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

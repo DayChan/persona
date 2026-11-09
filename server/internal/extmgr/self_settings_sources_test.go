@@ -49,7 +49,7 @@ func TestSelfSettingsSourceTriageRules(t *testing.T) {
 	out, err := h.hubCall(ctx, extwire.HubSettingsList, nil)
 	raw, _ := json.Marshal(out)
 	list := string(raw)
-	if err != nil || !strings.Contains(list, `"key":"inbox.rules.example-chat","title":"示例聊天的分拣规则"`) || strings.Contains(list, "example-other") {
+	if err != nil || !strings.Contains(list, `"key":"inbox.rules.example-chat","title":"示例聊天的分拣规则"`) || strings.Contains(list, "inbox.rules.example-other") {
 		t.Fatalf("list: %v\n%s", err, list)
 	}
 	if got, err := h.toolPersonaSettings(ctx, "server", "s1", json.RawMessage(`{"action":"get","key":"inbox.rules.example-chat"}`)); err != nil || got != "（无）" {

@@ -150,14 +150,50 @@ nonisolated struct ExtensionField: Codable, Hashable, Sendable, Identifiable {
     var fields: [ExtensionField]?
     /// What to ask before a switch of it is turned on (x-confirm; the plugin cua's 「扩展开着时不自动锁屏」).
     var confirm: String?
+    /// format machine: only machines of these systems (x-os); nil, any.
+    var os: [String]?
 
     var id: String { name }
     var label: String { title?.isEmpty == false ? title! : name }
+    /// One of the hub's machines by id (format machine on a string): a picker of them (#2385).
+    var picksMachine: Bool { type == "string" && format == "machine" && (self.enum ?? []).isEmpty }
+    /// One of the hub's launchers by name (format launcher): a picker of them (#2385).
+    var picksLauncher: Bool { type == "string" && format == "launcher" && (self.enum ?? []).isEmpty }
 
     enum CodingKeys: String, CodingKey {
-        case name, type, title, description, `default`, required, `enum`, format, pattern, minimum, maximum, items, fields, confirm
+        case name, type, title, description, `default`, required, `enum`, format, pattern, minimum, maximum, items, fields, confirm, os
         case minLength = "min_length", maxLength = "max_length", minItems = "min_items", maxItems = "max_items"
         case uniqueItems = "unique_items"
+    }
+}
+
+/// One choice of a machine or launcher picker (#2385). `missing`: the value names none of them; it is kept, first, so it
+/// shows and can be changed.
+nonisolated struct ExtensionPickerChoice: Hashable, Sendable, Identifiable {
+    var value: String
+    var label: String
+    var missing = false
+    var id: String { value }
+
+    /// The machines of the systems the field names (x-os), by name.
+    static func machines(_ field: ExtensionField, current: String?, machines: [(id: String, name: String, os: String?)]) -> [Self] {
+        let os = field.os ?? []
+        let out = machines.filter { os.isEmpty || os.contains($0.os ?? "") }
+            .map { Self(value: $0.id, label: $0.name.isEmpty ? $0.id : $0.name) }
+        return keeping(current, in: out, missing: { String(localized: "\($0) (no such machine)") })
+    }
+
+    /// The launchers that are shown (not hidden), by their name, with the one they are started by beside a display
+    /// name that differs.
+    static func launchers(current: String?, launchers: [LauncherView]) -> [Self] {
+        let out = launchers.filter { $0.hidden != true }
+            .map { Self(value: $0.name, label: $0.title == $0.name ? $0.name : "\($0.title) (\($0.name))") }
+        return keeping(current, in: out, missing: { String(localized: "\($0) (no such launcher)") })
+    }
+
+    private static func keeping(_ current: String?, in list: [Self], missing: (String) -> String) -> [Self] {
+        guard let current, !current.isEmpty, !list.contains(where: { $0.value == current }) else { return list }
+        return [Self(value: current, label: missing(current), missing: true)] + list
     }
 }
 
@@ -541,6 +577,10 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
     var draft: [String: JSONValue] = [:] { didSet { keepDraft() } }
     /// What number fields hold as typed, by path, until they read as a number.
     var numberText: [String: String] = [:] { didSet { keepDraft() } }
+    /// The hub's launchers for the form's launcher pickers (format launcher), read once the form has one: nil before,
+    /// or when they could not be read (the field is typed then).
+    private(set) var launchers: [LauncherView]?
+    private(set) var loadingLaunchers = false
     @ObservationIgnored private let deps: Deps
     @ObservationIgnored private var draftKey: ExtensionDrafts.Key?
 
@@ -576,6 +616,18 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
         async let name = ManagerRoster.name(of: whose, base)
         await run(preservingDraft: true) { api in try await api.plugin(self.id) }
         if let name = await name { managerName = name }
+    }
+
+    /// Reads the hub's launchers when the form has a launcher field and they aren't in yet. GET /api/v1/launchers asks
+    /// every machine (up to half a minute), so it runs apart from load. They are the hub's, not a manager's: asked of
+    /// the default client.
+    func loadLaunchersIfNeeded() async {
+        guard launchers == nil, !loadingLaunchers, let form = detail?.form,
+              form.contains(where: { $0.picksLauncher || ($0.fields ?? []).contains(where: \.picksLauncher) }),
+              let api = deps.api() else { return }
+        loadingLaunchers = true
+        defer { loadingLaunchers = false }
+        launchers = try? await api.allLaunchers()
     }
 
     func setEnabled(_ on: Bool, cascade: Bool = false) async {

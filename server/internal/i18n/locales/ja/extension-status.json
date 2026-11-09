@@ -37,6 +37,7 @@
   "schema_email": "メールアドレスを指定してください",
   "schema_hostname": "ホスト名を指定してください",
   "schema_machine": "マシンIDを指定してください",
+  "schema_launcher": "ランチャー名を指定してください",
   "schema_enum": "選択肢にない値です",
   "schema_bytes": "{count}バイトは上限の{max}を超えています",
   "schema_min_items": "{count}項目以上必要です",

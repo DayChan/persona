@@ -166,6 +166,17 @@ func (r *Registry) Config(p *Extension) json.RawMessage {
 	return p.Schema.Effective(raw)
 }
 
+// SavedConfig is the configuration as the user saved it, without the schema's defaults ({} when none).
+func (r *Registry) SavedConfig(p *Extension) json.RawMessage {
+	r.mu.Lock()
+	raw := slices.Clone(p.Record.Config)
+	r.mu.Unlock()
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}
+
 func (r *Registry) secretSpec(p *Extension, name string) error {
 	if !slices.ContainsFunc(p.Manifest.Secrets, func(s SecretSpec) bool { return s.Name == name }) {
 		return i18n.Err("extension-status.secret_missing", i18n.Args{"id": p.Record.ID, "name": name})

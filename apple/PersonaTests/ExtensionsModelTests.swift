@@ -204,4 +204,59 @@ struct ExtensionsModelTests {
         #expect(ExtensionNodeState.status(ExtensionNodeState(machineID: "x", state: "outdated")).contains("personad 太旧"))
     }
 
+
+    // MARK: machine and launcher pickers (#2385)
+
+    private static let chat = #"""
+    {"id":"example-chat","name":"Example 聊天","kind":"connectors","status":"running","source":"installed","enabled":true,
+     "form":{"fields":[
+       {"name":"agent_machine","type":"string","format":"machine","os":["darwin","linux"],"title":"在哪台电脑上跑"},
+       {"name":"proxy","type":"object","fields":[{"name":"launcher","type":"string","format":"launcher"}]},
+       {"name":"mode","type":"string","format":"machine","enum":[{"value":"a"}]}]},
+     "config":{"agent_machine":"old-mac"}}
+    """#
+
+    /// A string of format machine / launcher is a picker (not one with its own choices); x-os comes along.
+    @Test func pickerFieldsDecode() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/plugins/example-chat/-/", json: Self.chat)
+        hub.on("GET", "/api/v1/launchers", json: #"{"launchers":[{"name":"claude","source":"builtin"},{"name":"work_gw","source":"persona","display_name":"Work gateway"},{"name":"old_gw","source":"zshrc","hidden":true}]}"#)
+        let page = ExtensionModel(id: "example-chat", deps: .init(api: { hub.client }))
+        await page.load()
+        let form = try #require(page.detail?.form)
+        #expect(form[0].picksMachine && !form[0].picksLauncher && form[0].os == ["darwin", "linux"])
+        #expect(form[1].fields?[0].picksLauncher == true)
+        #expect(!form[2].picksMachine, "a field with its own choices keeps them")
+        // The launchers are read once the form has a launcher field, apart from load.
+        #expect(page.launchers == nil)
+        await page.loadLaunchersIfNeeded()
+        #expect(page.launchers?.map(\.name) == ["claude", "work_gw", "old_gw"])
+        await page.loadLaunchersIfNeeded()
+        #expect(hub.sent("GET", "/api/v1/launchers").count == 1, "read once")
+    }
+
+    /// A form without a launcher field never asks the hub for them (it asks every machine).
+    @Test func noLauncherFieldNoLaunchers() async {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/plugins/example-notes/-/", json: Self.detail)
+        let page = make(hub)
+        await page.load()
+        await page.loadLaunchersIfNeeded()
+        #expect(page.launchers == nil && hub.sent("GET", "/api/v1/launchers").isEmpty)
+    }
+
+    /// The machines of the systems named, by name; the shown launchers, a differing display name with the name; a value
+    /// naming none of them first, marked.
+    @Test func pickerChoices() throws {
+        let field = ExtensionField(name: "m", type: "string", format: "machine", os: ["darwin", "linux"])
+        let machines: [(id: String, name: String, os: String?)] = [("studio", "Mac Studio", "darwin"), ("server", "服务器", "linux"), ("pc", "PC", "windows")]
+        #expect(ExtensionPickerChoice.machines(field, current: "server", machines: machines).map(\.label) == ["Mac Studio", "服务器"])
+        let kept = ExtensionPickerChoice.machines(field, current: "old-mac", machines: machines)
+        #expect(kept.first?.value == "old-mac" && kept.first?.missing == true && kept.first?.label.contains("old-mac") == true && kept.count == 3)
+        let launchers = [LauncherView(name: "claude", source: "builtin"), LauncherView(name: "work_gw", source: "persona", displayName: "Work gateway"),
+                         LauncherView(name: "old_gw", source: "zshrc", hidden: true)]
+        #expect(ExtensionPickerChoice.launchers(current: nil, launchers: launchers).map(\.label) == ["claude", "Work gateway (work_gw)"])
+        #expect(ExtensionPickerChoice.launchers(current: "old_gw", launchers: launchers).first?.missing == true, "a hidden one set stays, marked")
+        #expect(ExtensionPickerChoice.launchers(current: "", launchers: launchers).count == 2)
+    }
 }

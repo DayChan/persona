@@ -271,6 +271,8 @@ struct ExtensionDetailView: View {
                               clear: { await page.clearSecret(secret.name) }, close: { editingSecret = nil })
         }
         .task { await page.load() }
+        // A launcher field's choices (format launcher): the hub asks every machine for them, so apart from the page.
+        .task(id: page.detail?.plugin.id) { await page.loadLaunchersIfNeeded() }
         // Again when the connector's page closes (its switch may have changed there) or the extension is switched.
         // Also once paired (opened at launch, before the hub's address is known) or paired to another hub.
         .task(id: ConnectorSectionsKey(ids: connectorIDs, depth: AppModel.shared.settingsPath.count,
@@ -606,6 +608,7 @@ struct ExtensionDetailView: View {
 /// One field of a plugin's form, by its type: a text field, a number, a switch, a choice, a list of texts or of
 /// choices. Its title above, its description and the hub's word on it below.
 private struct ExtensionFieldRow: View {
+    @Environment(AppModel.self) private var model
     var field: ExtensionField
     var path: [String]
     @Bindable var page: ExtensionModel
@@ -653,10 +656,26 @@ private struct ExtensionFieldRow: View {
                 } label: {
                     Text(title).lineLimit(2)
                 }
+            } else if field.picksMachine {
+                // The page's hub's machines (the app's first group), as the machine switches list them.
+                ExtensionChoicePicker(title: title, placeholder: placeholder, path: path, page: page,
+                                      choices: ExtensionPickerChoice.machines(field, current: page.value(path)?.string,
+                                                                              machines: model.machines.filter { $0.group.isEmpty }.map { ($0.id, $0.name, $0.os) }))
+            } else if field.picksLauncher, let launchers = page.launchers {
+                ExtensionChoicePicker(title: title, placeholder: placeholder, path: path, page: page,
+                                      choices: ExtensionPickerChoice.launchers(current: page.value(path)?.string, launchers: launchers))
             } else if field.type == "integer" || field.type == "number" {
                 labeled {
-                    TextField(placeholder, text: numberBinding)
-                        .keyboardType(field.type == "integer" ? .numberPad : .decimalPad)
+                    HStack(spacing: Theme.Space.s) {
+                        TextField(placeholder, text: numberBinding)
+                            .keyboardType(field.type == "integer" ? .numberPad : .decimalPad)
+                        if field.type == "integer" {
+                            // A step at a time within its bounds (#2385); typing still works for a far value.
+                            Stepper(value: stepperBinding, in: stepperRange) { Text(title) }
+                                .labelsHidden()
+                                .fixedSize()
+                        }
+                    }
                 }
             } else {
                 labeled {
@@ -665,6 +684,10 @@ private struct ExtensionFieldRow: View {
                         .keyboardType(field.format == "uri" ? .URL : field.format == "email" ? .emailAddress : .default)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    if field.picksLauncher, page.loadingLaunchers {
+                        // Typed until the hub's launchers are in (or if they can't be read).
+                        Text("Loading launchers…").font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
             }
         }
@@ -691,6 +714,20 @@ private struct ExtensionFieldRow: View {
         return String(localized: "Not set")
     }
 
+    /// The stepper's value: what is set, else the default, else the lowest it may be. A step drops what was typed.
+    private var stepperBinding: Binding<Double> {
+        let key = path.joined(separator: ".")
+        return Binding(get: { page.value(path)?.double ?? field.default?.double ?? field.minimum ?? 0 }, set: { n in
+            page.numberText[key] = nil
+            page.set(.number(n.rounded()), at: path)
+        })
+    }
+
+    private var stepperRange: ClosedRange<Double> {
+        let low = field.minimum ?? -1_000_000_000
+        return low...max(low, field.maximum ?? 1_000_000_000)
+    }
+
     /// A number as typed: kept as text until it reads as one (ExtensionModel.numberProblems), then the value.
     private var numberBinding: Binding<String> {
         let key = path.joined(separator: ".")
@@ -699,6 +736,25 @@ private struct ExtensionFieldRow: View {
             let t = text.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { page.set(nil, at: path) } else if let n = Double(t) { page.set(.number(n), at: path) }
         })
+    }
+}
+
+/// One of the hub's machines or launchers by name (format machine / launcher on a string, #2385), Not set first; saved
+/// with the rest of the form.
+private struct ExtensionChoicePicker: View {
+    var title: String
+    var placeholder: String
+    var path: [String]
+    @Bindable var page: ExtensionModel
+    var choices: [ExtensionPickerChoice]
+
+    var body: some View {
+        Picker(selection: Binding(get: { page.value(path)?.string ?? "" }, set: { page.set($0.isEmpty ? nil : .string($0), at: path) })) {
+            Text(placeholder).tag("")
+            ForEach(choices) { c in Text(c.label).tag(c.value) }
+        } label: {
+            Text(title).lineLimit(2)
+        }
     }
 }
 

@@ -35,7 +35,7 @@ type Field struct {
 	Default     json.RawMessage `json:"default,omitempty"`
 	Required    bool            `json:"required,omitempty"`
 	Enum        []Choice        `json:"enum,omitempty"`
-	Format      string          `json:"format,omitempty"` // uri | email | hostname | machine
+	Format      string          `json:"format,omitempty"` // uri | email | hostname | machine | launcher
 	// OS, for format machine: only machines of these systems (x-os: darwin, linux, windows); none, any.
 	OS []string `json:"os,omitempty"`
 	// Confirm (x-confirm): what a form asks before a switch is turned on (a boolean, or a machine of a machine list),
@@ -71,8 +71,9 @@ var (
 		"array":   {"items", "minItems", "maxItems", "uniqueItems"},
 		"object":  {"properties", "required"},
 	}
-	// machine: one of the hub's machines, by id: a form draws a list of them as a switch each (x-os narrows it).
-	formats      = []string{"uri", "email", "hostname", "machine"}
+	// machine: one of the hub's machines, by id: a form draws a list of them as a switch each and one of them as a
+	// picker (x-os narrows both). launcher: one of the hub's launchers, by name: a form draws a picker of them.
+	formats      = []string{"uri", "email", "hostname", "machine", "launcher"}
 	systems      = []string{"darwin", "linux", "windows"}
 	hostnameLike = lazyre.New(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 )
@@ -247,7 +248,7 @@ func parseField(name string, raw json.RawMessage, at string, depth int) (Field, 
 		return fail("%v", err)
 	}
 	if f.Format != "" && !slices.Contains(formats, f.Format) {
-		return fail("format %q: uri, email, hostname or machine", f.Format)
+		return fail("format %q: uri, email, hostname, machine or launcher", f.Format)
 	}
 	if raw, ok := m["x-os"]; ok {
 		if f.Format != "machine" {
@@ -491,6 +492,10 @@ func (f *Field) check(raw json.RawMessage, at string) error {
 		case "machine":
 			if strings.TrimSpace(s) != s || s == "" {
 				return i18n.Err("extension-status.schema_machine")
+			}
+		case "launcher":
+			if strings.TrimSpace(s) != s || s == "" {
+				return i18n.Err("extension-status.schema_launcher")
 			}
 		}
 	}

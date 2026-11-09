@@ -181,3 +181,41 @@ func TestSchemaMachines(t *testing.T) {
 		}
 	}
 }
+
+// One of the hub's machines and one of its launchers (format machine / launcher on a string): the form draws a picker
+// of them; the value is the machine's id or the launcher's name.
+func TestSchemaMachineAndLauncherPickers(t *testing.T) {
+	s, err := ParseSchema(json.RawMessage(`{"type": "object", "properties": {
+	  "where": {"type": "string", "title": "在哪台电脑上跑", "format": "machine", "x-os": ["darwin", "linux"]},
+	  "launcher": {"type": "string", "title": "用的启动器", "format": "launcher"}
+	}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(s.Fields)
+	for _, want := range []string{`"name":"where","type":"string","title":"在哪台电脑上跑","format":"machine","os":["darwin","linux"]`,
+		`"name":"launcher","type":"string","title":"用的启动器","format":"launcher"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("the form says %s, not %s", b, want)
+		}
+	}
+	for _, good := range []string{`{}`, `{"where": "studio", "launcher": "claude"}`, `{"launcher": "work_gw"}`} {
+		if err := s.Check(json.RawMessage(good)); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
+	}
+	for _, bad := range []string{`{"launcher": ""}`, `{"launcher": " claude"}`, `{"launcher": 3}`, `{"where": ""}`} {
+		if s.Check(json.RawMessage(bad)) == nil {
+			t.Errorf("%s passed", bad)
+		}
+	}
+	for _, bad := range []string{
+		`{"type": "object", "properties": {"l": {"type": "string", "format": "launcher", "x-os": ["darwin"]}}}`,
+		`{"type": "object", "properties": {"l": {"type": "integer", "format": "launcher"}}}`,
+		`{"type": "object", "properties": {"l": {"type": "string", "format": "model"}}}`,
+	} {
+		if _, err := ParseSchema(json.RawMessage(bad)); err == nil {
+			t.Errorf("%s parsed", bad)
+		}
+	}
+}

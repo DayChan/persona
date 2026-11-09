@@ -211,8 +211,8 @@ and the API returns the ordered `form.fields`). Anything outside the subset can'
 
 | Type | Allowed keywords | Form |
 | --- | --- | --- |
-| `string` | `title`, `description`, `default`, `enum` (with labels: `oneOf: [{"const", "title"}]`), `format` (`uri` / `email` / `hostname` / `machine`), `x-os` (only with `machine`: a list of `darwin` / `linux` / `windows`), `pattern`, `minLength`, `maxLength` | Text field; with `enum`, a picker |
-| `integer`, `number` | Descriptive keywords, `enum`, `minimum`, `maximum` | Number field |
+| `string` | `title`, `description`, `default`, `enum` (with labels: `oneOf: [{"const", "title"}]`), `format` (`uri` / `email` / `hostname` / `machine` / `launcher`), `x-os` (only with `machine`: a list of `darwin` / `linux` / `windows`), `pattern`, `minLength`, `maxLength` | Text field; with `enum`, a picker; with `format: machine` or `launcher`, a picker of the hub's machines or launchers (below) |
+| `integer`, `number` | Descriptive keywords, `enum`, `minimum`, `maximum` | Number field; the App adds a stepper to an `integer`, held to `minimum` / `maximum` |
 | `boolean` | Descriptive keywords | Toggle |
 | `array` | `items` must be `string` (may have `enum`), `minItems`, `maxItems`, `uniqueItems` | Editable list; with `enum` in `items`, multi-select; with `format: machine` in `items`, one toggle per machine (below) |
 | `object` | Top level only, containing only the scalars and arrays above; may have its own `required` | A group |
@@ -223,12 +223,21 @@ and the API returns the ordered `form.fields`). Anything outside the subset can'
 - When the list has `x-confirm` (one sentence), turning on a machine's toggle first asks that sentence and only saves once confirmed; turning off doesn't ask. The App and web both show a dialog: title **Turn On “<machine name>”?**, body is the sentence, buttons **Cancel** and **Turn On** (the App uses `alert`, the web uses `Dialog`, #1830).
 - When the form has only these toggles, the form no longer says "…takes effect immediately, no need to save" underneath (the field's own description covers it, and there's nothing to save); if there are other items, it still says which take effect immediately and that the rest need Save. The `cua` extension's **Don't Auto-Lock While On** uses it (#1507).
 - When the hub loads an extension, any of these values written as a machine name or host name (ignoring case, spaces, `-`, `_`, and only when exactly one machine matches) is replaced with that machine's id and saved back (`extension_machines.go`).
+- **One** machine (`{"type": "string", "format": "machine", "x-os": [...]}`, #2385) is a picker on the App's and web's settings page: **Not set** first (the field's default or its empty meaning), then the machines of the systems `x-os` names, by name. It is saved with the rest of the form (Save). A value that names no machine is still shown, marked as not found, so it can be changed.
+
+**Launchers (`format: launcher`, #2385)**: the value is the name of one of the hub's launchers (what `POST /api/v1/assistant/conversations` takes as `launcher`). The hub checks only that it is a name (not empty, no surrounding spaces): a launcher lives on computers that may be offline. The App and web draw a picker of the hub's launchers (`GET /api/v1/launchers`, read once while the page is open, since it asks every machine), **Not set** first, hidden launchers left out, a display name that differs shown with the name. Until the list is in, or when it can't be read, the field is a text field. A value that names no launcher is still shown, marked. Android draws both kinds as text fields for now. Only a hub with this format installs a manifest that uses it: declare a matching `engines.persona`.
 
 **Conventional settings**: names the hub recognizes; when an extension declares one, it gets extra uses.
 - `triage_rules` (a top-level `string`; `maxLength` of at most 4000 is recommended, since the hub uses only the first 4000 characters): this source's Inbox triage rules, in the user's own words. The extension attaches it as `rules` when it hands over items (`docs/protocol/connector-protocol.md`),
   and the hub uses it instead of the global `inbox.rules` when triaging this source's items (`docs/assistant/inbox.md` ("AI triage")). An extension that declares it gets an item
   `inbox.rules.<extension id>` in the assistant's `persona_settings`: reading is free; changing it pops a confirmation on the phone (before → after), and only once approved is it written through the same config-change path (validated against the schema, only this item changed, extension restarted);
   extensions configured in the manager's manager.json are read-only.
+
+**Every setting in a conversation** (#2385): each extension the user can configure that has a form is `extension.<id>` in the assistant's `persona_settings`. `get` lists every field
+with its title, kind (choices, bounds, machine / launcher), current value and default. `set` takes an object of only the fields to change (an `object` field an object of its own fields; `null` puts a field back to its default),
+is checked against the schema (and, for the built-in Messages extension, its one-Mac rule) before any card, and puts a card on the phone that says each changed field `before → after` (a choice by its title, a machine by its name,
+and the field's `x-confirm` sentence when the change turns it on). Only once approved is it saved, through the same path as Settings › Extensions (the extension restarts); a field the card showed that changed meanwhile
+(on another device) is not overwritten: nothing is saved and the assistant is told to read it again. Secrets never pass through it; manager.json's extensions and development installs are not listed.
 
 Extensions that use the Inbox **must** have `triage_rules`; see "General rules for the Inbox" below.
 

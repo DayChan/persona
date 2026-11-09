@@ -63,6 +63,7 @@ func (h *Manager) selfSettings() []selfSetting {
 				`"imap_port"?, "smtp_host"?, "smtp_port"?, "smtp_security"?: "tls|starttls"}; most providers need only the email. remove: the account id`,
 			get: h.getMailAccounts, add: h.addMailAccount, remove: h.removeMailAccount})
 	}
+	out = append(out, h.extensionSettings()...) // extension.<id> (self_settings_extensions.go)
 	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
 	return out
 }

@@ -83,5 +83,8 @@
   "sandbox_allowed_one": "{count} allowed",
   "sandbox_allowed_other": "{count} allowed",
   "sandbox_denied_one": "{count} denied",
-  "sandbox_denied_other": "{count} denied"
+  "sandbox_denied_other": "{count} denied",
+  "machine_missing": "{name} (no such machine)",
+  "launcher_missing": "{name} (no such launcher)",
+  "launchers_loading": "Loading launchers…"
 }

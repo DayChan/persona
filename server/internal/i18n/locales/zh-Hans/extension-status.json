@@ -37,6 +37,7 @@
   "schema_email": "要是一个邮箱地址",
   "schema_hostname": "要是一个主机名",
   "schema_machine": "要是一台机器的 id",
+  "schema_launcher": "要是一个启动器的名字",
   "schema_enum": "不是可选的值",
   "schema_bytes": "{count} 字节，超过 {max}",
   "schema_min_items": "至少 {count} 项",

@@ -37,6 +37,7 @@
   "schema_email": "Must be an email address",
   "schema_hostname": "Must be a hostname",
   "schema_machine": "Must be a machine ID",
+  "schema_launcher": "Must be a launcher name",
   "schema_enum": "Not an available choice",
   "schema_bytes": "{count} bytes, more than {max}",
   "schema_min_items": "At least {count} items",

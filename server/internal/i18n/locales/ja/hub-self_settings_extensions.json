@@ -1,0 +1,7 @@
+{
+  "title": "{name}の設定",
+  "default": "{value}（デフォルト）",
+  "on": "オン",
+  "off": "オフ",
+  "list_separator": "、"
+}

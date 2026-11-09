@@ -147,7 +147,10 @@ export interface ExtensionField {
   default?: Json;
   required?: boolean;
   enum?: ExtensionChoice[];
+  /** uri | email | hostname | machine (one of the hub's machines, by id) | launcher (one of its launchers, by name). */
   format?: string;
+  /** format machine: only machines of these systems (x-os). */
+  os?: string[];
   pattern?: string;
   min_length?: number;
   max_length?: number;
@@ -392,6 +395,41 @@ export function placeholder(f: ExtensionField): string {
     if (text) return t("lib-extensions.default_value", { value: text });
   }
   return t("lib-extensions.not_set");
+}
+
+/** A launcher as the form's picker reads it (GET /launchers' entry). */
+export interface PickerLauncher {
+  name: string;
+  display_name?: string;
+  hidden?: boolean;
+}
+
+/** One choice of a machine or launcher picker; `missing`: the value names none of them (it still shows, to change it). */
+export interface PickerChoice {
+  value: string;
+  label: string;
+  missing?: boolean;
+}
+
+/** The picker a string field draws instead of a text box: the hub's machines (format machine, of the systems x-os names)
+ *  or launchers (format launcher, the hidden ones left out), by name; a current value that names none of them comes
+ *  first, so it can be seen and changed. null: the field is not one of these, or its list is not in yet. */
+export function pickerChoices(f: ExtensionField, current: Json | undefined, machines: Pick<Machine, "id" | "name" | "os">[], launchers: PickerLauncher[] | null): PickerChoice[] | null {
+  if (f.type !== "string" || f.enum?.length) return null;
+  let out: PickerChoice[];
+  if (f.format === "machine") {
+    const os = f.os ?? [];
+    out = machines.filter((m) => !os.length || os.includes(m.os ?? "")).map((m) => ({ value: m.id, label: m.name || m.id }));
+  } else if (f.format === "launcher") {
+    if (!launchers) return null;
+    out = launchers.filter((l) => !l.hidden).map((l) => ({ value: l.name, label: l.display_name?.trim() && l.display_name.trim() !== l.name ? `${l.display_name.trim()} (${l.name})` : l.name }));
+  } else {
+    return null;
+  }
+  if (typeof current === "string" && current && !out.some((c) => c.value === current)) {
+    out.unshift({ value: current, label: t(f.format === "machine" ? "lib-extensions.machine_missing" : "lib-extensions.launcher_missing", { name: current }), missing: true });
+  }
+  return out;
 }
 
 export function secretState(s: ExtensionSecret): string {

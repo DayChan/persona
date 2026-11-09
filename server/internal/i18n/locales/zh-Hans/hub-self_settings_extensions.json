@@ -1,0 +1,7 @@
+{
+  "title": "{name}的设置",
+  "default": "{value}（默认）",
+  "on": "开",
+  "off": "关",
+  "list_separator": "、"
+}
