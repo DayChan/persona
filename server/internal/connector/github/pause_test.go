@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/connector"
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 // healthyGitHub answers /user with a nearly full primary quota (4900 of 5000 left).
@@ -110,7 +111,7 @@ func TestPrimaryQuotaBesidePause(t *testing.T) {
 	if got := c.PRChecksRateReset(); got.Unix() != reset.Unix() {
 		t.Fatalf("resume at %v, not at the quota's reset %v", got, reset)
 	}
-	if st := c.Status(context.Background()); st.State != connector.StateRateLimited || !strings.Contains(st.Error, "约 60 分钟") {
+	if st := c.Status(context.Background()); st.State != connector.StateRateLimited || !strings.Contains(st.Error, "约 1 分钟内不读取任何内容") {
 		t.Fatalf("%+v", st)
 	}
 	quota("4900", reset)
@@ -194,5 +195,41 @@ func TestPauseBacksOff(t *testing.T) {
 	ended(2 * time.Hour)
 	if got := limit(); !near(got, time.Minute) {
 		t.Fatalf("long after the last pause: %s, want a minute", got)
+	}
+}
+
+func TestRateStatusLocalization(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.ZhHans, i18n.En, i18n.Ja} {
+		for _, tc := range []struct {
+			name, key  string
+			pause, low bool
+			minutes    int
+		}{
+			{"pause", "github_paused", true, false, 2},
+			{"low", "github_rate_low", false, true, 10},
+			{"pause before later quota reset", "github_paused", true, true, 2},
+			{"expired", "", false, false, 0},
+		} {
+			t.Run(string(lang)+"/"+tc.name, func(t *testing.T) {
+				c := healthyGitHub(t)
+				c.rateLow = tc.low
+				c.rateReset = time.Now().Add(9*time.Minute + 30*time.Second)
+				c.pausedUntil = time.Now().Add(-time.Minute)
+				if tc.pause {
+					c.pausedUntil = time.Now().Add(90 * time.Second)
+				}
+				st := c.Status(i18n.With(context.Background(), lang))
+				if tc.key == "" {
+					if st.State != connector.StateOK || st.Error != "" {
+						t.Fatalf("%+v", st)
+					}
+					return
+				}
+				want := i18n.T(lang, "hub-connectors."+tc.key, i18n.Args{"minutes": tc.minutes})
+				if st.State != connector.StateRateLimited || st.Error != want {
+					t.Fatalf("got %+v, want %q", st, want)
+				}
+			})
+		}
 	}
 }

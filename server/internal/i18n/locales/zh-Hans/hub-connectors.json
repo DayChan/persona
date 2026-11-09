@@ -1,5 +1,7 @@
 {
   "program_missing": "没有找到 {name} 的程序（{path}）",
   "program_fails": "{name} 的程序运行不了：{err}",
-  "program_version": "{name} 的程序和 hub 不是同一个版本（{got} / {want}）"
+  "program_version": "{name} 的程序和 hub 不是同一个版本（{got} / {want}）",
+  "github_rate_low": "这个小时的 GitHub 请求额度快用完了，约 {minutes} 分钟内只看通知",
+  "github_paused": "GitHub 要求暂停请求，约 {minutes} 分钟内不读取任何内容"
 }

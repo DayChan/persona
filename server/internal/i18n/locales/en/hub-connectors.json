@@ -1,5 +1,7 @@
 {
   "program_missing": "Can’t find {name}’s program ({path})",
   "program_fails": "{name}’s program won’t run: {err}",
-  "program_version": "{name}’s program isn’t the same version as the hub ({got} / {want})"
+  "program_version": "{name}’s program isn’t the same version as the hub ({got} / {want})",
+  "github_rate_low": "The GitHub request quota for this hour is nearly exhausted; only reading notifications for about {minutes} min",
+  "github_paused": "GitHub asked for a pause; not reading anything for about {minutes} min"
 }
