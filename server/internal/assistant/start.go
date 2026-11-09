@@ -121,7 +121,7 @@ func (s *Service) prepareSpace(ctx context.Context, machine, space string) (stri
 // the main chat's) applied, then the node's assistant.send (headless: no herdr tab, streamed tokens, any launcher per message).
 func (s *Service) startOn(ctx context.Context, machine string, p StartParams, main bool) (proto.Session, error) {
 	if p.Space != "" && p.Space != SpaceHealth {
-		return proto.Session{}, badRequest(fmt.Errorf("space %q: health or none", p.Space))
+		return proto.Session{}, limitStartPreSend(ctx, badRequest(fmt.Errorf("space %q: health or none", p.Space)))
 	}
 	if p.PermissionMode == "" && p.GuestTools == nil {
 		p.PermissionMode = s.settings(ctx).DefaultPermissionMode
@@ -134,7 +134,7 @@ func (s *Service) startOn(ctx context.Context, machine string, p StartParams, ma
 		cwd, err = s.prepareSpace(ctx, machine, p.Space)
 	}
 	if err != nil {
-		return proto.Session{}, err
+		return proto.Session{}, limitStartPreSend(ctx, err)
 	}
 	params := map[string]any{"cwd": cwd, "launcher": p.Launcher, "text": p.Text, "images": p.Images, "permission_mode": p.PermissionMode,
 		"effort": p.Effort, "is_main": main}
@@ -147,7 +147,7 @@ func (s *Service) startOn(ctx context.Context, machine string, p StartParams, ma
 		purpose = "assistant"
 	}
 	if err := s.applyModel(ctx, purpose, params); err != nil {
-		return proto.Session{}, err
+		return proto.Session{}, limitStartPreSend(ctx, err)
 	}
 	used, _ := params["launcher"].(string)
 	var res struct {
@@ -187,7 +187,7 @@ func (s *Service) startConversationOn(ctx context.Context, p StartParams, main b
 		machine = s.settings(ctx).MachineID
 	}
 	if s.isWorkMachine(machine) {
-		return proto.Session{}, errWorkAssistant
+		return proto.Session{}, limitStartPreSend(ctx, errWorkAssistant)
 	}
 	// MCP discovery can arrive before assistant.send returns its session ID. Keep the
 	// manager's authorization until the resulting conversation's origin is recorded.
@@ -195,6 +195,9 @@ func (s *Service) startConversationOn(ctx context.Context, p StartParams, main b
 	defer finishStart()
 	sess, err := s.startOn(ctx, machine, p, main)
 	if errors.Is(err, ErrNoDevice) && p.MachineID == "" {
+		if errors.Is(err, errLimitRetryNotSent) {
+			return proto.Session{}, limitPreSendError{cause: errNoAssistantMachine}
+		}
 		return proto.Session{}, errNoAssistantMachine
 	}
 	if err != nil {

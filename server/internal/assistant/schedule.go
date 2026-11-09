@@ -72,6 +72,8 @@ type Task struct {
 	limitRetry bool
 	// manualLimitRetry marks an explicit run replacing an armed retry.
 	manualLimitRetry bool
+	limitWorkerStop  <-chan struct{}
+	limitOwnerDone   <-chan struct{}
 	// limitRetryRunID links the recorded send result to its durable claim.
 	limitRetryRunID string
 	// The conversation it came from (on MachineID), runs go into it; empty = the task's own conversation.
@@ -218,6 +220,9 @@ type ScheduleRun struct {
 	Retried bool `json:"retried,omitempty"`
 	// RetryOf links a limit retry's send result to the failed run that it retried.
 	RetryOf string `json:"retry_of,omitempty"`
+	// Adopt records a manual retry's new task conversation until its claim is settled.
+	Adopt    bool   `json:"adopt,omitempty"`
+	Launcher string `json:"launcher,omitempty"`
 	// StreakTold: this run made its task's streak of runs that did not go through long enough to tell the user, who
 	// was told then (schedule_streak.go): the rest of that streak is not told again.
 	StreakTold bool `json:"streak_told,omitempty"`
@@ -1493,9 +1498,24 @@ func (s *Service) runDue(ctx context.Context, now time.Time) {
 // (r.of before the task's LastRun): runs record when they end, and a slow one — an assistant that takes a minute to
 // give up — must not overwrite the status of the run or skip that came after it (#556).
 func (s *Service) recordRun(r ScheduleRun) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.recordRunContext(ctx, r)
+}
+
+func (s *Service) recordRunContext(ctx context.Context, r ScheduleRun) string {
 	r.ID = "run_" + randomHex(4)
-	sc, err := s.lockedSchedule(context.Background())
+	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
+		// A retry may already have been sent. Keep its observed outcome until storage recovers.
+		if r.RetryOf != "" {
+			s.sched.mu.Lock()
+			if s.sched.pendingRuns == nil {
+				s.sched.pendingRuns = make(map[string]ScheduleRun)
+			}
+			s.sched.pendingRuns[r.ID] = r
+			s.sched.mu.Unlock()
+		}
 		s.logf("schedule run %s %s not recorded: %v", r.Kind, r.RefID, err)
 		return ""
 	}
@@ -1519,13 +1539,12 @@ func (s *Service) recordRun(r ScheduleRun) string {
 	r = sc.runs[len(sc.runs)-1]
 	// Work already happened. Keep its outcome and the run ID even when either write fails, so the watcher
 	// can still report the real result. Later writes retry the complete current lists under this lock.
-	_ = s.saveLocked(sc, sc.tasks)
+	_ = s.saveScheduleLocked(ctx, sc, sc.tasks)
 	if s.store() != nil {
 		if sc.pendingRuns == nil {
 			sc.pendingRuns = make(map[string]ScheduleRun)
 		}
 		sc.pendingRuns[r.ID] = r
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
 			if !slices.ContainsFunc(runs, func(existing ScheduleRun) bool { return existing.ID == r.ID }) {
 				runs = append(runs, r)
@@ -1534,11 +1553,13 @@ func (s *Service) recordRun(r ScheduleRun) string {
 		}); err != nil {
 			s.logf("save schedule runs: %v", err)
 		}
-		cancel()
 	}
 	sc.mu.Unlock()
-	s.broadcastSchedule()
-	if streak {
+	if ctx.Err() != nil {
+		return "" // the owner stopped or recording timed out; its durable claim remains
+	}
+	s.broadcastScheduleContext(ctx)
+	if streak && ctx.Err() == nil {
 		s.pushStreak(streakTask, streakN, r)
 	}
 	return r.ID
@@ -1637,7 +1658,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			params := map[string]any{"session_id": t.SessionID, "text": taskPrompt(t, due, now, loc, manual, kb, false), "permission_mode": t.PermissionMode}
 			err := s.sendModel(ctx, t.MachineID, t.SessionID, params)
 			if err != nil && (t.limitRetry || t.manualLimitRetry) {
-				return proto.Session{}, fmt.Errorf("%w: %v", errLimitRetryNotSent, err)
+				return proto.Session{}, limitPreSendError{cause: err}
 			}
 			if err == nil {
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
@@ -1661,7 +1682,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 	binding, err := s.resolveModel(ctx, "task."+t.ID)
 	if err != nil {
 		if t.manualLimitRetry {
-			return proto.Session{}, fmt.Errorf("%w: %v", errLimitRetryNotSent, err)
+			return proto.Session{}, limitPreSendError{cause: err}
 		}
 		run.Status, run.Error = runFailed, err.Error()
 		s.recordRun(run)
@@ -1690,7 +1711,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			params := map[string]any{"session_id": t.RunSessionID, "text": taskPrompt(t, due, now, loc, manual, kb, true), "permission_mode": t.PermissionMode, "resume_only": true}
 			err := s.applyModel(ctx, "task."+t.ID, params)
 			if err != nil && t.manualLimitRetry {
-				return proto.Session{}, fmt.Errorf("%w: %v", errLimitRetryNotSent, err)
+				return proto.Session{}, limitPreSendError{cause: err}
 			}
 			if err == nil {
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
@@ -1707,7 +1728,11 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			s.logf("task %s into its conversation %s: %v; starting a new one", t.ID, short(t.RunSessionID), err)
 		}
 	}
-	sess, err := s.startConversation(ctx, startParams{Text: taskPrompt(t, due, now, loc, manual, kb, false), PermissionMode: t.PermissionMode,
+	startCtx := ctx
+	if t.manualLimitRetry {
+		startCtx = context.WithValue(ctx, limitStartKey{}, true)
+	}
+	sess, err := s.startConversation(startCtx, startParams{Text: taskPrompt(t, due, now, loc, manual, kb, false), PermissionMode: t.PermissionMode,
 		Purpose: "task." + t.ID, Space: t.Space, Origin: OriginTask, OriginRef: t.ID})
 	if err != nil {
 		s.logf("task %s: %v", t.ID, err)
@@ -1720,8 +1745,13 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 		return proto.Session{}, err
 	}
 	run.MachineID, run.SessionID = sess.MachineID, sess.SessionID
+	if t.manualLimitRetry {
+		run.Adopt, run.Launcher = true, sess.Launcher
+	}
 	s.logf("task %s ran %s after its time (new conversation %s, kept for the next runs)", t.ID, lateness(due, time.Now()), short(sess.SessionID))
-	s.adoptConversation(t.ID, sess.MachineID, sess.SessionID, sess.Launcher)
+	if !t.manualLimitRetry {
+		s.adoptConversation(t.ID, sess.MachineID, sess.SessionID, sess.Launcher)
+	}
 	s.titleFixed(sess.MachineID, sess.SessionID, time.Now(), titleTask, t.label()) // "MMDD | scheduled | task name", the same for every run in it
 	var m *Device
 	if d, ok := s.device(ctx, sess.MachineID); ok {
@@ -1859,7 +1889,22 @@ func (s *Service) startScheduledRun(run ScheduleRun, t Task, m *Device) {
 	if !t.pushesOnlyAsked() {
 		s.noteReportTurn(run.SessionID) // its answer is pushed however quick it was (#3438)
 	}
-	run.ID = s.recordRun(run)
+	if t.limitRetry || t.manualLimitRetry {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		go func() {
+			select {
+			case <-t.limitWorkerStop:
+				cancel()
+			case <-t.limitOwnerDone:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		run.ID = s.recordRunContext(ctx, run)
+		cancel()
+	} else {
+		run.ID = s.recordRun(run)
+	}
 	if m == nil || run.ID == "" {
 		return
 	}
@@ -2225,12 +2270,14 @@ func (sc *schedule) end(id string) {
 // adoptConversation makes a new conversation task id's own, and keeps it listed on
 // its machine however quiet it gets (keepListed), so the app can open it and the next run can see it is busy.
 func (s *Service) adoptConversation(id, machine, session, launcher string) {
-	if sc, err := s.lockedSchedule(context.Background()); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if sc, err := s.lockedSchedule(ctx); err == nil {
 		if i := sc.indexLocked(id); i >= 0 {
 			t := &sc.tasks[i]
 			t.RunMachineID, t.RunSessionID, t.RunLauncher = machine, session, launcher
 			// The conversation already exists. Keep it in memory on a failed save; recordRun retries the write.
-			_ = s.saveLocked(sc, sc.tasks)
+			_ = s.saveScheduleLocked(ctx, sc, sc.tasks)
 		}
 		sc.mu.Unlock()
 	}
@@ -2302,11 +2349,14 @@ func humanDuration(d time.Duration) string {
 // broadcastSchedule: the list changed. The scheduler re-reads it, the apps are told (event assistant_schedule) and
 // the hub gets the tasks in the snapshot.
 func (s *Service) broadcastSchedule() {
+	s.broadcastScheduleContext(context.Background())
+}
+
+func (s *Service) broadcastScheduleContext(ctx context.Context) {
 	select { // the scheduler re-reads the list
 	case s.sched.wakeup() <- struct{}{}:
 	default:
 	}
-	ctx := context.Background()
 	s.publish(ctx)
 	s.event(ctx, map[string]any{"type": "assistant_schedule"})
 }
@@ -2667,7 +2717,7 @@ func (s *Service) runTaskRoute(w http.ResponseWriter, r *http.Request) {
 	s.broadcastSchedule()
 	sess, err := s.runTask(t, now, now, true, false)
 	if wait != nil {
-		s.settleManualLimitRetry(t.ID, *wait, err, ownerDone, workerStop)
+		s.settleLimitRetry(t.ID, *wait, err, ownerDone, workerStop)
 	}
 	if errors.Is(err, errTaskBusy) {
 		apierr.Write(w, http.StatusConflict, i18n.Err("assistant-schedule.busy_wait"))
