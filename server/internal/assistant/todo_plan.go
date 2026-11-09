@@ -43,7 +43,7 @@ func (t *Todo) keepPlan(row *db.TodoRow) {
 func todoRowOf(t Todo) db.TodoRow {
 	row := db.TodoRow{ID: t.ID, Title: t.Title, Notes: t.Notes, DoneAt: t.DoneAt, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		Origin: t.Origin, PlanID: t.PlanID, StartError: t.StartError, DoneBy: t.DoneBy, DoneReason: t.DoneReason,
-		ReopenedAt: t.ReopenedAt, Quiet: t.Quiet}
+		ReopenedAt: t.ReopenedAt, ReopenGeneration: t.ReopenGeneration, Quiet: t.Quiet}
 	t.keepPlan(&row)
 	return row
 }
@@ -172,11 +172,12 @@ func (s *Service) createPlainTodo(ctx context.Context, title, notes string, plan
 // todo it closes has its outcome recorded and a question's to-do answered as dropped. db.ErrTodoNotFound when it is not
 // there.
 func (s *Service) editTodo(ctx context.Context, id string, e db.TodoEdit) (Todo, error) {
+	s.todos.writing.Lock()
 	cur, ok := s.todoNow(id)
 	if !ok {
+		s.todos.writing.Unlock()
 		return Todo{}, db.ErrTodoNotFound
 	}
-	s.todos.writing.Lock()
 	now := time.Now().UTC()
 	var row *db.TodoRow
 	if st := s.todoDB(); st != nil {
@@ -186,6 +187,10 @@ func (s *Service) editTodo(ctx context.Context, id string, e db.TodoEdit) (Todo,
 			return Todo{}, err
 		}
 	} else {
+		if e.Done != nil && !*e.Done && cur.DoneAt != nil && cur.ReopenGeneration == 1<<63-1 {
+			s.todos.writing.Unlock()
+			return Todo{}, errors.New("todo reopen generation exhausted")
+		}
 		r := todoRowOf(cur)
 		e.Apply(&r, now)
 		row = &r

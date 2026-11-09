@@ -54,7 +54,7 @@ func TestAppendTaskReceiptOnceMembershipOrdering(t *testing.T) {
 	started, resultCh := make(chan struct{}), make(chan result, 1)
 	go func() {
 		close(started)
-		a, b, err := d.AppendTaskReceiptOnce(ctx, row, "box", "s1", now)
+		a, b, err := d.AppendTaskReceiptOnce(ctx, row, "box", "s1", now, 0)
 		resultCh <- result{a, b, err}
 	}()
 	<-started
@@ -77,7 +77,7 @@ func TestAppendTaskReceiptOnceMembershipOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inserted, valid, err := appendTaskReceiptOnceTx(ctx, tx, row, "box", "s1", relinked)
+	inserted, valid, err := appendTaskReceiptOnceTx(ctx, tx, row, "box", "s1", relinked, 0)
 	if err != nil || !inserted || !valid {
 		t.Fatalf("receipt before unlink = %v %v %v", inserted, valid, err)
 	}
@@ -92,6 +92,75 @@ func TestAppendTaskReceiptOnceMembershipOrdering(t *testing.T) {
 	}
 	if got, err := d.FeedItem(ctx, row.ID); err != nil || got == nil {
 		t.Fatalf("committed receipt = %+v, %v", got, err)
+	}
+}
+
+func TestTaskReceiptReopenGenerationOrdering(t *testing.T) {
+	d, ctx := open(t), context.Background()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	id := "receipt-reopened"
+	if err := d.CreateTodo(ctx, TodoRow{ID: id, Title: "Task", Origin: "reopen-receipts", CreatedAt: at, UpdatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.LinkTodoAgent(ctx, id, "box", "session", "", "", "", "", at); err != nil {
+		t.Fatal(err)
+	}
+	row := FeedRow{ID: "old-reopen-receipt", Conversation: "reopen-receipts", At: at, Kind: "receipt", Ref: id}
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE todos SET done_at = $2 WHERE id = $1`, id, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE todos SET done_at = NULL, reopened_at = $2 WHERE id = $1`, id, at); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		inserted, valid bool
+		err             error
+	}
+	started, resultCh := make(chan struct{}), make(chan result, 1)
+	go func() {
+		close(started)
+		inserted, valid, err := d.AppendTaskReceiptOnce(ctx, row, "box", "session", at, 0)
+		resultCh <- result{inserted, valid, err}
+	}()
+	<-started
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-resultCh; got.err != nil || got.valid || got.inserted {
+		t.Fatalf("old generation accepted after reopen: %+v", got)
+	}
+	row.ID = "new-reopen-receipt"
+	tx, err = d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	inserted, valid, err := appendTaskReceiptOnceTx(ctx, tx, row, "box", "session", at, 1)
+	if err != nil || !inserted || !valid {
+		t.Fatalf("current generation receipt: %v %v %v", inserted, valid, err)
+	}
+	closed := true
+	started, finished := make(chan struct{}), make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := d.UpdateTodo(ctx, id, nil, nil, &closed, at)
+		finished <- err
+	}()
+	<-started
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	stored, err := d.FeedItem(ctx, row.ID)
+	if err != nil || stored == nil {
+		t.Fatalf("receipt committed before close: %+v %v", stored, err)
 	}
 }
 

@@ -228,7 +228,7 @@ func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepte
 			return false, db.ErrTodoNotFound
 		}
 		row = db.TodoRow{ID: t.ID, Title: t.Title, Notes: t.Notes, CreatedAt: t.CreatedAt, Origin: t.Origin, PlanID: t.PlanID,
-			ReopenedAt: t.ReopenedAt, Quiet: t.Quiet}
+			ReopenedAt: t.ReopenedAt, ReopenGeneration: t.ReopenGeneration, Quiet: t.Quiet}
 		row.DoneAt, row.DoneBy, row.DoneReason, row.UpdatedAt = &now, db.DoneByReview, reason, now
 		t.keepPlan(&row)
 	}

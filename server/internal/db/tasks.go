@@ -133,7 +133,7 @@ func (d *DB) AppendFeedOnce(ctx context.Context, f FeedRow) (bool, error) {
 
 // AppendTaskReceiptOnce checks the task and agent association under the same
 // membership lock used by link, unlink and task completion before inserting.
-func (d *DB) AppendTaskReceiptOnce(ctx context.Context, f FeedRow, machine, session string, linked time.Time) (inserted, valid bool, err error) {
+func (d *DB) AppendTaskReceiptOnce(ctx context.Context, f FeedRow, machine, session string, linked time.Time, reopenGeneration int64) (inserted, valid bool, err error) {
 	conn, err := d.pool.Acquire(ctx)
 	if err != nil {
 		return false, false, err
@@ -141,13 +141,13 @@ func (d *DB) AppendTaskReceiptOnce(ctx context.Context, f FeedRow, machine, sess
 	defer conn.Release()
 	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 		var e error
-		inserted, valid, e = appendTaskReceiptOnceTx(ctx, tx, f, machine, session, linked)
+		inserted, valid, e = appendTaskReceiptOnceTx(ctx, tx, f, machine, session, linked, reopenGeneration)
 		return e
 	})
 	return inserted, valid, err
 }
 
-func appendTaskReceiptOnceTx(ctx context.Context, tx pgx.Tx, f FeedRow, machine, session string, linked time.Time) (inserted, valid bool, err error) {
+func appendTaskReceiptOnceTx(ctx context.Context, tx pgx.Tx, f FeedRow, machine, session string, linked time.Time, reopenGeneration int64) (inserted, valid bool, err error) {
 	done, err := lockTodoAgentMembership(ctx, tx, f.Ref, machine, session)
 	if errors.Is(err, ErrTodoNotFound) {
 		return false, false, nil
@@ -162,7 +162,8 @@ func appendTaskReceiptOnceTx(ctx context.Context, tx pgx.Tx, f FeedRow, machine,
 		SELECT 1 FROM todos t JOIN todo_agents a ON a.todo_id = t.id
 		WHERE t.id = $1 AND t.origin = $2 AND t.done_at IS NULL
 		AND a.machine_id = $3 AND a.session_id = $4 AND a.linked_at = $5
-		AND a.released_at IS NULL AND a.dismissed_at IS NULL)`, f.Ref, f.Conversation, machine, session, linked).Scan(&valid); err != nil {
+		AND t.reopen_generation = $6
+		AND a.released_at IS NULL AND a.dismissed_at IS NULL)`, f.Ref, f.Conversation, machine, session, linked, reopenGeneration).Scan(&valid); err != nil {
 		return false, false, err
 	}
 	if !valid {

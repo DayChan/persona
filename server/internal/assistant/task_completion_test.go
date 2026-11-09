@@ -18,6 +18,7 @@ import (
 type receiptSnapshotTestStore struct {
 	memStore
 	todoStore
+	mu          sync.Mutex
 	todos       []db.TodoRow
 	laterTodos  []db.TodoRow
 	agents      []db.TodoAgentRow
@@ -29,6 +30,8 @@ type receiptSnapshotTestStore struct {
 }
 
 func (st *receiptSnapshotTestStore) ListTodos(context.Context) ([]db.TodoRow, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	st.todoReads++
 	if st.todoReads == st.failTodoAt {
 		return nil, errors.New("todo read failed")
@@ -40,6 +43,8 @@ func (st *receiptSnapshotTestStore) ListTodos(context.Context) ([]db.TodoRow, er
 }
 
 func (st *receiptSnapshotTestStore) ListAllTodoAgents(context.Context) ([]db.TodoAgentRow, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	st.agentReads++
 	if st.agentReads == st.failAgentAt {
 		return nil, errors.New("agent read failed")
@@ -48,7 +53,10 @@ func (st *receiptSnapshotTestStore) ListAllTodoAgents(context.Context) ([]db.Tod
 }
 
 func (st *receiptSnapshotTestStore) CompareSetting(ctx context.Context, key string, revision int64, value any) (bool, error) {
-	if st.failCAS {
+	st.mu.Lock()
+	fail := st.failCAS
+	st.mu.Unlock()
+	if fail {
 		return false, errors.New("setting write failed")
 	}
 	return st.memStore.CompareSetting(ctx, key, revision, value)
@@ -176,6 +184,160 @@ func TestPruneReceiptLooksKeepsAllOnStoreFailure(t *testing.T) {
 	}
 }
 
+func TestTodoReopenGenerationWithoutStore(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t, newFakeHub())
+	putTodo(s, Todo{ID: "task", Title: "Task"})
+	closed, opened := true, false
+	edit := func(e db.TodoEdit, want int64) {
+		t.Helper()
+		got, err := s.editTodo(ctx, "task", e)
+		if err != nil || got.ReopenGeneration != want {
+			t.Fatalf("edit: %+v %v, want generation %d", got, err, want)
+		}
+	}
+	edit(db.TodoEdit{Done: &closed}, 0)
+	edit(db.TodoEdit{Done: &opened}, 1)
+	name := "Updated"
+	edit(db.TodoEdit{Title: &name}, 1)
+	edit(db.TodoEdit{Done: &opened}, 1)
+	edit(db.TodoEdit{Done: &closed}, 1)
+	if err := s.reopenTodo(ctx, "task"); err != nil {
+		t.Fatal(err)
+	}
+	if got := todoNow(s, "task"); got.ReopenGeneration != 2 {
+		t.Fatalf("reopen: %+v", got)
+	}
+	edit(db.TodoEdit{Done: &closed}, 2)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].StartError = "failed"
+	s.todos.mu.Unlock()
+	got, ok, err := s.reopenFailedTodo(ctx, "task")
+	if err != nil || !ok || got.ReopenGeneration != 3 {
+		t.Fatalf("retry: %+v %v %v", got, ok, err)
+	}
+	if _, ok, err := s.reopenFailedTodo(ctx, "task"); err != nil || ok {
+		t.Fatalf("second retry: %v %v", ok, err)
+	}
+	edit(db.TodoEdit{Done: &closed}, 3)
+	s.todos.mu.Lock()
+	s.todos.todos["task"].ReopenGeneration = 1<<63 - 1
+	s.todos.todos["task"].StartError = "failed"
+	s.todos.mu.Unlock()
+	if _, err := s.editTodo(ctx, "task", db.TodoEdit{Done: &opened}); err == nil {
+		t.Fatal("storeless edit allowed generation overflow")
+	}
+	if err := s.reopenTodo(ctx, "task"); err == nil {
+		t.Fatal("storeless reopen allowed generation overflow")
+	}
+	if _, _, err := s.reopenFailedTodo(ctx, "task"); err == nil {
+		t.Fatal("storeless retry allowed generation overflow")
+	}
+}
+
+func TestReceiptRegistrationRetryKeepsOriginalReopenGeneration(t *testing.T) {
+	for _, bound := range []bool{false, true} {
+		t.Run(map[bool]string{false: "implicit", true: "bound"}[bound], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				linked := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+				st := &receiptSnapshotTestStore{
+					todos:  []db.TodoRow{{ID: "task", Origin: "conv"}},
+					agents: []db.TodoAgentRow{{TodoID: "task", MachineID: "box", SessionID: "s1", LinkedAt: linked}},
+				}
+				s := receiptSnapshotService(t, st, nil)
+				current := Todo{ID: "task", Origin: "conv", CreatedAt: linked, Agents: []TodoAgent{{MachineID: "box", SessionID: "s1", LinkedAt: linked}}}
+				s.todos.loaded = true
+				s.todos.todos = map[string]*Todo{"task": &current}
+				s.todos.activeBySession = map[[2]string]string{{"box", "s1"}: "task"}
+				s.todos.spacesByKey = map[string]string{}
+				s.restoreTaskReceiptLooks(ctx)
+				st.mu.Lock()
+				st.failCAS = true
+				st.mu.Unlock()
+				var expected *Todo
+				if bound {
+					snapshot := current
+					expected = &snapshot
+				}
+				s.registerTaskReceiptLook(ctx, expected, "box", "s1", time.Now().Add(time.Hour), linked, "", false)
+				st.mu.Lock()
+				st.failCAS = false
+				st.todos[0].ReopenGeneration = 1
+				st.mu.Unlock()
+				s.todos.mu.Lock()
+				current.ReopenGeneration = 1
+				s.todos.mu.Unlock()
+				<-time.After(2 * time.Minute)
+				synctest.Wait()
+				var state receiptLookState
+				if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
+					t.Fatalf("old registration upgraded to the reopened task: %+v %v", state, err)
+				}
+			})
+		})
+	}
+}
+
+func TestReceiptReopenAfterFailedPruneKeepsNewWait(t *testing.T) {
+	for _, failure := range []string{"snapshot", "save"} {
+		t.Run(failure, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				linked := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+				done := time.Now()
+				old := receiptLook{Todo: "task", Machine: "box", Session: "s1", Linked: linked, ID: "old", Generation: "work", At: time.Now().Add(time.Minute)}
+				st := &receiptSnapshotTestStore{
+					todos:  []db.TodoRow{{ID: "task", Origin: "conv", DoneAt: &done}},
+					agents: []db.TodoAgentRow{{TodoID: "task", MachineID: "box", SessionID: "s1", LinkedAt: linked}},
+				}
+				s := receiptSnapshotService(t, st, []receiptLook{old})
+				if failure == "snapshot" {
+					st.failTodoAt = 1
+				} else {
+					st.failCAS = true
+				}
+				s.pruneReceiptLooks(ctx)
+				var state receiptLookState
+				if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+					t.Fatalf("failed prune lost wait: %+v %v", state, err)
+				}
+				st.failTodoAt, st.failCAS = 0, false
+				st.todos[0].DoneAt = nil
+				st.todos[0].ReopenGeneration = 1
+				current := Todo{ID: "task", Origin: "conv", CreatedAt: linked, ReopenGeneration: 1, Agents: []TodoAgent{{MachineID: "box", SessionID: "s1", LinkedAt: linked}}}
+				s.todos.loaded = true
+				s.todos.todos = map[string]*Todo{"task": &current}
+				s.todos.activeBySession = map[[2]string]string{{"box", "s1"}: "task"}
+				s.todos.spacesByKey = map[string]string{}
+				s.tasks.workIDs["task"] = "work"
+				s.restoreTaskReceiptLooks(ctx)
+				s.registerTaskReceiptLook(ctx, &current, "box", "s1", time.Now().Add(2*time.Hour), linked, "work", false)
+				if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 2 {
+					t.Fatalf("new generation did not get its own wait: %+v %v", state, err)
+				}
+				if valid, err := s.receiptLookLinked(ctx, old); err != nil || valid {
+					t.Fatalf("old generation is still valid: %v %v", valid, err)
+				}
+				<-time.After(2 * time.Minute)
+				synctest.Wait()
+				if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ReopenGeneration != 1 {
+					t.Fatalf("old timer removed or revived new wait: %+v %v", state, err)
+				}
+				ref := SessionRef{MachineID: "box", SessionID: "s1"}
+				s.tasks.mu.Lock()
+				_, armed := s.tasks.limitLooks[ref]
+				s.tasks.mu.Unlock()
+				if !armed {
+					t.Fatal("old timer removed the new timer marker")
+				}
+			})
+		})
+	}
+}
+
 func TestPruneReceiptLooksRemovesOnlyInvalidLinks(t *testing.T) {
 	ctx := context.Background()
 	linked := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -271,10 +433,10 @@ func (st *blockedReceiptStore) setTodo(todo Todo) {
 	st.muFeed.Unlock()
 }
 
-func (st *blockedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+func (st *blockedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time, generation int64) (bool, bool, error) {
 	st.muFeed.Lock()
 	current, active := receiptLink(st.todo, SessionRef{MachineID: machine, SessionID: session})
-	valid := st.todo.ID == row.Ref && st.todo.Origin == row.Conversation && st.todo.DoneAt == nil && active && current.Equal(linked)
+	valid := st.todo.ID == row.Ref && st.todo.Origin == row.Conversation && st.todo.DoneAt == nil && active && current.Equal(linked) && st.todo.ReopenGeneration == generation
 	st.muFeed.Unlock()
 	if !valid {
 		return false, false, nil
@@ -361,7 +523,7 @@ func (st *receiptSettingFailureStore) CompareSetting(ctx context.Context, key st
 
 type unlinkedReceiptStore struct{ receiptSettingFailureStore }
 
-func (st *unlinkedReceiptStore) AppendTaskReceiptOnce(_ context.Context, _ db.FeedRow, _, _ string, _ time.Time) (bool, bool, error) {
+func (st *unlinkedReceiptStore) AppendTaskReceiptOnce(_ context.Context, _ db.FeedRow, _, _ string, _ time.Time, _ int64) (bool, bool, error) {
 	return false, false, nil
 }
 
