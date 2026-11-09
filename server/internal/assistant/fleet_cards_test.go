@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 	"github.com/nwverse/persona/server/internal/screen"
@@ -343,8 +344,23 @@ func TestScreenCardWithoutDialogShowsWithoutAPush(t *testing.T) {
 	if !strings.Contains(told, `"id":"scr_mac_s1"`) {
 		t.Fatal("the placeholder was not put on the apps")
 	}
+	// Persona Link's summary lists it, but notifies only the real card, which the phone is pushed for.
+	summary := func() link.Attention {
+		agents, ixs, shown := ft.s.fleetInputs()
+		return linkAttention("en", agents, ixs, shown)
+	}
+	if a := summary(); len(a.Items) != 1 || a.Items[0].InteractionID != "scr_mac_s1" || a.Items[0].Notify {
+		t.Fatalf("summary with the placeholder %+v", a)
+	}
 	n.setScreen(pickModel)
-	waitReplaced(ft.s, "scr_mac_s1", 2*time.Second)
+	realID, ok := waitReplaced(ft.s, "scr_mac_s1", 2*time.Second)
+	if !ok {
+		t.Fatal("no real card")
+	}
+	waitUntil(t, func() bool {
+		a := summary()
+		return len(a.Items) == 1 && a.Items[0].InteractionID == realID && a.Items[0].Notify
+	})
 }
 
 // The dialog shows during the window, after reads failed, or on the poll that crosses the window's end: the

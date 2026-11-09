@@ -1,6 +1,7 @@
 package link
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -62,6 +63,19 @@ func TestLinkPutsTheSummaryInItsStatus(t *testing.T) {
 	}
 }
 
+// postRaw posts body to the attention endpoint with token, as it is, and returns the status.
+func (h *hubSide) postRaw(token string, body []byte) int {
+	h.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, h.base+ConnectorAttentionPath, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
 // infoOf is the connector's info as the hub reads it with token.
 func (h *hubSide) infoOf(token string) ConnectorInfo {
 	h.t.Helper()
@@ -110,6 +124,18 @@ func TestPassiveTakesTheSummary(t *testing.T) {
 	big.Items[0].Detail = strings.Repeat("x", AttentionBodyMax)
 	if r := h.do(http.MethodPost, ConnectorAttentionPath, tokenA, big); r.status != http.StatusBadRequest {
 		t.Fatalf("over the cap: %+v", r)
+	}
+	// The whole body counts: white space past the cap, a second value or anything after the object is refused.
+	short, _ := json.Marshal(Attention{Rev: "r-short", Items: []AttentionItem{}})
+	padded := func(n int) []byte { return append(slices.Clone(short), bytes.Repeat([]byte(" "), n-len(short))...) }
+	for name, body := range map[string][]byte{"white space past the cap": padded(AttentionBodyMax + 1),
+		"two objects": append(slices.Clone(short), short...), "something after it": append(slices.Clone(short), []byte(" x")...)} {
+		if status := h.postRaw(tokenA, body); status != http.StatusBadRequest {
+			t.Fatalf("%s: HTTP %d", name, status)
+		}
+	}
+	if status := h.postRaw(tokenA, padded(AttentionBodyMax)); status != http.StatusNoContent {
+		t.Fatalf("a body of exactly the cap: HTTP %d", status)
 	}
 	if r := h.do(http.MethodGet, ConnectorAttentionPath, tokenA, nil); r.status != http.StatusNotFound {
 		t.Fatalf("GET: %+v", r)

@@ -58,6 +58,8 @@ func (d *Devices) learnUID(p *nodePath, uid string) {
 		go d.savePathUIDs()
 	}
 	d.fleetRegroup()
+	// A path joined to a computer can make it a work computer (machineTrust): its summary is taken back.
+	d.spreadAttention()
 }
 
 // savePathUIDs writes which computer each path reached as it is now. The copy is taken after the previous write,

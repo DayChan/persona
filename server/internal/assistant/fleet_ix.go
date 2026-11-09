@@ -62,6 +62,10 @@ type pending struct {
 	// announced: a screen card that rang (announce), carried through a detach (screenGone.announced), so the card
 	// read again once the node is back rings at the window's end only if its predecessor never did (#4979).
 	announced bool
+	// shown: it is the user's: the apps were told of it as one (tell, show; or before a restart), as the phone was
+	// pushed. Not while it is on its way there (recorded, then announced), nor while only displayed (display: the
+	// assistant decides on it, or its dialog was not read). Persona Link's summary notifies by it (fleet_attention.go).
+	shown bool
 }
 
 // resumeGrace is how long a resumable interaction outlives its node: a little longer than hooks keep reconnecting
@@ -240,12 +244,13 @@ func (s *Service) createScreenInteraction(machine string, sess proto.Session) {
 	s.ixMapLocked()[id] = p
 	s.fleet.mu.Unlock()
 	s.record(ix)
-	if back || d == nil {
-		s.show(ix) // back: pushed before the node's connection ended (#4252); no dialog: the real card rings later (#4450)
-		if back {
-			go s.feishuCardBack(ix)
-		}
-	} else {
+	switch {
+	case back:
+		s.show(ix) // pushed before the node's connection ended (#4252)
+		go s.feishuCardBack(ix)
+	case d == nil:
+		s.display(ix) // no dialog: the real card rings later (#4450)
+	default:
 		s.announce(ix)
 	}
 	if d == nil {
@@ -576,9 +581,10 @@ func (s *Service) announce(ix proto.Interaction) {
 // for a quiet task.
 func (s *Service) tell(ix proto.Interaction) {
 	ix = s.withTask(ix)
+	s.markShown(ix.ID)
 	s.hub.Tell(assistantwire.EventFleetInteraction, assistantwire.FleetInteraction{Interaction: ix})
 	s.publishSessions(ix.MachineID)
-	s.liveChanged(false) // the card's own fields (delegating) count for Persona Link's summary, not for the list
+	s.liveChanged(false) // whether it is shown and decided on counts for Persona Link's summary, not for the list
 	if s.quietSession(ix.MachineID, ix.SessionID) {
 		// A quiet task's question is no push, bot card or channel message: the main conversation is told (#1731).
 		go s.InteractionRaised(context.Background(), InteractionRaised{Interaction: ix})
@@ -593,9 +599,26 @@ func (s *Service) tell(ix proto.Interaction) {
 
 // show puts a card on every app without a push (one they were told about already).
 func (s *Service) show(ix proto.Interaction) {
+	s.markShown(ix.ID)
+	s.display(ix)
+}
+
+// display puts a card on every app before it is the user's, so it notifies nothing anywhere yet: a question the
+// assistant decides on first (delegate), a screen card whose dialog was not read (its real card rings, #4450).
+func (s *Service) display(ix proto.Interaction) {
 	s.hub.Tell(assistantwire.EventFleetInteraction, assistantwire.FleetInteraction{Interaction: s.withTask(ix)})
 	s.publishSessions(ix.MachineID)
-	s.liveChanged(false) // the card's own fields (delegating) count for Persona Link's summary, not for the list
+	s.liveChanged(false) // whether it is the user's counts for Persona Link's summary, not for the list
+}
+
+// markShown notes that pending card id is the user's: the apps are being told of it as one (tell, show), or were
+// before (pending.shown).
+func (s *Service) markShown(id string) {
+	s.fleet.mu.Lock()
+	if p := s.fleet.interactions[id]; p != nil {
+		p.shown = true
+	}
+	s.fleet.mu.Unlock()
 }
 
 // ---- waiting ----
@@ -1112,17 +1135,27 @@ func (s *Service) finished(p *pending) {
 
 // pendingInteractions are the pending interactions, oldest first, with the task each agent works for.
 func (s *Service) pendingInteractions() []proto.Interaction {
+	out, _ := s.pendingCards()
+	return out
+}
+
+// pendingCards is pendingInteractions and, read with them, the ids of those the apps were told of (pending.shown).
+func (s *Service) pendingCards() ([]proto.Interaction, map[string]bool) {
 	s.fleet.mu.Lock()
 	out := []proto.Interaction{}
+	shown := map[string]bool{}
 	for _, p := range s.fleet.interactions {
 		out = append(out, p.ix)
+		if p.shown {
+			shown[p.ix.ID] = true
+		}
 	}
 	s.fleet.mu.Unlock()
 	for i := range out {
 		out[i] = s.withTask(out[i])
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out
+	return out, shown
 }
 
 // pendingIx is one pending interaction; false when it is not pending.
@@ -1824,7 +1857,7 @@ func (s *Service) restoreInteractions(ctx context.Context) {
 	m := s.ixMapLocked()
 	for _, ix := range resumable {
 		if m[ix.ID] == nil {
-			m[ix.ID] = &pending{ix: ix, done: make(chan proto.Resolution, 1)}
+			m[ix.ID] = &pending{ix: ix, done: make(chan proto.Resolution, 1), shown: true} // announced before the restart
 			s.orphanLocked(m[ix.ID])
 		}
 	}

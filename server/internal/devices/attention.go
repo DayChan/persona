@@ -18,8 +18,9 @@ import (
 // The "Needs you" summary for Persona Link (internal/link/attention.go, docs/operations/link.md "Needs you"): the
 // assistant works it out and hands it over (SetAttention); this file sends it to the computers whose Persona Link
 // takes it. Active mode: an attention message on the link, after its endpoints and on every change. Passive mode: a
-// POST to the connector on every change, and again after an info read that says the connector holds another one (a
-// post that failed, a connector that restarted).
+// POST to the connector by the machine's own sender on every change, and again after an info read that says the
+// connector holds another one (a post that failed, a connector that restarted). A computer that may not have it gets an
+// empty one (attentionFor).
 
 // SetAttention takes the assistant's latest summary (without Rev or WebURL: they are filled in per computer) and, when it
 // changed, sends it to every Persona Link that takes it and does not have it yet.
@@ -30,43 +31,39 @@ func (d *Devices) SetAttention(a link.Attention) {
 	d.spreadAttention()
 }
 
-// spreadAttention sends the latest summary wherever it is wanted, each in the background.
+// spreadAttention sends the latest summary wherever it is wanted, in the background: each link on its own, each
+// service machine through its sender (attentionLoop).
 func (d *Devices) spreadAttention() {
 	for _, l := range d.links.list() {
 		go l.sendAttention()
 	}
 	for _, m := range d.cfgMachines() {
 		if m.cfg.Kind == kindService && m.dialNode == nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*connectorDialTimeout)
-				defer cancel()
-				m.postAttention(ctx)
-			}()
+			m.wakeAttention()
 		}
 	}
 }
 
-// attentionFor is the latest summary as sent with webURL, its Rev a hash of everything else in it; nil before the
-// assistant handed one over.
-func (d *Devices) attentionFor(webURL string) *link.Attention {
+// attentionFor is what computer id gets: the latest summary with webURL, its Rev a hash of everything else in it; nil
+// when there is nothing to send. A computer that may not have it (waiting to be confirmed, a work computer: the summary
+// names every agent's work) gets an empty summary instead: told nothing, and what it had is taken back. While the hub
+// cannot say which computers wait to be confirmed, nothing new goes anywhere: what a computer has stays, and one that
+// has nothing gets nothing (an empty summary now and the full one back later would ring every item again).
+func (d *Devices) attentionFor(id, webURL string) *link.Attention {
 	a := d.attention.Load()
-	if a == nil {
+	pending, err := d.PendingMachineIDs(context.Background())
+	if a == nil || err != nil {
 		return nil
 	}
 	out := *a
+	if slices.Contains(pending, id) || d.IsWork(id) {
+		out, webURL = link.Attention{Items: []link.AttentionItem{}}, ""
+	}
 	out.Rev, out.WebURL = "", webURL
 	b, _ := json.Marshal(out)
 	sum := sha256.Sum256(b)
 	out.Rev = hex.EncodeToString(sum[:8])
 	return &out
-}
-
-// attentionWithheld: computer id gets no summary. One waiting to be confirmed (or while the hub cannot say whether
-// it is) gets nothing of the assistant's (hub/machine_trust.go), and a work computer may not read personal data
-// through the manager (machines[].trust); the summary names every agent's work.
-func (d *Devices) attentionWithheld(id string) bool {
-	pending, err := d.PendingMachineIDs(context.Background())
-	return err != nil || slices.Contains(pending, id) || d.IsWork(id)
 }
 
 // readyForAttention: the link's endpoints went out, so a summary may follow them; the latest goes now.
@@ -77,11 +74,11 @@ func (l *mgrLink) readyForAttention() {
 	l.sendAttention()
 }
 
-// sendAttention sends the link the latest summary, unless its hello did not ask for one, the computer may not have it
-// (attentionWithheld), its endpoints have not gone out yet, or it has this one already. The web address is the hub's
-// public one, else the hub address the link went to.
+// sendAttention sends the link the summary for its computer (attentionFor), unless its hello did not ask for one, its
+// endpoints have not gone out yet, or it has this one already. The web address is the hub's public one, else the hub
+// address the link went to.
 func (l *mgrLink) sendAttention() {
-	if !l.attention || l.m.d.attentionWithheld(l.m.cfg.ID) {
+	if !l.attention {
 		return
 	}
 	l.attMu.Lock()
@@ -89,7 +86,7 @@ func (l *mgrLink) sendAttention() {
 	if !l.attReady {
 		return
 	}
-	a := l.m.d.attentionFor(cmp.Or(l.m.d.config().WebURL, l.address))
+	a := l.m.d.attentionFor(l.m.cfg.ID, cmp.Or(l.m.d.config().WebURL, l.address))
 	if a == nil || a.Rev == l.attSent {
 		return
 	}
@@ -98,31 +95,41 @@ func (l *mgrLink) sendAttention() {
 	}
 }
 
-// postAttention posts the latest summary to the machine's connector, after the post under way if there is one. One
-// post waits at most: it reads the summary once it has the turn, so it posts any change made while it waited.
-func (m *Machine) postAttention(ctx context.Context) {
-	if !m.attQueued.CompareAndSwap(false, true) {
-		return
+// wakeAttention has the machine's sender look at the summary soon; a wake already waiting covers this one.
+func (m *Machine) wakeAttention() {
+	select {
+	case m.attWake <- struct{}{}:
+	default:
 	}
-	m.attPost.Lock()
-	m.attQueued.Store(false)
-	defer m.attPost.Unlock()
-	m.postAttentionLocked(ctx)
 }
 
-// postAttentionLocked posts the latest summary to the machine's connector when its last info read said it takes one
-// and holds another; one that fails is posted again after the next info read. Never while the connector holds this
-// hub off (401, 429: as its info reads and streams) or the computer may not have it (attentionWithheld). The caller
-// holds m.attPost.
-func (m *Machine) postAttentionLocked(ctx context.Context) {
+// attentionLoop is a service machine's sender of the summary: one post at a time, whenever woken, until ctx ends (the
+// machine is let go or the manager stops), which also ends a post under way. A connector slow to take it holds up
+// only its own posts, never the info reads of the machines (probeServices).
+func (m *Machine) attentionLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.attWake:
+		}
+		pctx, cancel := context.WithTimeout(ctx, 2*connectorDialTimeout)
+		m.postAttention(pctx)
+		cancel()
+	}
+}
+
+// postAttention posts the summary for the machine (attentionFor) to its connector when its last info read said it
+// takes one and holds another; one that fails is posted again after the next info read. Never while the connector
+// holds this hub off (401, 429: as its info reads and streams). Only the machine's sender calls it (tests aside).
+func (m *Machine) postAttention(ctx context.Context) {
 	m.mu.Lock()
 	st := m.svc
 	m.mu.Unlock()
-	if !st.ok || !st.attention || st.invalid || time.Now().Before(st.wait) || m.cfg.Address == "" ||
-		m.d.attentionWithheld(m.cfg.ID) {
+	if !st.ok || !st.attention || st.invalid || time.Now().Before(st.wait) || m.cfg.Address == "" {
 		return
 	}
-	a := m.d.attentionFor(m.d.config().WebURL)
+	a := m.d.attentionFor(m.cfg.ID, m.d.config().WebURL)
 	if a == nil || a.Rev == st.attRev {
 		return
 	}

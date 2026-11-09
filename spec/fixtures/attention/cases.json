@@ -3,7 +3,7 @@
   "cases": [
     {
       "name": "badge_rules",
-      "description": "The web badge's agents as they are, one item each, newest waiting first: quiet tasks and the assistant are left out; muted agents and agents waiting only on the assistant's decision stay. An item notifies as the push would: not when muted, nor while every card is a question the assistant is still deciding on; a deciding question stands for its agent only when no other card does.",
+      "description": "The web badge's agents as they are, one item each, newest waiting first: quiet tasks and the assistant are left out; muted agents and agents waiting only on the assistant's decision stay. An item notifies as the phone is pushed: once a card of the agent is the user's (not a question the assistant is still deciding on), never when muted, and not for a terminal dialog before its card.",
       "source": [
         "web/src/lib/sessions.ts stateCounts (badge)",
         "web/src/lib/attention.ts lookingOnly",
@@ -221,7 +221,8 @@
             "session_id": "s-dialog",
             "kind": "screen",
             "muted": false,
-            "notify": true,
+            "notify": false,
+            "since": "2026-11-09T07:30:00Z",
             "route": "/s/mac/s-dialog"
           },
           {
@@ -230,8 +231,9 @@
             "kind": "question",
             "muted": false,
             "notify": true,
-            "route": "/s/mac/s-allowed",
-            "interaction_id": "ix-allowed"
+            "interaction_id": "ix-allowed",
+            "since": "2026-11-09T07:08:00Z",
+            "route": "/s/mac/s-allowed"
           },
           {
             "machine_id": "mac",
@@ -239,8 +241,9 @@
             "kind": "permission",
             "muted": true,
             "notify": false,
-            "route": "/s/mac/s-muted",
-            "interaction_id": "ix-muted"
+            "interaction_id": "ix-muted",
+            "since": "2026-11-09T07:07:00Z",
+            "route": "/s/mac/s-muted"
           },
           {
             "machine_id": "mac",
@@ -248,8 +251,9 @@
             "kind": "plan",
             "muted": false,
             "notify": true,
-            "route": "/s/mac/s-mixed",
-            "interaction_id": "ix-mixed-plan"
+            "interaction_id": "ix-mixed-plan",
+            "since": "2026-11-09T07:06:00Z",
+            "route": "/s/mac/s-mixed"
           },
           {
             "machine_id": "mac",
@@ -257,8 +261,9 @@
             "kind": "question",
             "muted": false,
             "notify": false,
-            "route": "/s/mac/s-looking",
-            "interaction_id": "ix-looking"
+            "interaction_id": "ix-looking",
+            "since": "2026-11-09T07:03:00Z",
+            "route": "/s/mac/s-looking"
           },
           {
             "machine_id": "mac",
@@ -266,16 +271,9 @@
             "kind": "permission",
             "muted": false,
             "notify": true,
-            "route": "/s/mac/s-perm",
-            "interaction_id": "ix-perm"
-          },
-          {
-            "machine_id": "mac",
-            "session_id": "s-space-muted",
-            "kind": "screen",
-            "muted": true,
-            "notify": false,
-            "route": "/s/mac/s-space-muted"
+            "interaction_id": "ix-perm",
+            "since": "2026-11-09T07:00:00Z",
+            "route": "/s/mac/s-perm"
           },
           {
             "machine_id": "mac",
@@ -283,7 +281,17 @@
             "kind": "screen",
             "muted": false,
             "notify": true,
+            "since": "2026-11-09T06:50:00Z",
             "route": "/s/mac/s-elicitation"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-space-muted",
+            "kind": "screen",
+            "muted": true,
+            "notify": false,
+            "since": "2026-11-09T06:50:00Z",
+            "route": "/s/mac/s-space-muted"
           }
         ]
       }
@@ -345,8 +353,9 @@
             "kind": "permission",
             "muted": false,
             "notify": true,
-            "route": "/s/mac/s-child",
-            "interaction_id": "ix-child"
+            "interaction_id": "ix-child",
+            "since": "2026-11-09T07:00:00Z",
+            "route": "/s/mac/s-child"
           }
         ]
       }
@@ -405,8 +414,9 @@
             "kind": "question",
             "muted": false,
             "notify": false,
-            "route": "/s/mac/s-looking",
-            "interaction_id": "ix-looking"
+            "interaction_id": "ix-looking",
+            "since": "2026-11-09T07:00:00Z",
+            "route": "/s/mac/s-looking"
           }
         ]
       }
@@ -464,6 +474,7 @@
             "kind": "screen",
             "muted": false,
             "notify": true,
+            "since": "2026-11-09T06:50:00Z",
             "route": "/s/mac/s-both"
           }
         ]

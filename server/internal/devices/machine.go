@@ -151,16 +151,14 @@ type Machine struct {
 	next      *nodeConn
 	parked    string
 	svc       serviceState
-	// attPost keeps the posts of the "Needs you" summary to a service machine's connector one at a time; attQueued: a
-	// post waits for it, so another need not (attention.go).
-	attPost   sync.Mutex
-	attQueued atomic.Bool
+	// attWake wakes a service machine's sender of the "Needs you" summary (attentionLoop); one wake waits at most.
+	attWake chan struct{}
 }
 
 func newMachine(d *Devices, cfg MachineConfig) *Machine {
 	m := &Machine{cfg: cfg, d: d, watched: map[string]bool{}, lastSeq: map[string]int{}, kick: make(chan struct{}, 1),
 		timings: defaultTailcatTimings, deployRetry: 2 * time.Second, reconnectGrace: reconnectGrace,
-		linkUp: make(chan struct{}, 1), first: make(chan struct{})}
+		linkUp: make(chan struct{}, 1), first: make(chan struct{}), attWake: make(chan struct{}, 1)}
 	m.setName(cfg.Name)
 	if dial := d.opts.DialNode; dial != nil {
 		m.dialNode = dial(cfg.ID)

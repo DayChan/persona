@@ -501,10 +501,7 @@ func (m *Machine) probeService(ctx context.Context) {
 		m.svc.attention, m.svc.attRev = slices.Contains(info.Features, link.FeatureAttention), info.AttentionRev
 	}
 	m.mu.Unlock()
-	if m.attPost.TryLock() { // a post under way says itself how it went: the probe does not wait for it
-		defer m.attPost.Unlock()
-		m.postAttentionLocked(ctx)
-	}
+	m.wakeAttention() // posted by the machine's own sender: a connector slow to take it holds up no probe
 }
 
 // probeServices reads every service machine's connector info now and then, whatever this hub's role (a member says

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -28,6 +29,8 @@ type fleetDevs struct {
 	machines map[string]*fleetNode
 	order    []string
 	usage    assistantwire.UsageSummary
+	// attention is every Persona Link summary handed over (SetAttention), in order.
+	attention []link.Attention
 }
 
 type fleetNode struct {
@@ -192,7 +195,18 @@ func (d *fleetDevs) Usage() assistantwire.UsageSummary {
 	return d.usage
 }
 
-func (d *fleetDevs) SetAttention(link.Attention) {}
+func (d *fleetDevs) SetAttention(a link.Attention) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.attention = append(d.attention, a)
+}
+
+// handedAttention is every summary handed over so far.
+func (d *fleetDevs) handedAttention() []link.Attention {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.attention)
+}
 
 // fleetMem is the in-memory store of the fleet's tests: the assistant's settings, the interactions table, "Always Allow in Session",
 // the seen times.

@@ -560,9 +560,20 @@ func (s *passive) takeAttention(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// One JSON object and nothing after it but white space, the whole body within the cap: a second value, anything
+	// else or a body over the cap is refused, however short the first object.
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, AttentionBodyMax))
 	var a Attention
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, AttentionBodyMax)).Decode(&a); err != nil || a.Rev == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "want an attention object with its rev")
+	err := dec.Decode(&a)
+	if err == nil {
+		if err = dec.Decode(&json.RawMessage{}); err == io.EOF {
+			err = nil
+		} else if err == nil {
+			err = errors.New("more than one value")
+		}
+	}
+	if err != nil || a.Rev == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "want one attention object with its rev, at most 64 KiB")
 		return
 	}
 	s.seen(r)

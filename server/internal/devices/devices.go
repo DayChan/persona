@@ -266,7 +266,8 @@ func (d *Devices) Configure(cfg devicewire.Config) {
 		d.links.sendEndpoints(d.linkEndpoints)
 	}
 	// The summary carries the web address, and a computer gets it only once confirmed and not a work computer
-	// (attentionWithheld: pending, machines[].trust, a member's records). A computer that has the latest gets nothing.
+	// (attentionFor: pending, machines[].trust, a member's records), an empty one otherwise. A computer that has
+	// the latest gets nothing.
 	d.spreadAttention()
 	if member := cfg.Mesh != nil && cfg.Mesh.Member; member != wasMember {
 		// The hub joined a group (its computers are the center's to connect now: let them go at once) or became its
@@ -404,6 +405,13 @@ func (d *Devices) startMachines(ctx context.Context) {
 			defer d.workers.Done()
 			m.run(m.ctx)
 		}()
+		if m.cfg.Kind == kindService {
+			d.workers.Add(1)
+			go func() {
+				defer d.workers.Done()
+				m.attentionLoop(m.ctx)
+			}()
+		}
 	}
 	d.readyOnce.Do(func() { close(d.ready) })
 	d.changed()

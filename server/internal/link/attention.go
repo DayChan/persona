@@ -19,7 +19,8 @@ const AttentionBodyMax = 64 << 10
 // AttentionMaxItems is how many items a summary lists at most; More counts the rest.
 const AttentionMaxItems = 20
 
-// Attention is the summary.
+// Attention is the summary. A computer that may not have it (waiting to be confirmed, a work computer) is sent one
+// without items.
 type Attention struct {
 	// Rev is a hash of the snapshot: the same summary has the same Rev, so sending it again changes nothing.
 	Rev string `json:"rev"`
@@ -33,22 +34,23 @@ type Attention struct {
 	Items  []AttentionItem `json:"items"`
 }
 
-// AttentionItem is one agent that needs the user, by its oldest card (a question the assistant is still deciding on
-// only when every card of the agent is one).
+// AttentionItem is one agent that needs the user, by its oldest card handed to the user, else its oldest card.
 type AttentionItem struct {
 	MachineID string `json:"machine_id"`
 	SessionID string `json:"session_id"`
-	Title     string `json:"title"`
-	Place     string `json:"place"` // "machine · space › tab"
+	Title     string `json:"title"` // at most 80 runes, the ellipsis of a cut included
+	Place     string `json:"place"` // "machine · space › tab", as Title
 	// Kind is the card's: permission | plan | question | screen (also an agent waiting in a terminal dialog without a
 	// card).
 	Kind   string `json:"kind"`
-	Detail string `json:"detail"`
+	Detail string `json:"detail"` // at most 60 runes, the ellipsis of a cut included
 	// Muted: the user muted the agent or its space; for showing it muted, it is listed and counted all the same.
 	Muted bool `json:"muted"`
-	// Notify: the phone's push rule would push it. Not when muted, nor while the assistant is still deciding on the
-	// question that stands for it. Clients notify on this alone and never work the rule out themselves, the first time
-	// an item shows with it: that may be after it was listed without it (the assistant handed its question to the user).
+	// Notify: the phone's push rule would push it: once a card of the agent is the user's (announced, not a question
+	// the assistant is still deciding on), and never when muted. Not for an agent without such a card: a terminal
+	// dialog notifies once the screen card made for it is announced, as the phone is pushed then.
+	// Clients notify on this alone and never work the rule out themselves, the first time an item shows with it: that
+	// may be after it was listed without it (the assistant handed its question to the user).
 	Notify bool `json:"notify"`
 	// InteractionID is the card's id (a screen card's too); missing for an agent no card stands for.
 	InteractionID string `json:"interaction_id,omitempty"`

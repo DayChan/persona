@@ -91,9 +91,9 @@ func (s *Service) liveLoop(ctx context.Context) {
 		case <-tick.C:
 		}
 		l := s.lang(context.Background())
-		agents, ixs := s.fleetInputs()
+		agents, ixs, shown := s.fleetInputs()
 		s.tellLive(buildFleetIn(l, agents, ixs))
-		s.devs.SetAttention(linkAttention(l, agents, ixs)) // sent on only when it changed
+		s.devs.SetAttention(linkAttention(l, agents, ixs, shown)) // sent on only when it changed
 	}
 }
 
@@ -116,12 +116,13 @@ func (s *Service) tellLive(st FleetState) {
 
 // fleetSnapshot computes the fleet from every machine's sessions and the pending interactions.
 func (s *Service) fleetSnapshot() FleetState {
-	agents, ixs := s.fleetInputs()
+	agents, ixs, _ := s.fleetInputs()
 	return buildFleetIn(s.lang(context.Background()), agents, ixs)
 }
 
-// fleetInputs is every machine's agents as the fleet sees them, and the pending interactions (oldest first).
-func (s *Service) fleetInputs() ([]fleetInput, []proto.Interaction) {
+// fleetInputs is every machine's agents as the fleet sees them, the pending interactions (oldest first), and which of
+// those the apps were told of (pendingCards).
+func (s *Service) fleetInputs() ([]fleetInput, []proto.Interaction, map[string]bool) {
 	var agents []fleetInput
 	for _, m := range s.fleetMachines() {
 		for _, sess := range s.decorated(m.ID) {
@@ -135,7 +136,8 @@ func (s *Service) fleetInputs() ([]fleetInput, []proto.Interaction) {
 			})
 		}
 	}
-	return agents, s.pendingInteractions()
+	ixs, shown := s.pendingCards()
+	return agents, ixs, shown
 }
 
 // round2 keeps two significant digits: 12345 → 12000, 987 → 990. The island shows "12k", so finer changes would
@@ -198,10 +200,9 @@ func needsYou(agents []fleetInput, ixs []proto.Interaction, counts func(fleetInp
 		}
 	}
 	var out []needer
-	asked, carded := map[string]bool{}, map[string]bool{}
+	asked := map[string]bool{}
 	for _, ix := range ixs {
 		key := ix.MachineID + "/" + ix.SessionID
-		carded[key] = true
 		if a, ok := byKey[key]; ok && !asked[key] && stands(ix) {
 			asked[key] = true
 			out = append(out, needer{agent: a, card: &ix})
@@ -209,10 +210,7 @@ func needsYou(agents []fleetInput, ixs []proto.Interaction, counts func(fleetInp
 	}
 	for _, a := range agents {
 		key := a.Session.MachineID + "/" + a.Session.SessionID
-		// Pending cards in its row but none in ixs: they were answered between the two reads (fleetInputs), so it is
-		// not one waiting in a terminal dialog.
-		answered := a.Session.PendingInteractions > 0 && !carded[key]
-		if counts(a) && !asked[key] && a.Session.State == proto.StateNeedsYou && !a.Session.Assistant && !answered {
+		if counts(a) && !asked[key] && a.Session.State == proto.StateNeedsYou && !a.Session.Assistant {
 			out = append(out, needer{agent: a})
 		}
 	}
