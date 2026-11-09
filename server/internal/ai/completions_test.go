@@ -95,6 +95,99 @@ func TestChatCompletionsTokenParameterRetry(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsRequestsStreamedUsage(t *testing.T) {
+	var request struct {
+		StreamOptions *struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
+	}
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
+		// OpenAI-contract servers send the usage chunk only when the request asks for it.
+		if request.StreamOptions != nil && request.StreamOptions.IncludeUsage {
+			fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2}}\n\n")
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer s.Close()
+	reply, err := New(Config{API: "chat", BaseURL: s.URL, APIKey: "example-key", Model: "model"}).Chat(context.Background(), Request{Messages: []Message{{RoleUser, "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.StreamOptions == nil || !request.StreamOptions.IncludeUsage {
+		t.Fatalf("request did not ask for streamed usage: %+v", request)
+	}
+	if want := (Usage{InputTokens: 9, OutputTokens: 2}); reply.Usage != want {
+		t.Fatalf("usage = %+v, want %+v", reply.Usage, want)
+	}
+}
+
+func TestChatCompletionsStreamOptionsRetry(t *testing.T) {
+	const (
+		streamOptions = `{"error":{"message":"Unrecognized request argument supplied: stream_options"}}`
+		includeUsage  = `{"detail":[{"loc":["body","include_usage"],"msg":"Extra inputs are not permitted"}]}`
+		tokens        = `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."}}`
+	)
+	type rejection struct {
+		status int
+		body   string
+	}
+	for _, test := range []struct {
+		name       string
+		rejections []rejection // answered in order; later requests get a stream
+		requests   int
+		ok         bool
+		// What the last request carried.
+		lastStreamOptions, lastCompletionTokens bool
+	}{
+		{"400 names stream_options", []rejection{{http.StatusBadRequest, streamOptions}}, 2, true, false, false},
+		{"422 names include_usage", []rejection{{http.StatusUnprocessableEntity, includeUsage}}, 2, true, false, false},
+		{"stream_options then max_tokens", []rejection{{http.StatusBadRequest, streamOptions}, {http.StatusBadRequest, tokens}}, 3, true, false, true},
+		{"max_tokens then stream_options", []rejection{{http.StatusBadRequest, tokens}, {http.StatusBadRequest, streamOptions}}, 3, true, false, true},
+		{"unrelated 400", []rejection{{http.StatusBadRequest, `{"error":{"message":"model not found"}}`}}, 1, false, true, false},
+		{"server error naming stream_options", []rejection{{http.StatusInternalServerError, streamOptions}}, 1, false, true, false},
+		{"stream_options rejected twice", []rejection{{http.StatusBadRequest, streamOptions}, {http.StatusBadRequest, streamOptions}}, 2, false, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests []map[string]any
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				requests = append(requests, body)
+				if n := len(requests); n <= len(test.rejections) {
+					w.WriteHeader(test.rejections[n-1].status)
+					fmt.Fprint(w, test.rejections[n-1].body)
+					return
+				}
+				fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer s.Close()
+			reply, err := New(Config{API: "chat", BaseURL: s.URL, APIKey: "example-key", Model: "model"}).Chat(context.Background(), Request{MaxTokens: 42})
+			if len(requests) != test.requests {
+				t.Fatalf("requests = %d, want %d: %v", len(requests), test.requests, requests)
+			}
+			if first, _ := requests[0]["stream_options"].(map[string]any); first["include_usage"] != true {
+				t.Fatalf("first request: %v", requests[0])
+			}
+			if test.ok != (err == nil) || test.ok && reply.Text != "ok" {
+				t.Fatalf("reply=%+v err=%v", reply, err)
+			}
+			last := requests[len(requests)-1]
+			_, hasStreamOptions := last["stream_options"]
+			_, hasMaxTokens := last["max_tokens"]
+			_, hasCompletionTokens := last["max_completion_tokens"]
+			if hasStreamOptions != test.lastStreamOptions || hasCompletionTokens != test.lastCompletionTokens || hasMaxTokens == hasCompletionTokens || last["stream"] != true {
+				t.Fatalf("last request: %v", last)
+			}
+		})
+	}
+}
+
 func TestChatCompletionsErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name, stream string
