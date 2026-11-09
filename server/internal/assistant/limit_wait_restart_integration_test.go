@@ -16,6 +16,7 @@ import (
 type restartReceiptStore struct {
 	memStore
 	muFeed       sync.Mutex
+	todo         Todo
 	rows         []db.FeedRow
 	writes       chan bool
 	blockOnce    chan struct{}
@@ -29,10 +30,21 @@ func (s *restartReceiptStore) AppendFeed(_ context.Context, row db.FeedRow) erro
 	return nil
 }
 
-// AppendFeedOnce commits before optionally blocking its caller, as if the process
-// stopped after the database write but before the manager got its acknowledgment.
-func (s *restartReceiptStore) AppendFeedOnce(_ context.Context, row db.FeedRow) (bool, error) {
+func (s *restartReceiptStore) setTodo(todo Todo) {
 	s.muFeed.Lock()
+	defer s.muFeed.Unlock()
+	s.todo = todo
+}
+
+// AppendTaskReceiptOnce validates the active association and commits the feed
+// atomically, then can block its acknowledgment to simulate an interrupted process.
+func (s *restartReceiptStore) AppendTaskReceiptOnce(_ context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+	s.muFeed.Lock()
+	current, active := receiptLink(s.todo, SessionRef{MachineID: machine, SessionID: session})
+	if s.todo.ID != row.Ref || s.todo.Origin != row.Conversation || s.todo.DoneAt != nil || !active || !current.Equal(linked) {
+		s.muFeed.Unlock()
+		return false, false, nil
+	}
 	inserted := true
 	for _, existing := range s.rows {
 		if existing.ID == row.ID {
@@ -52,10 +64,16 @@ func (s *restartReceiptStore) AppendFeedOnce(_ context.Context, row db.FeedRow) 
 	if block != nil {
 		<-block
 		if !success {
-			return false, errors.New("process stopped after feed commit")
+			return false, true, errors.New("process stopped after feed commit")
 		}
 	}
-	return inserted, nil
+	return inserted, true, nil
+}
+
+// The production path checks for the generic idempotent store as well as the
+// transactional capability; receipt writes must use the latter.
+func (s *restartReceiptStore) AppendFeedOnce(context.Context, db.FeedRow) (bool, error) {
+	return false, errors.New("transactional receipt insert required")
 }
 
 // stoppedReceiptStore prevents callbacks from the simulated dead process from
@@ -74,11 +92,11 @@ func (s *stoppedReceiptStore) stoppedError() error {
 	}
 }
 
-func (s *stoppedReceiptStore) AppendFeedOnce(ctx context.Context, row db.FeedRow) (bool, error) {
+func (s *stoppedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
 	if err := s.stoppedError(); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return s.restartReceiptStore.AppendFeedOnce(ctx, row)
+	return s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked)
 }
 
 func (s *stoppedReceiptStore) Setting(ctx context.Context, key string, out any) (bool, error) {
@@ -109,12 +127,12 @@ type restartReceiptObserver struct {
 	writesFromRestart chan bool
 }
 
-func (s *restartReceiptObserver) AppendFeedOnce(ctx context.Context, row db.FeedRow) (bool, error) {
-	inserted, err := s.restartReceiptStore.AppendFeedOnce(ctx, row)
-	if err == nil {
+func (s *restartReceiptObserver) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+	inserted, valid, err := s.restartReceiptStore.AppendTaskReceiptOnce(ctx, row, machine, session, linked)
+	if err == nil && valid {
 		s.writesFromRestart <- inserted
 	}
-	return inserted, err
+	return inserted, valid, err
 }
 
 func (s *restartReceiptStore) receipts() int {
@@ -147,6 +165,7 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 				linked := time.Now().Add(-time.Hour)
 				todo := Todo{ID: "task", Title: "Task", Origin: "conversation", CreatedAt: linked,
 					Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
+				store.setTodo(todo)
 				putTodo(old, todo)
 				oldCtx, stopOld := context.WithCancel(context.Background())
 				oldDone := make(chan struct{})
@@ -221,6 +240,7 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 		stopped := make(chan struct{})
 		oldStore := &stoppedReceiptStore{restartReceiptStore: store, stopped: stopped}
 		old := New(Options{Hub: newNode(), Store: func() Store { return oldStore }})
+		store.setTodo(todo)
 		putTodo(old, todo)
 		oldCtx, stopOld := context.WithCancel(context.Background())
 		oldDone := make(chan struct{})
@@ -298,6 +318,7 @@ func TestReceiptFollowUpAfterGracefulStopIntegration(t *testing.T) {
 			return node
 		}
 		old := New(Options{Hub: newNode(), Store: func() Store { return store }})
+		store.setTodo(todo)
 		putTodo(old, todo)
 		oldCtx, stopOld := context.WithCancel(context.Background())
 		oldDone := make(chan struct{})
