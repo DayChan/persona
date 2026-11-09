@@ -125,6 +125,7 @@ func (s *stoppedReceiptStore) PutSetting(ctx context.Context, key string, value 
 type restartReceiptObserver struct {
 	*restartReceiptStore
 	writesFromRestart chan bool
+	readsFromRestart  chan struct{}
 }
 
 func (s *restartReceiptObserver) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
@@ -133,6 +134,30 @@ func (s *restartReceiptObserver) AppendTaskReceiptOnce(ctx context.Context, row 
 		s.writesFromRestart <- inserted
 	}
 	return inserted, valid, err
+}
+
+func (s *restartReceiptStore) FeedItem(_ context.Context, id string) (*db.FeedRow, error) {
+	s.muFeed.Lock()
+	defer s.muFeed.Unlock()
+	for _, row := range s.rows {
+		if row.ID == id {
+			copy := row
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+// FeedItem records reads by the restarted manager only; an old callback cannot satisfy the assertion.
+func (s *restartReceiptObserver) FeedItem(ctx context.Context, id string) (*db.FeedRow, error) {
+	row, err := s.restartReceiptStore.FeedItem(ctx, id)
+	if err == nil && row != nil && s.readsFromRestart != nil {
+		select {
+		case s.readsFromRestart <- struct{}{}:
+		default:
+		}
+	}
+	return row, err
 }
 
 func (s *restartReceiptStore) receipts() int {
@@ -267,17 +292,14 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 			t.Fatalf("after stopped manager unwound, pending looks = %+v, error %v", pending, err)
 		}
 
-		observed := &restartReceiptObserver{restartReceiptStore: store, writesFromRestart: make(chan bool, 4)}
+		observed := &restartReceiptObserver{restartReceiptStore: store, writesFromRestart: make(chan bool, 4), readsFromRestart: make(chan struct{}, 4)}
 		restarted := New(Options{Hub: newNode(), Store: func() Store { return observed }})
 		putTodo(restarted, todo)
 		ctx, stop := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); restarted.Run(ctx) }()
 		select {
-		case inserted := <-observed.writesFromRestart:
-			if inserted {
-				t.Error("restart inserted a second receipt instead of reusing the committed row")
-			}
+		case <-observed.readsFromRestart:
 		case <-time.After(5 * time.Minute):
 			stop()
 			<-done
@@ -346,17 +368,14 @@ func TestReceiptFollowUpAfterGracefulStopIntegration(t *testing.T) {
 			old.quiet.mu.Unlock()
 			t.Fatalf("after Run stopped with a feed call in flight: durable looks = %+v, old manager has delayed notice = %v, error = %v", pending, queued, err)
 		}
-		observed := &restartReceiptObserver{restartReceiptStore: store, writesFromRestart: make(chan bool, 4)}
+		observed := &restartReceiptObserver{restartReceiptStore: store, writesFromRestart: make(chan bool, 4), readsFromRestart: make(chan struct{}, 4)}
 		restarted := New(Options{Hub: newNode(), Store: func() Store { return observed }})
 		putTodo(restarted, todo)
 		ctx, stop := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); restarted.Run(ctx) }()
 		select {
-		case inserted := <-observed.writesFromRestart:
-			if inserted {
-				t.Error("restart inserted a second receipt")
-			}
+		case <-observed.readsFromRestart:
 		case <-time.After(5 * time.Minute):
 			stop()
 			<-done

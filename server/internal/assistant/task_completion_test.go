@@ -19,6 +19,25 @@ type blockedReceiptStore struct {
 	entered chan struct{}
 	release chan struct{}
 	block   sync.Once
+	todo    Todo
+}
+
+func (st *blockedReceiptStore) setTodo(todo Todo) {
+	st.muFeed.Lock()
+	st.todo = todo
+	st.muFeed.Unlock()
+}
+
+func (st *blockedReceiptStore) AppendTaskReceiptOnce(ctx context.Context, row db.FeedRow, machine, session string, linked time.Time) (bool, bool, error) {
+	st.muFeed.Lock()
+	current, active := receiptLink(st.todo, SessionRef{MachineID: machine, SessionID: session})
+	valid := st.todo.ID == row.Ref && st.todo.Origin == row.Conversation && st.todo.DoneAt == nil && active && current.Equal(linked)
+	st.muFeed.Unlock()
+	if !valid {
+		return false, false, nil
+	}
+	inserted, err := st.AppendFeedOnce(ctx, row)
+	return inserted, true, err
 }
 
 func (st *blockedReceiptStore) AppendFeedOnce(_ context.Context, row db.FeedRow) (bool, error) {
@@ -562,6 +581,44 @@ func TestTaskTurnEndedRetriesTodoLoadFailure(t *testing.T) {
 	})
 }
 
+func TestTaskReceiptRetryWaitsForMissingSession(t *testing.T) {
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+	ended := proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "error"}
+	f.setSessions("box", ended)
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s.restoreTaskReceiptLooks(ctx)
+		st.faultMu.Lock()
+		st.failRead = true
+		st.faultMu.Unlock()
+		s.taskTurnEnded(ctx, "box", "s1")
+		st.faultMu.Lock()
+		st.failRead = false
+		st.faultMu.Unlock()
+		f.setSessions("box")
+		<-time.After(time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		n := len(st.feed)
+		st.faultMu.Unlock()
+		if n != 0 {
+			t.Fatal("missing session produced a receipt")
+		}
+		f.setSessions("box", ended)
+		<-time.After(3 * time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		n = len(st.feed)
+		st.faultMu.Unlock()
+		if n != 1 {
+			t.Fatalf("receipts after session returned = %d", n)
+		}
+	})
+}
+
 func TestTaskReceiptRetriesSettingReadFailure(t *testing.T) {
 	st := &receiptSettingFailureStore{}
 	f := newFakeHub()
@@ -597,6 +654,39 @@ func TestTaskReceiptRetriesSettingReadFailure(t *testing.T) {
 		st.faultMu.Unlock()
 		if n != 1 {
 			t.Fatalf("receipts after recovery = %d", n)
+		}
+	})
+}
+
+func TestReceiptRegistrationRetryAfterContinueCancelled(t *testing.T) {
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s.restoreTaskReceiptLooks(ctx)
+		reset := time.Now().Add(time.Hour)
+		limited := limitTurn("s1", reset, true)
+		limited.MachineID = "box"
+		f.setSessions("box", limited)
+		todo := todoNow(s, "task")
+		st.faultMu.Lock()
+		st.failWrite = true
+		st.faultMu.Unlock()
+		s.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", reset.Add(limitResumeGrace))
+		st.faultMu.Lock()
+		st.failWrite = false
+		st.faultMu.Unlock()
+		limited.TurnErrorResumes = false
+		f.setSessions("box", limited)
+		<-time.After(time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		rows := append([]db.FeedRow(nil), st.feed...)
+		st.faultMu.Unlock()
+		if len(rows) != 1 || !strings.Contains(string(rows[0].Body), `"state":"interrupted"`) {
+			t.Fatalf("receipt after cancellation = %+v", rows)
 		}
 	})
 }
@@ -704,10 +794,13 @@ func TestReceiptLookRunStopAfterFeedCommit(t *testing.T) {
 		node := newFakeHub()
 		node.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "error"}}
 		s := New(Options{Hub: node, Store: func() Store { return st }})
+		st.setTodo(todo)
 		putTodo(s, todo)
 		ctx, stop := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); s.Run(ctx) }()
+		var releaseOnce sync.Once
+		defer func() { stop(); releaseOnce.Do(func() { close(st.release) }); <-done }()
 		synctest.Wait()
 		s.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Minute))
 		select {
@@ -717,7 +810,7 @@ func TestReceiptLookRunStopAfterFeedCommit(t *testing.T) {
 		}
 		stop()
 		<-done
-		close(st.release)
+		releaseOnce.Do(func() { close(st.release) })
 		synctest.Wait()
 		var state receiptLookState
 		if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
@@ -804,7 +897,7 @@ func TestReceiptLookReadsLegacyWithoutGeneration(t *testing.T) {
 	}
 }
 
-func TestReceiptLookInitialFeedReadFailureReconcilesOnEnd(t *testing.T) {
+func TestReceiptLookInitialSnapshotDoesNotDependOnFeedRead(t *testing.T) {
 	ctx := context.Background()
 	st := &receiptOnceStore{}
 	f := newFakeHub()
@@ -820,10 +913,10 @@ func TestReceiptLookInitialFeedReadFailureReconcilesOnEnd(t *testing.T) {
 	st.feedMu.Unlock()
 	restarted.taskWorkingObserved(ctx, "box", "s1", true)
 	restarted.tasks.mu.Lock()
-	unknown := restarted.tasks.workInitialUnknown["task"]
+	generation := restarted.tasks.workIDs["task"]
 	restarted.tasks.mu.Unlock()
-	if !unknown {
-		t.Fatal("failed initial feed read was treated as known")
+	if generation == "" {
+		t.Fatal("initial working observation did not get an independent generation")
 	}
 	st.feedMu.Lock()
 	st.failFeedRead = false
@@ -835,6 +928,152 @@ func TestReceiptLookInitialFeedReadFailureReconcilesOnEnd(t *testing.T) {
 	st.feedMu.Unlock()
 	if n != 2 {
 		t.Fatalf("receipts after initial feed read recovered = %d", n)
+	}
+}
+
+func TestReceiptLookInitialSnapshotKeepsAllCandidateGenerations(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour)
+	a := receiptTestService(t, f, st, linked)
+	b := receiptTestService(t, f, st, linked)
+	a.taskWorking(ctx, "box", "s1")
+	t1 := todoNow(a, "task")
+	a.taskTurnEndedForTaskAfter(ctx, &t1, "box", "s1", time.Now().Add(time.Hour))
+	if _, err := a.appendTaskReceipt(ctx, t1, SessionRef{MachineID: "box", SessionID: "s1"}, receiptBody{State: "interrupted", Error: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	b.taskWorking(ctx, "box", "s1")
+	t2 := todoNow(b, "task")
+	b.taskTurnEndedForTaskAfter(ctx, &t2, "box", "s1", time.Now().Add(2*time.Hour))
+	var before receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &before); err != nil || len(before.Looks) != 2 {
+		t.Fatalf("candidate waits: %+v %v", before, err)
+	}
+	s := receiptTestService(t, f, st, linked)
+	s.taskWorkingObserved(ctx, "box", "s1", true)
+	s.tasks.mu.Lock()
+	id := s.tasks.workIDs["task"]
+	s.tasks.mu.Unlock()
+	for _, look := range before.Looks {
+		if look.Generation == id {
+			t.Fatal("initial observation reused a candidate generation")
+		}
+	}
+	var after receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &after); err != nil || len(after.Looks) != 2 {
+		t.Fatalf("candidate wait lost: %+v %v", after, err)
+	}
+}
+
+func TestReceiptLookWithoutFeedDoesNotAttributeNewTurn(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour)
+	old := receiptTestService(t, f, st, linked)
+	old.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("old wait = %+v %v", state, err)
+	}
+	s := receiptTestService(t, f, st, linked)
+	s.taskWorkingObserved(ctx, "box", "s1", true)
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, TurnError: "new error"})
+	s.taskTurnEndedForLook(ctx, "box", "s1", &state.Looks[0])
+	st.faultMu.Lock()
+	n := len(st.feed)
+	st.faultMu.Unlock()
+	if n != 0 {
+		t.Fatalf("old generation wrote %d new-turn receipts", n)
+	}
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("unresolved old wait lost: %+v %v", state, err)
+	}
+}
+
+func TestReceiptLookRecoveredDoneJudgmentRequiresKnownGeneration(t *testing.T) {
+	for _, mode := range []string{"same", "new", "unknown"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			st := &receiptOnceStore{}
+			f := newFakeHub()
+			f.judge = `{"verdict":"done","reason":"Verified"}`
+			linked := time.Now().Add(-time.Hour)
+			old := receiptTestService(t, f, st, linked)
+			old.taskWorking(ctx, "box", "s1")
+			todo := todoNow(old, "task")
+			old.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", time.Now().Add(time.Hour))
+			var state receiptLookState
+			if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+				t.Fatalf("wait: %+v %v", state, err)
+			}
+			look := state.Looks[0]
+			if _, err := old.appendTaskReceipt(ctx, todo, SessionRef{MachineID: "box", SessionID: "s1"}, receiptBody{State: "done", Summary: "old result"}); err != nil {
+				t.Fatal(err)
+			}
+			s := receiptTestService(t, f, st, linked)
+			if mode == "same" {
+				s.tasks.mu.Lock()
+				s.tasks.working["task"] = look.Work
+				s.tasks.workIDs["task"] = look.Generation
+				s.tasks.mu.Unlock()
+			} else if mode == "new" {
+				s.taskWorking(ctx, "box", "s1")
+			}
+			f.setItems(proto.Item{Role: "user", Kind: proto.KindText, Text: "task"}, proto.Item{Role: "assistant", Kind: proto.KindText, Text: "new result"})
+			f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone, State: proto.StateUnread, LastText: "new result"})
+			s.taskTurnEndedForLook(ctx, "box", "s1", &look)
+			f.mu.Lock()
+			judged := f.judged
+			f.mu.Unlock()
+			if (judged > 0) != (mode == "same") {
+				t.Fatalf("judgment count = %d for %s", judged, mode)
+			}
+			s.reports.mu.Lock()
+			report := s.reports.pending["task"]
+			s.reports.mu.Unlock()
+			if report == nil || report.text != "old result" {
+				t.Fatalf("recovered report = %+v", report)
+			}
+			if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
+				t.Fatalf("recovered wait = %+v %v", state, err)
+			}
+		})
+	}
+}
+
+func TestReceiptLookRecoversOldFeedDuringNewWork(t *testing.T) {
+	ctx := context.Background()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	linked := time.Now().Add(-time.Hour)
+	old := receiptTestService(t, f, st, linked)
+	old.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Hour))
+	var state receiptLookState
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("old wait: %+v %v", state, err)
+	}
+	oldLook := state.Looks[0]
+	body := receiptBody{Title: "Task", State: "interrupted", Machine: "box", Error: "old turn error"}
+	if _, err := old.appendTaskReceipt(ctx, todoNow(old, "task"), SessionRef{MachineID: "box", SessionID: "s1"}, body); err != nil {
+		t.Fatal(err)
+	}
+	s := receiptTestService(t, f, st, linked)
+	s.taskWorkingObserved(ctx, "box", "s1", true)
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusWorking, State: proto.StateWorking, LastText: "new turn text"})
+	current := todoNow(s, "task")
+	s.taskTurnEndedForTaskAfter(ctx, &current, "box", "s1", time.Now().Add(2*time.Hour))
+	s.taskTurnEndedForLook(ctx, "box", "s1", &oldLook)
+	s.reports.mu.Lock()
+	report := s.reports.pending["task"]
+	s.reports.mu.Unlock()
+	if report == nil || report.state != reportInterrupted || report.text != "old turn error" {
+		t.Fatalf("old follow-up = %+v", report)
+	}
+	if _, err := st.Setting(ctx, receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].ID == oldLook.ID {
+		t.Fatalf("old follow-up did not retain new wait: %+v %v", state, err)
 	}
 }
 
@@ -986,7 +1225,7 @@ func TestReceiptLookKeepsEachLimitedAgent(t *testing.T) {
 	}
 }
 
-func TestReceiptLookInitialWorkingSnapshotKeepsGeneration(t *testing.T) {
+func TestReceiptLookInitialWorkingSnapshotKeepsIndependentGeneration(t *testing.T) {
 	st := &receiptSettingFailureStore{}
 	f := newFakeHub()
 	linked := time.Now().Add(-time.Hour)
@@ -1003,9 +1242,20 @@ func TestReceiptLookInitialWorkingSnapshotKeepsGeneration(t *testing.T) {
 	flush()
 	s.tasks.mu.Lock()
 	observed := s.tasks.working["task"]
+	observedID := s.tasks.workIDs["task"]
 	s.tasks.mu.Unlock()
-	if !observed.Equal(state.Looks[0].Work) {
-		t.Fatalf("first snapshot changed generation: %v != %v", observed, state.Looks[0].Work)
+	if observedID == "" || observedID == state.Looks[0].Generation {
+		t.Fatal("first snapshot did not create an independent generation")
+	}
+	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 {
+		t.Fatalf("first snapshot removed the old wait: %+v %v", state, err)
+	}
+	oldID := state.Looks[0].ID
+	current := todoNow(s, "task")
+	s.taskTurnEndedForTaskAfter(context.Background(), &current, "box", "s1", time.Now().Add(2*time.Hour))
+	s.finishTaskReceipt(context.Background(), "task", oldID)
+	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].Generation != observedID {
+		t.Fatalf("old follow-up cleared the new wait: %+v %v", state, err)
 	}
 	s.fleetKeepPrevious("box", []proto.Session{{MachineID: "box", SessionID: "s1", Status: proto.StatusDone}})
 	s.setSessions("box", []proto.Session{working})

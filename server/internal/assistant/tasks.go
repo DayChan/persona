@@ -118,11 +118,11 @@ type tasksState struct {
 	feed  map[string][]FeedItem
 	// working: when one of a task's agents last started a turn; receipted: when its last receipt went out. A
 	// receipt is due when the task settles after working since the last one.
-	working            map[string]time.Time
-	workIDs            map[string]string
-	workInitialUnknown map[string]bool
-	receipted          map[string]time.Time
-	receiptWorkIDs     map[string]string
+	working        map[string]time.Time
+	workIDs        map[string]string
+	workRefs       map[string]SessionRef
+	receipted      map[string]time.Time
+	receiptWorkIDs map[string]string
 	// awaitingAnswer remembers a stopped status whose transcript still ends in a tool.
 	awaitingAnswer map[SessionRef]bool
 	// limitLooks: when a task agent's usage-limit wait is looked at again (taskTurnEndedAfter), one look per agent
