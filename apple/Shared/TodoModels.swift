@@ -489,10 +489,23 @@ extension APIClient {
     public struct CreateTodoRequest: Encodable, Sendable {
         var title: String
         var notes: String?
+        /// Due at a moment or on a day ("yyyy-MM-dd"), as `TodoPlanChange.Due` (#2029: one made on the calendar).
+        var dueAt: Date?
+        var dueDate: String?
+
+        enum CodingKeys: String, CodingKey {
+            case title, notes
+            case dueAt = "due_at", dueDate = "due_date"
+        }
     }
 
-    public func createTodo(title: String, notes: String? = nil) async throws -> TodoItem {
-        let body = CreateTodoRequest(title: title.trimmingCharacters(in: .whitespacesAndNewlines), notes: notes?.trimmingCharacters(in: .whitespacesAndNewlines))
+    public func createTodo(title: String, notes: String? = nil, due: TodoPlanChange.Due? = nil) async throws -> TodoItem {
+        var body = CreateTodoRequest(title: title.trimmingCharacters(in: .whitespacesAndNewlines), notes: notes?.trimmingCharacters(in: .whitespacesAndNewlines))
+        switch due {
+        case .some(.at(let at)): body.dueAt = at
+        case .some(.day(let day)): body.dueDate = day
+        case .some(.none), nil: break
+        }
         return try await post("/api/v1/todos", body: body, as: TodoResponse.self).todo
     }
 

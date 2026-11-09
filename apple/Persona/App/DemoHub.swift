@@ -93,13 +93,23 @@ final class DemoHub {
         tokens = all["tokens"]?.array ?? []
     }
 
-    /// "@rel:<seconds>" → that moment as an ISO date, "@unix:<seconds>" → Unix seconds (make_demo_data.py).
+    /// "@rel:<seconds>" → that moment as an ISO date, "@unix:<seconds>" → Unix seconds, "@day:<days>@<HH:MM>" → that
+    /// clock time so many days from today (a to-do due at 18:00, #2029), "@date:<days>" → that day as "yyyy-MM-dd"
+    /// (make_demo_data.py).
     private static func resolve(_ v: JSONValue, now: Date) -> JSONValue {
         switch v {
         case .object(let o): return .object(o.mapValues { resolve($0, now: now) })
         case .array(let a): return .array(a.map { resolve($0, now: now) })
         case .string(let s) where s.hasPrefix("@rel:"):
             return .string(iso(now.addingTimeInterval(Double(s.dropFirst(5)) ?? 0)))
+        case .string(let s) where s.hasPrefix("@day:"):
+            let parts = s.dropFirst(5).split(separator: "@")
+            let clock = parts.dropFirst().first?.split(separator: ":").compactMap { Int($0) } ?? []
+            let day = Calendar.current.date(byAdding: .day, value: Int(parts.first ?? "") ?? 0, to: now) ?? now
+            let at = Calendar.current.date(bySettingHour: clock.first ?? 0, minute: clock.dropFirst().first ?? 0, second: 0, of: day) ?? day
+            return .string(iso(at))
+        case .string(let s) where s.hasPrefix("@date:"):
+            return .string(TodoPlanText.day(Calendar.current.date(byAdding: .day, value: Int(s.dropFirst(6)) ?? 0, to: now) ?? now))
         case .string(let s) where s.hasPrefix("@unix:"):
             return .number((now.timeIntervalSince1970 + (Double(s.dropFirst(6)) ?? 0)).rounded())
         default: return v

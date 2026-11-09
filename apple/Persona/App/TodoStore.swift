@@ -142,10 +142,10 @@ final class TodoStore {
         byID[id]
     }
 
-    func create(title: String, notes: String? = nil, api injected: APIClient? = nil) async throws -> TodoItem {
+    func create(title: String, notes: String? = nil, due: APIClient.TodoPlanChange.Due? = nil, api injected: APIClient? = nil) async throws -> TodoItem {
         guard let api = injected ?? AppModel.shared.api else { throw APIError(status: 0, message: String(localized: "Not connected to a hub [Todo Store 04f822]")) }
         let targetGeneration = generation
-        let created = try await api.createTodo(title: title, notes: notes)
+        let created = try await api.createTodo(title: title, notes: notes, due: due)
         guard generation == targetGeneration else { return created }
         mutationRevision += 1
         var updated = todos

@@ -495,6 +495,38 @@ nonisolated enum Theme {
     /// status bar above the column with it (`SidebarTopFill`), which the column itself cannot draw into.
     static let systemSidebar = Color(light: 0xE6E9EE, dark: 0x191C20)
 
+    /// The to-dos' calendar (#2029, docs/assistant/todos.md "Calendar"): its time axis, its columns and how a to-do's
+    /// block is drawn on it.
+    enum CalendarGrid {
+        /// An hour on the time axis: a to-do's block (`Size.tapTarget` high) takes most of one, so two an hour apart
+        /// never overlap.
+        static let hour: CGFloat = 52
+        /// The column of hours at the left of a day: "09:00" and the now line's "14:20" fit.
+        static let gutter: CGFloat = 50
+        /// The same on a phone's week, whose seven columns need the room: the hours alone.
+        static let gutterNarrow: CGFloat = 34
+        /// A day of the month grid, at the least: its date and two lines.
+        static let monthCell: CGFloat = 92
+        /// The width from which the week shows each to-do's own block with its time and state (iPad, Mac); narrower,
+        /// a block is a few characters and the to-dos due at one time share one.
+        static let wide: CGFloat = 600
+        /// A day's dots in the week strip: at most this many, the rest are counted in the day.
+        static let dots = 3
+        /// The ground of a to-do's block and chip: its state's color, this strong.
+        static let tint: Double = 0.14
+        /// A done to-do, faded.
+        static let doneFade: Double = 0.5
+        /// A day of the month grid that belongs to the month before or after.
+        static let outsideFade: Double = 0.45
+        /// Lines a day of the month grid shows: its entries, or one fewer and "N more".
+        static let monthLines = 3
+        /// Where a new to-do's time snaps to when the empty axis is tapped, in minutes.
+        static let snapMinutes = 30
+        /// The hour lines and the columns' edges; the line under the all-day row is `lineStrong`.
+        static let line = Color.primary.opacity(0.1)
+        static let lineStrong = Color.primary.opacity(0.18)
+    }
+
     /// Motion: a state change snaps, a layout change glides. Nothing repeats except the Needs You dot, the work spinner and
     /// the persona's dot in the Persona tab's top bar (docs/apple/persona.md), and those stop with Reduce Motion (the spinner
     /// is the system's).

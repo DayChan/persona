@@ -254,6 +254,12 @@ def day_from_now(days):
     return (NOW + timedelta(days=days)).date().isoformat()
 
 
+def today_at(hour, minute=0, days=0):
+    """A to-do's due_at at a clock time on this machine (#2029's calendar: 18:00 today, not 50 hours from now), as UTC."""
+    local = (NOW.astimezone() + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _mock_qr(text, n=29):
     """A QR-looking grid of "0" / "1" rows for text: three finder squares and noise from its hash (not scannable)."""
     seed = hashlib.sha256(text.encode()).digest()
@@ -1681,8 +1687,9 @@ TODOS_INIT = [
         "id": "todo_weather",
         "title": "天气 App 发 1.3 版",
         "notes": "1.3 的内容：主屏幕小组件、网络层补测试、发布说明。周五前提交审核。",
-        # Due at a moment (#1683): the list shows it under the title, the detail page edits it.
-        "due_at": later(hours=50),
+        # Due at a moment (#1683): the list shows it under the title, the detail page edits it; on the calendar (#2029)
+        # beside the blog's at the same time.
+        "due_at": today_at(18),
         # The stage bar on the todo detail (#2776): how far the work got, and the PR it is in.
         "stage": "develop",
         "pr_url": "https://example.com/pull/128",
@@ -1779,6 +1786,7 @@ TODOS_INIT = [
     {
         "id": "todo_blog",
         "title": "博客迁移到 Astro",
+        "due_at": today_at(18),
         "notes": "32 篇文章都能正常构建，旧链接全部加了 301 跳转。",
         # The stage bar on the todo detail (#2776): how far the work got, and the PR it is in.
         "stage": "review",
@@ -1805,6 +1813,7 @@ TODOS_INIT = [
     {
         "id": "todo_orders",
         "title": "排查 /orders 接口变慢",
+        "due_at": today_at(16),
         "notes": "慢在订单列表的 N+1 查询，正在改成一次 JOIN 并补索引。",
         "done_at": None,
         "created_at": ago(hours=6),
@@ -1828,6 +1837,7 @@ TODOS_INIT = [
     {
         "id": "todo_review",
         "title": "检查 PR #42",
+        "due_at": today_at(10),  # #2029: the calendar's day has a morning, an afternoon and an evening
         "notes": "PR #42 看完了：逻辑没问题，留了两条关于命名的小建议。",
         "done_at": None,
         "created_at": ago(hours=8),

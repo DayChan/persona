@@ -7,7 +7,8 @@ Demo mode (docs/apple/ios.md) lets someone without a hub, App Review included, w
 own requests from this file (apple/Persona/App/DemoHub.swift) and never connects anywhere. Everything here is made up,
 like the mock hub's: no real names, hosts or messages (scripts/privacy_check.py scans the file, check_bundle_privacy.py
 the built app). Times are stored relative to when this ran ("@rel:<seconds>", "@unix:<seconds>") and the app puts
-them next to its own clock, so the demo always looks current. Machine metrics are drawn by the app itself.
+them next to its own clock, so the demo always looks current; a to-do's due moment keeps its clock time ("@day:<days>@<HH:MM>")
+and its due day is so many days away ("@date:<days>"). Machine metrics are drawn by the app itself.
 """
 import json
 import os
@@ -22,7 +23,9 @@ sys.path.insert(0, HERE)
 import mock_hub as m  # noqa: E402
 
 ISO = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$")
+DAY = re.compile(r"^\d{4}-\d\d-\d\d$")
 T0 = m.NOW.timestamp()
+TODAY = m.NOW.astimezone().date()
 
 
 def relative(v, key=None):
@@ -31,6 +34,12 @@ def relative(v, key=None):
         return {k: relative(x, k) for k, x in v.items()}
     if isinstance(v, list):
         return [relative(x) for x in v]
+    if key == "due_at" and isinstance(v, str) and ISO.match(v):
+        # A to-do due at a clock time (#2029's calendar): that time of day, so many days from the day the demo opens.
+        t = m.datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone()
+        return "@day:%d@%02d:%02d" % ((t.date() - TODAY).days, t.hour, t.minute)
+    if key == "due_date" and isinstance(v, str) and DAY.match(v):
+        return "@date:%d" % (m.datetime.fromisoformat(v).date() - TODAY).days
     if isinstance(v, str) and ISO.match(v):
         return "@rel:%d" % round(m.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp() - T0)
     if key == "boot_time" and isinstance(v, int):

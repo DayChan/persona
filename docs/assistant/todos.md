@@ -450,6 +450,20 @@ Not yet: manual editing/undo of conclusions (currently **Replace** in decisions)
 - The push's title is the to-do's, its body the due date (or "was due" once it has passed), the first line of the notes, and when it went out more than two minutes late (the manager was down), the time it was for.
 - A done to-do is not reminded; changing `remind_at` re-arms it; a mesh member on standby leaves it to the center, as with scheduled tasks.
 
+## Calendar
+
+#2029. The to-dos page switches between the list and a calendar (List | Calendar at its top, kept per device; the calendar's Day | Week | Month too). The calendar shows the to-dos that have a due date, from the same list the page already has: `GET /api/v1/todos` returns them all, so switching needs no request and works offline from the cache.
+
+- **Where a to-do goes**: due at a moment (`due_at`) on the time axis of the day and the week, the block's top edge at that moment. A due moment is not a span, so every block is the same height (about 50 minutes, a tap target). Due on a day (`due_date`, a day in the user's time zone) in the All Day row above the axis, on that day on every device. Blocks that would overlap sit side by side; on a phone's week, whose columns are a few characters wide, they become one block that says how many and opens their day.
+- **The month**: each day shows up to three lines (all-day first, then by time), or two and "+N" (phone) / "N more" (iPad, Mac). Tapping a day opens it in the day view.
+- **Looks as in the list**: the bar and the dot are the state's color (needs you, working, done unread, not started); overdue is red, before the state; done is faded and struck through (Show Done, in the calendar's options, hides them, per device); a flag for high priority and a bell while a reminder is still to be pushed, as on the row. A reminder is not drawn on its own: it is not something to do, and would show the to-do twice. The moment is a red line on today.
+- **Without a due date**: not on the calendar; a bar under it says how many and goes back to the list.
+- **Moving around**: Today, previous / next, and on iOS a sideways swipe; the day view has the week's strip (a dot for each open to-do, a few) to pick a day; a day of the week, or of the month, opens that day.
+- **Making one**: tapping the empty axis offers a new to-do due there (snapped to the half hour; the All Day row: that day), only its title to type (`TodoQuickAddSheet`; the reminder, priority and notes are set on its page). The page's "+" in the calendar makes one due on the day shown. `POST /api/v1/todos` takes `due_at` / `due_date` with the title.
+- **Not yet**: dragging a to-do to another time (#2045); Android (#2046, the month first); the web (its own PR).
+- **What it draws**: entries, not to-dos (`CalendarEntry`: a source, a title, a start, an optional end, all day or not, the state's look). A to-do is one source (`TodoEntrySource`); the phone's calendar events can be another later (read on the device with EventKit, drawn with their length), and the layout (`TodoCalendar`: the days of a mode, lanes, clusters, what a month's day fits, where a tap lands) needs no change for it. A source is asked for the days shown (`entries(in:)`), so once the hub pages its to-dos the calendar can ask it for a range (`due_from` / `due_to` on `GET /api/v1/todos`, written as `todo_list`'s `due_after` / `due_before`).
+- **Code**: `apple/Shared/TodoCalendar.swift` (pure, `TodoCalendarTests`), `apple/Persona/Views/Todos/Calendar/` (the views; the Mac's to-dos page shows the opened to-do beside the calendar), tokens in `Theme.CalendarGrid`. Checked by `TodoCalendarTests` (iOS UI, mock hub).
+
 ## The assistant's todo tools
 
 #1683. The assistant has the user's to-dos as MCP tools (`todo_tools.go`, descriptions in `prompts/mcp/todo/`), so it can note what the user asks it to, or a batch of deadlines from a mail, without a hub token:
@@ -477,6 +491,7 @@ A to-do it makes is the user's own (no `origin`): work for an agent still goes t
 - **Projects** section above Agents: each row "project · machine", with **Remove**; projects without online Agents show "No Agents currently": only sessions in current hub group, on connected computers, not offline count (same-ID computers in other groups do not; disconnected computer sessions marked unknown by hub rather than offline do not count either, matching web). Agent source says "With project <name>" or "Dispatched by <parent title>"; missing project source shows only "With project", missing parent only "Spawned", manual links unlabelled.
 
 - **Due date, reminder, priority** (#1683): under a row's status, a flag for high priority, the due date ("Due Thu, Nov 12, 18:00", or the day alone; red and "Was due" once it has passed) and a bell while a reminder is still to be pushed. Open to-dos are ordered with what needs the user (needs you, unread; on the web also interrupted and awaiting review) first, then by due date, earliest first, then those without one as before (iOS / Mac `TodosLogic.sortTodos`, web `sortTodos`, Android `ordered`). The detail edits them: iOS / Mac a section of switches and pickers under the title (due date with All Day, Remind Me, Priority), saved shortly after each change (`TodoPlanSection`); the web a row of date / time / datetime inputs and a priority menu (`TodoPlanEditor`); Android shows the line on the list only so far. Checked by `TodoPlanTests` (iOS UI, mock hub) and `scripts/test/web_todo_plan_e2e.py`.
+- **Calendar** (#2029): List | Calendar at the top of the page; the calendar's day, week and month ("Calendar" above).
 
 ### 3. Hand to Agent
 - **Start a new one** or **Hand to an existing one**.

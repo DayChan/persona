@@ -15,8 +15,13 @@ struct TodosView: View {
     @State private var creatingTitle = ""
     @State private var creatingNotes = ""
     @State private var expandedDone = false
-    /// DEBUG screenshots: `-openTodoTitled <text>` opens the first todo whose title has the text.
-    @State private var debugOpen: TodoDetailRoute?
+    /// A to-do opened from the calendar (and, in DEBUG screenshots, `-openTodoTitled <text>`: the first whose title has it).
+    @State private var pushed: TodoDetailRoute?
+    /// List or calendar, and the calendar's day / week / month (#2029): each device keeps its own.
+    @AppStorage("todos.view") private var viewMode = TodosViewMode.list
+    @AppStorage("todos.calendar.mode") private var calendarMode = TodoCalendarMode.day
+    @State private var calendarAnchor = Date.now
+    @State private var quickAdd: TodoCalendarSlot?
     @Environment(\.tabIsActive) private var inFront
 
     private var allTodos: [TodoItem] {
@@ -41,6 +46,55 @@ struct TodosView: View {
     }
 
     var body: some View {
+        VStack(spacing: Theme.Space.flush) {
+            TodosModeBar(view: $viewMode, mode: $calendarMode)
+            if viewMode == .calendar {
+                TodoCalendarView(todos: store.todos, mode: $calendarMode, anchor: $calendarAnchor,
+                                 open: { pushed = TodoDetailRoute(id: $0) }, showList: { viewMode = .list })
+            } else {
+                list
+            }
+        }
+        .themedGroupedPage()
+        .detailTitle(String(localized: "To-dos"))
+        .navigationBarTitleDisplayMode(.inline)
+        .pageToolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    if viewMode == .calendar {
+                        quickAdd = TodoCalendarSlot(day: calendarAnchor, time: nil)
+                    } else {
+                        creatingTitle = ""
+                        creatingNotes = ""
+                        showCreate = true
+                    }
+                } label: {
+                    ThemedIcon(Theme.Icon.add)
+                }
+                .accessibilityLabel("New To-Do")
+            }
+        }
+        .sheet(isPresented: $showCreate) {
+            createSheet
+        }
+        .sheet(item: $quickAdd) { slot in
+            TodoQuickAddSheet(slot: slot)
+        }
+        .task {
+            await store.refresh()
+            #if DEBUG
+            // `-showDoneTodos YES`: the Done section starts open (screenshots of done todos).
+            if UserDefaults.standard.bool(forKey: "showDoneTodos") { expandedDone = true }
+            if let match = UserDefaults.standard.string(forKey: "openTodoTitled"),
+               let todo = store.todos.first(where: { $0.title.contains(match) }) {
+                pushed = TodoDetailRoute(id: todo.id)
+            }
+            #endif
+        }
+        .navigationDestination(item: $pushed) { r in TodoDetailView(todoID: r.id) }
+    }
+
+    private var list: some View {
         List {
             Section {
                 searchRow
@@ -118,38 +172,9 @@ struct TodosView: View {
             }
         }
         .themedPage()
-        .detailTitle(String(localized: "To-dos"))
-        .navigationBarTitleDisplayMode(.inline)
-        .pageToolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    creatingTitle = ""
-                    creatingNotes = ""
-                    showCreate = true
-                } label: {
-                    ThemedIcon(Theme.Icon.add)
-                }
-                .accessibilityLabel("New To-Do")
-            }
-        }
-        .sheet(isPresented: $showCreate) {
-            createSheet
-        }
         .refreshable {
             await store.refresh()
         }
-        .task {
-            await store.refresh()
-            #if DEBUG
-            // `-showDoneTodos YES`: the Done section starts open (screenshots of done todos).
-            if UserDefaults.standard.bool(forKey: "showDoneTodos") { expandedDone = true }
-            if let match = UserDefaults.standard.string(forKey: "openTodoTitled"),
-               let todo = store.todos.first(where: { $0.title.contains(match) }) {
-                debugOpen = TodoDetailRoute(id: todo.id)
-            }
-            #endif
-        }
-        .navigationDestination(item: $debugOpen) { r in TodoDetailView(todoID: r.id) }
     }
 
     private var searchRow: some View {

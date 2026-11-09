@@ -12,6 +12,13 @@ struct MacTodosPage: View {
     @State private var expandedDone = false
 
     @AppStorage("mac.todos.listWidth") private var listWidth: Double = Theme.Size.macTodosListIdeal
+    /// List or calendar, and the calendar's day / week / month (#2029): the Mac starts on the week.
+    @AppStorage("todos.view") private var viewMode = TodosViewMode.list
+    @AppStorage("todos.calendar.mode") private var calendarMode = TodoCalendarMode.week
+    @State private var calendarAnchor = Date.now
+    @State private var quickAdd: TodoCalendarSlot?
+    /// The calendar shows the selected to-do beside it once one is opened from it, until closed.
+    @State private var calendarDetail = false
     @State private var dragging: Double?
     @Environment(\.tabIsActive) private var inFront
 
@@ -64,21 +71,15 @@ struct MacTodosPage: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            listColumn
-                .frame(width: min(max(dragging ?? listWidth, Theme.Size.macTodosListMin), Theme.Size.macTodosListMax))
-            MacPanelResizeHandle { delta in
-                dragging = min(max((dragging ?? listWidth) + delta, Theme.Size.macTodosListMin), Theme.Size.macTodosListMax)
-            } ended: {
-                if let dragging { listWidth = dragging }
-                dragging = nil
-            }
-            detailColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if viewMode == .calendar { calendarPage } else { listPage }
         }
         .background(Theme.pageBackground)
         .sheet(isPresented: $showCreate) {
             createSheet
+        }
+        .sheet(item: $quickAdd) { slot in
+            TodoQuickAddSheet(slot: slot)
         }
         .task {
             await store.refresh()
@@ -97,6 +98,9 @@ struct MacTodosPage: View {
             // The selected todo can vanish from any path: the row menu, the detail page's delete (its dismiss
             // runs on the page's own stack root and does nothing here), or a push delete from another device.
             // Without this the id keeps pointing at the gone todo and the detail shows its tombstone forever.
+            if calendarDetail, let id = selectedTodoID, !todos.contains(where: { $0.id == id }) {
+                calendarDetail = false
+            }
             selectedTodoID = MacTodosSelection.resolve(
                 selectedID: selectedTodoID,
                 existing: todos,
@@ -106,8 +110,62 @@ struct MacTodosPage: View {
         }
     }
 
+    /// The calendar (#2029), and the to-do opened from it beside it.
+    private var calendarPage: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                TodosModeBar(view: $viewMode, mode: $calendarMode)
+                TodoCalendarView(todos: store.todos, mode: $calendarMode, anchor: $calendarAnchor,
+                                 open: { id in
+                                     selectedTodoID = id
+                                     calendarDetail = true
+                                 },
+                                 showList: { viewMode = .list })
+            }
+            .overlay(alignment: .topTrailing) {
+                MacTitleRowButton(String(localized: "New To-Do"), symbol: Theme.Icon.add) {
+                    quickAdd = TodoCalendarSlot(day: calendarAnchor, time: nil)
+                }
+                .padding(.trailing, Theme.Space.l)
+                .frame(height: Theme.Size.macToolbarHeight)
+                .ignoresSafeArea(.container, edges: .top)
+            }
+            if calendarDetail, let id = selectedTodoID {
+                Divider()
+                NavigationStack {
+                    TodoDetailView(todoID: id)
+                        .id(id)
+                }
+                .frame(width: Theme.Size.sidebar)
+                .overlay(alignment: .topLeading) {
+                    Button { calendarDetail = false } label: { ThemedIcon(Theme.Icon.close) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .padding(Theme.Space.s)
+                        .accessibilityLabel(Text("Close"))
+                }
+            }
+        }
+    }
+
+    private var listPage: some View {
+        HStack(spacing: 0) {
+            listColumn
+                .frame(width: min(max(dragging ?? listWidth, Theme.Size.macTodosListMin), Theme.Size.macTodosListMax))
+            MacPanelResizeHandle { delta in
+                dragging = min(max((dragging ?? listWidth) + delta, Theme.Size.macTodosListMin), Theme.Size.macTodosListMax)
+            } ended: {
+                if let dragging { listWidth = dragging }
+                dragging = nil
+            }
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
     private var listColumn: some View {
         VStack(spacing: 0) {
+            TodosModeBar(view: $viewMode, mode: $calendarMode)
             searchField
             List(selection: $selectedTodoID) {
                 if !(openList.isEmpty && doneList.isEmpty) {
