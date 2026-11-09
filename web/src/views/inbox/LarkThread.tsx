@@ -6,7 +6,7 @@
 // play here, a card's buttons press, my messages show who read them, reactions can be put on, an avatar opens the
 // person's card, a group's box can @ people, and what is typed stays as the chat's draft.
 import { chooseManager, ItemManager, noteConversation, otherManager, ownerHeaders, useItemManager, withManager } from "../../lib/manager-choice";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, use, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, enc, errorText, getToken } from "../../lib/api";
 import { startConversation } from "../../lib/assistant-start";
 import { clock } from "../../lib/format";
@@ -22,6 +22,7 @@ import {
   statusOf, toggledReactions, type ReadState,
 } from "../../lib/lark-chat";
 import { quoteSummary, showsBody, showsHistory, useLarkDisplay, useLarkDisplayState } from "../../lib/lark-display";
+import { keepSameMessages, keepSameStates } from "../../lib/lark-reuse";
 import type { LarkPerson } from "../../lib/lark-people";
 import { canAddPin, changeChatPin, needsRecheck, pinProblemText, type ChatPinTarget } from "../../lib/lark-pins";
 import { historyProblem, type HistoryProblem, latestOf, nearTop, OlderPaging, screensFromEnd, showsJumpToLatest } from "../../lib/lark-history";
@@ -97,17 +98,20 @@ const ChatAccount = createContext<number | undefined>(undefined);
 /** …and its feed, where a thread's pictures and files are sent. */
 const ChatFeed = createContext("");
 
-/** What a message drawn in the chat can reach: its pictures, the people, read receipts, a fresh read of the chat. */
+/** What a message drawn in the chat can reach: its pictures, the people, a fresh read of the chat. It stays the same
+ * object while the chat is open, so a push renders no row through it. */
 interface ChatTools {
   feed: string;
   group: boolean;
   openImage: (src: string) => void;
   openProfile: (who: { id: string; name: string; avatar?: string; bot?: boolean }) => void;
-  receipts: Map<string, ReadState>;
   /** Reads the window around a message again (a card button was pressed on it). */
   refresh: (messageID: string) => Promise<void>;
 }
 const Tools = createContext<ChatTools | null>(null);
+/** The read receipts of my messages: the list's rows get theirs as a prop (a new receipt renders only its own row);
+ * a message in an opened thread or dialog reads them here. */
+const Receipts = createContext<Map<string, ReadState>>(new Map());
 
 type LarkThreadProps = { chat: LarkChatRef; pinsOpen?: boolean; onPinsOpen?: (open: boolean) => void };
 
@@ -214,7 +218,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
     if (!at) return;
     try {
       const r = await api<LarkPage>(larkPath(`${base}?limit=${PAGE}&around=${enc(at)}`, ol, manager));
-      if (gen === windowGen.current) setPage((cur) => cur && mergeAround(cur, r));
+      if (gen === windowGen.current) setPage((cur) => cur && reusing(cur, mergeAround(cur, r)));
     } catch {
       // the card keeps what it showed; the next push reads the chat again
     }
@@ -235,8 +239,16 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
           if (gen !== windowGen.current) return;
           // A list showing its newest message keeps showing it as more come in (iOS larkFollowsEnd).
           const el = scroller.current;
-          if (el && screensFromEnd(el) < 0.05) toEnd.current = true;
-          setPage((cur) => cur && { ...cur, messages: mergeMessages(cur.messages, r.messages ?? []) });
+          const follow = Boolean(el && screensFromEnd(el) < 0.05);
+          setPage((cur) => {
+            if (!cur) return cur;
+            const messages = keepSameMessages(cur.messages, mergeMessages(cur.messages, r.messages ?? []));
+            // nothing new: the page stays the same object and nothing renders; the list is only told to follow its
+            // end for a page that draws, or a stale flag would move it on a later change
+            if (messages === cur.messages) return cur;
+            if (follow) toEnd.current = true;
+            return { ...cur, messages };
+          });
         })
         .catch(() => {});
     };
@@ -291,7 +303,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
     try {
       const r = await api<LarkPage>(larkPath(`${base}?limit=${PAGE}&after=${enc(p.newer_cursor ?? "")}`, ol, manager));
       if (gen !== windowGen.current) return;
-      setPage((cur) => cur && { ...cur, messages: mergeMessages(cur.messages, r.messages ?? []), has_newer: r.has_newer, newer_cursor: r.newer_cursor });
+      setPage((cur) => cur && { ...cur, messages: keepSameMessages(cur.messages, mergeMessages(cur.messages, r.messages ?? [])), has_newer: r.has_newer, newer_cursor: r.newer_cursor });
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -313,7 +325,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
       if (!got) return;
       const el = scroller.current;
       if (el) anchor.current = holdAnchor(el);
-      setPage((cur) => cur && { ...cur, messages: mergeMessages(cur.messages, got.messages), has_older: got.has_older, older_cursor: got.older_cursor });
+      setPage((cur) => cur && { ...cur, messages: keepSameMessages(cur.messages, mergeMessages(cur.messages, got.messages)), has_older: got.has_older, older_cursor: got.older_cursor });
     } catch (e) {
       paging.current.fail(req, historyProblem(e instanceof ApiError ? e.code : undefined));
     } finally {
@@ -369,10 +381,10 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
       const box = scroller.current;
       setPage((cur) => {
         if (!cur) return cur;
-        if (!kept) return { ...cur, ...r, messages: fresh };
+        if (!kept) return { ...cur, ...r, messages: keepSameMessages(cur.messages, fresh) };
         const have = new Set(cur.messages.map((m) => m.id));
-        if (fresh.some((m) => have.has(m.id))) return { ...cur, messages: mergeMessages(cur.messages, fresh) };
-        return box && screensFromEnd(box) < 0.05 ? { ...cur, ...r, messages: fresh } : cur;
+        if (fresh.some((m) => have.has(m.id))) return { ...cur, messages: keepSameMessages(cur.messages, mergeMessages(cur.messages, fresh)) };
+        return box && screensFromEnd(box) < 0.05 ? { ...cur, ...r, messages: keepSameMessages(cur.messages, fresh) } : cur;
       });
       if (!kept || (box && screensFromEnd(box) < 0.05)) toEnd.current = true;
     } catch (e) {
@@ -513,9 +525,8 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
     group: Boolean(chat.group),
     openImage: setViewing,
     openProfile: setPerson,
-    receipts,
     refresh: refreshAround,
-  }), [feed, chat.group, receipts, refreshAround]);
+  }), [feed, chat.group, refreshAround]);
 
   if (!page) {
     return <div className="p-5">{error ? <p className="text-[12.5px] text-red">{error}</p> : <Loading label={t("inbox-larkthread.loading")} />}</div>;
@@ -525,6 +536,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
   const topicGroup = topic || Boolean(page.topic);
   return (
     <Tools.Provider value={tools}>
+    <Receipts.Provider value={receipts}>
     <div
       className="flex h-full min-h-0 flex-col"
       onDragOver={(e) => {
@@ -566,7 +578,8 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
                 </LarkTopicCard>
               ) : <Message
                 m={m}
-                prev={m.id === firstNew ? undefined : page.messages[i - 1]}
+                compact={m.id !== firstNew && followsOn(m, page.messages[i - 1])}
+                receipt={m.is_mine ? receipts.get(m.id) : undefined}
                 translateTo={translateTo}
                 onReply={handleReply}
                 onAskPersona={handleAskPersona}
@@ -672,6 +685,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
         {adding && <p className="mt-2 line-clamp-3 rounded-[8px] bg-inset px-3 py-2 text-[12.5px] text-ink shadow-hairline">{adding.text || (adding.parts ?? []).map((p) => p.text ?? "").join("") || t("inbox-larkthread.message")}</p>}
       </Dialog>
     </div>
+    </Receipts.Provider>
     </Tools.Provider>
   );
 }
@@ -866,7 +880,8 @@ function useReadReceipts(
         busy.current = false;
       }
       if (rr.current !== r) return;
-      setStates(new Map(r.states));
+      // the same answer keeps the same map (and each unchanged receipt its object): no row renders again for it
+      setStates((cur) => keepSameStates(cur, r.states));
       schedule();
     }, wait);
   }, []);
@@ -881,7 +896,7 @@ function useReadReceipts(
     const r = new ReadReceipts();
     rr.current = r;
     ids.current = "";
-    setStates(new Map());
+    setStates((cur) => (cur.size ? new Map() : cur));
     const root = scroller.current;
     if (ready && root && typeof IntersectionObserver !== "undefined") {
       observer.current = new IntersectionObserver(
@@ -928,6 +943,18 @@ function isSystem(m: LarkMessage) {
   return m.type === "SYSTEM" || (m.parts ?? []).some((p) => p.kind === "text" && p.metadata?.system);
 }
 
+/** A row that follows on under the one before it (same sender within 5 minutes, not a reply) draws no avatar or name.
+ * Worked out by the list and passed as a flag, so a change to the message before does not render this row again. */
+function followsOn(m: LarkMessage, prev: LarkMessage | undefined): boolean {
+  return Boolean(prev && !isSystem(prev) && prev.sender_id === m.sender_id && !m.reply_to
+    && Date.parse(m.created_at ?? "") - Date.parse(prev.created_at ?? "") < 5 * 60_000);
+}
+
+/** `next` (a page read again and merged in) with the messages that read the same keeping `cur`'s objects. */
+function reusing(cur: LarkPage, next: LarkPage): LarkPage {
+  return { ...next, messages: keepSameMessages(cur.messages, next.messages) };
+}
+
 /** Settings › Translation for this chat: the translation of someone else's message in another language, asked for when it shows. */
 function TranslationLine({ m, target }: { m: LarkMessage; target: string }) {
   const text = m.text?.trim() ?? "";
@@ -960,10 +987,12 @@ function MessageBody({ m, translateTo }: { m: LarkMessage; translateTo?: string 
   );
 }
 
-/** One message: who and when, quoted reply, the content, hover action bar, and retry for failed sends. */
-function Message({
+/** One message: who and when, quoted reply, the content, hover action bar, and retry for failed sends. Memoized: the
+ * list keeps the objects of messages that read the same (lib/lark-reuse.ts), so a push renders only the ones that changed. */
+const Message = memo(function Message({
   m,
-  prev,
+  compact: follows,
+  receipt,
   nested,
   translateTo,
   onReply,
@@ -980,7 +1009,10 @@ function Message({
   threadAttachments,
 }: {
   m: LarkMessage;
-  prev?: LarkMessage;
+  /** It follows on under the message before it in the list (followsOn): drawn without its avatar and name. */
+  compact?: boolean;
+  /** The read receipt of my message in the list; a nested one reads it from the chat's receipts. */
+  receipt?: ReadState;
   nested?: boolean;
   translateTo?: string;
   onReply?: (m: LarkMessage) => void;
@@ -1006,6 +1038,8 @@ function Message({
   const ol = useContext(ChatAccount);
   const manager = useItemManager();
   const tools = useContext(Tools);
+  // only a nested message reads the chat's receipts: the list's rows would all render again on each change
+  const state = nested ? use(Receipts).get(m.id) : receipt;
   const [thread, setThread] = useState<LarkMessage[] | null>(null);
   const [opening, setOpening] = useState(false);
   const display = useLarkDisplay(ol);
@@ -1018,10 +1052,9 @@ function Message({
     <button type="button" onClick={() => setHistory(true)} title={t("inbox-larkthread.edit_history_hint")} className="shrink-0 text-[11px] whitespace-nowrap text-ink-3 underline decoration-dotted underline-offset-2 hover:text-ink">{t("inbox-larkthread.edited")}</button>
   ) : <span className="shrink-0 text-[11px] text-ink-3">{t("inbox-larkthread.edited")}</span>;
   const name = m.is_mine ? t("inbox-larkthread.me") : m.sender_name || t("inbox-larkthread.unknown");
-  const compact = !nested && prev && !isSystem(prev) && prev.sender_id === m.sender_id && !m.reply_to
-    && Date.parse(m.created_at ?? "") - Date.parse(prev.created_at ?? "") < 5 * 60_000;
+  const compact = !nested && follows;
   const replies = m.thread_reply_count || m.reply_count || 0;
-  const mark = m.is_mine && !m.sending && !m.failed && tools ? readMark(tools.receipts.get(m.id), tools.group) : null;
+  const mark = m.is_mine && !m.sending && !m.failed && tools ? readMark(state, tools.group) : null;
   const reactions = m.recalled ? [] : reactionsOf(m);
   const openThread = async () => {
     if (thread) return setThread(null);
@@ -1185,7 +1218,7 @@ function Message({
       )}
     </div>
   );
-}
+});
 
 /** A thread opened under its first message: the replies, and a box to reply in the thread (iOS LarkThreadView). */
 function ThreadPanel({ root, thread, setThread, translateTo, attachments }: {
