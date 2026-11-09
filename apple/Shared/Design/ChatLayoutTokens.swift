@@ -18,6 +18,11 @@ nonisolated extension Theme {
     }
 }
 
+nonisolated extension Theme.Motion {
+    /// After ordinary scrolling stops, keep the edge navigator discoverable briefly before fading it away.
+    static let edgeScrubLinger: TimeInterval = 1.5
+}
+
 nonisolated extension Theme.Size {
     /// The band along the conversation's right edge where a slide up or down opens the navigator (`ChatEdgeScrub`):
     /// inside the list's side margin, so no message's own touch is taken.
@@ -25,8 +30,8 @@ nonisolated extension Theme.Size {
     /// A tick of the navigator, one per message the user typed, and the one under the finger.
     static let edgeTick: CGFloat = 10
     static let edgeTickPicked: CGFloat = 22
-    /// The room between two ticks: at most (a short conversation spreads no further) and at least (more messages than
-    /// fit show only the newest).
+    /// Short columns spread no further than the maximum gap. Dense indexes sample visual ticks at the minimum gap,
+    /// while hit testing still addresses every fetched message.
     static let edgeTickGapMax: CGFloat = 14
     static let edgeTickGapMin: CGFloat = 5
 }

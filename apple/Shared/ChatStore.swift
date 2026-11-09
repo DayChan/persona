@@ -458,10 +458,14 @@ final class ChatStore {
     /// "Loading N steps…" (#6038). Starting over forgets them. By the fold's id, the fold as the page brought it.
     @ObservationIgnored private var opened: [String: Item] = [:]
 
-    init(key: SessionKey) {
+    /// Isolated navigation windows must neither hydrate from nor replace the live tail's disk cache.
+    @ObservationIgnored private let cachesTail: Bool
+
+    init(key: SessionKey, cachesTail: Bool = true) {
         self.key = key
+        self.cachesTail = cachesTail
         // Paint the last exchanges from the disk cache right away; the server's backlog merges in after.
-        if let cached = ChatCache.load(key), !cached.items.isEmpty {
+        if cachesTail, let cached = ChatCache.load(key), !cached.items.isEmpty {
             // Refs again: a cache written before they named a chat's group of hubs (#1555) sent its pictures to the
             // current group's hub.
             items = Self.withImageRefs(cached.items, key)
@@ -818,6 +822,7 @@ final class ChatStore {
 
     /// Writes the last two exchanges to the disk cache, a moment after the latest change.
     private func scheduleSave() {
+        guard cachesTail else { return }
         saveTask?.cancel()
         let key = key
         saveTask = Task { [weak self] in

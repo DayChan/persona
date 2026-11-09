@@ -655,15 +655,69 @@ nonisolated struct APIClient: Sendable {
         return try await Task.detached(priority: .userInitiated) { try JSON.decoder.decode(ItemsResponse.self, from: data) }.value
     }
 
+    /// The independent index of real user inputs, oldest first within each page.
+    struct NavigationMessage: Decodable, Equatable, Sendable {
+        var id: String
+        var seq: Int
+        var ts: String?
+        var text: String
+        var hasImage: Bool?
+        var answer: String?
+        enum CodingKeys: String, CodingKey { case id, seq, ts, text, answer; case hasImage = "has_image" }
+    }
+    struct NavigationResponse: Decodable, Sendable {
+        var messages: [NavigationMessage]
+        var hasMore: Bool
+        var nextBeforeSeq: Int?
+        var history: String?
+        enum CodingKeys: String, CodingKey {
+            case messages, history
+            case hasMore = "has_more", nextBeforeSeq = "next_before_seq"
+        }
+    }
+    func navigation(_ k: SessionKey, beforeSeq: Int? = nil, history: String? = nil,
+                    timeout: TimeInterval = 10) async throws -> NavigationResponse {
+        var query = ["limit": "40"]
+        if let beforeSeq { query["before_seq"] = String(beforeSeq) }
+        if let history { query["history"] = history }
+        let data = try await request("GET", sp(k) + "/navigation", query: query, timeout: timeout)
+        return try await Task.detached(priority: .userInitiated) { try JSON.decoder.decode(NavigationResponse.self, from: data) }.value
+    }
+
+    /// A bounded reading window, not a backlog from the latest end. Never apply it to the live chat's coverage.
+    struct NavigationWindowResponse: Decodable, Sendable {
+        var items: [Item]
+        var hasMore: Bool?
+        var moreAfter: Bool?
+        var history: String?
+        var fromSeq: Int?
+        var toSeq: Int?
+        enum CodingKeys: String, CodingKey {
+            case items, history
+            case hasMore = "has_more", moreAfter = "more_after", fromSeq = "from_seq", toSeq = "to_seq"
+        }
+    }
+    func navigationWindow(_ k: SessionKey, aroundSeq: Int? = nil, beforeSeq: Int? = nil,
+                          afterSeq: Int? = nil, history: String?) async throws -> NavigationWindowResponse {
+        var query = ["limit": afterSeq == nil ? "80" : "500", "lazy_images": "1", "fold_work": "1"]
+        if let aroundSeq { query["around_seq"] = String(aroundSeq) }
+        if let beforeSeq { query["before_seq"] = String(beforeSeq) }
+        if let afterSeq { query["after_seq"] = String(afterSeq) }
+        if let history { query["history"] = history }
+        let data = try await request("GET", sp(k) + "/items", query: query)
+        return try await Task.detached(priority: .userInitiated) { try JSON.decoder.decode(NavigationWindowResponse.self, from: data) }.value
+    }
+
     /// The work a fold stands for (`Item.fold`): its lines, a page (about 1000 items) at a time.
-    func foldedWork(_ k: SessionKey, _ fold: Item) async throws -> [Item] {
+    func foldedWork(_ k: SessionKey, _ fold: Item, history: String? = nil) async throws -> [Item] {
         struct Range: Decodable, Sendable { var items: [Item]; var more: Bool? }
         guard let through = fold.fold?.throughSeq else { return [] }
         var out: [Item] = []
         var from = fold.seq
         for _ in 0..<100 {
-            let data = try await request("GET", sp(k) + "/items",
-                                         query: ["from_seq": String(from), "through_seq": String(through), "lazy_images": "1"])
+            var query = ["from_seq": String(from), "through_seq": String(through), "lazy_images": "1"]
+            if let history { query["history"] = history }
+            let data = try await request("GET", sp(k) + "/items", query: query)
             let page = try await Task.detached(priority: .userInitiated) { try JSON.decoder.decode(Range.self, from: data) }.value
             out += page.items
             guard page.more == true, let last = page.items.last else { break }

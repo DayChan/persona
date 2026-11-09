@@ -174,6 +174,18 @@ struct ChatView: View {
     @State private var quoteFlash: QuoteFlashMark?
     /// The right-edge navigator while a finger is on it (new conversation layout, `ChatEdgeScrub`).
     @State private var scrub = EdgeScrubState()
+    @State private var navigation = SessionNavigationModel()
+    /// The independent navigation index is scoped to the visible session and the live transcript revision.
+    private struct NavigationScope: Equatable {
+        var key: SessionKey
+        var supported: Bool
+        var resets: Int
+        var history: String?
+    }
+    private var navigationScope: NavigationScope {
+        NavigationScope(key: shownKey, supported: model.features(shownKey.group).contains(SessionNavigationModel.feature),
+                        resets: liveStore.resets, history: liveStore.history)
+    }
     /// Offered once this chat's pending card was answered and another conversation needs you (#4348); nil until then.
     @State private var offeredNext: SessionKey?
 
@@ -204,7 +216,9 @@ struct ChatView: View {
     static func shownKey(_ key: SessionKey, viewing: Subagent?) -> SessionKey {
         viewing.map { SessionKey(group: key.group, machineID: key.machineID, sessionID: $0.sessionID) } ?? key
     }
-    private var store: ChatStore { model.chat(shownKey) }
+    private var liveStore: ChatStore { model.chat(shownKey) }
+    private var readingWindow: ChatStore? { navigation.window.flatMap { $0.key == shownKey ? $0 : nil } }
+    private var store: ChatStore { readingWindow ?? liveStore }
     #if DEBUG || PERF_SIGNPOST
     private static let printsChanges = UserDefaults.standard.bool(forKey: "showPerfChanges")
     #endif
@@ -775,12 +789,26 @@ struct ChatView: View {
             if viewing != nil { model.subscribe(shownKey, by: owner) }
             model.show(key, by: owner)
             model.markSeen(key)
+            Task { await activateNavigation() }
         }, disappear: {
             rememberReadPosition()
+            navigation.suspend()
+            scrub.close()
             if viewing != nil { model.unsubscribe(shownKey, by: owner) }
             model.unsubscribe(key, by: owner)
             model.hide(by: owner)
         })
+        .task(id: navigationScope) { await activateNavigation() }
+        .onChange(of: readingWindow != nil) { wasReading, isReading in
+            guard wasReading, !isReading else { return }
+            frozen = nil
+            setFollow { $0.follow() }
+            scrollToEnd()
+        }
+        .onChange(of: liveStore.pending.count) { old, new in
+            guard readingWindow != nil, new > old else { return }
+            jumpToEnd()
+        }
         .onChange(of: session?.state) { _, st in
             if st == .unread && model.visibleSession == key { model.markSeen(key) }
         }
@@ -794,8 +822,9 @@ struct ChatView: View {
         let items = store.items
         // Frozen: the items up to the snapshot (they are in transcript order); what comes after waits.
         let cut = frozen.map { f in Self.prefixCount(items) { ($0.seq, $0.part) <= (f.seq, f.part) } } ?? items.count
-        let feed = style == .assistant ? TasksStore.shared.feed(shownKey.sessionID) : []
-        let key = ChatScratch.LinesKey(store: "\(shownKey.machineID)/\(shownKey.sessionID)", version: frozen == nil ? store.version : cut,
+        let feed = style == .assistant && readingWindow == nil ? TasksStore.shared.feed(shownKey.sessionID) : []
+        let source = String(describing: ObjectIdentifier(store))
+        let key = ChatScratch.LinesKey(store: "\(shownKey.machineID)/\(shownKey.sessionID)/\(source)", version: frozen == nil ? store.version : cut,
                                        first: items.first?.id, live: frozen == nil ? liveTurnID : frozen?.live, open: openWork,
                                        runs: openRuns, frozen: frozen, feed: feed.map(\.id),
                                        streaming: drawsLive && (frozen.map { !$0.text.isEmpty } ?? liveShown),
@@ -815,6 +844,7 @@ struct ChatView: View {
         }
         scratch.lines = lines
         scratch.linesKey = key
+        scratch.edgeViewport.rebuild(lines, history: readingWindow == nil ? store.history : navigation.history)
         ChatTrace.shared.note(shownKey, ChatTrace.screen(lines, live: store.liveText.count, streaming: key.streaming, running: key.live != nil,
                                                          frozen: frozen != nil, withheld: items.count - cut))
         return lines
@@ -1537,6 +1567,7 @@ struct ChatView: View {
     }
 
     private func prefetchOlder() {
+        guard readingWindow == nil else { return } // historical windows page only at an explicit reading boundary
         let store = store
         guard userScrolled, store.hasMore, !store.isLoadingOlder else { return }
         Task { await model.loadOlder(shownKey) }
@@ -1588,18 +1619,22 @@ struct ChatView: View {
 
     private func jumpToEnd() {
         Haptics.tap()
+        navigation.returnToLatest()
+        frozen = nil
+        scratch.linesKey = nil
         setFollow { $0.follow() }
         scrollToEnd(animated: true)
     }
 
-    /// ↓ shows: the follow state says so, once the chat has settled on entry.
-    private var arrowShows: Bool { follow.arrow && settled && !pinRising }
+    /// A reading window may end well before latest even when its own bottom fits on screen.
+    private var arrowShows: Bool { (readingWindow != nil || follow.arrow) && settled && !pinRising }
 
     /// Changes the follow state; written back only if it changed (the geometry reports every frame of a scroll, and
     /// each write would evaluate the page again).
     private func setFollow(_ change: (inout ChatFollow) -> Void) {
         var next = follow
         change(&next)
+        if readingWindow != nil, next.mode == .following { next.read() }
         guard next != follow else { return }
         // Out of a kept hold (↓, sending, the user's scrolling): the pin lets go of the header too; into another hold
         // (folded, another line opened), what was tapped settles first.
@@ -1652,7 +1687,7 @@ struct ChatView: View {
     private var liveShown: Bool { ChatLiveText.shows(store) }
     /// The chat draws live text: the assistant's in the main chat, and an agent's as Claude shows it in any chat of it
     /// (docs/integrations/claude-integration.md "Live replies (MessageDisplay)"), the same way.
-    private var drawsLive: Bool { style == .assistant || store.liveIsAgents }
+    private var drawsLive: Bool { readingWindow == nil && (style == .assistant || store.liveIsAgents) }
 
     /// A message of yours is the newest thing and the agent has not begun on it: no turn running yet, the session at
     /// work or starting up, or the message just sent and the hub not saying working yet (#3853).
@@ -1663,7 +1698,7 @@ struct ChatView: View {
     }
 
     private var liveTurnID: String? {
-        guard case .turn(let t) = store.blocks.last else { return nil }
+        guard readingWindow == nil, case .turn(let t) = store.blocks.last else { return nil }
         // The work is for a message of yours still on its way, not for this turn: that message's getting-ready line
         // stands for it until its copy comes in (`startingTurn`).
         if viewedAgent == nil,
@@ -1819,7 +1854,7 @@ struct ChatView: View {
             Color.clear.frame(height: Theme.Size.line)
             ChatRegion(name: "ChatTranscript.body") {
                 chatScroll()
-                    .overlay { if layout.on { EdgeScrubOverlay(state: scrub) } }
+                    .overlay { if layout.on { SessionNavigationOverlay(navigation: navigation, scrub: scrub, viewport: scratch.edgeViewport) } }
                     .modifier(EdgeScrubbing(on: layout.on, band: scrubBand, changed: scrubbed))
                     .overlay(alignment: .bottomTrailing) { jumpArrow }
                     #if DEBUG
@@ -1882,23 +1917,67 @@ struct ChatView: View {
         }
     }
 
+    private func activateNavigation() async {
+        #if os(iOS)
+        guard layout.on, model.isSubscribed(shownKey, by: owner) else { return }
+        await navigation.activate(shownKey, api: model.api(shownKey.group), supported: navigationScope.supported, live: liveStore)
+        #endif
+    }
+
+    /// Ordinary list scrolling only observes the prepared interval, changing the small overlay, not the page.
+    private func passiveScrub() {
+        #if os(iOS)
+        guard layout.on, !scrub.isGestureActive, scratch.userDragging || scrub.isOpen else { return }
+        let viewport = scratch.edgeViewport
+        scrub.passive(viewport.marks, revision: viewport.revision, seq: viewport.currentSequence,
+                      height: scratch.listFrame.height, top: headerRoom, scrolling: scratch.userDragging)
+        #endif
+    }
+
     #if os(iOS)
-    /// The right-edge navigator's finger (`EdgeScrubGesture`): opens on the messages the user typed, picks as it moves,
-    /// goes to the picked one as it lets go.
+    /// The right-edge navigator's finger: previews and prefetches indexes during the gesture; loads bodies on release.
     private func scrubbed(_ p: CGPoint, _ phase: UIGestureRecognizer.State) {
         let y = p.y - scratch.listFrame.minY
         switch phase {
         case .began:
+            navigation.cancelLanding()
+            _ = currentLines()
+            let marks = scratch.edgeViewport.marks
             let opened = withAnimation(Theme.Motion.state) {
-                scrub.open(EdgeScrubState.marks(currentLines()), height: scratch.listFrame.height, top: headerRoom, at: y)
+                scrub.open(marks, height: scratch.listFrame.height, top: headerRoom, at: y)
             }
             if opened { EdgeScrubHaptics.open() }
+            prefetchNavigation()
+            Task { await navigation.loadIndex(refresh: true) }
         case .changed:
             if scrub.move(to: y) { EdgeScrubHaptics.tick() }
+            prefetchNavigation()
         case .ended:
-            if let mark = withAnimation(Theme.Motion.state, { scrub.close() }) { jumpToLine(mark.id) }
+            if let mark = withAnimation(Theme.Motion.state, { scrub.close() }) { selectNavigation(mark) }
         default:
             withAnimation(Theme.Motion.state) { _ = scrub.close() }
+        }
+    }
+
+    private func prefetchNavigation() {
+        let picked = scrub.picked, count = scrub.marks.count
+        let older = scrub.movingOlder, entered = scrub.enteredOlderHalf, before = navigation.nextBeforeSeq
+        Task { await navigation.prefetch(picked: picked, count: count, movingOlder: older, enteredOlderHalf: entered, beforeSeq: before) }
+    }
+
+    private func selectNavigation(_ mark: EdgeMark) {
+        let selectedKey = shownKey, revision = navigation.selectionRevision
+        let loaded = currentLines().contains { $0.id == mark.id || $0.holds(mark.id) }
+        Task { @MainActor in
+            guard shownKey == selectedKey, navigation.selectionRevision == revision else { return }
+            guard let selection = await navigation.select(mark, loaded: loaded), shownKey == selectedKey else {
+                if shownKey == selectedKey, let error = navigation.error { model.toast = Toast(error, style: .error) }
+                return
+            }
+            guard selection.revision == navigation.selectionRevision else { return }
+            frozen = nil
+            scratch.linesKey = nil
+            if let line = currentLines().first(where: { $0.id == selection.id || $0.holds(selection.id) }) { jumpToLine(line.id) }
         }
     }
     #else
@@ -1912,9 +1991,18 @@ struct ChatView: View {
         userScrolled = true
         entry = nil
         setFollow { $0.read() }
+        let selectedKey = shownKey, source = store, revision = navigation.selectionRevision
         Task { @MainActor in
+            guard shownKey == selectedKey, store === source, navigation.selectionRevision == revision,
+                  model.isSubscribed(selectedKey, by: owner) else { return }
+            await Task.yield()
+            guard shownKey == selectedKey, store === source, navigation.selectionRevision == revision else { return }
             withAnimation(Theme.Motion.standard) { position.scrollTo(id: id, anchor: .center) }
+            // Lazy estimates can miss a distant row. Give it layout time, then repeat the identity-based landing.
             try? await Task.sleep(for: .milliseconds(250))
+            guard shownKey == selectedKey, store === source, navigation.selectionRevision == revision,
+                  model.isSubscribed(selectedKey, by: owner) else { return }
+            position.scrollTo(id: id, anchor: .center)
             quoteFlash = QuoteFlashMark(line: id)
         }
     }
@@ -2003,7 +2091,10 @@ struct ChatView: View {
 
     /// Opening a work line the page folded fetches its steps (docs/protocol/protocol.md「折叠的工作」).
     private var openFold: (Item) async throws -> Void {
-        { [model, shownKey] fold in try await model.unfold(shownKey, fold) }
+        { [model, shownKey, navigation] fold in
+            if navigation.window?.key == shownKey { try await navigation.unfold(fold) }
+            else { try await model.unfold(shownKey, fold) }
+        }
     }
 
     @ViewBuilder private var footer: some View {
@@ -2253,6 +2344,8 @@ struct ChatView: View {
     private func view(_ agent: Subagent?) {
         guard agent?.id != viewing?.id else { return }
         Haptics.tap()
+        navigation.clearSession()
+        scrub.close()
         if viewing != nil { model.unsubscribe(shownKey, by: owner) }
         withAnimation(Theme.Motion.standard) { viewing = agent }
         if agent != nil { model.subscribe(shownKey, by: owner) }
@@ -2272,9 +2365,13 @@ struct ChatView: View {
                 .frame(height: Theme.Size.line)
                 .padding(.bottom, -Theme.Size.line)
                 .id(Self.bottomID)
+            if readingWindow != nil, navigation.moreAfter { windowPageButton(older: false).flippedBack() }
+            if readingWindow != nil, let error = navigation.error {
+                Text(error).font(Theme.Font.label).foregroundStyle(Theme.danger).flippedBack()
+            }
             // A voice call's captions, the thread's last rows while it is bound here (docs/assistant/voice.md 6.2): they read the
             // call themselves; the page only asks whether one is bound.
-            if viewing == nil, VoiceCalls.shared.isBound(to: key) {
+            if readingWindow == nil, viewing == nil, VoiceCalls.shared.isBound(to: key) {
                 VoiceThreadTail(key: key, held: frozen != nil)
                     .flippedBack()
                     .id("voice-tail")
@@ -2337,17 +2434,38 @@ struct ChatView: View {
             case .none: EmptyView()
             }
             if store.hasMore {
-                // Reaching the far (oldest) end loads the page before it — only once the user has dragged the list.
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Theme.Space.sm)
-                    .task(id: "\(rows.first?.id ?? "")|\(userScrolled)") { if userScrolled { await model.loadOlder(shownKey) } }
+                if readingWindow != nil {
+                    windowPageButton(older: true).flippedBack()
+                } else {
+                    // Only the live source uses its ordinary older-history prefetch path.
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Theme.Space.sm)
+                        .task(id: "\(rows.first?.id ?? "")|\(userScrolled)") { if userScrolled { await model.loadOlder(shownKey) } }
+                }
             }
         }
         .scrollTargetLayout()
         .coordinateSpace(.named(ChatPin.space))
         .background { ChatPin.Finder(pin: pin) }
+    }
+
+    private func windowPageButton(older: Bool) -> some View {
+        Button {
+            Task { await navigation.loadWindow(older: older) }
+        } label: {
+            HStack(spacing: Theme.Space.s) {
+                if navigation.loadingPage { ProgressView().controlSize(.small) }
+                Text(older ? String(localized: "Load Earlier Messages") : String(localized: "Load More"))
+                    .lineLimit(1)
+            }
+        }
+        .themedButton()
+        .disabled(navigation.loadingPage)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Theme.Space.sm)
+        .accessibilityIdentifier(older ? "chat.navigation.older" : "chat.navigation.newer")
     }
 
     /// A message sent from here, not in the transcript yet: its bubble with Retry / Discard when it failed.
@@ -2376,7 +2494,11 @@ struct ChatView: View {
         }
         // Any part of a row on screen: `visibleLines` counts a row once half of it is, and a line taller than two
         // screens never is. None at all after a landing is a blank page (`mendBlankLanding`).
-        .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { ids in scratch.drawnLines = ids }
+        .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { ids in
+            scratch.drawnLines = ids
+            scratch.edgeViewport.setVisible(ids)
+            passiveScrub()
+        }
         .flippedBack() // the scroll view itself upside down; every row above is flipped back
         // Safe areas would land on the wrong ends of a flipped scroll view: ignore them and add the room ourselves.
         // (Content top = the composer side on screen, content bottom = the navigation side.) The newest end has no
@@ -2412,6 +2534,7 @@ struct ChatView: View {
             scratch.newestGap = new.offset + new.top
             setFollow { $0.scrolled(gap: scratch.newestGap) }
             chrome.offset = new.offset
+            passiveScrub() // also reconcile the highlighted interval after image/layout size changes
             // A height change (keyboard) moves the offset too: that is not the user scrolling.
             if old.height != new.height { return }
             scrolled(by: new.offset - old.offset)
@@ -2422,6 +2545,9 @@ struct ChatView: View {
             if phase != .idle { scratch.lastActivity = .now }
             let flick = phase == .decelerating && (old == .tracking || old == .interacting || scratch.userDragging)
             scratch.userDragging = phase == .tracking || phase == .interacting || flick
+            if phase == .idle, old != .idle {
+                scrub.stopPassive()
+            }
             if phase == .idle, old != .idle, old != .animating {
                 settleChrome() // the finger lifted, the glide ended
                 setFollow { $0.released() } // where the user's scrolling stopped decides (nothing if it was the app's)
@@ -2431,6 +2557,8 @@ struct ChatView: View {
             // a field inside the list ("Other answer…") keeps the keyboard it opens.
             if phase == .interacting { Keyboard.dismiss() }
             if phase == .tracking || phase == .interacting {
+                if !scrub.isGestureActive { navigation.cancelLanding() }
+                passiveScrub()
                 scratch.lastUserScroll = .now
                 menu.dismiss()
                 entry = nil // the user scrolls on their own: no landing on the saved place after this
@@ -2480,6 +2608,7 @@ struct ChatView: View {
         // New content while following: back to offset 0 (exact; nothing to estimate).
         .onChange(of: store.resets) { _, _ in frozen = nil } // the snapshot's items are gone
         .onChange(of: follow.holdsBack) { _, holds in
+            guard readingWindow == nil else { frozen = nil; return }
             ChatTrace.shared.note(shownKey, "\(holds ? "hold back" : "let go") mode=\(follow.mode) near=\(follow.near ? 1 : 0) touching=\(follow.touching ? 1 : 0)")
             if !holds {
                 frozen = nil
@@ -3510,7 +3639,8 @@ struct ChatView: View {
     #if DEBUG && os(iOS)
     private func showEdgeScrub(_ n: Int) async {
         try? await Task.sleep(for: .seconds(4)) // the chat loaded and settled
-        let marks = EdgeScrubState.marks(currentLines())
+        _ = currentLines()
+        let marks = scratch.edgeViewport.marks
         guard scrub.open(marks, height: scratch.listFrame.height, top: headerRoom, at: 0) else { return }
         scrub.pick(max(0, marks.count - n))
     }
@@ -3613,6 +3743,8 @@ struct ChatView: View {
         guard next != key else { return }
         Haptics.tap()
         rememberReadPosition()
+        navigation.clearSession()
+        scrub.close()
         if viewing != nil { model.unsubscribe(shownKey, by: owner); viewing = nil }
         model.unsubscribe(key, by: owner)
         key = next
@@ -5219,7 +5351,7 @@ struct ChatLine: Identifiable {
         guard let id else { return false }
         switch content {
         case .row(let r): return r.id == id
-        case .recaps(_, let items): return items.contains { $0.id == id }
+        case .recaps(_, let items), .userImages(_, let items): return items.contains { $0.id == id }
         default: return false
         }
     }
@@ -5847,6 +5979,8 @@ private struct GoneWhen: ViewModifier {
 /// Per-chat bookkeeping that must not redraw the page when it changes. A plain class held in @State: SwiftUI keeps
 /// the same instance across renders but does not observe it.
 final class ChatScratch {
+    /// Prepared input intervals for passive navigation; mutations never invalidate the chat page.
+    let edgeViewport = EdgeScrubViewport()
     var prewarmSource = ""
     var prewarmedIDs = Set<String>()
     struct LinesKey: Equatable {

@@ -112,13 +112,15 @@ struct ChatLayoutTests {
         #expect(c.index(at: 1000) == 2)
     }
 
-    @Test func manyTicksKeepTheNewestThatFit() throws {
+    @Test func manyTicksKeepEveryFetchedMessageReachable() throws {
         let c = try #require(EdgeScrubColumn.fit(marks: 500, height: 300, top: 0, bottom: 0))
-        let fits = Int(300 / Theme.Size.edgeTickGapMin) + 1
-        #expect(c.count == fits)
-        #expect(c.first == 500 - fits)
-        #expect(c.gap >= Theme.Size.edgeTickGapMin)
-        #expect(c.index(at: 10_000) == 499) // the bottom tick is the newest message
+        #expect(c.count == 500)
+        #expect(c.first == 0)
+        #expect(c.gap < Theme.Size.edgeTickGapMin)
+        #expect(c.index(at: -1000) == 0)
+        #expect(c.index(at: 10_000) == 499)
+        #expect(c.drawnIndices(picked: 257).contains(257))
+        #expect(c.drawnIndices(picked: nil).count <= Int(300 / Theme.Size.edgeTickGapMin) + 2)
         #expect(EdgeScrubColumn.fit(marks: 0, height: 300, top: 0, bottom: 0) == nil)
         #expect(EdgeScrubColumn.fit(marks: 4, height: 50, top: 40, bottom: 20) == nil)
     }
