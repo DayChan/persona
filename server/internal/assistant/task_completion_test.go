@@ -276,6 +276,80 @@ func TestReceiptLookCancelledAndReplaced(t *testing.T) {
 	})
 }
 
+func TestReceiptLookRestoresFollowupAfterFeedWrite(t *testing.T) {
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	linked := time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC)
+	first := receiptTestService(t, f, st, linked)
+	second := receiptTestService(t, f, st, linked)
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone,
+		State: proto.StateUnread, TurnError: "service unavailable"})
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		first.restoreTaskReceiptLooks(ctx)
+		first.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Minute))
+		ref := SessionRef{MachineID: "box", SessionID: "s1"}
+		if _, err := first.appendTaskReceipt(ctx, todoNow(first, "task"), ref, receiptBody{State: "interrupted"}); err != nil {
+			t.Fatal(err)
+		}
+		// The old manager stopped after the feed insert, before the notice and report.
+		cancel()
+		restarted, stop := context.WithCancel(context.Background())
+		defer stop()
+		second.restoreTaskReceiptLooks(restarted)
+		<-time.After(time.Minute)
+		synctest.Wait()
+		st.feedMu.Lock()
+		n := len(st.feed)
+		st.feedMu.Unlock()
+		second.reports.mu.Lock()
+		report := second.reports.pending["task"]
+		second.reports.mu.Unlock()
+		if n != 1 || report == nil || report.state != reportInterrupted {
+			t.Fatalf("feed count %d, follow-up report %+v", n, report)
+		}
+		var state receiptLookState
+		if _, err := st.Setting(restarted, receiptLooksSetting, &state); err != nil || len(state.Looks) != 0 {
+			t.Fatalf("followed-up look not cleared: %+v %v", state, err)
+		}
+	})
+}
+
+func TestReceiptLookRestoresJudgmentAfterFeedWrite(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	st := &receiptOnceStore{}
+	f := newFakeHub()
+	f.judge = `{"verdict":"done","reason":"Verified"}`
+	linked := time.Now().Add(-time.Hour)
+	first := receiptTestService(t, f, st, linked)
+	second := receiptTestService(t, f, st, linked)
+	f.setItems(proto.Item{Kind: proto.KindText, Role: "user", Text: "Do the work"},
+		proto.Item{Kind: proto.KindText, Role: "assistant", Text: "Work verified"})
+	f.setSessions("box", proto.Session{MachineID: "box", SessionID: "s1", Status: proto.StatusDone,
+		State: proto.StateUnread, LastText: "Work verified", UpdatedAt: time.Now()})
+	first.restoreTaskReceiptLooks(ctx)
+	first.taskTurnEndedAfter(ctx, "box", "s1", time.Now().Add(time.Hour))
+	ref := SessionRef{MachineID: "box", SessionID: "s1"}
+	if _, err := first.appendTaskReceipt(ctx, todoNow(first, "task"), ref, receiptBody{State: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the manager after the feed write and run its recovered check.
+	second.taskTurnEnded(ctx, "box", "s1")
+	f.mu.Lock()
+	judged := f.judged
+	f.mu.Unlock()
+	if judged == 0 {
+		t.Fatal("recovered receipt skipped the completion judgment")
+	}
+	st.feedMu.Lock()
+	n := len(st.feed)
+	st.feedMu.Unlock()
+	if n != 1 {
+		t.Fatalf("feed has %d receipts", n)
+	}
+}
+
 func TestReceiptLookLostFeedAcknowledgment(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -290,10 +364,11 @@ func TestReceiptLookLostFeedAcknowledgment(t *testing.T) {
 	if _, err := first.appendTaskReceipt(ctx, todoNow(first, "task"), ref, receiptBody{State: "done"}); err == nil {
 		t.Fatal("lost acknowledgment was not reported")
 	}
-	inserted, err := second.appendTaskReceipt(ctx, todoNow(second, "task"), ref, receiptBody{State: "done"})
-	if err != nil || inserted {
-		t.Fatalf("repeat insert = %v, %v", inserted, err)
+	receiptID, err := second.appendTaskReceipt(ctx, todoNow(second, "task"), ref, receiptBody{State: "done"})
+	if err != nil || receiptID == "" {
+		t.Fatalf("repeat insert = %q, %v", receiptID, err)
 	}
+	second.finishTaskReceipt(ctx, "task", receiptID)
 	st.feedMu.Lock()
 	n := len(st.feed)
 	st.feedMu.Unlock()

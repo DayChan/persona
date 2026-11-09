@@ -271,17 +271,15 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 		where := [2]string{cut.MachineID, cut.SessionID}
 		body := receiptBody{Title: t.Title, State: "interrupted", Summary: i18n.T(s.lang(cctx), "assistant-tasks.interrupted"), Machine: name,
 			Error: clip(strings.TrimSpace(cut.TurnError), 300)}
-		inserted, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
+		receiptID, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
 		if err != nil {
 			s.logf("task %s: receipt: %v", t.ID, err)
 			return
 		}
-		committed = true
-		if !inserted {
-			return
-		}
 		s.taskNotice(cctx, t, name, "interrupted", "", body.Error)
 		s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		committed = true
+		s.finishTaskReceipt(cctx, t.ID, receiptID)
 		return
 	}
 	items, read := s.lastTurnItems(cctx, last.MachineID, last.SessionID)
@@ -316,17 +314,15 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 		l := s.lang(cctx)
 		body := receiptBody{Title: t.Title, State: "interrupted", Summary: i18n.T(l, "assistant-tasks.interrupted"), Machine: name,
 			Error: silentTurnErrorIn(l)}
-		inserted, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
+		receiptID, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
 		if err != nil {
 			s.logf("task %s: receipt: %v", t.ID, err)
 			return
 		}
-		committed = true
-		if !inserted {
-			return
-		}
 		s.taskNotice(cctx, t, name, "interrupted", "", body.Error)
 		s.taskReport(t, reportInterrupted, name, where, body.Error, nil)
+		committed = true
+		s.finishTaskReceipt(cctx, t.ID, receiptID)
 		return
 	}
 	// The whole last reply, as Markdown: the session list's last_text is one line cut at 200 characters.
@@ -348,13 +344,9 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	if pr := prLink.FindAllString(text, -1); len(pr) > 0 {
 		body.PR = pr[len(pr)-1]
 	}
-	inserted, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
+	receiptID, err := s.appendTaskReceipt(cctx, t, SessionRef{MachineID: machine, SessionID: sid}, body)
 	if err != nil {
 		s.logf("task %s: receipt: %v", t.ID, err)
-		return
-	}
-	committed = true
-	if !inserted {
 		return
 	}
 	s.taskNotice(cctx, t, name, "done", "", clipMarkdown(text, 1500))
@@ -365,14 +357,16 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	}
 	s.taskReport(t, reportDone, name, [2]string{last.MachineID, last.SessionID}, text, nil)
 	s.autoFinishTask(t, since, worked) // the work may be finished: then the todo is done (done.go)
+	committed = true
+	s.finishTaskReceipt(cctx, t.ID, receiptID)
 }
 
 // appendTaskReceipt uses a pending look's ID for both ordinary stops and timer checks.
-func (s *Service) appendTaskReceipt(ctx context.Context, t Todo, ref SessionRef, body receiptBody) (bool, error) {
+func (s *Service) appendTaskReceipt(ctx context.Context, t Todo, ref SessionRef, body receiptBody) (string, error) {
 	s.tasks.receiptMu.Lock()
 	defer s.tasks.receiptMu.Unlock()
 	if err := s.receiptLooksLocked(ctx); err != nil {
-		return false, err
+		return "", err
 	}
 	var look receiptLook
 	for _, candidate := range s.tasks.receiptLooks {
@@ -383,36 +377,21 @@ func (s *Service) appendTaskReceipt(ctx context.Context, t Todo, ref SessionRef,
 	}
 	if look.ID == "" {
 		_, err := s.appendFeed(ctx, t.Origin, feedReceipt, t.ID, body)
-		return err == nil, err
+		return "", err
 	}
 	// Refuse a stale task snapshot after an unlink, transfer, or close.
 	valid, err := s.receiptLookLinked(ctx, look)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if !valid {
-		return false, errors.New("receipt look no longer belongs to this task")
+		return "", errors.New("receipt look no longer belongs to this task")
 	}
 	current, ok := s.taskOf(ctx, ref.MachineID, ref.SessionID)
 	currentLink, linkedOK := receiptLink(current, ref)
 	oldLink, wasLinked := receiptLink(t, ref)
 	if !ok || current.ID != t.ID || !linkedOK || !wasLinked || !currentLink.Equal(oldLink) {
-		return false, nil
-	}
-	remove := func() {
-		removed := make(map[SessionRef]receiptLook)
-		for key, wait := range s.tasks.receiptLooks {
-			if wait.Todo == t.ID && wait.ID == look.ID {
-				removed[key] = wait
-				delete(s.tasks.receiptLooks, key)
-			}
-		}
-		if err := s.saveReceiptLooksLocked(ctx); err != nil {
-			for key, wait := range removed {
-				s.tasks.receiptLooks[key] = wait
-			}
-			s.logf("task %s: clear receipt look: %v", t.ID, err)
-		}
+		return "", errors.New("receipt task association changed")
 	}
 	type onceStore interface {
 		AppendFeedOnce(context.Context, db.FeedRow) (bool, error)
@@ -420,30 +399,63 @@ func (s *Service) appendTaskReceipt(ctx context.Context, t Todo, ref SessionRef,
 	st, ok := s.store().(onceStore)
 	if !ok {
 		if s.store() != nil {
-			return false, errors.New("receipt looks require idempotent feed writes")
+			return "", errors.New("receipt looks require idempotent feed writes")
 		}
 		_, err := s.appendFeed(ctx, t.Origin, feedReceipt, t.ID, body)
-		if err != nil {
-			return false, err
-		}
-	} else {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return false, err
-		}
-		item := FeedItem{ID: look.ID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
-		inserted, err := st.AppendFeedOnce(ctx, db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body})
-		if err != nil {
-			return false, err
-		}
-		if inserted {
-			s.event(ctx, map[string]any{"type": "assistant_feed", "conversation": t.Origin, "item": item})
-		}
-		remove()
-		return inserted, nil
+		return look.ID, err
 	}
-	remove()
-	return true, nil
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	item := FeedItem{ID: look.ID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
+	inserted, err := st.AppendFeedOnce(ctx, db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body})
+	if err != nil {
+		return "", err
+	}
+	if inserted {
+		s.event(ctx, map[string]any{"type": "assistant_feed", "conversation": t.Origin, "item": item})
+	}
+	// A duplicate feed row can mean the process stopped before doing the follow-up.
+	// Keep the wait until the caller has attempted that work.
+	return look.ID, nil
+}
+
+func (s *Service) finishTaskReceipt(ctx context.Context, todoID, receiptID string) {
+	if receiptID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	s.tasks.receiptMu.Lock()
+	defer s.tasks.receiptMu.Unlock()
+	lifetime := s.tasks.receiptCtx
+	if lifetime == nil {
+		lifetime = context.Background()
+	}
+	retry := func() {
+		if lifetime.Err() == nil {
+			s.finishTaskReceipt(lifetime, todoID, receiptID)
+		}
+	}
+	if err := s.receiptLooksLocked(ctx); err != nil {
+		s.logf("task %s: load receipt look to finish: %v", todoID, err)
+		time.AfterFunc(time.Minute, retry)
+		return
+	}
+	changed := false
+	for ref, look := range s.tasks.receiptLooks {
+		if look.Todo == todoID && look.ID == receiptID {
+			delete(s.tasks.receiptLooks, ref)
+			changed = true
+		}
+	}
+	if changed {
+		if err := s.saveReceiptLooksLocked(ctx); err != nil {
+			s.logf("task %s: finish receipt look: %v", todoID, err)
+			time.AfterFunc(time.Minute, retry)
+		}
+	}
 }
 
 // taskTurnEndedAfter has taskTurnEnded look at sid's task again at at. What happened meanwhile decides as ever: a turn
