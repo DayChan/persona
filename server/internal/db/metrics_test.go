@@ -11,8 +11,7 @@ import (
 )
 
 // A tick's samples of every machine go in one transaction (one xmin for all its rows: one commit and one WAL flush),
-// and the charts read the same as from one InsertMetric per sample. A rejected sample fails the whole batch and
-// stores nothing of it, which is what lets the caller write them one at a time instead (devices/metrics.go).
+// and the charts read the same as from one InsertMetric per sample. A sample Postgres rejects costs only itself.
 func TestInsertMetricsOneTransaction(t *testing.T) {
 	d, ctx := open(t), context.Background()
 	base := time.Date(2026, 11, 9, 8, 0, 0, 0, time.UTC)
@@ -50,8 +49,8 @@ func TestInsertMetricsOneTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, samples := range ticks {
-		if err := d.InsertMetrics(ctx, samples); err != nil {
-			t.Fatal(err)
+		if rejected, err := d.InsertMetrics(ctx, samples); err != nil || rejected != nil {
+			t.Fatal(rejected, err)
 		}
 	}
 	if batched := series(); !reflect.DeepEqual(batched, each) {
@@ -66,13 +65,16 @@ func TestInsertMetricsOneTransaction(t *testing.T) {
 		t.Fatalf("%d transactions for %d ticks, up to %d per tick", txs, len(ticks), perTick)
 	}
 
+	// One machine's clock far off (out of timestamp range) between two good samples: the others are stored.
 	late := base.Add(time.Hour)
-	bad := []MachineSample{{Machine: "m0", Sample: proto.MetricSample{T: late.Unix(), MemTotal: 1}},
-		{Machine: "m1", Sample: proto.MetricSample{T: 1 << 50, MemTotal: 1}}} // a clock far off: out of timestamp range
-	if err := d.InsertMetrics(ctx, bad); err == nil {
-		t.Fatal("a sample out of range was accepted")
+	mixed := []MachineSample{{Machine: "m0", Sample: proto.MetricSample{T: late.Unix(), MemTotal: 1}},
+		{Machine: "m1", Sample: proto.MetricSample{T: 1 << 50, MemTotal: 1}},
+		{Machine: "m2", Sample: proto.MetricSample{T: late.Unix(), MemTotal: 1}}}
+	rejected, err := d.InsertMetrics(ctx, mixed)
+	if err != nil || len(rejected) != 3 || rejected[0] != nil || rejected[1] == nil || rejected[2] != nil {
+		t.Fatalf("rejected %v, %v", rejected, err)
 	}
-	if s, _ := d.MetricSeries(ctx, []string{"m0"}, late, late.Add(time.Minute), RawMetricStep); len(s) != 0 {
-		t.Fatalf("a failed batch stored %+v", s)
+	if s, _ := d.MetricSeries(ctx, nil, late, late.Add(time.Minute), RawMetricStep); len(s) != 2 || len(s["m0"]) != 1 || len(s["m2"]) != 1 {
+		t.Fatalf("stored after a rejected sample: %+v", s)
 	}
 }

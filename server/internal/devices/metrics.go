@@ -27,6 +27,15 @@ const (
 	metricsTidyEach = time.Minute
 	// metricsFresh: a latest sample older than this is not "now" any more (the node stopped sending).
 	metricsFresh = 3 * proto.MetricEvery
+
+	// metricsQueue: samples waiting for Postgres (minutes of a few machines); more are dropped, with a log line.
+	metricsQueue = 1024
+	// metricsGather: how long the writer waits after a tick's first sample for the other machines' samples of that
+	// tick (the nodes sample on the tick's boundary, node/metrics.go), to store them in one transaction.
+	metricsGather       = 2 * time.Second
+	metricsWriteTimeout = 10 * time.Second
+	// metricsStopWrite: how long the samples that came before the manager stopped may take to be stored.
+	metricsStopWrite = 2 * time.Second
 )
 
 type metricsStore interface {
@@ -36,6 +45,12 @@ type metricsStore interface {
 	RollupMetrics(ctx context.Context, before time.Time) (int64, error)
 	PruneMetrics(ctx context.Context, before time.Time) (int64, error)
 	MetricSeries(ctx context.Context, machines []string, from, to time.Time, step int) (map[string][]proto.MetricPoint, error)
+}
+
+// metricsBatchStore stores several machines' samples in one transaction (db.InsertMetrics): one commit, so one WAL
+// flush, a tick instead of one a machine. A store without it gets one InsertMetric a sample.
+type metricsBatchStore interface {
+	InsertMetrics(ctx context.Context, samples []db.MachineSample) (rejected []error, err error)
 }
 
 type metricsBook struct {
@@ -162,14 +177,110 @@ func (d *Devices) onMetrics(machine string, params json.RawMessage) {
 	}
 	d.metrics.latest[machine] = p.Sample
 	d.metrics.mu.Unlock()
-	if st := d.metricsStore(); st != nil {
-		go func() { // not on the node's read loop
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := st.InsertMetric(ctx, machine, p.Sample); err != nil {
-				d.logf("[%s] save metrics: %v", machine, err)
+	if d.metricsStore() == nil {
+		return
+	}
+	s := db.MachineSample{Machine: machine, Sample: p.Sample}
+	s.Sample.Cores = nil // the latest sample's only, not stored
+	select {
+	case d.metricWrites <- s: // written by writeMetrics, not on the node's read loop
+	default: // Postgres is far behind
+		d.logf("[%s] metrics: a sample not saved, the queue is full", machine)
+	}
+}
+
+// writeMetrics stores the queued samples, a tick's samples of all machines in one transaction (the nodes sample on
+// the tick's boundary, node/metrics.go): after a tick's first sample it waits until every machine that sent one
+// lately (metricsFresh) has sent this tick's, at most d.metricsWait; with none lately (the first sample, or all were
+// quiet) it waits that long for whichever come. A store without InsertMetrics gets one InsertMetric each. When ctx
+// ends it stores what has come, then returns.
+func (d *Devices) writeMetrics(ctx context.Context, st metricsStore) {
+	seen := map[string]time.Time{} // when each machine's last sample came
+	for {
+		var first db.MachineSample
+		select {
+		case <-ctx.Done():
+			d.saveMetricsAtStop(st, nil)
+			return
+		case first = <-d.metricWrites:
+		}
+		now := time.Now()
+		waiting := map[string]bool{} // the machines that sent lately and not yet in this batch
+		for m, at := range seen {
+			if now.Sub(at) > metricsFresh {
+				delete(seen, m) // offline, or no longer one of the machines
+			} else {
+				waiting[m] = true
 			}
-		}()
+		}
+		unknown := len(waiting) == 0
+		batch := []db.MachineSample{first}
+		seen[first.Machine] = now
+		delete(waiting, first.Machine)
+		gather := time.NewTimer(d.metricsWait)
+	collect:
+		for unknown || len(waiting) > 0 {
+			select {
+			case s := <-d.metricWrites:
+				batch = append(batch, s)
+				seen[s.Machine] = time.Now()
+				delete(waiting, s.Machine)
+			case <-gather.C:
+				break collect
+			case <-ctx.Done():
+				gather.Stop()
+				d.saveMetricsAtStop(st, batch)
+				return
+			}
+		}
+		gather.Stop()
+		// Not cut off when the manager stops, only bounded: metricsStopWrite more, as for what is still queued.
+		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metricsWriteTimeout)
+		stop := context.AfterFunc(ctx, func() { time.AfterFunc(metricsStopWrite, cancel) })
+		d.saveMetrics(wctx, st, batch)
+		stop()
+		cancel()
+	}
+}
+
+// saveMetricsAtStop stores batch and whatever else is queued, within metricsStopWrite (the manager is stopping).
+func (d *Devices) saveMetricsAtStop(st metricsStore, batch []db.MachineSample) {
+	for drained := false; !drained; {
+		select {
+		case s := <-d.metricWrites:
+			batch = append(batch, s)
+		default:
+			drained = true
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), metricsStopWrite)
+	defer cancel()
+	d.saveMetrics(ctx, st, batch)
+}
+
+// saveMetrics stores samples, in one transaction when the store can; a sample Postgres rejects is logged and costs
+// only itself.
+func (d *Devices) saveMetrics(ctx context.Context, st metricsStore, samples []db.MachineSample) {
+	if len(samples) == 0 {
+		return
+	}
+	bs, ok := st.(metricsBatchStore)
+	if !ok {
+		for _, s := range samples {
+			if err := st.InsertMetric(ctx, s.Machine, s.Sample); err != nil {
+				d.logf("[%s] save metrics: %v", s.Machine, err)
+			}
+		}
+		return
+	}
+	rejected, err := bs.InsertMetrics(ctx, samples)
+	for i, s := range samples {
+		if e := err; e != nil || rejected != nil && rejected[i] != nil {
+			if e == nil {
+				e = rejected[i]
+			}
+			d.logf("[%s] save metrics: %v", s.Machine, e)
+		}
 	}
 }
 
