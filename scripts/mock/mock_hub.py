@@ -4420,11 +4420,18 @@ def node_action(h, p, body):
         tab = {"w1:p2": "w1:t2", "w1:p3": "w1:t2"}.get(src, "w1:t1" if ws == "w1" else ws + ":t1")
         SPLIT_PANES[mid].append({"pane": "%s:p%d" % (ws, n), "terminal": "pane:%s:p%d" % (ws, n), "tab_id": tab, "workspace_id": ws, "title": "zsh", "cwd": "/home/me/persona"})
     elif area == "panes" and verb == "git":
+        # as the hub answers a node's coded refusal (#1888): a 409 in the request's language, the node's words as detail
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import readiness_mock  # the hub's own catalogs (server/internal/i18n)
+        lang = readiness_mock.lang_of(h.headers.get("Accept-Language", ""))
+        def refuse(code, words):
+            return h.send_json({"error": readiness_mock.t(lang, "rpc-errors." + code, reason=words), "code": code, "delivered": "none", "detail": words}, 409)
         if body.get("workspace_id") == "w2" or str(body.get("pane", "")).startswith("w2:"):
-            return h.send_json({"error": "不是 Git 仓库"}, 400)
+            return refuse("not_a_repository", "the folder is not in a Git repository")
         if body.get("op") == "push":
-            return h.send_json({"error": "推送失败（不会强制推送）：git push: ! [rejected] main -> main (fetch first)"}, 409)
-        return h.send_json({"op": body.get("op"), "message": "已是最新" if body.get("op") == "pull" else "已获取远端更新"})
+            return refuse("push_rejected", "git push: ! [rejected] main -> main (fetch first) (nothing was forced)")
+        outcome, message = ("up_to_date", "Already up to date") if body.get("op") == "pull" else ("fetched", "Fetched")
+        return h.send_json({"op": body.get("op"), "outcome": outcome, "message": message})
     elif area == "panes" and verb == "agent":
         time.sleep(0.6)
     return h.send_json({})

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,7 +32,7 @@ func TestGitPullRouteAndPermissions(t *testing.T) {
 			return nil, fmt.Errorf("转发参数不正确：%s, %s", method, params)
 		}
 		if failed.Load() {
-			return nil, fmt.Errorf("工作区有未提交的改动")
+			return nil, &rpc.Error{Code: "uncommitted_changes", Message: "the working tree has uncommitted changes: commit or stash them first"}
 		}
 		return map[string]any{"status": map[string]any{"is_repo": true, "behind": 0}, "updated": true}, nil
 	}
@@ -56,9 +58,20 @@ func TestGitPullRouteAndPermissions(t *testing.T) {
 	if code != http.StatusForbidden || calls.Load() != 1 {
 		t.Fatalf("answer 角色不应执行拉取：%d, calls=%d", code, calls.Load())
 	}
+	// a refusal the node coded (#1888) is a 409 in the client's language, with the node's words as the detail
 	failed.Store(true)
-	code, result = call(t, handler, "POST", path, h.cfg.Token, `{"cwd":"/work/sample"}`)
-	if code != http.StatusBadGateway || result["error"] == nil {
-		t.Fatalf("node 错误应返回客户端：%d, %v", code, result)
+	for lang, want := range map[string]string{"en": "uncommitted changes", "ja": "コミットしていない変更", "zh-Hans": "未提交的改动"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(`{"cwd":"/work/sample"}`))
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("Authorization", "Bearer "+h.cfg.Token)
+		req.Header.Set("Accept-Language", lang)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		if w.Code != http.StatusConflict || out["code"] != "uncommitted_changes" || !strings.Contains(fmt.Sprint(out["error"]), want) ||
+			!strings.Contains(fmt.Sprint(out["detail"]), "commit or stash them first") {
+			t.Fatalf("%s: %d, %v", lang, w.Code, out)
+		}
 	}
 }

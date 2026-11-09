@@ -68427,6 +68427,28 @@
       },
       "extractionState" : "manual"
     },
+    "No commits to push" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No commits to push"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プッシュするコミットはありません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有要推送的提交"
+          }
+        }
+      }
+    },
     "No computer is online right now. Check that your computer is on and Persona Link is running." : {
       "localizations" : {
         "en" : {
@@ -83330,6 +83352,28 @@
         }
       }
     },
+    "Pushed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pushed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プッシュしました"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已推送"
+          }
+        }
+      }
+    },
     "Pushes only when a run decides you need to know and alerts you; otherwise it stays quiet. Errors and interruptions are pushed as usual. These tasks always run in their own chat, and messages you send in that chat aren't pushed when done either." : {
       "localizations" : {
         "en" : {
@@ -86722,6 +86766,28 @@
         }
       },
       "extractionState" : "manual"
+    },
+    "Remote updates fetched" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remote updates fetched"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リモートの更新を取得しました"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已获取远端更新"
+          }
+        }
+      }
     },
     "Remove %@ [Beautiful U I Bridge 271f20]" : {
       "localizations" : {

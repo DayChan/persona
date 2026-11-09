@@ -112,7 +112,7 @@ func TestGitPullRefusesDirtyTree(t *testing.T) {
 			runPullGit(t, f.local, "config", "rebase.autoStash", "true")
 			head := runPullGit(t, f.local, "rev-parse", "HEAD")
 			_, err := f.node.gitPull(context.Background(), f.local)
-			if err == nil || !strings.Contains(err.Error(), "未提交") {
+			if refusalCode(err) != gitOpUncommitted {
 				t.Fatalf("应拒绝有改动的工作区：%v", err)
 			}
 			content, _ := os.ReadFile(filepath.Join(f.local, name))
@@ -135,7 +135,7 @@ func TestGitPullRefusesDivergenceEvenWithRebaseConfigured(t *testing.T) {
 	runPullGit(t, f.local, "config", "merge.autoStash", "true")
 	head := runPullGit(t, f.local, "rev-parse", "HEAD")
 	_, err := f.node.gitPull(context.Background(), f.local)
-	if err == nil || !strings.Contains(err.Error(), "拉取失败") {
+	if refusalCode(err) != gitOpNotFastForward || !strings.Contains(err.Error(), "fast-forward") {
 		t.Fatalf("应拒绝分叉：%v", err)
 	}
 	if runPullGit(t, f.local, "rev-parse", "HEAD") != head || runPullGit(t, f.local, "status", "--porcelain") != "" {

@@ -249,6 +249,35 @@ func TestRPCFailureLocalePreservesOutcomeAndDiagnostics(t *testing.T) {
 	}
 }
 
+// The node's Git pull / push / fetch refusals (#1888) are 409s in the request's language, the node's words (git's
+// included) as the detail; a failure git itself explains carries git's words in the summary too.
+func TestGitOpRefusalsSpeakTheClientsLanguage(t *testing.T) {
+	for _, code := range []string{"no_directory", "not_a_repository", "detached_head", "no_upstream", "uncommitted_changes", "not_fast_forward", "push_rejected"} {
+		err := &rpc.Error{Code: code, Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}
+		for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+			rec := httptest.NewRecorder()
+			body := call(t, langWriter{rec, lang}, rec, err)
+			if rec.Code != http.StatusConflict || body["code"] != code || body["error"] != i18n.T(lang, "rpc-errors."+code) || body["detail"] != "node's own words" {
+				t.Fatalf("%s %s: %d %v", code, lang, rec.Code, body)
+			}
+			if strings.Contains(body["error"].(string), "{") || strings.HasPrefix(body["error"].(string), "rpc-errors.") {
+				t.Fatalf("%s %s: unfilled %q", code, lang, body["error"])
+			}
+		}
+	}
+	words := "git push: fatal: unable to access 'https://git.example.com/app.git/': Could not resolve host (nothing was forced)"
+	for _, code := range []string{"pull_failed", "push_failed", "fetch_failed"} {
+		for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+			rec := httptest.NewRecorder()
+			body := call(t, langWriter{rec, lang}, rec, &rpc.Error{Code: code, Message: words})
+			if rec.Code != http.StatusConflict || body["error"] != i18n.T(lang, "rpc-errors."+code, i18n.Args{"reason": words}) ||
+				!strings.HasSuffix(body["error"].(string), words) || body["detail"] != words {
+				t.Fatalf("%s %s: %d %v", code, lang, rec.Code, body)
+			}
+		}
+	}
+}
+
 // The apps still tell a timeout by these words in the hub's summary (iOS APIError.isTimeoutText keeps it quiet, Android's
 // herdr notice explains it), so the sentence that now says what to do next keeps them (#5031).
 func TestTimeoutSummaryKeepsTheWordsTheAppsMatch(t *testing.T) {

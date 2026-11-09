@@ -224,6 +224,16 @@ var rpcFailureKeys = map[string]string{
 	"peer_too_long":    "rpc-errors.peer_too_long",
 	"peer_unconfirmed": "rpc-errors.peer_unconfirmed",
 	"peer_command":     "rpc-errors.peer_command",
+	// the node menus' Git ▸ Pull / Push / Fetch and the Git pane's Pull (#1888); the *_failed ones carry git's words
+	"no_directory":        "rpc-errors.no_directory",
+	"detached_head":       "rpc-errors.detached_head",
+	"no_upstream":         "rpc-errors.no_upstream",
+	"uncommitted_changes": "rpc-errors.uncommitted_changes",
+	"not_fast_forward":    "rpc-errors.not_fast_forward",
+	"push_rejected":       "rpc-errors.push_rejected",
+	"pull_failed":         "rpc-errors.pull_failed",
+	"push_failed":         "rpc-errors.push_failed",
+	"fetch_failed":        "rpc-errors.fetch_failed",
 }
 
 func localizeFailure(body map[string]any, status int, err error, l i18n.Lang) {
@@ -250,7 +260,8 @@ func localizeFailure(body map[string]any, status int, err error, l i18n.Lang) {
 	if key == "" {
 		return
 	}
-	body["error"] = i18n.T(l, key)
+	// a summary that names {reason} carries the original words (git's, for a failed pull or push)
+	body["error"] = i18n.T(l, key, i18n.Args{"reason": original})
 	if _, hasDetail := body["detail"]; !hasDetail && original != body["error"] {
 		body["detail"] = original
 	}
