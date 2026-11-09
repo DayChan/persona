@@ -134,12 +134,25 @@ describe("the ⋯ menu's independent review entry", () => {
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
+  it("checks the workspace directory when present and falls back to the session directory", async () => {
+    const calls = hub();
+    render(agent({ workspace_cwd: "/workspace" }));
+    openMenu();
+    await settle();
+    expect(calls[0].url).toBe("/api/v1/machines/m/git/review?cwd=%2Fworkspace&scope=branch");
+    rerender(agent({ workspace_cwd: "" }));
+    await settle();
+    expect(calls[1].url).toBe("/api/v1/machines/m/git/review?cwd=%2Fcode&scope=branch");
+  });
+
   it("discards old responses when switching sessions or reopening the menu", async () => {
     const pending: ((res: Response) => void)[] = [];
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((resolve) => pending.push(resolve))));
     render(agent());
     openMenu();
     expect(pending).toHaveLength(1);
+    expect(item().disabled).toBe(true);
+    expect(item().textContent).toContain(t("chat-agent-review.checking_changes"));
     rerender(agent({ session_id: "s2", cwd: "/other" }));
     expect(pending).toHaveLength(2);
     await act(async () => { pending[1](answer({ files: [{ path: "new" }] })); });
@@ -156,7 +169,8 @@ describe("the ⋯ menu's independent review entry", () => {
     expect(item().disabled).toBe(true);
     openMenu();
     openMenu();
-    expect(item().disabled).toBe(false);
+    expect(item().disabled).toBe(true);
+    expect(item().textContent).toContain(t("chat-agent-review.checking_changes"));
     expect(pending).toHaveLength(4);
     await act(async () => { pending[3](answer({ files: [{ path: "new" }] })); });
     await settle();
@@ -166,6 +180,7 @@ describe("the ⋯ menu's independent review entry", () => {
     const calls = hub();
     render(agent());
     openMenu();
+    await settle();
     const item = row(t("chat-chatview.review_work"))!;
     expect(item.disabled).toBe(false);
     act(() => item.click());
@@ -181,6 +196,7 @@ describe("the ⋯ menu's independent review entry", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ error: "这个 Agent 正在忙", code: "session_busy" }), { status: 409 }))));
     render(agent());
     openMenu();
+    await settle();
     act(() => row(t("chat-chatview.review_work"))!.click());
     await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
     expect(toasts).toEqual([["这个 Agent 正在忙", "error"]]);

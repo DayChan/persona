@@ -1488,14 +1488,15 @@ export const Header = memo(function Header({
   // with its own words, which the toast shows as they come
   const agentReviews = useStore((s) => hubHas(s.features, AGENT_REVIEW_FEATURE));
   const reviewBusy = session ? busyReason(session) : undefined;
-  const [reviewClean, setReviewClean] = useState(false);
+  const [reviewCheck, setReviewCheck] = useState<"unknown" | "checking" | "clean">("unknown");
   const reviewMid = session?.machine_id;
   const reviewSid = session?.session_id;
-  const reviewCwd = session?.cwd;
+  const reviewCwd = session?.workspace_cwd || session?.cwd;
   // Each menu opening gets a fresh answer. Clear before paint and discard replies after closing or changing sessions.
   useLayoutEffect(() => {
-    setReviewClean(false);
-    if (!menu.anchor || !agentReviews || assistant || !reviewMid || !reviewSid || !reviewCwd || reviewBusy) return;
+    setReviewCheck("unknown");
+    if (!menu.anchor || !agentReviews || !showFiles || !reviewMid || !reviewSid || !reviewCwd || reviewBusy) return;
+    setReviewCheck("checking");
     const controller = new AbortController();
     let active = true;
     const check = async () => {
@@ -1508,14 +1509,15 @@ export const Header = memo(function Header({
           if (!active) return;
           result = await loadReview(reviewMid, reviewCwd, { scope: "uncommitted" }, controller.signal);
         }
-        if (active) setReviewClean(Array.isArray(result.files) && result.files.length === 0 && !result.truncated);
+        if (active) setReviewCheck(Array.isArray(result.files) && result.files.length === 0 && !result.truncated ? "clean" : "unknown");
       } catch {
         // Unknown remains enabled; the hub will explain any refusal when starting the review.
+        if (active) setReviewCheck("unknown");
       }
     };
     void check();
     return () => { active = false; controller.abort(); };
-  }, [menu.anchor, agentReviews, assistant, reviewMid, reviewSid, reviewCwd, reviewBusy]);
+  }, [menu.anchor, agentReviews, showFiles, reviewMid, reviewSid, reviewCwd, reviewBusy]);
   const startReview = async () => {
     if (!session) return;
     try {
@@ -1588,7 +1590,7 @@ export const Header = memo(function Header({
         ...(allowed.includes("attach") ? [{ key: "attach", label: t("chat-chatview.attach"), icon: "link" as const, onSelect: () => void attach() }] : []),
         ...(showTerminal ? [{ key: "terminal", label: t("chat-chatview.terminal"), icon: "terminal" as const, checked: view === "term", onSelect: flipView }] : []),
         ...(showFiles ? [{ key: "files", label: t("chat-chatview.files"), icon: "folder" as const, checked: here(panel, "files"), onSelect: openFiles }, { key: "git", label: "Git", icon: "git" as const, checked: here(panel, "git"), onSelect: openGit }, ...(reviews ? [{ key: "review", label: t("chat-chatview.review_changes"), icon: "pullRequest" as const, checked: here(panel, "review"), onSelect: openReview }] : [])] : []),
-        ...(showFiles && agentReviews ? [{ key: "agent-review", label: t("chat-chatview.review_work"), icon: "eye" as const, disabled: reviewBusy !== undefined || reviewClean, hint: reviewBusy ?? (reviewClean ? t("chat-agent-review.no_changes") : undefined), onSelect: () => void startReview() }] : []),
+        ...(showFiles && agentReviews ? [{ key: "agent-review", label: t("chat-chatview.review_work"), icon: "eye" as const, disabled: reviewBusy !== undefined || reviewCheck !== "unknown", hint: reviewBusy ?? (reviewCheck === "checking" ? t("chat-agent-review.checking_changes") : reviewCheck === "clean" ? t("chat-agent-review.no_changes") : undefined), onSelect: () => void startReview() }] : []),
         ...(showFiles && previews ? [{ key: "preview", label: t("chat-chatview.preview"), icon: "web" as const, checked: here(panel, "preview"), onSelect: openPreview }] : []),
         ...(allowed.includes("stop") ? [{ key: "stop", label: t("chat-chatview.interrupt"), icon: "stop" as const, hint: "Esc", onSelect: onInterrupt }] : []),
         ...(feishu ? [{ key: "feishu", label: t("chat-chatview.open_in_lark"), icon: "external" as const, onSelect: () => openLink(feishu) }] : []),

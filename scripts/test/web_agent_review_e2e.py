@@ -73,11 +73,13 @@ def run(browser, base, hub, token, size, theme, shots):
     open_chat(card=False)
     item = menu_item()
     expect(item).to_be_visible()
+    expect(item).to_be_enabled()
     shot("menu")
+    previous_starts = len(mock(hub, token)["starts"])
     item.click()
     expect(page.get_by_text("已开始独立审查，完成后这里会出现结果卡片")).to_be_visible()
     starts = mock(hub, token)["starts"]
-    if not any(s["machine"] == MID and s["session"] == SID for s in starts):
+    if not any(s["machine"] == MID and s["session"] == SID for s in starts[previous_starts:]):
         fail(f"{tag}: the hub was not asked to review {SID}: {starts}")
     ok(f"{tag}: the menu entry starts a review of this session")
     page.keyboard.press("Escape")
@@ -98,6 +100,7 @@ def run(browser, base, hub, token, size, theme, shots):
     open_chat(card=False)
     mock(hub, token, "?refuse=session_busy")
     item = menu_item()
+    expect(item).to_be_enabled()
     item.click()
     expect(page.get_by_text("这个 Agent 正在工作，等它停下来再审查")).to_be_visible()
     ok(f"{tag}: the hub's refusal is shown in its own words")
@@ -115,20 +118,22 @@ def run(browser, base, hub, token, size, theme, shots):
     ok(f"{tag}: the findings card shows the count, the report and both buttons")
 
     # Send forwards the findings and the card goes
+    previous_answers = len(mock(hub, token)["answers"])
     card.get_by_role("button", name="发给 Agent").click()
     expect(card).to_have_count(0)
     answers = mock(hub, token)["answers"]
-    if not any(a.get("action") == "send" for a in answers):
+    if not any(a.get("action") == "send" for a in answers[previous_answers:]):
         fail(f"{tag}: Send did not answer the card: {answers}")
     ok(f"{tag}: Send answers the card and it goes")
 
     # Dismiss closes it without sending
     open_chat(card=True)
     card = page.locator(f'[data-card^="review_"]')
+    previous_answers = len(mock(hub, token)["answers"])
     card.get_by_role("button", name="不发了").click()
     expect(card).to_have_count(0)
     answers = mock(hub, token)["answers"]
-    if not any(a.get("dismiss") for a in answers):
+    if not any(a.get("dismiss") for a in answers[previous_answers:]):
         fail(f"{tag}: Dismiss did not answer the card: {answers}")
     ok(f"{tag}: Dismiss closes the card without sending")
 
