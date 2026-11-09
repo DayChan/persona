@@ -155,6 +155,26 @@ func TestNavigationBriefAnswerDoesNotCrossAnInjectedTurn(t *testing.T) {
 	}
 }
 
+func TestNavigationBriefAnswerPreservesToolOwnedTextAndImages(t *testing.T) {
+	item := func(seq int, role, text string) proto.Item {
+		return proto.Item{ID: fmt.Sprintf("item-%d", seq), Seq: seq, Role: role, Kind: proto.KindText, Text: text}
+	}
+	toolText := item(3, "user", "Tool result text")
+	toolText.ToolUseID = "tool-demo"
+	toolImage := proto.Item{ID: "tool-image", Seq: 3, Role: "user", Kind: proto.KindImage, ToolUseID: "tool-demo"}
+	f := &File{lines: 6, items: []proto.Item{
+		item(1, "user", "Question 1"), item(2, "assistant", "Earlier narration"), toolText, toolImage,
+		item(4, "assistant", "The final answer"), item(5, "user", "Question 2"), item(6, "assistant", "Another answer"),
+	}}
+	page, err := f.Navigation(0, 40, "")
+	if err != nil || len(page.Messages) != 2 {
+		t.Fatalf("tool payload became an input: index=%+v err=%v", page, err)
+	}
+	if page.Messages[0].Answer != "The final answer" || page.Messages[1].Answer != "Another answer" {
+		t.Fatalf("tool payload interrupted answer attribution: %+v", page.Messages)
+	}
+}
+
 func TestNavigationRejectsARealTranscriptRewrite(t *testing.T) {
 	f := navigationFixture(t, 3)
 	before, err := f.Navigation(0, 40, "")

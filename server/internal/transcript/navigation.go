@@ -61,7 +61,7 @@ func (f *File) NavigationTagged(beforeSeq, limit int, history string, tag func([
 			}
 			for i := len(line) - 1; i >= 0; i-- {
 				it := line[i]
-				if it.Wake || (it.Role == "user" && it.Kind == proto.KindText) || (it.Role == "user" && it.Kind == proto.KindImage && it.ToolUseID == "") {
+				if it.Wake || (it.Role == "user" && it.ToolUseID == "" && (it.Kind == proto.KindText || it.Kind == proto.KindImage)) {
 					answer = "" // do not attribute another input's or supervision's answer to this question
 					break
 				}
