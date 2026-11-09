@@ -2,12 +2,14 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/transcript"
 )
@@ -16,7 +18,8 @@ import (
 // report_to_supervisor kind "question" and urgent false does not wake anyone. The question is kept here, and the next
 // morning or evening briefing (with `facts` on) lists it under "Can wait". It leaves the queue in three ways only: the
 // owner marks it handled, its to-do ends (closed or deleted), or laterKeep passes. Nothing guesses from the chat that it
-// was answered, and nothing asks again.
+// was answered, and nothing asks again. The assistant's own questions nobody answered wait here too (ask_todo.go): marked
+// handled, one of those ends with its to-do (laterHandled).
 
 const laterKey = "assistant.later"
 
@@ -167,17 +170,35 @@ func (s *Service) laterTodoEnded(ctx context.Context, id string) bool {
 // laterHandled takes question id out of the queue (the owner marked it handled); false when it is not there, which includes
 // one that was over (7 days, its to-do ended) and not yet dropped. An error is a queue that can't be read or written: the
 // question stays, and the press is a failure to try again, not "already handled".
+//
+// An Agent's question only leaves the queue: its supervised task goes on. A question of the assistant's own that nobody
+// answered (its to-do came from the ask_user, ask_todo.go) ends with it (#1854): its to-do is closed first, as the owner's
+// PATCH done does, so the conversation that asked is told once that it was dropped and the live snapshot stops holding it
+// back. A to-do that can't be read or closed is an error too, and the question stays.
 func (s *Service) laterHandled(ctx context.Context, id string, now time.Time) (bool, error) {
 	s.laterOpen(ctx, now) // what is over goes first
 	b := &s.later
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if err := s.loadLaterLocked(ctx); err != nil {
+		b.mu.Unlock()
 		return false, fmt.Errorf("later: load: %w", err)
 	}
 	i := slices.IndexFunc(b.asks, func(a laterAsk) bool { return a.ID == id })
 	if i < 0 {
+		b.mu.Unlock()
 		return false, nil
+	}
+	todo := b.asks[i].TodoID
+	b.mu.Unlock()
+	if isAskTodo(todo) {
+		if err := s.closeAskedTodo(ctx, todo); err != nil {
+			return false, err
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if i = slices.IndexFunc(b.asks, func(a laterAsk) bool { return a.ID == id }); i < 0 {
+		return false, nil // another press took it out meanwhile
 	}
 	gone := b.asks[i]
 	b.asks = slices.Delete(slices.Clone(b.asks), i, i+1)
@@ -187,6 +208,23 @@ func (s *Service) laterHandled(ctx context.Context, id string, now time.Time) (b
 		return false, fmt.Errorf("later: save: %w", err)
 	}
 	return true, nil
+}
+
+// closeAskedTodo closes question to-do id, still open, as the owner's PATCH done does (editTodo tells the conversation that
+// asked it was dropped); one closed or deleted already is left as it is.
+func (s *Service) closeAskedTodo(ctx context.Context, id string) error {
+	t, ok, err := s.todo(ctx, id)
+	if err != nil {
+		return fmt.Errorf("later: its to-do: %w", err)
+	}
+	if !ok || t.DoneAt != nil {
+		return nil
+	}
+	done := true
+	if _, err := s.editTodo(ctx, id, db.TodoEdit{Done: &done}); err != nil && !errors.Is(err, db.ErrTodoNotFound) {
+		return fmt.Errorf("later: close its to-do: %w", err)
+	}
+	return nil
 }
 
 // laterRows are the queue as the briefing lists it, in the shape of the board's rows (what was asked, who asked, how long

@@ -122,9 +122,10 @@ func (s *Service) briefFeed(session, task, title string, f *briefFacts) {
 }
 
 func (s *Service) briefRoutes() {
-	// POST /api/v1/later/{id}/handled: the Handled button of a question in a `brief` item's later list. It leaves the queue; a
-	// question already handled, dropped (its to-do ended, or 7 days) or unknown is 409. A queue that can't be read or
-	// written is 503, and the question stays.
+	// POST /api/v1/later/{id}/handled: the Handled button of a question in a `brief` item's later list. It leaves the queue
+	// (an ask_user nobody answered ends with it: its to-do is closed, laterHandled); a question already handled, dropped (its
+	// to-do ended, or 7 days) or unknown is 409. A queue, or such a to-do, that can't be read or written is 503, and the
+	// question stays.
 	s.handle("POST /api/v1/later/{id}/handled", func(w http.ResponseWriter, r *http.Request) {
 		if !fullRole(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot change the queue"))

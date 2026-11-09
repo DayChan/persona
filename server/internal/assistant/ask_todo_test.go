@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -269,6 +270,39 @@ func TestAskTodoTopicReplyGoesBackToTheConversation(t *testing.T) {
 	}
 	if list := decisionsOf(t, database, todo.ID); len(list) != 1 {
 		t.Fatalf("decisions %+v", list)
+	}
+}
+
+// Handled on its "Can wait" row (the button of the web app's brief item, and of the Lark briefing card) ends the question as
+// closing its to-do does (#1854): the to-do closes, the snapshot stops holding the question, and the conversation that
+// asked is told once that it was dropped. Pressed again, it is "already handled" and tells nothing more.
+func TestAskTodoHandledInTheBriefingClosesIt(t *testing.T) {
+	e := newAskTodoEnv(t, nil)
+	e.expire()
+	todo := e.onlyAskTodo()
+	ctx := context.Background()
+	f := e.s.briefFactsAt(ctx, time.Now(), "")
+	if len(f.Later) != 1 {
+		t.Fatalf("can wait: %+v", f.Later)
+	}
+	row := f.Later[0].id
+	e.must("POST", "/api/v1/later/"+row+"/handled", "")
+	if cur := e.get(todo.ID); cur == nil || cur.DoneAt == nil {
+		t.Fatalf("the to-do is still open: %+v", cur)
+	}
+	waitFor(t, "the dropped notice", func() bool { return len(e.told("c1x1x1")) > 0 })
+	if got := e.told("c1x1x1"); len(got) != 1 || !strings.Contains(got[0], "没有在待办里给答案") {
+		t.Fatalf("told %q, want one dropped notice", got)
+	}
+	e.s.ProfileChanged(ctx) // a fresh snapshot
+	if snap := e.s.contextSnapshot(ctx); strings.Contains(snap, todo.ID) {
+		t.Fatalf("the question still waits in the snapshot:\n%s", snap)
+	}
+	if w := e.do("POST", "/api/v1/later/"+row+"/handled", ""); w.Code != http.StatusConflict {
+		t.Fatalf("pressed again: %d %s", w.Code, w.Body)
+	}
+	if _, again := e.s.claimAskTodo(ctx, todo.ID, false); again { // the drop was told: nothing tells it twice
+		t.Fatal("the drop could be told again")
 	}
 }
 

@@ -271,6 +271,9 @@ func TestLaterHandledLeavesTheQueue(t *testing.T) {
 	if _, err := e.st.Setting(ctx, laterKey, &stored); err != nil || len(stored) != 1 || stored[0].Text != "第二个" {
 		t.Fatalf("stored: %+v %v", stored, err)
 	}
+	if cur := todoNow(e.s, "todo_a"); cur.DoneAt != nil { // an Agent's question: its supervised task goes on (#1854)
+		t.Fatalf("the task was closed: %+v", cur)
+	}
 }
 
 // A Handled press whose change can't be written is an error, not "not there": the question stays, in memory and stored. A
