@@ -1684,7 +1684,7 @@ final class AppModel {
             if isHub { ExtensionSlots.shared.received(plugin: plugin, id: id, badge: badge) }
         case .extensionInvalidate(let ext, let id):
             ExtensionUIRegistry.shared.invalidate(extension: ext, ui: id, group: group)
-            #if os(iOS)
+            #if os(iOS) || os(visionOS)
             ExtensionWidgetReconciliation.invalidate(group: group, owner: ext, contribution: id)
             #endif
         case .items(let key, let items, let backlog, let hasMore, let span, let moreAfter):

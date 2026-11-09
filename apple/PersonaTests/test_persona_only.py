@@ -46,7 +46,94 @@ def source(path):
     return (APPLE / path).read_text(encoding="utf-8")
 
 
+def widget_source_for_platform(platform):
+    output = []
+    branches = []
+    active = True
+    for line in source("Shared/ExtensionSystemWidget.swift").splitlines():
+        directive = line.strip()
+        if directive.startswith(("#if ", "#elseif ")):
+            expression = directive.split(" ", 1)[1]
+            predicates = re.findall(r"(!?)os\((\w+)\)", expression)
+            if not predicates:
+                raise ValueError(f"unsupported widget condition: {expression}")
+            matches = any((platform == name) != bool(negated) for negated, name in predicates)
+            if directive.startswith("#if "):
+                branches.append([active, matches])
+            else:
+                parent, matched = branches[-1]
+                matches = matches and not matched
+                branches[-1] = [parent, matched or matches]
+            active = branches[-1][0] and matches
+        elif directive == "#else":
+            active = branches[-1][0] and not branches[-1][1]
+            branches[-1][1] = True
+        elif directive == "#endif":
+            active = branches.pop()[0]
+        elif active:
+            output.append(line)
+    if branches:
+        raise ValueError("unclosed widget condition")
+    return "\n".join(output)
+
+
 class PersonaOnlyTests(unittest.TestCase):
+    def test_vision_widgets_embed_read_only_bundle_with_shared_storage(self):
+        targets = yaml.safe_load(source("project.yml"))["targets"]
+        self.assertIn("PersonaVisionWidgets", targets)
+        app = targets["PersonaVision"]
+        widget = targets["PersonaVisionWidgets"]
+        self.assertIn({"target": "PersonaVisionWidgets"}, app["dependencies"])
+        self.assertEqual(widget["platform"], "visionOS")
+        self.assertEqual(widget["type"], "app-extension")
+        settings = widget["settings"]["base"]
+        self.assertEqual(settings["PRODUCT_BUNDLE_IDENTIFIER"], "$(PERSONA_BUNDLE_ID).liveactivity")
+        self.assertEqual(settings["PRODUCT_MODULE_NAME"], "PersonaWidgets")
+        self.assertEqual(settings["PRODUCT_NAME"], "PersonaWidgets")
+        self.assertIn("WIDGET_EXTENSION", settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"])
+        self.assertNotIn("TARGETED_DEVICE_FAMILY", settings)
+        shared = {item["path"] for item in targets["PersonaWatchWidgets"]["sources"] if item["path"].startswith("Shared/")}
+        self.assertEqual({item["path"] for item in widget["sources"]}, shared | {"PersonaVisionWidgets"})
+        for target in (app, widget):
+            self.assertEqual(target["entitlements"]["properties"]["com.apple.security.application-groups"], ["$(PERSONA_APP_GROUP)"])
+            self.assertEqual(target["info"]["properties"]["PersonaAppGroup"], "$(PERSONA_APP_GROUP)")
+            entitlements = plistlib.loads((APPLE / target["entitlements"]["path"]).read_bytes())
+            self.assertEqual(entitlements["com.apple.security.application-groups"], ["$(PERSONA_APP_GROUP)"])
+            info = plistlib.loads((APPLE / target["info"]["path"]).read_bytes())
+            self.assertEqual(info["PersonaAppGroup"], "$(PERSONA_APP_GROUP)")
+        info = widget["info"]["properties"]
+        self.assertEqual(info["NSExtension"]["NSExtensionPointIdentifier"], "com.apple.widgetkit-extension")
+        bundle = source("PersonaVisionWidgets/PersonaVisionWidgetsBundle.swift")
+        self.assertIn("LanguageStore.shared.follow(LanguageStore.shared.groupResolved)", bundle)
+        self.assertIn("var body: some Widget { ExtensionSystemWidget() }", bundle)
+        self.assertNotIn("ActivityConfiguration", bundle)
+        self.assertNotIn("ControlWidget", bundle)
+
+    def test_vision_widgets_use_only_visionos_26_families(self):
+        vision = widget_source_for_platform("visionOS")
+        self.assertIn("struct ExtensionSystemWidget: Widget", vision)
+        self.assertIn("[.systemSmall, .systemMedium, .systemLarge]", vision)
+        self.assertNotRegex(vision, r"\.accessory(?:Circular|Inline|Rectangular)")
+        for platform in ("iOS", "watchOS"):
+            supported = widget_source_for_platform(platform)
+            self.assertIn(".accessoryCircular", supported)
+            self.assertIn(".accessoryInline", supported)
+        self.assertNotIn(".systemSmall", widget_source_for_platform("watchOS"))
+
+    def test_vision_widget_sync_and_invalidation_are_enabled(self):
+        sync = source("Shared/ExtensionSurfaceSync.swift")
+        self.assertEqual(sync.count("#if os(iOS) || os(watchOS) || os(visionOS)"), 4)
+        app = source("Persona/App/PersonaApp.swift")
+        self.assertRegex(app, r'#if os\(iOS\) \|\| os\(visionOS\)\s+if let widget = info\["extension_widget"\]')
+        model = source("Persona/App/AppModel.swift")
+        self.assertRegex(model, r"#if os\(iOS\) \|\| os\(visionOS\)\s+ExtensionWidgetReconciliation.invalidate")
+        vision = widget_source_for_platform("visionOS")
+        self.assertIn('Open Persona to sync extension capabilities.', vision)
+        self.assertNotIn('Open Persona on iPhone to sync extension capabilities.', vision)
+        catalog = json.loads(source("Shared/Localization/Localizable.xcstrings"))
+        localizations = catalog["strings"]["Open Persona to sync extension capabilities."]["localizations"]
+        self.assertTrue({"en", "zh-Hans", "ja"}.issubset(localizations))
+
     def test_retired_native_identifiers_are_confined_to_one_compatibility_source(self):
         # The user-approved exception is one physical compatibility source, never a global relaxation.
         migration = APPLE / "Shared/NativeStateMigration.swift"
@@ -109,7 +196,7 @@ class PersonaOnlyTests(unittest.TestCase):
             "Persona": "Persona", "PersonaMac": "Persona", "PersonaVision": "Persona", "PersonaWatch": "Persona",
             "PersonaWidgets": "PersonaWidgets", "PersonaNotify": "PersonaNotify", "PersonaMacNotify": "PersonaNotify", "PersonaVisionNotify": "PersonaNotify",
             "PersonaShare": "PersonaShare", "PersonaVisionShare": "PersonaShare",
-            "PersonaWatchWidgets": "PersonaWatchWidgets",
+            "PersonaWatchWidgets": "PersonaWatchWidgets", "PersonaVisionWidgets": "PersonaWidgets",
         }
         for target, module in modules.items():
             self.assertEqual(targets[target]["settings"]["base"]["PRODUCT_MODULE_NAME"], module)

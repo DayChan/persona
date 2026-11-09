@@ -34,12 +34,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>PersonaPushKeychainGroup</key>
-	<string>$(DEVELOPMENT_TEAM).$(PERSONA_BUNDLE_ID).push</string>
-	<key>PersonaPushRelay</key>
-	<string>$(PERSONA_PUSH_RELAY)</string>
-	<key>PersonaGettingStartedURL</key>
-	<string>$(PERSONA_GETTING_STARTED_URL)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>NSAppTransportSecurity</key>
@@ -69,6 +63,14 @@
 	<string>Persona lets Claude read and create reminders when you ask, for example to add “review the PR” to your Today list.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Persona turns your voice into text when you hold the mic button, for example to dictate a reply to Claude.</string>
+	<key>PersonaAppGroup</key>
+	<string>$(PERSONA_APP_GROUP)</string>
+	<key>PersonaGettingStartedURL</key>
+	<string>$(PERSONA_GETTING_STARTED_URL)</string>
+	<key>PersonaPushKeychainGroup</key>
+	<string>$(DEVELOPMENT_TEAM).$(PERSONA_BUNDLE_ID).push</string>
+	<key>PersonaPushRelay</key>
+	<string>$(PERSONA_PUSH_RELAY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationPreferredDefaultSceneSessionRole</key>

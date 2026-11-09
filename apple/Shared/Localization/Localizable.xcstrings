@@ -1991,6 +1991,7 @@
       }
     },
     "Open Persona on iPhone to sync extension capabilities.": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open Persona on iPhone to sync extension capabilities." } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上打开 Persona 同步扩展能力。" } }, "ja": { "stringUnit": { "state": "translated", "value": "iPhone の Persona を開いて拡張機能の情報を同期してください。" } } } },
+    "Open Persona to sync extension capabilities.": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open Persona to sync extension capabilities." } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开 Persona 同步扩展能力。" } }, "ja": { "stringUnit": { "state": "translated", "value": "Persona を開いて拡張機能の情報を同期してください。" } } } },
     "Extension Widget": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Extension Widget" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "扩展小组件" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張ウィジェット" } } } },
     "Push the fix to beta?": {
       "extractionState": "manual",

@@ -1,4 +1,4 @@
-#if os(iOS) || os(watchOS)
+#if os(iOS) || os(watchOS) || os(visionOS)
 import AppIntents
 import SwiftUI
 import WidgetKit
@@ -74,7 +74,7 @@ struct ExtensionWidgetProvider: AppIntentTimelineProvider {
         let needsSync = group.credential.isAnswerOnly && group.credential.capabilities == nil
         guard let place = group.widgets.first(where: { $0.extension == key.owner && $0.id == key.contribution && $0.families.contains(family) }) else {
             return Entry(date: .now, cache: nil,
-                         title: interfaceText(needsSync ? "Open Persona on iPhone to sync extension capabilities." : "Choose an extension widget"),
+                         title: needsSync ? ExtensionSystemWidget.syncHint : interfaceText("Choose an extension widget"),
                          stale: false, needsSync: needsSync)
         }
         let cache = snapshot.cache(key, family: family)
@@ -97,6 +97,8 @@ struct ExtensionSystemWidget: Widget {
     nonisolated static var families: [WidgetFamily] {
         #if os(watchOS)
         [.accessoryCircular, .accessoryRectangular, .accessoryInline]
+        #elseif os(visionOS)
+        [.systemSmall, .systemMedium, .systemLarge]
         #else
         [.systemSmall, .systemMedium, .systemLarge, .accessoryCircular, .accessoryRectangular, .accessoryInline]
         #endif
@@ -108,30 +110,43 @@ struct ExtensionSystemWidget: Widget {
         case .systemMedium: "medium"
         case .systemLarge: "large"
         #endif
+        #if !os(visionOS)
         case .accessoryCircular: "accessory_circular"
         case .accessoryInline: "accessory_inline"
+        #endif
         default: "accessory_rectangular"
         }
+    }
+    nonisolated static var syncHint: String {
+        #if os(visionOS)
+        interfaceText("Open Persona to sync extension capabilities.")
+        #else
+        interfaceText("Open Persona on iPhone to sync extension capabilities.")
+        #endif
     }
 }
 
 private struct ExtensionWidgetEntryView: View {
     var entry: ExtensionWidgetEntry
     @Environment(\.widgetFamily) private var family
+    private var showsDetails: Bool {
+        let name = ExtensionSystemWidget.family(family)
+        return name != "accessory_inline" && name != "accessory_circular"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: ExtensionSurfaceTokens.compactSpacing) {
             if let cache = entry.cache {
                 ExtensionSurfaceView(view: cache.answer.view, family: ExtensionSystemWidget.family(family))
-                if entry.needsSync, family != .accessoryInline, family != .accessoryCircular {
-                    Text("Open Persona on iPhone to sync extension capabilities.")
+                if entry.needsSync, showsDetails {
+                    Text(verbatim: ExtensionSystemWidget.syncHint)
                         .font(ExtensionSurfaceTokens.label).foregroundStyle(ExtensionSurfaceTokens.secondaryInk).lineLimit(2)
-                } else if entry.stale, family != .accessoryInline, family != .accessoryCircular {
+                } else if entry.stale, showsDetails {
                     Text("Cached content — open Persona to refresh")
                         .font(ExtensionSurfaceTokens.label).foregroundStyle(ExtensionSurfaceTokens.secondaryInk).lineLimit(1)
                 }
             } else {
                 Text(verbatim: entry.title).font(ExtensionSurfaceTokens.label).lineLimit(1)
-                if family != .accessoryInline, family != .accessoryCircular {
+                if showsDetails {
                     Text("Open Persona to load this widget").font(ExtensionSurfaceTokens.label).lineLimit(2)
                 }
             }

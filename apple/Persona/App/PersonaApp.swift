@@ -255,7 +255,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             completionHandler(.noData)
             return
         }
-        #if os(iOS)
+        #if os(iOS) || os(visionOS)
         if let widget = info["extension_widget"] as? [String: Any],
            let owner = widget["extension"] as? String, let id = widget["id"] as? String,
            !owner.isEmpty, !id.isEmpty, !AppModel.shared.isDemo {
