@@ -26,6 +26,12 @@ func (f *File) History() string {
 // histories have a parsing budget and an explicit advancing cursor, even if a
 // budgeted page contains no real inputs. File order and seq are authoritative.
 func (f *File) Navigation(beforeSeq, limit int, history string) (proto.SessionNavigation, error) {
+	return f.NavigationTagged(beforeSeq, limit, history, nil)
+}
+
+// NavigationTagged applies trusted caller provenance before classifying raw
+// transcript lines. The node's echo ledger attaches these IDs after parsing.
+func (f *File) NavigationTagged(beforeSeq, limit int, history string, tag func([]proto.Item) []proto.Item) (proto.SessionNavigation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if limit <= 0 {
@@ -46,6 +52,9 @@ func (f *File) Navigation(beforeSeq, limit int, history string) (proto.SessionNa
 				start--
 			}
 			line := f.items[start:last]
+			if tag != nil {
+				line = tag(line)
+			}
 			if mark, ok := navigationMessage(line); ok {
 				mark.Answer = answer
 				out.Messages = append(out.Messages, mark)

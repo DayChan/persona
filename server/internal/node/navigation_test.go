@@ -9,12 +9,36 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nwverse/persona/server/internal/host"
+	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 	"github.com/nwverse/persona/server/internal/transcript"
 )
+
+func TestNavigationKeepsATrustedUserCopyOfASupervisionTemplate(t *testing.T) {
+	text := prompts.RenderSupervise(prompts.Supervise{Entries: []prompts.SuperviseEntry{{ID: "task-demo", Title: "Verify a test change", Kind: "review"}}})
+	line, _ := json.Marshal(map[string]any{"type": "user", "uuid": "user-copy", "message": map[string]any{"role": "user", "content": text}})
+	path := filepath.Join(t.TempDir(), "conversation.jsonl")
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := transcript.NewFile(path)
+	n := &Node{home: t.TempDir(), paths: map[string]string{}, files: map[string]*transcript.File{"demo-session": f},
+		procs: map[string]*assistantProc{}, agents: map[string]host.Agent{}, state: &stateFile{Sessions: map[string]sessionState{}}}
+	n.echoes.expect(echoRecord{SessionID: "demo-session", ClientMsgID: "client-demo", Line: "user-copy", SentAt: time.Now()})
+	out, err := n.handle(context.Background(), "session.navigation", json.RawMessage(`{"session_id":"demo-session"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(out)
+	var index proto.SessionNavigation
+	if err := json.Unmarshal(raw, &index); err != nil || len(index.Messages) != 1 || index.Messages[0].ID != "user-copy#0" {
+		t.Fatalf("trusted user copy was dropped: %s err=%v", raw, err)
+	}
+}
 
 func TestSessionNavigationAndTargetWindow(t *testing.T) {
 	var lines strings.Builder

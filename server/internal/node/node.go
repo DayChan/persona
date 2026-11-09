@@ -1080,7 +1080,10 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 			return nil, err
 		}
 		n.refresh(p.SessionID, f)
-		out, err := f.Navigation(p.BeforeSeq, p.Limit, p.History)
+		tags := n.echoes.tags(p.SessionID)
+		out, err := f.NavigationTagged(p.BeforeSeq, p.Limit, p.History, func(line []proto.Item) []proto.Item {
+			return tagEchoItems(line, tags)
+		})
 		return out, navigationError(err)
 	case "session.items":
 		f, err := n.file(p.SessionID)

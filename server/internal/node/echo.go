@@ -188,8 +188,9 @@ func (l *echoLog) match(id string, items []proto.Item) []echoRecord {
 }
 
 // tag puts the client_msg_id of found records on their lines' items (a copy when anything changes).
-func (l *echoLog) tag(id string, items []proto.Item) []proto.Item {
+func (l *echoLog) tags(id string) map[string]string {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	var byLine map[string]string
 	for _, r := range l.recs[id] {
 		if r.Line != "" {
@@ -199,7 +200,14 @@ func (l *echoLog) tag(id string, items []proto.Item) []proto.Item {
 			byLine[r.Line] = r.ClientMsgID
 		}
 	}
-	l.mu.Unlock()
+	return byLine
+}
+
+func (l *echoLog) tag(id string, items []proto.Item) []proto.Item {
+	return tagEchoItems(items, l.tags(id))
+}
+
+func tagEchoItems(items []proto.Item, byLine map[string]string) []proto.Item {
 	if byLine == nil {
 		return items
 	}
