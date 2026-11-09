@@ -14,6 +14,7 @@ and the [architecture](server/architecture.md). The [protocol](protocol/protocol
 | [apple/](apple/) | iPhone, Apple Watch, Mac and Vision Pro; native design and phone data | [iOS and watch](apple/ios.md), [icons](apple/icons.md), [sidebars](apple/sidebar.md), [Mac](apple/mac.md), [design](apple/mac-design.md), [Vision Pro](apple/vision.md) |
 | [android/](android/) | Android modules and design system | [Android](android/android.md), [design](android/android-design.md) |
 | [web/](web/) | Browser client and workspace board | [Web](web/web.md), [workspace board](web/workspace-board.md) |
+| [interaction/](interaction/) | Cross-client interaction contracts, with implementation and acceptance boundaries stated explicitly | [User-input navigation](interaction/user-input-navigation.md) (draft) |
 | [assistant/](assistant/) | Main chat, managers, knowledge, Inbox, tasks, models, prompts and voice | [Assistant](assistant/assistant.md), [managers](assistant/managers.md), [knowledge](assistant/knowledge.md) |
 | [integrations/](integrations/) | Agent runtimes, engines, sessions, launchers and terminal | [Runtime contract](integrations/runtimes.md), [engines](integrations/engines.md), [Claude Code](integrations/claude-integration.md), [Codex](integrations/codex.md) |
 | [extensions/](extensions/) | Extension system, data connectors, messaging and channels | [Extensions](extensions/extensions.md), [connectors](extensions/connectors.md), [channels](extensions/channels.md) |
