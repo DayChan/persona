@@ -72,6 +72,10 @@ const feedToday = "today" // ref: the user's date; body: todayBody
 
 // ensureToday is the conversation's "Today" card for the user's day: the one already there, or a new one.
 func (s *Service) ensureToday(ctx context.Context, conversation string) (FeedItem, bool, error) {
+	// One caller at a time per conversation: the first chat open of the day often comes from two devices or tabs at
+	// once, and assistant_feed has no unique key to stop both from appending a card. The others then find this one's.
+	s.tasks.todayLocks.acquire(conversation)
+	defer s.tasks.todayLocks.release(conversation)
 	loc := s.location(ctx)
 	now := time.Now().In(loc)
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)

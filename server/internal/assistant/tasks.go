@@ -134,6 +134,9 @@ type tasksState struct {
 	reusing map[string]bool
 	// outcomeRuns are the outcome recordings still going (goRecordTaskOutcome, waitTaskOutcomes).
 	outcomeRuns sync.WaitGroup
+	// todayLocks: a conversation's id -> the lock ensureToday holds from looking for the day's "Today" card to
+	// appending it, so that concurrent opens of a chat make one card, not one each.
+	todayLocks cardLocks
 }
 
 func newTasksState() tasksState {
