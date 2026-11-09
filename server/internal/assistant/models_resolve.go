@@ -202,6 +202,9 @@ func (s *Service) apiConfig(ctx context.Context, b ModelBinding) (ai.Config, err
 				if l.Kind != "api" && !messagesAPI(l.API) {
 					return c, i18n.Err("assistant-models.err_launcher_not_responses")
 				}
+				if err := checkAPITransport(l.Kind, l.API, l.Proxy, l.NoProxy, l.HeadersSealed != ""); err != nil {
+					return c, err
+				}
 				c = ai.Config{API: l.API, BaseURL: l.BaseURL, Model: l.Model, Bearer: l.BearerAuth()}
 				key, err := s.openKey(l.KeySealed)
 				if err != nil {

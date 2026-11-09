@@ -149,7 +149,7 @@ func (s *Service) launcherRoutes() {
 		l, err := s.saveLauncher(ctx, in, nil)
 		if err != nil {
 			status := http.StatusInternalServerError
-			if errors.Is(err, errChatTransport) || errors.Is(err, errChatLaunchSettings) {
+			if errors.Is(err, errAPITransport) || errors.Is(err, errChatTransport) || errors.Is(err, errChatLaunchSettings) {
 				status = http.StatusBadRequest
 			}
 			apierr.Write(w, status, err)
@@ -196,7 +196,7 @@ func (s *Service) launcherRoutes() {
 		saved, err := s.saveLauncher(r.Context(), in, old)
 		if err != nil {
 			status := http.StatusInternalServerError
-			if errors.Is(err, errChatProtocolChange) || errors.Is(err, errChatTransport) || errors.Is(err, errChatLaunchSettings) {
+			if errors.Is(err, errChatProtocolChange) || errors.Is(err, errAPITransport) || errors.Is(err, errChatTransport) || errors.Is(err, errChatLaunchSettings) {
 				status = http.StatusBadRequest
 			}
 			apierr.Write(w, status, err)

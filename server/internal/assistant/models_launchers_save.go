@@ -304,9 +304,25 @@ func (in launcherInput) check() error {
 
 var (
 	errChatProtocolChange = i18n.Err("assistant-models_launchers.err_chat_protocol_change")
+	errAPITransport       = i18n.Err("assistant-models_launchers.err_api_transport")
 	errChatTransport      = i18n.Err("assistant-models_launchers.err_chat_transport")
 	errChatLaunchSettings = i18n.Err("assistant-models_launchers.err_chat_launch_settings")
 )
+
+// checkAPITransport rejects settings the manager's direct calls cannot honor. Launcher
+// transport settings remain available to the node; an empty kind is a legacy launcher.
+func checkAPITransport(kind, api, proxy, noProxy string, hasHeaders bool) error {
+	if !hasHeaders && strings.TrimSpace(proxy) == "" && strings.TrimSpace(noProxy) == "" {
+		return nil
+	}
+	if api == "chat" {
+		return errChatTransport
+	}
+	if kind == "api" {
+		return errAPITransport
+	}
+	return nil
+}
 
 // saveLauncher stores in (over old on an update) and tells the nodes.
 func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *storedLauncher) (storedLauncher, error) {
@@ -330,7 +346,7 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 			return storedLauncher{}, errChatProtocolChange
 		}
 	}
-	if in.API == "chat" {
+	if in.Kind == "api" || in.API == "chat" {
 		var proxy, noProxy string
 		hasHeaders := false
 		if old != nil {
@@ -345,8 +361,8 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 		if in.Headers != nil {
 			hasHeaders = strings.TrimSpace(*in.Headers) != ""
 		}
-		if hasHeaders || strings.TrimSpace(proxy) != "" || strings.TrimSpace(noProxy) != "" {
-			return storedLauncher{}, errChatTransport
+		if err := checkAPITransport(in.Kind, in.API, proxy, noProxy, hasHeaders); err != nil {
+			return storedLauncher{}, err
 		}
 	}
 	now := time.Now().UTC()

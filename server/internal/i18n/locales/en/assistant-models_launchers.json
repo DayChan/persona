@@ -4,6 +4,7 @@
   "err_api": "Unsupported API protocol",
   "err_chat_protocol_change": "This Chat Completions provider cannot be changed to another protocol. Use a client that supports Chat Completions or add a separate provider.",
   "err_chat_launch_settings": "Chat Completions providers do not support environment variables, timeout, context limits, default effort, tier models, or subagent settings. Clear these fields to save.",
+  "err_api_transport": "Direct API providers do not support custom headers, proxy, or no_proxy. Clear these fields to continue.",
   "err_chat_transport": "Chat Completions providers do not support custom headers, proxy, or no_proxy. Clear these fields to continue.",
   "err_chat_launcher": "Chat Completions connections cannot run as launchers",
   "err_claude_messages": "Claude launchers only support Messages connections",

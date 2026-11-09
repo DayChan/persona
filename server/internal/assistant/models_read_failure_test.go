@@ -87,6 +87,7 @@ func (h providerReadHub) DeviceCall(ctx context.Context, call DeviceCall) (json.
 }
 
 // Both API and runnable providers are seeded through the real handlers. Every secret is synthetic.
+// Only the launcher has custom headers: direct API providers reject that unsupported setting.
 func providerReadFixture(t *testing.T) (*Service, *fakeHub, *providerReadFailureStore) {
 	t.Helper()
 	f := newFakeHub().withMachine()
@@ -94,7 +95,7 @@ func providerReadFixture(t *testing.T) (*Service, *fakeHub, *providerReadFailure
 	st := &downStore{memStore: &memStore{}}
 	s := withSettings(t, f, New(Options{Hub: providerReadHub{f}, Store: func() Store { return st }, Logf: testLogf(t)}))
 	for _, body := range []string{
-		`{"name":"old_api","kind":"api","api":"responses","base_url":"https://api.example.com/v1","model":"original","api_key":"synthetic-api-key","headers":"X-Test: synthetic-api-header"}`,
+		`{"name":"old_api","kind":"api","api":"responses","base_url":"https://api.example.com/v1","model":"original","api_key":"synthetic-api-key"}`,
 		`{"name":"old_launcher","base_url":"https://gw.example.com","model":"original","api_key":"sk-test-import-a","headers":"X-Test: synthetic-launcher-header","env":"X_TEST_TOKEN=synthetic-env","args":["--verbose"],"effort":"high"}`,
 	} {
 		if r := request(s, "POST", "/api/v1/launchers", body); r.Code != http.StatusOK {

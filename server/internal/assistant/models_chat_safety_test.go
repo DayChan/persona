@@ -88,7 +88,7 @@ func TestChatProviderTransportGuard(t *testing.T) {
 	if code, body := launcherCall(t, mux, "POST", "/api/v1/launchers", `{"name":"preset","preset":"team/chat","headers":"X-Example: value"}`); code != 400 {
 		t.Fatalf("preset: %d %s", code, body)
 	}
-	if code, body := launcherCall(t, mux, "POST", "/api/v1/launchers", `{"name":"messages","kind":"api","api":"messages","base_url":"https://api.example.com","model":"m","headers":"X-Example: value","proxy":"http://proxy.example.com","no_proxy":"example.com"}`); code != 200 {
+	if code, body := launcherCall(t, mux, "POST", "/api/v1/launchers", `{"name":"messages","kind":"launcher","api":"messages","base_url":"https://api.example.com","model":"m","headers":"X-Example: value","proxy":"http://proxy.example.com","no_proxy":"example.com"}`); code != 200 {
 		t.Fatalf("messages: %d %s", code, body)
 	}
 	if code, body := launcherCall(t, mux, "PUT", "/api/v1/launchers/messages", `{"kind":"api","api":"chat","base_url":"https://api.example.com","model":"m"}`); code != 400 {
@@ -169,6 +169,7 @@ func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 	for _, operation := range []string{"test", "discover"} {
 		for _, tc := range []struct {
 			name, api, storedHeaders, inputHeaders, apiOverride string
+			kind                                                string
 			storedProxy, overrideHeaders, allowed, direct       bool
 		}{
 			{name: "request headers", api: "chat", inputHeaders: "X-Example: value", overrideHeaders: true, direct: true},
@@ -176,9 +177,9 @@ func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 			{name: "stored proxy", api: "chat", storedProxy: true},
 			{name: "override adds headers", api: "chat", inputHeaders: "X-Example: value", overrideHeaders: true},
 			{name: "clear headers", api: "chat", storedHeaders: "X-Example: value", overrideHeaders: true, allowed: true},
-			{name: "messages headers and proxy", api: "messages", storedHeaders: "X-Example: value", storedProxy: true, allowed: true},
+			{name: "messages launcher headers and proxy", kind: "launcher", api: "messages", storedHeaders: "X-Example: value", storedProxy: true, allowed: true},
 			{name: "override protocol to chat", api: "messages", apiOverride: "chat", storedHeaders: "X-Example: value"},
-			{name: "override protocol to messages", api: "chat", apiOverride: "messages", storedHeaders: "X-Example: value", allowed: true},
+			{name: "override protocol to messages", api: "chat", apiOverride: "messages", storedHeaders: "X-Example: value"},
 		} {
 			t.Run(operation+"/"+tc.name, func(t *testing.T) {
 				var calls atomic.Int32
@@ -192,7 +193,11 @@ func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 				}))
 				defer gw.Close()
 				s, _ := launcherTestService(t)
-				l := storedLauncher{ManagedLauncher: proto.ManagedLauncher{Name: "stored", Kind: "api", API: tc.api, BaseURL: gw.URL, Model: "m"}}
+				kind := tc.kind
+				if kind == "" {
+					kind = "api"
+				}
+				l := storedLauncher{ManagedLauncher: proto.ManagedLauncher{Name: "stored", Kind: kind, API: tc.api, BaseURL: gw.URL, Model: "m"}}
 				if tc.storedHeaders != "" {
 					var err error
 					l.HeadersSealed, err = s.sealKey(tc.storedHeaders)
@@ -225,8 +230,14 @@ func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 					if calls.Load() != 1 || out["error"] != nil {
 						t.Fatalf("calls=%d out=%v", calls.Load(), out)
 					}
-				} else if calls.Load() != 0 || out["error"] != i18n.T(i18n.En, "assistant-models_launchers.err_chat_transport") {
-					t.Fatalf("blocked: calls=%d out=%v", calls.Load(), out)
+				} else {
+					key := "assistant-models_launchers.err_chat_transport"
+					if tc.apiOverride == "messages" {
+						key = "assistant-models_launchers.err_api_transport"
+					}
+					if calls.Load() != 0 || out["error"] != i18n.T(i18n.En, key) {
+						t.Fatalf("blocked: calls=%d out=%v", calls.Load(), out)
+					}
 				}
 			})
 		}

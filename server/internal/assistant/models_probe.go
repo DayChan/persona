@@ -42,7 +42,7 @@ type probeInput struct {
 
 // probeTarget is a resolved gateway: everything needed for one request.
 type probeTarget struct {
-	base, key, headers, model, proxy, api string
+	base, key, headers, model, proxy, noProxy, api, kind string
 }
 
 func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, error) {
@@ -62,7 +62,10 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 		if err != nil {
 			return t, i18n.Err("assistant-models_probe.err_open_headers")
 		}
-		t = probeTarget{base: l.BaseURL, key: key, headers: headers, model: l.Model, proxy: l.Proxy, api: l.API}
+		t = probeTarget{base: l.BaseURL, key: key, headers: headers, model: l.Model, proxy: l.Proxy, noProxy: l.NoProxy, api: l.API, kind: l.Kind}
+		if t.kind == "" {
+			t.kind = "launcher" // Stored entries without kind are legacy launchers.
+		}
 	}
 	if b := strings.TrimSpace(in.BaseURL); b != "" {
 		// The stored key and headers only go to the stored gateway: another address gets just what the request brings.
@@ -85,6 +88,12 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 		if !ok {
 			return t, errNoPreset
 		}
+		if in.Name == "" {
+			t.kind = pr.Kind
+			if t.kind == "" {
+				t.kind = "launcher"
+			}
+		}
 		if strings.TrimSpace(t.base) == "" {
 			t.base = pr.BaseURL
 		}
@@ -101,8 +110,13 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 	if t.api != "" && t.api != "messages" && t.api != "responses" && t.api != "chat" {
 		return t, i18n.Err("assistant-models_launchers.err_api")
 	}
-	if t.api == "chat" && (strings.TrimSpace(t.headers) != "" || strings.TrimSpace(t.proxy) != "") {
-		return t, errChatTransport
+	// An anonymous Messages probe also tests launchers, so only a stored provider or
+	// preset identifies it as direct API. Anonymous Responses calls are direct API.
+	if t.kind == "" && t.api == "responses" {
+		t.kind = "api"
+	}
+	if err := checkAPITransport(t.kind, t.api, t.proxy, t.noProxy, strings.TrimSpace(t.headers) != ""); err != nil {
+		return t, err
 	}
 	// Both credential headers go anyway (cindy's buildProbeRequest), so Auth only tidies a pasted "Bearer …".
 	t.key = strings.TrimSpace(strings.TrimPrefix(t.key, "Bearer "))
