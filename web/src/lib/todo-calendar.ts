@@ -241,7 +241,7 @@ export function calendarTitle(mode: CalendarMode, anchor: number, first: number)
   if (mode === "month") return formatDate(anchor, { year: "numeric", month: "long" });
   const days = calendarDays("week", anchor, first);
   const from = days[0], to = days[6];
-  // in the page's language: "Nov 9 – 15" · "11月9日 – 15日"; across a month or a year, both days in full
+  // in the page's language ("Nov 9 – 15"); across a month or a year, both days in full
   const sameMonth = new Date(from).getMonth() === new Date(to).getMonth();
   const sameYear = new Date(from).getFullYear() === new Date(to).getFullYear();
   const start = formatDate(from, { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" });
@@ -249,7 +249,7 @@ export function calendarTitle(mode: CalendarMode, anchor: number, first: number)
   return `${start} – ${end}`;
 }
 
-/** The weekdays' short names in the order the weeks start ("Mon" · "周一"; narrow: "M" · "一"). */
+/** The weekdays' short names in the order the weeks start, in the page's language ("Mon"; narrow: "M"). */
 export function weekdayNames(first: number, narrow: boolean): string[] {
   // 2023-01-01 was a Sunday
   return Array.from({ length: 7 }, (_, i) => formatDate(new Date(2023, 0, 1 + ((first + i) % 7)), { weekday: narrow ? "narrow" : "short" }));
