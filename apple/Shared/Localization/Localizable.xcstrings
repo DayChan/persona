@@ -16349,6 +16349,29 @@
       },
       "extractionState" : "manual"
     },
+    "Allow full photo access in Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow full photo access in Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定で写真へのフルアクセスを許可"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在设置中允许访问所有照片"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Allow notifications for Persona in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16371,6 +16394,29 @@
           }
         }
       }
+    },
+    "Allow photo access to see the one you just took here" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow photo access to see the one you just took here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真へのアクセスを許可すると、撮ったばかりのスクリーンショットがここに表示されます"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许访问照片后，刚截的图会出现在这里"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "Allowed %@" : {
       "localizations" : {
@@ -36430,6 +36476,29 @@
       },
       "extractionState" : "manual"
     },
+    "Couldn't read the screenshot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read the screenshot"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットを読み込めませんでした"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读不到这张截图"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Couldn't read the settings. Connect and try again." : {
       "localizations" : {
         "en" : {
@@ -54575,6 +54644,52 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次升级后起不来，已回到 %1$@，不再自动升级到这个版本"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Recent Screenshot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Screenshot"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最新のスクリーンショット"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刚截的图"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Suggest Recent Screenshots" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggest Recent Screenshots"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最新のスクリーンショットを提案"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推荐刚截的图"
           }
         }
       },

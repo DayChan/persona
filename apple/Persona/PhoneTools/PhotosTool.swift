@@ -155,7 +155,8 @@ enum PhotosTool {
 
     /// Asks Photos for the full-size representation, so iCloud originals are
     /// downloaded when needed.
-    private static func loadImageData(_ asset: PHAsset) async throws -> Data {
+    /// Also the composer's recent screenshot (`RecentScreenshots.take`).
+    static func loadImageData(_ asset: PHAsset) async throws -> Data {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, any Error>) in
             let options = PHImageRequestOptions()
             options.isNetworkAccessAllowed = true

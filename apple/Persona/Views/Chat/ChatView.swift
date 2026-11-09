@@ -4225,6 +4225,9 @@ struct Composer: View, Equatable {
                                  history: key.path,
                                  gate: gate,
                                  send: { if let gate { gate.action() } else { Task { await sendText(text) } } }) {
+                    #if os(iOS)
+                    RecentScreenshotMenuItems { add($0) } // the screenshot just taken, first (#1994)
+                    #endif
                     Button { showPhotos = true } label: { Label("Photos", systemImage: Theme.Icon.photos) }
                     if CameraPicker.isAvailable {
                         Button { showCamera = true } label: { Label("Take Photo [Chat View 6e3a10]", systemImage: Theme.Icon.camera) }
@@ -4246,7 +4249,7 @@ struct Composer: View, Equatable {
                                text: textBinding, selection: $selection, focused: $focused,
                                hasAttachments: hasAttachments,
                                stop: status.isActive && model.session(key)?.canInterrupt == true ? { Task { await model.interrupt(key) } } : nil,
-                               attach: PromptItems.attachments(camera: CameraPicker.isAvailable, glasses: MetaGlasses.isBuiltIn)
+                               attach: PromptItems.attachments(camera: CameraPicker.isAvailable, glasses: MetaGlasses.isBuiltIn, recentScreenshot: PromptItems.recentScreenshot)
                                    + (VoicePlatform.current == .phone ? [PromptItems.voice] : []),
                                mentions: mentions,
                                commands: promptCommands,
@@ -4263,6 +4266,9 @@ struct Composer: View, Equatable {
                                    // A PhotosPicker cannot present from inside the menu: these sheets hang off the composer.
                                    switch source.id {
                                    case "photo": showPhotos = true
+                                   #if os(iOS)
+                                   case PromptItems.recentScreenshotID: Task { await RecentScreenshots.shared.take { add($0) } }
+                                   #endif
                                    case "camera": showCamera = true
                                    case "glasses": showGlasses = true
                                    case PromptItems.voice.id: startVoice()
@@ -4300,6 +4306,9 @@ struct Composer: View, Equatable {
                             send: { if let gate { gate.action() } else { Task { await sendText(text) } } }, quotes: contexts, history: key.path,
                             gate: gate) {
                     // A PhotosPicker inside a Menu never presents (the menu dismisses first): present it from here.
+                    #if os(iOS)
+                    RecentScreenshotMenuItems { add($0) } // the screenshot just taken, first (#1994)
+                    #endif
                     Button { showPhotos = true } label: { Label("Photos", systemImage: Theme.Icon.photos) }
                     if CameraPicker.isAvailable {
                         Button { showCamera = true } label: { Label("Take Photo [Chat View 6e3a10]", systemImage: Theme.Icon.camera) }

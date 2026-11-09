@@ -237,19 +237,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Persona lets Claude look at recent photos when you ask, for example to read a screenshot you took or describe a whiteboard photo."
+            "value": "Persona offers the screenshot you just took first when you tap + in a chat, and lets Claude look at recent photos when you ask, for example to read a screenshot or describe a whiteboard photo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "依頼したときにClaudeが最近の写真を見られるようにします。たとえば撮ったスクリーンショットを読んだり、ホワイトボードの写真を説明したりします。"
+            "value": "チャットで「+」をタップすると、撮ったばかりのスクリーンショットを先頭に表示します。また、依頼したときにClaudeが最近の写真を見られるようにします。たとえばスクリーンショットを読んだり、ホワイトボードの写真を説明したりします。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你让 Claude 看照片时，Persona 允许它查看最近的照片，比如读一张截图，或者描述一张白板照片。"
+            "value": "在对话里点「+」时，Persona 会把你刚截的图放在最前面；你让 Claude 看照片时，它也能查看最近的照片，比如读一张截图，或者描述一张白板照片。"
           }
         }
       }

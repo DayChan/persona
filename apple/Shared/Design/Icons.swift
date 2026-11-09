@@ -320,6 +320,8 @@ extension Theme {
         static let photo = "photo"
         static let photos = "photo.on.rectangle"
         static let camera = "camera"
+        /// The screenshot just taken, offered first in the composer's + menu (#1994).
+        static let screenshot = "camera.viewfinder"
         /// Glasses Photo: a photo taken with the Meta glasses (Persona/Glasses), the composer's glasses item.
         static let glasses = "eyeglasses"
         static let list = "list.bullet.rectangle"

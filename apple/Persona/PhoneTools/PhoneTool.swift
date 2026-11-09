@@ -81,6 +81,9 @@ enum PhoneDataSource: String, CaseIterable, Identifiable, Codable {
 
     private var defaultsKey: String { "phoneSource.\(rawValue)" }
 
+    /// The switch was set once (turned on or off), not left at its default.
+    var hasChoice: Bool { UserDefaults.standard.object(forKey: defaultsKey) != nil }
+
     /// On and allowed: what the switch in Settings shows and what is declared to the hub (2026-11-01: the switch says both,
     /// no separate Allowed label). One turned on before it was allowed stays off until it is.
     var isActive: Bool { isEnabled && PhoneAuthorization.status(self).isUsable }

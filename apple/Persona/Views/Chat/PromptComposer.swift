@@ -185,8 +185,25 @@ struct PromptComposer: View {
 
 /// What the composer's menus offer.
 enum PromptItems {
-    static func attachments(camera: Bool, glasses: Bool = false) -> [PromptSource] {
-        var out = [PromptSource(id: "photo", name: String(localized: "Photos"), detail: String(localized: "Photos or videos, up to 4"), icon: .symbol(Theme.Icon.photos), kind: .attach)]
+    /// The attach list's first row while a screenshot was just taken (#1994): picking it attaches that one.
+    static let recentScreenshotID = "recent-screenshot"
+
+    /// The screenshot the menu offers now, if any (`RecentScreenshots`); nil elsewhere than on iOS.
+    static var recentScreenshot: Date? {
+        #if os(iOS)
+        RecentScreenshots.shared.offer?.taken
+        #else
+        nil
+        #endif
+    }
+
+    static func attachments(camera: Bool, glasses: Bool = false, recentScreenshot: Date? = nil) -> [PromptSource] {
+        var out: [PromptSource] = []
+        if let taken = recentScreenshot {
+            out.append(PromptSource(id: recentScreenshotID, name: String(localized: "Recent Screenshot"),
+                                    detail: taken.formatted(.relative(presentation: .named)), icon: .symbol(Theme.Icon.screenshot), kind: .attach))
+        }
+        out.append(PromptSource(id: "photo", name: String(localized: "Photos"), detail: String(localized: "Photos or videos, up to 4"), icon: .symbol(Theme.Icon.photos), kind: .attach))
         if camera { out.append(PromptSource(id: "camera", name: String(localized: "Take Photo [Chat View 6e3a10]"), detail: String(localized: "Take one with the camera"), icon: .symbol("camera"), kind: .attach)) }
         if glasses { out.append(PromptSource(id: "glasses", name: String(localized: "Glasses Photo"), detail: String(localized: "Take one with the Meta glasses"), icon: .symbol(Theme.Icon.glasses), kind: .attach)) }
         out.append(PromptSource(id: "file", name: String(localized: "Files"), detail: String(localized: "Uploads to that computer and inserts the path"), icon: .symbol("doc"), kind: .attach))

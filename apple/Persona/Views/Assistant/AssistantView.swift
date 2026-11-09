@@ -787,8 +787,20 @@ struct StarterComposer: View {
     /// The assistant's machine (the hub's unless set otherwise): files and videos go to its temp directory.
     private var machine: MachineRef { model.hubRef(model.assistantConfig?.machineID ?? model.hubMachineID) }
 
+    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4.
+    private func add(_ img: UIImage) {
+        guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
+        let scaled = img.scaledDown(maxSide: 1600)
+        if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
+            images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+        }
+    }
+
     /// A PhotosPicker inside a Menu never presents (the menu dismisses first): the buttons present it from here.
     @ViewBuilder private var attachments: some View {
+        #if os(iOS)
+        RecentScreenshotMenuItems { add($0) } // the screenshot just taken, first (#1994)
+        #endif
         Button { showPhotos = true } label: { Label("Photos", systemImage: Theme.Icon.photos) }
         Button { showFiles = true } label: { Label("Files", systemImage: Theme.Icon.file) }
     }
@@ -798,13 +810,7 @@ struct StarterComposer: View {
             if !uploads.items.isEmpty { UploadsBar(uploads: uploads) }
             if !videos.items.isEmpty { VideoAttachmentsBar(videos: videos) }
             #if os(iOS) || os(visionOS)
-            PasteImageChip(focused: focused) { img in
-                guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
-                let scaled = img.scaledDown(maxSide: 1600)
-                if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
-                    images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
-                }
-            }
+            PasteImageChip(focused: focused) { add($0) }
             #endif
             if !images.isEmpty { ComposerImages(images: $images) }
             if let shell {
@@ -900,24 +906,27 @@ struct BeautifulStarterComposer: View {
         return [PromptModel(id: currentLauncher, name: currentLauncher, tag: "")]
     }
 
+    /// A picture pasted or offered (the recent screenshot): attached as the picked photos are, up to 4.
+    private func add(_ img: UIImage) {
+        guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
+        let scaled = img.scaledDown(maxSide: 1600)
+        if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
+            images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
+        }
+    }
+
     var body: some View {
         VStack(spacing: Theme.Space.s) {
             if currentLauncher == nil { StarterLauncherStatus() }
             if !uploads.items.isEmpty { UploadsBar(uploads: uploads) }
             if !videos.items.isEmpty { VideoAttachmentsBar(videos: videos) }
             #if os(iOS) || os(visionOS)
-            PasteImageChip(focused: focused) { img in
-                guard images.count < 4 else { return model.toast = Toast(String(localized: "Up to 4 at a time"), style: .error) }
-                let scaled = img.scaledDown(maxSide: 1600)
-                if let jpeg = scaled.jpegData(compressionQuality: 0.75) {
-                    images.append((scaled, ImagePayload(mime: "image/jpeg", data: jpeg.base64EncodedString())))
-                }
-            }
+            PasteImageChip(focused: focused) { add($0) }
             #endif
             if !images.isEmpty { ComposerImages(images: $images) }
             PromptComposer(placeholder: placeholder ?? String(localized: "Ask \(model.persona.name)…"), text: $text, selection: $selection, focused: $focused,
                            hasAttachments: !images.isEmpty || !videos.items.isEmpty || !quotes.isEmpty, disabled: disabled,
-                           attach: PromptItems.attachments(camera: false),
+                           attach: PromptItems.attachments(camera: false, recentScreenshot: PromptItems.recentScreenshot),
                            mentions: { PromptItems.sessions(model.sessionsNow, except: nil) },
                            models: models,
                            modelID: currentLauncher ?? "",
@@ -928,6 +937,10 @@ struct BeautifulStarterComposer: View {
                            onAttach: { source in
                                switch source.id {
                                case "photo": showPhotos = true
+                               #if os(iOS)
+                               case PromptItems.recentScreenshotID:
+                                   Task { await RecentScreenshots.shared.take { add($0) } }
+                               #endif
                                default: showFiles = true
                                }
                            },

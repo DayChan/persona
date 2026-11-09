@@ -70,7 +70,7 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Persona saves images Claude produces to your library when you ask, for example a chart it generated.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Persona lets Claude look at recent photos when you ask, for example to read a screenshot you took or describe a whiteboard photo.</string>
+	<string>Persona offers the screenshot you just took first when you tap + in a chat, and lets Claude look at recent photos when you ask, for example to read a screenshot or describe a whiteboard photo.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Persona lets Claude read and create reminders when you ask, for example to add “review the PR” to your Today list.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

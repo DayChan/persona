@@ -240,6 +240,16 @@ Chat page:
     `AppModel.draftMarks`, changes only when a session gains/loses draft, no row redraw while typing).
   - Paste images (#4573): clipboard image + focused input shows system Paste above (`PasteImageChip`, SwiftUI `PasteButton`); tap adds pending image,
     itself authorizes paste, no Allow paste prompt. Only `hasImages` checks presence, no content reads; after tap or × same copy does not show again. Chats and both assistant starter composers supported.
+  - Recent screenshot (#1994, `Views/Chat/RecentScreenshot.swift`, like WeChat's "photo you may want to send"): the + menu's first row is the newest
+    screenshot taken in the last 2 minutes, with its thumbnail and age; one tap attaches it like a picked photo (up to 4), and it is not offered again
+    (an older one of the window may take its place). Offered, not attached on its own: the + menu is also how Files and Take Photo are reached, and a
+    screenshot nobody chose must not ride along. Two minutes covers taking it, switching to Persona and typing a line, and drops it before the next,
+    unrelated message. Kept current on becoming active, on a screenshot taken in the app and on Photos library changes; leaves the menu when it
+    gets older (`RecentScreenshotRule`). Needs full photo access (limited access never sees a new screenshot). Without it the menu is as before
+    plus one "Suggest Recent Screenshots" row: never asked → the system prompt; refused or limited → Settings. Used once, the row never returns
+    (`composer.recentScreenshotGuideUsed`). Access given from that row leaves Claude's Photos tools off (Settings › Connectors › This iPhone)
+    unless that switch was set before. Chats (all three composers) and both assistant starter composers; iOS only (on the Mac screenshots are files).
+    Tests: `RecentScreenshotTests`; `RecentScreenshotUITests` with `TEST_RUNNER_PERSONA_RECENT_SHOT=ask|settings|offer` after `simctl privacy` / `simctl addmedia`.
   - @: recently accessed tool files (12, `@relative/path`, understood by Claude Code and Codex), then recent 8 sessions, selected as
     `<persona-context>` before message, quote capsule above input. Only loaded-step files; folded work never expanded in long chats yields none.
   - /: `SlashCommand.all`, quick words /继续 (continue), /提交 (commit), /汇报 (report), fills request text for explicit Send (formerly menu sent immediately);
