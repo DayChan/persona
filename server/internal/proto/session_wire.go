@@ -27,8 +27,27 @@ var sessionWireCurrent = sessionLayout() == sessionWireLayout
 
 // sessionLayout hashes the name, type and tag of each of Session's fields, in order.
 func sessionLayout() uint64 {
+	return typeLayout(reflect.TypeFor[Session]())
+}
+
+// The nested values sessions carry most, background tasks and subagents (with their latest tool), are written by hand
+// too, each type under its own layout hash: while one's fields differ from the ones written here, its values are left to
+// the reflect encoder (value), the rest of the session still written here.
+const (
+	backgroundWireLayout   = 0xf3f44642839ae39d
+	subagentWireLayout     = 0x6cceb04bc9a10526
+	workflowToolWireLayout = 0x56c71f2c71223998
+)
+
+var (
+	backgroundWireCurrent = typeLayout(reflect.TypeFor[BackgroundTask]()) == backgroundWireLayout
+	subagentWireCurrent   = typeLayout(reflect.TypeFor[Subagent]()) == subagentWireLayout &&
+		typeLayout(reflect.TypeFor[WorkflowTool]()) == workflowToolWireLayout
+)
+
+// typeLayout hashes the name, type and tag of each of a struct type's fields, in order.
+func typeLayout(t reflect.Type) uint64 {
 	h := fnv.New64a()
-	t := reflect.TypeFor[Session]()
 	for i := range t.NumField() {
 		f := t.Field(i)
 		h.Write([]byte(f.Name + " " + f.Type.String() + " " + string(f.Tag) + "\n"))
@@ -124,10 +143,20 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 	w.time(`"state_since":`, s.StateSince)
 	w.strs(`"queued":`, s.Queued)
 	if len(s.Background) > 0 {
-		w.value(`"background":`, &s.Background)
+		if backgroundWireCurrent {
+			w.key(`"background":`)
+			w.backgroundTasks(s.Background)
+		} else {
+			w.value(`"background":`, &s.Background)
+		}
 	}
 	if len(s.Subagents) > 0 {
-		w.value(`"subagents":`, &s.Subagents)
+		if subagentWireCurrent {
+			w.key(`"subagents":`)
+			w.subagents(s.Subagents)
+		} else {
+			w.value(`"subagents":`, &s.Subagents)
+		}
 	}
 	if len(s.Workflows) > 0 {
 		w.value(`"workflows":`, &s.Workflows)
@@ -261,6 +290,76 @@ func (w *wireWriter) time(k string, t time.Time) {
 	}
 	w.key(k)
 	w.b = append(t.AppendFormat(append(w.b, '"'), time.RFC3339Nano), '"')
+}
+
+// open and close write a nested object around its members, after its key.
+func (w *wireWriter) open() {
+	w.b = append(w.b, '{')
+	w.first = true
+}
+
+func (w *wireWriter) close() {
+	w.b = append(w.b, '}')
+	w.first = false
+}
+
+// backgroundTasks writes a non-empty []BackgroundTask as the reflect encoder does.
+func (w *wireWriter) backgroundTasks(list []BackgroundTask) {
+	w.b = append(w.b, '[')
+	for i := range list {
+		if i > 0 {
+			w.b = append(w.b, ',')
+		}
+		t := &list[i]
+		w.open()
+		w.str(`"id":`, t.ID, false)
+		w.str(`"kind":`, t.Kind, false)
+		w.str(`"description":`, t.Description, true)
+		w.str(`"command":`, t.Command, true)
+		w.str(`"output_file":`, t.OutputFile, true)
+		w.time(`"started_at":`, t.StartedAt)
+		if t.ExpiresAt != nil {
+			w.time(`"expires_at":`, *t.ExpiresAt)
+		}
+		w.str(`"run_id":`, t.RunID, true)
+		w.close()
+	}
+	w.b = append(w.b, ']')
+}
+
+// subagents writes a non-empty []Subagent as the reflect encoder does.
+func (w *wireWriter) subagents(list []Subagent) {
+	w.b = append(w.b, '[')
+	for i := range list {
+		if i > 0 {
+			w.b = append(w.b, ',')
+		}
+		a := &list[i]
+		w.open()
+		w.str(`"id":`, a.ID, false)
+		w.str(`"session_id":`, a.SessionID, false)
+		w.str(`"type":`, a.Type, true)
+		w.str(`"description":`, a.Description, true)
+		w.str(`"tool_use_id":`, a.ToolUseID, true)
+		w.str(`"parent_id":`, a.ParentID, true)
+		w.boolean(`"fork":`, a.Fork, true)
+		w.boolean(`"running":`, a.Running, false)
+		w.boolean(`"background":`, a.Background, true)
+		w.time(`"started_at":`, a.StartedAt) // omitempty keeps a time, a struct
+		w.time(`"updated_at":`, a.UpdatedAt)
+		w.str(`"last_text":`, a.LastText, true)
+		w.integer(`"steps":`, int64(a.Steps), true)
+		if t := a.LastTool; t != nil {
+			w.key(`"last_tool":`)
+			w.open()
+			w.str(`"id":`, t.ID, true)
+			w.str(`"name":`, t.Name, false)
+			w.str(`"summary":`, t.Summary, false)
+			w.close()
+		}
+		w.close()
+	}
+	w.b = append(w.b, ']')
 }
 
 // value writes a nested value (a struct, a list of them, a map) as encoding/json does, straight after the key: these

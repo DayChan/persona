@@ -313,8 +313,8 @@ func TestTaskDoneSkipAndCheck(t *testing.T) {
 	}
 }
 
-// The judge reads the agent's whole latest turn: a follow-up the user sent it is part of the work; the turn that
-// answers the task's own prompt does not repeat it.
+// The judge reads the agent's whole latest turn without treating a follow-up as
+// proof that the assigned task was already finished.
 func TestTaskDoneReadsTheLatestTurn(t *testing.T) {
 	h, tn := newTaskHub(t)
 	js := stubJudge(t, h, http.StatusOK, `{"verdict":"done","reason":"已合并并发了 TestFlight"}`)
@@ -329,7 +329,7 @@ func TestTaskDoneReadsTheLatestTurn(t *testing.T) {
 	runTurn(h, "挪好了")
 	waitFor(t, "auto done", func() bool { return todoNow(h, todo.ID).DoneAt != nil })
 	in, _ := js.input.Load().(string)
-	for _, want := range []string{"用户后来给它的要求", "全部 N", "构建号 202611040923", "没截图的：Mac"} {
+	for _, want := range []string{"这一轮收到的请求（不一定来自用户，不替代原任务）", "iPad 横屏时登录页崩溃", "全部 N", "构建号 202611040923", "没截图的：Mac"} {
 		if !strings.Contains(in, want) {
 			t.Errorf("judge input lacks %q: %s", want, in)
 		}

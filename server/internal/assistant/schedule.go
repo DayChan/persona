@@ -208,6 +208,9 @@ type ScheduleRun struct {
 	SessionID string    `json:"session_id,omitempty"`
 	// Retried: this run is the automatic retry after a failure (so a retry that fails again does not retry forever).
 	Retried bool `json:"retried,omitempty"`
+	// NotReady: skipped because a required computer or model was not ready, including temporary offline states.
+	// It stays in the history but neither counts toward nor ends a failure streak (schedule_streak.go).
+	NotReady bool `json:"not_ready,omitempty"`
 	// StreakTold: this run made its task's streak of runs that did not go through long enough to tell the user, who
 	// was told then (schedule_streak.go): the rest of that streak is not told again.
 	StreakTold bool `json:"streak_told,omitempty"`
@@ -1566,6 +1569,7 @@ func (s *Service) waitKey(machine, session string, c proto.Session) string {
 
 func (s *Service) skipRun(run ScheduleRun, why error) error {
 	run.Status, run.Error = runSkipped, i18n.Localize(why, s.lang(context.Background())) // the history keeps it in the user's language
+	run.NotReady = errors.Is(why, errNotReady)
 	s.recordRun(run)
 	return why
 }

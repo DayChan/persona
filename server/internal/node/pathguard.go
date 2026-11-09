@@ -78,6 +78,10 @@ func (n *Node) offLimits(path string) error {
 	if slices.ContainsFunc(n.inDataDirs(p), dataSecret) {
 		return errOffLimits
 	}
+	// Agent credentials in every Claude Code config directory and Codex home the node knows (agentsecrets.go).
+	if n.agentSecret(path) {
+		return errOffLimits
+	}
 
 	if n.home == "" {
 		return nil

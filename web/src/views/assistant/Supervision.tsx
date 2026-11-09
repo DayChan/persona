@@ -78,7 +78,21 @@ export function ReviewChecklist({ todo }: { todo: Todo }) {
 }
 
 /** A supervised task's agent reported to Persona (feed kind "report": a question, a block, a finish): who, and what. */
-export function ReportLine({ item, title, onOpenTask }: { item: FeedItem; title: string; onOpenTask?: () => void }) {
+export function ReportLine(props: { item: FeedItem; title: string; onOpenTask?: () => void }) {
+  const [open, setOpen] = useState(false);
+  if (props.item.body?.kind !== "progress") return <ReportBody {...props} />;
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-testid="progress-report">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="touch-hit flex min-w-0 items-center gap-1 text-left text-xs whitespace-nowrap text-ink-3 hover:text-ink-2">
+        <span className="min-w-0 truncate">{t("assistant-tasks.report_progress", { title: props.title })}</span>
+        <Icon name="chevronRight" size={12} className="shrink-0" style={{ transform: open ? "rotate(90deg)" : undefined }} />
+      </button>
+      {open && <ReportBody {...props} />}
+    </div>
+  );
+}
+
+function ReportBody({ item, title, onOpenTask }: { item: FeedItem; title: string; onOpenTask?: () => void }) {
   const body = (item.body ?? {}) as { kind?: string; text?: string; step?: number; steps?: number; evidence?: string[]; later?: boolean };
   // A question that can wait is no call on the owner now: it is drawn quietly, with its mark.
   const tone = !body.later && (body.kind === "blocked" || body.kind === "question") ? "text-orange" : "text-ink-2";

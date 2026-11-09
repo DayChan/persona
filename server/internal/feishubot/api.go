@@ -316,6 +316,60 @@ func (c *Client) Unreact(ctx context.Context, messageID, reactionID string) erro
 	return c.call(ctx, "unreact", http.MethodDelete, "/open-apis/im/v1/messages/"+url.PathEscape(messageID)+"/reactions/"+url.PathEscape(reactionID), nil, nil)
 }
 
+// Pin pins a message in its chat (needs im:message.pins:write_only).
+func (c *Client) Pin(ctx context.Context, messageID string) error {
+	return c.call(ctx, "pin", http.MethodPost, "/open-apis/im/v1/pins", map[string]any{"message_id": messageID}, nil)
+}
+
+// Unpin takes a message off its chat's pins.
+func (c *Client) Unpin(ctx context.Context, messageID string) error {
+	return c.call(ctx, "unpin", http.MethodDelete, "/open-apis/im/v1/pins/"+url.PathEscape(messageID), nil, nil)
+}
+
+// Pin is one pin of a chat: the message and who pinned it.
+type Pin struct {
+	MessageID      string `json:"message_id"`
+	OperatorID     string `json:"operator_id"`
+	OperatorIDType string `json:"operator_id_type"` // app_id for a bot's pin
+}
+
+// ByApp: the app appID pinned it.
+func (p Pin) ByApp(appID string) bool { return p.OperatorIDType == "app_id" && p.OperatorID == appID }
+
+// pinsPagesMost bounds how many pages of a chat's pins are read (50 each).
+const pinsPagesMost = 4
+
+// Pins are a chat's pins, newest first (needs im:message.pins:read).
+func (c *Client) Pins(ctx context.Context, chatID string) ([]Pin, error) {
+	var all []Pin
+	token := ""
+	for range pinsPagesMost {
+		var out struct {
+			Items     []Pin  `json:"items"`
+			HasMore   bool   `json:"has_more"`
+			PageToken string `json:"page_token"`
+		}
+		path := "/open-apis/im/v1/pins?page_size=50&chat_id=" + url.QueryEscape(chatID)
+		if token != "" {
+			path += "&page_token=" + url.QueryEscape(token)
+		}
+		if err := c.call(ctx, "pins", http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Items...)
+		if !out.HasMore || out.PageToken == "" {
+			break
+		}
+		token = out.PageToken
+	}
+	return all, nil
+}
+
+// Recall withdraws a message the bot sent.
+func (c *Client) Recall(ctx context.Context, messageID string) error {
+	return c.call(ctx, "recall", http.MethodDelete, "/open-apis/im/v1/messages/"+url.PathEscape(messageID), nil, nil)
+}
+
 // UpdateCard replaces a card the bot sent (shared cards: update_multi).
 func (c *Client) UpdateCard(ctx context.Context, messageID, card string) error {
 	return c.call(ctx, "update card", http.MethodPatch, "/open-apis/im/v1/messages/"+url.PathEscape(messageID), map[string]any{"content": card}, nil)

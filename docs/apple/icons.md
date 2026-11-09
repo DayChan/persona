@@ -53,6 +53,7 @@ A new style that has its own icons sets `icons` in its `ComponentSpec`; nothing 
 | --- | --- |
 | A symbol in text, on a bare button, in a row | `ThemedIcon(Theme.Icon.x)` with `.font(Theme.Font…)` and `.foregroundStyle(…)` |
 | A row's mark on a tinted tile (Settings, the assistant's suggestions and profile, Needs You) | `IconTile(Theme.Icon.x, tint:)` |
+| A Settings row that opens a page / a Settings switch with a mark | `SettingsRow(title:symbol:tint:)` / `SettingsSwitchRow(title:symbol:tint:isOn:)`; never a page's own `Toggle` + `Label` |
 | A component that takes a symbol name (`Chip`, `EmptyStateView`, BeautifulUI's pills, tool chips, sidebar rows) | pass `Theme.Icon.styled(Theme.Icon.x)`; the design-system components already do |
 | A system control that draws its own symbol (`Label(_:systemImage:)` in a menu, a swipe action, a tab) | `Theme.Icon.x` as written |
 | A brand, an iPhone app, a Linux distribution | `BrandMark`, `BrandTile`, `BrandBadge` with `Theme.Brand` (never `Image("…")`) |
@@ -62,6 +63,12 @@ inside `Text` or as a menu item's icon (the item takes only an `Image`), use `Th
 style's symbol, with the weight of the surrounding font. Use `Image(systemName:)` directly only where it is sized by its
 frame with `.resizable()`. `TokenRatchetTests` counts
 those per file (`rawSymbol`), and the count only goes down.
+
+In the BeautifulUI style every row of a Settings card starts with the same mark: a row that opens a page and a switch row
+both draw `IconTile` on BeautifulUI's list row (`BUIListRow`), the switch at the end (#1650). The tile's tint follows
+`SettingsRow`'s: `Theme.accent` unless the row has a meaning of its own (`StatusPalette` for an Agent state,
+`Theme.brand` for Persona, `Theme.Hue.gray` for a secondary option). The other styles keep the system's switch with the
+bare `ThemedIcon` in its color.
 
 Size an icon with a font level (`Theme.Font`) when it sits in text, and with `Theme.Size` + `.scaledFrame(…)` when it
 fills a box: `mark*` for marks beside text, `icon*` for row icons, `well*` for round buttons, `avatar*` for avatars and

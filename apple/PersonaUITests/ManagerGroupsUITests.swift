@@ -55,13 +55,13 @@ final class ManagerGroupsUITests: XCTestCase {
         }
         XCTAssertTrue(element(app, "manager-heading-assistant").exists && element(app, "manager-heading-m-3fa21c").exists)
         shot(app, "extensions-grouped")
-        // 家里 is offline: its heading says when it last synced.
+        // m-8b04d2 is offline: its heading says when it last synced.
         let home = element(app, "manager-heading-m-8b04d2")
         reveal(app, home)
         XCTAssertTrue(home.label.contains("离线"), home.label)
         shot(app, "extensions-grouped-offline")
 
-        // 工作's Telegram is its own row, opening its own copy (every request of the page names 工作).
+        // m-3fa21c's Telegram is its own row, opening its own copy (every request of the page names m-3fa21c).
         let work = element(app, "plugin-m-3fa21c-telegram")
         reveal(app, work, down: true)
         XCTAssertTrue(work.exists && element(app, "plugin-m-8b04d2-telegram").exists, "each manager's copy is a row of its own")
@@ -89,7 +89,7 @@ final class ManagerGroupsUITests: XCTestCase {
             shot(app, "connectors-one-manager")
             return
         }
-        // The mock's 家里 (offline) has GitHub: its own section under its name.
+        // The mock's m-8b04d2 (offline) has GitHub: its own section under its name.
         let home = element(app, "manager-heading-m-8b04d2")
         reveal(app, home)
         XCTAssertTrue(home.exists && element(app, "manager-heading-assistant").exists, "no manager headings:\n\(app.debugDescription)")

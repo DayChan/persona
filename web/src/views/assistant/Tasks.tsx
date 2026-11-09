@@ -787,9 +787,10 @@ function OutcomeReceipt({ item, failed }: { item: FeedItem; failed: boolean }) {
   // A done receipt ends a stretch of work, not the task: while its todo is open (the agent stopped unfinished, waits on
   // the user…) it says so, not "done"; it turns green once the todo is done (#6153). One gone from the list stands on its receipt.
   const stopped = !failed && !!linked && !linked.done_at;
-  // Review is a receipt-time hint. Once the linked todo is done, its current completion wins (#4893).
+  // A receipt is historical. Only the current todo can say it actually awaits acceptance now.
   const review = stopped ? item.body?.review as { state?: string; criteria?: number } | undefined : undefined;
-  const criteria = review?.criteria ?? 0;
+  const awaitingReview = stopped && linked?.supervision?.state === "pending_review";
+  const criteria = review?.criteria ?? linked?.supervision?.done_when?.length ?? 0;
   const plans = useFeed((s) => s.plans);
   const retrying = useRetrying(todo?.id);
   const status = useTaskStatus(todo);
@@ -844,7 +845,8 @@ function OutcomeReceipt({ item, failed }: { item: FeedItem; failed: boolean }) {
             )}
             {!failed && item.ref && <Button onClick={() => openTask(item.ref!)}>{t("assistant-tasks.look")}</Button>}
           </div>
-          {review?.state === "awaiting" && (
+          {!awaitingReview && (review?.state === "checking" || review?.state === "awaiting") && <div className="text-xs text-ink-3">{t("assistant-tasks.receipt_review_followup")}</div>}
+          {awaitingReview && (
             <div className="text-xs text-ink-3">
               {criteria > 0
                 ? t("assistant-tasks.receipt_review_criteria", { count: criteria })

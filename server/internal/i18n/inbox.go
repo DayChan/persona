@@ -15,8 +15,8 @@ func InboxText(l Lang, text string) string {
 		return text
 	}
 	forms := inboxTemplates()
-	for i := range forms { // by index: a range value copies each template, for every text
-		form := &forms[i]
+	for _, n := range forms.candidates(text) {
+		form := &forms.forms[n]
 		match := form.match(text)
 		if match == nil {
 			continue
@@ -39,15 +39,15 @@ func InboxText(l Lang, text string) string {
 	return text
 }
 
-var inboxTemplates = sync.OnceValue(func() []deploymentTemplate {
-	return makeCatalogTemplates(func(key string) bool {
+var inboxTemplates = sync.OnceValue(func() *templateIndex {
+	return indexTemplates(makeCatalogTemplates(func(key string) bool {
 		for _, prefix := range []string{"inbox-errors.", "assistant-inbox_agent.", "assistant-inbox_triage.", "assistant-inbox_admit.", "assistant-inbox_chain."} {
 			if strings.HasPrefix(key, prefix) {
 				return true
 			}
 		}
 		return key == "assistant-inbox.by_rules" || key == "assistant-inbox.muted"
-	})
+	}))
 })
 
 // InboxJSON translates copies at the public response boundary, including saved reply receipts. Only known

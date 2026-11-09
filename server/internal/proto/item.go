@@ -41,6 +41,8 @@ type Fold struct {
 	Images []FoldImage `json:"images,omitempty"`
 	// LatestThinking is a bounded preview of the run's newest thought with words. The original item stays in the fold.
 	LatestThinking *Item `json:"latest_thinking,omitempty"`
+	// SupervisionUser preserves an explicit user-visible action hidden inside this work range.
+	SupervisionUser bool `json:"supervision_user,omitempty"`
 }
 
 // FoldImage is an image a tool call of a folded run looked at (docs/protocol/protocol.md "Images looked at this turn"): one its result
@@ -161,6 +163,8 @@ type Item struct {
 
 // Injected says what a message Persona wrote for the model is, for the apps to show one line instead of it.
 type Injected struct {
+	// Level classifies supervision: info updates only, triage folds the turn, user is visible.
+	Level   string `json:"level,omitempty"`
 	Kind    string `json:"kind"`              // InjectedTaskNotice | InjectedFollowup | InjectedSystem
 	State   string `json:"state,omitempty"`   // task_notice: done|needs|interrupted|failed; followup: once|daily|interval|wake; system: lost_tasks|supervise|inbox
 	Title   string `json:"title,omitempty"`   // the task's, the scheduled task's, the inbox item's, or what a woken agent waits for

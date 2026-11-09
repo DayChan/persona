@@ -49,8 +49,47 @@ func (t *deploymentTemplate) match(text string) []string {
 	return t.pattern.FindStringSubmatch(text)
 }
 
+// templateIndex is a catalog's templates in the order they are tried, indexed by the first byte of the texts each may
+// match.
+type templateIndex struct {
+	forms []deploymentTemplate
+	// first: for each byte a text may start with, the templates whose text starts with that byte or with a placeholder,
+	// as indices into forms in their order. Any other template's first literal is not a prefix of such a text, so it
+	// could not match (fits). open: those starting with a placeholder, the only ones that may match the empty text.
+	first [256][]int32
+	open  []int32
+}
+
+func indexTemplates(forms []deploymentTemplate) *templateIndex {
+	x := &templateIndex{forms: forms}
+	var lead [256][]int32
+	for i := range forms {
+		if l := forms[i].literals[0]; l != "" {
+			lead[l[0]] = append(lead[l[0]], int32(i))
+		} else {
+			x.open = append(x.open, int32(i))
+		}
+	}
+	for c := range x.first {
+		x.first[c] = x.open
+		if len(lead[c]) > 0 {
+			x.first[c] = slices.Sorted(slices.Values(append(slices.Clone(x.open), lead[c]...)))
+		}
+	}
+	return x
+}
+
+// candidates are the templates text may match, in the order they are tried: a few of the catalog's hundreds, so a
+// text no template is worded as (the usual case) costs a lookup and a few string comparisons.
+func (x *templateIndex) candidates(text string) []int32 {
+	if text == "" {
+		return x.open
+	}
+	return x.first[text[0]]
+}
+
 var deploymentPlaceholders = lazyre.New(`\{(\w+)\}`)
-var deploymentTemplates = sync.OnceValue(makeDeploymentTemplates)
+var deploymentTemplates = sync.OnceValue(func() *templateIndex { return indexTemplates(makeDeploymentTemplates()) })
 
 func makeDeploymentTemplates() []deploymentTemplate {
 	return makeCatalogTemplates(func(key string) bool {
@@ -116,8 +155,8 @@ func deploymentText(l Lang, text string, depth int) string {
 		return text
 	}
 	forms := deploymentTemplates()
-	for i := range forms { // by index: a range value copies each template, for every text
-		form := &forms[i]
+	for _, n := range forms.candidates(text) {
+		form := &forms.forms[n]
 		match := form.match(text)
 		if match == nil {
 			continue

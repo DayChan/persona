@@ -461,7 +461,9 @@ export function createRuntime(driver, options) {
           const page = await driver.items({ session_id: id, after_seq: after })
           if (watched.get(id) !== w) return { ok: true }
           if ((page.items?.length ?? 0) > 0 || page.to_seq > w.last) {
-            peer?.notify('session.items', { session_id: id, items: page.items ?? [], history: page.history, from_seq: page.from_seq ?? after, to_seq: page.to_seq })
+            // As with the hub's backlog cap, only the last page of a truncated replay asks the client to fetch the rest.
+            const moreAfter = i === 7 && page.more_after === true
+            peer?.notify('session.items', { session_id: id, items: page.items ?? [], history: page.history, from_seq: page.from_seq ?? after, to_seq: page.to_seq, ...(moreAfter ? { more_after: true } : {}) })
             w.last = page.to_seq
           }
           if (page.history !== undefined) w.history = page.history

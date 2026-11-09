@@ -1027,13 +1027,18 @@ type (
 	}
 )
 
-// itemsToSubscribers fans new items out, without image data to clients that load images on demand.
-func (h *Hub) itemsToSubscribers(machineID, sessionID string, items []proto.Item, span itemSpan) {
+// itemsToSubscribers fans new items out, without image data to clients that load images on demand. moreAfter marks
+// a producer's capped replay batch, whose remaining items the client must fetch.
+func (h *Hub) itemsToSubscribers(machineID, sessionID string, items []proto.Item, span itemSpan, moreAfter bool) {
 	if items == nil {
 		items = []proto.Item{}
 	}
 	msg := func(items []proto.Item) []byte {
-		b, _ := json.Marshal(span.into(map[string]any{"type": "items", "machine_id": machineID, "session_id": sessionID, "items": items}))
+		out := span.into(map[string]any{"type": "items", "machine_id": machineID, "session_id": sessionID, "items": items})
+		if moreAfter {
+			out["more_after"] = true
+		}
+		b, _ := json.Marshal(out)
 		return b
 	}
 	// One message per language and image mode: the node's Chinese lines read in each connection's (transcript_text.go).

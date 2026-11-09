@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,13 @@ func (s *Service) FeishuAction(ctx context.Context, p FeishuAction) (*feishubot.
 	if err := json.Unmarshal(p.Event, &a); err != nil {
 		return nil, badRequest(err)
 	}
-	return s.botCardAction(ctx, &a, p.Action), nil
+	resp := s.botCardAction(ctx, &a, p.Action)
+	if resp != nil && resp.Card != nil {
+		if c, ok := resp.Card.Data.(*feishubot.Card); ok {
+			s.workbenchStamp(ctx, c) // the card drawn in its place keeps its way back to the workbench
+		}
+	}
+	return resp, nil
 }
 
 // botCardAction answers a press; action is the owner's action for the card it presses (what answers it).
@@ -95,7 +102,7 @@ func (s *Service) botCardAction(ctx context.Context, a *feishubot.CardAction, ac
 		if f, _ := s.feishuFeatures(ctx); !f.Agents {
 			return toast("error", i18n.T(l, "assistant-feishu_cards.agents_off_short"))
 		}
-		machine, cwd, prompt := a.Form("machine"), strings.TrimSpace(a.Form("cwd")), strings.TrimSpace(a.Form("prompt"))
+		machine, cwd, prompt, mode := a.Form("machine"), strings.TrimSpace(a.Form("cwd")), strings.TrimSpace(a.Form("prompt")), a.Form("mode")
 		if machine == "" || cwd == "" {
 			return toast("warning", i18n.T(l, "assistant-feishu_cards.pick_machine_dir"))
 		}
@@ -110,13 +117,17 @@ func (s *Service) botCardAction(ctx context.Context, a *feishubot.CardAction, ac
 			}
 		}
 		go func() {
-			if err := s.botStartAgent(machine, cwd, prompt); err != nil && mid != "" {
+			if err := s.botStartAgent(machine, cwd, prompt, mode); err != nil && mid != "" {
 				// Nothing started, so a retry press of the same card must go through. at makes this a compare-and-swap:
 				// a failure arriving after the window only frees the slot if a later press has not re-stamped it.
 				s.forgetStartCard(mid, at)
 			}
 		}()
 		return toast("info", i18n.T(l, "assistant-feishu_cards.starting"))
+	case "nav": // a workbench button (feishu_workbench.go)
+		return s.workbenchNav(ctx, a)
+	case "ib": // an Inbox button of the workbench's /inbox card
+		return s.workbenchInboxAction(ctx, a)
 	case "stop":
 		// The progress card's Stop button: the run's own conversation, carried in the button when the card was built.
 		f, _ := s.feishuFeatures(ctx)
@@ -347,9 +358,10 @@ func (s *Service) forgetStartCard(mid string, at time.Time) {
 	}
 }
 
-// botStartAgent starts a coding agent from the /start card and points the chat at it. A non-nil error was already
-// told to the owner as a note; it means no agent was started.
-func (s *Service) botStartAgent(machine, cwd, prompt string) error {
+// botStartAgent starts a coding agent from the /start card and points the chat at it; mode is the form's permission
+// mode (the workbench's field), "" the launcher's own. A non-nil error was already told to the owner as a note; it
+// means no agent was started.
+func (s *Service) botStartAgent(machine, cwd, prompt, mode string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	l := s.botLang(ctx)
@@ -360,6 +372,9 @@ func (s *Service) botStartAgent(machine, cwd, prompt string) error {
 	}
 	cwd = proto.ExpandHome(cwd, d.Home)
 	params := map[string]any{"cwd": cwd, "prompt": prompt, "tab_name": s.tabName(ctx, prompt)} // agents_start.go
+	if slices.Contains(proto.PermissionModes, mode) {
+		params["permission_mode"] = mode
+	}
 	if err := s.applyModel(ctx, "agent.new", params); err != nil {
 		s.botSay(ctx, i18n.T(l, "assistant-feishu_cards.cannot_start", i18n.Args{"error": err.Error()}))
 		return err

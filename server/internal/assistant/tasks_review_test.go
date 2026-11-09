@@ -106,7 +106,11 @@ func TestTaskReceiptReview(t *testing.T) {
 				t.Fatal(err)
 			}
 			if c.wantReview {
-				if body.Review == nil || body.Review.State != "awaiting" || body.Review.Criteria != len(c.criteria) {
+				wantReviewState := "checking"
+				if c.state == reviewPending {
+					wantReviewState = "awaiting"
+				}
+				if body.Review == nil || body.Review.State != wantReviewState || body.Review.Criteria != len(c.criteria) {
 					t.Fatalf("review = %+v, body = %s", body.Review, last.Body)
 				}
 				var review map[string]json.RawMessage

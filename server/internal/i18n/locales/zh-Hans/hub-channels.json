@@ -22,6 +22,8 @@
   "feature_reports_description": "主对话派出的任务做完、在等你、被打断时，几条合成一张卡片发到这里",
   "feature_board": "飞书里的「等你处理」总卡",
   "feature_board_description": "/tasks 发出一张列着所有等你的事的卡片，之后原地更新这一张，不再发新的",
+  "feature_workbench": "飞书工作台",
+  "feature_workbench_description": "/home 叫出一张置顶的主页卡片，汇总此刻的全局（全局只留一张、自动刷新），每张卡片都多一个回到它的按钮；/today 看今日、/inbox 看收件箱；/start 可以选权限模式",
   "feature_only_conclusions": "飞书只推结论",
   "feature_only_conclusions_description": "主对话派出的任务不再推中途进展（一轮做完、在等你、被打断，照样记在待办和早晚报里）；有结论时照样推一张结论卡：做完了、做不了、要你拍板",
   "feature_agents_description": "/agents 列出各台电脑上的 Agent，选一个之后的消息发给它",

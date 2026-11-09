@@ -191,6 +191,18 @@ nonisolated enum Theme {
         #endif
     }
 
+    #if !os(watchOS)
+    /// A long-pressed message lifted over its chat (`MessageLift`, #603).
+    enum Lift {
+        /// How far the chat behind is blurred: its words still show, faintly.
+        static let blur: CGFloat = 3
+        /// Over the blurred chat: lighter than `Fill.scrim`, for the same reason.
+        static let scrim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.3) : UIColor.black.withAlphaComponent(0.08) })
+        /// The bar of actions next to it: light in light mode, the dark bar it always was in dark mode.
+        static let bar = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : UIColor.white })
+    }
+    #endif
+
     /// The image viewer's backdrop (`ImageViewer`), as Photos has it: the page's own color while its bars show (white
     /// in light mode, black in dark), black once a tap hides them.
     enum Viewer {

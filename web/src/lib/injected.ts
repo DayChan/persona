@@ -17,6 +17,9 @@ const WAKE_HEAD = /^⏰（Persona 叫醒你，第 \d+ 次）你上一轮停下�
 const NOTICE_MARKER = "这是 Persona 的任务通知"; // i18n-ignore: matches the hub's injected text
 const LOST_TASKS_HEAD = "⚠️ 运行你的 node 刚重启过"; // i18n-ignore: matches the hub's injected text
 const KB_HINT_HEAD = "（知识库"; // i18n-ignore: matches the hub's injected text
+const SUPERVISE_HEAD = /^📋 督办：你派出去的任务有 (\d+) 个要你处理$/u; // i18n-ignore: matches the hub's injected text
+const SUPERVISE_MARKER = "这是 Persona 的督办消息"; // i18n-ignore: matches the hub's injected text
+const SUPERVISE_LEVEL = /^\s*<persona-supervision level="(triage|user)"\s*\/>\s*$/m;
 
 const NOTICE_STATES: Record<string, string> = { 做完了: "done", 在等用户: "needs", 被模型服务出错打断了: "interrupted", 没开起来: "failed" }; // i18n-ignore: matches the hub's injected text
 const NOTICE_LINES: Record<string, string> = { done: "lib-injected.task_done", needs: "lib-injected.task_needs", interrupted: "lib-injected.task_interrupted", failed: "lib-injected.task_failed" };
@@ -29,6 +32,10 @@ export function parseInjected(raw: string): Injected | null {
   const nl = text.indexOf("\n");
   const head = nl < 0 ? text : text.slice(0, nl);
   const rest = nl < 0 ? "" : text.slice(nl + 1);
+  const supervision = SUPERVISE_HEAD.exec(head);
+  if (supervision && rest.includes(SUPERVISE_MARKER)) {
+    return { kind: "system", state: "supervise", level: SUPERVISE_LEVEL.exec(rest)?.[1] === "user" ? "user" : "triage", line: t("lib-injected.supervise", { count: Number(supervision[1]) }) };
+  }
   if (head.startsWith("🔔 任务「")) { // i18n-ignore: matches the hub's injected text
     const m = NOTICE_HEAD.exec(head);
     if (!m || !rest.includes(NOTICE_MARKER)) return null;
@@ -70,7 +77,10 @@ function followupDetail(rest: string): string {
  *  app (client_msg_id) or by another session is never one. */
 export function injectedOf(it: Item): Injected | null {
   if (it.role !== "user" || it.kind !== "text") return null;
-  if (it.injected) return it.injected;
+  if (it.injected) {
+    const n = it.injected;
+    return n.state === "supervise" && n.level === undefined ? { ...n, level: parseInjected(it.text ?? "")?.level ?? "triage" } : n;
+  }
   if (it.client_msg_id || it.from) return null;
   return parseInjected(it.text ?? "");
 }

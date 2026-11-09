@@ -53,6 +53,19 @@ type superviseSignal struct {
 	Step, Steps int
 }
 
+const (
+	supervisionInfo   = "info"
+	supervisionTriage = "triage"
+	supervisionUser   = "user"
+)
+
+func (g superviseSignal) level() string {
+	if g.Kind == sigReport && g.Report == upReportProgress {
+		return supervisionInfo
+	}
+	return supervisionTriage
+}
+
 // id names what a newer signal replaces while it waits: the task's signal of that kind (a report: of that kind of
 // report, so a progress report does not push out a question).
 func (g superviseSignal) id() string {
@@ -75,7 +88,9 @@ func (g superviseSignal) urgent() bool {
 
 type superviseBook struct {
 	mu      sync.Mutex
-	writeMu sync.Mutex                 // one ledger write at a time (updateSupervision)
+	writeMu sync.Mutex // one ledger write at a time (updateSupervision)
+	dedupMu sync.Mutex // serializes digest reservations and delivery
+	dedup   map[string]superviseFingerprint
 	pending map[string]superviseSignal // by todo|kind
 	sent    map[string]string          // todo|kind → the key last told
 	asks    map[string]string          // todo → what its agent last asked (InteractionRaised)
@@ -84,11 +99,13 @@ type superviseBook struct {
 	timer   *time.Timer
 	timerAt time.Time
 	hold    map[string]time.Time // conversation → when a supervision message went in: its turn's finish is not pushed
+	visible map[string]bool      // an explicit user action makes the current triage turn visible
 }
 
 func (b *superviseBook) init() {
 	if b.pending == nil {
 		b.pending, b.sent, b.asks, b.hold = map[string]superviseSignal{}, map[string]string{}, map[string]string{}, map[string]time.Time{}
+		b.visible = map[string]bool{}
 	}
 }
 
@@ -142,6 +159,9 @@ func digestWait(now, last time.Time, pending []superviseSignal, p superviseTimin
 // signal records g for the supervisor, unless the same stretch of state was told already, and sees that the message
 // goes out when it is due.
 func (s *Service) signal(g superviseSignal) {
+	if g.level() == supervisionInfo {
+		return // Progress is already recorded on the task card; it never wakes the assistant.
+	}
 	if g.At.IsZero() {
 		g.At = time.Now()
 	}
@@ -286,6 +306,7 @@ func (s *Service) superviseWatch(ctx context.Context, now time.Time) {
 	for id, at := range b.hold {
 		if now.Sub(at) > superviseHoldMax {
 			delete(b.hold, id)
+			delete(b.visible, id)
 			changed = true
 		}
 	}

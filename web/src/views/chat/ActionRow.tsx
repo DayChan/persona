@@ -155,7 +155,7 @@ export function inlineInput(use: Item): string {
   return Object.keys(inp).length ? JSON.stringify(inp, null, 2) : "";
 }
 
-export const ActionRow = memo(function ActionRow({ step, running, mid, sid }: { step: ToolStep; running?: boolean; mid: string; sid: string }) {
+export const ActionRow = memo(function ActionRow({ step, running, mid, sid, trace }: { step: ToolStep; running?: boolean; mid: string; sid: string; trace?: boolean }) {
   const { use, result, images } = step;
   const name = use.tool_name ?? "";
   const { tasks, scope } = useChatContext();
@@ -165,12 +165,13 @@ export const ActionRow = memo(function ActionRow({ step, running, mid, sid }: { 
   // kept by the chat, not the row (expanded.ts): a row drawn again (a group regrouped, a line rebuilt) stays as the reader left it
   const [open, setOpen] = useExpanded(`${scope}act:${use.id}`);
   const [diffOpen, setDiffOpen] = useExpanded(`${scope}diff:${use.id}`);
-  const inPlace = !FILE_TOOLS.has(name);
+  const inPlace = trace || !FILE_TOOLS.has(name);
   const call = use.tool_use_id;
   const bg = call && (tasks.started.has(call) || tasks.notes.has(call)) ? taskBadge(tasks.notes.get(call) ?? []) : null;
   const error = Boolean(result?.is_error);
 
   const activate = () => {
+    if (trace) return setOpen((o) => !o);
     if (diffs) return setDiffOpen(true);
     if (inPlace) return setOpen((o) => !o);
     const f = toolFile(name, use.tool_input);
@@ -184,10 +185,11 @@ export const ActionRow = memo(function ActionRow({ step, running, mid, sid }: { 
     return () => setOpen(false);
   });
   const label = [p.verb, p.param?.text].filter(Boolean).join(" ");
-  const detail = open && hasStepDetail(use);
-  const input = open && !detail ? inlineInput(use) : "";
+  // A supervision trace is historical: show the original parameters/result, never today's file in the side panel.
+  const detail = open && !trace && hasStepDetail(use);
+  const input = open && !detail ? trace ? JSON.stringify(use.tool_input ?? {}, null, 2) : inlineInput(use) : "";
   const full = useFullText(result, mid, sid);
-  const output = result && showsResult(name, result) ? full.text : "";
+  const output = result && (trace || showsResult(name, result)) ? full.text : "";
   return (
     <div className="flex min-w-0 flex-col" data-action-row={name} data-tool-use={call} data-items={ids.join(" ")}>
       <button type="button" onClick={activate} aria-expanded={inPlace ? open : undefined} aria-label={label || name} title={p.param?.title} className={ROW}>

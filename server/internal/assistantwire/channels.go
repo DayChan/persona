@@ -77,6 +77,12 @@ const (
 	FeishuText = "feishu.text"
 	// FeishuUpdateCard: {message_id, card} → {}.
 	FeishuUpdateCard = "feishu.update_card"
+	// FeishuPin: {message_id, exclusive?} → {}: one of the bot's messages in the owner's private chat pinned there;
+	// exclusive takes off the other pins the bot made in that chat (never the owner's own) (#1961, the workbench).
+	FeishuPin = "feishu.pin"
+	// FeishuRecall: {message_id} → {}: one of the bot's messages in the owner's private chat withdrawn (Lark lets a
+	// bot withdraw its messages for a while after sending; past that the call fails).
+	FeishuRecall = "feishu.recall"
 	// FeishuCotCreate: {reply_to?} → {cot_id, message_id}: an agent message (the open platform's message_cot, a
 	// collapsible process) under the message replied to, else into the owner's chat.
 	FeishuCotCreate = "feishu.cot_create"
@@ -204,6 +210,9 @@ type FeishuFeatures struct {
 	Agents   bool `json:"agents"`
 	Reports  bool `json:"reports"` // the main conversation's tasks are told in the chat (#2768)
 	Board    bool `json:"board"`   // /tasks keeps one standing "waiting for you" card, edited in place (#6052)
+	// Workbench: /home, /today and /inbox, the standing board drawn as a pinned home card, a workbench button on every
+	// card, a permission field in /start and the companion bots' hooks (#1961).
+	Workbench bool `json:"workbench"`
 	// OnlyConclusions: a task's finished turn, waiting and interrupted states are not pushed on their own; the task list
 	// and the briefing carry them, and only its conclusion card goes out (#1226).
 	OnlyConclusions bool `json:"only_conclusions"`

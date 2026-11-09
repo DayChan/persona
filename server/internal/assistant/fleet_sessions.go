@@ -1,9 +1,11 @@
 package assistant
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"slices"
 	"time"
 
@@ -128,14 +130,22 @@ func (s *Service) publishList(machine string) []proto.Session {
 	defer f.sentMu.Unlock()
 	list := s.decorated(machine)
 	msg := assistantwire.FleetSessions{MachineID: machine, Sessions: list, Muted: s.mutedSessions(machine, list)}
-	b, _ := json.Marshal(msg)
-	if f.sent == nil {
-		f.sent = map[string]string{}
-	}
-	if f.sent[machine] == string(b) {
+	// json.Marshal's bytes, compared with the list told last as they are written: a list that is the same (most of them)
+	// is not kept, and one that differs is copied once.
+	w := changedWriter{old: f.sent[machine]}
+	var b []byte // nil when the list does not encode, as json.Marshal gives
+	if jsonv2.MarshalWrite(&w, msg, json.DefaultOptionsV1()) == nil {
+		if w.same() {
+			return list
+		}
+		b = w.written()
+	} else if len(w.old) == 0 {
 		return list
 	}
-	f.sent[machine] = string(b)
+	if f.sent == nil {
+		f.sent = map[string][]byte{}
+	}
+	f.sent[machine] = b // kept and told: never written again
 	f.shownMu.Lock()
 	if f.shown == nil {
 		f.shown = map[string][]proto.Session{}
@@ -145,6 +155,36 @@ func (s *Service) publishList(machine string) []proto.Session {
 	s.hub.Tell(assistantwire.EventFleetSessions, json.RawMessage(b))
 	s.liveChanged(false)
 	return list
+}
+
+// changedWriter takes an encoding and compares it with old as it comes, copying it out only once it differs.
+type changedWriter struct {
+	old []byte
+	n   int    // how many bytes came, while they are old's
+	out []byte // all of them, once they differ from old
+}
+
+func (w *changedWriter) Write(p []byte) (int, error) {
+	if w.out == nil {
+		if len(p) <= len(w.old)-w.n && bytes.Equal(p, w.old[w.n:w.n+len(p)]) {
+			w.n += len(p)
+			return len(p), nil
+		}
+		w.out = append(make([]byte, 0, max(len(w.old), w.n+len(p))), w.old[:w.n]...)
+	}
+	w.out = append(w.out, p...)
+	return len(p), nil
+}
+
+// same: what came is old.
+func (w *changedWriter) same() bool { return w.out == nil && w.n == len(w.old) }
+
+// written is everything that came, when it was not old.
+func (w *changedWriter) written() []byte {
+	if w.out == nil {
+		return slices.Clone(w.old[:w.n]) // a prefix of old: never handed on as old's own bytes
+	}
+	return w.out
 }
 
 // decorated returns a machine's sessions as the apps get them: the unified states, the pending interaction counts,
@@ -181,6 +221,8 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 	r.mu.RUnlock()
 	lang := s.lang(context.Background())
 	dir := m.assistantCwd() // once, not a path.Join for each row
+	asks := s.fleet.asks.reader(machine, complete)
+	defer asks.done()
 	for i := range list {
 		list[i].MachineID = machine
 		list[i].PendingInteractions = counts[list[i].SessionID]
@@ -224,7 +266,7 @@ func (s *Service) decorateInventory(machine string, list []proto.Session, comple
 			}
 		}
 		s.decorateWork(machine, &list[i], asking)
-		decorateAwaits(&list[i])
+		decorateAwaits(&list[i], asks)
 	}
 	s.decorateTodos(machine, list)
 	for i := range list {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -79,8 +80,16 @@ func TestRoutineWaitsUntilTheMainConversationIsReady(t *testing.T) {
 	s := newServiceOn(t, f, st)
 	setTasks(s, Task{ID: "morning", Title: "早报", Prompt: "x", Repeat: repeatDaily, Time: "09:00", Weekdays: []int{1, 2, 3, 4, 5},
 		Enabled: true, LastRun: day(0).Add(-72 * time.Hour)})
-	s.runDue(ctx, day(0))
-	s.sched.inflight.Wait()
+	for d := range 4 {
+		s.runDue(ctx, day(d))
+		s.sched.inflight.Wait()
+		if p := f.pushed(); len(p) != 0 {
+			t.Fatalf("not-ready skip %d pushes nothing: %+v", d+1, p)
+		}
+		if r := lastRunOf(t, s, "morning"); !r.NotReady || r.StreakTold {
+			t.Fatalf("not-ready skip %d is marked without telling a streak: %+v", d+1, r)
+		}
+	}
 	if r := lastRunOf(t, s, "morning"); r.Status != runSkipped || r.Error != "还没接好电脑或模型，这次跳过" {
 		t.Fatalf("with no computer the run is skipped: %+v", r)
 	}
@@ -101,9 +110,12 @@ func TestRoutineWaitsUntilTheMainConversationIsReady(t *testing.T) {
 	f2 := readyHub()
 	f2.settings = f.settings
 	s2 := newServiceOn(t, f2, st)
-	s2.runDue(ctx, day(1))
+	if r := lastRunOf(t, s2, "morning"); !r.NotReady {
+		t.Fatalf("the not-ready marker survives a restart: %+v", r)
+	}
+	s2.runDue(ctx, day(4))
 	s2.sched.inflight.Wait()
-	if r := lastRunOf(t, s2, "morning"); r.Status != runOK || r.SessionID == "" {
+	if r := lastRunOf(t, s2, "morning"); r.Status != runOK || r.SessionID == "" || r.NotReady {
 		t.Fatalf("ready, the run goes: %+v", r)
 	}
 	if len(f2.sends) != 1 {
@@ -115,7 +127,7 @@ func TestRoutineWaitsUntilTheMainConversationIsReady(t *testing.T) {
 	if storedWaiting(t, st) != nil {
 		t.Fatal("the mark is cleared")
 	}
-	s2.runDue(ctx, day(2))
+	s2.runDue(ctx, day(7))
 	s2.sched.inflight.Wait()
 	if n := notices(t, s2, main); len(n) != 1 || len(f2.sends) != 2 {
 		t.Fatalf("the next run says nothing again: %v, sent %d", n, len(f2.sends))
@@ -150,20 +162,55 @@ func TestRoutineOnAWorkingSetupRunsAsBefore(t *testing.T) {
 	}
 }
 
-// Claude Code signed out on the assistant's computer: a due run is skipped, not sent to fail and push.
-func TestRoutineSkippedWhileSignedOut(t *testing.T) {
-	f, s, _ := readyMachine(t)
-	f.auth = map[string]proto.ClaudeAuthStatus{"server/claude": {State: proto.ClaudeNotLoggedIn, AuthMethod: "none"}}
-	ctx := context.Background()
-	at := time.Date(2026, 11, 2, 9, 1, 0, 0, time.UTC)
-	setTasks(s, Task{ID: "morning", Title: "早报", Prompt: "x", Repeat: repeatDaily, Time: "09:00", Enabled: true, LastRun: at.Add(-24 * time.Hour)})
-	s.runDue(ctx, at)
-	s.sched.inflight.Wait()
-	if r := lastRunOf(t, s, "morning"); r.Status != runSkipped || len(f.sends) != 0 || len(f.pushed()) != 0 {
-		t.Fatalf("run %+v, sent %v", r, f.sends)
-	}
-	if len(f.checked) != 0 {
-		t.Fatalf("spent tokens: %v", f.checked)
+// Setup problems and temporary offline states stay quiet across repeated skips and a hub restart.
+func TestRoutineNotReadySkipsNeverPush(t *testing.T) {
+	for _, scenario := range []string{"signed_out", "invalid_key", "offline"} {
+		t.Run(scenario, func(t *testing.T) {
+			st := readyStore(t)
+			ctx := context.Background()
+			f := readyHub()
+			f.settings = &Settings{Timezone: "UTC", Main: "main-" + randomHex(6)}
+			if scenario == "signed_out" {
+				f.auth = map[string]proto.ClaudeAuthStatus{"server/claude": {State: proto.ClaudeNotLoggedIn, AuthMethod: "none"}}
+			}
+			if scenario == "offline" {
+				f.devices = []Device{{ID: "server", Name: "Computer"}}
+			}
+			s := newServiceOn(t, f, st)
+			if scenario == "invalid_key" {
+				f.checks = map[string]proto.LauncherCheck{"server/claude": {Error: "Invalid API key"}}
+				if r := getReadiness(t, s, "probe=1", "en"); readinessStep(t, r, StepModel).Code != proto.TurnErrorAuthFailed {
+					t.Fatalf("expected a cached authentication failure: %+v", r)
+				}
+			}
+			checks := len(f.checked)
+			at := time.Date(2026, 11, 2, 9, 1, 0, 0, time.UTC)
+			setTasks(s, Task{ID: "morning", Title: "Morning brief", Prompt: "x", Repeat: repeatDaily, Time: "09:00", Enabled: true,
+				LastRun: at.Add(-24 * time.Hour)})
+			for d := range 4 {
+				s.runDue(ctx, at.AddDate(0, 0, d))
+				s.sched.inflight.Wait()
+				if r := lastRunOf(t, s, "morning"); r.Status != runSkipped || !r.NotReady || r.StreakTold ||
+					r.Error != i18n.T(s.lang(ctx), "assistant-schedule.not_ready_skipped") {
+					t.Fatalf("not-ready skip %d: %+v", d+1, r)
+				}
+				if len(f.sends) != 0 || len(f.pushed()) != 0 || len(f.checked) != checks {
+					t.Fatalf("skip %d sent, pushed or probed: sends %v, pushes %v, checks %v", d+1, f.sends, f.pushed(), f.checked)
+				}
+				if d == 1 {
+					s = newServiceOn(t, f, st)
+					if r := lastRunOf(t, s, "morning"); !r.NotReady {
+						t.Fatalf("not-ready marker lost after restart: %+v", r)
+					}
+				}
+			}
+			if waiting := storedWaiting(t, st) != nil; waiting != (scenario != "offline") {
+				t.Fatalf("setup problems mark a wait, temporary offline does not: waiting %v", waiting)
+			}
+			if n := notices(t, s, f.settings.Main); len(n) != 0 {
+				t.Fatalf("no ready notice while blocked: %v", n)
+			}
+		})
 	}
 }
 

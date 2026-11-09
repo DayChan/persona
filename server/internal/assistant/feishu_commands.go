@@ -29,6 +29,9 @@ func botHelp(l i18n.Lang, f FeishuFeatures) string {
 		b.WriteString(i18n.T(l, "assistant-feishu_cards.help_agents"))
 	}
 	b.WriteString(i18n.T(l, "assistant-feishu_cards.help_tasks"))
+	if f.Workbench {
+		b.WriteString(i18n.T(l, "assistant-feishu_cards.help_workbench"))
+	}
 	b.WriteString(i18n.T(l, "assistant-feishu_cards.help_always"))
 	return b.String()
 }
@@ -127,6 +130,9 @@ func (s *Service) botCommand(ctx context.Context, f FeishuFeatures, messageID, t
 			reply(oc.card, oc.fallback)
 		}
 	default:
+		if s.workbenchCommand(ctx, f, cmd) { // /home, /today, /inbox with the workbench on (feishu_workbench.go)
+			return true, ""
+		}
 		// A command the bot does not know goes on as it is (an agent's own, like /compact). A bare one a letter off
 		// one of the bot's (/stpo for /stop) sent to a Persona conversation would sit in line behind the turn it
 		// meant to stop and be answered: the owner is asked instead. Words after it (/news what is in the news today) make it a
@@ -484,6 +490,9 @@ func (s *Service) startAgentCard(ctx context.Context, prompt string) *feishubot.
 	}
 	if prompt != "" {
 		fields[2].(map[string]any)["default_value"] = prompt
+	}
+	if s.workbench.on.Load() { // the workbench's permission field, before what to do (feishu_workbench.go)
+		fields = append(fields[:2], wbModeSelect(l), fields[2])
 	}
 	return c.Form("start", fields, feishubot.Submit(i18n.T(l, "assistant-feishu_cards.start"), feishubot.Primary, "start_submit", map[string]any{"a": "start"}))
 }
