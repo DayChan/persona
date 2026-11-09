@@ -228,6 +228,8 @@ Chat page:
   no dictation), with permission/effort capsules above (`SessionModeBar`).
 - **One dictation and stop button** (#1079): `DesignSystem/ComposerButtons.swift` `ComposerMicButton` (outline mic, solid red pulsing while dictating),
   `ComposerRoundButton.stop` (stop in solid ink circle), 44pt tap target, one shell scaling step (`shellScaled`), used by `ShellComposerBar` and iOS `PromptComposer`.
+  A text field outside the composer (a to-do's notes, #2188) uses `FieldMicButton`: the same tap (`Dictation.toggle(into:)`: what is heard goes
+  after what was typed, a second tap ends it, why it could not start is a toast), drawn in the font and color of the text buttons beside it.
 - BeautifulUI style (Settings › Appearance › Style, `AppStyle.beautiful`, 2026-10-30) uses `PromptComposer` (new assistant `BeautifulStarterComposer`),
   BeautifulUI Prompt Bar (`layout: .stacked`); other styles unchanged above (CLAUDE.md: new appearance as new theme):
   rounded multiline input, toolbar below: + (Photos / Camera / Files), @, /, model, dictation, Send right; working Agent with empty text gets Interrupt.
