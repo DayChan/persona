@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -283,6 +287,9 @@ func TestSessionsDeltaOverTheSocket(t *testing.T) {
 // The whole-list message is the sessions' own bytes in a list: what marshalling them would give, and nothing
 // spent on checking and copying again what was just encoded.
 func TestSessionsMessage(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
 	list := encodeSessions([]proto.Session{
 		{SessionID: "s1", Title: "<b>&</b> 标题  ", LastText: strings.Repeat("x", 4<<10)},
 		{SessionID: "s2", Status: proto.StatusWorking, Queued: []string{"next"}},
@@ -312,6 +319,9 @@ func TestSessionsMessage(t *testing.T) {
 // list is neither changed nor copied (Machine.sessions). With an older app, 2.44x the list message's size measured
 // (the encoded sessions and the message), 3.53x before.
 func TestSessionsChangedStampsWithoutCopy(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
 	h := newTestHub(t)
 	m := newMachine(h, MachineConfig{ID: "box", Name: "Box", Kind: "local"})
 	h.machines, h.byID["box"] = append(h.machines, m), m
@@ -349,6 +359,67 @@ func busyList() []proto.Session {
 	return many
 }
 
+const sessionAllocationChild = "PERSONA_TEST_SESSION_ALLOCATION_CHILD"
+
+// isolatedSessionAllocation reruns only this test in a fresh process. TotalAlloc counts every goroutine, including
+// asynchronous work left by earlier tests; the child keeps the same fixtures, assertions and allocation ceilings.
+func isolatedSessionAllocation(t *testing.T) bool {
+	t.Helper()
+	if os.Getenv(sessionAllocationChild) == t.Name() {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.count=1", "-test.timeout=50s")
+	cmd.Env = append(os.Environ(), sessionAllocationChild+"="+t.Name())
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("isolated session allocation check: %v\n%s", err, output)
+	}
+	return false
+}
+
+// A separate goroutine's allocation is counted even when the measured callback only waits for it. That work must
+// stay in the parent, while a child measuring a no-op remains below the smallest session allocation ceiling.
+func TestSessionAllocationIsolation(t *testing.T) {
+	const receiptEnv = "PERSONA_TEST_SESSION_ALLOCATION_RECEIPT"
+	if os.Getenv(sessionAllocationChild) == t.Name() {
+		if got := allocated(func() {}); got > 1<<10 {
+			t.Fatalf("isolated no-op allocated %d bytes, want at most 1024", got)
+		}
+		if err := os.WriteFile(os.Getenv(receiptEnv), []byte("passed"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	receipt := filepath.Join(t.TempDir(), "child")
+	t.Setenv(receiptEnv, receipt)
+	const bytes = 64 << 10
+	requests := make(chan chan []byte)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for done := range requests {
+			done <- make([]byte, bytes)
+		}
+	}()
+	t.Cleanup(func() { close(requests); <-stopped })
+	got := allocated(func() {
+		done := make(chan []byte)
+		requests <- done
+		runtime.KeepAlive(<-done)
+	})
+	if got < bytes {
+		t.Fatalf("another goroutine's allocation was not observed: %d bytes, want at least %d", got, bytes)
+	}
+	t.Logf("synchronized allocation in another goroutine: %d bytes per callback", got)
+	if isolatedSessionAllocation(t) {
+		t.Fatal("the parent was identified as the allocation child")
+	}
+	if got, err := os.ReadFile(receipt); err != nil || string(got) != "passed" {
+		t.Fatalf("the allocation child did not pass: receipt %q, error %v", got, err)
+	}
+}
+
 // allocated is how many bytes f allocates, averaged over runs. Pushes are seconds apart, collections in between:
 // whatever an encoder keeps pooled is gone by the next one.
 func allocated(f func()) int {
@@ -369,6 +440,9 @@ func allocated(f func()) int {
 // Each encoded session is what json.Marshal gives for it, read from one shared buffer: HTML and non-ASCII text
 // escaped the same way, Codex history marked, and a raw never running into its neighbour.
 func TestEncodeSessionsMatchesMarshal(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
 	list := []proto.Session{
 		{SessionID: "s1", Title: "<b>&</b> 标题 \u2028", LastText: "<script>alert(1)</script> 😀 \"q\" \\", Cwd: "/tmp/a&b"},
 		{SessionID: "s2", Status: proto.StatusWorking, Queued: []string{"next", "<i>"}, UpdatedAt: time.Unix(1700000000, 5)},

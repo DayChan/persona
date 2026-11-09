@@ -179,7 +179,7 @@ func TestConnectorDeletionsAreAudited(t *testing.T) {
 	}
 	rows := st.take()
 	if !sameActions(rows, auditConnectorFeed, auditConnectorArchiveDeleted) || rows[1].Detail["chats"] != 1.0 ||
-		rows[1].Detail["people"] != 1.0 || rows[1].Detail["incomplete"] != nil {
+		rows[1].Detail["people"] != 1.0 || rows[1].Detail["posts"] != 2.0 || rows[1].Detail["items"] != 3.0 || rows[1].Detail["incomplete"] != nil {
 		t.Fatalf("archive recorded %v %v", actions(rows), rows)
 	}
 
@@ -187,7 +187,8 @@ func TestConnectorDeletionsAreAudited(t *testing.T) {
 		t.Fatalf("data: %d %v", code, out)
 	}
 	rows = st.take()
-	if !sameActions(rows, auditConnectorEnabled, auditConnectorDataDeleted) || rows[1].Detail["inbox"] != 1.0 {
+	if !sameActions(rows, auditConnectorEnabled, auditConnectorDataDeleted) || rows[1].Detail["inbox"] != 1.0 ||
+		rows[1].Detail["posts"] != 2.0 || rows[1].Detail["items"] != 3.0 {
 		t.Fatalf("data recorded %v %v", actions(rows), rows)
 	}
 

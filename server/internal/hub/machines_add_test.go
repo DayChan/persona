@@ -23,7 +23,7 @@ import (
 )
 
 // The ids these tests add (cleared first: the test database outlives a run).
-var addTestIDs = []string{"onb-laptop", "onb-laptop-2", "onb-laptop-3", "onb-own", "linux", "onb-a", "onb-b", "onb-c", "onb-d", "onb-cli"}
+var addTestIDs = []string{"onb-laptop", "onb-laptop-2", "onb-laptop-3", "onb-own", "linux", "onb-a", "onb-b", "onb-c", "onb-d", "onb-cli", "onb-dev"}
 
 // addHub is a running hub (its manager has the entries) with TLS (a Persona Link can pair), one confirmed link
 // computer onb-own, and a signed-in phone's token.
@@ -420,6 +420,141 @@ func TestAdminAddUsesTheSameFunction(t *testing.T) {
 	}
 	if err := h.addMachine(&mc, "admin"); err == nil || !strings.Contains(err.Error(), "已经有") {
 		t.Fatalf("again: %v", err)
+	}
+}
+
+// adminMachinesRequest calls the admin page's computer routes as a signed-in admin (admin_test.go tests the sign-in).
+func adminMachinesRequest(h *Hub, method, path, body string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	h.adminMachineRoutes(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
+	return w
+}
+
+// Deleting a computer on the admin page revokes its Persona Link credentials and unused pairing codes, as rejecting a
+// pending one does, and the audit says so.
+func TestAdminDeleteRevokesTheComputer(t *testing.T) {
+	h, database, _ := addHub(t)
+	ctx := context.Background()
+	token, _ := linkToken(t, h, "onb-own")
+	code, err := h.newPairCode(ctx, "onb-own")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.authenticate(ctx, token); !ok {
+		t.Fatal("its credential does not work before the delete")
+	}
+	if w := adminMachinesRequest(h, "DELETE", "/api/v1/admin/machines/onb-own", ""); w.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	if slices.Contains(hubJSONIDs(t, h), "onb-own") {
+		t.Fatal("still in hub.json")
+	}
+	if _, ok := h.authenticate(ctx, token); ok {
+		t.Fatal("its Persona Link credential still works after the delete")
+	}
+	if _, ok := h.authenticate(ctx, code.Token); ok {
+		t.Fatal("an unused pairing code for it still works after the delete")
+	}
+	audit, err := database.MachineAudits(ctx, "onb-own")
+	if err != nil || len(audit) == 0 {
+		t.Fatalf("audit %v %v", audit, err)
+	}
+	last := audit[len(audit)-1]
+	var detail map[string]any
+	_ = json.Unmarshal(last.Detail, &detail)
+	if n, _ := detail["credentials_revoked"].(float64); last.Action != "remove" || last.Actor != "admin" || n < 1 {
+		t.Fatalf("audit %+v %s", last, last.Detail)
+	}
+}
+
+// Deleting a computer still waiting to be confirmed removes it as rejecting it does: no pending row or place is left
+// to expire or to confirm later.
+func TestAdminDeleteOfAPendingComputer(t *testing.T) {
+	h, database, phone := addHub(t)
+	ctx := context.Background()
+	if c := askCode(t, h, phone, `{"add":{"name":"onb c"}}`, 200, ""); c.Machine != "onb-c" || c.Trust != "pending" {
+		t.Fatalf("device add: %+v", c)
+	}
+	token, _ := linkToken(t, h, "onb-c")
+	if w := adminMachinesRequest(h, "DELETE", "/api/v1/admin/machines/onb-c", ""); w.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	if h.machinePending("onb-c") || h.cfgEntry("onb-c") != nil || slices.Contains(hubJSONIDs(t, h), "onb-c") {
+		t.Fatal("still pending or still there")
+	}
+	list, err := database.PendingMachines(ctx)
+	if err != nil || slices.ContainsFunc(list, func(p db.PendingMachine) bool { return p.ID == "onb-c" }) {
+		t.Fatalf("its pending row stays: %v %v", list, err)
+	}
+	if _, ok := h.authenticate(ctx, token); ok {
+		t.Fatal("its Persona Link credential still works after the delete")
+	}
+	audit, err := database.MachineAudits(ctx, "onb-c")
+	if err != nil || len(audit) == 0 || audit[len(audit)-1].Action != "remove" || audit[len(audit)-1].Actor != "admin" {
+		t.Fatalf("audit %+v %v", audit, err)
+	}
+}
+
+// Adding a link computer, on the admin page, with the master token or from a device, revokes the Persona Link
+// credentials and pairing codes left under its id by a computer removed before: they would connect as the new one. A
+// computer there is keeps its credential when an add of its id is refused or used again, or it is given another
+// pairing code.
+func TestAddingALinkComputerRevokesWhatWasLeft(t *testing.T) {
+	h, _, phone := addHub(t)
+	ctx := context.Background()
+	left := func(id string) []string {
+		t.Helper()
+		token, _ := linkToken(t, h, id)
+		code, err := h.newPairCode(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []string{token, code.Token}
+	}
+	gone := func(what string, tokens []string) {
+		t.Helper()
+		for _, tok := range tokens {
+			if _, ok := h.authenticate(ctx, tok); ok {
+				t.Fatalf("%s: what was left under its id still works", what)
+			}
+		}
+	}
+
+	leftovers := left("onb-a")
+	if w := adminMachinesRequest(h, "POST", "/api/v1/admin/machines", `{"kind":"link","id":"onb-a"}`); w.Code != http.StatusOK {
+		t.Fatalf("admin add: %d %s", w.Code, w.Body.String())
+	}
+	gone("admin add", leftovers)
+
+	leftovers = left("onb-cli")
+	w := securityRequest(h.routes(), "POST", "/api/v1/auth/pair-codes", h.cfg.Token, `{"add":{"id":"onb-cli"}}`, "127.0.0.1:1", false)
+	requireCode(t, w, 200, "")
+	gone("master add", leftovers)
+	var c computerCode
+	_ = json.Unmarshal(w.Body.Bytes(), &c)
+	if _, ok := h.authenticate(ctx, c.Token); !ok || !c.Added {
+		t.Fatalf("the new computer's own code: %+v", c)
+	}
+
+	leftovers = left("onb-dev")
+	if c := askCode(t, h, phone, `{"add":{"name":"Onb Dev","id":"onb-dev"}}`, 200, ""); !c.Added {
+		t.Fatalf("device add: %+v", c)
+	}
+	gone("device add", leftovers)
+
+	own, _ := linkToken(t, h, "onb-own")
+	if w := adminMachinesRequest(h, "POST", "/api/v1/admin/machines", `{"kind":"link","id":"onb-own"}`); w.Code != http.StatusConflict {
+		t.Fatalf("admin add of a computer there is: %d %s", w.Code, w.Body.String())
+	}
+	requireCode(t, securityRequest(h.routes(), "POST", "/api/v1/auth/pair-codes", h.cfg.Token, `{"add":{"id":"onb-own"}}`, "127.0.0.1:1", false), 200, "")
+	requireCode(t, securityRequest(h.routes(), "POST", "/api/v1/auth/pair-codes", h.cfg.Token, `{"machine":"onb-own"}`, "127.0.0.1:1", false), 200, "")
+	if w := adminMachinesRequest(h, "POST", "/api/v1/admin/machines/onb-own/link-pair", ""); w.Code != http.StatusOK {
+		t.Fatalf("pairing link: %d %s", w.Code, w.Body.String())
+	}
+	if _, ok := h.authenticate(ctx, own); !ok {
+		t.Fatal("a computer there is lost its credential")
 	}
 }
 

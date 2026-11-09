@@ -8,6 +8,9 @@ import "testing"
 // sessions: decoratedSession allocates nothing (2,949,136 B before, the copy of its machine's 2,000), and updateBusy
 // 664,956 B, the busy items it returns (12.3 MB before).
 func TestSessionLookupsCopyNoList(t *testing.T) {
+	if !isolatedSessionAllocation(t) {
+		return
+	}
 	h := syntheticAgentHub(t)
 	m := h.byID["demo-3"]
 	if s, ok := h.decoratedSession(m, "session-1999"); !ok || s.Manager != h.machineOwner(m.cfg.ID) || m.sessions[1999].Manager != "" {

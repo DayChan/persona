@@ -52,7 +52,13 @@ func (p *Pusher) reconcileDevices(parent context.Context) error {
 	p.mu.Lock()
 	dirty := map[string]Device{}
 	for id := range p.acceptedDirty {
-		dirty[id] = p.devices[id]
+		d, ok := p.devices[id]
+		if !ok {
+			// Forgotten after the push was accepted: no row to refresh, and a zero Device would upsert an empty id.
+			delete(p.acceptedDirty, id)
+			continue
+		}
+		dirty[id] = d
 	}
 	p.mu.Unlock()
 	for id, device := range dirty {

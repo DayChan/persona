@@ -26,6 +26,11 @@ export function lazyPage<P extends object>(load: () => Promise<ComponentType<P>>
   return LazyPage;
 }
 
+/** Loads every lazy page's chunk now, for a test that draws without waiting (renderToStaticMarkup). */
+export function loadPages(): Promise<unknown> {
+  return Promise.all(loaders.map((l) => l()));
+}
+
 interface IdleWindow {
   requestIdleCallback?: (run: () => void, opts?: { timeout: number }) => number;
   cancelIdleCallback?: (id: number) => void;

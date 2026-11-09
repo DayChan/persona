@@ -34,6 +34,8 @@ const (
 	thumbMaxSVG    = 4 << 20
 	thumbTimeout   = 25 * time.Second // the hub waits 30
 	thumbCacheSize = 128
+	// Bump when processing changes so clients revalidate thumbnails drawn by an older node.
+	thumbProcessingVersion = "v2"
 )
 
 // thumbs keeps the last thumbnails drawn: a file list asks for the same ones each time it scrolls past them.
@@ -80,7 +82,7 @@ func (n *Node) fileThumb(ctx context.Context, p proto.FileThumbRequest) (*proto.
 	}
 	head := readHead(f)
 	f.Close()
-	etag := fmt.Sprintf("%s-%d", fileRevision(st), size)
+	etag := fmt.Sprintf("%s-%s-%d", thumbProcessingVersion, fileRevision(st), size)
 	if p.ETag == etag {
 		return &proto.FileThumb{ETag: etag, NotModified: true}, nil
 	}
@@ -116,7 +118,7 @@ func decodeThumb(path string, size int) (*proto.FileThumb, error) {
 		return nil, err
 	}
 	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
+	cfg, format, err := image.DecodeConfig(f)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +128,19 @@ func decodeThumb(path string, size int) (*proto.FileThumb, error) {
 	if _, err := f.Seek(0, 0); err != nil {
 		return nil, err
 	}
+	orientation := 1
+	if format == "jpeg" {
+		orientation = jpegThumbOrientation(f)
+		if _, err := f.Seek(0, 0); err != nil {
+			return nil, err
+		}
+	}
 	src, _, err := image.Decode(f)
 	if err != nil {
 		return nil, err
+	}
+	if orientation >= 2 && orientation <= 8 {
+		src = orientedThumb{src, orientation}
 	}
 	return encodeThumb(src, size)
 }

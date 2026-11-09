@@ -54,6 +54,21 @@ type upload struct {
 	Restarted bool
 }
 
+// Options says how the resident node is run.
+type Options struct {
+	// Supervised declares that something other than systemd or launchd starts this process again whenever it exits:
+	// a container's entry script, supervisord, runit, s6 (`node --attach --supervised`). An update still replaces the
+	// program in place (exec, same process); the supervisor is what brings the node back after a crash or after the
+	// rollback watchdog stops a new version that never confirmed. That watchdog runs detached in a session of its
+	// own, as under launchd, so the supervisor must restart only the node and leave other processes alone.
+	Supervised bool
+}
+
+// psNoStart is the reason a declared supervisor's node gives when ps cannot report a process's start time (BusyBox's
+// ps, common in containers, has neither -p nor -o lstart). The hub translates it by this original text
+// (devices-deploy.node_ps_no_start).
+const psNoStart = "ps 读不出进程的启动时间，无法核对回滚进程身份"
+
 // Manager must be shared by all of a resident's connection-scoped Nodes.
 type Manager struct {
 	mu           sync.Mutex
@@ -74,11 +89,14 @@ type Manager struct {
 
 // New resolves the actual running file once. The executable is never inferred
 // from HOME, PATH, an attach socket, or the spelling of argv[0].
-func New(version string, restart func()) *Manager {
+func New(version string, restart func(), opts Options) *Manager {
 	m := &Manager{version: version, restart: restart, timeout: ConfirmTimeout, startWatch: startWatchdog}
 	xpc := os.Getenv("XPC_SERVICE_NAME")
-	supervised := (runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "") || (runtime.GOOS == "darwin" && xpc != "" && xpc != "0")
-	if !supervised {
+	systemd := runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != ""
+	launchd := runtime.GOOS == "darwin" && xpc != "" && xpc != "0"
+	// A declared supervisor counts only where the detached watchdog and the in-place exec work.
+	declared := opts.Supervised && (runtime.GOOS == "linux" || runtime.GOOS == "darwin")
+	if !systemd && !launchd && !declared {
 		m.reason = "常驻 node 未由 launchd/systemd 管理，无法保证失败后恢复"
 		return m
 	}
@@ -86,9 +104,17 @@ func New(version string, restart func()) *Manager {
 		m.reason = "缺少 ps，无法核对回滚进程身份"
 		return m
 	}
-	if runtime.GOOS == "linux" {
+	switch {
+	case systemd:
 		if _, err := exec.LookPath("systemd-run"); err != nil {
 			m.reason = "缺少 systemd-run，无法启动独立回滚守护"
+			return m
+		}
+	case !launchd:
+		// The watchdog tells the node it may stop from a process that later took its pid by the start time ps
+		// reports. Ask once here, so a ps that cannot answer shows on the machine instead of failing an update.
+		if start, err := processStart(os.Getpid()); err != nil || start == "" {
+			m.reason = psNoStart
 			return m
 		}
 	}

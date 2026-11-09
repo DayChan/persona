@@ -91,6 +91,84 @@ import Testing
         #expect(captures == 1)
     }
 
+    @Test func catalogChangesInvalidateAWarmProjectionWithoutASessionRevision() throws {
+        let machine = try JSON.decoder.decode(Machine.self, from: Data(#"{"id":"fixture-box","name":"Fixture","kind":"local","online":true}"#.utf8))
+        let root = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "root", title: "Root", cwd: "/code/project",
+                                 projectID: "project", projectName: "Project")
+        let child = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "child", title: "Child", cwd: "/code/child",
+                                  parentSourceID: root.sourceID, projectID: "project", projectName: "Project")
+        var captured = AgentListProjection.Input(sessions: [], machines: [machine], settings: .init(), workspaces: [root])
+        var key = AgentListProjectionCache.Key(revision: 1, partitions: [], settings: captured.settings, workspaceRevision: 1)
+        let cache = AgentListProjectionCache()
+        func resolve() -> AgentListProjection {
+            cache.resolve(key, immediate: false, input: { captured }, valid: { _ in true }, canPublish: { _ in true }, willPublish: {})
+        }
+        let first = resolve()
+        #expect(first.tree.first?.repos.first?.worktrees.first?.children.isEmpty == true)
+        captured.workspaces.append(child)
+        key.workspaceRevision = 2
+        let updated = resolve()
+        let repo = try #require(updated.tree.first?.repos.first)
+        #expect(repo.worktrees.first?.children.first?.workspace?.key == child.key)
+        #expect(updated.repositories[repo.id]?.quiet == false, "an empty structured project stays visible")
+        #expect(updated.rows[repo.worktrees[0].children[0].id] != nil, "deep rows are prepared with the tree")
+        #expect(updated.identity != first.identity)
+        #expect(resolve().identity == updated.identity, "a warm catalog snapshot is reused")
+    }
+
+    @Test func workspaceCatalogHonorsHubAndQuickFilters() throws {
+        var machine = try JSON.decoder.decode(Machine.self, from: Data(#"{"id":"fixture-box","name":"Fixture","kind":"local","online":true}"#.utf8))
+        machine.group = "hub-a"
+        let root = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "root", title: "Root", cwd: "/code/project", group: "hub-a")
+        let other = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "other", title: "Other", cwd: "/code/other", group: "hub-b")
+        var settings = AgentListProjection.Settings()
+        settings.multiHub = true
+        settings.hub = HubFilter.value("hub-a")
+        var captured = AgentListProjection.Input(sessions: [], machines: [machine], settings: settings, workspaces: [root, other])
+        #expect(AgentListProjection.build(captured).tree.flatMap(\.repos).flatMap(\.worktrees).map(\.workspace?.key) == [root.key])
+        captured.settings.filter = .unread
+        #expect(AgentListProjection.build(captured).tree.isEmpty, "empty worktrees do not populate a quick filter")
+    }
+
+    @Test func emptyWorktreesOnAnotherMachineStillRequireHostHeadings() throws {
+        let local = try JSON.decoder.decode(Machine.self, from: Data(#"{"id":"fixture-box","name":"Fixture","kind":"local","online":true}"#.utf8))
+        var remote = local
+        remote.group = "remote"
+        let root = HostWorkspace(machineID: local.id, source: "orca", sourceID: "root", title: "Root", cwd: "/code/project")
+        var remoteRoot = root
+        remoteRoot.group = remote.group
+        var live = try session("one")
+        live.spaceKind = "orca"; live.spaceID = root.sourceID
+        var captured = AgentListProjection.Input(sessions: [live], machines: [local, remote], settings: .init(),
+                                                 workspaces: [root, remoteRoot])
+        let shown = AgentListProjection.build(captured)
+        #expect(Set(shown.tree.map(\.ref)) == [local.ref, remote.ref])
+        #expect(shown.byHost, "catalog-only hosts need headings so identically named projects remain distinguishable")
+        captured.settings.machine = local.ref.path
+        let scoped = AgentListProjection.build(captured)
+        #expect(scoped.tree.map(\.ref) == [local.ref])
+        #expect(!scoped.byHost)
+    }
+
+    @Test func matchingAnEmptyNestedWorktreeCountsAsASearchResult() throws {
+        let machine = try JSON.decoder.decode(Machine.self, from: Data(#"{"id":"fixture-box","name":"Fixture","kind":"local","online":true}"#.utf8))
+        let root = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "root", title: "Root", cwd: "/code/project")
+        let child = HostWorkspace(machineID: machine.id, source: "orca", sourceID: "child", title: "Release planning", cwd: "/code/child",
+                                  parentSourceID: root.sourceID)
+        var settings = AgentListProjection.Settings()
+        settings.query = "Release planning"
+        var captured = AgentListProjection.Input(sessions: [], machines: [machine], settings: settings, workspaces: [root, child])
+        let matched = AgentListProjection.build(captured)
+        #expect(matched.base.isEmpty)
+        #expect(matched.tree.first?.repos.first?.worktrees.first?.children.first?.workspace?.key == child.key)
+        #expect(matched.hasSearchResults, "a visible worktree must not be followed by the No Results empty state")
+        captured.settings.query = "missing"
+        #expect(!AgentListProjection.build(captured).hasSearchResults)
+        captured.settings.grouping = "recent"
+        captured.settings.query = "Release planning"
+        #expect(!AgentListProjection.build(captured).hasSearchResults, "other groupings still search their session rows")
+    }
+
     /// Controlled completions, including workers that do not cooperate with cancellation. No scheduler sleeps.
     private actor Gate {
         private var waiting: [String: (AgentListProjection.Input, CheckedContinuation<AgentListProjection, Never>)] = [:]

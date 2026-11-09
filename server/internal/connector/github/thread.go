@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,7 +26,7 @@ import (
 // 304 for what has not changed, which costs nothing of the hour's requests.
 
 const (
-	threadListPages = 5                // pages of 100 read per list: a thread's newest 500 comments, reviews, events
+	threadListPages = 5                // retain the newest 500 comments, reviews or events per list
 	threadFresh     = 15 * time.Second // a list read this recently is not asked again (the next page of the same thread)
 	etagKeep        = 400              // answers kept for If-None-Match
 	hunkLines       = 6                // lines of the diff shown above a comment on a line
@@ -34,23 +35,43 @@ const (
 
 // etagCache keeps GitHub's answers by path with their ETag, the least recently used going first.
 type etagCache struct {
-	mu   sync.Mutex
-	m    map[string]*etagEntry
-	logs map[int64]string // failed checks' log tails, by job id (a finished job's log does not change)
+	mu    sync.Mutex
+	m     map[string]*etagEntry
+	reads uint64           // request admission order, shared by discovery and tail pages
+	logs  map[int64]string // failed checks' log tails, by job id (a finished job's log does not change)
 	// avatars: a login's avatar URL, as the lists gave it, for Media.
 	avatars map[string]string
 }
 
 type etagEntry struct {
 	etag string
+	link string // pagination belongs to the representation, including on fresh and 304 reads
 	body []byte
-	at   time.Time // read (or confirmed by a 304)
+	at   time.Time // response completion, for threadFresh
 	used time.Time
+	read uint64 // admission order of the request that validated this representation
 }
 
 // cachedGet reads path into out like Get, asking with If-None-Match for what it read before and not asking at all
 // within threadFresh.
 func (c *Connector) cachedGet(ctx context.Context, path string, out any) error {
+	_, err := c.cachedPage(ctx, path, out, false)
+	return err
+}
+
+// discover requires current pagination metadata on revalidation. An unchanged first-page
+// body can have a new last page; a 304 without Link cannot confirm the old page count.
+func (c *Connector) cachedPage(ctx context.Context, path string, out any, discover bool) (string, error) {
+	link, _, err := c.cachedPageSince(ctx, path, out, discover, 0)
+	return link, err
+}
+
+// Discovery establishes the earliest acceptable request admission for its tail
+// pages. Completion times cannot order reads: an older partial tail can finish late.
+func (c *Connector) cachedPageSince(ctx context.Context, path string, out any, discover bool, freshSince uint64) (string, uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	e := &c.etags
 	e.mu.Lock()
 	if e.m == nil {
@@ -60,37 +81,67 @@ func (c *Connector) cachedGet(ctx context.Context, path string, out any) error {
 	var hdr http.Header
 	if old != nil {
 		old.used = time.Now()
-		if time.Since(old.at) < threadFresh {
-			body := old.body
+		if time.Since(old.at) < threadFresh && old.read >= freshSince {
+			body, link, read := old.body, old.link, old.read
 			e.mu.Unlock()
-			return decodeBody(path, body, out)
+			return link, read, decodeBody(path, body, out)
 		}
 		hdr = http.Header{"If-None-Match": {old.etag}}
 	}
+	e.reads++
+	read := e.reads
 	e.mu.Unlock()
 	var body []byte
 	code, h, err := c.request(ctx, http.MethodGet, path, hdr, nil, &body)
 	if err != nil {
-		return err
+		return "", 0, err
 	}
-	e.mu.Lock()
+	if discover && code == http.StatusNotModified && h.Values("Link") == nil {
+		// One unconditional discovery read is bounded independently of thread size.
+		e.mu.Lock()
+		e.reads++
+		read = e.reads
+		e.mu.Unlock()
+		code, h, err = c.request(ctx, http.MethodGet, path, nil, nil, &body)
+		if err != nil {
+			return "", 0, err
+		}
+	}
+	link := strings.Join(h.Values("Link"), ", ")
+	tag := h.Get("ETag")
 	if code == http.StatusNotModified && old != nil {
-		old.at = time.Now()
+		// Published representations are immutable; a delayed 304 belongs to the body
+		// and metadata captured when its conditional request was admitted.
 		body = old.body
-	} else if tag := h.Get("ETag"); tag != "" {
-		e.m[path] = &etagEntry{etag: tag, body: body, at: time.Now(), used: time.Now()}
-		if len(e.m) > etagKeep {
-			oldest := ""
-			for k, v := range e.m {
-				if oldest == "" || v.used.Before(e.m[oldest].used) {
-					oldest = k
+		if h.Values("Link") == nil {
+			link = old.link
+		}
+		if tag == "" {
+			tag = old.etag
+		}
+	}
+	at := time.Now()
+	e.mu.Lock()
+	// Never let an older in-flight response overwrite a newer representation.
+	if current := e.m[path]; current == nil || current.read <= read {
+		if tag != "" {
+			e.m[path] = &etagEntry{etag: tag, link: link, body: body, at: at, used: at, read: read}
+			if len(e.m) > etagKeep {
+				oldest := ""
+				for k, v := range e.m {
+					if oldest == "" || v.used.Before(e.m[oldest].used) {
+						oldest = k
+					}
 				}
+				delete(e.m, oldest)
 			}
-			delete(e.m, oldest)
+		} else {
+			// A new response without an ETag must not leave an older tagged body fresh.
+			delete(e.m, path)
 		}
 	}
 	e.mu.Unlock()
-	return decodeBody(path, body, out)
+	return link, read, decodeBody(path, body, out)
 }
 
 // forget drops what is kept for repo's PR / issue number: a comment was just posted, the page reads it again.
@@ -114,22 +165,95 @@ func decodeBody(path string, body []byte, out any) error {
 	return nil
 }
 
-// cachedList reads up to threadListPages pages of a list of 100.
-func cachedList[T any](c *Connector, ctx context.Context, path string) ([]T, error) {
-	var all []T
-	sep := "?"
-	if strings.Contains(path, "?") {
-		sep = "&"
+// listLastPage reads only page numbers from GitHub's Link header. Link targets may use
+// canonical repository paths; requests always keep the caller's original endpoint.
+func listLastPage(link string) (int, error) {
+	last, next := 1, false
+	for _, part := range strings.Split(link, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		end := strings.IndexByte(part, '>')
+		if !strings.HasPrefix(part, "<") || end < 1 {
+			return 0, errors.New("GitHub list has malformed pagination")
+		}
+		_, params, err := mime.ParseMediaType("link" + part[end+1:])
+		if err != nil {
+			return 0, errors.New("GitHub list has malformed pagination")
+		}
+		rels := strings.Fields(params["rel"])
+		if slices.Contains(rels, "next") {
+			next = true
+		}
+		if !slices.Contains(rels, "last") {
+			continue
+		}
+		u, err := url.Parse(part[1:end])
+		if err != nil {
+			return 0, errors.New("GitHub list has malformed last page")
+		}
+		pages := u.Query()["page"]
+		if len(pages) != 1 {
+			return 0, errors.New("GitHub list has malformed last page")
+		}
+		n, err := strconv.Atoi(pages[0])
+		if err != nil || n < 1 {
+			return 0, errors.New("GitHub list has malformed last page")
+		}
+		last = max(last, n)
 	}
-	for page := 1; page <= threadListPages; page++ {
-		var batch []T
-		if err := c.cachedGet(ctx, fmt.Sprintf("%s%sper_page=100&page=%d", path, sep, page), &batch); err != nil {
-			return nil, err
+	if next && last == 1 {
+		return 0, errors.New("GitHub list pagination has no last page")
+	}
+	return last, nil
+}
+
+// cachedList reads a bounded tail of GitHub's ascending lists. A partial final
+// page needs up to six physical pages before trimming to the newest 500 entries.
+func cachedList[T any](c *Connector, ctx context.Context, path string) ([]T, error) {
+	u, err := url.Parse(path)
+	if err != nil {
+		return nil, err
+	}
+	pagePath := func(page int) string {
+		q := u.Query()
+		q.Set("per_page", "100")
+		q.Set("page", strconv.Itoa(page))
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
+	var first []T
+	link, discoveredAt, err := c.cachedPageSince(ctx, pagePath(1), &first, true, 0)
+	if err != nil {
+		return nil, err
+	}
+	last, err := listLastPage(link)
+	if err != nil {
+		return nil, err
+	}
+	if last == 1 {
+		return first, nil
+	}
+	var tail []T
+	if _, _, err := c.cachedPageSince(ctx, pagePath(last), &tail, false, discoveredAt); err != nil {
+		return nil, err
+	}
+	const window = threadListPages * 100
+	start := max(1, last-(window-len(tail)+99)/100)
+	var all []T
+	for page := start; page < last; page++ {
+		batch := first
+		if page != 1 {
+			if _, _, err := c.cachedPageSince(ctx, pagePath(page), &batch, false, discoveredAt); err != nil {
+				return nil, err
+			}
 		}
 		all = append(all, batch...)
-		if len(batch) < 100 {
-			break
-		}
+	}
+	all = append(all, tail...)
+	if len(all) > window {
+		all = all[len(all)-window:]
 	}
 	return all, nil
 }

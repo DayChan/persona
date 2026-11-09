@@ -62,6 +62,9 @@ func (s *Service) refreshListIndex(ctx context.Context, opts sessionlist.Options
 }
 
 func (s *Service) ListPage(ctx context.Context, opts sessionlist.Options) (sessionlist.Page, error) {
+	if opts.PaneSource != "" {
+		return sessionlist.Page{}, &sessionlist.Error{Code: "invalid_query"}
+	}
 	if opts.Cursor == "" {
 		if err := s.refreshListIndex(ctx, opts); err != nil {
 			return sessionlist.Page{}, err
@@ -71,6 +74,9 @@ func (s *Service) ListPage(ctx context.Context, opts sessionlist.Options) (sessi
 }
 
 func (s *Service) ListCounts(ctx context.Context, opts sessionlist.Options) (sessionlist.Counts, error) {
+	if opts.PaneSource != "" {
+		return sessionlist.Counts{}, &sessionlist.Error{Code: "invalid_query"}
+	}
 	if err := s.refreshListIndex(ctx, opts); err != nil {
 		return sessionlist.Counts{}, err
 	}

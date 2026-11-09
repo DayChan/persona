@@ -64,3 +64,9 @@ Pitfalls, odd behavior, and the tradeoffs made at the time (originally in `CLAUD
   A resident node serves each connection with a new `Node`: on `Background` the old one kept observing forever, and its control kept the attach slot, so the reconnected node got `attach_busy` until the lease ran out.
   To test what one connection leaves behind, serve it under a pprof label and count the goroutines carrying it (`goroutinesOf` in `terminal_conn_test.go`), plus the fake herdr's pids and slot file.
 - A branch's checkout folder is `herdr.WorktreeDirName`, never `WorktreeSlug` alone: the slug drops non-ASCII letters, so a Chinese branch is checked out in the checkouts directory itself and `fix/登录`, `fix/注册` collide. `agent_start` fixed this in #5775; the new-agent worktree (#6115) repeated it.
+
+## A shared Codex daemon can keep another Orca terminal’s hook identity
+
+A correct worktree creation result and a successful Agent reply do not prove that hooks belong to the same container. Check the provider session against Orca’s hook entry: a shared app-server daemon may keep the environment of its first terminal. For local Codex starts in Orca, probe the actual terminal executable and use `--no-daemon` when supported; retain explicit remote and already isolated launchers. Exercise the start helper as a process with old/new flag support, preserve the first prompt as one argument, and verify the live hook’s worktree ID before accepting automatic naming.
+
+- Codex compact layouts can place the model/path status and shortcut hints immediately below the composer with no blank separator. Bound the draft at the paired bottom footer, rather than assuming every indented line belongs to the input. Regress both an empty placeholder and genuine multiline drafts, including draft text that resembles footer hints; a false `input_draft` blocks remote messages, while dropping genuine input risks sending unfinished text.

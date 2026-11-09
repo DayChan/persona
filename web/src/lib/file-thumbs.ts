@@ -2,7 +2,7 @@
 // a video or a document (node file.thumb, hub feature `file_thumb`). A row asks only once it is on screen, a few at a
 // time so a folder of pictures does not hold every connection the page has, and a file the machine cannot draw is not
 // asked again this page load (it keeps its glyph). The URL names the file's size and modified time, so the browser's
-// copy (the hub allows a day) is used until the file changes.
+// copy (the hub allows a day) is used for this page load, until the file or thumbnail processing changes.
 import { fileThumbURL } from "./api";
 
 export const FILE_THUMB_FEATURE = "file_thumb";

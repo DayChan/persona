@@ -7,6 +7,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/kb"
 )
 
@@ -38,7 +39,8 @@ func TestWireTypesAreTagged(t *testing.T) {
 	}
 	for _, v := range []any{serve.Manifest{}, serve.InitParams{}, serve.LoginParams{}, serve.ChangesParams{}, serve.ChangesResult{},
 		serve.CollectResult{}, serve.ReplyParams{}, serve.ToolsResult{}, serve.CallParams{}, serve.CallResult{}, serve.DescribeResult{}, serve.DoParams{}, serve.ThreadParams{}, serve.MediaParams{}, connector.ThreadPage{}, connector.Media{}, serve.SecretData{},
-		serve.ChangedEvent{}, connector.Status{}, connector.Prompt{}, connector.InboxThing{}, connector.ChatBatch{}, kb.SourceMessage{}} {
+		serve.ChangedEvent{}, connector.Status{}, connector.Prompt{}, connector.InboxThing{}, connector.ChatBatch{}, kb.SourceMessage{},
+		serve.HistoryChatsResult{}, serve.HistoryParams{}, serve.HistoryAnchorsParams{}, connectorwire.HistoryPage{}, connectorwire.HistoryAnchors{}} {
 		walk(reflect.TypeOf(v), reflect.TypeOf(v).String())
 	}
 }

@@ -19,6 +19,9 @@ import (
 const (
 	// MethodChannelReceive: ChannelReceive → {}: the owner's message from a plugin's channel, taken (not its turn).
 	MethodChannelReceive = "channels.receive"
+	// MethodChannelUnbound: ChannelUnbound → {}: clear the channel's pending turns and text questions before
+	// signing out finishes, including a connector that revoked its own authorization.
+	MethodChannelUnbound = "channels.unbound"
 	// MethodFeishuMessage: FeishuMessage → {}: the owner's message in the Feishu bot's private chat, taken.
 	MethodFeishuMessage = "feishu.message"
 	// MethodFeishuAction: FeishuAction → the card callback's answer (feishubot.CardResponse): the owner pressed one
@@ -146,6 +149,11 @@ type ChannelReceive struct {
 	Message json.RawMessage `json:"message"` // channel.Message
 	// Action is the owner's action: what answers a card with this message passes it (InteractionsResolve).
 	Action string `json:"action,omitempty"`
+}
+
+// ChannelUnbound is channels.unbound's params.
+type ChannelUnbound struct {
+	Channel string `json:"channel"`
 }
 
 // FeishuMessage is feishu.message's params: im.message.receive_v1's event as Feishu sent it (the owner's, in the

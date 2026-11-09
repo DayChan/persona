@@ -15,7 +15,9 @@ import (
 	wireschema "github.com/nwverse/persona/sdk/go/wire"
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/extension"
+	"github.com/nwverse/persona/server/internal/kbwire"
 	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -388,6 +390,128 @@ func checkChanges(cursor string, limit int, raw json.RawMessage) (serve.ChangesR
 	return res, is.err()
 }
 
+// checkHistoryChats is history.chats' answer: each conversation once, with an id, a name and a kind the hub knows. An
+// id is unique across the connector's sources: a query and a page name a conversation by it alone.
+func checkHistoryChats(raw json.RawMessage) ([]connectorwire.HistoryChat, error) {
+	var res serve.HistoryChatsResult
+	if err := decodeWire(raw, &res); err != nil {
+		return nil, err
+	}
+	var is issues
+	if res.Chats == nil {
+		is.add("no chats list (an empty one is [])")
+	}
+	kinds := connectorwire.HistoryKinds
+	seen := map[string]bool{}
+	for i, c := range res.Chats {
+		switch {
+		case c.ID == "" || c.Name == "":
+			is.add("chats[%d]: needs an id and a name", i)
+		case seen[c.ID]:
+			is.add("chats[%d]: %q listed twice (an id is unique across the connector's sources)", i, c.ID)
+		}
+		seen[c.ID] = true
+		if !slices.Contains(kinds, c.Kind) {
+			is.add("chats[%d]: kind %q is none of %v", i, c.Kind, kinds)
+		}
+		if c.Estimate < 0 {
+			is.add("chats[%d]: a negative estimate", i)
+		}
+	}
+	return res.Chats, is.err()
+}
+
+// checkHistoryPage is archive.history's answer to q: messages oldest first, each once with an id and a date; an
+// unreadable conversation has none, and no more or cursor either; more needs messages and the cursor to go on from,
+// one that is not where it started (the hub would read the same page forever); no more has no older cursor. The start
+// of a conversation then reads the same whichever of the two a program says it with.
+func checkHistoryPage(q connectorwire.HistoryQuery, raw json.RawMessage) (connectorwire.HistoryPage, error) {
+	var page connectorwire.HistoryPage
+	if err := decodeWire(raw, &page); err != nil {
+		return page, err
+	}
+	var is issues
+	if page.Unreadable && len(page.Messages) > 0 {
+		is.add("unreadable, with %d message(s)", len(page.Messages))
+	}
+	if page.More && page.Older == "" {
+		is.add("more without an older cursor (the hub could not go on)")
+	}
+	if page.More && len(page.Messages) == 0 {
+		is.add("more on a page with no messages (an empty page is the start)")
+	}
+	if !page.More && page.Older != "" {
+		is.add("an older cursor without more (no more is the start, with nothing older)")
+	}
+	if page.Unreadable && (page.More || page.Older != "" || page.Newer != "") {
+		is.add("unreadable, with more or a cursor (an unreadable page carries nothing)")
+	}
+	if page.More && q.Before != "" && page.Older == q.Before {
+		is.add("older is still %q (the same page would be read again)", q.Before)
+	}
+	if page.Pace != nil && page.Pace.Stop && strings.TrimSpace(page.Pace.Reason) == "" {
+		is.add("pace stops without a reason (a person has to know what to do)")
+	}
+	seen := map[string]bool{}
+	for j, m := range page.Messages {
+		at := fmt.Sprintf("messages[%d]", j)
+		switch {
+		case m.ID == "":
+			is.add("%s: no id", at)
+		case seen[m.ID]:
+			is.add("%s: id %q twice", at, m.ID)
+		}
+		seen[m.ID] = true
+		switch {
+		case m.At.IsZero():
+			is.add("%s: no at (the knowledge base drops a message without a date)", at)
+		case j > 0 && m.At.Before(page.Messages[j-1].At):
+			is.add("%s: older than the one before it (a page is oldest first)", at)
+		}
+	}
+	return page, is.err()
+}
+
+// checkHistoryOlder holds the page read from newer's older cursor to going back: it does not start after newer does.
+// Pages may overlap (a source answers more than the limit), so only that is held.
+func checkHistoryOlder(newer, older connectorwire.HistoryPage) error {
+	if len(newer.Messages) == 0 || len(older.Messages) == 0 {
+		return nil
+	}
+	if older.Messages[0].At.After(newer.Messages[0].At) {
+		return fmt.Errorf("the older page starts at %s, after the newer page's %s", older.Messages[0].At.Format("2006-01-02T15:04:05Z07:00"),
+			newer.Messages[0].At.Format("2006-01-02T15:04:05Z07:00"))
+	}
+	if older.Messages[0].ID == newer.Messages[0].ID && older.Messages[len(older.Messages)-1].ID == newer.Messages[len(newer.Messages)-1].ID {
+		return errors.New("the older page is the newer one again")
+	}
+	return nil
+}
+
+// checkHistoryAnchors is history.anchors' answer: each anchor says where it is and why it is one; more needs next.
+func checkHistoryAnchors(raw json.RawMessage) (connectorwire.HistoryAnchors, error) {
+	var res connectorwire.HistoryAnchors
+	if err := decodeWire(raw, &res); err != nil {
+		return res, err
+	}
+	var is issues
+	if res.More && res.Next == "" {
+		is.add("more without a next cursor (the hub could not go on)")
+	}
+	for i, a := range res.Anchors {
+		if a.Chat == "" || a.Position == "" {
+			is.add("anchors[%d]: needs a chat and a position", i)
+		}
+		if !a.Mine && !a.Mention {
+			is.add("anchors[%d]: neither mine nor mention", i)
+		}
+		if a.Message != nil && a.Message.ID == "" {
+			is.add("anchors[%d]: a message without an id", i)
+		}
+	}
+	return res, is.err()
+}
+
 // checkPrompt is a sign-in step: fields to fill in, a code to enter, or done.
 func checkPrompt(raw json.RawMessage) (connector.Prompt, error) {
 	var p connector.Prompt
@@ -435,6 +559,14 @@ func checkItems(raw json.RawMessage) (serve.ItemsResult, error) {
 	for i, it := range res.Items {
 		if !slices.Contains([]string{"docs", "meetings", "events"}, it.Kind) || it.ID == "" || it.Title == "" {
 			is.add("items[%d]: needs a kind (docs, meetings, events), an id and a title", i)
+		}
+		for j, sg := range it.Signals {
+			switch {
+			case !slices.Contains(kbwire.Signals, sg):
+				is.add("items[%d]: signal %q is none of %v", i, sg, kbwire.Signals)
+			case slices.Contains(it.Signals[:j], sg):
+				is.add("items[%d]: signal %q twice", i, sg)
+			}
 		}
 	}
 	return res, is.err()

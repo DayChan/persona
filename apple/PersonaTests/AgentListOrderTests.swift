@@ -317,6 +317,18 @@ import Testing
         #expect(rows(.repo, folded: [main.id]).repos(tree, byHost: false).isEmpty, "a folded working tree hides its children too")
     }
 
+    @Test func catalogCardsTraverseVisibleAgentsIndependentlyOfTheirChildFold() {
+        let child = RepoTree.Worktree(id: "child", name: "Child", path: "/code/child", main: false,
+                                      sessions: [session("child", "idle")], catalog: true)
+        let parent = RepoTree.Worktree(id: "parent", name: "Parent", path: "/code/parent", main: false,
+                                       sessions: [session("idle", "idle"), session("busy", "working")], children: [child], catalog: true)
+        let machine = MachineRef(group: "", id: "m")
+        let tree = [RepoTree.Host(ref: machine, repos: [RepoTree.Repo(id: "repo", machine: machine, name: "App", path: "/code", worktrees: [parent])])]
+        #expect(rows(.repo, folded: [parent.agentsFoldID]).repos(tree, byHost: false).map(\.sessionID) == ["child"])
+        #expect(Set(rows(.repo, folded: [parent.childrenFoldID]).repos(tree, byHost: false).map(\.sessionID)) == ["busy", "idle"])
+        #expect(Set(rows(.repo).repos(tree, byHost: false).map(\.sessionID)) == ["busy", "idle", "child"])
+    }
+
     @Test func stepGoesToTheNeighbourAndStopsAtTheEnds() {
         let keys = ["a", "b", "c"].map { session($0, "working").key }
         #expect(AgentListRows.step(keys, from: keys[1], by: 1) == keys[2])

@@ -856,6 +856,7 @@ func parseMessage(raw []byte, msg *MailMessage) {
 	}
 	defer r.Close()
 	var htmlBody string
+	attachmentIndex := 0
 	for {
 		part, err := r.NextPart()
 		if err != nil {
@@ -872,7 +873,9 @@ func parseMessage(raw []byte, msg *MailMessage) {
 				htmlBody = body
 			}
 		case *gomail.AttachmentHeader:
-			attachment, err := attachmentMetadata(h, part.Body, len(msg.Attachments)+1, io.Discard)
+			// Downloads count every physical attachment, including parts whose body cannot be decoded.
+			attachmentIndex++
+			attachment, err := attachmentMetadata(h, part.Body, attachmentIndex, io.Discard)
 			if err == nil {
 				msg.Attachments = append(msg.Attachments, attachment)
 			}

@@ -53,7 +53,7 @@ func declaresTriageRules(s *extension.Schema) bool {
 	return s != nil && slices.ContainsFunc(s.Fields, func(f extension.Field) bool { return f.Name == triageRulesField && f.Type == "string" })
 }
 
-// pluginTriageRules is the plugin's triage_rules as it gets them (its default filled in).
+// extensionTriageRules is the plugin's triage_rules as it gets them (its default filled in).
 func (h *Manager) extensionTriageRules(id string) string {
 	p := h.extensions.reg.Get(id)
 	if p == nil {
@@ -66,7 +66,7 @@ func (h *Manager) extensionTriageRules(id string) string {
 	return strings.TrimSpace(rules)
 }
 
-// setPluginTriageRules changes the plugin's triage_rules, the rest of its settings as they are ("" removes the key).
+// setExtensionTriageRules changes the plugin's triage_rules, the rest of its settings as they are ("" removes the key).
 func (h *Manager) setExtensionTriageRules(id, title string, v json.RawMessage) (*selfChange, error) {
 	var text string
 	if err := json.Unmarshal(v, &text); err != nil {

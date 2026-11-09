@@ -58,7 +58,7 @@ func (d *DB) ForgetMachineTrust(ctx context.Context, id string) error {
 }
 
 // RevokeMachineCredentials revokes every live Persona Link credential bound to the machine and expires its unused
-// pairing codes; the ids revoked.
+// pairing codes; the ids revoked. Role link only: a peer hub's credential binds that hub's id in the same column.
 func (d *DB) RevokeMachineCredentials(ctx context.Context, machine string) ([]string, error) {
 	var ids []string
 	err := pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
@@ -66,7 +66,7 @@ func (d *DB) RevokeMachineCredentials(ctx context.Context, machine string) ([]st
 			WHERE machine_id = $1 AND used_at IS NULL AND expires_at > LEAST(now(), $2)`, machine, time.Now()); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `UPDATE device_tokens SET revoked_at = now() WHERE machine_id = $1 AND revoked_at IS NULL RETURNING id`, machine)
+		rows, err := tx.Query(ctx, `UPDATE device_tokens SET revoked_at = now() WHERE machine_id = $1 AND role = 'link' AND revoked_at IS NULL RETURNING id`, machine)
 		if err != nil {
 			return err
 		}

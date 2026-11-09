@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 func ociSum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -339,5 +342,122 @@ func TestOCICatalogPinsSizeAndCancellation(t *testing.T) {
 	m := &Market{RegistryMirror: blocked.URL}
 	if _, _, err := m.Download(ctx, &MarketPackage{URL: ref, SHA256: ociSum(blob), Size: int64(len(blob))}, t.TempDir()); err == nil {
 		t.Fatal("cancellation ignored")
+	}
+}
+
+// A GitHub marketplace's token may read its catalog repository but not its packages (no read:packages): ghcr.io
+// refuses it with 403 while the same public package pulls anonymously. A refused credential falls back to one
+// anonymous pull, the rest of the package stays anonymous, and a package refused both ways says the token may lack
+// permission to read packages.
+func TestOCIRefusedMarketCredentialFallsBackToAnonymous(t *testing.T) {
+	blob := []byte("package")
+	manifest := ociTestManifest(t, blob)
+	for _, c := range []struct {
+		name string
+		// refuse is where the credential is refused: "token" (the token endpoint), "request" (the manifest / blob
+		// request with the credential's bearer), "direct" (the first request carrying the market token itself).
+		refuse      string
+		private     bool // the registry refuses anonymous pulls too
+		missing     bool // the manifest is not there (404), whoever asks
+		wantErr     string
+		wantAnonReq bool
+	}{
+		{name: "token-endpoint-403", refuse: "token", wantAnonReq: true},
+		{name: "request-403", refuse: "request", wantAnonReq: true},
+		{name: "direct-403", refuse: "direct", wantAnonReq: true},
+		{name: "private-package", refuse: "token", private: true, wantErr: "extension-market_security.credential_refused", wantAnonReq: true},
+		{name: "not-an-auth-failure", missing: true, wantErr: "extension-market_security.http_status"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var credentialUses, credentialAfterFallback, anonymousTokens, anonymousLeaks atomic.Int32
+			used := func() {
+				credentialUses.Add(1)
+				if anonymousTokens.Load() > 0 {
+					credentialAfterFallback.Add(1)
+				}
+			}
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				auth := r.Header.Get("Authorization")
+				if r.URL.Path == "/token" {
+					if user, password, ok := r.BasicAuth(); ok && user == "example" && password == "fixture-secret" {
+						used()
+						if c.refuse == "token" {
+							w.WriteHeader(403)
+							return
+						}
+						_, _ = w.Write([]byte(`{"token":"credential-fixture"}`))
+						return
+					}
+					if auth != "" {
+						anonymousLeaks.Add(1)
+					}
+					anonymousTokens.Add(1)
+					if c.private {
+						w.WriteHeader(401)
+						return
+					}
+					_, _ = w.Write([]byte(`{"token":"anonymous-fixture"}`))
+					return
+				}
+				switch auth {
+				case "Bearer fixture-secret":
+					used()
+					if c.refuse == "direct" {
+						w.WriteHeader(403)
+						return
+					}
+				case "Bearer credential-fixture":
+					if c.refuse == "request" {
+						w.WriteHeader(403)
+						return
+					}
+					if c.missing {
+						w.WriteHeader(404)
+						return
+					}
+					if strings.Contains(r.URL.Path, "/manifests/") {
+						_, _ = w.Write(manifest)
+					} else {
+						_, _ = w.Write(blob)
+					}
+					return
+				case "Bearer anonymous-fixture":
+					if strings.Contains(r.URL.Path, "/manifests/") {
+						_, _ = w.Write(manifest)
+					} else {
+						_, _ = w.Write(blob)
+					}
+					return
+				}
+				w.Header().Set("WWW-Authenticate", `Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:example/market/ext:pull"`)
+				w.WriteHeader(401)
+			}))
+			defer server.Close()
+			target, _ := url.Parse(server.URL)
+			client := &http.Client{Transport: mappedRegistryTransport{target, server.Client().Transport}}
+			m := &Market{Spec: MarketSpec{Kind: "github", Owner: "example", Repo: "market"}, Token: "fixture-secret", Client: client}
+			pkg := &MarketPackage{URL: "oci:ghcr.io/example/market/ext@sha256:" + ociSum(manifest), SHA256: ociSum(blob), Size: int64(len(blob))}
+			_, _, err := m.Download(context.Background(), pkg, t.TempDir())
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("a public package with a refused market token: %v", err)
+				}
+			} else {
+				var msg *i18n.Message
+				if !errors.As(err, &msg) || msg.Key != c.wantErr {
+					t.Fatalf("error %v, want %s", err, c.wantErr)
+				}
+			}
+			if got := anonymousTokens.Load() > 0; got != c.wantAnonReq {
+				t.Fatalf("anonymous pull tried: %v, want %v", got, c.wantAnonReq)
+			}
+			if anonymousLeaks.Load() != 0 {
+				t.Fatal("the anonymous pull carried a credential")
+			}
+			// Once refused, the credential is not sent again for this package (the blob included).
+			if credentialUses.Load() == 0 || credentialAfterFallback.Load() != 0 {
+				t.Fatalf("credential uses %d, after the anonymous fallback %d", credentialUses.Load(), credentialAfterFallback.Load())
+			}
+		})
 	}
 }

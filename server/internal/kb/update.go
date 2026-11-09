@@ -34,6 +34,9 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	if err != nil {
 		return 0, err
 	}
+	if err := attributeChat(c, src); err != nil {
+		return 0, err
+	}
 	var lines []Line
 	var kept []SourceMessage
 	for _, m := range msgs {
@@ -69,6 +72,9 @@ func (e *Engine) Ingest(ctx context.Context, src Source, sc SourceChat, msgs []S
 	defer e.Store.chatMu.Unlock()
 	c, _, r, err = e.Store.ingestState(src.Name(), sc, cut)
 	if err != nil {
+		return 0, err
+	}
+	if err := attributeChat(c, src); err != nil {
 		return 0, err
 	}
 	for _, m := range kept {
@@ -125,7 +131,18 @@ func (e *Engine) Get(kind, id string, recentChars int) (*Detail, error) {
 	default:
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
-	raw, err := os.ReadFile(meta)
+	var recording map[string][]byte
+	var raw []byte
+	var err error
+	if kind == KindRecording {
+		recording, err = e.Store.recordingSnapshot(id)
+		raw = recording["meta.json"]
+		if err == nil && raw == nil {
+			err = ErrNotFound
+		}
+	} else {
+		raw, err = os.ReadFile(meta)
+	}
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -142,9 +159,11 @@ func (e *Engine) Get(kind, id string, recentChars int) (*Detail, error) {
 		}
 	}
 	if kind == KindRecording {
-		d.Segments = nonNilSegments(e.Store.RecordingSegments(id))
+		var segs []RecordingSegment
+		_ = json.Unmarshal(recording["segments.json"], &segs)
+		d.Segments = nonNilSegments(segs)
 		if recentChars > 0 {
-			raw, _ := os.ReadFile(e.Store.path(kind, id, "transcript.md"))
+			raw := recording["transcript.md"]
 			d.Recent = clip(string(raw), recentChars)
 		}
 	}

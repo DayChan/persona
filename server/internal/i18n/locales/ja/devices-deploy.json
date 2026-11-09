@@ -29,6 +29,7 @@
   "node_temporary": "この接続は一時的なノードを使用しています。先に常駐ノードサービスをインストールしてください",
   "node_unmanaged": "常駐ノードがlaunchd/systemdで管理されていないため、失敗後の復旧を保証できません",
   "node_no_ps": "psがないため、ロールバックプロセスの識別情報を確認できません",
+  "node_ps_no_start": "psがプロセスの開始時刻を返せないため（BusyBoxのpsでは不可。procpsを入れてください）、ロールバックプロセスの識別情報を確認できません",
   "node_no_systemd_run": "systemd-runがないため、独立したロールバック監視を開始できません",
   "node_no_executable": "常駐ノードの実行ファイルを特定できません",
   "node_bad_executable": "常駐ノードの実行ファイルを使用できません",

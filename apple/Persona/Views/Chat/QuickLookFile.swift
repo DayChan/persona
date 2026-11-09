@@ -173,10 +173,10 @@ struct QuickLookView: NSViewRepresentable {
 
 /// Thumbnails for the file list (the Files tab) and the chat's file cards, drawn by the machine (`GET …/file/thumb`, hub
 /// feature `file_thumb`, docs/protocol/protocol.md「文件预览」), three at a time, kept in memory and on disk:
-/// - with the file's size and modified time (a listing): by what the file is, so a changed file is asked again and an
-///   unchanged one never is;
-/// - with only its path (a card in a conversation; size 0, no time): by the path, with the node's ETag beside it, asked
-///   once per launch with `If-None-Match`: a file made again at the same path gets its new picture.
+/// - with the file's size and modified time (a listing): by what the file is, so a changed file is asked again;
+/// - with only its path (a card in a conversation; size 0, no time): by the path.
+/// Every disk copy is checked once per launch with its opaque ETag: a node upgrade can change the picture without
+/// changing the source file, including when this app upgraded before the node did.
 /// A file the machine cannot draw (`no_thumbnail`), or a hub without the feature, keeps its symbol.
 @MainActor
 final class FileThumbnails {
@@ -189,7 +189,7 @@ final class FileThumbnails {
 
     private let images = NSCache<NSString, UIImage>()
     private var failed = Set<String>()
-    /// Path-only keys asked this launch (304 or a new picture).
+    /// Keys asked this launch (304 or a new picture).
     private var checked = Set<String>()
     private var running = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
@@ -219,8 +219,7 @@ final class FileThumbnails {
     /// The thumbnail of a listed file, `side` points on its long edge; nil when there is none (and not asked again).
     func thumbnail(_ ref: FileRef, size: Int64, modified: Date?, side: CGFloat, scale: CGFloat, api: APIClient) async -> UIImage? {
         let key = Self.key(group: ref.group, machine: ref.machineID, path: ref.path, size: size, modified: modified)
-        let pathOnly = size == 0 && modified == nil
-        let settled = !pathOnly || checked.contains(key)
+        let settled = checked.contains(key)
         if settled, let image = images.object(forKey: key as NSString) { return image }
         guard !failed.contains(key) else { return nil }
         let file = dir.appending(path: key), tagFile = dir.appending(path: key + ".etag")
@@ -243,7 +242,7 @@ final class FileThumbnails {
             if !Task.isCancelled { failed.insert(key) } // no_thumbnail, an old node: the symbol for this session
             return disk.0
         }
-        if pathOnly { checked.insert(key) }
+        checked.insert(key)
         guard let data = answer.data else { return disk.0 } // 304: the one on disk is current
         guard let image = await Task.detached(priority: .utility, operation: { Self.decode(data, document: document) }).value else {
             failed.insert(key)

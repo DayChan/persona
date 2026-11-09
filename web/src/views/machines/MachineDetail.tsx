@@ -399,7 +399,7 @@ export function MachineDetail({ mid, onToggleSidebar }: { mid: string; onToggleS
       {/* what this computer can do for Persona, from the node's self-check (docs/server/machines.md "Self-check") */}
       <NodeHealth machine={m} heading={<Heading title={t("node-health.title")} />} />
 
-      {m.computer && <ComputerSection mid={mid} computer={m.computer} online={online} />}
+      {m.computer && <ComputerSection mid={mid} computer={m.computer} online={online} manager={m.manager} />}
       {m.browser && <BrowserSection mid={mid} browser={m.browser} online={online} />}
 
       {/* system */}

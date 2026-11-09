@@ -1,6 +1,7 @@
 {
-  "rail": "質問ナビゲーション",
-  "jump": "質問 {index} へ移動：{preview}",
-  "attachments_other": "添付ファイル {count} 件",
-  "earlier": "さらに前の質問が {count} 件あります"
+  "rail": "ユーザー入力ナビゲーション",
+  "jump": "ユーザー入力 {index} へ移動：{preview}",
+  "keys": "矢印キーでプレビュー、Home または End で最初か最後の入力を選択、Enter またはスペースで移動します。Escape でプレビューを閉じます。",
+  "selection": "全 {count} 件中 {index} 件目のユーザー入力：{preview}。{answer}",
+  "attachments_other": "添付ファイル {count} 件"
 }

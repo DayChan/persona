@@ -39,6 +39,39 @@ nonisolated enum AppStyle: String, CaseIterable, Identifiable, Sendable {
 }
 
 nonisolated enum Theme {
+    /// Orca-compatible workspace cards. Scoped to repository browsing, including nested selection surfaces.
+    enum WorkspaceSidebar {
+        static let background = Color(light: 0xF5F5F5, dark: 0x2A2A2A)
+        static let foreground = Color(light: 0x0A0A0A, dark: 0xF0F0F0)
+        static let muted = Color(light: 0x737373, dark: 0xA3A3A3)
+        static let border = Color(light: 0xE5E5E5, dark: 0x404040)
+        static let chip = Color(light: 0xFFFFFF, dark: 0x353535)
+        static let success = Color(light: 0x00BC7D, dark: 0x00BC7D)
+        static let unread = Color(light: 0xFF9800, dark: 0xFFB020)
+        static let selected = foreground.opacity(0.08)
+        static let hovered = foreground.opacity(0.04)
+        static let cardLeading: CGFloat = 10
+        static let childInset: CGFloat = 10
+        static let statusLane: CGFloat = 16
+        static let titleHeight: CGFloat = 20
+        static let agentHeight: CGFloat = 24
+        static let badgeHeight: CGFloat = 16
+        static let projectBadgeWidth: CGFloat = 96
+        static let cardRadius: CGFloat = 8
+        static let chipRadius: CGFloat = 4
+        static let rule: CGFloat = 1
+        static let hostRotation = Angle.degrees(90)
+        #if os(macOS)
+        static var title: SwiftUI.Font { Font.body }
+        static var titleUnread: SwiftUI.Font { Font.bodyStrong }
+        #else
+        static var title: SwiftUI.Font { Font.caption }
+        static var titleUnread: SwiftUI.Font { Font.captionStrong }
+        #endif
+        static var meta: SwiftUI.Font { Font.label }
+        static var agent: SwiftUI.Font { Font.label }
+    }
+
     private static var spec: StyleSpec { StyleSpec.current }
     #if os(watchOS)
     static let systemPage = Color.black

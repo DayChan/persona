@@ -24,7 +24,7 @@ import (
 	"github.com/nwverse/persona/server/internal/extwire"
 )
 
-// serveAPIPluginForTest serves part of the app's API (/api/v1/examplefeed/…, and /api/v1/lark/… taken over from the
+// serveAPIExtensionForTest serves part of the app's API (/api/v1/examplefeed/…, and /api/v1/lark/… taken over from the
 // hub) on its socket, and pushes two events once initialized: one of a type it declared, one it did not.
 func serveAPIExtensionForTest() {
 	ln, err := net.Listen("unix", os.Getenv("PERSONA_PLUGIN_SOCKET"))

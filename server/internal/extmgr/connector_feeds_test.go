@@ -149,7 +149,7 @@ func TestConnectorFeedsTurnedOff(t *testing.T) {
 	}
 }
 
-// "Delete saved knowledge base content" removes the connector's chats and people from the knowledge base and turns "Add
+// "Delete saved knowledge base content" removes the connector's knowledge content and turns "Add
 // to knowledge base" off for good; the connector keeps running and its inbox items stay.
 func TestConnectorArchiveDelete(t *testing.T) {
 	h := newTestManager(t)
@@ -164,7 +164,7 @@ func TestConnectorArchiveDelete(t *testing.T) {
 		t.Fatalf("an unknown connector: %d", code)
 	}
 	code, out := call(t, mux, "DELETE", "/api/v1/connectors/example/archive", h.cfg.Token, "")
-	if code != 200 || out["chats"] != 1.0 || out["people"] != 1.0 || out["inbox"] != 0.0 {
+	if code != 200 || out["chats"] != 1.0 || out["people"] != 1.0 || out["posts"] != 2.0 || out["items"] != 3.0 || out["inbox"] != 0.0 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
 	if h.connectors.Feeds("example", connector.FeedArchive) || !strings.Contains(st.settings[connectorSettingsKey], `"archive":{"example":false}`) {

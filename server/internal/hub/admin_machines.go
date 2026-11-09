@@ -212,6 +212,34 @@ func (h *Hub) adminMachineRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("DELETE /api/v1/admin/machines/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
+		// One waiting to be confirmed goes as rejecting it does: its pending row and place too (machine_trust.go).
+		if h.machinePending(id) {
+			switch err := h.rejectMachine(r.Context(), id, "admin", "remove"); {
+			case err == nil:
+				writeJSON(w, map[string]any{"ok": true, "restart": h.pendingRestart(h.requestLang(r))})
+				return
+			case errors.Is(err, errKeeperAway):
+				writeErrCode(w, http.StatusServiceUnavailable, "assistant_offline", err)
+				return
+			case !errors.Is(err, errNotPending): // confirmed meanwhile: removed below as one
+				writeErr(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		// Its Persona Link goes now, before the entry: until a restart a hub.json entry is still there to connect to,
+		// and a credential left under the id would let a computer added with it again back in. One that cannot be
+		// revoked leaves the entry, to delete again.
+		revoked, err := h.revokeComputer(r.Context(), id)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		removed := func(where string) {
+			detail, _ := json.Marshal(map[string]any{"credentials_revoked": revoked})
+			h.machineAudit(r.Context(), id, "remove", "admin", detail)
+			h.logf("admin: machine %q removed%s", id, where)
+			writeJSON(w, map[string]any{"ok": true, "restart": h.pendingRestart(h.requestLang(r))})
+		}
 		// One its manager keeps: it lets it go now (machines_kept.go).
 		if kept, err := h.removeKeptMachine(r.Context(), id); kept {
 			if err != nil {
@@ -219,8 +247,7 @@ func (h *Hub) adminMachineRoutes(mux *http.ServeMux) {
 				writeErrCode(w, status, code, err)
 				return
 			}
-			h.logf("admin: machine %q removed", id)
-			writeJSON(w, map[string]any{"ok": true, "restart": h.pendingRestart(h.requestLang(r))})
+			removed("")
 			return
 		}
 		found, err := removeMachineEntry(h.cfg.dir, id)
@@ -233,8 +260,7 @@ func (h *Hub) adminMachineRoutes(mux *http.ServeMux) {
 			return
 		}
 		h.clearKept(r.Context(), id) // an old record of a manager that kept it (machines_kept.go)
-		h.logf("admin: machine %q removed from hub.json", id)
-		writeJSON(w, map[string]any{"ok": true, "restart": h.pendingRestart(h.requestLang(r))})
+		removed(" from hub.json")
 	})
 	// Pair a service machine's connector again (it was paired with another hub, or reinstalled).
 	mux.HandleFunc("POST /api/v1/admin/machines/{id}/connector", func(w http.ResponseWriter, r *http.Request) {

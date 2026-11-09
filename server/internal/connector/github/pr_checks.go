@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -78,10 +76,7 @@ func (c *Connector) PRChecks(ctx context.Context, repo string, number int) (PRCh
 	}
 	prPath := fmt.Sprintf("/repos/%s/pulls/%d", repo, number)
 	get := func(path string, out any) error {
-		header, err := c.Get(ctx, path, out)
-		if err != nil {
-			c.noteChecksRateLimit(header, err)
-		}
+		_, err := c.Get(ctx, path, out) // a rate limit pauses the connector (request, notePause)
 		return err
 	}
 	readHead := func() (string, error) {
@@ -192,34 +187,11 @@ func (c *Connector) PRChecks(ctx context.Context, repo string, number int) (PRCh
 	return result, nil
 }
 
-// noteChecksRateLimit also honors secondary rate limits, which can carry
-// Retry-After without changing the primary quota headers.
-func (c *Connector) noteChecksRateLimit(h http.Header, err error) {
-	message := strings.ToLower(err.Error())
-	if !strings.Contains(message, " 429 ") && !(strings.Contains(message, " 403 ") && (strings.Contains(message, "rate limit") || h.Get("Retry-After") != "")) {
-		return
-	}
-	now := time.Now()
-	until := now.Add(time.Hour)
-	if seconds, parseErr := strconv.Atoi(h.Get("Retry-After")); parseErr == nil && seconds > 0 {
-		until = now.Add(time.Duration(seconds) * time.Second)
-	} else if date, parseErr := http.ParseTime(h.Get("Retry-After")); parseErr == nil && date.After(now) {
-		until = date
-	} else if epoch, parseErr := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); parseErr == nil && time.Unix(epoch, 0).After(now) {
-		until = time.Unix(epoch, 0)
-	}
-	c.mu.Lock()
-	c.rateLow, c.rateReset = true, until
-	c.mu.Unlock()
-}
-
 // PRChecksRateReset is the earliest time to resume nonessential GitHub reads
-// when the connector is conserving its hourly quota.
+// when the connector is conserving its hourly quota or waiting out a pause
+// GitHub asked for.
 func (c *Connector) PRChecksRateReset() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.rateLow && time.Now().Before(c.rateReset) {
-		return c.rateReset
-	}
-	return time.Time{}
+	return c.limitedUntil(time.Now())
 }

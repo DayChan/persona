@@ -78,28 +78,57 @@ func (p *Pusher) routeOfID(id string) (pushRoute, bool) {
 	return p.routeOf(d), true
 }
 
-// pushed notes how a push to d went: err nil, it went.
+// pushed notes how a push to d's own token went: err nil, it went.
 func (p *Pusher) pushed(d Device, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err == nil {
-		cur, ok := p.devices[d.DeviceID]
-		if !ok || cur.APNSToken != d.APNSToken || cur.RelayURL != d.RelayURL {
-			return
-		}
-		delete(p.failed, d.DeviceID)
-		cur.LastPushAt = p.now().UTC()
-		p.devices[d.DeviceID] = cur
-		if p.acceptedDirty == nil {
-			p.acceptedDirty = map[string]bool{}
-		}
-		p.acceptedDirty[d.DeviceID] = true
+	if err != nil {
+		p.failed[d.DeviceID] = pushFailure{text: clipRelayError(err.Error()), at: p.now().UTC()}
 		return
 	}
-	p.failed[d.DeviceID] = pushFailure{text: clipRelayError(err.Error()), at: p.now().UTC()}
+	if p.acceptedLocked(d) {
+		delete(p.failed, d.DeviceID)
+	}
 }
 
+// pushedAs is pushed for a push of pushType. A Live Activity push goes to the activity's own token, not d's, so its
+// answer says nothing about d's way: it neither sets nor clears push_failed. Accepted, it still shows the app is
+// installed.
+func (p *Pusher) pushedAs(d Device, pushType string, err error) {
+	if pushType != "liveactivity" {
+		p.pushed(d, err)
+		return
+	}
+	if err == nil {
+		p.mu.Lock()
+		p.acceptedLocked(d)
+		p.mu.Unlock()
+	}
+}
+
+// acceptedLocked notes that APNs or the relay took a push for d: d's LastPushAt, saved by maintenance. It is false,
+// and notes nothing, when the device registered another token or relay since. p.mu is held.
+func (p *Pusher) acceptedLocked(d Device) bool {
+	cur, ok := p.devices[d.DeviceID]
+	if !ok || cur.APNSToken != d.APNSToken || cur.RelayURL != d.RelayURL {
+		return false
+	}
+	cur.LastPushAt = p.now().UTC()
+	p.devices[d.DeviceID] = cur
+	if p.acceptedDirty == nil {
+		p.acceptedDirty = map[string]bool{}
+	}
+	p.acceptedDirty[d.DeviceID] = true
+	return true
+}
+
+// settingsOnly: a row only notification settings made (an Android phone, a browser, the simulator), which never
+// registered for APNs and is notified over the WebSocket. It has no push way to show (#1911); an iPhone that
+// registered without a token has a kind and still says why.
+func settingsOnly(d Device) bool { return d.APNSToken == "" && d.Kind == "" }
+
 // routesByCredential is, per device token, the way of the device it registered last (Settings › Devices).
+// Settings-only rows are skipped before picking the newest, so one can never hide a registered device.
 func (p *Pusher) routesByCredential() map[string]pushRoute {
 	out := map[string]pushRoute{}
 	if p == nil {
@@ -107,7 +136,7 @@ func (p *Pusher) routesByCredential() map[string]pushRoute {
 	}
 	newest := map[string]Device{}
 	for _, d := range p.list() {
-		if d.Credential == "" {
+		if d.Credential == "" || settingsOnly(d) {
 			continue
 		}
 		if cur, ok := newest[d.Credential]; !ok || d.UpdatedAt.After(cur.UpdatedAt) {
@@ -149,8 +178,8 @@ func (h *Hub) pushRoutes(api *http.ServeMux) {
 		if h.push != nil {
 			direct = h.push.direct != nil
 			for _, d := range h.push.list() {
-				if d.APNSToken == "" && d.Kind == "" {
-					continue // a row only notification settings made (a browser, the simulator): nothing registered
+				if settingsOnly(d) {
+					continue // nothing registered
 				}
 				devices = append(devices, pushDevice{DeviceID: d.DeviceID, Name: d.Name, Kind: d.Kind, UpdatedAt: d.UpdatedAt, Push: h.push.routeOf(d)})
 			}

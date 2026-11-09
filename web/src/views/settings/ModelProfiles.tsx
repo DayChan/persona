@@ -26,21 +26,22 @@ export function ModelProfiles({ manager, onChanged }: { manager?: string; onChan
   if (!data && !error) return null; // old hubs do not expose profiles
   return <>
     <Group title={t("settings-modelprofiles.title")} footer={t("settings-modelprofiles.footer")}>
-      {data?.profiles.map((p) => <Row key={p.id} label={p.name} hint={p.description} onClick={() => setSelected(p.id)}>
+      {data?.profiles.map((p) => <Row key={p.id} label={p.name} hint={p.description} onClick={() => { setSelected(p.id); setError(""); }}>
         {p.active && <Pill>{t("settings-modelprofiles.active")}</Pill>}
       </Row>)}
       {data?.rollback && <Row label={t("settings-modelprofiles.rollback")} hint={data.rollback.to || t("settings-modelprofiles.custom")}>
         <Button tone="quiet" busy={busy} onClick={() => void apply()}>{t("settings-modelprofiles.rollback")}</Button>
       </Row>}
     </Group>
-    {error && <p role="alert" className="mb-4 text-[13px] text-red">{error}</p>}
-    <Dialog open={!!profile} title={profile?.name ?? ""} onClose={() => !busy && setSelected(null)} footer={<>
-      <Button tone="quiet" disabled={busy} onClick={() => setSelected(null)}>{t("common.cancel")}</Button>
+    {!profile && error && <p role="alert" className="mb-4 text-[13px] text-red">{error}</p>}
+    <Dialog open={!!profile} title={profile?.name ?? ""} onClose={() => { if (!busy) { setSelected(null); setError(""); } }} footer={<>
+      <Button tone="quiet" disabled={busy} onClick={() => { setSelected(null); setError(""); }}>{t("common.cancel")}</Button>
       <Button busy={busy} onClick={() => profile && void apply(profile.id)}>{t("settings-modelprofiles.apply")}</Button>
     </>}>
       <p className="mb-4 text-[12px] text-ink-3">{profile?.description}</p>
       <p className="mb-4 text-[12px] text-ink-3">{t("settings-modelprofiles.changes", { count: profile?.changes.length ?? 0 })}</p>
       <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-control bg-field p-3 text-[12px] text-ink">{JSON.stringify({ purposes: profile?.purposes, launchers: profile?.launchers, tiers: profile?.tiers }, null, 2)}</pre>
+      {error && <p role="alert" className="mt-3 text-[12px] text-red">{error}</p>}
     </Dialog>
   </>;
 }

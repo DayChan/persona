@@ -356,10 +356,6 @@ func (r *Registry) previewIdentity(ctx context.Context, src Source, upgrade, ren
 	return pv, nil // the check is done when the hub has resolved its bundle too (it says so)
 }
 
-// checkPackage holds a staged package to what a manifest says of it: its program is in it for this platform.
-func (r *Registry) checkPackage(m *Manifest, root string) error {
-	return r.checkPackageContext(context.Background(), m, root)
-}
 func (r *Registry) checkPackageContext(ctx context.Context, m *Manifest, root string) error {
 	return r.checkPackageFiles(ctx, m, root, true)
 }

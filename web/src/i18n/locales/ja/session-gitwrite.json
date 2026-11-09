@@ -69,5 +69,9 @@
   "refused_not_signed_in": "そのコンピュータの GitHub CLI（gh）がサインインしていません。gh auth login を実行してください",
   "refused_git_not_pushed": "先にブランチをプッシュしてください。プルリクエストにはすべてのコミットが GitHub に必要です",
   "refused_git_no_pr": "このブランチにはプルリクエストがありません",
-  "refused_git_not_github": "このリポジトリには GitHub のリモートがありません"
+  "refused_git_not_github": "このリポジトリには GitHub のリモートがありません",
+  "stash_refresh": "更新",
+  "stash_old_node": "スタッシュを安全に適用・取り出し・削除するには、このコンピュータの Persona を更新してください。",
+  "refused_git_stash_stale": "スタッシュ一覧が変更されました。更新して再度選択してください。",
+  "refused_git_stash_unsupported": "このリポジトリではスタッシュを安全に削除できません。"
 }

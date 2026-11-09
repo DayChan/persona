@@ -335,12 +335,6 @@ export function quickReactions(manager?: string): Promise<string[]> {
   return readOnce(quicks, manager, () => api<{ keys?: string[] }>(withManager("/lark/reactions/quick", manager), { token: getToken() }).then((r) => r.keys ?? []));
 }
 
-/** Tests only. */
-export function resetLarkChatCaches() {
-  catalogs.clear();
-  quicks.clear();
-}
-
 // ── profile ──────────────────────────────────────────────
 
 export interface LarkProfile {

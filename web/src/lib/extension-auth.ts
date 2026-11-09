@@ -10,8 +10,6 @@ import { messageManager } from "./manager-choice";
 import { onHubEvent } from "./store";
 import { t } from "../i18n";
 
-export const AUTH_FEATURE = "extension_auth";
-
 /** The hub's sign-in state of an extension (ExtensionAuth); `unknown` while its program does not run. */
 export interface ExtensionAuth {
   title: string;

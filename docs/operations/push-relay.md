@@ -125,7 +125,7 @@ Now every side says which way pushes take and, when none, why:
   | `relay` | | No `apns.json`; the device reported relay, grant and push key |
   | `none` | `relay_failed` | No `apns.json`; the phone's relay registration failed (`detail`: its words, kept in `devices.relay_error`) |
   | `none` | `no_relay` | No `apns.json`, and the phone names no relay (a build without one, or an App too old to say why) |
-  | `direct` / `relay` | `push_failed` | The way is there, but the last push did not go (`detail`: APNs' or the relay's answer). In memory, until a push goes or the device registers a new token / relay |
+  | `direct` / `relay` | `push_failed` | The way is there, but the last push to the device's token did not go (`detail`: APNs' or the relay's answer, or the hub's own reason when it did not send the push: `seal: …` for a relay push it could not seal, `push of N bytes is over APNs' 4096-byte limit` for a direct push too long even shortened). In memory, until a push goes or the device registers a new token / relay. A Live Activity push goes to the activity's own token: its answer neither sets nor clears this |
 
   `GET /api/v1/auth/tokens` adds `push` (credential id → the way of the device it registered last) for **Settings › Devices**; `GET /api/v1/devices/push` lists every device (`personad hub doctor` prints it under "推送").
 

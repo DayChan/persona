@@ -4,7 +4,9 @@
 // card on the phone, the assistant answering that card, or the extension sending on its own) with the chat that asked,
 // which opens. A row opens its full text and fields. Older rows load a page at a time; the connector chips filter (Lark and
 // the connectors the loaded rows show).
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { sentOwner, subscribeSentOwner } from "../../lib/sent-chat-rules";
+import { SentChatRules } from "./SentChatRules";
 import { formatNumber, t } from "../../i18n";
 import { ago } from "../../lib/format";
 import { conversationRoute } from "../../lib/inbox";
@@ -30,9 +32,20 @@ interface Reading {
   has: boolean;
   /** Reads of the first page started: only the latest one is taken, whatever order they come back in. */
   seq: number;
+  blocked: boolean;
+  moreBusy: boolean;
+  refresh: () => Promise<void>;
+  controllers: Set<AbortController>;
 }
 
 export function SentSettings() {
+  const owner = useSyncExternalStore(subscribeSentOwner, sentOwner, sentOwner);
+  return <OwnedSentSettings key={owner} />;
+}
+
+function OwnedSentSettings() {
+  const owner = useRef(sentOwner()).current;
+  const current = () => owner === sentOwner();
   const [filter, setFilter] = useState<string | null>(null);
   const [items, setItems] = useState<SentItem[] | null>(null);
   // what the list holds now, for the reads that come in later to merge with
@@ -56,7 +69,7 @@ export function SentSettings() {
   // One reading per filter: the list starts over when it changes (what comes in for the old one is dropped), and the
   // first page is read again each time the page becomes visible.
   useEffect(() => {
-    const r: Reading = { filter, live: true, older: false, has: false, seq: 0 };
+    const r: Reading = { filter, live: true, older: false, has: false, seq: 0, blocked: false, moreBusy: false, refresh: async () => {}, controllers: new Set() };
     reading.current = r;
     held.current = null;
     setItems(null);
@@ -64,11 +77,13 @@ export function SentSettings() {
     setProblem(null);
     setMoreError("");
     setLoadingMore(false);
-    const refresh = () => {
+    const refresh = async () => {
+      if (!r.live || !current() || r.blocked) return;
       const mine = ++r.seq;
-      listSent({ connector: filter })
+      const controller = new AbortController(); r.controllers.add(controller);
+      return listSent({ connector: filter, signal: controller.signal })
         .then((page) => {
-          if (!r.live || mine !== r.seq) return;
+          if (!r.live || !current() || r.blocked || mine !== r.seq) return;
           r.has = true;
           setProblem(null);
           setSeen((s) => seenConnectors(s, page.items));
@@ -76,37 +91,46 @@ export function SentSettings() {
           r.older = out.loadedOlder;
           held.current = out.items;
           setItems(out.items);
+          setOpen(old => old ? out.items.find(it => it.id === old.id) ?? old : null);
           if (out.next !== undefined) setCursor(out.next);
         })
         .catch((e) => {
           // a list that is there stays when a later read fails; only the first read's failure is shown
-          if (r.live && mine === r.seq && !r.has) setProblem(sentProblem(e));
-        });
+          if (r.live && current() && mine === r.seq) {
+            if (!r.has) setProblem(sentProblem(e));
+            throw e;
+          }
+        }).finally(() => r.controllers.delete(controller));
     };
-    const stop = visiblePoll(refresh, 0, documentPage);
+    r.refresh = refresh;
+    const stop = visiblePoll(() => { void refresh().catch(() => {}); }, 0, documentPage);
     return () => {
       r.live = false;
+      r.controllers.forEach(c => c.abort());
       stop();
     };
   }, [filter, attempt]);
 
   const loadMore = useCallback(() => {
     const r = reading.current;
-    if (!r || next === null || loadingMore) return;
+    if (!r || !r.live || !current() || r.blocked || next === null || r.moreBusy) return;
+    r.moreBusy = true;
+    const seq = r.seq;
     const asked = next;
     setLoadingMore(true);
     setMoreError("");
-    listSent({ before: asked, connector: r.filter })
+    const controller = new AbortController(); r.controllers.add(controller);
+    listSent({ before: asked, connector: r.filter, signal: controller.signal })
       .then((page) => {
-        if (!r.live || cursor.current !== asked) return;
+        if (!r.live || !current() || r.blocked || seq !== r.seq || cursor.current !== asked) return;
         r.older = true;
         setSeen((s) => seenConnectors(s, page.items));
         held.current = mergeSent(held.current ?? [], page.items);
         setItems(held.current);
         setCursor(page.next);
       })
-      .catch((e) => r.live && setMoreError(sentProblem(e).text))
-      .finally(() => r.live && setLoadingMore(false));
+      .catch((e) => r.live && current() && seq === r.seq && setMoreError(sentProblem(e).text))
+      .finally(() => { r.controllers.delete(controller); if (r.live && current()) { r.moreBusy = false; setLoadingMore(false); } });
   }, [next, loadingMore]);
 
   const choices = connectorChoices(seen, filter);
@@ -188,7 +212,15 @@ export function SentSettings() {
         </div>
       )}
       {body}
-      <SentDetail item={open} name={open ? nameOf(open.connector) : ""} onClose={() => setOpen(null)} />
+      <SentChatRules item={open} onChanging={() => {
+        const r = reading.current;
+        if (r) { r.blocked = true; r.seq++; r.older = false; r.controllers.forEach(c => c.abort()); }
+      }} onChanged={async () => {
+        const r = reading.current;
+        if (r && current()) { r.blocked = false; await r.refresh(); }
+      }}>
+        {action => <SentDetail item={open} name={open ? nameOf(open.connector) : ""} onClose={() => setOpen(null)} action={action} />}
+      </SentChatRules>
     </>
   );
 }
@@ -275,7 +307,7 @@ function Field({ label, children, mono }: { label: string; children: React.React
   );
 }
 
-function SentDetail({ item, name, onClose }: { item: SentItem | null; name: string; onClose: () => void }) {
+function SentDetail({ item, name, onClose, action }: { item: SentItem | null; name: string; onClose: () => void; action: React.ReactNode }) {
   return (
     <Dialog
       open={!!item}
@@ -284,7 +316,7 @@ function SentDetail({ item, name, onClose }: { item: SentItem | null; name: stri
       title={item && <span className="truncate">{name}</span>}
       footer={<Button tone="primary" onClick={onClose}>{t("settings-sent.done")}</Button>}
     >
-      {item && <DetailBody item={item} />}
+      {item && <><DetailBody item={item} /><div className="mt-4">{action}</div></>}
     </Dialog>
   );
 }
