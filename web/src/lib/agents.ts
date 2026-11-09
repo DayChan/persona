@@ -537,15 +537,24 @@ export function refreshAgentPrefs(): Promise<void> {
 
 let saveSeq = 0;
 export function updateAgentPrefs(f: (p: AgentPrefs) => AgentPrefs) {
+  const before = prefs;
   const next = f(prefs);
-  prefsRev++;
+  const rev = ++prefsRev;
   emitPrefs(next);
   if (!hubPrefs) return;
   const seq = ++saveSeq;
   prefsOut++;
   api<AgentPrefs>("/agents/prefs", { method: "PUT", json: next })
     .then((p) => seq === saveSeq && emitPrefs(normalizePrefs(p)))
-    .catch(prefsGone)
+    .catch((e) => {
+      prefsGone(e);
+      if (!hubPrefs) return; // a hub without the endpoint: the change stays here only
+      // Not saved (#1880): put back what was there unless a later change came, say so, and read the hub's once the
+      // PUTs are done (an earlier change that failed too may still show under a later one's undo).
+      if (rev === prefsRev) emitPrefs(before);
+      prefsPullAfterSave = true;
+      toast(t("lib-agents.prefs_save_failed", { error: errorText(e) }), "error");
+    })
     .finally(() => {
       prefsOut--;
       if (prefsOut || !prefsPullAfterSave) return;

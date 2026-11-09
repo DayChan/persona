@@ -2968,6 +2968,8 @@ The conversation belongs to its source (the Lark gateway through its extension),
 | `GET /api/v1/agents/hidden` | `{"sessions":[Session]}`: the removed ones the sources still list and that got nothing new since | full |
 
 Each write broadcasts `{"type":"agents"}` (the list) and `{"type":"agents.prefs"}`. Extension tokens can't use these routes. The web offers **Remove from list** in a personal Agent row's ⋯ and right-click menu (with Undo in the toast), and a folded **Removed (N)** section with **Restore** at the end of `/a`. iOS / Mac offer it in the row's long-press menu on the personal agents page (no swipe actions there), with the same Undo and a folded **Removed (N)** at the end of that page (#138); `hidden` in `GET /agents/prefs` is decoded but not used to filter, the list already comes filtered.
+
+The web shows a prefs change at once and then PUTs it. When the PUT fails (other than a 404 / 405 from a hub without the route, where the change stays in localStorage only), it puts back the value from before unless a later change came, shows "Couldn't save the list settings: …", and reads `GET /agents/prefs` again once its PUTs are done, so a change the hub did not store never looks saved (#1880).
 - Pinned sessions always appear in "Pinned" at the top, followed by custom sections, then groups from `view.group`.
 - After a successful PUT, broadcasts `{"type":"agents.prefs"}`, and other clients GET again. When an old hub lacks this endpoint (404), clients store preferences only locally.
 

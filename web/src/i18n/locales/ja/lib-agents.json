@@ -25,6 +25,7 @@
   "undo": "取り消す",
   "hide_failed": "削除できませんでした：{error}",
   "unhide_failed": "元に戻せませんでした：{error}",
+  "prefs_save_failed": "リストの設定を保存できませんでした：{error}",
   "removed_count": "削除済み（{count}）",
   "removed_footer": "削除したチャットは Lark ゲートウェイに残り、新しいメッセージが届くと自動でリストに戻ります。"
 }

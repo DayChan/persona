@@ -25,6 +25,7 @@
   "undo": "撤销",
   "hide_failed": "移除失败：{error}",
   "unhide_failed": "恢复失败：{error}",
+  "prefs_save_failed": "列表设置保存失败：{error}",
   "removed_count": "已移除（{count}）",
   "removed_footer": "移除的对话仍保留在飞书网关里，有新消息时会自动回到列表。"
 }

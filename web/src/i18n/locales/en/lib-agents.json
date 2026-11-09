@@ -25,6 +25,7 @@
   "undo": "Undo",
   "hide_failed": "Couldn't remove: {error}",
   "unhide_failed": "Couldn't restore: {error}",
+  "prefs_save_failed": "Couldn't save the list settings: {error}",
   "removed_count": "Removed ({count})",
   "removed_footer": "Removed chats stay in the Lark gateway and come back on their own when a new message arrives."
 }
