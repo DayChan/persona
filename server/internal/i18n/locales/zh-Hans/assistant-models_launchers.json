@@ -49,5 +49,15 @@
   "err_tier_model_long": "档位模型的名字太长",
   "role_default": "默认主模型",
   "role_optional": "可选模型",
-  "err_builtin_hide": "内置的 claude 是各台电脑默认的启动器，不能隐藏"
+  "err_builtin_hide": "内置的 claude 是各台电脑默认的启动器，不能隐藏",
+  "err_scope_none": "{provider} 只留在 hub 上，不会把 Key 给任何电脑。请在 设置 › 模型供应商 里修改它的“电脑”，或换一个供应商",
+  "err_scope_machine": "{provider} 没有给 {machine} 用。请在 设置 › 模型供应商 里把这台电脑加到它的“电脑”中，或换一个供应商",
+  "err_scope_work": "{machine} 是工作电脑：只有在供应商的“电脑”里选中它，{provider} 才会给它用（设置 › 模型供应商）",
+  "err_own_service": "{machine} 已经有自己的 {harness} 服务，而 {provider} 设置为跳过这样的电脑。请在它的“电脑”里打开“已有登录的电脑也用”，或换一个供应商",
+  "err_pull_unknown": "{provider} 已经不是 Persona 里的模型供应商了",
+  "err_share": "“电脑”只能是 all、selected 或 none",
+  "err_delivery": "delivery 只能是 on_demand 或 push",
+  "err_own_service_value": "own_service 只能是 skip 或 use",
+  "err_scope_empty": "请至少给这个供应商选一台电脑",
+  "err_scope_unknown_machine": "{machine} 不是你的电脑"
 }

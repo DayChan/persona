@@ -168,7 +168,54 @@ type ManagedLauncher struct {
 	Effort string `json:"effort,omitempty"`
 	// Source: where it came from: "" (made by hand), "zshrc:<alias>@<machine id>" (imported), "preset:<id>".
 	Source string `json:"source,omitempty"`
+
+	// Device scope and on-demand delivery (docs/integrations/launchers.md "Device scope and on-demand delivery").
+	// Delivery: "on_demand" (a computer fetches the secrets the first time it needs them) or "push" (each computer in
+	// scope fetches them as soon as it connects); "" is a record from before scopes: push.
+	Delivery string `json:"delivery,omitempty"`
+	// OwnService: "skip" (not used on a computer whose harness has a usable service of its own) or "use"; "" is use.
+	OwnService string `json:"own_service,omitempty"`
+	// Withheld (launchers.catalog only): APIKey, Headers and Env are left out; the node asks launchers.pull for them.
+	Withheld bool `json:"withheld,omitempty"`
+	// Rev changes whenever the provider is saved: a node drops what it pulled of an older one.
+	Rev string `json:"rev,omitempty"`
 }
+
+// The values of ManagedLauncher.Delivery and OwnService.
+const (
+	DeliveryOnDemand = "on_demand"
+	DeliveryPush     = "push"
+	OwnServiceSkip   = "skip"
+	OwnServiceUse    = "use"
+)
+
+// Pushed: every computer in scope fetches the provider's secrets as soon as it connects.
+func (l ManagedLauncher) Pushed() bool { return l.Delivery == "" || l.Delivery == DeliveryPush }
+
+// SkipsOwnService: the provider is not used on a computer whose harness already has a usable service of its own.
+func (l ManagedLauncher) SkipsOwnService() bool { return l.OwnService == OwnServiceSkip }
+
+// Public is the provider without its secrets, as launchers.catalog names it to a node that pulls them.
+func (l ManagedLauncher) Public() ManagedLauncher {
+	l.APIKey, l.Headers, l.Env, l.HasHeaders, l.HasEnv, l.Withheld = "", "", "", false, false, true
+	return l
+}
+
+// OwnServiceState is what a node found of a harness's own service (launchers.own_service, launchers.pull): Known
+// false when it could not tell (no detection for that harness, a timeout). Via names how, never a secret: "login",
+// "api_key", "launcher".
+type OwnServiceState struct {
+	Agent string `json:"agent"`
+	Known bool   `json:"known"`
+	Own   bool   `json:"own"`
+	Via   string `json:"via,omitempty"`
+}
+
+// Codes of a refused launchers.pull and of a start the manager refuses for a provider's scope.
+const (
+	CodeLauncherOutOfScope = "launcher_out_of_scope"
+	CodeLauncherOwnService = "launcher_own_service"
+)
 
 // ProviderModel is one model a provider's gateway serves (cindy's ProviderRuntimeModelConfig, the Anthropic part).
 type ProviderModel struct {

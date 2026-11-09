@@ -43,6 +43,10 @@ type fakeHub struct {
 	agentModels   map[string][]proto.AgentModel      // the nodes' launchers.models, by launcher
 	modelsLocked  map[string]string                  // launchers.models's locked, by launcher
 	managed       map[string][]proto.ManagedLauncher // what each node was given (launchers.managed)
+	// catalogNodes: the nodes take launchers.catalog (a node from before it answers unknown method); catalog is what each got.
+	catalogNodes  bool
+	catalog       map[string][]proto.ManagedLauncher
+	ownServices   map[string]proto.OwnServiceState // launchers.own_service by machine/agent (none: unknown method)
 	presets       []assistantwire.LauncherPreset
 	voice         []assistantwire.VoicePlugin
 	modelExts     []assistantwire.ModelExtension // plugins.models: the extensions granted models (model_rpc.go)
@@ -305,6 +309,26 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 			models = []proto.AgentModel{}
 		}
 		return json.Marshal(proto.LauncherModels{Agent: launcherAgent(name), Models: models, Locked: f.modelsLocked[name]})
+	case DeviceLaunchersCatalog:
+		if !f.catalogNodes {
+			return nil, fmt.Errorf("unknown method %s", p.Method)
+		}
+		var m struct {
+			Launchers []proto.ManagedLauncher `json:"launchers"`
+		}
+		_ = json.Unmarshal(p.Params, &m)
+		if f.catalog == nil {
+			f.catalog = map[string][]proto.ManagedLauncher{}
+		}
+		f.catalog[p.Device] = m.Launchers
+		return json.RawMessage(`{"ok":true}`), nil
+	case DeviceLaunchersOwnService:
+		agent, _ := a["agent"].(string)
+		st, ok := f.ownServices[p.Device+"/"+agent]
+		if !ok {
+			return nil, fmt.Errorf("unknown method %s", p.Method)
+		}
+		return json.Marshal(st)
 	case assistantwire.DeviceLaunchersManaged:
 		var m struct {
 			Launchers []proto.ManagedLauncher `json:"launchers"`

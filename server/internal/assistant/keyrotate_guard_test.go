@@ -31,6 +31,19 @@ func TestTheLaunchersSealedFieldsAreReSealed(t *testing.T) {
 	}
 }
 
+// A provider's keys for single computers are sealed in their own setting: the rotation re-seals them too.
+func TestTheComputersKeysAreReSealed(t *testing.T) {
+	i := slices.IndexFunc(db.SealedSettings(), func(s db.SealedSetting) bool { return s.Key == launchersMachineKeysKey })
+	if i < 0 || !db.SealedSettings()[i].List {
+		t.Fatalf("%s is not a list in db.SealedSettings", launchersMachineKeysKey)
+	}
+	for _, name := range sealedJSONFields(reflect.TypeOf(machineKey{})) {
+		if !slices.Contains(db.SealedSettings()[i].Fields, name) {
+			t.Errorf("machineKey's %s is sealed and not re-sealed by the key rotation", name)
+		}
+	}
+}
+
 // sealedJSONFields are the JSON names of typ's fields that say they hold a sealed value, embedded structs' too (their
 // fields are the object's in JSON).
 func sealedJSONFields(typ reflect.Type) []string {
@@ -56,21 +69,22 @@ func sealedJSONFields(typ reflect.Type) []string {
 func TestPlacesThatSealAreKnown(t *testing.T) {
 	want := map[string]int{
 		// the manager's secret.key
-		"internal/assistant/service.go":               1, // its box
-		"internal/assistant/models_launchers.go":      2, // sealKey: launchers.managed
-		"internal/assistant/models_launchers_save.go": 3, // its calls: launchers.managed
-		"internal/assistant/models_import.go":         2, // launchers.managed
-		"internal/assistant/keyrotate.go":             1, // the rotation itself
-		"internal/extmgr/manager.go":                  3, // its box, sealKey
-		"internal/extmgr/extensions.go":               1, // hubSealer: the registry's plugin_secrets
-		"internal/extmgr/bots.go":                     1, // bots.feishu
-		"internal/extmgr/connectors.go":               1, // connector_secrets
-		"internal/extmgr/extension_market_edit.go":    1, // plugin_markets.token_sealed
-		"internal/extmgr/extension_market_routes.go":  1, // plugin_markets.token_sealed
-		"internal/extension/registry_settings.go":     1, // plugin_secrets
-		"internal/mail/store.go":                      4, // its box, encrypt and its calls: mail_accounts
-		"internal/mail/oauth.go":                      1, // the OAuth state, in the sign-in URL only
-		"internal/mail/microsoft.go":                  1, // mail.microsoft_client
+		"internal/assistant/service.go":                1, // its box
+		"internal/assistant/models_launchers.go":       2, // sealKey: launchers.managed
+		"internal/assistant/models_launchers_save.go":  3, // its calls: launchers.managed
+		"internal/assistant/models_import.go":          2, // launchers.managed
+		"internal/assistant/models_launchers_scope.go": 1, // launchers.machine_keys
+		"internal/assistant/keyrotate.go":              1, // the rotation itself
+		"internal/extmgr/manager.go":                   3, // its box, sealKey
+		"internal/extmgr/extensions.go":                1, // hubSealer: the registry's plugin_secrets
+		"internal/extmgr/bots.go":                      1, // bots.feishu
+		"internal/extmgr/connectors.go":                1, // connector_secrets
+		"internal/extmgr/extension_market_edit.go":     1, // plugin_markets.token_sealed
+		"internal/extmgr/extension_market_routes.go":   1, // plugin_markets.token_sealed
+		"internal/extension/registry_settings.go":      1, // plugin_secrets
+		"internal/mail/store.go":                       4, // its box, encrypt and its calls: mail_accounts
+		"internal/mail/oauth.go":                       1, // the OAuth state, in the sign-in URL only
+		"internal/mail/microsoft.go":                   1, // mail.microsoft_client
 		// other keys
 		"internal/assistant/kb_owner.go":    1, // handles.key's cipher for the owner record
 		"internal/hub/secretkey.go":         3, // the hub's own secret.key

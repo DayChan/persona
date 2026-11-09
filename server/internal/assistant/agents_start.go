@@ -51,6 +51,11 @@ func (s *Service) AgentStartParams(ctx context.Context, p AgentStartParams) (map
 		if err := s.applyModel(ctx, "agent.new", params); err != nil {
 			return nil, badRequest(err, s.appLang(ctx, p.Lang)) // a typed model that is no id among them
 		}
+		if name, _ := params["launcher"].(string); name != "" {
+			if err := s.launcherScopeErr(ctx, p.MachineID, name); err != nil {
+				return nil, err // a provider out of this computer's scope (models_launchers_scope.go)
+			}
+		}
 	}
 	if name, _ := params["tab_name"].(string); strings.TrimSpace(name) == "" && p.NameFrom != "" {
 		if name := s.tabName(ctx, p.NameFrom); name != "" {
@@ -72,6 +77,9 @@ func (s *Service) AgentResumeParams(ctx context.Context, p AgentResumeParams) (m
 	if err := s.applyModel(ctx, "agent.new", q); err != nil {
 		s.logf("resume %s: 新建 Agent's launcher not applied: %v", p.SessionID, err)
 		return params, nil
+	}
+	if name, _ := q["launcher"].(string); s.launcherScopeErr(ctx, p.MachineID, name) != nil {
+		return params, nil // out of this computer's scope: the message goes as it was
 	}
 	for _, k := range []string{"launcher", "model", "effort", "model_fingerprint"} {
 		if v, ok := q[k]; ok {

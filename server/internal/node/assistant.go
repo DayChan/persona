@@ -250,6 +250,9 @@ func (n *Node) assistantSend(ctx context.Context, id, cwd, launcher, text string
 	if launcher == "" {
 		launcher = "claude"
 	}
+	if err := n.ensureManaged(ctx, launcher); err != nil { // the conversation's own provider (managed.go)
+		return "", err
+	}
 	if execution.Model != "" {
 		if _, err := n.launcherModelCheck(ctx, launcher, execution.Model); err != nil {
 			return "", err

@@ -759,9 +759,12 @@ const (
 func (s *Service) readinessLauncher(ctx context.Context, machine, launcher string) (string, int) {
 	// A managed launcher runs Claude Code through personad launch, and so does a direct API provider speaking Messages
 	// (its gateway, #2455); other direct API protocols cannot start Claude.
-	if slices.ContainsFunc(s.storedLaunchers(ctx), func(l storedLauncher) bool {
+	if i := slices.IndexFunc(s.storedLaunchers(ctx), func(l storedLauncher) bool {
 		return l.Name == launcher && !(l.Kind == "api" && !messagesAPI(l.API))
-	}) {
+	}); i >= 0 {
+		if s.scopeReason(s.storedLaunchers(ctx)[i], machine) != "" {
+			return "", launcherGone // out of this computer's device scope (models_launchers_scope.go): it does not run here
+		}
 		return "", launcherThere
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)

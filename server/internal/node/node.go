@@ -594,6 +594,13 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 			return res, err
 		}
 	}
+	// A Persona-managed provider whose secrets this computer has not fetched yet: fetched before anything runs it
+	// (managed.go; the manager refuses one out of this computer's scope).
+	if name := managedUser(method, p.Launcher, p.Name); name != "" {
+		if err := n.ensureManaged(ctx, name); err != nil {
+			return nil, err
+		}
+	}
 	switch method {
 	case "session.attach":
 		return ok(n.attachCodex(ctx, p.SessionID))
@@ -737,15 +744,25 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		}
 		shell, rcFile := launcherShell()
 		return map[string]any{"launchers": typedLaunchers(ls), "shell": shell, "rc_file": rcFile}, err
-	case "launchers.managed":
+	case "launchers.managed", "launchers.catalog": // the providers added in Persona (managed.go): all with their secrets, or this computer's scope
 		var c struct {
 			Launchers []proto.ManagedLauncher `json:"launchers"`
 		}
 		if err := json.Unmarshal(params, &c); err != nil {
 			return nil, err
 		}
-		n.setManaged(c.Launchers)
+		if method == "launchers.catalog" {
+			n.setCatalog(c.Launchers)
+		} else {
+			n.setManaged(c.Launchers)
+		}
 		return map[string]any{"ok": true}, nil
+	case "launchers.own_service": // whether a harness has a usable service of its own here (ownservice.go)
+		var a struct {
+			Agent string `json:"agent"`
+		}
+		_ = json.Unmarshal(params, &a)
+		return n.ownService(ctx, a.Agent), nil
 	case "launchers.model.check":
 		if err := n.runnableLauncher(ctx, p.Name, p.Configured); err != nil {
 			return nil, err
@@ -1445,6 +1462,17 @@ func nonNil(items []proto.Item) []proto.Item {
 		return []proto.Item{}
 	}
 	return items
+}
+
+// managedUser is the launcher a method runs (or asks a CLI about) that may need a managed provider's secrets.
+func managedUser(method, launcher, name string) string {
+	switch method {
+	case "session.start", "assistant.send", "assistant.warm", "session.send":
+		return launcher
+	case "launchers.check", "claude.auth_status", "launchers.models", "launchers.http", "launchers.probe", "launchers.model.check":
+		return name
+	}
+	return ""
 }
 
 func (n *Node) info(ctx context.Context) proto.NodeInfo {

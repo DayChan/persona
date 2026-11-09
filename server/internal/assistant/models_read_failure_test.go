@@ -383,7 +383,11 @@ func TestProviderReadFailureReconnectKeepsNodeConfiguration(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("recovery produced %d calls", len(calls))
 	}
-	if _, err := f.DeviceCall(ctx, DeviceCall{Device: calls[0].MachineID, Method: calls[0].Method, Params: calls[0].Params}); err != nil {
+	_, err := f.DeviceCall(ctx, DeviceCall{Device: calls[0].MachineID, Method: calls[0].Method, Params: calls[0].Params})
+	if fb := calls[0].Fallback; isUnknownMethod(err) && fb != nil { // a node from before the catalog, as internal/devices does
+		_, err = f.DeviceCall(ctx, DeviceCall{Device: fb.MachineID, Method: fb.Method, Params: fb.Params})
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 	got := providerPushes(f)

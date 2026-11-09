@@ -233,7 +233,8 @@ func importErr(w http.ResponseWriter, err error) {
 // sealImported makes g a stored launcher: the key and headers sealed.
 func (s *Service) sealImported(g importGroup, now time.Time) (storedLauncher, error) {
 	l := storedLauncher{ManagedLauncher: g.ManagedLauncher, Created: now, Updated: now}
-	l.HasHeaders = false // the preview's; a stored launcher's comes from its sealed headers
+	l.HasHeaders = false                         // the preview's; a stored launcher's comes from its sealed headers
+	_ = scopeInput{}.applyScope(&l, true, false) // a new provider's scope (docs/integrations/launchers.md "Device scope and on-demand delivery")
 	if l.Auth == "api_key" {
 		l.Auth = "" // stored as the default
 	}

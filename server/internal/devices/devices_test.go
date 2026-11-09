@@ -37,6 +37,8 @@ type testNode struct {
 	echoHealth bool
 	// refuseWatch: how many more session.watch calls of a session it refuses (a node just started, #6372).
 	refuseWatch map[string]int
+	// unknown: the methods it does not have (a node from before them).
+	unknown map[string]bool
 }
 
 func (n *testNode) dial(context.Context) (net.Conn, error) {
@@ -46,6 +48,9 @@ func (n *testNode) dial(context.Context) (net.Conn, error) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		n.calls = append(n.calls, method+" "+string(params))
+		if n.unknown[method] {
+			return nil, errors.New("unknown method " + method)
+		}
 		switch method {
 		case "node.info":
 			if n.info != nil {
@@ -525,6 +530,25 @@ func TestNothingOfTheManagersOnAnotherManagersMachine(t *testing.T) {
 	if got := mine.seen("launchers.managed"); len(got) != 1 || !strings.Contains(got[0], "MY KEY") ||
 		!strings.Contains(strings.Join(mine.seen("node.configure"), ""), "MINE") {
 		t.Fatalf("its own machine: %v", mine.seen(""))
+	}
+}
+
+// A connection's call a node from before it does not have goes as its fallback instead (launchers.catalog, then
+// launchers.managed); a node that has it gets only the call.
+func TestAConnectionsCallFallsBackForAnOlderNode(t *testing.T) {
+	d := newTestDevices(t)
+	d.opts.NodeCalls = func(_ context.Context, machine string) []devicewire.NodeCall {
+		return []devicewire.NodeCall{{MachineID: machine, Method: "launchers.catalog", Params: json.RawMessage(`{"launchers":[]}`),
+			Fallback: &devicewire.NodeCall{MachineID: machine, Method: "launchers.managed", Params: json.RawMessage(`{"launchers":[]}`)}}}
+	}
+	older, newer := &testNode{unknown: map[string]bool{"launchers.catalog": true}}, &testNode{}
+	connectedMachine(t, d, "older", older)
+	connectedMachine(t, d, "newer", newer)
+	if len(older.seen("launchers.catalog")) != 1 || len(older.seen("launchers.managed")) != 1 {
+		t.Fatalf("older node: %v", older.seen(""))
+	}
+	if len(newer.seen("launchers.catalog")) != 1 || len(newer.seen("launchers.managed")) != 0 {
+		t.Fatalf("newer node: %v", newer.seen(""))
 	}
 }
 

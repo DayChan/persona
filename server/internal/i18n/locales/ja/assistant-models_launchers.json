@@ -49,5 +49,15 @@
   "err_tier_model_long": "ティアモデルの名前が長すぎます",
   "role_default": "既定のメインモデル",
   "role_optional": "選択可能なモデル",
-  "err_builtin_hide": "組み込みの claude は各マシンの既定のランチャーなので非表示にできません"
+  "err_builtin_hide": "組み込みの claude は各マシンの既定のランチャーなので非表示にできません",
+  "err_scope_none": "{provider} は hub のみで使われ、どのコンピューターにもキーを渡しません。設定 › モデルプロバイダーで「コンピューター」を変更するか、別のプロバイダーを選んでください",
+  "err_scope_machine": "{provider} は {machine} では使えるように設定されていません。設定 › モデルプロバイダーでこのコンピューターを「コンピューター」に追加するか、別のプロバイダーを選んでください",
+  "err_scope_work": "{machine} は仕事用コンピューターです。{provider} はプロバイダーの「コンピューター」で選んだときだけ使われます（設定 › モデルプロバイダー）",
+  "err_own_service": "{machine} にはすでに独自の {harness} サービスがあり、{provider} はそうしたコンピューターを対象外にしています。「コンピューター」で「サインイン済みのコンピューターでも使う」をオンにするか、別のプロバイダーを選んでください",
+  "err_pull_unknown": "{provider} はもう Persona のモデルプロバイダーではありません",
+  "err_share": "「コンピューター」は all、selected、none のいずれかです",
+  "err_delivery": "delivery は on_demand か push です",
+  "err_own_service_value": "own_service は skip か use です",
+  "err_scope_empty": "このプロバイダーに少なくとも 1 台のコンピューターを選んでください",
+  "err_scope_unknown_machine": "{machine} はあなたのコンピューターではありません"
 }

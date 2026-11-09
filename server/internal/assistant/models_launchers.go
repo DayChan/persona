@@ -22,7 +22,9 @@ import (
 const (
 	launchersManagedKey = "launchers.managed" // []storedLauncher
 	launchersHiddenKey  = "launchers.hidden"  // []string: ~/.zshrc launcher names hidden in Persona
-	launchersZshrcKey   = "launchers.zshrc"   // map machine id → []proto.Launcher, the last list seen
+	// launchersMachineKeysKey: []machineKey, a provider's key for one computer (models_launchers_scope.go).
+	launchersMachineKeysKey = "launchers.machine_keys"
+	launchersZshrcKey       = "launchers.zshrc" // map machine id → []proto.Launcher, the last list seen
 	// launchersMetaKey: map machine id → launcherMeta (its shell, rc file, when its list last came in).
 	launchersMetaKey = "launchers.zshrc.meta"
 )
@@ -63,9 +65,13 @@ type storedLauncher struct {
 	EnvSealed     string `json:"env_sealed,omitempty"` // Env (#5953) sealed the same way; Env itself is never stored
 	Preset        string `json:"preset,omitempty"`     // the preset (built-in or a plugin's) it was added from
 	// DisplayName is what the apps call it (any language, "Zhipu GLM"); Name stays the ASCII id the launch uses.
-	DisplayName string    `json:"display_name,omitempty"`
-	Created     time.Time `json:"created"`
-	Updated     time.Time `json:"updated"`
+	DisplayName string `json:"display_name,omitempty"`
+	// Share and ScopeMachines are its device scope (models_launchers_scope.go): "all", "selected", "none"; "" is a
+	// record from before scopes, every confirmed computer as then.
+	Share         string    `json:"share,omitempty"`
+	ScopeMachines []string  `json:"scope_machines,omitempty"`
+	Created       time.Time `json:"created"`
+	Updated       time.Time `json:"updated"`
 }
 
 // LauncherView is one launcher for the app: where it comes from, which machines have it; never the key.
@@ -112,6 +118,14 @@ type LauncherView struct {
 	Effort        string                `json:"effort,omitempty"`
 	// Origin is ManagedLauncher.Source ("" made by hand, "zshrc:<alias>@<machine>", "preset:<id>"); "source" is taken.
 	Origin string `json:"origin,omitempty"`
+	// Managed only: the device scope (docs/integrations/launchers.md "Device scope and on-demand delivery"). LegacyScope:
+	// saved before scopes, read as all (work computers too) + push + use. KeyMachines: the computers with a key of their own.
+	Share         string   `json:"share,omitempty"`
+	ScopeMachines []string `json:"scope_machines,omitempty"`
+	Delivery      string   `json:"delivery,omitempty"`
+	OwnService    string   `json:"own_service,omitempty"`
+	KeyMachines   []string `json:"key_machines,omitempty"`
+	LegacyScope   bool     `json:"legacy_scope,omitempty"`
 	// Definition per machine (zshrc launchers, detail only): the function body, secrets masked.
 	Definitions map[string]string `json:"definitions,omitempty"`
 	// Details per machine (zshrc launchers, detail only): what the launcher really sets when run (node/launcherprobe.go).
@@ -125,7 +139,8 @@ func launcherView(l storedLauncher) LauncherView {
 		CustomModelDescription: l.CustomModelDescription, Args: l.Args, HasKey: l.KeySealed != "", Auth: l.Auth,
 		Models: l.Models, OpusModel: l.OpusModel, SonnetModel: l.SonnetModel, HaikuModel: l.HaikuModel, FableModel: l.FableModel,
 		SubagentForce: l.SubagentForce, HasHeaders: l.HeadersSealed != "", HasEnv: l.EnvSealed != "", Proxy: l.Proxy, NoProxy: l.NoProxy, TimeoutMS: l.TimeoutMS,
-		CompactWindow: l.CompactWindow, MaxContext: l.MaxContext, Effort: l.Effort, Origin: l.Source}
+		CompactWindow: l.CompactWindow, MaxContext: l.MaxContext, Effort: l.Effort, Origin: l.Source,
+		Share: l.share(), ScopeMachines: l.ScopeMachines, Delivery: l.delivery(), OwnService: l.ownService(), LegacyScope: l.Share == ""}
 }
 
 var managedLauncherName = lazyre.New(`^[A-Za-z_][A-Za-z0-9_-]*$`)

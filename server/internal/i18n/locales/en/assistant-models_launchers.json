@@ -49,5 +49,15 @@
   "err_tier_model_long": "A tier model name is too long",
   "role_default": "Default model",
   "role_optional": "Optional model",
-  "err_builtin_hide": "The built-in claude is every machine's default launcher and cannot be hidden"
+  "err_builtin_hide": "The built-in claude is every machine's default launcher and cannot be hidden",
+  "err_scope_none": "{provider} stays with the hub: no computer gets its key. Change its Devices in Settings › Model providers, or pick another provider",
+  "err_scope_machine": "{provider} is not set up for {machine}. Add this computer to its Devices in Settings › Model providers, or pick another provider",
+  "err_scope_work": "{machine} is a work computer: {provider} reaches it only when it is chosen in the provider's Devices (Settings › Model providers)",
+  "err_own_service": "{machine} already has its own {harness} service, and {provider} skips such computers. Turn on “Also use on computers with their own sign-in” in its Devices, or pick another provider",
+  "err_pull_unknown": "{provider} is no longer a model provider in Persona",
+  "err_share": "Devices must be all, selected or none",
+  "err_delivery": "Delivery must be on_demand or push",
+  "err_own_service_value": "own_service must be skip or use",
+  "err_scope_empty": "Choose at least one computer for this provider",
+  "err_scope_unknown_machine": "{machine} is not one of your computers"
 }

@@ -39,7 +39,7 @@ func (n *Node) executionFingerprint(launcher string, m modelExecution) string {
 		m.Runtime = ""
 	}
 	raw, _ := json.Marshal(m)
-	if l, ok := n.managedLauncher(launcher); ok {
+	if l, ok := n.managedCatalog(launcher); ok { // as named: the same before and after a withheld one's pull (its Rev)
 		v, _ := json.Marshal(l)
 		raw = append(raw, v...)
 	}

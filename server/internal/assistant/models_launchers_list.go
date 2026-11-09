@@ -174,7 +174,9 @@ func (s *Service) machineLaunchers(ctx context.Context, machine string) ([]proto
 		return nil, err
 	}
 	hidden := s.hiddenLaunchers(ctx)
-	managed := s.storedLaunchers(ctx)
+	// Only the providers in this computer's scope: one out of it is not named to the node, whose own launcher by
+	// that name (if any) is what runs there.
+	managed := slices.DeleteFunc(slices.Clone(s.storedLaunchers(ctx)), func(m storedLauncher) bool { return !s.usableOn(ctx, m, machine) })
 	out := make([]proto.Launcher, 0, len(res.Launchers)+len(managed))
 	for _, envelope := range res.Launchers {
 		l := proto.Launcher(envelope)

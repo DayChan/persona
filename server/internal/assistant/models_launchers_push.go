@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/devicewire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -16,7 +15,47 @@ import (
 
 // ---- the nodes ----
 
-// managedForNodes: the launchers added in Persona with their keys and headers, for the nodes (only Messages direct API connections).
+// managedNodeCalls is the new-connection configuration callback: the providers in the machine's scope
+// (launchers.catalog), or for a node from before the catalog the same with their secrets (launchers.managed). A failed
+// read sends nothing.
+func (s *Service) managedNodeCalls(ctx context.Context, machine string) []devicewire.NodeCall {
+	if s.machinePending(ctx, machine) {
+		return nil
+	}
+	s.models.mu.Lock()
+	stored, err := s.readStoredLaunchers(ctx)
+	var keys []machineKey
+	if err == nil {
+		keys, err = s.readMachineKeys(ctx)
+	}
+	s.models.mu.Unlock()
+	if err != nil {
+		s.logf("launchers: prepare node configuration: %v", err)
+		return nil
+	}
+	if _, err := s.nodeLaunchers(stored); err != nil {
+		s.logf("launchers: prepare node configuration: %v", err)
+		return nil
+	}
+	catalog, legacy, err := s.nodeLaunchersFor(ctx, stored, keys, machine)
+	if err != nil {
+		s.logf("launchers: prepare node configuration: %v", err)
+		return nil
+	}
+	c, err := json.Marshal(map[string]any{"launchers": catalog})
+	if err != nil {
+		return nil
+	}
+	l, err := json.Marshal(map[string]any{"launchers": legacy})
+	if err != nil {
+		return nil
+	}
+	return []devicewire.NodeCall{{MachineID: machine, Method: DeviceLaunchersCatalog, Params: c,
+		Fallback: &devicewire.NodeCall{MachineID: machine, Method: DeviceLaunchersManaged, Params: l}}}
+}
+
+// managedForNodes: the providers with their secrets as every node from before the catalog would get them (no scope
+// applied), the check that every secret opens.
 func (s *Service) managedForNodes(ctx context.Context) ([]proto.ManagedLauncher, error) {
 	s.models.mu.Lock()
 	defer s.models.mu.Unlock()
@@ -27,24 +66,8 @@ func (s *Service) managedForNodes(ctx context.Context) ([]proto.ManagedLauncher,
 	return s.nodeLaunchers(stored)
 }
 
-// managedNodeCalls is the new-connection configuration callback. Failed reads send no replacement.
-func (s *Service) managedNodeCalls(ctx context.Context, machine string) []devicewire.NodeCall {
-	if s.machinePending(ctx, machine) {
-		return nil
-	}
-	list, err := s.managedForNodes(ctx)
-	if err != nil {
-		s.logf("launchers: prepare node configuration: %v", err)
-		return nil
-	}
-	b, err := json.Marshal(map[string]any{"launchers": list})
-	if err != nil {
-		return nil
-	}
-	return []devicewire.NodeCall{{MachineID: machine, Method: DeviceLaunchersManaged, Params: b}}
-}
-
-// nodeLaunchers prepares the entire payload before any setting write or node call.
+// nodeLaunchers opens every provider a node can run (only Messages direct API connections besides launchers): one that
+// does not open holds every publication back (storeManagedLaunchers), as before scopes.
 func (s *Service) nodeLaunchers(stored []storedLauncher) ([]proto.ManagedLauncher, error) {
 	out := []proto.ManagedLauncher{}
 	for _, l := range stored {
@@ -76,11 +99,11 @@ func (s *Service) openStoredLauncher(l storedLauncher) (proto.ManagedLauncher, e
 	return m, nil
 }
 
-// pushManaged gives the online nodes (one machine when machine is not "") the launchers added in Persona; they keep
-// them in memory. After a change; a node's new connection gets them right after it is configured (main.go's
-// devices NodeCalls). Only this manager's own machines: the hub's devices.list has no other (docs/assistant/managers.md), and a
-// new connection the hub says is another manager's gets no NodeCalls (internal/devices hubConnected). A computer
-// waiting to be confirmed gets none (machine_trust.go; the hub does not list it either).
+// pushManaged tells the online nodes (one machine when machine is not "") the providers in their scope; a node's
+// new connection gets them right after it is configured (main.go's devices NodeCalls). Only this manager's own
+// machines: the hub's devices.list has no other (docs/assistant/managers.md), and a new connection the hub says is another
+// manager's gets no NodeCalls (internal/devices hubConnected). A computer waiting to be confirmed gets none
+// (machine_trust.go; the hub does not list it either).
 func (s *Service) pushManaged(ctx context.Context, machine string) {
 	s.models.mu.Lock()
 	defer s.models.mu.Unlock()
@@ -89,25 +112,25 @@ func (s *Service) pushManaged(ctx context.Context, machine string) {
 		s.logf("launchers: read managed launchers: %v", err)
 		return
 	}
-	list, err := s.nodeLaunchers(stored)
+	keys, err := s.readMachineKeys(ctx)
 	if err != nil {
+		s.logf("launchers: read the computers' keys: %v", err)
+		return
+	}
+	if _, err := s.nodeLaunchers(stored); err != nil {
 		s.logf("launchers: prepare managed launchers: %v", err)
 		return
 	}
-	s.pushNodeLaunchers(ctx, machine, list)
+	s.pushNodeLaunchers(ctx, machine, stored, keys)
 }
 
 // pushNodeLaunchers publishes a confirmed snapshot while the caller holds models.mu.
-func (s *Service) pushNodeLaunchers(ctx context.Context, machine string, list []proto.ManagedLauncher) {
+func (s *Service) pushNodeLaunchers(ctx context.Context, machine string, stored []storedLauncher, keys []machineKey) {
 	for _, d := range s.devices(ctx) {
 		if !d.Online || (machine != "" && d.ID != machine) || s.machinePending(ctx, d.ID) {
 			continue
 		}
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		if err := s.call(cctx, d.ID, assistantwire.DeviceLaunchersManaged, map[string]any{"launchers": list}, nil); err != nil {
-			s.logf("launchers: give %s the managed launchers: %v", d.ID, err)
-		}
-		cancel()
+		s.giveNodeLaunchers(ctx, d.ID, stored, keys)
 	}
 }
 

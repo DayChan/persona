@@ -61,6 +61,11 @@ func (s *Service) modelPurpose(ctx context.Context, id string, providers []Model
 		if compatible && p.Kind == "launcher" && len(v.Machines) > 0 && p.MachineID != "" {
 			compatible = slices.Contains(v.Machines, p.MachineID)
 		}
+		if compatible && p.Kind == "launcher" && p.MachineID != "" { // a managed provider out of that computer's scope
+			if l, ok := s.managedNamed(ctx, strings.TrimPrefix(v.ID, "launcher.")); ok && strings.HasPrefix(v.ID, "launcher.") {
+				compatible = s.scopeReason(l, p.MachineID) == ""
+			}
+		}
 		if compatible {
 			p.ProviderIDs = append(p.ProviderIDs, v.ID)
 		}
@@ -81,7 +86,9 @@ func (s *Service) modelPurpose(ctx context.Context, id string, providers []Model
 	}
 	l := s.requestCtxLang(ctx)
 	p.Status = modelUnverified
-	if !slices.Contains(p.ProviderIDs, p.Effective.Provider) {
+	if scope := s.purposeScopeStatus(ctx, l, p.Effective.Provider, p.MachineID); p.Kind == "launcher" && scope != "" {
+		p.Status = scope // the provider is out of the main chat's computer's scope: why it does not run there
+	} else if !slices.Contains(p.ProviderIDs, p.Effective.Provider) {
 		p.Status = mc(l, "status_provider_incompatible")
 		if p.Kind == "api" && strings.HasPrefix(p.Effective.Provider, "legacy.") && s.legacyModelConfig(ctx, p.Effective.Provider).BaseURL == "" {
 			p.Status = mc(l, modelNoAPIStatus)

@@ -84,6 +84,9 @@ func (s *Service) NodeAnswer(ctx context.Context, machine, method string, params
 		Ack       []assistantwire.ViewErrorReceipt `json:"ack"`
 	}
 	switch method {
+	case NodeLaunchersPull: // a provider's secrets for this computer (models_launchers_scope.go): the connection's machine decides
+		out, err := s.pullLauncher(ctx, machine, params)
+		return out, true, err
 	case "assistant.model":
 		_ = json.Unmarshal(params, &p)
 		if !s.assistantCaller(ctx, machine, p.SessionID) {

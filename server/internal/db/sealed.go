@@ -42,6 +42,7 @@ type SealedSetting struct {
 
 var sealedSettings = []SealedSetting{
 	{Key: "launchers.managed", List: true, Fields: []string{"key_sealed", "headers_sealed", "env_sealed"}}, // internal/assistant storedLauncher
+	{Key: "launchers.machine_keys", List: true, Fields: []string{"key_sealed"}},                            // internal/assistant machineKey
 	{Key: "bots.feishu", Fields: []string{"secret_enc"}},                                                   // internal/extmgr FeishuBotSettings
 	{Key: "mail.microsoft_client", Fields: []string{"enc"}},                                                // internal/mail sealedSetting
 }

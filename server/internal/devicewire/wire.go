@@ -294,6 +294,9 @@ type NodeCall struct {
 	TimeoutMS int64 `json:"timeout_ms,omitempty"`
 	// Request is devices.request's key, the manager's (EventRequestEnd names it).
 	Request string `json:"request,omitempty"`
+	// Fallback (a connection's calls only): sent instead when the node answers unknown method, a node from before
+	// Method (launchers.catalog falls back to launchers.managed).
+	Fallback *NodeCall `json:"fallback,omitempty"`
 }
 
 // RequestEnd is devices.request_end's params.

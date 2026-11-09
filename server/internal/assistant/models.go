@@ -186,6 +186,9 @@ type modelsState struct {
 	zshrc   map[string][]proto.Launcher // machine → its rc-file launchers (nil: not asked since the start)
 	// zshrcSync: how each machine's list came in the last time they were asked (设置 › 模型供应商's 各台电脑).
 	zshrcSync map[string]LauncherSync
+
+	ownMu sync.Mutex
+	own   map[string]ownSeen // machine + "/" + agent → its own service as the node said (models_launchers_scope.go)
 }
 
 func (s *Service) modelRecord(ctx context.Context, id string) (modelRecord, error) {
