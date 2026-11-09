@@ -276,6 +276,30 @@ func TestUnchangedReplaceAndBatchOwnership(t *testing.T) {
 	}
 }
 
+// Items reads the stored items in the order asked, the zero Item for an unknown ID; handing them back unchanged is
+// no change, and changing a returned copy changes nothing stored.
+func TestItemsReadsStoredItems(t *testing.T) {
+	var i Index
+	if got := i.Items([]string{"a"}); len(got) != 1 || !reflect.DeepEqual(got[0], Item{}) {
+		t.Fatalf("empty index: %+v", got)
+	}
+	a, b := testItem("a", 1), testItem("b", 2)
+	i.Replace("owner", []Item{a, b})
+	revision := i.Revision()
+	got := i.Items([]string{"b", "missing", "a"})
+	if !reflect.DeepEqual(got, []Item{b, {}, a}) {
+		t.Fatalf("items: %+v", got)
+	}
+	i.Replace("owner", []Item{got[2], got[0]})
+	if i.Revision() != revision {
+		t.Fatal("stored items handed back bumped the revision")
+	}
+	got[0].State = "idle"
+	if p := mustQuery(t, &i, Options{State: "idle"}); p.Total != 0 || i.Revision() != revision {
+		t.Fatal("a returned copy changed the index")
+	}
+}
+
 func TestDeltaChangesAndFilteredExit(t *testing.T) {
 	var i Index
 	a, b, c := testItem("a", 1), testItem("b", 2), testItem("c", 3)

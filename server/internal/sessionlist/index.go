@@ -273,6 +273,22 @@ func (i *Index) Replace(source string, items []Item) {
 // RemoveSource removes an owner's entire batch in one revision.
 func (i *Index) RemoveSource(source string) { i.Replace(source, nil) }
 
+// Items returns the current items with the given IDs, in order, and the zero
+// Item for an ID the index does not hold, all under one lock. The items are
+// copies, but their Full and Summary are the index's own: callers only read
+// them, or hand them back to Replace unchanged, which then keeps the record.
+func (i *Index) Items(ids []string) []Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	out := make([]Item, len(ids))
+	for k, id := range ids {
+		if r := i.items[id]; r != nil {
+			out[k] = r.item
+		}
+	}
+	return out
+}
+
 func (i *Index) pruneSnapshots() {
 	now := i.now()
 	for len(i.snapshotOrder) > 0 {
