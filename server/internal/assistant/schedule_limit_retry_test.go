@@ -1101,8 +1101,14 @@ func TestLimitRetryOtherTurnSamePromptDoesNotAttributeError(t *testing.T) {
 	runs := scheduleRuns(newServiceOn(t, f, st))
 	for _, r := range runs {
 		if r.ID == run.ID {
-			if r.Status != runFailed || strings.Contains(r.Error, "other turn") || !strings.Contains(r.Error, "无法确认") {
+			if r.Status != runOK || r.Error != "" {
 				t.Fatalf("attributed unrelated turn: %+v", r)
+			}
+			f.mu.Lock()
+			pushes := len(f.pushes)
+			f.mu.Unlock()
+			if pushes != 0 {
+				t.Fatal("unverified turn sent a notification")
 			}
 			return
 		}
@@ -1110,11 +1116,14 @@ func TestLimitRetryOtherTurnSamePromptDoesNotAttributeError(t *testing.T) {
 	t.Fatal("run not found")
 }
 
-func TestLimitRetryUnconfirmedOutcomeReportsUnknown(t *testing.T) {
+func TestLimitRetryWatcherTimeoutDoesNotReportUnconfirmedTurn(t *testing.T) {
 	for _, state := range []string{"stopped", "offline", "working", "needs_you"} {
 		t.Run(state, func(t *testing.T) {
 			s, f, st, now := limitRetryFixture(t)
+			s.turnPoll = 5 * time.Millisecond
+			s.sched.limitWatchTimeout = 30 * time.Millisecond
 			task, _ := taskByID(s, "limit")
+			task.limitRetry, task.limitBeforeKnown, task.limitBeforeID = true, true, "before"
 			run := ScheduleRun{RefID: task.ID, At: now, Status: runOK, MachineID: "server", SessionID: "s1", Retried: true, RetryOf: "failed"}
 			run.ID = s.recordRun(run)
 			switch state {
@@ -1125,7 +1134,7 @@ func TestLimitRetryUnconfirmedOutcomeReportsUnknown(t *testing.T) {
 			case "needs_you":
 				f.setSessions("server", proto.Session{SessionID: "s1", State: proto.StateNeedsYou})
 			}
-			s.reportUnconfirmedRetry(run, task, Device{ID: "server"})
+			s.watchScheduledRun(run, task, Device{ID: "server"})
 			runs := scheduleRuns(newServiceOn(t, f, st))
 			var result ScheduleRun
 			for _, r := range runs {
@@ -1136,15 +1145,8 @@ func TestLimitRetryUnconfirmedOutcomeReportsUnknown(t *testing.T) {
 			f.mu.Lock()
 			pushes := len(f.pushes)
 			f.mu.Unlock()
-			if scheduleSendCount(f) != 0 {
-				t.Fatal("unknown outcome sent a retry")
-			}
-			if state == "working" || state == "needs_you" {
-				if result.Status != runOK || pushes != 0 {
-					t.Fatalf("active turn reported failed: %+v, pushes %d", result, pushes)
-				}
-			} else if result.Status != runFailed || !strings.Contains(result.Error, "无法确认") || pushes != 1 {
-				t.Fatalf("unconfirmed run not reported: %+v, pushes %d", result, pushes)
+			if result.Status != runOK || pushes != 0 || scheduleSendCount(f) != 0 {
+				t.Fatalf("unconfirmed watcher changed result: %+v, pushes %d", result, pushes)
 			}
 		})
 	}
@@ -1209,14 +1211,19 @@ func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	s.turnPoll = 10 * time.Millisecond
 	st.failReadStarted = make(chan struct{})
-	notified := make(chan struct{}, 1)
-	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
-		select {
-		case notified <- struct{}{}:
-		default:
-		}
-	}}
+	observed := make(chan struct{}, 1)
 	f.mu.Lock()
+	f.nodes = map[string]nodeAnswer{DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
+		var params map[string]any
+		_ = json.Unmarshal(raw, &params)
+		if params["limit"] == float64(8) {
+			select {
+			case observed <- struct{}{}:
+			default:
+			}
+		}
+		return map[string]any{"items": slices.Clone(f.items)}, nil
+	}}
 	f.items = []proto.Item{{ID: "before", Role: "assistant", Kind: "text", Text: "Earlier"}}
 	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
 		f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}, {ID: "after", Role: "assistant", Kind: "text", Text: "API Error: 503 upstream unavailable"}}
@@ -1233,13 +1240,17 @@ func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
 	s.runLimitRetries(t.Context(), now.Add(2*time.Hour))
 	awaitBusSignal(t, st.failReadStarted)
 	st.failScheduleRead.Store(false)
-	awaitBusSignal(t, notified)
+	awaitBusSignal(t, observed)
 	s.sched.inflight.Wait()
 	runs := scheduleRuns(newServiceOn(t, f, st))
-	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
-		return r.RetryOf == "failed" && r.Status == runFailed && strings.Contains(r.Error, "无法确认")
-	}) {
-		t.Fatalf("fast failure was not recorded: %+v", runs)
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == "failed" && r.Status == runOK }) {
+		t.Fatalf("unverified fast failure altered the run: %+v", runs)
+	}
+	f.mu.Lock()
+	pushes := len(f.pushes)
+	f.mu.Unlock()
+	if pushes != 0 {
+		t.Fatal("unverified fast failure sent a notification")
 	}
 }
 
@@ -1247,13 +1258,7 @@ func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	s.turnPoll = 10 * time.Millisecond
 	seenWorking := make(chan struct{}, 1)
-	notified := make(chan struct{}, 1)
-	s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
-		select {
-		case notified <- struct{}{}:
-		default:
-		}
-	}}
+	observed := make(chan struct{}, 1)
 	f.mu.Lock()
 	f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}}
 	f.nodes = map[string]nodeAnswer{DeviceSessionGet: func(machine string, _ json.RawMessage) (any, error) {
@@ -1269,6 +1274,16 @@ func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
 			}
 		}
 		return map[string]any{"ok": false}, nil
+	}, DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
+		var params map[string]any
+		_ = json.Unmarshal(raw, &params)
+		if params["limit"] == float64(8) {
+			select {
+			case observed <- struct{}{}:
+			default:
+			}
+		}
+		return map[string]any{"items": slices.Clone(f.items)}, nil
 	}}
 	f.onAssistantSend = func(_ *fakeHub, _ map[string]any) {
 		for i := range f.sessions["server"] {
@@ -1284,13 +1299,17 @@ func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
 	awaitBusSignal(t, seenWorking)
 	st.failScheduleRead.Store(false)
 	f.setSessions("server", proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now, TurnError: "API Error: 503 upstream unavailable"})
-	awaitBusSignal(t, notified)
+	awaitBusSignal(t, observed)
 	s.sched.inflight.Wait()
 	runs := scheduleRuns(newServiceOn(t, f, st))
-	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
-		return r.RetryOf == "failed" && r.Status == runFailed && strings.Contains(r.Error, "无法确认")
-	}) {
-		t.Fatalf("retry failure was not recorded after storage recovered: %+v", runs)
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == "failed" && r.Status == runOK }) {
+		t.Fatalf("unverified session error altered the run: %+v", runs)
+	}
+	f.mu.Lock()
+	pushes := len(f.pushes)
+	f.mu.Unlock()
+	if pushes != 0 {
+		t.Fatal("unverified session error sent a notification")
 	}
 }
 

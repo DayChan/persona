@@ -55,6 +55,53 @@ func TestOriginsPostgresInterleavedWriters(t *testing.T) {
 	}
 }
 
+type originRefreshFaultStore struct {
+	*db.DB
+	fail bool
+}
+
+func (st *originRefreshFaultStore) ReadOrigins(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	if st.fail {
+		return nil, 0, false, errors.New("origin refresh unavailable")
+	}
+	return st.DB.ReadOrigins(ctx)
+}
+
+func TestOriginsPostgresAuthorizationMissRefreshes(t *testing.T) {
+	st := scheduleStore(t)
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	f.hello.Assistant.Machines = []string{"server", "other"}
+	fault := &originRefreshFaultStore{DB: st}
+	first, second, discovery := newServiceOn(t, f, fault), newServiceOn(t, f, st), newServiceOn(t, f, st)
+	setSettings(t, first, func(v *Settings) { v.MachineID = "other" })
+	for _, s := range []*Service{first, discovery} {
+		s.origins.mu.Lock()
+		loaded := s.originsLocked(t.Context())
+		s.origins.mu.Unlock()
+		if !loaded {
+			t.Fatal("manager could not load its initial origins")
+		}
+	}
+	second.originSet(t.Context(), "server", "new-session", OriginTask, "task")
+	fault.fail = true
+	if first.assistantCaller(t.Context(), "server", "new-session") || first.assistantDiscovery(t.Context(), "server", "") {
+		t.Fatal("failed refresh granted authorization")
+	}
+	fault.fail = false
+	if !first.assistantCaller(t.Context(), "server", "new-session") {
+		t.Fatal("authorization miss did not refresh the other manager's origin")
+	}
+	if !discovery.assistantDiscovery(t.Context(), "server", "") {
+		t.Fatal("discovery miss did not refresh the other manager's origin")
+	}
+	if first.assistantCaller(t.Context(), "wrong-machine", "new-session") {
+		t.Fatal("origin authorized another machine")
+	}
+}
+
 func TestOriginsPostgresBackfillCannotOverwriteStart(t *testing.T) {
 	st := scheduleStore(t)
 	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {

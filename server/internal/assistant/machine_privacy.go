@@ -78,11 +78,16 @@ func (s *Service) assistantCaller(ctx context.Context, machine, session string) 
 	b.mu.Lock()
 	allowed = allowed || b.machines[id] > 0
 	b.mu.Unlock()
-	if session != "" {
+	if session != "" && !allowed {
 		s.origins.mu.Lock()
 		if s.originsLocked(ctx) {
-			if o := s.origins.m[session]; o != nil && o.By == originByStart && s.sameMachine(machine, o.MachineID) {
-				allowed = true
+			matches := func() bool {
+				o := s.origins.m[session]
+				return o != nil && o.By == originByStart && s.sameMachine(machine, o.MachineID)
+			}
+			allowed = matches()
+			if !allowed && s.refreshOriginsOnMissLocked(ctx) {
+				allowed = matches()
 			}
 		}
 		s.origins.mu.Unlock()
@@ -122,10 +127,16 @@ func (s *Service) assistantDiscovery(ctx context.Context, machine, session strin
 	if !s.originsLocked(ctx) {
 		return false
 	}
-	for _, o := range s.origins.m {
-		if o.By == originByStart && s.sameMachine(machine, o.MachineID) {
-			return true
+	matches := func() bool {
+		for _, o := range s.origins.m {
+			if o.By == originByStart && s.sameMachine(machine, o.MachineID) {
+				return true
+			}
 		}
+		return false
 	}
-	return false
+	if matches() {
+		return true
+	}
+	return s.refreshOriginsOnMissLocked(ctx) && matches()
 }

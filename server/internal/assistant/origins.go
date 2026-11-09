@@ -94,6 +94,32 @@ type originVersionStore interface {
 	CompareOrigins(context.Context, int64, json.RawMessage) (bool, error)
 }
 
+// refreshOriginsOnMissLocked reads committed origins after an authorization miss. A read failure never grants access.
+func (s *Service) refreshOriginsOnMissLocked(ctx context.Context) bool {
+	vs, ok := s.store().(originVersionStore)
+	if !ok {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, _, found, err := vs.ReadOrigins(ctx)
+	if err != nil {
+		return false
+	}
+	current := make(map[string]*convOrigin)
+	if found && json.Unmarshal(raw, &current) != nil {
+		return false
+	}
+	if current == nil {
+		current = make(map[string]*convOrigin)
+	}
+	s.origins.m, s.origins.loaded = current, true
+	if s.origins.checked == nil {
+		s.origins.checked = make(map[string]bool)
+	}
+	return true
+}
+
 // changeOriginsLocked merges one operation into the latest map and publishes it only after persistence.
 // The legacy JSON remains an unwrapped session-id map. The caller holds origins.mu.
 func (s *Service) changeOriginsLocked(ctx context.Context, change func(map[string]*convOrigin) bool) error {
