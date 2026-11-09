@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/extension"
 	pserve "github.com/nwverse/persona/server/internal/extension/serve"
@@ -269,5 +270,41 @@ func TestHubAuditTakesRefusedPermissionModes(t *testing.T) {
 	defer store.mu.Unlock()
 	if !slices.Equal(store.audit, []string{"scoped permission_mode_refused extension:scoped"}) {
 		t.Fatalf("audit: %q", store.audit)
+	}
+}
+
+// An attached extension reads the assistant's conversations by its own grant only, as one the manager runs does: its
+// token's scopes and agents.control do not open them.
+func TestAttachedExtensionReadsConversationsByItsOwnGrant(t *testing.T) {
+	h := newTestManager(t)
+	h.opts.Assistant = func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		return json.RawMessage(`{"messages":[]}`), nil
+	}
+	attached := func(id string, granted extension.Permissions) func(context.Context, string, json.RawMessage) (any, error) {
+		kbExtensionSpec(t, h, id, granted)
+		p := h.extensions.reg.Get(id)
+		dir := t.TempDir()
+		p.Record.Remote = &extension.Remote{RPCSocket: filepath.Join(dir, "rpc.sock"), HTTPSocket: filepath.Join(dir, "http.sock")}
+		spec, err := h.extensions.specOf(t.Context(), p, &hubExtension{id: id})
+		if err != nil || !spec.Attached {
+			t.Fatal(id, err)
+		}
+		return spec.Handle
+	}
+	reader := attached("example-reader", extension.Permissions{Hub: []string{extension.ScopeAssistantRead}})
+	full := attached("example-full", extension.Permissions{HubAPI: true})
+	control := attached("example-control", extension.Permissions{Hub: []string{extension.ScopeAgentsControl, extension.ScopeAgentsPermissionMode}})
+	params := json.RawMessage(`{"id":"c1"}`)
+	for _, read := range []func(context.Context, string, json.RawMessage) (any, error){reader, full} {
+		if _, err := read(t.Context(), assistantwire.MethodAssistantMessages, params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := control(t.Context(), assistantwire.MethodAssistantConversations, params); err == nil {
+		t.Fatal("an attached extension without assistant.read read the conversations")
+	}
+	h.extensions.reg.Get("example-reader").Record.Granted = extension.Permissions{}
+	if _, err := reader(t.Context(), assistantwire.MethodAssistantConversations, params); err == nil {
+		t.Fatal("an attached extension still reads once its grant is gone")
 	}
 }
