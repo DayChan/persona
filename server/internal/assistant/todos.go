@@ -57,8 +57,8 @@ type Todo struct {
 	PlanID string `json:"plan_id,omitempty"`
 	// StartError: a task whose agent did not start ends done with why (#1077); reopening clears it.
 	StartError string `json:"start_error,omitempty"`
-	// DoneBy is "auto" when the assistant closed the task because its judge found the work finished (#1092,
-	// docs/assistant/todos.md "Automatic completion"), with DoneReason; ReopenedAt: when the user last reopened it after it was done.
+	// DoneBy is "auto" for the hub's completion judgment, "review" for supervisor acceptance, or "cancelled" for
+	// cancellation, with DoneReason; ReopenedAt: when it was last reopened after it was done.
 	DoneBy     string      `json:"done_by,omitempty"`
 	DoneReason string      `json:"done_reason,omitempty"`
 	ReopenedAt *time.Time  `json:"reopened_at,omitempty"`
@@ -499,6 +499,11 @@ func copyTodoLocked(t *Todo) Todo {
 // that worked for it (latest released first).
 func formatTodo(t Todo) Todo {
 	out := t
+	// Existing clients use review for cancellation labels and reasons. Keep that wire value;
+	// the stored marker distinguishes cancellation even for tasks without a supervision ledger.
+	if out.DoneBy == db.DoneByCancelled {
+		out.DoneBy = db.DoneByReview
+	}
 	if out.Spaces == nil {
 		out.Spaces = []TodoSpace{}
 	}
@@ -625,10 +630,9 @@ func (s *Service) completedTodo(ctx context.Context, mid, sid string) (bool, err
 	return false, nil
 }
 
-// closedTaskOf is the task the hub closed (judged done, or reviewed by its supervisor) the agent mid/sid still belongs
+// closedTaskOf is the task the hub closed (judged done, or accepted by its supervisor) the agent mid/sid still belongs
 // to: linked, neither released nor dismissed, and working for no open todo since; the one closed last when there are
-// several (#5892). One the user closed stays theirs to reopen: done by hand while its agent still started (#2954), it
-// is not to come back when that agent goes to work.
+// several (#5892). Cancelled tasks and ones the user closed stay theirs to reopen, even when an agent starts work.
 func (s *Service) closedTaskOf(ctx context.Context, mid, sid string) (Todo, bool) {
 	if s.ensureTodosLoaded(ctx) != nil {
 		return Todo{}, false
@@ -642,6 +646,10 @@ func (s *Service) closedTaskOf(ctx context.Context, mid, sid string) (Todo, bool
 	for _, t := range s.todos.todos {
 		if t.Origin == "" || t.DoneAt == nil || t.StartError != "" || t.DoneBy != db.DoneByAuto && t.DoneBy != db.DoneByReview ||
 			found != nil && !t.DoneAt.After(*found.DoneAt) {
+			continue
+		}
+		// Older cancellations used done_by=review; the ledger preserves their verdict.
+		if t.Supervision.state(*t) == reviewCancelled {
 			continue
 		}
 		for _, a := range t.Agents {
