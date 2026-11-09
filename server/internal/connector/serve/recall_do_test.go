@@ -52,7 +52,10 @@ func TestRecallRunsShareFailuresAndCacheSuccess(t *testing.T) {
 			return RecallDoResult{Status: RecallDone}
 		})
 	}()
-	deadline := time.Now().Add(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
 	for {
 		runs.mu.Lock()
 		cur := runs.runs["row"]
@@ -61,11 +64,12 @@ func TestRecallRunsShareFailuresAndCacheSuccess(t *testing.T) {
 		if joined {
 			break
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-ticker.C:
+		case <-timeout.C:
 			close(release)
 			t.Fatal("the second recall did not join the first")
 		}
-		time.Sleep(time.Millisecond)
 	}
 	close(release)
 	if a, b := <-first, <-second; a.Status != RecallUnknown || b.Status != RecallUnknown || calls.Load() != 1 {
