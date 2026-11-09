@@ -265,8 +265,13 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 	var b strings.Builder
 	refused := false // a refusal content part came: the model declined, whatever else the stream says
 	// lines are the data lines of the event being read; event acts on the event they make up, and done says it ended
-	// the stream, with the reply and error to return.
+	// the stream, with the reply and error to return. ended returns them: a limit the stream reported is no answer,
+	// so it holds the gate like the HTTP 429 it stands for.
 	var lines []string
+	ended := func(got Reply, err error) (Reply, bool, error) {
+		var limit *streamLimit
+		return got, !errors.As(err, &limit), err
+	}
 	event := func() (reply Reply, done bool, err error) {
 		if len(lines) == 0 {
 			return reply, false, nil
@@ -349,7 +354,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 				msg, code = e.Message, cmp.Or(e.Code, code)
 			}
 			if limit := streamLimitFor(ev.Type, code, msg); limit != nil { // a limit told after the 200 holds the gate too
-				return reply, false, limit
+				return reply, true, limit
 			}
 			return reply, true, fmt.Errorf("ai: %s: %s", ev.Type, msg)
 		}
@@ -361,7 +366,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 		line := sc.Text()
 		if line == "" { // a blank line ends the event
 			if got, done, err := event(); done {
-				return got, true, err
+				return ended(got, err)
 			}
 		} else if value, ok := strings.CutPrefix(line, "data:"); ok { // comments and other fields are skipped
 			lines = append(lines, strings.TrimPrefix(value, " "))
@@ -371,7 +376,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 		return reply, true, fmt.Errorf("ai: read stream: %w", err)
 	}
 	if got, done, err := event(); done { // the last event, sent without a blank line after it
-		return got, true, err
+		return ended(got, err)
 	}
 	// No terminal event: the connection was cut, and whatever text came is only part of the answer.
 	if b.Len() == 0 {
