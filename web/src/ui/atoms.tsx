@@ -308,9 +308,10 @@ interface Sub {
 }
 
 /** A menu next to its anchor (a button, or a row's ⋯), or at the pointer (`point`, a right click). ↑ ↓ move, → opens a
- *  submenu and ← goes back, Enter chooses, Esc closes, a row's letter chooses it, ⌫ chooses the close action. A row
- *  can ask again before it runs (`confirm`), turn into an input (`rename`), open a submenu (`children`) or show its
- *  work and failure inside the menu (`inline`). A menu without those keys is the plain one it always was. */
+ *  submenu and ← goes back, Enter chooses, Esc closes, Tab closes it and moves on, a row's letter chooses it, ⌫
+ *  chooses the close action. A row can ask again before it runs (`confirm`), turn into an input (`rename`), open a
+ *  submenu (`children`) or show its work and failure inside the menu (`inline`). A menu without those keys is the
+ *  plain one it always was. */
 export function Menu({
   items,
   anchor,
@@ -344,8 +345,8 @@ export function Menu({
   const rows = useRef<(HTMLElement | null)[][]>([]);
   // What had the focus as the menu opened (its button, a row's ⋯), read on the first render, before a row can take it.
   const [opener] = useState(() => {
-    const el = document.activeElement;
-    return el instanceof HTMLElement && el !== document.body ? el : null;
+    const el = document.activeElement as HTMLElement | null;
+    return el && el !== document.body ? el : null;
   });
   // On a narrow screen Back closes the menu first, like the drawer and the sheets, instead of leaving the page (#5132).
   // A row that opens a sheet or a panel takes the menu's entry over (back-close reuses an entry closed a tick before).
@@ -497,6 +498,12 @@ export function Menu({
       const depth = open.length;
       const intent = keyIntent(e, ls[depth], act[depth] ?? -1, depth);
       if (intent.type === "none") return;
+      if (intent.type === "leave") {
+        // the focus is on the menu's button (the highlight is drawn), so the browser's Tab goes on from there; not
+        // stopped either, so a Dialog the menu sits in still keeps Tab inside
+        handBack();
+        return onClose();
+      }
       e.preventDefault();
       e.stopPropagation();
       if (intent.type === "close") {
