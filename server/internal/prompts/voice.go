@@ -116,6 +116,18 @@ type VoiceObserved struct {
 
 func RenderVoiceObserved(d VoiceObserved) string { return render("voice/observed", d) }
 
+// VoiceNudge is what the voice model is told, once, when it owes the user an answer and has said nothing for a while
+// (voice/nudge, docs/assistant/voice.md "Context for the fast layer" rule 9): nothing of what was said or handed to it,
+// which it has already.
+type VoiceNudge struct {
+	Lang string
+	// Cause is what it owes an answer to: user (a line the user said or typed) or result (what was just handed to it: a
+	// tool's or a turn's result, a refusal, a status).
+	Cause string
+}
+
+func RenderVoiceNudge(d VoiceNudge) string { return render("voice/nudge", d) }
+
 // VoiceRefused is what the voice model is told when what it handed over was not sent (voice/refused).
 type VoiceRefused struct {
 	Lang string

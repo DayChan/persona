@@ -320,10 +320,12 @@ struct ChatView: View {
     private var hasWorkflows: Bool { pane == .chat && !(session?.shownWorkflows().isEmpty ?? true) }
 
     /// 「后台 workflow」 above the subagents: a card per running workflow, its phases, progress and agents; an agent opens
-    /// here like a subagent (its `session_id` reads as one).
+    /// here like a subagent (its `session_id` reads as one). Beside the side bars the header never folds: the cards are
+    /// their heads until tapped.
     @ViewBuilder private var workflowBar: some View {
         if hasWorkflows, let session {
-            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil) { a in
+            WorkflowSection(runs: session.shownWorkflows(), maxHeight: pageHeight > 0 ? pageHeight * Theme.Size.workflowShare : nil,
+                            compact: sideBars) { a in
                 openWorkflowAgent(a)
             }
         }

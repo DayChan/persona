@@ -383,6 +383,12 @@ export function Sidebar({ route, onSearch, onNewAgent, onNavigate }: { route: Ro
           <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-3">{t("sidebar.search_sessions")}</span>
           <span className="hidden sm:inline-flex"><Kbd>{searchHint}</Kbd></span>
         </button>
+        {chats && (
+          <a href={href({ name: "persona-new" })} onClick={go({ name: "persona-new" })} aria-current={route.name === "persona-new" ? "page" : undefined} className={cx("touch-hit mb-1 flex h-8 w-full items-center gap-2 rounded-control px-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:text-ink", route.name === "persona-new" ? CURRENT_ROW : "hover:bg-hover")}>
+            <Icon name="compose" size={13} stroke={1.8} />
+            <span className="min-w-0 flex-1 truncate">{t("sidebar.new_chat")}</span>
+          </a>
+        )}
       </div>
 
       {/* scroll-pt: a row reached by Tab doesn't stop under the pinned Persona row — about 62px with its 主对话 line
@@ -409,7 +415,6 @@ export function Sidebar({ route, onSearch, onNewAgent, onNavigate }: { route: Ro
             title={t("sidebar.persona_chats")}
             folded={personaFolded}
             onToggle={togglePersona}
-            right={<SectionAdd label={t("sidebar.new_chat")} to={{ name: "persona-new" }} go={go} />}
           >
             {pinnedConvs.length > 0 && <PinnedHeading onMenu={(at) => setChatsMenu(at)} />}
             {convs.map((c) => (
@@ -2491,6 +2496,7 @@ const RAIL_ITEM = "touch-hit relative flex size-9 shrink-0 items-center justify-
  */
 export function SidebarRail({ route, onSearch, onNewAgent }: { route: Route; onSearch: () => void; onNewAgent: () => void }) {
   const { phase, online, total, main, pages, more } = useNavPages();
+  const hasAssistant = useStore((s) => Boolean(s.assistant));
   const [moreMenu, setMoreMenu] = useState<HTMLElement | null>(null);
   const bindings = useBindings();
   const activeKey = useActiveKey(route);
@@ -2523,6 +2529,7 @@ export function SidebarRail({ route, onSearch, onNewAgent }: { route: Route; onS
       </button>
       <span aria-hidden className="my-2 h-px w-6 shrink-0 bg-line" />
       <nav aria-label={t("sidebar.pages")} className="flex min-h-0 w-full flex-1 flex-col items-center gap-0.5 overflow-y-auto overscroll-contain">
+        {hasAssistant && link("j:new", { name: "persona-new" }, t("sidebar.new_chat"), <Icon name="compose" size={15} stroke={1.8} />)}
         {link(
           "persona",
           { name: "persona" },

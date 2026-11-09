@@ -175,7 +175,7 @@ Observable differences:
 
 - When a queued message enters a running chat after its turn ends, immediately push the session list (queued entry disappears), rather than waiting for the next working-state push.
 - While assistant is disconnected (hub startup, assistant restart), APIs / tools fail with `503 assistant_offline`, "The assistant is temporarily unreachable, try again later". Lists retain its last snapshot; during the first second or two after hub startup, assistant chats lack titles.
-- `ws.broadcast` forwards unchanged (plus hub-assigned `event_seq`); field order is the assistant's, rather than hub re-encoding with alphabetic keys.
+- `ws.broadcast` is re-encoded by the hub: it drops `manager` and any `event_seq` the assistant set (the event log assigns its own; an `extension_operation` skips the log and carries none), so keys go out in alphabetical order rather than in the assistant's field order.
 - After settings / main chat moved on 2026-11-04, these also return `503 assistant_offline` while disconnected: `GET/PUT /api/v1/assistant`, prewarming, memory, new chat, compaction, new main chat, phone sends and renames for assistant chats;
   Lark bot / channel main-chat sends and new chats reply "Assistant temporarily unreachable" in-channel; the AI twin item fails with the same error. node-generated messages fall back to the chat's own launcher if it can't ask (same as asking an old hub).
 - If Android creates an empty main chat and the first message comes from Lark / a channel, include the old main chat's handoff too (formerly only phone sends did; Lark missed it, leaving background pending until the next phone message).

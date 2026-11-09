@@ -201,4 +201,3 @@ func TestForgetLiveTextClearsSubscribers(t *testing.T) {
 		t.Errorf("m2/s1 delta changed: got %q, want %q", text, "machine 2 in progress")
 	}
 }
-

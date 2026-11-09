@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check independent channel settings (#2196) against MOCK_CHANNELS=1 MOCK_EXTENSIONS=1.
+"""Check Settings categories and entries against MOCK_CHANNELS=1 MOCK_EXTENSIONS=1.
 
 Run with a dedicated fake hub and the web dev server pointing to it:
     python3 scripts/test/web_settings_entries_e2e.py <web address> [--shots <directory>]
@@ -27,6 +27,10 @@ def check(browser, base, width, theme, shots):
         expect(nav.get_by_role("button").filter(has=page.get_by_text("渠道", exact=True))).to_be_visible()
         labels = nav.get_by_role("button").all_text_contents()
         labels = [label.strip() for label in labels]
+        expected = ["通用", "Persona", "通知", "快捷键", "模型", "Agent"] if width < 640 else ["通用", "Persona", "通知", "模型", "Agent"]
+        assert [label for label in labels if label in expected] == expected, labels
+        for label in ("模型供应商", "模型配置", "Claude Code", "Codex", "Antigravity", "omp", "翻译", "助手"):
+            assert label not in labels, f"old category remains: {label}"
         assert next(i for i, label in enumerate(labels) if label.startswith("渠道")) + 1 == next(i for i, label in enumerate(labels) if label.startswith("连接器")), labels
         expect(main.get_by_text("认识 Persona", exact=True)).to_have_count(0)
         assert main.evaluate("e => e.scrollWidth <= e.clientWidth"), "settings page overflows horizontally"
@@ -72,6 +76,40 @@ def check(browser, base, width, theme, shots):
         if shots:
             page.wait_for_timeout(400)
             main.screenshot(path=os.path.join(shots, f"settings-{width}-{theme}.png"))
+
+        for old, new, section in (
+            ("?tab=models", "?tab=models", "模型供应商"),
+            ("?tab=model-config&purpose=agent.triage", "?tab=models&purpose=agent.triage#settings-model-config", "模型配置"),
+            ("?tab=claude", "?tab=agents#settings-claude", "Claude Code"),
+            ("?tab=codex", "?tab=agents#settings-codex", "Codex"),
+            ("?tab=agy", "?tab=agents#settings-agy", "Antigravity"),
+            ("?tab=omp", "?tab=agents#settings-omp", "omp"),
+            ("?tab=translate", "?tab=general#settings-translation", "翻译"),
+            ("?tab=assistant", "?tab=persona", "形象"),
+        ):
+            page.goto(base + "/settings" + old)
+            expect(page).to_have_url(base + "/settings" + new)
+            expect(main.get_by_role("heading", name=section, exact=True).first).to_be_visible()
+            if new.startswith("?tab=agents"):
+                for agent in ("Claude Code", "Codex", "Antigravity", "omp"):
+                    expect(main.get_by_role("heading", name=agent, exact=True)).to_be_visible()
+            if "#settings-" in new:
+                expect(page.locator("#" + new.split("#", 1)[1])).to_be_in_viewport()
+            page.reload()
+            expect(main.get_by_role("heading", name=section, exact=True).first).to_be_visible()
+            if width < 640:
+                cancel = page.get_by_role("button", name="取消", exact=True)
+                if cancel.count():
+                    cancel.click()
+                main.get_by_role("button", name="返回设置", exact=True).click()
+                expect(page).to_have_url(base + "/settings")
+                expect(nav.get_by_role("button").filter(has=page.get_by_text("渠道", exact=True))).to_be_visible()
+        page.goto(base + "/settings?tab=models")
+        expect(main.get_by_role("heading", name="模型供应商", exact=True)).to_be_visible()
+        expect(main.get_by_role("heading", name="模型配置", exact=True)).to_be_visible()
+        if shots:
+            main.screenshot(path=os.path.join(shots, f"models-{width}-{theme}.png"))
+        page.goto(base + "/settings?tab=general")
 
         nav.get_by_role("button").filter(has=page.get_by_text("渠道", exact=True)).click()
         expect(page).to_have_url(base + "/settings?tab=channels")

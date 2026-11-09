@@ -12,7 +12,9 @@ this page covers only implementation and conventions.
 | `working` | Nothing needs you, something is working | Amber | Gear + count |
 | `done` | Only finished-unseen left | Green | Dot + count |
 
-### Dynamic Island (redesigned 2026-10-29)
+Apple Watch: no separate implementation; `supplementalActivityFamilies([.small])` provides a single-line Smart Stack version (symbol for the most urgent category + "2 need you" + count of the next category).
+
+### Dynamic Island
 
 The compact view used to be "a star on the left, a timer on the right", which said nothing: a timer only makes sense for a single Agent, while Fleet summarizes a group. Now both sides are numbers you can read at a glance:
 
@@ -31,7 +33,7 @@ Custom              pick each side: Status Counts / Tokens per Minute / Tokens T
 - Settings: **Settings › Notifications › Live Activities › Dynamic Island** (`IslandSettingsView`), topped by three previews: Normally / When an Agent Needs You / Shared with Other Apps; stored on the hub per device (`prefs.island`, `notify.go IslandPrefs`).
   When Machine Load is chosen you can pick which machine; if none is picked it's the busiest one.
 
-### Sharing the Dynamic Island with other apps (2026-11-02)
+### Sharing the Dynamic Island with other apps
 
 The user's screenshot: another app also had a Live Activity (a separate circle on the right, "8分", i.e. "8 min"), and Persona was left with only its left part, "⚙4📊⁚", the rest cut off.
 
@@ -99,7 +101,7 @@ and `PERSONA_FLEET_COUNT=12` makes the fabricated count two digits.
 - Visuals: Persona's status colors (they don't follow the interface style, which the extension can't read); the outline and the Allow / Approve buttons are system blue, matching the App's accent color. The Lock Screen and expanded view are both limited to about 160pt tall, hence at most two items.
   On the left is Persona's avatar (see "Avatar" below); before 2026-11-02 it was the coral four-pointed star of the App icon.
 
-### Avatar (requested 2026-11-02: "like Codex")
+### Avatar
 
 The top left of the Lock Screen banner, the left side of the compact Dynamic Island and the top left corner of the expanded view show the avatar chosen in **Settings › Appearance › Avatar**, changing with state:
 
@@ -145,21 +147,9 @@ Minimal / limited  ⚙3                   when sharing with other apps there's o
 - **Put into ContentState** (it wasn't before build 98: we thought the keychain was enough, but hub pushes replace the whole content-state, and the hub didn't know which avatar the phone had chosen):
   hence the App tells the hub about the avatar. Content without `look` (old hub) still decodes, and the extension falls back to the `look.json` the App stored; a `look` it can't understand (a future format) drops only that field.
 - The preview in **Settings › Notifications › Dynamic Island** (`IslandPreview`) also shows the avatar on the left, reading the same data the extension reads, consistent with the compact view.
+- Build 92 drew the default avatar whatever Settings chose: its extensions were signed without keychain groups. `scripts/release/entitlements.py` now signs and checks each bundle (`docs/operations/release.md` ("entitlements")); the investigation is in `docs/archive/apple/live-activity-records.md`.
 
-#### Why build 92 didn't follow the setting (2026-11-02)
-
-The user reported "the Dynamic Island avatar doesn't follow Settings". The screenshot showed the compact view with only Persona's activity (the "1.7B" on the right was Persona's own Tokens Today, not another app), and the left was the default avatar + system blue: what the extension draws when it can't read the keychain.
-
-- **Root cause**: the TestFlight workflow archives unsigned (`CODE_SIGNING_ALLOWED=NO`), then signs ad hoc and uses cloud signing at export. In an unsigned build, `$(AppIdentifierPrefix)` is empty,
-  and ad hoc signing didn't give the extension its entitlements: the widget extension installed on the phone had no keychain groups at all, the App's group name was missing its bundle id, and the group name in Info.plist was missing the team prefix.
-  The App couldn't write to the shared group (missing entitlement, silently abandoned as if it were a free team), so the extension always drew the default avatar. The push relay's `.push` group was broken too (the notification extension couldn't decrypt pushes and showed only fallback text).
-- **The other half**: #219 intentionally drew hub avatar packs as the default avatar in a different color, so even with the keychain working, selecting a pack wouldn't show its images.
-- **Fix**: use `$(DEVELOPMENT_TEAM).<bundle id>.…` for group names in Info.plist (has a value even unsigned); `scripts/release/entitlements.py sign` gives each bundle in the unsigned archive
-  its own entitlements (expands build variables and errors if any can't be expanded) before ad hoc signing. `scripts/release/entitlements.py check` checks each bundle's keychain groups and Info.plist group names in an ipa / archive;
-  `release.sh` runs it after archiving, and the TestFlight workflow must also run it after export (it reported 9 problems in build 92's ipa). Avatar packs draw their own images (previous item).
-- Apple Watch: no separate implementation; `supplementalActivityFamilies([.small])` provides a single-line Smart Stack version (symbol for the most urgent category + "2 need you" + count of the next category).
-
-#### Why build 98 was still wrong (2026-11-02)
+#### Why build 98 was still wrong
 
 Build 98's signing was correct: the App and widget extension had the right keychain groups, the group names in Info.plist were right, and `entitlements.py check` passed. But the user's screenshot still showed the default avatar + system blue,
 even after switching to the built-in Circuit. The same code in the simulator, with the real avatar pack from the hub (copied locally, not checked in), drew the pack's image on the island, so it only happened on the phone.
@@ -189,7 +179,7 @@ Why the previous verification (#227) didn't catch it:
 - The island was only checked in the simulator: its extension can read the keychain and ignores Live Activity image limits, so none of the differences from the phone showed up.
 - The signing check only proves the group names are correct, not that the extension on the phone actually read them. At the time there was no way to see what it read.
 
-#### Why the avatar pack was still wrong in build 103 (2026-11-02)
+#### Why the avatar pack was still wrong in build 103
 
 The user asked "why does Circuit work, but the Claude and GPT avatars don't?": built-ins (the recolored Visor and Circuit) were correct, showing that the avatar-in-content path worked; hub avatar packs only drew the default Visor in their color.
 The diagnostics page (next section) showed the same avatar in Settings, the hub and the Live Activity content; the avatar (88 bytes) and pack images (21.8 KB) the App wrote to the keychain were successfully written and read back; Extension, Last Run was None.
@@ -233,7 +223,7 @@ Go `hub.FleetState` and Swift `FleetState` (`apple/Shared/FleetState.swift`) mat
 - For background-work items (`background: true`), `since` uses the earliest `started_at` among running workflows with a known start time (#3433), so time spent waiting after the main turn ended isn't counted as workflow duration. If no such workflow exists, fall back to the turn start time, then the session update time. Foreground turns still use their own start time; the one-line `detail` text is unchanged.
 - `progress` `{done, started}` (#3437) is the `agents_done` / `agents_started` of the workflow `detail` names: the first running one (`Session.workflows` is newest first, as the web's workflow line picks it), so the bar and the line beside it never disagree.
   With one workflow running (the usual case) that is also the one the timer measures; with several, the timer covers the oldest, the line and bar the newest. `done` is capped at `started`; no `progress` before the workflow has started an agent, nor for background shell commands / Monitors / subagents.
-  **No extra pushes**: `progress` is worked out from the same two numbers `detail` already prints, so the content changes exactly when it did before (`TestBuildFleetProgressAddsNoChanges`), and a change is an ordinary one, coalesced at the usual pace ("Push pacing").
+  **No extra pushes**: `progress` is worked out from the same two numbers `detail` already prints, so the content changes exactly when it did before (`TestBuildFleetProgressAddsNoChanges`), and a change is an ordinary one, coalesced at the usual pace ("Push cadence").
   This needs the counts to stay in `detail` whatever its length: a long workflow name, phase or summary is clipped to leave room for " · done/started" at the end, never the counts (`backgroundDetail`). Clipped from the end as before, a long name lost its counts, `detail` stopped changing while `progress` went on moving, and every finished agent was a push of its own.
 - Every field on the Swift side is decoded leniently (unknown phase / kind values don't error), so adding hub fields won't break the activity.
 - `attributes-type` is `PersonaActivityAttributes`, and `attributes` is `{"kind":"fleet"}` (used by push-to-start); neither name may change.
@@ -244,7 +234,7 @@ Go `hub.FleetState` and Swift `FleetState` (`apple/Shared/FleetState.swift`) mat
 ## Pushes (`hub/liveactivity.go`)
 
 - Trigger: whenever the hub broadcasts `sessions` / `interaction` / `interaction_resolved`, it recomputes the snapshot; if it matches the last push, nothing is pushed.
-- See "Push pacing" below: changes to Needs You are pushed immediately (priority 10); other changes are coalesced for 2.5 seconds and sent at most once per 30 seconds per device (priority 5).
+- See "Push cadence" below: changes to Needs You are pushed immediately (priority 10); other changes are coalesced for 2.5 seconds and sent at most once per 30 seconds per device (priority 5).
   Devices with the App open get no pushes. No alert or category (the interaction push already sounded).
 - `stale-date` = now + 15 minutes. Even unchanged content is repushed every 10 minutes to renew it; if the hub disconnects, the activity goes stale and the UI shows "Waiting for hub update…" (P3 buttons are hidden too).
 - End: nothing displayable for over 1 minute, or only finished-unseen for over 5 minutes, sends `end` (`dismissal-date` = now) and forgets the activity token.
@@ -259,9 +249,9 @@ Go `hub.FleetState` and Swift `FleetState` (`apple/Shared/FleetState.swift`) mat
 - One `live_activities` row per device (`device_id`, `activity_id`, `push_token`, `push_to_start_token`, `started_at`), with an in-memory copy and a database write on each change.
 - While the App is open, the hub also broadcasts `{"type":"fleet","fleet":{…}}`; the App updates the activity itself (faster than a push, also works in the simulator).
 
-## Push pacing (2026-11-02, battery investigation)
+## Push cadence
 
-On the user's real hub, Dynamic Island content changed about 180 times per hour. Previously each change sent a push, and each received push redrew both the Dynamic Island and the Lock Screen. Now:
+Each received push redraws both the Dynamic Island and the Lock Screen, so the hub paces pushes by how much a change matters:
 
 | Change | Example | How it's pushed | Maximum Dynamic Island lag behind the hub |
 | --- | --- | --- | --- |
@@ -275,7 +265,7 @@ On the user's real hub, Dynamic Island content changed about 180 times per hour.
   only records "it has drawn this version"; the App updates its activity from `fleet` events. When the App actively disconnects on backgrounding (close 1000 / 1001), the hub considers the activity stopped at the last broadcast version.
   If the network drops, the App is killed, it is kicked after suspension by a ping timeout (not a voluntary close), or the last version is over 10 minutes old (possibly stale), the hub doesn't know what's displayed and immediately pushes the current state.
   Old Apps don't include `device_id` and still receive pushes.
-- Replay (19 recorded minutes, App closed): 188 pushes/hour → 115 (30 seconds); at 60 seconds, 60 pushes. App open: 0.
+- With the App closed, the 30-second gap cuts pushes on a recorded real hub by about 40%; with it open, the hub sends none. The battery investigation that set these numbers is in `docs/archive/apple/live-activity-records.md`.
 
 ## Usage (tokens / TPM / load)
 
@@ -292,11 +282,11 @@ On the user's real hub, Dynamic Island content changed about 180 times per hour.
 
 ## Push budget
 
-- State changes (needs you / working / finished, items, buttons): changes to Needs You are pushed immediately (priority 10); others coalesce for 2.5 seconds, at most once per 30 seconds per device (priority 5), see "Push pacing".
+- State changes (needs you / working / finished, items, buttons): changes to Needs You are pushed immediately (priority 10); others coalesce for 2.5 seconds, at most once per 30 seconds per device (priority 5), see "Push cadence".
 - Numbers-only changes: the hub checks every 15 seconds. For each device with an activity, it sends a priority 5 update only if more than `notify.live_metrics_seconds` (default 60 seconds) has passed since its last push
   and the rounded numbers it displays actually changed. State pushes also include the latest numbers.
 - Each device remembers its last pushed content-state; identical content isn't pushed (for example, the assistant starts replying but that device's island doesn't display the assistant).
-- In the foreground the App updates its own activity with `fleet` events (no push budget), and numbers follow every change; the hub doesn't push to that device then (new Apps only, see "Push pacing").
+- In the foreground the App updates its own activity with `fleet` events (no push budget), and numbers follow every change; the hub doesn't push to that device then (new Apps only, see "Push cadence").
 
 ## App (`LiveActivityController`)
 

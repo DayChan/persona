@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +174,82 @@ func TestBusForwardsTheAssistantRoutes(t *testing.T) {
 	}
 	if resp, _ := do("GET", "/api/v1/machines", ""); resp.StatusCode != 200 {
 		t.Fatalf("the hub's own: %d", resp.StatusCode)
+	}
+}
+
+// A manager is third-party code over the bus: an answer whose status is not a final HTTP status (outside 200-599)
+// reaches the app as a 502 with a JSON error and none of the manager's headers or body, where net/http would panic or
+// leave the connection unusable. Valid statuses pass through unchanged.
+func TestBusForwardRefusesAnImpossibleStatus(t *testing.T) {
+	h, srv, _ := newBusHub(t)
+	logs := &syncBuffer{}
+	h.logger.SetOutput(logs)
+	helloAssistant(t, h, srv, func(_ context.Context, method string, params json.RawMessage) (any, error) {
+		if method == assistantwire.MethodTools {
+			return map[string]any{"tools": []any{}}, nil
+		}
+		var req assistantwire.HTTPRequest
+		if method != assistantwire.MethodHTTP || json.Unmarshal(params, &req) != nil {
+			return nil, errors.New("unexpected " + method)
+		}
+		q, _ := url.ParseQuery(req.Query)
+		status, _ := strconv.Atoi(q.Get("s"))
+		res := assistantwire.HTTPResponse{Status: status, Header: map[string][]string{"X-Manager": {"1"}}}
+		if status != http.StatusNoContent {
+			res.Body = []byte(`{"answered":true}`)
+		}
+		return res, nil
+	})
+	client := &http.Client{Transport: &http.Transport{}}
+	t.Cleanup(client.CloseIdleConnections)
+	do := func(t *testing.T, path string, status int) (*http.Response, string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // a regression must not hang the run
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+path+"?s="+strconv.Itoa(status), nil)
+		req.Header.Set("Authorization", "Bearer "+h.cfg.Token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("status %d: %v", status, err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("status %d: reading the body: %v", status, err)
+		}
+		return resp, string(b)
+	}
+	// One route the hub passes on, one whose answers it merges over the managers (mergedLists).
+	for _, path := range []string{"/api/v1/assistant/runs", "/api/v1/todos"} {
+		for _, s := range []int{42, 99, 101, 600, 1000} {
+			t.Run(fmt.Sprintf("%s refused %d", path, s), func(t *testing.T) {
+				resp, body := do(t, path, s)
+				var e struct{ Error, Code, Detail string } // the status in error, or in detail under a localized error
+				if resp.StatusCode != http.StatusBadGateway || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") ||
+					json.Unmarshal([]byte(body), &e) != nil || !strings.Contains(e.Error+" "+e.Detail, strconv.Itoa(s)) || e.Code == "" {
+					t.Fatalf("got %d %v %s, want 502 with a JSON error naming %d", resp.StatusCode, resp.Header, body, s)
+				}
+				if resp.Header.Get("X-Manager") != "" || strings.Contains(body, `"answered":true`) {
+					t.Errorf("the manager's answer was passed on: %v %s", resp.Header, body)
+				}
+				if want := fmt.Sprintf("bus: [%s] http.request GET %s: answered HTTP status %d", busAssistant, path, s); !logs.WaitFor(want, 5*time.Second) {
+					t.Errorf("no log %q in %q", want, logs.String())
+				}
+			})
+		}
+	}
+	for _, c := range [][2]int{{0, http.StatusOK}, {http.StatusCreated, http.StatusCreated}, {http.StatusNoContent, http.StatusNoContent},
+		{http.StatusNotFound, http.StatusNotFound}} {
+		t.Run(fmt.Sprintf("passed %d", c[0]), func(t *testing.T) {
+			resp, body := do(t, "/api/v1/assistant/runs", c[0])
+			want := `{"answered":true}`
+			if c[1] == http.StatusNoContent {
+				want = ""
+			}
+			if resp.StatusCode != c[1] || body != want || resp.Header.Get("X-Manager") != "1" {
+				t.Fatalf("got %d %v %q, want %d %q", resp.StatusCode, resp.Header, body, c[1], want)
+			}
+		})
 	}
 }
 

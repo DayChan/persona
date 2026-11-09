@@ -26,6 +26,7 @@ and the [architecture](server/architecture.md). The [protocol](protocol/protocol
 
 The complete maintained-guide index remains in [CLAUDE.md](../CLAUDE.md#docs-index).
 Archive records are evidence from their stated date, not current instructions. Follow the maintained module guide when they disagree.
+Issue and PR numbers in lines written up to 2026-11-07 (check `git blame`) refer to the previous tracker, not this one ([collaboration](operations/collaboration.md)).
 
 ## Keeping this tree small
 

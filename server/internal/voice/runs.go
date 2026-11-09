@@ -106,7 +106,7 @@ func (t *tracker) set(r *voiceRun, state string) {
 	if openState(state) {
 		open = r.task
 	}
-	t.c.setOpen(r.ID, open)
+	t.c.setOpen(r.ID, open, state)
 	if r.State == state && r.Base == r.framed && len(r.MsgIDs) == r.framedIDs {
 		return // a hold moves the base on, a fold adds msg_ids: the app hands them back on a resume
 	}
@@ -272,7 +272,7 @@ func (t *tracker) adopt(r *voiceRun) {
 func (t *tracker) drop(r *voiceRun) {
 	t.runs = slices.DeleteFunc(t.runs, func(o *voiceRun) bool { return o == r })
 	t.link.unwatch(linkKey{r.MachineID, r.SessionID})
-	t.c.setOpen(r.ID, "")
+	t.c.setOpen(r.ID, "", "")
 }
 
 func working(s *proto.Session) bool { return s.Status == proto.StatusWorking || s.Starting }
