@@ -31,20 +31,21 @@ func TestReceiptLookPersistsWithPostgresIntegration(t *testing.T) {
 	}
 	t.Cleanup(firstDB.Close)
 	id := "receipt_integration_" + randomHex(8)
+	session := "session_" + randomHex(8)
 	linked := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
 	if err := firstDB.CreateTodo(ctx, db.TodoRow{ID: id, Title: "Task", Origin: "conversation", CreatedAt: linked, UpdatedAt: linked}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := firstDB.LinkTodoAgent(ctx, id, "box", "session", "", "", "", "", linked); err != nil {
+	if _, err := firstDB.LinkTodoAgent(ctx, id, "box", session, "", "", "", "", linked); err != nil {
 		t.Fatal(err)
 	}
 	node := newFakeHub()
-	node.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "session", Status: proto.StatusWorking, State: proto.StateWorking}}
+	node.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: session, Status: proto.StatusWorking, State: proto.StateWorking}}
 	first := New(Options{Hub: node, Store: func() Store { return firstDB }})
 	oldCtx, stopOld := context.WithCancel(ctx)
 	first.restoreTaskReceiptLooks(oldCtx)
 	due := time.Now().Add(time.Hour).UTC()
-	first.taskTurnEndedAfter(oldCtx, "box", "session", due)
+	first.taskTurnEndedAfter(oldCtx, "box", session, due)
 	stopOld()
 
 	// A separate handle and service force both the todo link and wait to be read
@@ -58,16 +59,22 @@ func TestReceiptLookPersistsWithPostgresIntegration(t *testing.T) {
 	if err := second.ensureTodosLoaded(ctx); err != nil {
 		t.Fatal(err)
 	}
-	todo, ok := second.taskOf(ctx, "box", "session")
+	todo, ok := second.taskOf(ctx, "box", session)
 	if !ok || todo.ID != id {
 		t.Fatalf("restored active todo = %q, found %v", todo.ID, ok)
 	}
 	var state receiptLookState
-	if found, err := secondDB.Setting(ctx, receiptLooksSetting, &state); err != nil || !found || len(state.Looks) != 1 {
+	if found, err := secondDB.Setting(ctx, receiptLooksSetting, &state); err != nil || !found {
 		t.Fatalf("stored receipt waits = %+v, found %v, error %v", state, found, err)
 	}
-	look := state.Looks[0]
-	if look.Todo != id || look.Machine != "box" || look.Session != "session" || !look.Linked.Equal(linked) || !look.At.Equal(due) {
+	var look receiptLook
+	for _, candidate := range state.Looks {
+		if candidate.Todo == id {
+			look = candidate
+			break
+		}
+	}
+	if look.Todo != id || look.Machine != "box" || look.Session != session || !look.Linked.Equal(linked) || !look.At.Equal(due) {
 		t.Fatalf("stored receipt wait = %+v", look)
 	}
 	if valid, err := second.receiptLookLinked(ctx, look); err != nil || !valid {
