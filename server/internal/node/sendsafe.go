@@ -444,10 +444,15 @@ func (l *sentLog) once(id string, send func() error) error {
 	return r.err
 }
 
-// uncertain marks a failure while typing into the pane: the message may have arrived.
+// uncertain marks a failure while typing into the pane: the message may have arrived. A refusal (nothing delivered)
+// stays one.
 func uncertain(err error) error {
 	if err == nil {
 		return nil
+	}
+	var re *rpc.Error
+	if errors.As(err, &re) && re.Code != "" && deliveredOf(re) == deliveredNone {
+		return err
 	}
 	b, _ := json.Marshal(map[string]any{"delivered": deliveredUnknown})
 	return &rpc.Error{Message: err.Error(), Data: b}
@@ -455,14 +460,16 @@ func uncertain(err error) error {
 
 func maybeDelivered(err error) bool {
 	e, ok := err.(*rpc.Error)
-	if !ok {
-		return false
-	}
+	return ok && deliveredOf(e) == deliveredUnknown
+}
+
+// deliveredOf is the delivered an RPC error's data says, "" for none.
+func deliveredOf(e *rpc.Error) string {
 	var d struct {
 		Delivered string `json:"delivered"`
 	}
 	_ = json.Unmarshal(e.Data, &d)
-	return d.Delivered == deliveredUnknown
+	return d.Delivered
 }
 
 // Herdr resumes offline sessions in a new pane, and so does Orca for a Claude session (#5548) once nothing has it

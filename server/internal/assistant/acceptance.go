@@ -202,7 +202,7 @@ func (s *Service) postAsk(ctx context.Context, t Todo, a acceptAsk) bool {
 	b.asks[t.ID] = &a
 	s.saveAcceptLocked(ctx)
 	b.mu.Unlock()
-	s.boardChanged() // it waits for the owner now
+	s.askChanged(ctx) // it waits for the owner now: the apps and the board
 	return posted
 }
 
@@ -481,7 +481,7 @@ func (s *Service) acceptTry(ctx context.Context, id, card string) (bool, error) 
 	}
 	cp := *a
 	b.mu.Unlock()
-	s.boardChanged() // it no longer waits
+	s.askChanged(ctx) // it no longer waits
 	switch {
 	case decideAsk(&cp):
 		if err := s.takeRecommendation(ctx, id, cp); err != nil {
@@ -492,7 +492,7 @@ func (s *Service) acceptTry(ctx context.Context, id, card string) (bool, error) 
 				s.saveAcceptLocked(ctx)
 			}
 			b.mu.Unlock()
-			s.boardChanged()
+			s.askChanged(ctx)
 			return false, err
 		}
 	case cp.Conclusion:

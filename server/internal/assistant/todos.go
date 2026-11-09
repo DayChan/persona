@@ -673,18 +673,25 @@ func (s *Service) todoRoutes() {
 	s.todoDecisionRoutes()
 	s.todoThreadRoutes()
 	s.todoRetitleRoute()
-	// GET /api/v1/todos: list all todos (newest created_at first), agents sorted (active first, then released)
+	// GET /api/v1/todos: list all todos (newest created_at first), agents sorted (active first, then released); a todo
+	// waiting for the owner carries its ask (todo_ask.go)
 	s.handle("GET /api/v1/todos", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.ensureTodosLoaded(r.Context()); err != nil {
 			apierr.Write(w, http.StatusServiceUnavailable, errTodosUnavailable)
 			return
 		}
 		s.todos.mu.RLock()
-		list := make([]Todo, 0, len(s.todos.todos))
+		list := make([]listedTodo, 0, len(s.todos.todos))
 		for _, t := range s.todos.todos {
-			list = append(list, formatTodo(copyTodoLocked(t)))
+			list = append(list, listedTodo{Todo: formatTodo(copyTodoLocked(t))})
 		}
 		s.todos.mu.RUnlock()
+		asks := s.todoAsks(r.Context()) // once the todos are let go: it reads them itself
+		for i := range list {
+			if a, ok := asks[list[i].ID]; ok {
+				list[i].Ask = &a
+			}
+		}
 
 		sort.Slice(list, func(i, j int) bool {
 			return list[i].CreatedAt.After(list[j].CreatedAt)

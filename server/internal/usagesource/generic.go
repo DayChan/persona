@@ -71,11 +71,9 @@ func fetchGeneric(ctx context.Context, c *client, now time.Time) (Result, error)
 			if m, ok := KindMinutes(w.Label); ok {
 				minutes = m
 			}
-			used := *w.UsedPercent
-			if p, ok := percent(used / 100); !ok {
+			used, ok := clampPercent(*w.UsedPercent) // already 0-100: kept as sent, only clamped
+			if !ok {
 				continue
-			} else {
-				used = p
 			}
 			if minutes <= 0 {
 				continue
