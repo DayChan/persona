@@ -6,12 +6,12 @@ import (
 	"sync"
 )
 
-// What a device has open through the manager (docs/extensions/extensions.md "The caller when relaying"): every request the hub relays to
-// the manager (relayToManager), an extension's WebSocket or stream above all, is kept under the id of the credential
-// that made it, so revoking that credential ends them at once instead of when the phone hangs up (a voice call, #3498).
-// Ending the hub's side is enough: the relay stream closes and the manager's proxy closes the extension's side.
+// What a device has open through the hub: requests to the manager (relayToManager), port forwards (including the
+// live screen) and previews are kept under the id of the credential that made them. Revoking that credential ends
+// them at once instead of when the phone hangs up (docs/protocol/protocol.md "Authentication"). Closing the hub's
+// side also closes the stream to the manager or node.
 
-// relayedCalls are the requests being relayed to the manager now, by credential id.
+// relayedCalls are the requests being relayed now, by credential id.
 type relayedCalls struct {
 	mu   sync.Mutex
 	byID map[string]map[*context.CancelFunc]struct{}
@@ -63,8 +63,8 @@ func (h *Hub) trackRelayed(r *http.Request) (_ *http.Request, done func()) {
 	}
 }
 
-// dropRelayed ends what credential id has relayed to the manager now (it was revoked): the request's context ending
-// closes both sides of a relayed WebSocket (httputil.ReverseProxy). The number ended.
+// dropRelayed ends what credential id has relayed now (it was revoked): the request's context ending closes both
+// sides of the relay. The number ended.
 func (h *Hub) dropRelayed(id string) int {
 	if id == "" {
 		return 0

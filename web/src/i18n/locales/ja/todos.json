@@ -141,5 +141,17 @@
   "thread_unbound": "トピックの紐づけを解除しました",
   "thread_unbind_failed": "紐づけを解除できませんでした：{error}",
   "thread_empty": "このToDoにはトピックが紐づいていません。/topics で登録したグループチャットでトピックを作ると、新しいToDoが作られて紐づきます。エージェントにこのToDoをトピックに紐づけさせることもできます。",
-  "thread_mark": "トピックに紐づいています"
+  "thread_mark": "トピックに紐づいています",
+  "due": "期限 {when}",
+  "was_due": "期限切れ {when}",
+  "reminder_at": "{when} にリマインド",
+  "priority_high": "優先度：高",
+  "priority_normal": "普通",
+  "priority_low": "低",
+  "priority_label": "優先度",
+  "due_label": "期限",
+  "due_time": "期限の時刻",
+  "remind_label": "リマインド",
+  "save_plan_failed": "保存できませんでした：{error}",
+  "priority_option_high": "高"
 }

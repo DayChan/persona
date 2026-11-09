@@ -290,6 +290,14 @@ effective from the next judgment and next dispatched task. When on:
 
 ## Close Agents for completed tasks
 
+Completing a to-do stops Persona's automatic follow-ups for its linked Agents, including when a turn ends after
+completion: no transient-error retry, usage-limit continuation, scheduled wake or new triage card. Triage may still
+record the turn's work state. The check runs before scheduling and again before sending, including after a manager
+restart. It applies to manually linked to-dos too, regardless of whether the Agent can be closed. Released or dismissed
+links do not count, and an Agent linked to an open to-do can still receive follow-ups. Deleting a to-do leaves its Agents
+unaffected. Direct chat messages and `agent_send` still work; a user-completed to-do stays done until explicitly reopened,
+while a hub-completed task reopens on new work as described below.
+
 After a task dispatched from assistant chat (nonempty `origin`) completes—manually or automatically—its Agent no longer occupies a herdr tab:
 assistant checks every minute (`assistant/tasks_close.go`, reading hub's App-facing session list through `sessions.list`); once task completion and Agent inactivity both reach 3 minutes (`taskCloseIdle`, measured from the later of completion time and last activity), ask node to close it (`session.retire`, `node/retire.go`):
 close its pane (whole tab if it is the only pane, same as **Close** on phone), exiting the Agent process with it.
@@ -467,6 +475,8 @@ A to-do it makes is the user's own (no `origin`): work for an agent still goes t
 - Details: edit title/notes directly; current state; linked projects (whole-project links) and active Agents (state dot, title, machine/workspace labels, latest-message summary, update time, tap to chat; beyond session time window use snapshot and mark "Ended"; launch failures show reason/removal); collapsed "Previously involved" list; persistent bottom **Hand to Agent** and **Done / Reopen** buttons; delete in top-right more menu.
 - **Decisions** section under notes (web): effective decisions chronologically (question, choice, reason, time, provenance), each can **Change decision** (write a replacement) or ⋯ **Which decision did this replace?** / **Undo replacement**; when superseded records exist, **View full history**, with old records struck through. Hide whole section if hub unsupported (route 404).
 - **Projects** section above Agents: each row "project · machine", with **Remove**; projects without online Agents show "No Agents currently": only sessions in current hub group, on connected computers, not offline count (same-ID computers in other groups do not; disconnected computer sessions marked unknown by hub rather than offline do not count either, matching web). Agent source says "With project <name>" or "Dispatched by <parent title>"; missing project source shows only "With project", missing parent only "Spawned", manual links unlabelled.
+
+- **Due date, reminder, priority** (#1683): under a row's status, a flag for high priority, the due date ("Due Thu, Nov 12, 18:00", or the day alone; red and "Was due" once it has passed) and a bell while a reminder is still to be pushed. Open to-dos are ordered with what needs the user (needs you, unread; on the web also interrupted and awaiting review) first, then by due date, earliest first, then those without one as before (iOS / Mac `TodosLogic.sortTodos`, web `sortTodos`, Android `ordered`). The detail edits them: iOS / Mac a section of switches and pickers under the title (due date with All Day, Remind Me, Priority), saved shortly after each change (`TodoPlanSection`); the web a row of date / time / datetime inputs and a priority menu (`TodoPlanEditor`); Android shows the line on the list only so far. Checked by `TodoPlanTests` (iOS UI, mock hub) and `scripts/test/web_todo_plan_e2e.py`.
 
 ### 3. Hand to Agent
 - **Start a new one** or **Hand to an existing one**.

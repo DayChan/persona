@@ -54,8 +54,7 @@ func (b *inboxBook) sortBatch(batch *inboxBatch, changed []*InboxItem, now time.
 	for _, it := range batch.items {
 		if m := mutedBy(b.mutes, it); m != nil {
 			b.roundWrite(it)
-			b.file(it, now, "read")
-			it.Reason = b.mutedReason(m.Name)
+			b.fileMuted(it, now, m.Name)
 		} else if it.TriagedAt != it.Last && it.Context != "" {
 			todo = append(todo, it)
 			continue

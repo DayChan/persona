@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -27,27 +28,56 @@ func Swap(target, newBin string) (string, error) {
 // Restore puts prev back in target's place (prev stays).
 func Restore(target, prev string) error { return copyFile(prev, target) }
 
-// copyFile copies from to to through to.new in the same directory and a rename.
+// copyFile copies from to to through to.new in the same directory and a rename (replaceFile).
 func copyFile(from, to string) error {
 	in, err := os.Open(from)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	tmp := to + ".new"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	return replaceFile(to, 0o755, func(out *os.File) error {
+		_, err := io.Copy(out, in)
+		return err
+	})
+}
+
+// replaceFile puts what write writes in path's place through path.new in the same directory and a rename. The temp
+// file is synced before the rename and the directory after it, so a crash or power loss right after (the hub execs the
+// new binary next) leaves the old file or the whole new one, never an empty or partial one. A failure removes the
+// temp file.
+func replaceFile(path string, perm os.FileMode, write func(*os.File) error) error {
+	tmp := path + ".new"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, in)
+	err = write(out)
+	if err == nil {
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
 	}
 	if err != nil {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, to)
+	syncDir(filepath.Dir(path))
+	return nil
+}
+
+// syncDir makes a rename in dir durable, best effort. Windows cannot sync a directory handle, so it is skipped there.
+func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
 }
 
 // Pending is an update under way, kept next to the binary across the restart (docs/operations/hub-update.md "Preparing"): the one
@@ -171,7 +201,7 @@ func Load(path string, v any) (bool, error) {
 	return true, json.Unmarshal(b, v)
 }
 
-// Save writes a marker whole (a temp file and a rename).
+// Save writes a marker whole (a synced temp file and a rename, replaceFile).
 func Save(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -180,9 +210,8 @@ func Save(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	return replaceFile(path, 0o600, func(out *os.File) error {
+		_, err := out.Write(b)
 		return err
-	}
-	return os.Rename(tmp, path)
+	})
 }

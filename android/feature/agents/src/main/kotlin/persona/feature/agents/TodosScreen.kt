@@ -31,7 +31,11 @@ import persona.core.domain.answer.firstBySession
 import persona.core.domain.plainMarkdown
 import persona.core.domain.tasks.TasksStore
 import persona.core.navigation.NewTodoRequests
+import android.text.format.DateFormat
+import androidx.compose.ui.platform.LocalConfiguration
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 data class TodoMostUrgent(
     val agent: TodoAgent,
@@ -291,6 +295,8 @@ fun TodosScreen(
                                     todo.hold?.takeIf { state != TodoState.Working && state != TodoState.NeedsYou }?.let {
                                         TodoHoldLine(it, Modifier.padding(start = Tokens.Space.xxxl))
                                     }
+                                    // Due date, high priority, a reminder still to push (#1683).
+                                    TodoPlanLine(todo, Modifier.padding(start = Tokens.Space.xxxl))
 
                                     // Relative time and linked agent count at the bottom
                                     Row(
@@ -424,6 +430,41 @@ internal fun TodoHoldLine(hold: TodoHold, modifier: Modifier = Modifier) {
         style = PersonaTheme.type.caption,
         color = PersonaTheme.palette.cautionText,
         maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
+}
+
+/** A to-do's due date ("Due Thu, Nov 12, 18:00", red once past), high priority and a reminder still to push, in a line
+ * (iOS `TodoPlanLine`, #1683); nothing without them. */
+@Composable
+internal fun TodoPlanLine(todo: Todo, modifier: Modifier = Modifier) {
+    val zone = ZoneId.systemDefault()
+    val locale = LocalConfiguration.current.locales[0]
+    val now = Instant.now()
+    val sameYear = { i: Instant -> i.atZone(zone).year == now.atZone(zone).year }
+    val dateOnly = { i: Instant ->
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, if (sameYear(i)) "EEEMMMd" else "yEEEMMMd"), locale)
+    }
+    val withTime = { i: Instant ->
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, if (sameYear(i)) "EEEMMMdHHmm" else "yEEEMMMdHHmm"), locale)
+    }
+    val dueText = parseTime(todo.dueAt)?.let { withTime(it).format(it.atZone(zone)) }
+        ?: todo.dueDay?.let { d -> dateOnly(d.atStartOfDay(zone).toInstant()).format(d) }
+    val remind = todo.remind?.takeIf { todo.remindedAt == null && !todo.isDone }
+    val high = todo.priority == "high" && !todo.isDone
+    if (dueText == null && remind == null && !high) return
+    val overdue = todo.isOverdue(now, zone)
+    val parts = listOfNotNull(
+        stringResource(R.string.agents_todo_priority_high).takeIf { high },
+        dueText?.let { stringResource(if (overdue) R.string.agents_todo_was_due else R.string.agents_todo_due, it) },
+        remind?.let { stringResource(R.string.agents_todo_remind_at, withTime(it).format(it.atZone(zone))) },
+    )
+    Text(
+        parts.joinToString(" · "),
+        style = PersonaTheme.type.caption,
+        color = if (overdue) PersonaTheme.palette.danger.text else PersonaTheme.palette.ink3,
+        maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
     )

@@ -11,6 +11,7 @@ vi.mock("../lib/hubs", () => ({ here: () => "", rememberHub: () => {} }));
 vi.mock("./Hubs", () => ({ OtherHubs: () => null }));
 
 import { t } from "../i18n";
+import { ApiError, errorText } from "../lib/api";
 import { Login } from "./Login";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,6 +50,35 @@ async function submit(el: HTMLInputElement) {
 }
 
 describe("Login", () => {
+  it.each(["link", "master"] as const)("explains an exchange 401 for the %s form regardless of the server's wording", async (from) => {
+    const onDone = vi.fn();
+    fake.pair.mockRejectedValueOnce(new ApiError(401, "Unauthorized", {}));
+    act(() => root.render(<Login onDone={onDone} />));
+    if (from === "master") act(() => advancedToggle().click());
+    const field = input(t(from === "link" ? "login.link_placeholder" : "login.master_placeholder"));
+    type(field, from === "link" ? "https://hub.example/#token=jp_example" : "synthetic-master-key");
+    await submit(field);
+    expect(alert()).toBe(t(from === "link" ? "login.invalid_link" : "login.invalid_token"));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(field.form!.querySelector("button")!.disabled).toBe(false);
+  });
+
+  it.each([new ApiError(500, "storage unavailable", {}), new TypeError("Failed to fetch")])("keeps an exchange failure visible and allows retry: %s", async (error) => {
+    const onDone = vi.fn();
+    fake.pair.mockRejectedValueOnce(error);
+    act(() => root.render(<Login onDone={onDone} />));
+    const field = input(t("login.link_placeholder"));
+    type(field, "https://hub.example/#token=jp_example");
+    await submit(field);
+    expect(alert()).toBe(errorText(error));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(field.form!.querySelector("button")!.disabled).toBe(false);
+    fake.pair.mockResolvedValueOnce();
+    await submit(field);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(alert()).toBe("");
+  });
+
   it("starts with the master-key section folded", () => {
     act(() => root.render(<Login onDone={() => {}} />));
     expect(advancedToggle().getAttribute("aria-expanded")).toBe("false");

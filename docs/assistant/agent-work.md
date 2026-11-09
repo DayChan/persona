@@ -150,6 +150,13 @@ Apply in order; on a match, do not call the model:
 
 ## Automatic actions
 
+An Agent still linked to a completed to-do, with no open to-do linked to it, receives no automatic continuation,
+wakeup or triage card. Triage can record its work state, but checks the current to-do links before acting; pending
+wakes are checked again before sending. Released and dismissed links do not count. A later manual message is allowed;
+to resume follow-ups while keeping the completed link, reopen the to-do or link the Agent to an open to-do (see
+`docs/assistant/todos.md`, "Close Agents for completed tasks"). If the to-do state cannot be read, triage and wakes retry
+later without sending.
+
 ### Transient errors: automatic continuation
 
 - Backoff: 30 seconds, 2 minutes, 8 minutes; up to 3 attempts (`agents.triage.max_retries`). Reset after a normal (non-error) turn completion.
@@ -216,7 +223,8 @@ Any next step involving **pushing code, deploying / releasing, messaging others,
 
 - It is still the triaged turn (`updated_at` unchanged), stopped (not working), with no pending interaction or queued input (`queued`);
 - The host is `done`, not `idle`: if you focused this tab in herdr (watching it at the computer), leave it alone and only record work state. Hosts that keep reporting `idle` after stopping therefore get no automatic actions (better not to interfere);
-- The computer is online.
+- The computer is online;
+- It is not linked to a completed to-do without an open to-do as well (released and dismissed links do not count).
 
 Sending a message yourself or typing on the computer starts the session working: all retries, wakeups, and cards for that turn become invalid. Triage again after the new turn ends.
 The same applies to "Retry" on an App error card (work begins, invalidating queued automatic retries). Persona records continuations and wakeups in `session_work`, sending each only once per turn.
@@ -245,7 +253,7 @@ Users enable them under **Settings › Session Triage** (web, Android, iOS / Mac
 A process can be redeployed and cleared at any time, so triage results, retry counts, wakeup times, and cards are persisted (`0331_session_work.sql`, read and written only by the manager):
 
 - `session_work`: one row per session, with the latest turn's work state (`work` JSON), turn-end time `turn_at`, next action `wake_at`, retry / wakeup counts, and card id.
-  On startup the manager restores recent turns and, beyond the usual 48-hour window, CI watches with a pending wake, including prepared messages, and recently retired turns. The 30-day cleanup retains active CI watches until they finish or are cancelled, and retains recent retirement markers even when their original turn is older. A todo that ends while its agent's turn is settling records its retirement and, when available, that stopped turn's node timestamp, preventing it from registering a new wake without comparing the node's clock to the manager's. Before registering or sending a CI wake, the manager also checks the persisted todo state, so a failed retirement-state write cannot revive a watch for a still-linked closed todo. If todo state cannot be read during triage, the turn stays untriaged and the usual backfill retries it after ten minutes while it remains unread and within the 24-hour catch-up window; a later read failure for an existing watch postpones its next attempt. A later turn-start event, a newer node turn verified against the retired turn, or a reopened todo permits new work. The watch persists proof of the closed todo versions it was checked against, so it survives another restart; a later completion invalidates the proof. If the retired turn's identity and a new turn-start event are both unavailable, the manager conservatively waits for another start. Continue due actions and restore unanswered cards only if still the same stopped turn, with the same id; wait for the computer to connect before restoring cards.
+  On startup the manager restores recent turns and, beyond the usual 48-hour window, CI watches with a pending wake, including prepared messages, and recently retired turns. The 30-day cleanup retains active CI watches until they finish or are cancelled, and retains recent retirement markers even when their original turn is older. A todo that ends while its agent's turn is settling records its retirement and, when available, that stopped turn's node timestamp, preventing it from registering a new wake without comparing the node's clock to the manager's. Before scheduling automatic follow-ups or sending a wake, the manager also checks the current todo links, so a failed retirement-state write cannot revive follow-ups for a still-linked completed todo unless there is an open todo too. If todo state cannot be read during triage, the turn stays untriaged and the usual backfill retries it after ten minutes while it remains unread and within the 24-hour catch-up window; a later read failure for an existing watch postpones its next attempt. A later turn-start event or a newer node turn verified against the retired turn can clear the retirement marker, but automatic follow-ups still require that no completed todo blocks them. Reopening the todo or linking the Agent to an open todo allows new follow-ups, including after a restart. A persisted CI proof from an older manager never overrides a currently completed todo. If the retired turn's identity and a new turn-start event are both unavailable, the manager conservatively waits for another start. Continue due actions and restore unanswered cards only if still the same stopped turn, with the same id; wait for the computer to connect before restoring cards.
 - `session_work_events`: one row per triage, automatic continuation, wakeup, card creation, card answer, and wait completion (30 days), for evaluation below.
 
 ## What Persona knows

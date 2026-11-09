@@ -90,6 +90,9 @@ func (h *Manager) kbSourcesCall(ctx context.Context, p assistantwire.AppCall) (j
 		if c == nil || !ok {
 			return nil, true, fmt.Errorf("connector %q has no items", a.ID)
 		}
+		if !h.connectors.Enabled(a.ID) || !h.connectors.Feeds(a.ID, connector.FeedArchive) {
+			return nil, true, errArchiveOff
+		}
 		if p.Method == assistantwire.ConnectorsDocTitle {
 			out = map[string]any{"title": is.ItemSource().DocTitle(ctx, a.URL)}
 			break
@@ -108,19 +111,23 @@ func (h *Manager) kbSourcesCall(ctx context.Context, p assistantwire.AppCall) (j
 	return raw, true, err
 }
 
-// kbArchives are the connectors whose conversations the knowledge base reads now: signed in, with an archive the user
-// lets into it ("Add to knowledge base"; off, it is not asked at all), and those with documents, meetings and events.
+// kbArchives are the connectors whose conversations, documents, meetings and events the knowledge base reads now:
+// signed in, enabled and with "Add to knowledge base" on. With either switch off, the connector is not asked at all.
 func (h *Manager) kbArchives(ctx context.Context) assistantwire.Archives {
 	out := assistantwire.Archives{Archives: []assistantwire.ArchiveSource{}, Items: []string{}}
 	if h.connectors == nil {
 		return out
 	}
 	for _, c := range h.connectors.All() {
-		if _, ok := connector.As[connector.Items](c); ok {
+		a, archive := connector.As[connector.Archive](c)
+		_, items := connector.As[connector.Items](c)
+		if (!archive && !items) || !h.connectors.Feeds(c.ID(), connector.FeedArchive) || connector.StatusOf(ctx, c).State != connector.StateOK || ctx.Err() != nil {
+			continue
+		}
+		if items {
 			out.Items = append(out.Items, c.ID())
 		}
-		a, ok := connector.As[connector.Archive](c)
-		if !ok || !h.connectors.Feeds(c.ID(), connector.FeedArchive) || connector.StatusOf(ctx, c).State != connector.StateOK || ctx.Err() != nil {
+		if !archive {
 			continue
 		}
 		_, media := a.(connector.ArchiveMedia)
@@ -137,7 +144,7 @@ func (h *Manager) kbArchive(id string) (connector.Archive, error) {
 	if c == nil || !ok {
 		return nil, fmt.Errorf("connector %q has no archive", id)
 	}
-	if !h.connectors.Feeds(id, connector.FeedArchive) {
+	if !h.connectors.Enabled(id) || !h.connectors.Feeds(id, connector.FeedArchive) {
 		return nil, errArchiveOff
 	}
 	return a, nil

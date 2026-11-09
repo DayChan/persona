@@ -597,6 +597,30 @@ func (s *Service) taskOf(ctx context.Context, mid, sid string) (Todo, bool) {
 	return copyTodoLocked(t), true
 }
 
+// completedTodo reports whether mid/sid still belongs to a completed todo and no open one. Unlike closedTaskOf,
+// manual todos and user completions count too: a new turn alone does not authorize automatic follow-ups.
+func (s *Service) completedTodo(ctx context.Context, mid, sid string) (bool, error) {
+	if err := s.ensureTodosLoaded(ctx); err != nil {
+		return false, err
+	}
+	s.todos.mu.RLock()
+	defer s.todos.mu.RUnlock()
+	if _, open := s.todos.activeBySession[[2]string{mid, sid}]; open {
+		return false, nil
+	}
+	for _, t := range s.todos.todos {
+		if t.DoneAt == nil {
+			continue
+		}
+		for _, a := range t.Agents {
+			if a.MachineID == mid && a.SessionID == sid && a.ReleasedAt == nil && a.DismissedAt == nil {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // closedTaskOf is the task the hub closed (judged done, or reviewed by its supervisor) the agent mid/sid still belongs
 // to: linked, neither released nor dismissed, and working for no open todo since; the one closed last when there are
 // several (#5892). One the user closed stays theirs to reopen: done by hand while its agent still started (#2954), it

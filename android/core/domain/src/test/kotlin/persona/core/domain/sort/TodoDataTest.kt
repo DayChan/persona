@@ -93,6 +93,27 @@ class TodoDataTest {
     }
 
     @Test
+    fun orderedByDueDate() {
+        // #1683: needs you stays on top; the rest by due date (a due day counts to its end), none after; done last.
+        val sessions = mapOf(SessionKey("server", "needs") to s("needs", "needs_you"))
+        val lookup: (SessionKey) -> Session? = { sessions[it] }
+        val zone = java.time.ZoneId.of("Asia/Shanghai")
+        val todos = listOf(
+            Todo(id = "done", title = "d", doneAt = "2026-11-02T12:00:00Z", createdAt = "2026-11-01T10:00:00Z", dueDate = "2020-01-01"),
+            Todo(id = "none", title = "n", createdAt = "2026-11-02T10:00:00Z"),
+            Todo(id = "day", title = "d", createdAt = "2026-11-02T10:00:00Z", dueDate = "2026-11-12"),
+            Todo(id = "overdue", title = "o", createdAt = "2026-11-02T10:00:00Z", dueDate = "2020-01-01"),
+            Todo(id = "morning", title = "m", createdAt = "2026-11-02T10:00:00Z", dueAt = "2026-11-12T01:00:00Z"),
+            Todo(id = "needs", title = "n", createdAt = "2026-11-02T10:00:00Z", agents = listOf(todoAgent("needs"))),
+        )
+        assertEquals(listOf("needs", "overdue", "morning", "day", "none", "done"), todos.ordered(lookup, zone).map { it.id })
+        val day = todos.first { it.id == "day" }
+        assertEquals(java.time.Instant.parse("2026-11-12T15:59:59Z"), day.dueBy(zone))
+        assertEquals(true, todos.first { it.id == "overdue" }.isOverdue(zone = zone))
+        assertEquals(false, todos.first { it.id == "done" }.isOverdue(zone = zone))
+    }
+
+    @Test
     fun byTodoGrouping() {
         // Pinned: server/pin1; muted: server/mute1
         val pins = AgentPreferences(sessions = listOf("server/pin1"))

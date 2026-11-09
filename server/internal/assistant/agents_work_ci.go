@@ -252,7 +252,7 @@ func (s *Service) pollCI(ctx context.Context, e db.SessionWork, c proto.Session,
 		return "", true
 	}
 	if _, why := s.workGuard(s.newWorkView(ctx), current, false); why != "" {
-		if why == "offline" {
+		if why == "offline" || why == "todo state unavailable" {
 			at := now.Add(time.Minute).UTC()
 			current.WakeAt, current.Work.WakeAt = &at, &at
 		} else {

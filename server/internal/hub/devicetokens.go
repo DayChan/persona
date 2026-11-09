@@ -485,7 +485,7 @@ func (h *Hub) revoked(id string) {
 		c.conn.CloseNow()
 	}
 	links := h.closeLinks(id) + h.closePeerLinksOf(id)
-	// What it has open through the manager: an extension's WebSocket (a voice call) among others (extension_calls.go).
+	// Its extension calls, port forwards, live screens and previews (extension_calls.go).
 	links += h.dropRelayed(id)
 	if hub := h.peerForCredential(id); hub != "" { // a peer's credential: that pairing ends
 		go func() {
@@ -494,6 +494,7 @@ func (h *Hub) revoked(id string) {
 			}
 		}()
 	}
-	h.push.signedOut(id) // nil-safe; forgets the devices this credential registered (push.go)
+	h.live.endCredential(id) // finish the end pushes while their devices are still registered
+	h.push.signedOut(id)     // nil-safe; forgets the devices this credential registered (push.go)
 	h.logf("device token %s revoked (%d connections closed)", id, len(gone)+links)
 }
