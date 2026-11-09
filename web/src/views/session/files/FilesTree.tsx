@@ -7,7 +7,8 @@ import { api, enc, errorText, isAbort } from "../../../lib/api";
 import { t } from "../../../i18n";
 import { entryPayload, ENTRY_DRAG_TYPE } from "../../../lib/entry-drag";
 import { FILE_THUMB_FEATURE, markThumbFailed, thumbFailed, thumbSlots, thumbSrc } from "../../../lib/file-thumbs";
-import { gitMark, thumbable, type FsEntry, type FsListing, type GitStatus } from "../../../lib/files";
+import { thumbable, type FsEntry, type FsListing, type GitStatus } from "../../../lib/files";
+import { markFor } from "../../../lib/git-marks";
 import { expandedKey, listingCache, readExpanded, toggleExpanded, treeRows, visibleDirs, withExpanded, writeExpanded, type Listed, type TreeRow } from "../../../lib/files-tree";
 import { hubHas, useStore } from "../../../lib/store";
 import { useFsLive } from "../../../lib/use-fs-live";
@@ -201,7 +202,8 @@ function Row({
     );
   }
   const e = r.entry;
-  const mark = gitMark(git, r.path, e.dir);
+  // a lookup in the status's index, not a scan of every changed file per row (lib/git-marks.ts)
+  const mark = markFor(git, r.path, e.dir);
   const hidden = e.name.startsWith(".");
   const x: OpTarget = { path: r.path, name: e.name, dir: e.dir };
   const open = () => (e.dir ? onToggle(r.path) : onOpenFile(r.path));
