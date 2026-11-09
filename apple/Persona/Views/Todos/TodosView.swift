@@ -18,8 +18,8 @@ struct TodosView: View {
     /// A to-do opened from the calendar (and, in DEBUG screenshots, `-openTodoTitled <text>`: the first whose title has it).
     @State private var pushed: TodoDetailRoute?
     /// List or calendar, and the calendar's day / week / month (#2029): each device keeps its own.
-    @AppStorage("todos.view") private var viewMode = TodosViewMode.list
-    @AppStorage("todos.calendar.mode") private var calendarMode = TodoCalendarMode.day
+    @StoredValue("todos.view") private var viewMode = TodosViewMode.list
+    @StoredValue("todos.calendar.mode") private var calendarMode = TodoCalendarMode.day
     @State private var calendarAnchor = Date.now
     @State private var quickAdd: TodoCalendarSlot?
     @Environment(\.tabIsActive) private var inFront

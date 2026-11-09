@@ -555,6 +555,9 @@ nonisolated enum Theme {
         static let monthLines = 3
         /// Where a new to-do's time snaps to when the empty axis is tapped, in minutes.
         static let snapMinutes = 30
+        /// The calendar's ground under the page's controls: white on the grouped gray in the glass styles, as the list's
+        /// rows are; the style's card otherwise.
+        static var ground: Color { StyleSpec.current.usesGlass ? Theme.groupedCard : Theme.card }
         /// The hour lines and the columns' edges; the line under the all-day row is `lineStrong`.
         static let line = Color.primary.opacity(0.1)
         static let lineStrong = Color.primary.opacity(0.18)

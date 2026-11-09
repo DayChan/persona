@@ -25,6 +25,7 @@ struct AllSessionsReadersTests {
         "TodosView.swift": (2, "the todo list shows each Agent's progress (its latest line), so it follows every Agent, like the Dock and the menu bar"),
         "MacTodosPage.swift": (2, "the Mac todo list shows each Agent's progress (its latest line), like the Dock and the menu bar"),
         "TodoDetailView.swift": (1, "the Agent rows show each Agent's latest line, the same way the todo list does"),
+        "TodoCalendarView.swift": (1, "the calendar colors each to-do by its Agents' state, the same way the todo list does (#2029)"),
     ]
 
     private static func reads(_ text: String) -> Int {

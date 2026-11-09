@@ -15,9 +15,14 @@ final class TodoCalendarTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
-        app.launchArguments = ["-pairURL", pair, "-tab", "assistant", "-openAssistantPage", "todos",
-                               "-todos.view", "calendar", "-todos.calendar.mode", "day"]
+        // The view and the mode are switched here, not by launch arguments: a value in the argument domain could not be
+        // changed by the taps below.
+        app.launchArguments = ["-pairURL", pair, "-tab", "assistant", "-openAssistantPage", "todos"]
         app.launchPinned()
+        let calendarSwitch = app.buttons["日历"]
+        XCTAssertTrue(calendarSwitch.waitForExistence(timeout: 60))
+        calendarSwitch.tap()
+        app.buttons["日"].tap()
 
         // The day: today's to-dos on the axis, the two at 18:00 side by side.
         let weather = entry("天气 App 发 1.3 版")

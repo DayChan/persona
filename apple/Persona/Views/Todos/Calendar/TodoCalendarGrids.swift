@@ -197,7 +197,7 @@ struct TodoCalendarWeekStrip: View {
                         Text(names[i])
                             .font(Theme.Font.label)
                             .foregroundStyle(.secondary)
-                        Text(day.formatted(.dateTime.day()))
+                        Text(verbatim: String(calendar.component(.day, from: day)))
                             .font(picked ? Theme.Font.bodyStrong : Theme.Font.body)
                             .foregroundStyle(picked ? Theme.onSolid : today ? Theme.accent : Color.primary)
                             .scaledFrame(width: Theme.Size.well, height: Theme.Size.well)
@@ -260,6 +260,8 @@ struct TodoCalendarTimeline: View {
                 .scrollIndicators(.hidden)
                 .onAppear { proxy.scrollTo(firstHour, anchor: .top) }
                 .onChange(of: days.first) { proxy.scrollTo(firstHour, anchor: .top) }
+                // the page may open before the to-dos are read: once they are, the morning's come into sight
+                .onChange(of: timed.isEmpty) { _, empty in if !empty { proxy.scrollTo(firstHour, anchor: .top) } }
             }
         }
     }
@@ -279,7 +281,7 @@ struct TodoCalendarTimeline: View {
             ForEach(Array(days.enumerated()), id: \.offset) { i, day in
                 let today = calendar.isDateInToday(day)
                 Button { pickDay(day) } label: {
-                    let number = Text(day.formatted(.dateTime.day()))
+                    let number = Text(verbatim: String(calendar.component(.day, from: day)))
                         .font(today ? Theme.Font.bodyStrong : Theme.Font.body)
                         .foregroundStyle(today ? Theme.onSolid : Color.primary)
                         .scaledFrame(width: Theme.Size.wellXS, height: Theme.Size.wellXS)
@@ -323,7 +325,7 @@ struct TodoCalendarTimeline: View {
                 .padding(.top, Theme.Space.xs)
             ForEach(Array(days.enumerated()), id: \.offset) { _, day in
                 let all = TodoCalendar.on(day, entries, calendar: calendar).filter(\.allDay)
-                let fit = narrow ? TodoCalendar.fit(all, lines: 2) : (all, 0)
+                let fit: (shown: [CalendarEntry], more: Int) = narrow ? TodoCalendar.fit(all, lines: 2) : (all, 0)
                 VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                     ForEach(fit.shown) { e in
                         Button { open(e) } label: { CalendarEntryChip(entry: e, compact: narrow) }
@@ -514,7 +516,7 @@ struct TodoCalendarMonth: View {
         let today = calendar.isDateInToday(day)
         let fit = TodoCalendar.fit(TodoCalendar.on(day, entries, calendar: calendar), lines: Theme.CalendarGrid.monthLines)
         return VStack(alignment: wide ? .leading : .center, spacing: Theme.Space.xxs) {
-            Text(day.formatted(.dateTime.day()))
+            Text(verbatim: String(calendar.component(.day, from: day)))
                 .font(today ? Theme.Font.captionHeavy : Theme.Font.caption)
                 .foregroundStyle(today ? Theme.onSolid : inMonth ? Color.primary : Color.secondary)
                 .scaledFrame(width: Theme.Size.iconS, height: Theme.Size.iconS)

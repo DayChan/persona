@@ -52,7 +52,7 @@ struct TodoCalendarView: View {
     /// Back to the list ("N without a due date").
     var showList: () -> Void
 
-    @AppStorage("todos.calendar.showDone") private var showDone = true
+    @StoredValue("todos.calendar.showDone") private var showDone = true
     @State private var adding: TodoCalendarSlot?
 
     private let calendar = Calendar.current
@@ -64,7 +64,7 @@ struct TodoCalendarView: View {
                 header
                 content(wide: wide)
                     .frame(maxHeight: .infinity)
-                    .background(Theme.card)
+                    .background(Theme.CalendarGrid.ground)
                     .overlay(alignment: .top) {
                         Rectangle().fill(Theme.CalendarGrid.line).frame(height: Theme.Size.hairline)
                     }

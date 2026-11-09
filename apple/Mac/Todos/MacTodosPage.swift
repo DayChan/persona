@@ -13,8 +13,8 @@ struct MacTodosPage: View {
 
     @AppStorage("mac.todos.listWidth") private var listWidth: Double = Theme.Size.macTodosListIdeal
     /// List or calendar, and the calendar's day / week / month (#2029): the Mac starts on the week.
-    @AppStorage("todos.view") private var viewMode = TodosViewMode.list
-    @AppStorage("todos.calendar.mode") private var calendarMode = TodoCalendarMode.week
+    @StoredValue("todos.view") private var viewMode = TodosViewMode.list
+    @StoredValue("todos.calendar.mode") private var calendarMode = TodoCalendarMode.week
     @State private var calendarAnchor = Date.now
     @State private var quickAdd: TodoCalendarSlot?
     /// The calendar shows the selected to-do beside it once one is opened from it, until closed.
