@@ -37,6 +37,11 @@ describe("the sidebar's usage strip", () => {
   it("marks a stale account", () => {
     expect(renderToStaticMarkup(<UsageBars accounts={[account("a", 10, 20, { stale: true })]} now={NOW} />)).toContain("数据已过期");
   });
+  it("marks a kept account stale once its stale_at has passed, though the hub said it was fresh (#1905)", () => {
+    const kept = account("a", 10, 20, { stale_at: iso(-60_000) });
+    expect(renderToStaticMarkup(<UsageBars accounts={[kept]} now={NOW} />)).toContain("数据已过期");
+    expect(renderToStaticMarkup(<UsageBars accounts={[{ ...kept, stale_at: iso(60_000) }]} now={NOW} />)).not.toContain("数据已过期");
+  });
 });
 
 describe("the popover", () => {

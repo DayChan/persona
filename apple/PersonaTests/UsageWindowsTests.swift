@@ -84,6 +84,29 @@ struct UsageWindowsTests {
         #expect(live[0].windows.map(\.label) == ["7d"])
     }
 
+    /// Kept numbers age by `stale_at` (#1905): a group whose refresh fails keeps its last answer, and an account the hub
+    /// called fresh then fades and reads "Outdated" once its time has passed; the bars put it last.
+    @Test func liveJudgesStaleByStaleAt() throws {
+        let json = """
+        {"accounts":[{"id":"k","provider":"codex","name":"kept","sampled_at":"2026-11-05T09:00:00Z","stale_at":"2026-11-05T09:30:00Z",
+          "windows":[{"label":"7d","window_minutes":10080,"used_percent":80}]}]}
+        """
+        struct R: Decodable { var accounts: [UsageAccount] }
+        let kept = try #require(try JSON.decoder.decode(R.self, from: Data(json.utf8)).accounts.first)
+        let staleAt = try #require(kept.staleAt)
+        #expect(!kept.stale && staleAt == JSON.parseDate("2026-11-05T09:30:00Z"))
+        #expect(UsageWindows.live([kept], now: staleAt.addingTimeInterval(-1)).first?.stale == false)
+        let later = staleAt.addingTimeInterval(3600)
+        let aged = try #require(UsageWindows.live([kept], now: later).first)
+        #expect(aged.stale && UsageWindows.ageLabel(aged, now: later).hasPrefix("已过期"))
+        let other = UsageAccount(id: "o", provider: "claude", name: "other",
+                                 windows: [UsageWindow(label: "7d", windowMinutes: 10080, usedPercent: 10, resetsAt: later.addingTimeInterval(3600), model: nil)], sampledAt: later)
+        #expect(UsageWindows.top(UsageWindows.live([kept, other], now: later)).map(\.id) == ["o", "k"], "stale ones last")
+        var older = kept // an older hub sends no stale_at: its own mark stands
+        older.staleAt = nil
+        #expect(UsageWindows.live([older], now: later).first?.stale == false)
+    }
+
     @Test func fullestAndTop() {
         let scoped = UsageAccount(id: "s", provider: "claude", name: "S",
                                   windows: [win("5h", 300, used: 30, left: 60), win("7d", 10080, used: 100, left: 60, model: "Fable")], sampledAt: now)

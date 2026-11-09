@@ -48,6 +48,8 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
     var windows: [UsageWindow]
     var sampledAt: Date?
     var stale: Bool
+    /// When it turns stale if nothing newer comes (#1905): kept numbers are judged again against it (`live`).
+    var staleAt: Date?
     /// Where the numbers came from (#2595): an agent's files on one of the computers, and/or gateways by name.
     var local: Bool
     var sources: [String]
@@ -57,10 +59,11 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, provider, name, plan, windows, stale, local, sources, problem
         case sampledAt = "sampled_at"
+        case staleAt = "stale_at"
     }
 
     init(id: String, provider: String, name: String, plan: String? = nil, windows: [UsageWindow], sampledAt: Date?,
-         stale: Bool = false, local: Bool = false, sources: [String] = [], problem: String? = nil) {
+         stale: Bool = false, staleAt: Date? = nil, local: Bool = false, sources: [String] = [], problem: String? = nil) {
         self.id = id
         self.provider = provider
         self.name = name
@@ -68,6 +71,7 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
         self.windows = windows
         self.sampledAt = sampledAt
         self.stale = stale
+        self.staleAt = staleAt
         self.local = local
         self.sources = sources
         self.problem = problem
@@ -82,6 +86,7 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
         windows = try c.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
         sampledAt = (try? c.decodeIfPresent(String.self, forKey: .sampledAt)).flatMap { $0.flatMap(JSON.parseDate) }
         stale = try c.decodeIfPresent(Bool.self, forKey: .stale) ?? false
+        staleAt = (try? c.decodeIfPresent(String.self, forKey: .staleAt)).flatMap { $0.flatMap(JSON.parseDate) }
         local = try c.decodeIfPresent(Bool.self, forKey: .local) ?? false
         sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
@@ -172,12 +177,15 @@ nonisolated enum UsageWindows {
         return a.stale ? (age.isEmpty ? String(localized: "Outdated [Usage Windows 2fe0e3]") : String(localized: "Outdated · \(age)")) : age
     }
 
-    /// The accounts worth showing: samples within three days, windows that have not reset, accounts that still have one.
+    /// The accounts worth showing: samples within three days, windows that have not reset, accounts that still have one;
+    /// each stale once its `staleAt` has passed, however long ago the hub said it (#1905: a group whose refresh fails
+    /// keeps its last answer, and that answer's own stale mark was the hub's at that moment).
     static func live(_ accounts: [UsageAccount], now: Date = .now) -> [UsageAccount] {
         accounts.compactMap { a in
             if let t = a.sampledAt, t.isMeaningful, now.timeIntervalSince(t) > sampleMaxAge { return nil }
             var a = a
             a.windows = a.windows.filter { $0.resetsAt.map { $0 > now } ?? true }
+            if let at = a.staleAt, now >= at { a.stale = true }
             return a.windows.isEmpty ? nil : a
         }
     }

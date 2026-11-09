@@ -21,6 +21,8 @@ export interface UsageAccount {
   windows: UsageWindow[];
   sampled_at: string;
   stale?: boolean;
+  /** When it turns stale if nothing newer comes (#1905): kept numbers are judged again against it (`liveAccounts`). */
+  stale_at?: string;
   /** Where the numbers came from (#2595): an agent's files on one of the computers, and/or account-pool gateways by name. */
   local?: boolean;
   sources?: string[];
@@ -110,14 +112,18 @@ export function sampleAge(iso: string, now = Date.now()): string {
   return ago(Math.floor(s / 86400), "day");
 }
 
-/** The accounts worth showing: samples within three days, windows that have not reset, accounts that still have one. */
+/** The accounts worth showing: samples within three days, windows that have not reset, accounts that still have one;
+ *  each stale once its `stale_at` has passed, however long ago the hub said it (#1905: the last answer is kept while
+ *  refreshes fail, and its own stale mark was the hub's at that moment). */
 export function liveAccounts(accounts: UsageAccount[], now = Date.now()): UsageAccount[] {
   const out: UsageAccount[] = [];
   for (const a of accounts) {
     const sampled = Date.parse(a.sampled_at);
     if (Number.isFinite(sampled) && now - sampled > SAMPLE_MAX_AGE_MS) continue;
     const windows = a.windows.filter((w) => !w.resets_at || Date.parse(w.resets_at) > now);
-    if (windows.length) out.push({ ...a, windows });
+    const staleAt = a.stale_at ? Date.parse(a.stale_at) : NaN;
+    const stale = Boolean(a.stale) || (Number.isFinite(staleAt) && now >= staleAt);
+    if (windows.length) out.push({ ...a, windows, ...(stale ? { stale } : {}) });
   }
   return out;
 }
@@ -149,7 +155,9 @@ export function topAccounts(accounts: UsageAccount[], n = 2): UsageAccount[] {
 
 export const isWarn = (percent: number) => percent >= WARN_PERCENT;
 
-/** The accounts for the sidebar; [] until the hub answers and when it has none (the bars are not drawn then). */
+/** The accounts for the sidebar; [] until the hub answers and when it has none (the bars are not drawn then). A failed
+ *  refresh (the assistant away, the hub out of reach) keeps the last answer, which `liveAccounts` ages (#1905); only an
+ *  older hub without the route (404) means there is nothing to show. */
 export function useUsageWindows(): UsageAccount[] {
   const [accounts, setAccounts] = useState<UsageAccount[]>([]);
   useEffect(() => {
@@ -163,7 +171,11 @@ export function useUsageWindows(): UsageAccount[] {
       const current = () => !dead && mine === seq;
       api<{ accounts?: UsageAccount[] }>("/usage/windows")
         .then((r) => current() && setAccounts(r.accounts ?? []))
-        .catch(() => current() && setAccounts([])); // an older hub has no such route: nothing to show
+        .catch((e: unknown) => {
+          if (!current()) return;
+          // a copy of what is kept: the bars render again and liveAccounts judges its age with the time now
+          setAccounts((kept) => ((e as { status?: number } | null)?.status === 404 ? [] : kept.slice()));
+        });
     };
     load();
     const t = setInterval(load, POLL_MS);

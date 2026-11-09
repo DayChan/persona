@@ -52,6 +52,7 @@ The gateway's `rate_limits.spend_limit` (an amount of money) is not a window and
   - **Each account appears once**: two samples from the same source (Codex / Claude) are the same account if any one window has "the same length and the same reset time (to the second)". The reset time belongs to the account and reads the same on any computer, so no account id is needed and no credentials are touched.
   - For several samples of the same account, each window length takes the window from the **newest sample**, so a computer unused for a long time cannot bring back a 5-hour window that has already rolled over.
   - Samples older than 30 minutes are marked `stale` (sorted last, faded in the UI and labeled "out of date"); windows older than 3 days or past their reset time are dropped.
+    Each account also says when it turns stale if nothing newer comes, `stale_at` (the newest sample's time plus its source's threshold: 30 minutes for a computer, 6 hours for a gateway). A client keeping an answer while refreshes fail judges it again with `stale || now >= stale_at`, so old numbers fade and read "out of date" however long ago it last heard from the hub, and no client hard-codes the thresholds (#1905).
   - Accounts with the same name are numbered by id ("Codex Pro", "Codex Pro 2"); the id is a digest of the longest window's length and reset time, stable within a week.
   - Sorted by the fullest window, highest first.
 
@@ -60,7 +61,7 @@ API (read-only, not usable with extension tokens, `testdata/route_scopes.txt`):
 ```json
 {"accounts": [{
   "id": "codex-1a2b3c4d", "provider": "codex", "name": "Codex Pro", "plan": "pro",
-  "sampled_at": "2026-11-05T09:08:06Z", "stale": false,
+  "sampled_at": "2026-11-05T09:08:06Z", "stale": false, "stale_at": "2026-11-05T09:38:06Z",
   "windows": [{"label": "5h", "window_minutes": 300, "used_percent": 22.0, "resets_at": "2026-11-05T13:08:06Z"}]
 }], "checked_at": "2026-11-05T09:08:20Z"}
 ```
@@ -201,7 +202,7 @@ User decision: the hub is only a communication center, and computers belong to t
 - The hub forwards `GET /api/v1/usage/windows` as an `http.request`, like the manager's other routes (still not usable with extension tokens, `testdata/route_scopes.txt`).
 - `/api/v1/admin/usage-sources…` is forwarded only from the hub's admin UI route group: the hub first checks the admin session (plus CSRF for writes), then adds `X-Persona-Admin: 1` (the header is always stripped if a client sends it); the manager returns 403 without this marker, and the App's API has none of these routes.
 - The gateway's key exists only in `manager.json` (0600) and in the one request header sent to the gateway: the hub does not read this section, the key never crosses the bus, and it is in no answer or log. When the manager runs on another machine (`assistant.external`) it uses its `manager.json` there, like the extension sections.
-- **When the manager is away**: these routes all return `503 assistant_offline` "助手暂时连不上，稍后再试" ("The assistant can't be reached right now; try again later") (the sidebar treats it as temporarily no data, as it used to during hub restarts); once it is back, the first request asks each computer again, and the gateways finish their first round within seconds.
+- **When the manager is away**: these routes all return `503 assistant_offline` "助手暂时连不上，稍后再试" ("The assistant can't be reached right now; try again later") (every client keeps its last answer and ages it by `stale_at`, see "Collection and merging"; only a 404 from an older hub without the route counts as no data); once it is back, the first request asks each computer again, and the gateways finish their first round within seconds.
 
 ## UI (web)
 
@@ -212,7 +213,7 @@ User decision: the hub is only a communication center, and computers belong to t
 - **Pace** (`pace` in `lib/usage-windows.ts`): the window length is read from the label (`5h`, `7d`, falling back to `window_minutes`); expected progress = elapsed time / window length.
   More than 5 percentage points above expected is "Ahead of pace", more than 5 below is "Behind pace", nothing in between; a tick on the bar marks the expected position.
   No judgment and no tick in the first 5% of a window (in the first few minutes, using even a little counts as "ahead").
-- Refreshes once a minute; no requests while the page is not in the foreground.
+- Refreshes once a minute; no requests while the page is not in the foreground. A failed refresh keeps the last answer (iOS / Mac and Android do the same), which turns out of date at its `stale_at`; only a 404 (an older hub) hides the block.
 
 ## UI (iOS / Mac, #2889)
 

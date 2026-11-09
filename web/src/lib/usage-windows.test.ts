@@ -96,6 +96,15 @@ describe("which accounts show", () => {
     expect(got.map((a) => a.id)).toEqual(["ok", "mixed"]);
     expect(got[1].windows.map((w) => w.label)).toEqual(["7d"]);
   });
+  it("ages kept numbers by stale_at, whatever the hub said when it answered (#1905)", () => {
+    const kept = account("kept", 10, { stale_at: at(-H) }); // fresh when the hub answered, an hour past its time now
+    const fresh = account("fresh", 10, { stale_at: at(H) });
+    const older = account("older", 10); // an older hub sends no stale_at: its own mark stands
+    const got = liveAccounts([kept, fresh, older], NOW);
+    expect(got.map((a) => Boolean(a.stale))).toEqual([true, false, false]);
+    expect(topAccounts(got).map((a) => a.id)).toEqual(["fresh", "older"]); // stale last
+    expect(liveAccounts([account("flagged", 10, { stale: true, stale_at: at(H) })], NOW)[0].stale).toBe(true);
+  });
   it("takes the two fullest, stale last", () => {
     const list = [account("a", 20), account("b", 90, { stale: true }), account("c", 60), account("d", 40)];
     expect(topAccounts(list).map((a) => a.id)).toEqual(["c", "d"]);

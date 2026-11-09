@@ -69,11 +69,14 @@ describe("useUsageWindows", () => {
     expect(host.textContent).toBe("B");
   });
 
-  it("still applies a failure of the newest request", async () => {
+  it("keeps the last answer when the newest request fails, and shows nothing for a hub without the route (#1905)", async () => {
     await settle(() => calls[0].resolve({ accounts: [account("A")] }));
     expect(host.textContent).toBe("A");
     backToFront();
-    await settle(() => calls[1].reject(new Error("no such route")));
+    await settle(() => calls[1].reject(Object.assign(new Error("助手暂时连不上"), { status: 503 }))); // the assistant away
+    expect(host.textContent).toBe("A"); // liveAccounts ages it by stale_at
+    backToFront();
+    await settle(() => calls[2].reject(Object.assign(new Error("not found"), { status: 404 })));
     expect(host.textContent).toBe("");
   });
 

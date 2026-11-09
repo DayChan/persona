@@ -37,6 +37,10 @@ type UsageAccount struct {
 	// Stale: the sample is older than the collector's schedule allows (its source has not been written to for a
 	// while, or the machine that had it is offline).
 	Stale bool `json:"stale,omitempty"`
+	// StaleAt is when the sample turns stale if nothing newer comes: the sample time plus its source's threshold (#1905).
+	// A client that keeps this answer while refreshes fail judges stale itself, Stale || now >= StaleAt, so old numbers
+	// fade however long ago it last heard from the hub, and no client hard-codes the thresholds.
+	StaleAt *time.Time `json:"stale_at,omitempty"`
 
 	// Where the numbers came from (#2595), set by the hub. Local: an agent's own files on one of the machines
 	// (docs/server/usage-windows.md); Sources: the names of the account-pool gateways that reported it
