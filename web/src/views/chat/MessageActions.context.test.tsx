@@ -177,17 +177,22 @@ describe("message context interaction paths", () => {
   });
 
   it("gives a reply a copy button and a ⋯ on touch, which opens the same menu", () => {
-    media.noHover = true;
     const render = (isUser: boolean) => act(() => root.render(
       <ChatActionsContext.Provider value={chat}>
         <MessageActions text="Original message" isUser={isUser} side={isUser}><p>Original message</p></MessageActions>
       </ChatActionsContext.Provider>,
     ));
-    render(true);
-    expect(host.querySelector('button[aria-label="拷贝回复"]')).toBeNull();
+    // the hover bar's copy button is always in the page, hidden by CSS: only a second one is the touch row's
+    const copies = () => host.querySelectorAll('button[aria-label="拷贝回复"]').length;
     render(false);
-    expect(host.querySelector('button[aria-label="拷贝回复"]')).toBeTruthy();
-    act(() => [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="更多"]')].at(-1)!.click());
+    expect(copies()).toBe(1);
+    expect(host.querySelector('button[aria-label="更多"]')).toBeNull();
+    media.noHover = true;
+    render(true);
+    expect(copies()).toBe(0);
+    render(false);
+    expect(copies()).toBe(2);
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="更多"]')!.click());
     expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toContain("作为上下文");
   });
 

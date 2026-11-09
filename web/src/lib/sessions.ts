@@ -161,9 +161,10 @@ export function stateCounts(all: Session[]) {
   return c;
 }
 
-/** `badge` without `open`, the agent on screen: it says it is waiting itself, so a count of only it would tell nothing. */
-export function othersWaiting(badge: number, open: Session | undefined): number {
-  return Math.max(0, badge - (open && !open.assistant && !open.quiet && stateOf(open) === "needs_you" ? 1 : 0));
+/** `badge` without `open`, the agent on screen: it says it is waiting itself, so a count of only it would tell nothing.
+ *  `quietCounted`: `badge` is the hub's own count, which has quiet agents in it. */
+export function othersWaiting(badge: number, open: Session | undefined, quietCounted = false): number {
+  return Math.max(0, badge - (open && !open.assistant && (quietCounted || !open.quiet) && stateOf(open) === "needs_you" ? 1 : 0));
 }
 
 export function useCounts() {
@@ -172,8 +173,8 @@ export function useCounts() {
   const counts = useStore((s) => s.sessionCounts);
   const bounded = useStore((s) => s.features.includes(SESSIONS_LIST_FEATURE));
   return useMemo(() => {
-    if (!bounded || !counts) return { ...stateCounts(all), interactions };
+    if (!bounded || !counts) return { ...stateCounts(all), interactions, quietCounted: false };
     const needs = counts.state.needs_you ?? 0;
-    return { needs, working: counts.state.working ?? 0, unread: counts.state.unread ?? 0, badge: needs, interactions };
+    return { needs, working: counts.state.working ?? 0, unread: counts.state.unread ?? 0, badge: needs, interactions, quietCounted: true };
   }, [all, interactions, counts, bounded]);
 }

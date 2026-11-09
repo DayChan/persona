@@ -19,6 +19,7 @@ describe("othersWaiting", () => {
     expect(othersWaiting(1, session("a", "needs_you"))).toBe(0);
     expect(othersWaiting(3, session("a", "working"))).toBe(3);
     expect(othersWaiting(3, session("q", "needs_you", { quiet: true }))).toBe(3);
+    expect(othersWaiting(1, session("q", "needs_you", { quiet: true }), true)).toBe(0);
     expect(othersWaiting(3, undefined)).toBe(3);
   });
 });

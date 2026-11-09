@@ -26,8 +26,8 @@ function WaitingBadge({ count, className }: { count: number; className?: string 
 /** A chat header's way to the sidebar on a narrow screen, carrying how many other agents are waiting for you. `counted` is
  *  off where the header's switch already shows that number. */
 export function ChatSidebarButton({ session, counted, onClick }: { session?: Session; counted: boolean; onClick: () => void }) {
-  const others = othersWaiting(useCounts().badge, session);
-  const waiting = counted ? others : 0;
+  const { badge, quietCounted } = useCounts();
+  const waiting = counted ? othersWaiting(badge, session, quietCounted) : 0;
   const label = t("chat-chatview.sidebar");
   return (
     <span className="relative flex shrink-0 lg:hidden">
