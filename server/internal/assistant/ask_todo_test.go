@@ -293,8 +293,7 @@ func TestAskTodoHandedToAnAgentIsNoTask(t *testing.T) {
 		t.Fatalf("the agent counts as working on task %+v", got)
 	}
 	agent(proto.StatusDone, proto.StateUnread, "Merging is safe: CI is green and the review is in.")
-	e.s.taskTurnEnded(ctx, "server", "a1")
-	time.Sleep(100 * time.Millisecond) // a judgment would have closed it by now
+	e.s.taskTurnEnded(ctx, "server", "a1") // a receipt and a judgment would be done when it returns
 	if cur := e.get(todo.ID); cur == nil || cur.DoneAt != nil || len(cur.Agents) != 1 {
 		t.Fatalf("the to-do after the agent's turn: %+v", cur)
 	}
