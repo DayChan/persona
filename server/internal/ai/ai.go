@@ -4,7 +4,6 @@
 package ai
 
 import (
-	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -233,9 +232,9 @@ func (c *Client) messages(ctx context.Context, hc *http.Client, key string, r Re
 
 // respond calls the Responses API. It always streams: some compatible endpoints (Codex-backed relays) reject
 // stream=false, and the text is just the concatenated output_text deltas. The system prompt goes in as a developer
-// message rather than `instructions`, which those relays replace with their own. Events are framed as SSE (an
-// event's data lines joined with "\n"), and a stream that ends before its terminal event (completed, incomplete or
-// failed) was cut: an error wrapping io.ErrUnexpectedEOF, not a short reply.
+// message rather than `instructions`, which those relays replace with their own. Events are framed as SSE
+// (SSEEvents), and a stream that ends before its terminal event (completed, incomplete or failed) was cut: an error
+// wrapping io.ErrUnexpectedEOF, not a short reply.
 func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Request) (reply Reply, answered bool, err error) {
 	input := []any{map[string]any{"role": "developer", "content": r.System}}
 	for _, m := range r.Messages {
@@ -264,20 +263,13 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 	}
 	var b strings.Builder
 	refused := false // a refusal content part came: the model declined, whatever else the stream says
-	// lines are the data lines of the event being read; event acts on the event they make up, and done says it ended
-	// the stream, with the reply and error to return. ended returns them: a limit the stream reported is no answer,
-	// so it holds the gate like the HTTP 429 it stands for.
-	var lines []string
+	// event acts on one event's data, and done says it ended the stream, with the reply and error to return. ended
+	// returns them: a limit the stream reported is no answer, so it holds the gate like the HTTP 429 it stands for.
 	ended := func(got Reply, err error) (Reply, bool, error) {
 		var limit *streamLimit
 		return got, !errors.As(err, &limit), err
 	}
-	event := func() (reply Reply, done bool, err error) {
-		if len(lines) == 0 {
-			return reply, false, nil
-		}
-		data := strings.Join(lines, "\n")
-		lines = lines[:0]
+	event := func(data string) (reply Reply, done bool, err error) {
 		var ev struct {
 			Type    string `json:"type"`
 			Delta   string `json:"delta"`
@@ -360,23 +352,19 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 		}
 		return reply, false, nil
 	}
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() { // ScanLines strips the \r of a CRLF line end too
-		line := sc.Text()
-		if line == "" { // a blank line ends the event
-			if got, done, err := event(); done {
-				return ended(got, err)
-			}
-		} else if value, ok := strings.CutPrefix(line, "data:"); ok { // comments and other fields are skipped
-			lines = append(lines, strings.TrimPrefix(value, " "))
-		}
-	}
-	if err := sc.Err(); err != nil {
+	var (
+		got     Reply
+		gotErr  error
+		stopped bool
+	)
+	if err := SSEEvents(resp.Body, func(data string) bool {
+		got, stopped, gotErr = event(data)
+		return stopped
+	}); err != nil {
 		return reply, true, fmt.Errorf("ai: read stream: %w", err)
 	}
-	if got, done, err := event(); done { // the last event, sent without a blank line after it
-		return ended(got, err)
+	if stopped {
+		return ended(got, gotErr)
 	}
 	// No terminal event: the connection was cut, and whatever text came is only part of the answer.
 	if b.Len() == 0 {

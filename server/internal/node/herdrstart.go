@@ -209,12 +209,13 @@ func herdrBinary(ctx context.Context, bin string) string {
 }
 
 // herdrServerKeep are the variables the server's clean environment takes from the node's: who and where the user is,
-// the locale, where herdr's socket, session and config are (so it listens where the node looks), and where Persona's data
-// directory is (PERSONA_HOME, and the older name the node still reads): every pane inherits it, and `personad launch`
-// and the hooks find the node's socket in that directory. Nothing else — no ANTHROPIC_*, no proxies, no PATH: the
-// login shell sets its own.
+// the locale, where herdr's socket, session and config are (so it listens where the node looks and reads the config
+// file herdr.WorktreesDir reads), and where Persona's data directory is (PERSONA_HOME, and the older name the node
+// still reads): every pane inherits it, and `personad launch` and the hooks find the node's socket in that directory.
+// Nothing else — no ANTHROPIC_*, no proxies, no PATH: the login shell sets its own.
 var herdrServerKeep = append([]string{"HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE",
-	"XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME", "HERDR_SOCKET_PATH", "HERDR_SESSION"},
+	"XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME", "HERDR_SOCKET_PATH", "HERDR_SESSION",
+	"HERDR_CONFIG_PATH"},
 	personaHomeNames()...)
 
 // personaHomeNames are the names identity.DataDir reads the data directory from.

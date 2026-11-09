@@ -39,7 +39,8 @@ func TestResponsesStreamCutBeforeItsTerminalEventFails(t *testing.T) {
 }
 
 // Events are framed the SSE way: the data lines of one event are joined with "\n", comments and other fields are
-// skipped, CRLF line ends work, and the last event needs no blank line after it.
+// skipped, CRLF line ends work, the last event needs no blank line after it, and a data line after data that already
+// makes a whole object starts the next event.
 func TestResponsesStreamFramesEventsTheSSEWay(t *testing.T) {
 	completed := `{"type":"response.completed","response":{"model":"gpt-x"}}`
 	for name, body := range map[string]string{
@@ -54,6 +55,12 @@ func TestResponsesStreamFramesEventsTheSSEWay(t *testing.T) {
 			"data: " + completed,
 		"only a line end after the last event": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n" +
 			"data: " + completed + "\n",
+		// a relay sending one data line per event and no blank line between: a line after a whole object starts the next
+		"no blank line between events": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hel\"}\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n" + "data: " + completed + "\n",
+		// a line ending in } inside an object that goes on does not end the event
+		"nested object across lines": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\n" + "data: \"model\":\"gpt-x\"}\n" + "data: }\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			r, err := responsesStream(t, body)

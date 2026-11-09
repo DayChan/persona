@@ -284,18 +284,19 @@ func TestStartStartsHerdrFirst(t *testing.T) {
 
 // The server's environment is the user's login shell's, not the node's: a launcher's ANTHROPIC_*, proxies, the
 // node's PATH and herdr's own pane variables (a node started from a herdr pane) never reach it — the variables that
-// say who and where the user is, and where herdr's socket is, do.
+// say who and where the user is, and where herdr's socket and config file are, do (the config file the server reads is
+// the one herdr.WorktreesDir reads).
 func TestHerdrServerEnvIsClean(t *testing.T) {
 	environ := []string{"HOME=/Users/me", "USER=me", "LOGNAME=me", "TMPDIR=/tmp/me/", "LANG=zh_CN.UTF-8",
 		"XDG_CONFIG_HOME=/Users/me/.config", "HERDR_SOCKET_PATH=/Users/me/.config/herdr/herdr.sock",
-		"ANTHROPIC_API_KEY=sk-test", "ANTHROPIC_BASE_URL=https://gateway.example.com", "ANTHROPIC_MODEL=m",
+		"HERDR_CONFIG_PATH=/Users/me/herdr.toml", "ANTHROPIC_API_KEY=sk-test", "ANTHROPIC_BASE_URL=https://gateway.example.com", "ANTHROPIC_MODEL=m",
 		"CLAUDE_CONFIG_DIR=/Users/me/.claude-work", "HTTPS_PROXY=http://proxy.example.com:8080", "http_proxy=http://p",
 		"ALL_PROXY=socks5://p", "NO_PROXY=localhost", "PATH=/Users/me/.persona/bin:/usr/bin", "HERDR_PANE_ID=w1:p1",
 		"HERDR_ENV=1", "TERM_PROGRAM=herdr", "SHELL=/bin/bash", "NODE_OPTIONS=--x"}
 	got := herdrServerEnv(environ, "/bin/zsh")
 	want := []string{"HOME=/Users/me", "USER=me", "LOGNAME=me", "TMPDIR=/tmp/me/", "LANG=zh_CN.UTF-8",
 		"XDG_CONFIG_HOME=/Users/me/.config", "HERDR_SOCKET_PATH=/Users/me/.config/herdr/herdr.sock",
-		"SHELL=/bin/zsh", "TERM=xterm-256color", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
+		"HERDR_CONFIG_PATH=/Users/me/herdr.toml", "SHELL=/bin/zsh", "TERM=xterm-256color", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env\n got %q\nwant %q", got, want)
 	}

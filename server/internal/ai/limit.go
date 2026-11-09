@@ -321,27 +321,47 @@ func streamLimitFor(event, code, msg string) *streamLimit {
 	return &streamLimit{reason: reason, event: event, code: code, msg: msg}
 }
 
-var tryAgainIn = lazyre.New(`(?i)try again in\s*(\d+(?:\.\d+)?)\s*(ms|seconds?|s)\b`)
+var (
+	// tryAgainIn finds the wait in "try again in ...": one or more number-and-unit parts ("1.5s", "250ms", "20 seconds",
+	// "6m0s", "1m30s", "2 minutes", "1h"). A longer unit name comes before its prefix: the first that fits is taken.
+	tryAgainIn = lazyre.New(`(?i)try again in\s*((?:\d+(?:\.\d+)?\s*(?:ms|milliseconds?|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\s*)+)\b`)
+	// tryAgainPart is one number-and-unit part of tryAgainIn's match.
+	tryAgainPart = lazyre.New(`(\d+(?:\.\d+)?)\s*([A-Za-z]+)`)
+)
 
-// tryAgain is the wait a stream's limit message asks for ("Please try again in 1.5s"), which a stream has instead
-// of Retry-After; 0 when it names none.
+// tryAgain is the wait a stream's limit message asks for ("Please try again in 1.5s", "Please try again in 6m0s"),
+// which a stream has instead of Retry-After: the sum of its parts, at most afterMost; 0 when it names none.
 func tryAgain(msg string) time.Duration {
 	m := tryAgainIn.FindStringSubmatch(msg)
 	if m == nil {
 		return 0
 	}
-	n, err := strconv.ParseFloat(m[1], 64)
-	if err != nil {
-		return 0
+	total := 0.0
+	for _, p := range tryAgainPart.FindAllStringSubmatch(m[1], -1) {
+		n, err := strconv.ParseFloat(p[1], 64)
+		if err != nil {
+			return 0
+		}
+		total += n * float64(tryAgainUnit(p[2]))
 	}
-	unit := time.Second
-	if strings.EqualFold(m[2], "ms") {
-		unit = time.Millisecond
-	}
-	if d := n * float64(unit); d < float64(afterMost) {
-		return time.Duration(d)
+	if total < float64(afterMost) {
+		return time.Duration(total)
 	}
 	return afterMost
+}
+
+// tryAgainUnit is the duration of one of tryAgainIn's unit names.
+func tryAgainUnit(name string) time.Duration {
+	switch name = strings.ToLower(name); {
+	case name == "ms" || strings.HasPrefix(name, "milli"):
+		return time.Millisecond
+	case strings.HasPrefix(name, "h"):
+		return time.Hour
+	case strings.HasPrefix(name, "m"):
+		return time.Minute
+	default:
+		return time.Second
+	}
 }
 
 // classify: whether err is an answer that holds the connection, why, for how long the upstream asked, and what it

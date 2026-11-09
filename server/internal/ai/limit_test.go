@@ -469,6 +469,10 @@ func TestClassify(t *testing.T) {
 	for msg, want := range map[string]time.Duration{
 		"Please try again in 1.5s.": 1500 * time.Millisecond, "try again in 250ms": 250 * time.Millisecond,
 		"Try again in 20 seconds": 20 * time.Second, "try again in 99999999s": afterMost, "Rate limit reached": 0,
+		// Go-style durations of more than one unit, as OpenAI's rate-limit messages write them
+		"Please try again in 6m0s.": 6 * time.Minute, "try again in 1m30s": 90 * time.Second,
+		"try again in 1h2m3.5s": time.Hour + 2*time.Minute + 3500*time.Millisecond, "try again in 2 minutes": 2 * time.Minute,
+		"try again in 1m 30s, thanks": 90 * time.Second, "try again in 5 more minutes": 0,
 	} {
 		if d := tryAgain(msg); d != want {
 			t.Errorf("tryAgain(%q) = %s, want %s", msg, d, want)
