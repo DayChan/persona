@@ -19,6 +19,8 @@
   "busy_skipped": "The last run is still going, so this one was skipped",
   "busy_wait": "The last run is still going. Try again when it’s done.",
   "run_failed": "Scheduled task failed: {name}",
+  "retry_restart_unknown": "The retry's outcome is unknown after the hub restarted. Check the conversation before running it again.",
+  "retry_delivery_unknown": "The retry may have been sent, but its outcome could not be confirmed. Check the conversation before running it again.",
   "gone": "This scheduled task no longer exists",
   "not_ready_skipped": "Your computer or model isn’t set up yet, so this one was skipped",
   "ready_again": "Your computer and model are set up, so scheduled tasks run again, starting with “{name}”",
