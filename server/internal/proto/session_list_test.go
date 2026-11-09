@@ -199,10 +199,13 @@ func TestSessionListOneChangedAllocations(t *testing.T) {
 		}
 	}
 	decode()
-	if allocs := testing.AllocsPerRun(20, decode); allocs > 1000 {
+	if allocs := testing.AllocsPerRun(20, decode); allocs > 15 && !raceEnabled {
 		t.Fatalf("decoding a list with one session changed allocates %v times", allocs)
 	}
 }
+
+// raceEnabled: built with -race, whose instrumentation allocates on its own (race_test.go).
+var raceEnabled bool
 
 // AppendSession's bytes are what the hub's json.Encoder wrote for a session (without its newline): HTML, U+2028 and
 // bad UTF-8 escaped the same way. A time json refuses is left to json (false).

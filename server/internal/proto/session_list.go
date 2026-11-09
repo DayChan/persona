@@ -51,19 +51,24 @@ func (d *SessionListDecoder) Decode(rows []jsontext.Value) (list []Session, raws
 			continue
 		}
 		// As the list's own decoder decodes each element: Session.UnmarshalJSONFrom with encoding/json's options.
-		if err := jsonv2.Unmarshal(row, &list[i], json.DefaultOptionsV1()); err != nil {
-			return nil, nil, err // the sessions decoded so far stay: what they were decoded from does not change
+		if err = jsonv2.Unmarshal(row, &list[i], json.DefaultOptionsV1()); err != nil {
+			list, raws = nil, nil
+			break
 		}
 		e := &listedSession{raw: string(row), s: list[i], gen: d.gen}
 		d.memo[e.raw], raws[i] = e, e.raw
 	}
 	for k, e := range d.memo {
 		if e.gen != d.gen {
-			delete(d.memo, k) // not in this list: only the last list's sessions are kept
+			delete(d.memo, k) // not in this list: only the last list's sessions are kept, a failed one's too
 		}
 	}
-	return list, raws, nil
+	return list, raws, err
 }
+
+// DecodeChangedSessions turns ScanSessionList's and SessionListDecoder's use on (the hub's fleet.sessions, the
+// manager's sessions.changed): false decodes and encodes every list whole, as before them.
+const DecodeChangedSessions = true
 
 // maxListMembers bounds the members ScanSessionList reads besides the list: events carry two or three.
 const maxListMembers = 16

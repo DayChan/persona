@@ -50,11 +50,31 @@ type fleetCache struct {
 
 func init() {
 	handleBusEvent(assistantwire.EventFleetSessions, func(h *Hub, c *busConn, params json.RawMessage) {
-		var p assistantwire.FleetSessions
-		if json.Unmarshal(params, &p) != nil || h.ownsMachine(c, p.MachineID) != nil {
-			return // only its manager lists a machine's sessions (ownership.go)
+		rest, rows, scanned := proto.ScanSessionList(params)
+		if !scanned || !proto.DecodeChangedSessions {
+			var p assistantwire.FleetSessions
+			if json.Unmarshal(params, &p) != nil || h.ownsMachine(c, p.MachineID) != nil {
+				return // only its manager lists a machine's sessions (ownership.go)
+			}
+			h.takeFleetSessions(p)
+			return
 		}
-		h.takeFleetSessions(p)
+		// The list apart from the rest (proto.ScanSessionList): decoded the same, but only its sessions whose bytes
+		// changed since the machine's last list (Machine.lists); what does not decode drops the whole event, as before.
+		var p assistantwire.FleetSessions
+		if json.Unmarshal(rest, &p) != nil || h.ownsMachine(c, p.MachineID) != nil {
+			return
+		}
+		m := h.localMachine(p.MachineID)
+		if m == nil {
+			return
+		}
+		list, raws, err := m.lists.Decode(rows)
+		if err != nil {
+			return
+		}
+		p.Sessions = list
+		h.takeFleetSessionsFrom(m, p, raws)
 	})
 	handleBusEvent(assistantwire.EventFleetInteraction, func(h *Hub, c *busConn, params json.RawMessage) {
 		var p assistantwire.FleetInteraction
@@ -137,15 +157,18 @@ func init() {
 
 // takeFleetSessions keeps a machine's list as the manager reported it and sends it to the apps.
 func (h *Hub) takeFleetSessions(p assistantwire.FleetSessions) {
-	m := h.localMachine(p.MachineID)
-	if m == nil {
-		return
+	if m := h.localMachine(p.MachineID); m != nil {
+		h.takeFleetSessionsFrom(m, p, nil)
 	}
+}
+
+// takeFleetSessionsFrom is takeFleetSessions for machine m, with raws, what each session came in (nil: unknown).
+func (h *Hub) takeFleetSessionsFrom(m *Machine, p assistantwire.FleetSessions, raws []string) {
 	list := p.Sessions
 	if list == nil {
 		list = []proto.Session{}
 	}
-	m.setSessionList(list)
+	m.setSessionListRaws(list, raws)
 	f := &h.reported
 	f.mu.Lock()
 	if f.muted == nil {

@@ -123,6 +123,61 @@ func (w *rowWriter) add(s *proto.Session, stamp bool, manager string, more int) 
 // into the next one.
 func (w *rowWriter) row(sp rowSpan) []byte { return w.b[sp.start:sp.end:sp.end] }
 
+// keptRow is a session's row as last encoded from the manager's list (Machine.rows): what the session's bytes in
+// that list (raw), its rev and its manager give. A session decoded from the same bytes is the same session, and
+// sessions.revs changes only its rev, so while all three are the same the row is too.
+type keptRow struct {
+	raw   string
+	rev   int64
+	owner string
+	row   []byte
+}
+
+// encodeKept is encodeStamped of list, the kept list or what shown left of it, with raws, what each of its sessions
+// came in (Machine.rawsFor; nil: encodeStamped itself). A session whose bytes, rev and manager are those of its last
+// row is that row again, the same slice, so comparing it with what an app has (sessionsDelta, sameSessions) finds
+// them equal at once; only the others are encoded, each into a slice of its own, so that a row kept for long does not
+// hold the rest of a list's buffer.
+func (m *Machine) encodeKept(list []proto.Session, owner string, raws map[string]string) []sentSession {
+	if raws == nil {
+		return encodeStamped(list, owner)
+	}
+	m.rowsMu.Lock()
+	defer m.rowsMu.Unlock()
+	if m.rows == nil {
+		m.rows = make(map[string]keptRow, len(list))
+	}
+	out := make([]sentSession, 0, len(list))
+	var w rowWriter // each row written here, then copied out at its size
+	for i := range list {
+		s := &list[i]
+		raw := raws[s.SessionID] // "" for one listed twice: encoded every time
+		last, had := m.rows[s.SessionID]
+		if raw != "" && had && last.raw == raw && last.rev == s.Rev && last.owner == owner {
+			out = append(out, sentRow(s, last.row))
+			continue
+		}
+		w.b = w.b[:0]
+		sp := w.add(s, true, owner, 0)
+		if sp.start < 0 {
+			continue // it does not encode: left out
+		}
+		row := append(make([]byte, 0, sp.end-sp.start), w.row(sp)...)
+		if raw != "" {
+			m.rows[s.SessionID] = keptRow{raw: raw, rev: s.Rev, owner: owner, row: row}
+		}
+		out = append(out, sentRow(s, row))
+	}
+	if len(m.rows) > len(raws)+len(raws)/4+8 { // sessions the lists no longer name: their rows go
+		for id := range m.rows {
+			if _, listed := raws[id]; !listed {
+				delete(m.rows, id)
+			}
+		}
+	}
+	return out
+}
+
 // sessionsMessage is the whole-list message (the same bytes as marshalling the sessions themselves). Put together
 // from the encoded sessions rather than marshalled: json.Marshal checks and copies every json.RawMessage again,
 // half of what a list push cost, for sessions it has just encoded.
@@ -252,7 +307,7 @@ func sameSessions(a, b []sentSession) bool {
 func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 	owner := h.machineOwner(m.cfg.ID)
 	shown := h.shown(m.cfg.ID, list)
-	enc := encodeStamped(shown, owner)
+	enc := m.encodeKept(shown, owner, m.rawsFor(list))
 	h.sessionsMu.Lock()
 	defer h.sessionsMu.Unlock()
 	before := h.listCache.index.Revision()
@@ -299,7 +354,8 @@ func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 func (h *Hub) snapshotSessions(c *client, m *Machine) {
 	h.sessionsMu.Lock()
 	defer h.sessionsMu.Unlock()
-	shown := forDelta(encodeStamped(h.shown(m.cfg.ID, m.keptSessions()), h.machineOwner(m.cfg.ID)), nil)
+	kept := m.keptSessions()
+	shown := forDelta(m.encodeKept(h.shown(m.cfg.ID, kept), h.machineOwner(m.cfg.ID), m.rawsFor(kept)), nil)
 	have := make(map[string][]byte, len(shown))
 	for _, s := range shown {
 		have[s.id] = s.raw
