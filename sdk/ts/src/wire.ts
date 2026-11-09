@@ -3027,24 +3027,113 @@ export interface MessagingError {
 }
 
 /**
+ * catalog.list: subscribable sources. An empty catalog is an empty sources list.
+ */
+export interface ConnectorCatalog {
+  sources: ConnectorCatalogSource[];
+}
+
+/**
+ * A stable source id, independent of its display name. Tool names are short and unique within this source.
+ */
+export interface ConnectorCatalogSource {
+  id: string;
+  name: string;
+  icon?: NavIcon;
+  service?: string;
+  min_interval_seconds?: number;
+  /** A shared connector/account budget, across all its sources. */
+  max_calls_per_hour?: number;
+  tools: ConnectorCatalogTool[];
+  recipes?: ConnectorSubscriptionRecipe[];
+}
+
+export interface ConnectorCatalogTool {
+  name: string;
+  title?: string;
+  description: string;
+  /** A JSON object containing the tool input schema. */
+  input_schema: unknown;
+  read_only: boolean;
+  annotations?: ConnectorCatalogAnnotations;
+}
+
+/**
+ * When present, hints must agree with read_only: true and destructive: false.
+ */
+export interface ConnectorCatalogAnnotations {
+  read_only_hint?: boolean;
+  destructive_hint?: boolean;
+}
+
+/**
+ * catalog.call: a source and one of its read-only short tool names. args is an object, default {}.
+ */
+export interface ConnectorCatalogCallParams {
+  contribution: string;
+  source: string;
+  tool: string;
+  args?: unknown;
+}
+
+export type ConnectorSubscriptionMode = "items" | "snapshot" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_MODES = ["items", "snapshot"] as const;
+
+export type ConnectorSubscriptionGroup = "source" | "thread" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_GROUPS = ["source", "thread"] as const;
+
+export type ConnectorSubscriptionKind = "sub_mail" | "sub_message" | "sub_notice" | "sub_deadline" | "sub_event" | "sub_update" | "sub_digest" | (string & {});
+export const CONNECTOR_SUBSCRIPTION_KINDS = ["sub_mail", "sub_message", "sub_notice", "sub_deadline", "sub_event", "sub_update", "sub_digest"] as const;
+
+/**
+ * Paths relative to one item. Only $, .field and [index] are supported; no expressions or recursive descent.
+ */
+export interface ConnectorSubscriptionFields {
+  id?: string;
+  thread?: string;
+  title?: string;
+  sender?: string;
+  time?: string;
+  body?: string;
+  link?: string;
+  due_date?: string;
+}
+
+/**
+ * A pull recipe, not a schedule. args is an object (default {}); strings may contain {{since}} or {{since_date}}.
+ * items_path defaults to $; fields are relative to one item. Text results require snapshot mode. Runtime
+ * argument/schema and mapped-value validation belongs to the subscription runner.
+ */
+export interface ConnectorSubscriptionRecipe {
+  mode: ConnectorSubscriptionMode;
+  tool: string;
+  args?: unknown;
+  items_path?: string;
+  fields?: ConnectorSubscriptionFields;
+  kind: ConnectorSubscriptionKind;
+  group_by: ConnectorSubscriptionGroup;
+}
+
+/**
  * error.code a program answers or gets besides the base ErrorCode: rate_limited (tools.call / actions.do, and the
  * hub's answer to too many sent.record; data {retry_after} in seconds, fractional allowed), why credentials.gh_token
  * has no token, and what recall answers: not_recallable (nothing was sent: the program cannot take that message back)
  * and recall_unknown (the request may have taken effect). not_signed_in, offline and rate_limited also say that
- * recall could not act now.
+ * recall could not act now. not_read_only refuses a catalog.call outside the current read-only catalog.
  */
-export type ConnectorErrorCode = "rate_limited" | "no_machine" | "offline" | "node_too_old" | "no_gh" | "not_signed_in" | "not_recallable" | "recall_unknown" | (string & {});
-export const CONNECTOR_ERROR_CODES = ["rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown"] as const;
+export type ConnectorErrorCode = "rate_limited" | "no_machine" | "offline" | "node_too_old" | "no_gh" | "not_signed_in" | "not_recallable" | "recall_unknown" | "not_read_only" | (string & {});
+export const CONNECTOR_ERROR_CODES = ["rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown", "not_read_only"] as const;
 
 /**
  * What a connector declares (ConnectorItem.capabilities): the hub calls only the methods of declared ones. fallback
  * has no method: every inbox thing promises extra.rule_tier. recall is the program's word that it can take back what
  * it sent: the hub then calls connector.recall (only after the user agreed), and the install preview says so. history
- * (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. An
- * extension's connector with one this hub does not know loses only that capability.
+ * (needs archive) is history.chats and archive.history, history_anchors (needs history) is history.anchors. catalog
+ * lists subscribable read-only sources and calls their short tool names. An extension's connector with one this hub
+ * does not know loses only that capability.
  */
-export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | "history" | "history_anchors" | (string & {});
-export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors"] as const;
+export type ConnectorCapability = "status" | "tools" | "actions" | "events" | "inbox" | "settle" | "archive" | "chats" | "items" | "login" | "options" | "threads" | "snapshot" | "group" | "meta" | "fallback" | "machines" | "recall" | "history" | "history_anchors" | "catalog" | (string & {});
+export const CONNECTOR_CAPABILITIES = ["status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors", "catalog"] as const;
 
 /**
  * ConnectorStatus.state. disabled is the hub's own (the user switched it off); a program never answers it.
@@ -5173,6 +5262,8 @@ export interface Call {
 export const CALLS: Record<string, Call> = {
   "connector.status": { from: "hub", params: "ConnectorParams", result: "ConnectorStatus" },
   "connector.manifest": { from: "hub", params: "ConnectorParams", result: "ConnectorManifest" },
+  "connector.catalog.list": { from: "hub", params: "ConnectorParams", result: "ConnectorCatalog" },
+  "connector.catalog.call": { from: "hub", params: "ConnectorCatalogCallParams", result: "ConnectorCallResult" },
   "connector.tools.list": { from: "hub", params: "ConnectorParams", result: "ConnectorTools" },
   "connector.tools.call": { from: "hub", params: "ConnectorCallParams", result: "ConnectorCallResult" },
   "connector.actions.list": { from: "hub", params: "ConnectorParams", result: "ConnectorTools" },

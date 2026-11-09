@@ -32,6 +32,7 @@
   "accept_question": "確認時の意見",
   "accept_to_agent": "ユーザーが確認時に返した意見（Lark から）：\n{feedback}\n\nこのとおり直して再デプロイし、最後の返信に変更点・見る場所・確認方法を書いてください。",
   "accept_not_sent": "ToDo には記録しましたが、Agent に渡せませんでした：{error}",
+  "accept_not_taken": "おすすめを担当の Agent に渡せませんでした（{error}）。何も変更していないので、もう一度お試しください",
   "accept_sent": "ToDo の決定事項に記録し、元の Agent に渡しました",
   "accept_media_dropped": "確認時の意見は今のところ文字だけを受け付けます。画像とファイルは Agent に渡していません。どこが違うかを文字で書くか、App から画像を Agent に送ってください",
   "verdict_done": "✅ 完了",

@@ -213,6 +213,14 @@ func CheckConnectors(t testing.TB, manifest []byte, run Run, config ...json.RawM
 				t.Errorf("connector %s: status disabled is the hub's, not a program's", c.ID)
 			}
 		}
+		if has(wire.ConnectorCapabilityCatalog) {
+			var catalog wire.ConnectorCatalog
+			if ask("catalog.list", p, &catalog) {
+				if err := wire.CheckConnectorCatalog(catalog); err != nil {
+					t.Errorf("connector %s: catalog.list: %v", c.ID, err)
+				}
+			}
+		}
 		if has(wire.ConnectorCapabilityTools) {
 			ask("tools.list", p, nil)
 		}

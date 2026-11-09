@@ -1,7 +1,7 @@
 # Working with other people and Agents: claim the issue before you start
 
 Several people work in this repository, each alongside their own Agents. Two people have fixed the same bug, and someone has found halfway through a fix that it was already fixed. So:
-**claim the issue before you start, and every PR must link an issue**. The overall flow (branching, English PRs, merging once CI passes) is in `CLAUDE.md` ("Development workflow"); this page has the claiming details, comment templates and commands you can copy.
+**claim the issue before you start, and every PR must link an issue**. The overall flow (branching, English PRs, merging after local verification passes) is in `CLAUDE.md` ("Development workflow"); this page has the claiming details, comment templates and commands you can copy.
 
 ## Rules
 
@@ -9,7 +9,7 @@ Several people work in this repository, each alongside their own Agents. Two peo
 2. **Someone has claimed it and the claim hasn't expired**: don't work on it. You can add information, repro steps, logs or leads under the issue (start the comment with "Note:"). The same goes when there is already an open PR: add to the PR / issue.
 3. **No issue? Create one**. When you start, post a claim comment on the issue: what you're doing, how you plan to change it, how long you expect it to take. If an Agent is doing the work, say so.
 4. **24 hours with no update counts as abandoned**: someone else can post a comment taking it over (with the reason). If you're still working on it, post a progress comment to renew.
-5. **Every PR must link an issue**: write `Fixes #N` / `Closes #N` / `Refs #N` in the description. PRs with no linked issue get a comment from an Action and are closed automatically.
+5. **Every PR must link an issue**: write `Fixes #N` / `Closes #N` / `Refs #N` in the description. PRs with no linked issue get a comment from the explicitly dispatched metadata Action and are closed by it.
 
 Don't use GitHub's assign (many people don't have triage permission, and it isn't needed), don't use commands like `/claim`, and expiry isn't handled automatically: the comments in the issue are the only source of truth.
 
@@ -167,13 +167,13 @@ EOF
   conflicts are resolved once instead of once per commit, and the push is a plain push with no force while other Agents work in the repository (#5988).
   In a merge "ours" is your branch and "theirs" is `main`, the reverse of a rebase: mind it with `git checkout --ours/--theirs` and `scripts/i18n/apple_l10n.py merge`.
   A rebase is still allowed, for example for a single-commit branch.
-- Merging: once the PR's CI passes, `scripts/hooks/merge-pr.sh <number>`, not `gh pr merge` directly. It first scans the PR's changed files, commit messages, title and body with this machine's private values, and only squash-merges and deletes the branch if that passes (`docs/operations/testing.md`, "Privacy scan").
+- Merging: once the PR's relevant local verification passes, `scripts/hooks/merge-pr.sh <number>`, not `gh pr merge` directly. It first scans the PR's changed files, commit messages, title and body with this machine's private values, and only squash-merges and deletes the branch if that passes (`docs/operations/testing.md`, "Privacy scan"). PRs do not automatically start hosted CI.
 - `Fixes #N` / `Closes #N`: GitHub closes the issue automatically after merging. `Refs #N`: links without closing (an issue split into several PRs, or only partly fixed).
 - PR titles and bodies are in English (after a squash merge they are the commit on `main`); issues and comments are also in English.
 
-## Automatically closing PRs with no linked issue
+## Checking PRs with no linked issue
 
-`.github/workflows/pr-needs-issue.yml` checks the **description** when a PR is opened, edited or reopened:
+`.github/workflows/pr-needs-issue.yml` runs only when an operator explicitly dispatches it from the default branch with `pr_number=<number>`; opening, editing or reopening a PR starts no workflow:
 
 - **Counts as linked** (case-insensitive): `fix` / `fixes` / `fixed` / `close` / `closes` / `closed` / `resolve` / `resolves` / `resolved` / `ref` / `refs`
   followed by `#number` (a colon after the keyword is allowed, e.g. `Fixes: #12`), or `owner/repo#number` for this repository; or a link to an issue in this repository (`https://github.com/<owner>/<repo>/issues/<number>`).
@@ -189,6 +189,6 @@ EOF
 
 - Logic and flow tests: `node scripts/test/pr_needs_issue_test.mjs` (extracts the github-script script from the workflow and runs dozens of description samples and the close / reopen flow against a fake GitHub client);
   after changing it, also run `actionlint .github/workflows/pr-needs-issue.yml`.
-- It uses `pull_request_target`: it runs the workflow from the default branch with a token that has write permission, so it **never checks out or runs the PR's code**;
+- It uses a manually supplied PR number and the default branch's workflow with a token that has write permission, so it **never checks out or runs the PR's code**;
   the PR's title and description are read only as data via the API and never put into `${{ }}` (that would inject them into the script). Permissions are limited to `pull-requests: write` and `issues: write`.
 - Also because it runs the default branch's version, a PR that changes this workflow doesn't use the new logic itself; it takes effect only after merging. Before merging, rely on the tests above.

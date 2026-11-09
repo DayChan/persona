@@ -25,7 +25,7 @@ uses Persona. Registered app identities (bundle IDs, App Groups, keychain groups
 
 ### Workflow
 
-- **Every change goes issue → claim → branch → PR → merge after CI passes** ("Development workflow" below). Code, docs and config alike;
+- **Every change goes issue → claim → branch → PR → merge after local verification passes** ("Development workflow" below). Code, docs and config alike;
   never commit or push to `main` directly.
 - **TestFlight feedback**: issues from crash reports or testers' feedback get the `testflight` label (or a `[TestFlight]` title prefix),
   with a scrubbed body and a dedupe marker (`docs/operations/collaboration.md`, "TestFlight feedback").
@@ -107,9 +107,9 @@ People and Agents follow the same steps, each with their own GitHub account. Tem
    (preferred over a rebase; never force-push). Giving up: comment `Abandon:` with how far you got.
 6. **Open one PR per issue**, in English, with `Fixes #N` / `Closes #N` (or `Refs #N` to link without closing) in the body.
    `.github/workflows/pr-needs-issue.yml` closes PRs that link no issue and reopens them once the link is added.
-7. **Merge after CI passes**: run the checks in "Build and verify", look at screenshots for UI changes, and require the PR's `CI required`
-   check to pass (`docs/operations/testing.md`, "Hosted CI"). It aggregates the path-selected platform workflows; do not require their
-   conditional job names individually. CI changes must be verified by a green hosted run of that PR, not just local checks.
+7. **Merge after local verification passes**: run the checks in "Build and verify" for every affected area, including workflow lint for
+   CI changes, and look at screenshots for UI changes. Opening or updating a PR does not run hosted CI. A scheduler dispatches full CI
+   on `main`; its failures are fixed separately and do not replace the PR's local verification (`docs/operations/testing.md`, "Hosted CI").
    Then `scripts/hooks/merge-pr.sh <number>` (scans the PR with this machine's private values, which CI does not have, then squash-merges
    and deletes the branch). Make sure the issue is closed.
 
@@ -117,7 +117,8 @@ People and Agents follow the same steps, each with their own GitHub account. Tem
 
 - Portable CI: `scripts/ci/server.sh`, `scripts/ci/web.sh`, `scripts/ci/android.sh`, `scripts/ci/apple.sh`, `scripts/ci/scripts.sh`;
   runtime/SDK checks: `scripts/ci/runtimes.sh`. Same scripts locally and on hosted runners, no private config or signing secrets.
-  Dependencies, path filters, coverage and cost: `docs/operations/testing.md` ("Hosted CI"). Repository guards run on every PR.
+  Dependencies, optional path filters, coverage and cost: `docs/operations/testing.md` ("Hosted CI"). Manual dispatch defaults to all
+  platform checks; no hosted repository guards run automatically on PRs.
 - Server: `scripts/test/test-server.sh` (real Postgres on the hub machine); portable CI creates its own disposable Postgres 18 container.
   Deploy: `scripts/deploy/deploy.sh [machine id…]`.
 - iOS: `scripts/app/sim.sh [-openSession <machine>/<session>]` builds, installs on your simulator and pairs it. Before xcodegen / Xcode,
@@ -223,7 +224,7 @@ Every maintained doc under `docs/` (lessons excluded) must be listed here.
 | Operations | `docs/operations/network.md` direct connection, TLS, pinning · `docs/operations/docker.md` · `docs/operations/hub-restart.md` seamless restarts · `docs/operations/hub-update.md` · `docs/operations/upgrade.md` moving an install to the split hub and manager · `docs/operations/push-relay.md` · `docs/operations/admin.md` admin UI · `docs/operations/ports.md` port forwarding · `docs/operations/link.md` Persona Link and the node service · `docs/operations/persona-link-install.md` · `docs/operations/node-update.md` · `docs/operations/windows.md` · `docs/operations/auth-relay.md` · `docs/operations/site.md` website · `docs/operations/testing.md` tests, simulators, privacy scan · `docs/operations/runtime-cli.md` DEBUG command channel · `docs/operations/release.md` signing and TestFlight |
 | Agents and runtimes | `docs/integrations/engines.md` herdr / Orca / Paseo · `docs/integrations/claude-integration.md` · `docs/integrations/codex.md` · `docs/integrations/codex-app-server.md` · `docs/integrations/runtimes.md` runtime spec · `docs/integrations/daemons.md` · `docs/integrations/dsh.md` · `docs/integrations/pi.md` · `docs/integrations/opencode.md` · `docs/integrations/paseo.md` · `docs/integrations/agent-goal.md` · `docs/integrations/terminal.md` · `docs/integrations/launchers.md` model providers · `docs/integrations/script-cli.md` `personad ask` / `notify` |
 | Assistant | `docs/assistant/assistant.md` main chat · `docs/assistant/managers.md` · `docs/assistant/assistant-views.md` rich UI · `docs/assistant/unified-entry.md` · `docs/assistant/agent-work.md` work state and triage · `docs/assistant/todos.md` · `docs/assistant/voice.md` · `docs/assistant/health.md` · `docs/assistant/knowledge.md` knowledge base · `docs/assistant/inbox.md` · `docs/assistant/model-config.md` · `docs/assistant/model-profiles.md` · `docs/assistant/prompts.md` · `docs/assistant/office.md` Word / PowerPoint / Excel |
-| Extensions and sources | `docs/extensions/extensions.md` extension system · `docs/extensions/connectors.md` · `docs/extensions/channels.md` · `docs/extensions/extension-messaging.md` · `docs/extensions/computer-use.md` · `docs/extensions/mail.md` · `docs/extensions/wechat.md` · `docs/extensions/bots.md` Lark bot · `docs/extensions/feishu.md` · `docs/extensions/lark-agent.md` · `docs/extensions/lark-migration.md` · `docs/extensions/lark-attachments.md` · `docs/extensions/lark-encryption.md` |
+| Extensions and sources | `docs/extensions/extensions.md` extension system · `docs/extensions/connectors.md` · `docs/extensions/subscriptions.md` · `docs/extensions/channels.md` · `docs/extensions/extension-messaging.md` · `docs/extensions/computer-use.md` · `docs/extensions/mail.md` · `docs/extensions/wechat.md` · `docs/extensions/bots.md` Lark bot · `docs/extensions/feishu.md` · `docs/extensions/lark-agent.md` · `docs/extensions/lark-migration.md` · `docs/extensions/lark-attachments.md` · `docs/extensions/lark-encryption.md` |
 | Apple | `docs/apple/ios.md` iOS / watchOS, design language · `docs/apple/icons.md` icons · `docs/apple/sidebar.md` sidebar rows · `docs/apple/ios-state.md` state and redraws · `docs/apple/shell.md` · `docs/apple/mac.md` · `docs/apple/mac-design.md` · `docs/apple/vision.md` · `docs/apple/live-activity.md` · `docs/apple/intents.md` · `docs/apple/siri.md` · `docs/apple/carplay.md` · `docs/apple/persona.md` avatars · `docs/apple/phone-tools.md` · `docs/apple/recording.md` · `docs/apple/meta-glasses.md` |
 | Android and web | `docs/android/android.md` · `docs/android/android-design.md` · `docs/web/web.md` · `docs/web/workspace-board.md` · `docs/web/review.md` reviewing a session's changes · `docs/web/preview.md` dev server previews |
 | Plans (open decisions) | `docs/plans/plan-extensions.md` · `docs/plans/plan-connectors.md` · `docs/plans/plan-orca-support.md` · `docs/plans/plan-tmux-support.md` · `docs/plans/plan-lark-cli.md` · `docs/plans/plan-discord.md` · `docs/plans/plan-x.md` · `docs/plans/plan-ego-browser.md` · `docs/plans/plan-antigravity.md` |

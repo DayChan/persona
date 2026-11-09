@@ -132,13 +132,17 @@ const (
 		AND (payload->>'resumable')::boolean IS TRUE AND (payload->>'expires_at')::timestamptz > now()`
 	cancelPendingSQL = `UPDATE interactions SET status = 'cancelled', resolved_at = now()
 		WHERE status = 'pending' AND NOT (id = ANY($1))
-		AND id NOT IN (SELECT interaction_id FROM session_work WHERE interaction_id <> '')`
+		AND id NOT IN (SELECT interaction_id FROM session_work WHERE interaction_id <> '')
+		AND id NOT IN (SELECT protected.id FROM settings,
+			jsonb_array_elements(CASE WHEN jsonb_typeof(value) = 'array' THEN value ELSE '[]'::jsonb END) AS item,
+			LATERAL unnest(ARRAY[item->'card'->>'id', item->>'expired_id']) AS protected(id)
+			WHERE key = 'agents.tool_loops' AND protected.id IS NOT NULL)`
 )
 
 // ExpireStaleInteractions marks interactions left pending by a previous hub process cancelled, and returns the
 // resumable ones not yet expired instead: their hooks reconnect and claim them again. The manager's cards about a
-// turn (session_work's interaction_id) stay pending too: it puts them back up under the same id from session_work, and
-// ends the ones it does not (assistant/agents_work.go loadWork).
+// turn (session_work's interaction_id) and loop cards in the manager's settings stay pending too. The manager restores
+// them under the same id and ends cards it no longer needs.
 func (d *DB) ExpireStaleInteractions(ctx context.Context) ([]proto.Interaction, error) {
 	rows, err := d.pool.Query(ctx, resumablePendingSQL)
 	if err != nil {

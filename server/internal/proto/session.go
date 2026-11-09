@@ -39,7 +39,16 @@ const (
 // be clipped shorter: the hub's sentence for the code (StartErrorCode) is bounded, and its remedy comes last (#1642).
 const CodedStartErrorMax = 600
 
+// ToolLoop is a node-detected repetition. It contains no tool input or output.
+// Since identifies the start of this repetition within the current turn.
+type ToolLoop struct {
+	Tool  string    `json:"tool"`
+	Count int       `json:"count"`
+	Since time.Time `json:"since"`
+}
+
 type Session struct {
+	ToolLoop *ToolLoop `json:"tool_loop,omitempty"`
 	// Manager is the manager it belongs to (docs/assistant/managers.md, "Ownership"); the hub stamps it on what it sends the apps.
 	Manager          string               `json:"manager,omitempty"`
 	MachineID        string               `json:"machine_id"`

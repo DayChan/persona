@@ -2878,11 +2878,114 @@ type MessagingError struct {
 	View  *View  `json:"view,omitempty"`
 }
 
+// ConnectorCatalog: catalog.list: subscribable sources. An empty catalog is an empty sources list.
+type ConnectorCatalog struct {
+	Sources []ConnectorCatalogSource `json:"sources"`
+}
+
+// ConnectorCatalogSource: A stable source id, independent of its display name. Tool names are short and unique within
+// this source.
+type ConnectorCatalogSource struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Icon               string `json:"icon,omitempty"`
+	Service            string `json:"service,omitempty"`
+	MinIntervalSeconds *int   `json:"min_interval_seconds,omitempty"`
+	// A shared connector/account budget, across all its sources.
+	MaxCallsPerHour *int                          `json:"max_calls_per_hour,omitempty"`
+	Tools           []ConnectorCatalogTool        `json:"tools"`
+	Recipes         []ConnectorSubscriptionRecipe `json:"recipes,omitempty"`
+}
+
+type ConnectorCatalogTool struct {
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description"`
+	// A JSON object containing the tool input schema.
+	InputSchema json.RawMessage              `json:"input_schema"`
+	ReadOnly    bool                         `json:"read_only"`
+	Annotations *ConnectorCatalogAnnotations `json:"annotations,omitempty"`
+}
+
+// ConnectorCatalogAnnotations: when present, hints must agree with read_only: true and destructive: false.
+type ConnectorCatalogAnnotations struct {
+	ReadOnlyHint    *bool `json:"read_only_hint,omitempty"`
+	DestructiveHint *bool `json:"destructive_hint,omitempty"`
+}
+
+// ConnectorCatalogCallParams: catalog.call: a source and one of its read-only short tool names. args is an object,
+// default {}.
+type ConnectorCatalogCallParams struct {
+	Contribution string          `json:"contribution"`
+	Source       string          `json:"source"`
+	Tool         string          `json:"tool"`
+	Args         json.RawMessage `json:"args,omitempty"`
+}
+
+// Values of ConnectorSubscriptionMode.
+const (
+	ConnectorSubscriptionModeItems    = "items"
+	ConnectorSubscriptionModeSnapshot = "snapshot"
+)
+
+// ConnectorSubscriptionModes are the values of ConnectorSubscriptionMode, in order.
+var ConnectorSubscriptionModes = []string{"items", "snapshot"}
+
+// Values of ConnectorSubscriptionGroup.
+const (
+	ConnectorSubscriptionGroupSource = "source"
+	ConnectorSubscriptionGroupThread = "thread"
+)
+
+// ConnectorSubscriptionGroups are the values of ConnectorSubscriptionGroup, in order.
+var ConnectorSubscriptionGroups = []string{"source", "thread"}
+
+// Values of ConnectorSubscriptionKind.
+const (
+	ConnectorSubscriptionKindSubMail     = "sub_mail"
+	ConnectorSubscriptionKindSubMessage  = "sub_message"
+	ConnectorSubscriptionKindSubNotice   = "sub_notice"
+	ConnectorSubscriptionKindSubDeadline = "sub_deadline"
+	ConnectorSubscriptionKindSubEvent    = "sub_event"
+	ConnectorSubscriptionKindSubUpdate   = "sub_update"
+	ConnectorSubscriptionKindSubDigest   = "sub_digest"
+)
+
+// ConnectorSubscriptionKinds are the values of ConnectorSubscriptionKind, in order.
+var ConnectorSubscriptionKinds = []string{"sub_mail", "sub_message", "sub_notice", "sub_deadline", "sub_event", "sub_update", "sub_digest"}
+
+// ConnectorSubscriptionFields: paths relative to one item. Only $, .field and [index] are supported; no expressions
+// or recursive descent.
+type ConnectorSubscriptionFields struct {
+	ID      string `json:"id,omitempty"`
+	Thread  string `json:"thread,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Sender  string `json:"sender,omitempty"`
+	Time    string `json:"time,omitempty"`
+	Body    string `json:"body,omitempty"`
+	Link    string `json:"link,omitempty"`
+	DueDate string `json:"due_date,omitempty"`
+}
+
+// ConnectorSubscriptionRecipe: A pull recipe, not a schedule. args is an object (default {}); strings may contain
+// {{since}} or {{since_date}}. items_path defaults to $; fields are relative to one item. Text results require
+// snapshot mode. Runtime argument/schema and mapped-value validation belongs to the subscription runner.
+type ConnectorSubscriptionRecipe struct {
+	Mode      string                       `json:"mode"`
+	Tool      string                       `json:"tool"`
+	Args      json.RawMessage              `json:"args,omitempty"`
+	ItemsPath string                       `json:"items_path,omitempty"`
+	Fields    *ConnectorSubscriptionFields `json:"fields,omitempty"`
+	Kind      string                       `json:"kind"`
+	GroupBy   string                       `json:"group_by"`
+}
+
 // ConnectorErrorCode: error.code a program answers or gets besides the base ErrorCode: rate_limited (tools.call /
 // actions.do, and the hub's answer to too many sent.record; data {retry_after} in seconds, fractional allowed), why
 // credentials.gh_token has no token, and what recall answers: not_recallable (nothing was sent: the program cannot
 // take that message back) and recall_unknown (the request may have taken effect). not_signed_in, offline and
-// rate_limited also say that recall could not act now.
+// rate_limited also say that recall could not act now. not_read_only refuses a catalog.call outside the current
+// read-only catalog.
 const (
 	ConnectorErrorCodeRateLimited   = "rate_limited"
 	ConnectorErrorCodeNoMachine     = "no_machine"
@@ -2892,16 +2995,18 @@ const (
 	ConnectorErrorCodeNotSignedIn   = "not_signed_in"
 	ConnectorErrorCodeNotRecallable = "not_recallable"
 	ConnectorErrorCodeRecallUnknown = "recall_unknown"
+	ConnectorErrorCodeNotReadOnly   = "not_read_only"
 )
 
 // ConnectorErrorCodes are the values of ConnectorErrorCode, in order.
-var ConnectorErrorCodes = []string{"rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown"}
+var ConnectorErrorCodes = []string{"rate_limited", "no_machine", "offline", "node_too_old", "no_gh", "not_signed_in", "not_recallable", "recall_unknown", "not_read_only"}
 
 // ConnectorCapability: what a connector declares (ConnectorItem.capabilities): the hub calls only the methods of
 // declared ones. fallback has no method: every inbox thing promises extra.rule_tier. recall is the program's word
 // that it can take back what it sent: the hub then calls connector.recall (only after the user agreed), and the
 // install preview says so. history (needs archive) is history.chats and archive.history, history_anchors (needs
-// history) is history.anchors. An extension's connector with one this hub does not know loses only that capability.
+// history) is history.anchors. catalog lists subscribable read-only sources and calls their short tool names. An
+// extension's connector with one this hub does not know loses only that capability.
 const (
 	ConnectorCapabilityStatus         = "status"
 	ConnectorCapabilityTools          = "tools"
@@ -2923,10 +3028,11 @@ const (
 	ConnectorCapabilityRecall         = "recall"
 	ConnectorCapabilityHistory        = "history"
 	ConnectorCapabilityHistoryAnchors = "history_anchors"
+	ConnectorCapabilityCatalog        = "catalog"
 )
 
 // ConnectorCapabilities are the values of ConnectorCapability, in order.
-var ConnectorCapabilities = []string{"status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors"}
+var ConnectorCapabilities = []string{"status", "tools", "actions", "events", "inbox", "settle", "archive", "chats", "items", "login", "options", "threads", "snapshot", "group", "meta", "fallback", "machines", "recall", "history", "history_anchors", "catalog"}
 
 // ConnectorState: connectorStatus.state. disabled is the hub's own (the user switched it off); a program never
 // answers it.
@@ -5423,6 +5529,13 @@ var newDef = map[string]func() any{
 	"MessagingChanged":              func() any { return new(MessagingChanged) },
 	"MessagingConversationRef":      func() any { return new(MessagingConversationRef) },
 	"MessagingError":                func() any { return new(MessagingError) },
+	"ConnectorCatalog":              func() any { return new(ConnectorCatalog) },
+	"ConnectorCatalogSource":        func() any { return new(ConnectorCatalogSource) },
+	"ConnectorCatalogTool":          func() any { return new(ConnectorCatalogTool) },
+	"ConnectorCatalogAnnotations":   func() any { return new(ConnectorCatalogAnnotations) },
+	"ConnectorCatalogCallParams":    func() any { return new(ConnectorCatalogCallParams) },
+	"ConnectorSubscriptionFields":   func() any { return new(ConnectorSubscriptionFields) },
+	"ConnectorSubscriptionRecipe":   func() any { return new(ConnectorSubscriptionRecipe) },
 	"Empty":                         func() any { return new(Empty) },
 	"ConnectorInitParams":           func() any { return new(ConnectorInitParams) },
 	"ConnectorManifest":             func() any { return new(ConnectorManifest) },
@@ -5598,6 +5711,8 @@ type Call struct {
 var Calls = map[string]Call{
 	"connector.status":               {Name: "connector.status", From: "hub", Params: "ConnectorParams", Result: "ConnectorStatus"},
 	"connector.manifest":             {Name: "connector.manifest", From: "hub", Params: "ConnectorParams", Result: "ConnectorManifest"},
+	"connector.catalog.list":         {Name: "connector.catalog.list", From: "hub", Params: "ConnectorParams", Result: "ConnectorCatalog"},
+	"connector.catalog.call":         {Name: "connector.catalog.call", From: "hub", Params: "ConnectorCatalogCallParams", Result: "ConnectorCallResult"},
 	"connector.tools.list":           {Name: "connector.tools.list", From: "hub", Params: "ConnectorParams", Result: "ConnectorTools"},
 	"connector.tools.call":           {Name: "connector.tools.call", From: "hub", Params: "ConnectorCallParams", Result: "ConnectorCallResult"},
 	"connector.actions.list":         {Name: "connector.actions.list", From: "hub", Params: "ConnectorParams", Result: "ConnectorTools"},

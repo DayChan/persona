@@ -89,6 +89,24 @@ func TestLightKeepsTheRequestAndEveryTitle(t *testing.T) {
 	}
 }
 
+func TestLightKeepsMessageSourceMetadata(t *testing.T) {
+	for _, metadata := range []string{
+		`{"kind":"conversation","conversation_id":"source","title":"` + strings.Repeat("s", 360) + `"}`,
+		`{"author":"user"}`,
+	} {
+		block := "<persona-context kind=\"message-source\" title=\"\">\n" + metadata + "\n</persona-context>"
+		text := block + "\n<persona-context kind=\"context\" title=\"Evidence\">\n" + strings.Repeat("e", 4000) + "\n</persona-context>\n" + strings.Repeat("x", 23800)
+		it, cut := light(proto.Item{Role: "user", Kind: proto.KindText, Text: text}, false)
+		if !cut || !strings.HasPrefix(it.Text, block) || !strings.HasSuffix(it.Text, strings.Repeat("x", 23800)) {
+			t.Fatal("context clipping changed source JSON, user-authored sentinel, or input")
+		}
+		blocks := contextBlockRe.FindAllStringSubmatch(it.Text, -1)
+		if len(blocks) != 2 || strings.TrimSpace(blocks[0][2]) != metadata || !strings.Contains(blocks[1][2], "…") {
+			t.Fatal("source metadata participated in context water-fill")
+		}
+	}
+}
+
 func TestStripInjected(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"现在部署 hub", "现在部署 hub"},

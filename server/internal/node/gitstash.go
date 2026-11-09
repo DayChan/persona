@@ -7,16 +7,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
-var stashOIDPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+var stashOIDPattern = lazyre.New(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 func staleStash() error {
 	return &rpc.Error{Code: gitCodeStashStale, Message: "The selected stash changed. Refresh the list and select it again."}

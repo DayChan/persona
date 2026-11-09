@@ -171,19 +171,32 @@ const FRAME_HEAD =
 function MailFrame({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(240);
+  // undoes what the last load hooked onto the frame's document. The observer lives in this window: left connected, it
+  // keeps that document and this frame's state alive, one more on each load and on each frame that goes (a new mail of
+  // the thread, Show translation, another item).
+  const release = useRef<(() => void) | null>(null);
+  useEffect(() => () => release.current?.(), []);
 
   const onLoad = () => {
+    release.current?.();
+    release.current = null;
     const doc = ref.current?.contentDocument;
     if (!doc) return;
     const fit = () => setHeight(Math.max(80, Math.ceil(doc.body.getBoundingClientRect().height)));
     fit();
-    new ResizeObserver(fit).observe(doc.body);
-    doc.addEventListener("click", (e) => {
+    const sizes = new ResizeObserver(fit);
+    sizes.observe(doc.body);
+    const click = (e: MouseEvent) => {
       const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!a) return;
       e.preventDefault();
       if (/^(https?:|mailto:)/i.test(a.href)) openLink(a.href);
-    });
+    };
+    doc.addEventListener("click", click);
+    release.current = () => {
+      sizes.disconnect();
+      doc.removeEventListener("click", click);
+    };
   };
 
   return (

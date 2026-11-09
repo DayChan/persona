@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/devices"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -48,7 +49,7 @@ func startRefusal(code, launcher string) *rpc.Error {
 
 var readinessScenarios = []readinessScenario{
 	{name: "zero", setup: func(f *fakeHub) { *f = *newFakeHub(); f.settings = &Settings{} }, start: true},
-	// A computer waiting to be confirmed is not in devices.list (machine_trust.go): to the readiness there is none.
+	// A pending computer is absent from devices.list but remains in the manager's own device layer.
 	{name: "pending", setup: func(f *fakeHub) { *f = *newFakeHub(); f.settings = &Settings{} }, start: true},
 	{name: "offline", setup: func(f *fakeHub) { f.devices[0].Online, f.devices[0].Reachable = false, false }},
 	{name: "no_claude", setup: func(f *fakeHub) { f.doctor[scenarioMachine] = "读不到 claude 的版本" },
@@ -80,6 +81,10 @@ func TestReadinessScenariosGolden(t *testing.T) {
 			f.settings = &Settings{}
 			sc.setup(f)
 			s := newServiceOn(t, f, &memStore{})
+			if sc.name == "pending" {
+				s.trustSrc = &trustStore{pending: []string{scenarioMachine}}
+				s.devs = &readinessPendingDevices{list: []devices.Summary{{ID: scenarioMachine, Name: scenarioName, Online: true, Reachable: true}}}
+			}
 			out := map[string]any{}
 			if sc.start {
 				f.failAssistant = sc.refusal

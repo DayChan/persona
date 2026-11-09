@@ -202,6 +202,9 @@ func (s *Service) launcherRoutes() {
 			apierr.Write(w, status, err)
 			return
 		}
+		if launcherSetupChanged(*old, saved) {
+			s.forgetLauncherFailures(r.Context(), saved.Name)
+		}
 		apierr.WriteJSON(w, map[string]any{"launcher": launcherView(saved)})
 	})
 	s.handle("DELETE /api/v1/launchers/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +282,9 @@ func (s *Service) launcherRoutes() {
 		if err := s.call(ctx, machine, assistantwire.DeviceLaunchersCheck, map[string]any{"name": r.PathValue("name")}, &res); err != nil {
 			apierr.Call(w, err)
 			return
+		}
+		if res.OK {
+			s.recordTestPassed(ctx, machine, r.PathValue("name"), res)
 		}
 		apierr.WriteJSON(w, map[string]any{"machine": machine, "check": res})
 	})

@@ -49,7 +49,7 @@ describe("设置 › 会话分诊", () => {
     expect(switches()).toHaveLength(0);
     expect(host.textContent).toContain("加载中");
     await answer(0, ON);
-    expect(switches()).toHaveLength(5);
+    expect(switches()).toHaveLength(6);
     expect(named("会话分诊")!.getAttribute("aria-checked")).toBe("true");
   });
 
@@ -98,7 +98,20 @@ describe("设置 › 会话分诊", () => {
     await act(async () => retry()!.click());
     expect(pending).toHaveLength(3);
     await answer(2, ON);
-    expect(switches()).toHaveLength(5);
+    expect(switches()).toHaveLength(6);
+  });
+
+  it("tool loop defaults off and saves without changing the other switches", async () => {
+    await render();
+    await answer(0, ON);
+    const loop = named("检测工具调用循环")!;
+    expect(loop.getAttribute("aria-checked")).toBe("false");
+    await act(async () => loop.click());
+    expect(pending[1].json).toEqual({ ...ON, tool_loop: true });
+    await answer(1, { ...ON, tool_loop: true });
+    expect(loop.getAttribute("aria-checked")).toBe("true");
+    await act(async () => named("到点叫醒")!.click());
+    expect(pending[2].json).toEqual({ ...ON, tool_loop: true, wake: false });
   });
 
   it("hub 没有这个接口（太旧）：说不支持，不给重试", async () => {
@@ -116,6 +129,7 @@ describe("设置 › 会话分诊", () => {
     expect(named("要你决定的开卡片")!.disabled).toBe(true);
     expect(named("出错自动继续")!.disabled).toBe(true);
     expect(named("到点叫醒")!.disabled).toBe(true);
+    expect(named("检测工具调用循环")!.disabled).toBe(true);
     await act(async () => named("会话分诊")!.click());
     expect(switches().every((b) => b.disabled)).toBe(true);
     await answer(1, { enabled: true, auto_continue: false, wake: false, decide: false });

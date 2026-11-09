@@ -422,7 +422,7 @@ Lives under the assistant service, which already knows machine, launcher, and mo
 | `mode` | `full` / `setup` / `chat_only` (only appears in P1) |
 | `ready` | `mode == "full"` |
 | `next` | ID of the first step not `ok` / `skipped`; `null` if all ready |
-| `machine` | Computer main chat will use; `null` if none. Pending computers never appear here |
+| `machine` | Computer main chat will use, or the pending computer to confirm when none is available; `null` if neither exists |
 | `launcher` | Effective launcher name (after `effective()`, overridden by main-chat purpose in model configuration) |
 | `steps[].id` | Fixed order: `computer`, `claude`, `model`, `first_message` |
 | `steps[].state` | `ok` / `todo` / `problem` / `checking` / `unknown` / `skipped` |
@@ -459,7 +459,7 @@ Implementation (#3710, `server/internal/assistant/readiness.go`; endpoint detail
 - `claude` also reads two things: the code from the last rejected chat creation (`claude_missing` / `launcher_missing`, cleared after one successful open, a post-rejection self-check finds the version, or the launcher reappears—`setup` prevents sending, so clearing cannot depend only on success), and whether the launcher still exists on this computer. Codex or runtime launchers use `skipped` for this step. If node self-check does not finish in time, use `checking`.
 - `node_outdated` checks only whether node understands model configuration: every main-chat creation includes `model_fingerprint` (`finishModel`), which old nodes cannot open.
 - Warm computes readiness for at most 2.5 seconds; on timeout, return the last recorded result (omit `readiness` if none), and finish / persist in the background. Opening the tab does not slow down for this.
-- `machine_pending` appears after "Confirm computer" (5.3, item 9 in 7.2) merges; `node_outdated` (node does not understand model configuration) has no button.
+- With no confirmed computer selected, readiness names a pending computer owned by this manager (the smallest ID when several wait): `computer` is `todo` + `machine_pending`, with `confirm_computer` and that computer's ID. The top-level `machine` carries its ID and display name. Main-chat creation returns 409 `machine_pending` with `confirm_computer` and `delivered: "none"`; it does not prepare or start a conversation on the pending computer. A selected confirmed computer, including one that is offline, keeps its existing readiness state. `node_outdated` has no button.
 - `?probe=1` does not run unless computer is `ok`, and the response omits `probe`. A probe with no computer reply (offline, timeout) returns only `error`, is not recorded, and is not evidence.
 - `dismiss` accepts `{"dismissed": false}` to undo; an empty body means `true`.
 - Once `first_message` succeeds, it stays `ok` (stored in `assistant.readiness`, even after main chat changes).
@@ -687,7 +687,7 @@ Each issue references the protocol in section 5 and states "The Linux developmen
 - **Failure scenarios**: add seven readiness states (zero computers, offline, pending, missing Claude Code, not logged in, wrong key, all ready) and every code in 4.6 to `mock_hub.py` / `mock_scenarios.py`. Web Playwright, Android `android.sh shots`, and iOS screenshots share them.
 - Implementation (#4033; usage in `docs/operations/testing.md`, "Onboarding copy guard" and "Readiness scenarios") differs from or adds to the design:
   - Alongside the whitelist (`ALLOW`, with reasons), the copy guard has `PENDING` for existing issues being fixed (Android first screen / empty states in #4032; iOS / Mac in M2–M4 of 7.3). Remove entries once fixed; never add new ones. iOS has no catalogs yet, so scan Chinese literals in a few Swift files.
-  - The pending scenario's readiness is `no_machine`, not `machine_pending`: hub does not expose pending computers to the assistant (`devices.list` excludes them), matching 5.1's implementation notes. `machine_pending` appears when starting an Agent on one, and with `MOCK_START_ERROR=machine_pending`.
+  - The pending scenario reports `machine_pending` with `confirm_computer` and the pending computer's ID and display name. Main-chat creation returns the same code, and `?probe=1` sends nothing to that computer. After confirmation, the next readiness request evaluates the confirmed computer normally. Pending computers remain excluded from runnable `devices.list` entries and the assistant placement.
   - Additional scenarios: `demo`, `unverified`, `launcher_missing`, `model_route`, `rate_limited`, `node_outdated`, `assistant_offline`. `server/internal/assistant/readiness_scenarios_test.go` generates goldens for readiness and chat-creation rejection from real code; mock tests compare each rather than copying by hand.
 - **Fresh-user end-to-end** (Linux development machine): on an isolated test hub (own port, data directory, database, `PERSONA_LOCAL_NODE=0`), Playwright follows web login → guidance card → add a preset provider through a fake gateway → `assign` takes effect → readiness `model` changes. Assert the first screen and onboarding contain no prohibited copy-guard terms.
 - **Upgrade regression**: upgrade using a handwritten hub.json, `~/.zshrc` launchers, and a database with Persona-managed providers. Keys still distribute, all machines are confirmed, main chat works as before; `./scripts/test/test-server.sh` passes completely.

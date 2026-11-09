@@ -323,9 +323,16 @@ func (s *Service) readiness(ctx context.Context, probe bool, wait time.Duration)
 	out := Readiness{Version: 1, Launcher: launcher, CheckedAt: time.Now().UTC().Truncate(time.Second)}
 
 	d, has := s.device(ctx, v.MachineID)
+	pending := false
+	if !has || v.MachineID == "" {
+		d, pending = s.pendingAssistantMachine(ctx)
+		has = pending
+	}
 	computer := ReadinessStep{ID: StepComputer, State: StepOK}
 	switch {
-	case !has || v.MachineID == "":
+	case pending:
+		computer = s.readinessStep(lang, StepComputer, StepTodo, proto.CodeMachinePending, d.Name, launcher, "confirm_computer")
+	case !has:
 		computer = s.readinessStep(lang, StepComputer, StepTodo, proto.CodeNoMachine, "", launcher, "add_computer")
 	case !d.Online && !d.Reachable:
 		computer = s.readinessStep(lang, StepComputer, StepProblem, codeNodeUnreachable, d.Name, launcher, "wake_computer")

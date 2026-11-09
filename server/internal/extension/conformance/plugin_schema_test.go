@@ -36,6 +36,8 @@ var goTypes = map[string]any{
 	"ConnectorParams":               extension.Target{},
 	"ConnectorStatus":               connector.Status{},
 	"ConnectorManifest":             serve.Manifest{},
+	"ConnectorCatalog":              connector.CatalogResult{},
+	"ConnectorCatalogCallParams":    connector.CatalogQuery{},
 	"ConnectorTools":                serve.ToolsResult{},
 	"ConnectorCallParams":           serve.CallParams{},
 	"ConnectorCallResult":           serve.CallResult{},
@@ -133,7 +135,7 @@ var goTypes = map[string]any{
 // events.
 var serverCalls = []string{
 	serve.MManifest, serve.MStatus, serve.MLoginStep, serve.MLogout, serve.MChanges, serve.MCollect, serve.MReply,
-	serve.MTools, serve.MCall, serve.MActions, serve.MDescribe, serve.MDo, serve.MRecall, serve.MThread, serve.MMedia, serve.MItems,
+	serve.MCatalog, serve.MCatalogCall, serve.MTools, serve.MCall, serve.MActions, serve.MDescribe, serve.MDo, serve.MRecall, serve.MThread, serve.MMedia, serve.MItems,
 	serve.MDocTitle, serve.MArchiveMedia, serve.MSnapshot, serve.MGroupTool, serve.MGroupAppend, serve.MGroupFallback,
 	serve.MOptionsGet, serve.MOptionsSet, serve.MSettle, serve.MMachineOnline, serve.MAuthGet, serve.MAuthSet,
 	serve.MSecretsLoad, serve.MSecretsSave, serve.MSecretsDelete, serve.MPostsPut, serve.MPostsComments,
@@ -236,7 +238,7 @@ func TestConnectorFixturesHoldToTheSchemas(t *testing.T) {
 		"inbox.collect": "connector.inbox.collect", "login.step": "connector.login.step",
 		"login.step.done": "connector.login.step", "login.step.refused": "connector.login.step",
 		"status": "connector.status", "thread.page": "connector.thread.page", "tools.call": "connector.tools.call",
-		"tools.list": "connector.tools.list", "history.chats": "connector.history.chats",
+		"catalog.list": "connector.catalog.list", "tools.list": "connector.tools.list", "history.chats": "connector.history.chats",
 		"archive.history": "connector.archive.history", "archive.history.start": "connector.archive.history",
 		"archive.history.unreadable": "connector.archive.history", "archive.history.paced": "connector.archive.history",
 		"history.anchors": "connector.history.anchors",

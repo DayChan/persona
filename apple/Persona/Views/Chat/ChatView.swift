@@ -813,6 +813,7 @@ struct ChatView: View {
             // The hand-offs the task cards take in are drawn there, not among the lines (#1542).
             lines = ChatLines.daySections(ChatLines.quickResults(ChatLines.mergeFeed(lines, SentToAgents.shown(feed))))
         }
+        lines = ChatLines.sourceRuns(lines)
         scratch.lines = lines
         scratch.linesKey = key
         ChatTrace.shared.note(shownKey, ChatTrace.screen(lines, live: store.liveText.count, streaming: key.streaming, running: key.live != nil,
@@ -1230,7 +1231,7 @@ struct ChatView: View {
     @ViewBuilder private func lineView(_ line: ChatLine) -> some View {
         switch line.content {
         case .row(let r):
-            if r.errorCandidate != nil, let card = turnErrorCard(line, raw: r.errorCandidate?.text) { card } else { rowView(r, isLatest: false, live: true) }
+            if r.errorCandidate != nil, let card = turnErrorCard(line, raw: r.errorCandidate?.text) { card } else { rowView(r, isLatest: false, live: true, showsSource: line.showsSource) }
         case .feed(let item): FeedLine(item: item, group: shownKey.group)
         case .quick(let result): QuickResultCard(result: result)
         case .day(let date): DayLine(date: date)
@@ -3684,10 +3685,12 @@ struct ChatView: View {
         return [s.sourceSubtitle, machine, place.isEmpty ? nil : place, s.hasSource ? nil : s.agentLabel, s.stateLabel(muted: model.isMuted(s))].compactMap { $0 }.joined(separator: " · ")
     }
 
-    @ViewBuilder private func rowView(_ row: ChatRow, isLatest: Bool, live: Bool) -> some View {
+    @ViewBuilder private func rowView(_ row: ChatRow, isLatest: Bool, live: Bool, showsSource: Bool = true) -> some View {
         switch row {
         case .user(let i):
-            if let n = Injected.of(i) {
+            if let source = MessageSource.of(i) {
+                SourceMessage(item: i, source: source, showsSource: showsSource).equatable()
+            } else if let n = Injected.of(i) {
                 // Persona's message for the model: one line in its place, never its words (docs/protocol/protocol.md「Persona 注入的消息」).
                 InjectedLine(item: i, injected: n, conversation: style == .assistant ? shownKey.sessionID : nil)
             } else if (i.text ?? "").hasPrefix("/loop") {
@@ -5159,6 +5162,8 @@ struct SessionInfoSheet: View {
 struct ChatLine: Identifiable {
     let id: String
     let content: Content
+    /// Computed after the final row ordering, not in a lazy view's appearance callbacks.
+    var showsSource = true
 
     indirect enum Content {
         case row(ChatRow)

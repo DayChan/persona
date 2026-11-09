@@ -2,5 +2,10 @@
   "message_count_other": "{count}件のメッセージ",
   "from": "{name}から",
   "loop_tick": "ループ起動",
+  "source_conversation": "会話",
+  "source_patrol": "定期チェック",
+  "source_followup": "フォローアップ",
+  "source_supervision": "進捗チェック",
+  "source_other": "送信元",
   "open_task": "{line}、タスクを開く"
 }

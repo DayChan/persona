@@ -102,7 +102,11 @@ func (s *Service) validateModel(ctx context.Context, p ModelPurpose, b ModelBind
 		}
 		if b.Model != "" {
 			machine := ""
-			if _, ok := s.device(ctx, p.MachineID); ok {
+			if p.MachineID == "" {
+				// Like the model picker, unbound purposes use an online candidate;
+				// with none available, saving leaves the model unverified.
+				machine, _ = s.pickMachine(ctx, provider.Machines, "")
+			} else if _, ok := s.device(ctx, p.MachineID); ok {
 				machine = p.MachineID
 			} else if len(provider.Machines) > 0 {
 				if _, ok := s.device(ctx, provider.Machines[0]); ok {

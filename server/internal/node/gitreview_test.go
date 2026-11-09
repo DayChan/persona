@@ -462,6 +462,50 @@ func TestGitReviewBigFiles(t *testing.T) {
 	}
 }
 
+func TestGitReviewTypeChange(t *testing.T) {
+	r := newReviewRepo(t, map[string]string{"a.txt": "alpha\n", "link": "plain file\n", "z.txt": "zed\n"})
+	// a file that became a symlink: the patch has two sections for it, the deletion and then the creation
+	if err := os.Remove(filepath.Join(r.dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.txt", filepath.Join(r.dir, "link")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	r.write("z.txt", "zed changed\n")
+	wantLink := [][]string{{"-plain file"}, {"+a.txt", `\ No newline at end of file`}}
+	linkHunks := func(f proto.GitReviewFile) [][]string {
+		var out [][]string
+		for _, h := range f.Hunks {
+			out = append(out, h.Lines)
+		}
+		return out
+	}
+	res := r.review(proto.ReviewUncommitted, "")
+	if f := fileOf(t, res, "link"); f.Status != "type_changed" || f.Big || !slices.EqualFunc(linkHunks(f), wantLink, slices.Equal) {
+		t.Fatalf("type change %+v", f)
+	}
+	// the file after it keeps its hunks
+	if f := fileOf(t, res, "z.txt"); f.Big || len(f.Hunks) != 1 || !slices.Equal(f.Hunks[0].Lines, []string{"-zed", "+zed changed"}) {
+		t.Fatalf("after a type change %+v", f)
+	}
+	// asked for on its own, it has both halves
+	if alone := r.review(proto.ReviewUncommitted, "", "link"); len(alone.Files) != 1 || !slices.EqualFunc(linkHunks(alone.Files[0]), wantLink, slices.Equal) {
+		t.Fatalf("alone %+v", alone.Files)
+	}
+
+	// both halves count against the one file's share: three lines over a share of two make it Big
+	saved := reviewPage
+	t.Cleanup(func() { reviewPage = saved })
+	reviewPage = reviewBudget{left: 1 << 20, fileBytes: 1 << 20, fileLines: 2}
+	res = r.review(proto.ReviewUncommitted, "")
+	if f := fileOf(t, res, "link"); !f.Big || len(f.Hunks) != 0 {
+		t.Fatalf("type change over its share %+v", f)
+	}
+	if f := fileOf(t, res, "z.txt"); f.Big || len(f.Hunks) != 1 {
+		t.Fatalf("after a big type change %+v", f)
+	}
+}
+
 func TestGitReviewGeneratedAndConflicts(t *testing.T) {
 	r := newReviewRepo(t, map[string]string{".gitattributes": "*.pb.go linguist-generated\n", "api.pb.go": "package api\n", "a.txt": "base\n"})
 	r.write("api.pb.go", "package api\n\n// regenerated\n")

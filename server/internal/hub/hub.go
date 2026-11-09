@@ -71,6 +71,9 @@ type Hub struct {
 	mutesSend sync.Mutex // one send of the mutes to the managers at a time (fleet_link.go)
 	mutes     *Pins      // muted spaces / agents (no pushes); loaded from settings on first use
 
+	todoOwnersMu sync.RWMutex
+	todoOwners   map[string]string // todo id -> manager id
+
 	// sessionsSent: each machine's last session list sent to the apps, as encoded (broadcastSessions).
 	sessionsMu   sync.Mutex
 	sessionsSent map[string][]sentSession

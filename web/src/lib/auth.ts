@@ -12,6 +12,19 @@ function browserName() {
 /** Where this browser keeps the id of its device token at the hub, to revoke it on signing out and to have it
  *  replaced when it signs in again. */
 export const TOKEN_ID_KEY = "persona.tokenId";
+/** The id of a device token this browser signed out of without the hub revoking it (lib/disconnect.ts): the next
+ *  sign-in here names it in `replaces`, so the hub takes it off then. */
+export const UNREVOKED_KEY = "persona.unrevokedTokenId";
+
+export const unrevokedTokenId = (): string => localStorage.getItem(UNREVOKED_KEY) ?? "";
+
+export function keepUnrevoked(id: string) {
+  localStorage.setItem(UNREVOKED_KEY, id);
+}
+
+export function forgetUnrevoked() {
+  if (localStorage.getItem(UNREVOKED_KEY) !== null) localStorage.removeItem(UNREVOKED_KEY);
+}
 
 /** The name this browser's device token goes by on the hub, with the day it signed in: two browsers of the same kind
  *  (or one browser on two days) can be told apart in Settings › Devices. */
@@ -41,7 +54,8 @@ export function pairToken(input: string): string {
 // (pairToken). The pairing token is checked, then traded for this browser's own one right away (docs/protocol/protocol.md
 // "Authentication"), so it can be revoked on its own and the hub's token is not kept here. The credential this browser had
 // before (its id is kept when the hub turned the token down) goes in "replaces", and the hub takes it off: signing in
-// again keeps one device for this browser. Throws what the hub said (ApiError) when the token is wrong.
+// again keeps one device for this browser; so does one it signed out of without the hub revoking it (UNREVOKED_KEY).
+// Throws what the hub said (ApiError) when the token is wrong.
 export async function pair(input: string): Promise<void> {
   const t = pairToken(input);
   await api("/machines", { token: t });
@@ -49,11 +63,12 @@ export async function pair(input: string): Promise<void> {
   let tokenId: string | undefined;
   if (!t.startsWith("jd_")) {
     try {
-      const replaces = storedCredentials().tokenId;
+      const replaces = storedCredentials().tokenId || unrevokedTokenId();
       const json = { name: deviceName(), kind: "web", ...(replaces ? { replaces } : {}) };
       const r = await api<{ token: string; id: string }>("/auth/tokens", { method: "POST", json, token: t });
       use = r.token;
       tokenId = r.id;
+      forgetUnrevoked(); // the hub has had its one chance at it
     } catch (err) {
       // Only an old hub without the endpoint can keep the original credential.
       // A rejected or failed exchange must not persist a spent code or the hub's master key.

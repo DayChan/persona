@@ -706,6 +706,12 @@ export function displayLines(lines: ChatLine[], all: FeedItem[]): DisplayLine[] 
   return withDays(out);
 }
 
+/** The local day of a time, as a day line takes it (`withDays`). */
+export function startOfDay(t: number): Date {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 /** A day line over the first line of each later day. The lines keep their order, which is not always the order of their
  *  times (an exchange's feed items, a clock that was behind): a line from a day already passed gets no line of its own,
  *  so the days only go forward and each day line (`day-<date>`) is there once. */

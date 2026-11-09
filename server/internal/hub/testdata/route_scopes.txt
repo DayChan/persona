@@ -158,6 +158,8 @@ kb.read              GET /api/v1/kb-search
 kb.read              GET /api/v1/kb/chats/{id}/context
 kb.read              GET /api/v1/kb/chats/{id}/days/{day}
 kb.read              GET /api/v1/kb/moments/{id}
+-                    GET /api/v1/kb/selection
+-                    GET /api/v1/kb/selection/candidates
 kb.read              GET /api/v1/kb/{kind}
 kb.read              GET /api/v1/kb/{kind}/{id}
 -                    GET /api/v1/launchers
@@ -471,6 +473,7 @@ todos.write          POST /api/v1/todos/{id}/decisions
 -                    PUT /api/v1/hub/update/settings
 -                    PUT /api/v1/imessage/settings
 inbox.write          PUT /api/v1/inbox/{id}/parent
+-                    PUT /api/v1/kb/selection
 kb.write             PUT /api/v1/kb/{kind}/{id}
 -                    PUT /api/v1/launchers/{name}
 -                    PUT /api/v1/looks/current

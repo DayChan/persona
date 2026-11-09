@@ -115,6 +115,12 @@ func listKeySized(list []proto.Session, size int) string {
 				w.int(int64(a.Calls), ',')
 			}
 		}
+		if loop := s.ToolLoop; loop != nil {
+			w.b.WriteString("tool-loop:")
+			w.quote(loop.Tool, '/')
+			w.int(int64(loop.Count), '/')
+			w.str(loop.Since.Format(time.RFC3339Nano), '\n')
+		}
 		if s.Loop != nil {
 			w.b.WriteString("loop")
 			w.tmp = strconv.AppendInt(w.tmp[:0], s.Loop.NextAt.Unix(), 10)

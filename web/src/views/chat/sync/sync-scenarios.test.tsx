@@ -57,12 +57,7 @@ const files = import.meta.glob<{ cases: SyncCase[] }>("../../../../../spec/fixtu
 
 /** Cases this page does not pass yet: the bug, and what every failure of the case must say. A known case that fails
  *  for another reason, or passes, fails the suite: the fixed bug comes off this list, and a new one is not hidden. */
-const STARTING_GAP = /^step \d+ \([a-z+]+\): (sent message c1 shows 0 times|messages \[\], want \["user:pending:Plan a weekend trip\."\])$/;
-const KNOWN: Record<string, { issue: string; because: RegExp }> = {
-  // the new-conversation page shows nothing while its start is on the way: the first message is not pending there
-  start_answer_cut_then_receipt: { issue: "#1697", because: STARTING_GAP },
-  start_refused_then_resent_new_op: { issue: "#1697", because: STARTING_GAP },
-};
+const KNOWN: Record<string, { issue: string; because: RegExp }> = {};
 
 let host: HTMLDivElement;
 let root: Root;

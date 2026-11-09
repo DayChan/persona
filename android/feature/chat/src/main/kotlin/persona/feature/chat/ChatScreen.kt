@@ -325,6 +325,7 @@ private fun ChatPage(
             photos.id.takeIf { photos is ChatLine.UserImages && user.id in contentUserImages }
         }.toSet()
     }
+    val contentSourceLabels = remember(lines) { sourceLabelIds(lines.asReversed()) }
     val contentWorkGroups = remember(lines) { lines.filterIsInstance<ChatLine.Work>().associateBy { it.id } }
     // Each open work line's plan card (web #1990 draws only the latest plan of an exchange).
     val contentPlans = remember(contentWorkGroups) { contentWorkGroups.filterValues { it.open }.mapValues { latestPlan(it.value.steps) } }
@@ -855,7 +856,8 @@ private fun ChatPage(
                                         lastWorkStep = (line as? ChatLine.Step)?.let {
                                             contentWorkGroups[it.groupId]?.steps?.lastOrNull()?.id == it.step.id
                                         } == true,
-                                        plan = (line as? ChatLine.Step)?.let { contentPlans[it.groupId] })
+                                        plan = (line as? ChatLine.Step)?.let { contentPlans[it.groupId] },
+                                        showSourceLabel = line.id in contentSourceLabels)
                                         }
                                     }
                                 }

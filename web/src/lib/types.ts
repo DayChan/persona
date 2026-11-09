@@ -139,6 +139,8 @@ export interface TriageSwitches {
   auto_continue: boolean;
   wake: boolean;
   decide: boolean;
+  /** Detect repeated tool calls during a turn (off when absent). */
+  tool_loop?: boolean;
   /** Remind When Seen, Unanswered (#5096): remind once when an agent asked the user something and it stays unanswered after they saw
    *  it. Rule-based, no tokens, so it is on when absent and does not depend on `enabled`. */
   reply_reminder?: boolean;
@@ -493,8 +495,17 @@ export interface Item {
   compact?: CompactInfo;
   /** A message Persona typed in for the model (a task's notice, a scheduled run…), not by you (lib/injected.ts). */
   injected?: Injected;
+  /** Display provenance, independent of the model-facing role. Unknown kinds remain non-user sources. */
+  source?: MessageSource;
   /** Client-only promotion evidence transferred from a removed Fold.supervision_user during an overlapping merge. */
   supervisionUser?: boolean;
+}
+
+/** Message provenance supplied by the assistant, not a group-chat member or a model role. */
+export interface MessageSource {
+  kind: "conversation" | "patrol" | "followup" | "supervision" | (string & {});
+  conversation_id?: string;
+  title?: string;
 }
 
 /** What a message Persona wrote for the model is (docs/protocol/protocol.md "Messages Persona injects"). */

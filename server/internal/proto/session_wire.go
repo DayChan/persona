@@ -21,7 +21,7 @@ import (
 // fields differ from them (a field added, renamed, retyped or retagged by a change that did not update this file),
 // appendSession leaves every session to the reflect encoder: the session is sent whole, only slower, until its line
 // here and this hash are brought up to date. TestSessionWireMatchesReflect fails meanwhile and prints the new hash.
-const sessionWireLayout = 0x39f02caffbdd93c8
+const sessionWireLayout = 0xd9ab81465518e137
 
 var sessionWireCurrent = sessionLayout() == sessionWireLayout
 
@@ -64,6 +64,9 @@ func appendSession(b []byte, s *Session) ([]byte, bool) {
 		return b, false
 	}
 	w := wireWriter{b: append(b, '{'), first: true, ok: true}
+	if s.ToolLoop != nil {
+		w.value(`"tool_loop":`, s.ToolLoop)
+	}
 	w.str(`"manager":`, s.Manager, true)
 	w.str(`"machine_id":`, s.MachineID, false)
 	w.str(`"session_id":`, s.SessionID, false)

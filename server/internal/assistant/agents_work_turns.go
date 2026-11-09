@@ -70,7 +70,16 @@ func (s *Service) bindRetiredTurn(k [2]string, retiredAt time.Time) {
 // workStarted: a session began working (again). Whatever the manager was going to do for its last turn is off; a card
 // for it is withdrawn. How long the turn waited is recorded.
 func (s *Service) workStarted(ctx context.Context, machine, sid string, now time.Time) {
+	s.workStartedObserved(ctx, machine, sid, now, true)
+}
+
+// A first or reconnected working list observes a running turn; it does not
+// prove that the turn started while this manager was connected.
+func (s *Service) workStartedObserved(ctx context.Context, machine, sid string, now time.Time, newTurn bool) {
 	k := [2]string{machine, sid}
+	if newTurn {
+		s.clearToolLoop(k, loopTurnChanged)
+	}
 	s.work.mu.Lock()
 	s.work.init()
 	s.work.started[k] = now
@@ -180,6 +189,9 @@ func (s *Service) workTurnSettled(ctx context.Context, machine, sid string) {
 func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c proto.Session) {
 	if c.Assistant || c.Status == proto.StatusOffline || c.Status == proto.StatusWorking || c.Starting {
 		return
+	}
+	if s.isReviewer(machine, c.SessionID) {
+		return // a review's reviewer: its turn is the review's (supervise_autoreview.go), never the user's to decide
 	}
 	k := [2]string{machine, c.SessionID}
 	s.work.mu.Lock()

@@ -253,13 +253,20 @@ internal fun ChatLineContent(
     workRunning: Boolean = false,
     lastWorkStep: Boolean = false,
     plan: LinePlan? = null,
+    showSourceLabel: Boolean = true,
 ) {
     val res = LocalResources.current
     when (line) {
         is ChatLine.Row -> when (line.row.type) {
-            "user" -> line.row.item?.injected?.let { InjectedLine(line.row.id, it) } ?: line.row.item?.item?.let {
-                MergedUserBubble(listOf(it), textUpdates, onLastLine.takeIf { line.row.id == lastUserId },
-                    images = userPictures(userImages, session, loader))
+            "user" -> line.row.item?.item?.let { item ->
+                val source = persona.core.domain.sourceOf(item)
+                when {
+                    source != null -> SourceMessage(item, source, showSourceLabel, textUpdates[item.id],
+                        images = userPictures(userImages, session, loader))
+                    line.row.item?.injected != null -> InjectedLine(line.row.id, line.row.item!!.injected!!)
+                    else -> MergedUserBubble(listOf(item), textUpdates, onLastLine.takeIf { line.row.id == lastUserId },
+                        images = userPictures(userImages, session, loader))
+                }
             }
             "reply" -> line.row.item?.item?.let { MessageContent(it, false, textUpdates[it.id]) }
             "thinking" -> if (!style.hideThoughts) ThoughtContent(line.row.item?.text.orEmpty(), line.id, style.collapseThoughts)

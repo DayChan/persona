@@ -18,6 +18,7 @@ type quickMeta struct {
 	activity time.Time // last real exchange; zero when unknown
 	queue    []string
 	loop     *proto.LoopInfo
+	toolLoop toolLoopScan
 	goal     *proto.GoalInfo        // from backgroundTasks too: a goal is often set at the start of a long transcript
 	plan     *proto.PlanInfo        // from the same scan (bgPlan): a TodoWrite is often far back in a long turn
 	bg       []proto.BackgroundTask // from backgroundTasks: the tail alone misses tasks started earlier in a long turn
@@ -122,6 +123,8 @@ func (n *Node) meta(path string, st os.FileInfo) quickMeta {
 			m.ultracode, m.ultracodeAt = n.bgUltracode(path)
 			m.plan = n.bgPlan(path)
 			n.mu.Lock()
+			current := n.metas[path]
+			m.toolLoop = current.toolLoop
 			n.metas[path] = m
 			n.mu.Unlock()
 		}
@@ -141,6 +144,8 @@ func (n *Node) meta(path string, st os.FileInfo) quickMeta {
 	m.ultracode, m.ultracodeAt = n.bgUltracode(path)
 	m.plan = n.bgPlan(path)
 	n.mu.Lock()
+	current := n.metas[path]
+	m.toolLoop = current.toolLoop
 	n.metas[path] = m
 	n.mu.Unlock()
 	return m

@@ -27,10 +27,21 @@ func (d *DB) seedWorkspaceBoard(ctx context.Context) error {
 	return err
 }
 
+// WorkspaceBoard reads the board and seeds the default only when the row is missing, so reading an existing board is one
+// statement (the web board polls it every 10 s). Concurrent first reads stay safe: the seed never overwrites, and every
+// reader then returns the stored row.
 func (d *DB) WorkspaceBoard(ctx context.Context) (workspaceboard.State, error) {
+	s, err := d.readWorkspaceBoard(ctx)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return s, err
+	}
 	if err := d.seedWorkspaceBoard(ctx); err != nil {
 		return workspaceboard.State{}, err
 	}
+	return d.readWorkspaceBoard(ctx)
+}
+
+func (d *DB) readWorkspaceBoard(ctx context.Context) (workspaceboard.State, error) {
 	var revision int64
 	var data []byte
 	if err := d.pool.QueryRow(ctx, `SELECT revision, data FROM workspace_board WHERE id = true`).Scan(&revision, &data); err != nil {

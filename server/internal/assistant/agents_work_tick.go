@@ -22,6 +22,7 @@ func (s *Service) workLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
+			s.checkToolLoops(ctx)
 			if s.workOn(ctx) {
 				s.workTick(ctx, now)
 			}

@@ -1,5 +1,7 @@
 {
   "this_computer": "这台电脑",
+  "machine_pending_title": "确认你的电脑",
+  "machine_pending_detail": "先确认{machine}是你的电脑，Persona 才能在上面干活。",
   "no_machine_title": "添加你的电脑",
   "no_machine_detail": "Persona 要在你的一台电脑上干活，现在还没接上电脑。",
   "node_unreachable_title": "{machine} 不在线",

@@ -40,7 +40,7 @@ fun parseContexts(text: String): Pair<List<MessageContext>, String> {
             url = attributes["url"]?.trim()?.takeIf { it.isNotEmpty() },
             body = decodeXmlEntities(block.groupValues[2]).trim('\n', '\r').takeIf { it.isNotBlank() }.orEmpty(),
         )
-    }.toList()
+    }.filterNot { it.kind == "message-source" }.toList()
     return contexts to contextBlock.replace(text, "").trim()
 }
 

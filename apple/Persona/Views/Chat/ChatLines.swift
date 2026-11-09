@@ -15,6 +15,20 @@ struct ChatLines {
         return loadedOnce ? .empty : .loading
     }
 
+    /// Group only adjacent provenance rows after feed/date insertion. A reply, work line, genuine user input or
+    /// date separator starts a new run even when the next relay has the same title.
+    static func sourceRuns(_ lines: [ChatLine]) -> [ChatLine] {
+        var previous: String?
+        return lines.map { original in
+            var line = original
+            let source: MessageSource?
+            if case .row(.user(let item)) = line.content { source = MessageSource.of(item) } else { source = nil }
+            line.showsSource = source == nil || source?.identity != previous
+            previous = source?.identity
+            return line
+        }
+    }
+
     /// Work lines the user flipped from how they start (folded, or open while running with `opensLive`); `openAll`
     /// flips them all (DEBUG `-openAllWork`).
     var openWork: Set<String>

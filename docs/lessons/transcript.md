@@ -2,6 +2,18 @@
 
 Pitfalls, unusual behavior, and the trade-offs made at the time (originally in "Lessons" in `CLAUDE.md`; see the index in `docs/lessons/README.md`). Add new lessons to the relevant section, or start a section if none fits.
 
+## Display provenance is not a model role (#2130)
+
+Persona's `conversation_send` relay is model input with role `user`, not the user's own words. Its existing `from`
+field belongs to runtime peer messages, not Persona conversation ids. Prefer structured source metadata; an older-server
+fallback must require the complete leading delivery envelope and exclude app-sent `client_msg_id` messages. Do not
+classify arbitrary clock/clipboard prefixes or source titles. Preserve unknown source kinds as external provenance,
+bump the item cache version, and carry the provenance into Watch's derived text model as well as the shared chat view.
+Group labels after feed and date insertion; adjacent rows with the same title but different conversation ids are not
+the same speaker. `JSONValue.string` coerces booleans and numbers for generic UI: provenance fields must pattern-match
+actual JSON strings, or malformed metadata can become an invented source instead of protecting a user quotation.
+Use synthetic conversations for screenshots, not the user's real main conversation.
+
 - A session's "last edited" time must be the timestamp of its last real conversation entry (user / assistant / tool): Claude Code appends recap, ai-title,
   mode, and other lines to idle sessions, refreshing the file's mtime. Leave the timestamp blank for sessions whose transcript cannot be found; do not fall back to now (it would always show "Just now").
 - Queued messages: transcript queue-operation entries (enqueue / dequeue / remove / popAll) reconstruct the queue precisely. In the TUI, ↑ brings **all** queued messages back into the input field.

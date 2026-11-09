@@ -31,7 +31,8 @@ const (
 )
 
 // kbConnectors archives what moved in every connector the hub lists (signed in, "Send to knowledge base" on) that is due: its
-// manifest's Poll, else kbConnectorPoll, since it was last asked.
+// manifest's Poll, else kbConnectorPoll, since it was last asked; or, when it said its chats changed (kb.kick),
+// kbChangedFloor.
 func (s *Service) kbConnectors(ctx context.Context, e *kb.Engine) {
 	s.kb.sourceWrites.Lock()
 	defer s.kb.sourceWrites.Unlock()
@@ -55,9 +56,11 @@ func (s *Service) kbConnectors(ctx context.Context, e *kb.Engine) {
 		if s.kb.archivedAt == nil {
 			s.kb.archivedAt = map[string]time.Time{}
 		}
-		due := time.Since(s.kb.archivedAt[src.ID]) >= every
+		since := time.Since(s.kb.archivedAt[src.ID])
+		due := since >= every || s.kb.changed[src.ID] && since >= kbChangedFloor
 		if due {
 			s.kb.archivedAt[src.ID] = time.Now()
+			delete(s.kb.changed, src.ID)
 		}
 		s.kb.mu.Unlock()
 		if !due {

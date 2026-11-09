@@ -118,6 +118,15 @@ func check(t testing.TB, c connector.Connector, inPlugin bool) {
 		decode(t, call(serve.MStatus, struct{}{}), &got)
 		same(t, "status", connector.StatusOf(ctx, c), got)
 	}
+	if m.Has(connector.CapCatalog) {
+		var got connector.CatalogResult
+		decode(t, call(serve.MCatalog, struct{}{}), &got)
+		want, err := connector.ReadCatalog(ctx, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		same(t, "catalog", connector.CatalogResult{Sources: want}, got)
+	}
 	if t2, ok := connector.As[connector.ReadTools](c); ok {
 		var got serve.ToolsResult
 		decode(t, call(serve.MTools, struct{}{}), &got)

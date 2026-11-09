@@ -399,8 +399,13 @@ final class ChatStore {
     private(set) var backlogBuilt = false
     var screen: String = ""
     /// Text of the assistant message being generated (headless sessions stream it token by token), or what of an
-    /// agent's live message its newest items do not hold yet (`agentStreamed`).
-    var liveText: String = ""
+    /// agent's live message its newest items do not hold yet (`agentStreamed`). Set through `showLive`, which a clear's
+    /// fallback watches.
+    private(set) var liveText: String = ""
+    /// Bumped each time `liveText` is set: a clear's fallback (`clearLive`) does nothing once anything else set it.
+    @ObservationIgnored private var liveStamp = 0
+    /// The newest line when the live text began: its copy is written after it, so lines up to this one are not.
+    @ObservationIgnored private var liveSince = 0
     /// The live text is an agent's (its last delta came through `agentStreamed`): a chat of it draws it under the
     /// newest items, as the main chat draws the assistant's, matched against the transcript (`LiveText`).
     private(set) var liveIsAgents = false
@@ -536,6 +541,7 @@ final class ChatStore {
         ids = []
         opened = [:]
         newestFrom = nil
+        liveSince = 0 // the new file's seqs started over
         covered = 0
         hasMore = false
         loadedOnce = false
@@ -676,17 +682,55 @@ final class ChatStore {
     /// the main thread and published a pass later; cleared at once, the reply was gone for a frame, the chat ending
     /// at the message before it, then back (2026-11-04: 「流式输出的时候，滚动就不稳定了」).
     func endLive(_ text: String) {
-        guard rebuildScheduled else { liveText = ""; return }
+        guard rebuildScheduled else { showLive(""); return }
         liveEnds = text
+    }
+
+    /// The streamed text as a delta gave it ("": cleared).
+    func showLive(_ text: String) {
+        if liveText.isEmpty, !text.isEmpty { liveSince = items.last?.seq ?? 0 }
+        liveText = text
+        liveStamp += 1
     }
 
     /// A batch was taken in (`apply`): if it holds the streamed message (`pending`: a newer text kept back to draw), its
     /// live copy goes once its row comes (`endLive`). True when it did: what was kept back is stale now.
     func landed(_ new: [Item], pending: String?) -> Bool {
         let live = pending ?? liveText
-        guard !live.isEmpty, new.contains(where: { $0.role == "assistant" && $0.kind == .text && ($0.text ?? "").hasPrefix(live) }) else { return false }
+        guard new.contains(where: { Self.isLiveCopy($0, of: live, after: liveSince) }) else { return false }
         endLive(live)
         return true
+    }
+
+    /// `item` is the transcript line of the streamed `live` text: the reply (a text item), or the words written before a
+    /// tool call, which Claude Code streams as text and records as a thinking block (#1966: their live copy never landed,
+    /// and stayed at the end of the chat with its cursor). Written after line `since` (the newest when the text began):
+    /// an earlier line that starts the same way ("我…") is not it.
+    nonisolated static func isLiveCopy(_ item: Item, of live: String, after since: Int = 0) -> Bool {
+        !live.isEmpty && item.seq > since && item.role == "assistant" && (item.kind == .text || item.kind == .thinking)
+            && (item.text ?? "").hasPrefix(live)
+    }
+
+    /// The streamed `live` text's line is among `items`, looked for back to the line it began after (`since`), the start of
+    /// the turn (the user's message that began it) and at most `window` items: a turn of fifteen tool calls puts the
+    /// words before them thirty lines back.
+    nonisolated static func holdsLive(_ items: [Item], _ live: String, after since: Int = 0, window: Int = 400) -> Bool {
+        for item in items.reversed().prefix(window) {
+            if item.seq <= since { return false }
+            if isLiveCopy(item, of: live, after: since) { return true }
+            if item.role == "user", item.kind == .text, item.queued != true { return false }
+        }
+        return false
+    }
+
+    /// A subscription's backlog is in (a new subscription, one made again after the page was hidden, a reconnect that
+    /// resumed): a clear that came while this chat was not listening is not sent again (deltas are not replayed), and the
+    /// hub sends the live text right after the backlog only while a message is being generated. So what is drawn goes as
+    /// a clear makes it go (`clearLive`); a delta that follows takes its place (#1966). An agent's is matched against the
+    /// transcript instead (`agentStreamed`).
+    func backlogArrived() {
+        guard !liveIsAgents, !liveText.isEmpty else { return }
+        clearLive(newest: nil)
     }
 
     /// The stream was cleared (`text`: the newest text streamed). The hub clears it when the turn ends or the next
@@ -694,16 +738,16 @@ final class ChatStore {
     /// did, the chat ending at the message before it. The live copy stays until the item comes (`endLive`), 5 s at most
     /// (a turn cut off before its message was written).
     func clearLive(newest text: String?) {
-        if let text, !text.isEmpty, text.hasPrefix(liveText) { liveText = text }
+        if let text, !text.isEmpty, text.hasPrefix(liveText) { showLive(text) }
         let shown = liveText
         guard !shown.isEmpty else { return }
-        if items.suffix(12).contains(where: { $0.role == "assistant" && $0.kind == .text && ($0.text ?? "").hasPrefix(shown) }) {
-            return endLive(shown)
-        }
+        if Self.holdsLive(items, shown, after: liveSince) { return endLive(shown) }
+        let stamp = liveStamp
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard let self, self.liveText == shown else { return }
-            self.liveText = ""
+            // Anything set since (a new delta, even the same text sent again after a backlog) keeps it.
+            guard let self, self.liveStamp == stamp, self.liveText == shown else { return }
+            self.showLive("")
         }
     }
 
@@ -713,7 +757,17 @@ final class ChatStore {
     /// `agentStreamed`; the headless assistant's is its whole reply so far, "" when it ends (`newest`: a newer text the
     /// pacer kept back).
     func streamed(_ text: String, agents: Bool, newest: String? = nil) {
-        if agents { agentStreamed(text) } else if text.isEmpty { clearLive(newest: newest) } else { liveText = text }
+        if agents {
+            agentStreamed(text)
+        } else if text.isEmpty {
+            clearLive(newest: newest)
+        } else if liveText.isEmpty, Self.holdsLive(items, text) {
+            // Its line is in already: the text sent again after a backlog (its line came with it), or a last delta
+            // after its copy landed. Drawn, it was taken for a new message and its line never ended it (#1966).
+            return
+        } else {
+            showLive(text)
+        }
     }
 
     /// An agent's delta as the pacer lets it through (docs/integrations/claude-integration.md "Live replies
@@ -736,7 +790,7 @@ final class ChatStore {
     /// The live text drops at once: the socket started over, or (an agent's) the chat's subscription ended or started
     /// again (`AppModel.forgetAgentLive`); the hub sends the current one again after its catch-up.
     func dropLive() {
-        liveText = ""
+        showLive("")
         agentLive = ""
         agentLiveDue = false
     }
@@ -744,7 +798,7 @@ final class ChatStore {
     private func showAgentLive() {
         guard !rebuildScheduled else { agentLiveDue = true; return } // with the rows it waits for
         let want = agentLiveShown()
-        if want != liveText { liveText = want }
+        if want != liveText { showLive(want) }
     }
 
     /// What of the agent's live message to draw: what the newest items do not hold.
@@ -794,13 +848,13 @@ final class ChatStore {
                 // meanwhile stays).
                 if let ended = self.liveEnds {
                     self.liveEnds = nil
-                    if ended.hasPrefix(self.liveText) { self.liveText = "" }
+                    if ended.hasPrefix(self.liveText) { self.showLive("") }
                 }
                 // An agent's live text that waited for these rows (`showAgentLive`): in the same pass.
                 if self.agentLiveDue {
                     self.agentLiveDue = false
                     let want = self.agentLiveShown()
-                    if want != self.liveText { self.liveText = want }
+                    if want != self.liveText { self.showLive(want) }
                 }
                 // No item changed since the snapshot (same revision): these blocks hold everything loaded so far.
                 if self.backlogBuilt != self.loadedOnce { self.backlogBuilt = self.loadedOnce }
@@ -1272,9 +1326,10 @@ nonisolated enum ChatCache {
     /// (#5511); v9's copies would keep its Chinese text for English and Japanese users. v11: folds carry the task
     /// lists their calls left (`Fold.tasks`), the chat's plan while its TodoWrite is folded (#5602).
     /// Bump it whenever the item structure or the text the hub gives an item changes.
-    static let folder = "chats-v11"
+    /// v12: relayed and automated assistant input retains additive source metadata.
+    static let folder = "chats-v12"
     /// The folder before, removed on the first launch with this one.
-    private static let previous = "chats-v10"
+    private static let previous = "chats-v11"
 
     /// Once per launch, before the first copy is read or written (a static let runs once, on whichever thread asks first).
     private static let dropOlder: Void = {
@@ -1403,7 +1458,7 @@ nonisolated struct PendingMessage: Identifiable, Hashable, Codable, Sendable {
     /// the same words (a second "Continue") is not it: the bubble of one never sent stayed gone.
     static func arrived(_ p: PendingMessage, as item: Item) -> Bool {
         if let tied = tied(item, to: p.id) { return tied }
-        guard item.role == "user", item.kind == .text, Injected.of(item) == nil else { return false }
+        guard item.role == "user", item.kind == .text, Injected.of(item) == nil, MessageSource.of(item) == nil else { return false }
         if let created = p.createdAt, let ts = item.ts, ts < created.addingTimeInterval(-120) { return false }
         guard item.fullSize != nil else { return same(item.text ?? "", p.text) }
         let start = normalize(item.cutText), whole = normalize(p.text)

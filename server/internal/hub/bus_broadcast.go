@@ -35,7 +35,7 @@ import (
 var managerMessageTypes = map[string]bool{
 	// the assistant
 	"assistant_feed": true, "assistant_schedule": true, "assistant_view": true, "assistant_view_action": true,
-	"assistant_view_block": true, "agents.triage": true, "interaction_reanswered": true, "launcher_health": true,
+	"assistant_view_block": true, "agents.triage": true, "interaction_reanswered": true, "kb_selection": true, "launcher_health": true,
 	"model_profile": true, "task_plan": true, "todos": true, "workspace_board": true, "workspace_board_settings": true,
 	// its extensions' manager
 	"agents": true, "agents.prefs": true, "inbox": true, "mail_accounts": true, "messaging": true,

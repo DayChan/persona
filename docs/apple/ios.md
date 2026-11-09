@@ -1093,15 +1093,44 @@ Apple clients do not draw them as user bubbles or show the model's instructions:
 
 - Recognition: `Injected.of(item)` (`Shared/Injected.swift`) first checks the hub's `item.injected`; on old hubs without the field it recognizes text using the same rules as the hub's `prompts.ParseInjected`,
   tested by `InjectedTests` with shared fixtures `spec/fixtures/injected/cases.json`. App-sent messages (with `client_msg_id`) and messages from another session (`from`) do not count.
-- Chat page: `ChatView.rowView` draws `InjectedLine`, a centered capsule like the "Answered" row (`AnsweredLine`), with an icon and `line`. `InjectedLook` determines icons and colors, shared by phone, Mac and watch:
-  finished is a green checkmark, waiting for you an accent-colored raised hand, interrupted or failed to start a red warning, scheduled tasks an alarm clock, wake-ups a bell, node restart gray information.
+- Chat page: task notices and system explanations use `InjectedLine`, a centered capsule like the "Answered" row (`AnsweredLine`), with an icon and `line`. `InjectedLook` determines icons and colors, shared by phone, Mac and watch:
+  finished is a green checkmark, waiting for you an accent-colored raised hand, interrupted or failed to start a red warning, node restart gray information.
   Tap a task notice for task details: use the hub's `todo_id`, otherwise find the newest same-name task created by this chat; without a match it is not tappable.
-  A scheduled-task or follow-up row can be opened to see the task's actual request (`detail`).
+  Scheduled runs and follow-ups now use the source-mention rows below.
 - When a turn has multiple messages, each gets its own row; the injected one uses the centered row above.
   Nor is it treated as delivery of a pending bubble (`PendingMessage.arrived`).
 - Watch: a small centered line (icon plus `line`), no bubble (screenshots: mock `MOCK_INJECTED_WATCH=1`, watch `-openWatchItem session`).
 - Chat-list previews use the assistant's words (`last_text`), which already exclude these messages.
 - `ChatCache` bumped to v9: old cached items lack `injected`.
+
+### Source mentions in the assistant conversation (#2130)
+
+Display provenance does not change model input roles. Relayed conversation messages and automated updates use the
+shared `SourceMessage` component on iOS and macOS, and `WatchSourceMessage` on Watch, never a right-aligned user bubble.
+The existing single-conversation navigation and Assistant / Agents tabs stay unchanged: no group title, participants,
+announcement or per-message avatar.
+
+- `MessageSource.of` follows the source contract in `docs/protocol/protocol.md` ("Message source"): explicit `source`
+  wins, then persisted `kind="message-source"` context, existing `injected`, and exact legacy relay envelopes.
+  Kinds are `conversation`, `patrol`, `followup`, and `supervision`; daily/interval followups map to `patrol`.
+  `conversation_id` and `title` are optional. Unknown kinds remain external sources, and malformed optional
+  fields do not drop an item. `Item.source` retains the JSON object for cache round-trips.
+  The first persisted metadata block is authoritative: `{"author":"user"}` or malformed metadata prevents nested
+  source inference. Provenance blocks never become selectable Context cards; genuine selected contexts remain available.
+- With an older server, only a complete leading relay context with the fixed non-user delivery sentence is recognized.
+  Exact scheduled envelopes reuse `Injected`; supervision requires both its exact header and non-user notice.
+  App-sent text with `client_msg_id` is never heuristically reclassified. A bare clock, clipboard, title or quoted
+  protocol example is not a source. This fallback is a presentation heuristic, not authentication.
+- The accent `@source` label appears only on the first adjacent row of the same source identity (kind + conversation
+  id, or title when no id exists). A reply, genuine user input, work row or date separator starts a new run. Grouping
+  is prepared after final row ordering rather than in lazy-row lifecycle callbacks.
+- Long content starts at three lines with Expand / Collapse; short messages have no extra control. The source side
+  uses design-system surface/type/color tokens in both appearances. These attribution corrections apply with the
+  optional new conversation layout on or off. Genuine user bubbles are unchanged.
+- Source rows are excluded from the genuine-input edge navigator and pending-message text matching. `ChatCache` v12
+  prevents old cached copies without provenance from keeping the user-bubble presentation.
+- Verification uses `MessageSourceTests`, `MessageSourceUITests`, and the loopback-only synthetic fixture
+  `scripts/mock/message_sources_hub.py` (`--legacy` omits source metadata, `--watch` restricts the session inventory).
 
 ## New conversation layout (#1666)
 
@@ -1110,8 +1139,8 @@ Off, the conversation is drawn exactly as before. The Agents chat, the Mac and V
 `ChatView` reads the choice once and hands rows `\.chatLayout` through the environment, so no row observes UserDefaults (`Persona/Views/Chat/ChatLayout.swift`).
 
 - **Who talks to whom**, from the hub's existing fields only: feed `routed` that Persona wrote (`from` `assistant`, #1542) reads "Persona → @task" (`RoutedExchange`; off, #1542's folded `AgentSentLine`), what the user sent a task (`routed` without `from`) "Me → @task" in the user's box (`UserRoutedExchange`), feed `report` reads "task → @Persona" (`ReportExchange`),
-  and injected `system` / `supervise` (the supervision digest) and `followup` (scheduled runs, follow-ups, wake-ups) read "Supervision · Persona → @Persona" (`Injected.isPatrol`, `InjectedLine.patrol`): Persona writing to itself,
-  on Persona's side, never where the user's messages are. Task notices, node-restart and Inbox lines keep their centered line. The addressee is in the accent; there is no group name, member list or avatar per speaker.
+  while supervision, scheduled runs, follow-ups and wake-ups use the source mentions above, on the source's side, never where the user's messages are.
+  Task notices, node-restart and Inbox lines keep their centered line. The addressee is in the accent; there is no group name, member list or avatar per speaker.
 - **Boxes**: every message sits in a box, the user's pale blue (`Theme.ChatBox.user`) and Persona's, its exchanges' and its notes' pale gray (`Theme.ChatBox.persona`), words in the primary color in both modes (`ChatLayoutTests` checks the contrast). The answer streams in the box it settles in.
 - **Folding**: what Persona and a task say to each other shows its first N lines (3 by default) with Expand / Collapse under it (`ExchangeText`, measured against the whole text, so a short one has no button); the setting offers Folded / Show N Lines / Expand All.
   No evidence list under a report (it was not tappable); web links in the words are links (`ExchangeText.linked`).

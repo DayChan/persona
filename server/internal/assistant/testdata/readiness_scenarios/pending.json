@@ -3,20 +3,24 @@
     "checked_at": "",
     "dismissed": false,
     "launcher": "claude",
-    "machine": null,
+    "machine": {
+      "id": "mbp",
+      "name": "小林的 MacBook"
+    },
     "mode": "setup",
     "next": "computer",
     "ready": false,
     "steps": [
       {
         "action": {
-          "id": "add_computer"
+          "id": "confirm_computer"
         },
-        "code": "no_machine",
-        "detail": "Persona works on one of your computers, and none is connected yet.",
+        "code": "machine_pending",
+        "detail": "Confirm that 小林的 MacBook is your computer before Persona can work on it.",
         "id": "computer",
+        "machine": "mbp",
         "state": "todo",
-        "title": "Add your computer"
+        "title": "Confirm your computer"
       },
       {
         "id": "claude",
@@ -49,20 +53,24 @@
     "checked_at": "",
     "dismissed": false,
     "launcher": "claude",
-    "machine": null,
+    "machine": {
+      "id": "mbp",
+      "name": "小林的 MacBook"
+    },
     "mode": "setup",
     "next": "computer",
     "ready": false,
     "steps": [
       {
         "action": {
-          "id": "add_computer"
+          "id": "confirm_computer"
         },
-        "code": "no_machine",
-        "detail": "Persona はお使いのコンピューターの 1 台で作業します。まだコンピューターが接続されていません。",
+        "code": "machine_pending",
+        "detail": "Persona が使えるように、小林的 MacBook があなたのコンピューターであることを確認してください。",
         "id": "computer",
+        "machine": "mbp",
         "state": "todo",
-        "title": "コンピューターを追加"
+        "title": "コンピューターを確認"
       },
       {
         "id": "claude",
@@ -93,21 +101,23 @@
   },
   "start": {
     "body": {
-      "action": "add_computer",
-      "code": "no_machine",
+      "action": "confirm_computer",
+      "code": "machine_pending",
       "delivered": "none",
-      "detail": "assistant machine is not configured",
-      "error": "Persona 要在你的一台电脑上干活，现在还没接上电脑。"
+      "detail": "this computer is waiting to be confirmed in the Persona app",
+      "error": "这台电脑还没确认是你的。",
+      "machine_name": "小林的 MacBook"
     },
     "status": 409
   },
   "start.en": {
     "body": {
-      "action": "add_computer",
-      "code": "no_machine",
+      "action": "confirm_computer",
+      "code": "machine_pending",
       "delivered": "none",
-      "detail": "assistant machine is not configured",
-      "error": "Persona works on one of your computers, and none is connected yet."
+      "detail": "this computer is waiting to be confirmed in the Persona app",
+      "error": "This computer hasn't been confirmed as yours yet.",
+      "machine_name": "小林的 MacBook"
     },
     "status": 409
   },
@@ -115,20 +125,24 @@
     "checked_at": "",
     "dismissed": false,
     "launcher": "claude",
-    "machine": null,
+    "machine": {
+      "id": "mbp",
+      "name": "小林的 MacBook"
+    },
     "mode": "setup",
     "next": "computer",
     "ready": false,
     "steps": [
       {
         "action": {
-          "id": "add_computer"
+          "id": "confirm_computer"
         },
-        "code": "no_machine",
-        "detail": "Persona 要在你的一台电脑上干活，现在还没接上电脑。",
+        "code": "machine_pending",
+        "detail": "先确认小林的 MacBook是你的电脑，Persona 才能在上面干活。",
         "id": "computer",
+        "machine": "mbp",
         "state": "todo",
-        "title": "添加你的电脑"
+        "title": "确认你的电脑"
       },
       {
         "id": "claude",

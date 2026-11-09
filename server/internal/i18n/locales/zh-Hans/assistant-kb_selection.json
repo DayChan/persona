@@ -1,0 +1,9 @@
+{
+  "no_db": "选择设置需要数据库，但数据库现在不可用。",
+  "invalid": "选择设置无效：{detail}",
+  "read_only_device": "只读设备不能修改选择设置。",
+  "no_source": "请指明来源：?source=<连接器 id>。",
+  "no_history": "{source} 现在列不出会话：它不提供历史，或者没有连上。",
+  "list_stopped": "列会话时历史导入停下了（{reason}），恢复之前不会再请求。",
+  "list_failed": "没能列出会话（{code}）。"
+}

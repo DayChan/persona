@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -48,9 +49,10 @@ func kbOffline(err error) bool {
 		errors.As(err, &re) && (re.Code == assistantwire.CodeAssistantOffline || re.Code == assistantwire.CodeKBUnavailable)
 }
 
-// kbKick tells the knowledge base a source has something new (it goes round soon).
-func (h *Manager) kbKick() {
+// kbKick tells the knowledge base that connector id's chats or items (scope) have something new: it goes round soon
+// and reads them at that round.
+func (h *Manager) kbKick(id string, scope connector.Scope) {
 	if !h.kbOff() && !h.kbReadOnly() {
-		h.notifyAssistant(assistantwire.EventKBKick, map[string]any{})
+		h.notifyAssistant(assistantwire.EventKBKick, assistantwire.KBKick{Connector: id, Scope: string(scope)})
 	}
 }

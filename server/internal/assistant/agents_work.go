@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ type TriageSwitches struct {
 	AutoContinue bool `json:"auto_continue"` // "Continue" after a transient model error, and once a usage limit reset
 	Wake         bool `json:"wake"`          // wake agents whose wait should be over
 	Decide       bool `json:"decide"`        // cards for what the user is to decide
+	ToolLoop     bool `json:"tool_loop"`     // detect repeated tool calls while a turn runs
 	// ReplyReminder: push once when an agent the user looked at still waits on their answer (agents_reply.go,
 	// #5096). Rules only, no tokens: unset is on.
 	ReplyReminder *bool `json:"reply_reminder,omitempty"`
@@ -46,7 +48,7 @@ const triageSettingKey = "agents.triage"
 func set(b *bool) bool { return b != nil && *b }
 
 func switchesOf(c assistantwire.TriageConfig) TriageSwitches {
-	return TriageSwitches{Enabled: set(c.Enabled), AutoContinue: set(c.AutoContinue), Wake: set(c.Wake), Decide: set(c.Decide)}
+	return TriageSwitches{Enabled: set(c.Enabled), AutoContinue: set(c.AutoContinue), Wake: set(c.Wake), Decide: set(c.Decide), ToolLoop: set(c.ToolLoop)}
 }
 
 func maxRetries(c assistantwire.TriageConfig) int { return cmp0(c.MaxRetries, 3) }
@@ -141,19 +143,27 @@ type workStore interface {
 
 // workBook is the manager's copy of session_work, plus what only matters while it runs.
 type workBook struct {
-	mu         sync.Mutex
-	entries    map[[2]string]*db.SessionWork
-	cards      map[string]proto.Interaction // the cards out, by id (the snapshot's interactions)
-	loaded     bool
-	triaging   map[[2]string]bool
-	ciPolling  map[[2]string]bool      // bounded concurrent check reads
-	generation map[[2]string]uint64    // user activity invalidates in-flight triage
-	tried      map[[2]string]triedTurn // the turn a triage was last attempted on, and when
-	sent       map[[2]string]time.Time // when the manager itself last sent the session something
-	seen       map[[2]string]time.Time // the turn whose first look was recorded
-	started    map[[2]string]time.Time // local time of the latest turn-start event
-	viewed     map[[2]string]bool      // a view since that event
-	approved   map[[2]string]approval  // a risky next step the user said yes to, for the wait it ends
+	mu           sync.Mutex
+	entries      map[[2]string]*db.SessionWork
+	cards        map[string]proto.Interaction // the cards out, by id (the snapshot's interactions)
+	loaded       bool
+	triaging     map[[2]string]bool
+	ciPolling    map[[2]string]bool           // bounded concurrent check reads
+	loops        map[[2]string]*toolLoopState // running-turn loop candidates and cards
+	loopLoadMu   sync.Mutex                   // serialize loading without holding work.mu on the database
+	loopSaveMu   sync.Mutex                   // serialize durable loop snapshots
+	switchMu     sync.Mutex                   // serialize settings updates
+	loopLoaded   bool
+	loopSaved    bool
+	loopSnapshot []byte                        // last successfully persisted canonical snapshot, protected by mu
+	loopInvalid  map[[2]string]loopClearReason // activity received while the saved state could not be read
+	generation   map[[2]string]uint64          // user activity invalidates in-flight triage
+	tried        map[[2]string]triedTurn       // the turn a triage was last attempted on, and when
+	sent         map[[2]string]time.Time       // when the manager itself last sent the session something
+	seen         map[[2]string]time.Time       // the turn whose first look was recorded
+	started      map[[2]string]time.Time       // local time of the latest turn-start event
+	viewed       map[[2]string]bool            // a view since that event
+	approved     map[[2]string]approval        // a risky next step the user said yes to, for the wait it ends
 	// answering marks cards whose answer is being delivered to the agent: a repeated callback in the send window
 	// (a redelivered webhook, a second tap, phone and watch together) is the same answer, not a second one.
 	answering map[string]bool
@@ -178,6 +188,7 @@ func (b *workBook) init() {
 		b.cards = map[string]proto.Interaction{}
 		b.triaging = map[[2]string]bool{}
 		b.ciPolling = map[[2]string]bool{}
+		b.loops = map[[2]string]*toolLoopState{}
 		b.generation = map[[2]string]uint64{}
 		b.tried = map[[2]string]triedTurn{}
 		b.sent = map[[2]string]time.Time{}
@@ -262,14 +273,84 @@ func (s *Service) workOn(ctx context.Context) bool { return s.triageSwitches(ctx
 // putTriageSwitches saves the switches. What they turn off stops at once: the cards are withdrawn, due retries and
 // wakes dropped; the apps hear of it ({"type":"agents.triage"}) and the lists follow the next snapshot.
 func (s *Service) putTriageSwitches(ctx context.Context, sw TriageSwitches) error {
+	s.work.switchMu.Lock()
+	defer s.work.switchMu.Unlock()
+	turnOff := !sw.Enabled || !sw.ToolLoop
+	clearLoops := turnOff
+	if turnOff {
+		// If it was already off, its saved rows can still hold pending expiry
+		// history. Updating another switch must not load or overwrite them.
+		if previous, err := s.readTriageSwitches(ctx); err == nil {
+			if !previous.Enabled || !previous.ToolLoop {
+				clearLoops = false
+			} else if err := s.loadToolLoops(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	loopLocked := false
+	defer func() {
+		if loopLocked {
+			s.work.loopSaveMu.Unlock()
+			s.work.loopLoadMu.Unlock()
+		}
+	}()
+	if clearLoops {
+		// A load or loop save must not resurrect old cards between the atomic
+		// settings commit and the in-memory clear.
+		s.work.loopLoadMu.Lock()
+		s.work.loopSaveMu.Lock()
+		loopLocked = true
+	}
+	var expired []savedToolLoop
+	if clearLoops {
+		s.work.mu.Lock()
+		for k, state := range s.work.loops {
+			if state.expiredID != "" && (!state.consuming || state.consumedSaved) {
+				expired = append(expired, savedToolLoop{Machine: k[0], Session: k[1], UpdatedAt: time.Now().UTC(), ExpiredID: state.expiredID})
+			}
+		}
+		s.work.mu.Unlock()
+	}
+	var loopSnapshot []byte
 	if st := s.store(); st != nil {
-		if err := st.PutSetting(ctx, triageSettingKey, sw); err != nil {
+		if clearLoops {
+			var err error
+			loopSnapshot, err = toolLoopSnapshot(expired)
+			if err != nil {
+				return err
+			}
+			batch, ok := st.(interface {
+				PutSettings(context.Context, map[string]any) error
+			})
+			if !ok {
+				return errors.New("atomic triage settings writes are unavailable")
+			}
+			if expired == nil {
+				expired = []savedToolLoop{}
+			}
+			if err := batch.PutSettings(ctx, map[string]any{triageSettingKey: sw, toolLoopsSetting: expired}); err != nil {
+				return err
+			}
+		} else if err := st.PutSetting(ctx, triageSettingKey, sw); err != nil {
 			return err
 		}
 	}
 	s.work.mu.Lock()
 	s.work.init()
 	s.work.switches = &sw
+	if clearLoops {
+		for _, loop := range s.work.loops {
+			delete(s.work.cards, loop.cardID)
+		}
+		clear(s.work.loops)
+		for _, row := range expired {
+			s.work.loops[[2]string{row.Machine, row.Session}] = &toolLoopState{updatedAt: row.UpdatedAt, expiredID: row.ExpiredID}
+		}
+		s.work.loopLoaded, s.work.loopSaved = true, len(expired) != 0
+		s.work.loopSnapshot = loopSnapshot
+		s.work.loopInvalid = nil
+	}
 	var stale []db.SessionWork
 	for _, e := range s.work.entries {
 		off := !sw.Enabled || continues(e.Work) && !sw.AutoContinue ||
@@ -284,6 +365,11 @@ func (s *Service) putTriageSwitches(ctx context.Context, sw TriageSwitches) erro
 		}
 	}
 	s.work.mu.Unlock()
+	if loopLocked {
+		s.work.loopSaveMu.Unlock()
+		s.work.loopLoadMu.Unlock()
+		loopLocked = false
+	}
 	for _, e := range stale {
 		s.saveWork(e)
 	}
@@ -500,6 +586,13 @@ func (s *Service) publishSoon() {
 
 // workReport is the snapshot's work: the stored states (with the switches' On), nil while they could not be read.
 func (s *Service) workReport(ctx context.Context) *WorkReport {
+	sw := s.triageSwitches(ctx)
+	if sw.Enabled && sw.ToolLoop {
+		if err := s.loadToolLoops(ctx); err != nil {
+			s.logf("tool loop: load: %v", err)
+			return nil
+		}
+	}
 	if !s.loadWork(ctx) {
 		return nil
 	}

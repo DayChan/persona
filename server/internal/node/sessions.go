@@ -243,6 +243,9 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 		if s.Cwd != "" && n.cwdBlocked(s.Cwd) && !n.isAssistantSession(s.SessionID) && !n.keptSessions()[s.SessionID] {
 			continue
 		}
+		if s.Status == proto.StatusWorking && (s.Agent == "" || s.Agent == "claude" || s.Agent == "codex") {
+			s.ToolLoop = n.toolLoopOf(s.SessionID)
+		}
 		s.WorkspaceCwd = n.sessionWorkspaceCwd(s.Cwd)
 		s.CanFork = n.forkable(s) // "Branch to New Chat" (fork.go)
 		keptSessions = append(keptSessions, s)

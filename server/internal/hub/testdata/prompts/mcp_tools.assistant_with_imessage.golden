@@ -483,7 +483,7 @@
   },
   {
     "name": "agent_read",
-    "description": "Read the recent conversation of one agent (from agents_list): the user's messages, what the agent said, tool calls in short form. `turns` = how many recent exchanges (default 2, max 10).",
+    "description": "Read the recent conversation of one agent (from agents_list): the user's messages, what the agent said, tool calls in short form. `turns` = how many recent exchanges (default 2, max 10). Use it to answer the user's follow-ups about work an agent or task already did (its conclusion, a PR link, why it stopped) instead of asking the agent with agent_send, which makes it take another turn (a closed agent is resumed first) while the user waits.",
     "input_schema": {
       "type": "object",
       "required": [
@@ -1083,6 +1083,107 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    }
+  },
+  {
+    "name": "kb_history_plan",
+    "description": "Show or change what a source's history import reads. What is read of each chat comes from the knowledge base's selection (the same rules as daily ingestion; per-chat settings are changed here with `set`): the whole chat, only the user's own messages (with the messages around them) and mentions of the user, or nothing. Without `set` or `back_days` it refreshes the source's chat list and lists the chats grouped that way, largest first, with each chat's id and any per-chat setting of the user's. `set` changes per-chat settings, which apply to daily ingestion too: a chat by its id or exact name (a name two chats share is refused with their ids, a name no chat has gets close names; then nothing is changed); `read: false` never reads it, `read: true, store: true` keeps the whole chat (for `days`, or as the rules say), `read: true, store: false` only the user's messages and mentions, `reset: true` back to the rules. `back_days` limits how far back the import goes (null: as far as the rules keep messages). A change, or a refreshed list, that reads more than the user approved takes the approval back, so the import needs kb_history_resume again; reading less does not. Listing or changing never starts the import: show the user the list, apply the exceptions they name, show the result again, and only when they say to start call kb_history_resume. Needs `kb.history.enabled` in manager.json.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "connector id from kb.history.sources; omitted: every configured source (required with set or back_days)"
+        },
+        "set": {
+          "type": "array",
+          "description": "per-chat settings to change, all or none",
+          "items": {
+            "type": "object",
+            "required": [
+              "chat"
+            ],
+            "properties": {
+              "chat": {
+                "type": "string",
+                "description": "the chat's id, or its exact name"
+              },
+              "read": {
+                "type": "boolean",
+                "description": "false: never read it (required unless reset)"
+              },
+              "store": {
+                "type": "boolean",
+                "description": "true: keep the whole chat; false: only the user's messages and mentions"
+              },
+              "days": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "with store: how many days its lines are kept (null: as the rules say)"
+              },
+              "reset": {
+                "type": "boolean",
+                "description": "remove the chat's setting: the rules decide again"
+              }
+            }
+          }
+        },
+        "back_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "how many days back the import goes for this source; null: as far as the rules keep messages"
+        }
+      }
+    }
+  },
+  {
+    "name": "kb_history_status",
+    "description": "How the history import is doing, per source: its state (running, resting, paused, stopped, done, waiting for approval or for the search index), whether its plan is approved, chats done / to go / paused / in error / unreadable with messages read and written, calls and messages in the last hour, the last slowdown, pause and stop with their reasons, and the last call. Read-only.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "one connector id; omitted: all configured sources"
+        }
+      }
+    }
+  },
+  {
+    "name": "kb_history_stop",
+    "description": "Stop the history import now: it makes no further call until the user resumes it (the call in flight, if any, finishes; nothing is cancelled). Use it whenever the user says to stop or pause importing history.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "why, in a few words, as the user said it; shown in the status, never written to the log"
+        }
+      }
+    }
+  },
+  {
+    "name": "kb_history_resume",
+    "description": "Approve a source's history import plan, as the selection reads it now, and start or resume the import (it also clears a stop). Only when the user has seen the plan (kb_history_plan) and explicitly says to start or resume; never on your own. After a stop, check kb_history_status first and tell the user why it stopped; `slow` keeps the slowest pace for the first two hours after the import starts again, the safe choice after a stop.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "connector id from kb.history.sources"
+        },
+        "slow": {
+          "type": "boolean",
+          "description": "the slowest pace for the first two hours of calls"
         }
       }
     }

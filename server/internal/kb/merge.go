@@ -27,6 +27,17 @@ import (
 // a line count the same however they were written (dupKey): the live archive links what it saved, history writes a
 // placeholder naming the kind. A duplicate is dropped, against the file and within lines.
 func (s *Store) MergeMessages(c *Chat, lines []Line) (added int, err error) {
+	ruled := make([]ingestLine, len(lines))
+	for i, l := range lines {
+		ruled[i] = ingestLine{Line: l}
+	}
+	return s.mergeMessages(c, ruled, false, "")
+}
+
+// mergeMessages is MergeMessages; selected: the lines went through the selection, and the chat's retention ledger
+// (begun with usual) records those another rule decided, written before the day files. A line dropped as a
+// duplicate still notes its rule: the line there is kept as long as the longer of both.
+func (s *Store) mergeMessages(c *Chat, ruled []ingestLine, selected bool, usual string) (added int, err error) {
 	if s.readOnly {
 		return 0, ErrReadOnly
 	}
@@ -42,15 +53,19 @@ func (s *Store) MergeMessages(c *Chat, lines []Line) (added int, err error) {
 	}
 	zone := s.zoneLocked()
 	byDay := map[string][]Line{}
+	rules := map[string][]string{}
 	var days []string
-	for _, l := range lines {
+	for _, l := range ruled {
 		d := l.At.In(zone).Format("2006-01-02")
 		if _, ok := byDay[d]; !ok {
 			days = append(days, d)
 		}
-		byDay[d] = append(byDay[d], l)
+		byDay[d] = append(byDay[d], l.Line)
+		rules[d] = append(rules[d], l.rule)
 	}
 	sort.Strings(days)
+	olds := map[string][]byte{}
+	var notes []ledgerNote
 	for _, d := range days {
 		p := s.path(KindChat, c.ID, "messages", d+".md")
 		old, err := os.ReadFile(p)
@@ -60,7 +75,35 @@ func (s *Store) MergeMessages(c *Chat, lines []Line) (added int, err error) {
 		if len(old) == 0 {
 			old = fmt.Appendf(nil, "# %s · %s\n\n", c.Name, d)
 		}
-		out, n := mergeDay(string(old), byDay[d], zone)
+		olds[d] = old
+		if !selected {
+			continue
+		}
+		have := map[string]bool{}
+		_, _, lines := dayLines(string(old))
+		for _, l := range lines {
+			have[l.key] = true
+		}
+		for i, l := range byDay[d] {
+			key := lineKey(strings.TrimSuffix(l.Format(zone), "\n"))
+			notes = append(notes, ledgerNote{day: d, key: key, rule: rules[d][i], existed: have[key]})
+			have[key] = true
+		}
+	}
+	if selected {
+		raw, err := s.applyLedger(c.ID, usual, notes)
+		if err != nil {
+			return 0, err
+		}
+		if raw != nil {
+			if err := writeFile(s.ledgerPath(c.ID), raw); err != nil {
+				return 0, err
+			}
+		}
+	}
+	for _, d := range days {
+		p := s.path(KindChat, c.ID, "messages", d+".md")
+		out, n := mergeDay(string(olds[d]), byDay[d], zone)
 		if n == 0 {
 			continue
 		}
@@ -75,6 +118,11 @@ func (s *Store) MergeMessages(c *Chat, lines []Line) (added int, err error) {
 // mergeDay is MergeMessages for one day file: its text and the lines of that day. It returns the new text and how
 // many lines went in (0: the text is unchanged).
 func mergeDay(text string, lines []Line, zone *time.Location) (string, int) {
+	return mergeDayLines(text, lines, zone, true)
+}
+
+// mergeDayLines is mergeDay; without dedupe a line that formats like one there goes in too (Ingest: distinct ids).
+func mergeDayLines(text string, lines []Line, zone *time.Location, dedupe bool) (string, int) {
 	var rows []string
 	if text != "" {
 		rows = strings.Split(text, "\n")
@@ -110,7 +158,7 @@ func mergeDay(text string, lines []Line, zone *time.Location) (string, int) {
 	for _, l := range lines {
 		f := strings.TrimSuffix(l.Format(zone), "\n")
 		key := dupKey(f)
-		if have[key] {
+		if have[key] && dedupe {
 			continue
 		}
 		have[key] = true

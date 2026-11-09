@@ -1,7 +1,7 @@
 // A transient user-input navigator at the chat's right edge. Only this small component updates while scrolling;
 // cached content offsets are rebuilt on transcript/layout changes, never once per tick on a scroll frame.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { activeNavRailOffset, NAV_RAIL_MIN_HEIGHT, planNavRailTicks, type NavRailTick } from "../../lib/nav-rail";
+import { activeNavRailOffset, navRailMark, NAV_RAIL_MIN_HEIGHT, planNavRailTicks, type NavRailTick } from "../../lib/nav-rail";
 import { useFinePointer } from "../../lib/viewport";
 import { NAV_RAIL_METRICS as M } from "../../ui/nav-rail-metrics";
 import { cx } from "../../ui/atoms";
@@ -35,6 +35,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
   const focused = useRef(false);
   const drag = useRef<{ pointer: number; ids: string[]; pitch: number; top: number } | null>(null);
   const selected = useRef<string | null>(null);
+  const previewOrigin = useRef<"pointer" | "keyboard" | "drag" | null>(null);
   const suppressClick = useRef(false);
   const list = useRef(ticks);
   list.current = ticks;
@@ -50,6 +51,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
       if (hovered.current || focused.current || drag.current) return;
       setVisible(false);
       setPreview(null);
+      previewOrigin.current = null;
       setWindowCenter(null);
     }, M.idleMs);
   }, []);
@@ -110,6 +112,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
     hovered.current = focused.current = false;
     drag.current = null;
     selected.current = null;
+    previewOrigin.current = null;
     suppressClick.current = false;
     clearTimeout(idleTimer.current);
     clearTimeout(pendingTimer.current);
@@ -144,7 +147,8 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
   const plan = planNavRailTicks(ticks.length, height, center < 0 ? ticks.length - 1 : center);
   const shown = ticks.slice(plan.start, plan.start + plan.count);
   const previewTick = ticks.find((tick) => tick.id === preview);
-  const at = indexOf(preview);
+  const currentIndex = indexOf(current);
+  const previewIndex = indexOf(preview);
 
   useLayoutEffect(() => {
     if (!card.current || !rail.current || !previewTick) return;
@@ -153,7 +157,13 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
     card.current.style.top = `${Math.max(0, Math.min(y - card.current.offsetHeight / 2, height + M.padding * 2 - card.current.offsetHeight))}px`;
   }, [previewTick, ticks, height, plan.start, plan.count, plan.pitch]);
 
-  const pick = (id: string) => {
+  const dismissPreview = () => {
+    previewOrigin.current = null;
+    selected.current = null;
+    setPreview(null);
+  };
+  const pick = (id: string, origin: "pointer" | "keyboard" | "drag" = "pointer") => {
+    previewOrigin.current = origin;
     selected.current = id;
     setPreview(id);
     wake();
@@ -171,7 +181,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
     if (!bounds?.ids.length) return;
     const i = Math.max(0, Math.min(bounds.ids.length - 1, Math.floor((y - bounds.top) / bounds.pitch)));
     const id = bounds.ids[i];
-    if (list.current.some((tick) => tick.id === id)) pick(id);
+    if (list.current.some((tick) => tick.id === id)) pick(id, "drag");
   };
 
   if (!fine || !ticks.length || height < NAV_RAIL_MIN_HEIGHT) return null;
@@ -189,17 +199,24 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
       style={{ right, width: M.width }}
       onMouseEnter={() => {
         hovered.current = true;
-        setWindowCenter(current);
+        if (!drag.current) setWindowCenter(preview ?? current);
         wake();
       }}
       onMouseLeave={() => {
         hovered.current = false;
-        if (!drag.current) wake();
+        if (!drag.current) {
+          if (previewOrigin.current === "pointer") dismissPreview();
+          wake(); // Only the rail lingers; the hover card has already gone.
+        }
       }}
       onFocus={() => { focused.current = true; wake(); }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           focused.current = false;
+          if (!drag.current) {
+            if (hovered.current) previewOrigin.current = "pointer";
+            else dismissPreview();
+          }
           wake();
         }
       }}
@@ -214,7 +231,7 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
         if (next !== null) {
           e.preventDefault();
           e.stopPropagation();
-          pick(ticks[next].id);
+          pick(ticks[next].id, "keyboard");
           setWindowCenter(ticks[next].id);
           setAnnouncement(t("chat-navrail.selection", { index: next + 1, count: ticks.length, preview: labelOf(ticks[next]), answer: ticks[next].answerExcerpt ?? "" }));
         } else if (e.key === "Enter" || e.key === " ") {
@@ -226,13 +243,12 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
           e.preventDefault();
           e.stopPropagation();
           drag.current = null;
-          setPreview(null);
-          selected.current = null;
+          dismissPreview();
           wake();
         }
       }}
       onPointerDown={(e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || card.current?.contains(e.target as Node)) return;
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
         drag.current = { pointer: e.pointerId, ids: shown.map((tick) => tick.id), pitch: plan.pitch, top: rect.top + M.padding + (height - plan.count * plan.pitch) / 2 };
@@ -247,9 +263,11 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
         drag.current = null;
         e.currentTarget.releasePointerCapture(e.pointerId);
         if (selected.current) jump(selected.current);
+        previewOrigin.current = "pointer";
+        if (!hovered.current) dismissPreview();
       }}
-      onPointerCancel={() => { drag.current = null; selected.current = null; suppressClick.current = false; setPreview(null); wake(); }}
-      onLostPointerCapture={() => { if (drag.current) { drag.current = null; selected.current = null; setPreview(null); wake(); } }}
+      onPointerCancel={() => { drag.current = null; suppressClick.current = false; dismissPreview(); wake(); }}
+      onLostPointerCapture={() => { if (drag.current) { drag.current = null; dismissPreview(); wake(); } }}
       onWheel={(e) => {
         if (plan.hidden) {
           const i = Math.max(0, Math.min(ticks.length - 1, (center < 0 ? 0 : center) + Math.sign(e.deltaY) * plan.count));
@@ -265,7 +283,8 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
       {shown.map((tick, k) => {
         const i = plan.start + k;
         const isCurrent = tick.id === current;
-        const near = at >= 0 ? Math.abs(i - at) : Infinity;
+        const isPreview = tick.id === preview;
+        const mark = navRailMark(i, ticks.length, currentIndex < 0 ? null : currentIndex, previewIndex < 0 ? null : previewIndex);
         return (
           <button
             key={tick.id}
@@ -275,8 +294,8 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
             aria-label={t("chat-navrail.jump", { index: i + 1, preview: labelOf(tick) })}
             aria-current={isCurrent ? "true" : undefined}
             aria-describedby={tick.id === preview ? previewId : undefined}
-            className="flex shrink-0 items-center justify-end pr-0.5"
-            style={{ height: plan.pitch }}
+            className="flex shrink-0 items-center justify-end"
+            style={{ height: plan.pitch, paddingRight: M.endInset }}
             onMouseEnter={() => pick(tick.id)}
             onClick={() => {
               if (suppressClick.current) { suppressClick.current = false; return; }
@@ -284,17 +303,27 @@ export function NavRail({ ticks, scroller, onJump, reset }: {
             }}
           >
             <span
-              className={cx("h-[2px] w-7 origin-right rounded-full transition-[transform,background-color] duration-150 motion-reduce:transition-none", isCurrent || near === 0 ? "bg-ink" : near === 1 ? "bg-ink-2" : "bg-ink-3", near >= 2 && !isCurrent && "opacity-70")}
-              style={{ transform: `scaleX(${isCurrent || near === 0 ? 1 : near === 1 ? 0.85 : 0.68})` }}
+              aria-hidden
+              data-nav-mark={mark.state}
+              className={cx("shrink-0 rounded-full transition-[width,height,background-color,opacity] duration-150 motion-reduce:transition-none", isCurrent ? "bg-ink" : isPreview ? "bg-ink-2" : "bg-ink-3")}
+              style={{ width: mark.width, height: mark.height, opacity: mark.opacity }}
             />
           </button>
         );
       })}
       {previewTick && (
-        <div ref={card} id={previewId} data-nav-preview data-nav-rail-preview className="pointer-events-none absolute z-20" style={{ right: M.width + M.previewGap, width: M.previewWidth, maxWidth: `calc(100vw - ${M.width * 2}px)` }}>
-          <div className="rounded-control border border-line bg-surface px-3 py-2 shadow-overlay">
-            <p className="truncate text-xs font-medium text-ink">{labelOf(previewTick)}</p>
-            {previewTick.answerExcerpt && <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-ink-2">{previewTick.answerExcerpt}</p>}
+        <div
+          ref={card}
+          id={previewId}
+          data-nav-preview
+          data-nav-rail-preview
+          className="pointer-events-auto absolute z-20"
+          // Padding connects the card's hit box to the rail without a timer or an unhoverable gap.
+          style={{ right: M.width, width: M.previewWidth + M.previewGap, paddingRight: M.previewGap, maxWidth: `calc(100vw - ${M.width * 2}px)` }}
+        >
+          <div data-nav-preview-surface className="rounded-nav-preview border border-line bg-surface shadow-nav-preview" style={{ padding: M.previewPadding }}>
+            <p data-nav-preview-title className="truncate text-sm font-semibold text-ink">{labelOf(previewTick)}</p>
+            {previewTick.answerExcerpt && <p data-nav-preview-excerpt className="line-clamp-2 text-sm leading-relaxed text-ink-2" style={{ marginTop: M.previewParagraphGap }}>{previewTick.answerExcerpt}</p>}
           </div>
         </div>
       )}

@@ -108,9 +108,14 @@ func (s *Service) startTaskAgent(ctx context.Context, t *PlanTask, retry bool) (
 	if t.Model != "" {
 		params["model"] = t.Model
 	}
-	if t.Permission != "" {
-		params["permission_mode"] = t.Permission
+	mode := t.Permission
+	if mode == "" {
+		mode = s.settings(ctx).DefaultPermissionMode
+		if mode == "" {
+			mode = "default"
+		}
 	}
+	params["permission_mode"] = mode
 	if t.Ultracode != nil && *t.Ultracode {
 		params["ultracode"] = true
 	}

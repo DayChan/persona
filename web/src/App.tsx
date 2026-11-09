@@ -75,7 +75,7 @@ if (linked) window.history.replaceState(window.history.state, "", linked.rest);
 // this browser's list and out of the address bar the same way.
 const carried = typeof window === "undefined" ? null : takeHubs(window.location.href);
 if (carried) {
-  acceptHubs(carried.hubs);
+  acceptHubs(carried.hubs, carried.removed);
   window.history.replaceState(window.history.state, "", carried.rest);
 }
 

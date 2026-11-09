@@ -47,6 +47,13 @@ func (s *Service) toolTaskPlan(ctx context.Context, sessionID string, args json.
 		t.TodoID, t.Error, t.ErrorCode, t.ErrorArgs = "", "", "", nil
 		t.Title, t.Prompt, t.Cwd = strings.TrimSpace(t.Title), strings.TrimSpace(t.Prompt), strings.TrimSpace(t.Cwd)
 		t.Model = strings.TrimSpace(t.Model)
+		t.Permission = strings.TrimSpace(t.Permission)
+		if t.Permission == "" {
+			t.Permission = s.settings(ctx).DefaultPermissionMode
+			if t.Permission == "" {
+				t.Permission = "default"
+			}
+		}
 		if err := t.normalizeMachinePolicy(); err != nil {
 			return "", fmt.Errorf("task %d: %w", i+1, err)
 		}
