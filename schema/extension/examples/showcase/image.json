@@ -1,0 +1,111 @@
+{
+  "title": "图片",
+  "sections": [
+    {
+      "title": "比例",
+      "items": [
+        {
+          "type": "image",
+          "key": "landscape",
+          "src": {
+            "ref": "garden"
+          },
+          "alt": "院子（4:3）",
+          "caption": "landscape 4:3，默认"
+        },
+        {
+          "type": "image",
+          "key": "wide",
+          "src": {
+            "ref": "camera.front_door"
+          },
+          "alt": "门口摄像头",
+          "aspect": "wide",
+          "caption": "wide 16:9：门口摄像头，10 秒前"
+        },
+        {
+          "type": "image",
+          "key": "square",
+          "src": {
+            "ref": "plant"
+          },
+          "alt": "绿植",
+          "aspect": "square"
+        },
+        {
+          "type": "image",
+          "key": "portrait",
+          "src": {
+            "ref": "plant"
+          },
+          "alt": "绿植（竖）",
+          "aspect": "portrait",
+          "caption": "portrait 3:4"
+        },
+        {
+          "type": "image",
+          "key": "auto",
+          "src": {
+            "ref": "map",
+            "width": 1200,
+            "height": 500
+          },
+          "alt": "扫地机地图",
+          "aspect": "auto",
+          "fit": "fit",
+          "caption": "auto（1200×500）+ fit：完整显示，留边"
+        }
+      ]
+    },
+    {
+      "title": "地址",
+      "items": [
+        {
+          "type": "image",
+          "key": "url",
+          "src": {
+            "url": "https://images.example.com/showcase/sunset.jpg"
+          },
+          "alt": "https 图片（不带凭据）",
+          "aspect": "wide",
+          "no_zoom": true,
+          "caption": "url + no_zoom：点了不放大"
+        },
+        {
+          "type": "image",
+          "key": "missing",
+          "src": {
+            "ref": "missing"
+          },
+          "alt": "取不到的图（看失败的样子）",
+          "aspect": "wide"
+        }
+      ]
+    },
+    {
+      "title": "带图的行",
+      "items": [
+        {
+          "type": "row",
+          "key": "thumb",
+          "title": "门口",
+          "subtitle": "ref 缩略图",
+          "thumbnail": {
+            "ref": "camera.front_door",
+            "aspect": "wide"
+          }
+        },
+        {
+          "type": "row",
+          "key": "avatar",
+          "title": "家人",
+          "subtitle": "ref 头像，取不到时用字",
+          "avatar": {
+            "ref": "plant",
+            "text": "家"
+          }
+        }
+      ]
+    }
+  ]
+}

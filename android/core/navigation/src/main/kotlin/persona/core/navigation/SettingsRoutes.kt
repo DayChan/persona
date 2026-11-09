@@ -36,7 +36,7 @@ data class ExtensionUiRoute(
 
 /** One extension of a market's catalog: what it may do, and installing, upgrading or removing it. */
 @Serializable @SerialName("persona.core.navigation.PluginCatalogRoute")
-data class ExtensionCatalogRoute(val marketId: String, val extensionId: String) : NavKey
+data class ExtensionCatalogRoute(val marketId: String, val extensionId: String, val manager: String? = null) : NavKey
 
 /** Extension market › Manage markets: the markets the hub reads, adding, removing, refreshing them and their tokens. */
 @Serializable @SerialName("persona.core.navigation.PluginMarketsRoute") data object ExtensionMarketsRoute : NavKey

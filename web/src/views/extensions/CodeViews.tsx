@@ -11,7 +11,8 @@ import { ancestors, buildTree, filterEntries, highlightLines, languageOf, status
 import { findIn, isGenerated, lineLink, lineTyped, overlay, type Span } from "../../lib/code-review";
 import { composing } from "../../lib/send-history";
 import { useReview } from "./review-context";
-import { imageURL, initials, rowIcon, toneOf, type UIAction, type UIItem, type UITone } from "../../lib/extension-ui";
+import { initials, rowIcon, toneOf, type UIAction, type UIItem, type UITone } from "../../lib/extension-ui";
+import { imageSrc } from "../../lib/extension-ui-v6";
 import { t } from "../../i18n";
 import { Button, cx, Spinner, toast } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
@@ -41,7 +42,9 @@ export const LH = 20; // a code line's height, px
 export function Avatar({ avatar, name, size = 28 }: { avatar?: WireAvatar; name: string; size?: number }) {
   const [failed, setFailed] = useState(false);
   const media = useContext(NativeMediaContext);
-  const url = avatar?.ref && media ? media(avatar) : imageURL(avatar?.url);
+  // UI version 6: the extension's own picture (a ref) through the hub's path, else an https url; a native resolver
+  // (the owner's own media) gets a ref first when there is one.
+  const url = avatar?.ref && media ? media(avatar) : imageSrc(avatar);
   return (
     <span
       className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-tint font-medium text-accent-ink"

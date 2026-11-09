@@ -484,7 +484,7 @@ func (h *Manager) isUserLarkRule(r *proto.LarkRule) bool {
 		!slices.ContainsFunc(connector.LarkRules(h.cfg.ConnectorGate, h.cfg.LarkGate), same)
 }
 
-// nodeWriteMethods are the methods the gate treats as writes (node/larkgate.go larkRead: all but GET and HEAD).
+// nodeWriteMethods are the methods the gate treats as writes (node/larkgate_rules.go larkRead: all but GET and HEAD).
 var nodeWriteMethods = map[string]bool{"POST": true, "PUT": true, "PATCH": true, "DELETE": true, "OPTIONS": true}
 
 // nodeLetThrough is a row's let_through for how a node's gate let a write through: a rule of the gate (written as the

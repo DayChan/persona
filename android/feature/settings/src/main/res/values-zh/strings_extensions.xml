@@ -338,4 +338,9 @@
     <string name="settings_ext_program_outdated">这台电脑上的 personad 太旧，更新后才能运行</string>
     <string name="settings_ext_program_error">程序出错</string>
     <string name="settings_ext_program_error_detail">程序出错：%1$s</string>
+    <string name="settings_ext_more_actions">更多操作</string>
+    <string name="settings_ext_tile_on">已开启</string>
+    <string name="settings_ext_open_image">查看图片</string>
+    <string name="settings_ext_chosen_count">已选 %1$d 项</string>
+    <string name="settings_ext_pick_time">时间</string>
 </resources>

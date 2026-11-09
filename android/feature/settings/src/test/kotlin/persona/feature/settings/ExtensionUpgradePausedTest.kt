@@ -23,7 +23,7 @@ class ExtensionUpgradePausedTest {
     private fun page(paused: String?) {
         val api = object : ExtensionApiStub() {
             override suspend fun extension(id: String) = ExtensionDetail(HubExtension(id, "Example Notes", "ui", "running",
-                autoUpgrade = true, autoUpgradePaused = paused))
+                source = "installed", enabled = true, autoUpgrade = true, autoUpgradePaused = paused), origin = "market:example/example-notes")
         }
         rule.setContent { PersonaTheme(darkTheme = false, reduceMotion = true) { ExtensionPage(api, "example-notes", onBack = {}) } }
         rule.waitForIdle()

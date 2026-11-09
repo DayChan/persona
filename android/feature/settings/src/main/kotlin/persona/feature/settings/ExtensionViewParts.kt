@@ -80,36 +80,77 @@ internal object ExtensionIcons {
         "code" -> PhIcons.Code
         "pull_request" -> PhIcons.GitDiff
         "file" -> PhIcons.File
+        // UI version 6: smart home and markets (#5464)
+        "home" -> PhIcons.House
+        "sofa" -> PhIcons.Couch
+        "light" -> PhIcons.Lightbulb
+        "power" -> PhIcons.Power
+        "fan" -> PhIcons.Fan
+        "thermometer" -> PhIcons.Thermometer
+        "droplet" -> PhIcons.Drop
+        "lock" -> PhIcons.LockSimple
+        "unlock" -> PhIcons.LockSimpleOpen
+        "door" -> PhIcons.Door
+        "window" -> PhIcons.AppWindow
+        "camera" -> PhIcons.Camera
+        "video" -> PhIcons.VideoCamera
+        "play" -> PhIcons.Play
+        "pause" -> PhIcons.Pause
+        "stop" -> PhIcons.Stop
+        "speaker" -> PhIcons.SpeakerHigh
+        "tv" -> PhIcons.Television
+        "plug" -> PhIcons.Plug
+        "battery" -> PhIcons.BatteryHigh
+        "bolt" -> PhIcons.Lightning
+        "sun" -> PhIcons.Sun
+        "moon" -> PhIcons.Moon
+        "cloud" -> PhIcons.Cloud
+        "rain" -> PhIcons.CloudRain
+        "snow" -> PhIcons.Snowflake
+        "wind" -> PhIcons.Wind
+        "leaf" -> PhIcons.Leaf
+        "car" -> PhIcons.Car
+        "location" -> PhIcons.MapPin
+        "robot" -> PhIcons.Robot
+        "wifi" -> PhIcons.WifiHigh
+        "shield" -> PhIcons.Shield
+        "trend_up" -> PhIcons.TrendUp
+        "trend_down" -> PhIcons.TrendDown
+        "wallet" -> PhIcons.Wallet
+        "bank" -> PhIcons.Bank
+        "heart" -> PhIcons.Heart
+        "plus" -> PhIcons.Plus
+        "minus" -> PhIcons.Minus
+        "trash" -> PhIcons.Trash
+        "edit" -> PhIcons.PencilSimple
+        "refresh" -> PhIcons.ArrowClockwise
+        "share" -> PhIcons.ShareNetwork
+        "info" -> PhIcons.Info
         else -> PhIcons.PuzzlePiece
     }
 }
 
-/** A row's leading picture, if it has one: its icon, avatar (a picture, or its letters) or thumbnail. */
-internal fun rowLeading(item: ExtensionViewItem): (@Composable () -> Unit)? = when {
-    item.thumbnail != null -> ({ RowThumbnail(item) })
-    item.avatar != null -> ({ RowAvatar(item) })
-    else -> null
-}
-
 @Composable
-private fun RowAvatar(item: ExtensionViewItem) {
-    val url = ExtensionViewText.picture(item.avatar?.url)
-    val painter = url?.let { rememberAsyncImagePainter(it) }
+internal fun RowAvatar(item: ExtensionViewItem, handle: ExtensionViewHandle) {
+    val avatar = item.avatar
+    val model = remember(avatar) { ExtensionViewText.pictureModel(avatar?.url, avatar?.path) }
+    val painter = model?.let { if (it is ExtensionHubPicture && handle.pictures != null) rememberAsyncImagePainter(it, handle.pictures) else if (it is String) rememberAsyncImagePainter(it) else null }
     // The letters stand in until the picture has loaded, and when it never does.
     val loaded = painter?.state?.collectAsState()?.value is coil3.compose.AsyncImagePainter.State.Success
     JAvatar(ExtensionViewText.initials(item), size = Tokens.Space.xxxl, image = painter?.takeIf { loaded })
 }
 
 @Composable
-private fun RowThumbnail(item: ExtensionViewItem) {
+internal fun RowThumbnail(item: ExtensionViewItem, handle: ExtensionViewHandle) {
     val thumbnail = item.thumbnail ?: return
     val shape = RoundedCornerShape(Tokens.Radius.badge)
     val wide = thumbnail.aspect == "wide"
     // The well shows while it loads and when it never does.
     Box(Modifier.height(Tokens.MinTouch.android).aspectRatio(if (wide) 16f / 9f else 1f).clip(shape)
         .background(PersonaTheme.palette.sunken), contentAlignment = Alignment.Center) {
-        ExtensionViewText.picture(thumbnail.url)?.let { url ->
-            AsyncImage(url, item.title, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+        when (val model = remember(thumbnail) { ExtensionViewText.pictureModel(thumbnail.url, thumbnail.path) }) {
+            is ExtensionHubPicture -> handle.pictures?.let { AsyncImage(model, item.title, it, Modifier.matchParentSize(), contentScale = ContentScale.Crop) }
+            is String -> AsyncImage(model, item.title, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
         }
     }
 }

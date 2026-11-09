@@ -5,24 +5,27 @@
 // section's "Load more". An unknown item is left out. Shared by an extension's pages (settings/ExtensionView.tsx, which loads them and carries out what a
 // press answers) and the assistant's cards (ui/AssistantCard.tsx, which says which actions may be pressed now, which
 // one was answered, and when the fields are locked). A tone becomes a role color.
-import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, type ReactNode } from "react";
 import { useNativeState, type NativeLocal } from "./native-state";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "../../ui/remark-gfm-parse";
 import { lazyPage } from "../../lib/lazy-page";
 import { openLink } from "../../lib/links";
 import {
-  blocks, imageURL, initials, isHttps, numberProblem, percent, rowIcon, tableRows, toneOf,
+  blocks, initials, isHttps, numberProblem, percent, tableRows, toneOf,
   type RowIcon, type UIAction, type UIItem, type UIMore, type UISection, type UITone, type UIView,
 } from "../../lib/extension-ui";
 import { presenceStyle, usePresence, type Present } from "../../ui/motion";
-import { Fading, Rolling } from "../../ui/Rolling";
+import { Rolling } from "../../ui/Rolling";
 import { t } from "../../i18n";
 import { Button, cx, EASE, Loading, Spinner } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
-import { Pill, Switch } from "../settings/SettingsParts";
+import { Switch } from "../settings/SettingsParts";
 import { ChartFrame, LABEL_H, plotHeight } from "./ChartFrame";
+import { NEW_ICON_GLYPH } from "./icon-map";
 import { SegmentedTrack } from "../../ui/Segmented";
+import { colorOf, hue, hueTint } from "../../lib/extension-ui-v6";
+import { Badge, Carousel, DateInput, glyphOf, Grid, ImageItem, MultiChoice, MultilineInput, SliderLine, Sparkline, TrailingControl, useImage, useRowMenu, type V6Handlers } from "./ViewBody6";
 
 // UI version 4's code hosting items (CodeViews.tsx, DiffReview.tsx) are their own chunks too: only an extension's code
 // review or file browser draws them, never the assistant's cards (ui/AssistantCard.tsx), which bring this file into the
@@ -45,13 +48,12 @@ const ExtensionChart = lazyPage(() => import("./ExtensionChart").then((m) => m.E
 
 const TEXT: Record<UITone, string> = { neutral: "text-ink", positive: "text-green", caution: "text-orange", danger: "text-red" };
 const BAR: Record<UITone, string> = { neutral: "bg-accent", positive: "bg-green", caution: "bg-orange", danger: "bg-red" };
-const BADGE: Record<UITone, "green" | "orange" | "red" | undefined> = { neutral: undefined, positive: "green", caution: "orange", danger: "red" };
 
 const inputClass =
   "h-8 w-full rounded-control bg-field px-2.5 text-[12.5px] text-ink shadow-inset-field outline-none placeholder:text-ink-3 focus:shadow-[inset_0_0_0_1px_var(--accent)] disabled:opacity-60";
 
 /** What every item of a view is drawn with: the fields' values, what is busy, and what a press does. */
-export interface ViewHandlers {
+export interface ViewHandlers extends V6Handlers {
   values: Record<string, string>;
   setValue: (name: string, v: string) => void;
   /** The id of the action under way ("" none). */
@@ -160,7 +162,7 @@ interface SectionProps extends ViewHandlers {
 }
 
 /** The components drawn as cards of their own, one under another, not inside the section's card. */
-const STANDALONE = new Set(["code", "diff", "comment_thread"]);
+const STANDALONE = new Set(["code", "diff", "comment_thread", "grid", "carousel"]);
 
 function Section({ section, embedded, compact, bare, onPicked, ...rest }: SectionProps) {
   // Section-level callbacks (including MoreLine) use the section's key under the explicit stream adapter.
@@ -278,8 +280,15 @@ function Metrics({ items, style }: { items: UIItem[]; style?: React.CSSPropertie
     <div className={cx("grid gap-x-4 gap-y-3 px-4 py-3", items.length === 1 ? "grid-cols-1" : items.length === 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3")} style={style}>
       {items.map((it, i) => (
         <div key={i} className="min-w-0">
-          <div className="truncate text-[11.5px] text-ink-3">{it.label}</div>
-          <div className={cx("mt-0.5 truncate text-[20px] leading-tight font-semibold tabular-nums", TEXT[toneOf(it.tone)])}>{it.value && <Rolling value={it.value} />}</div>
+          <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-ink-3">
+            {/* UI version 6: the metric's icon, in its color */}
+            {glyphOf(it.icon, ROW_ICON) && <Icon name={glyphOf(it.icon, ROW_ICON)!} size={13} className="shrink-0" style={it.icon_color ? { color: hue(it.icon_color) } : undefined} />}
+            <span className="min-w-0 truncate">{it.label}</span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-end gap-2">
+            <span className={cx("min-w-0 truncate text-[20px] leading-tight font-semibold tabular-nums", TEXT[toneOf(it.tone)])}>{it.value && <Rolling value={it.value} />}</span>
+            {it.spark && <Sparkline spark={it.spark} width={64} height={22} className="mb-0.5" />}
+          </div>
           {it.detail && <div className="mt-0.5 truncate text-[11.5px] text-ink-3">{it.detail}</div>}
         </div>
       ))}
@@ -320,8 +329,9 @@ function Item(props: Omit<SectionProps, "section" | "embedded" | "onMore" | "bar
   return <div data-native-key={props.item.key}>{custom === undefined ? <NativeItem {...handlers} /> : custom}</div>;
 }
 
-function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoose, canPress, chosen, locked, onAct, onPicked, draft, local, nativeFetch, nativeAvailable }: Omit<SectionProps, "section" | "embedded" | "onMore" | "bare"> & { item: UIItem }) {
+function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoose, canPress, chosen, locked, onAct, onPicked, draft, local, nativeFetch, nativeAvailable, ...v6 }: Omit<SectionProps, "section" | "embedded" | "onMore" | "bare"> & { item: UIItem }) {
   const pressable = (a: UIAction) => (canPress ? canPress(a) : true);
+  const tiles = { glyphs: ROW_ICON, busy, onPress, canPress, ...v6 };
   const code = { act: onAct ?? ((a: UIAction) => onPress(a)), busy: locked ? busy || "stream-locked" : busy, reveal: revealDiff, local, fetch: nativeFetch, canFetch: nativeAvailable };
   switch (it.type) {
     case "header":
@@ -346,6 +356,13 @@ function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoo
           <ExtensionChart item={it} compact={compact} />
         </Suspense>
       );
+    // UI version 6
+    case "image":
+      return <ImageItem item={it} compact={compact} onImageFailed={v6.onImageFailed} />;
+    case "grid":
+      return <Grid item={it} compact={compact} {...tiles} />;
+    case "carousel":
+      return <Carousel item={it} compact={compact} {...tiles} />;
     case "markdown":
       return <ViewMarkdown text={it.text ?? ""} compact={compact} />;
     case "table":
@@ -371,6 +388,11 @@ function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoo
             <pre className="overflow-x-auto rounded-[8px] bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-all text-ink-2 shadow-hairline select-text">{it.text}</pre>
           </div>
         );
+      // UI version 6: a section's big title and a small heading (headings, so a screen reader can move by them)
+      if (style === "title" || style === "headline") {
+        const H = style === "title" ? "h3" : "h4";
+        return <H className={cx("px-4 break-words text-ink select-text", style === "title" ? "pt-3 pb-1 text-[17px] leading-snug font-semibold" : "pt-2.5 pb-0.5 text-[14px] leading-snug font-semibold")}>{it.text}</H>;
+      }
       return (
         <p className={cx("px-4 py-2.5 leading-relaxed whitespace-pre-wrap break-words select-text", style === "secondary" ? "text-[12.5px] text-ink-2" : style === "caption" ? "text-[11.5px] text-ink-3" : "text-[13px] text-ink")}>
           {it.text}
@@ -394,33 +416,8 @@ function NativeItem({ item: it, compact, values, setValue, busy, onPress, onChoo
         </div>
       );
     }
-    case "row": {
-      const body = (
-        <>
-          <RowLead item={it} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] text-ink">{it.title}</div>
-            {it.subtitle && <div className="mt-0.5 truncate text-[11.5px] text-ink-3">{it.subtitle}</div>}
-          </div>
-          {it.value && <span className="shrink-0 truncate text-[12.5px] text-ink-2 tabular-nums"><Rolling value={it.value} /></span>}
-          {it.badge?.text && <Pill tone={BADGE[toneOf(it.badge.tone)]} animated><Fading text={it.badge.text} /></Pill>}
-          {it.action && (busy === it.action.id ? <Spinner /> : <Icon name={chosen === it.action.id ? "check" : "chevronRight"} size={12} stroke={2} className={cx("shrink-0", chosen === it.action.id ? "text-accent" : "text-ink-3")} />)}
-        </>
-      );
-      return it.action ? (
-        <button
-          type="button"
-          disabled={!!busy || !pressable(it.action)}
-          aria-pressed={chosen ? chosen === it.action.id : undefined}
-          onClick={() => onPress(it.action!)}
-          className={cx("flex w-full items-center gap-3 px-4 py-2.5 text-left whitespace-nowrap transition-colors enabled:hover:bg-hover", chosen === it.action.id && "bg-accent-tint")}
-        >
-          {body}
-        </button>
-      ) : (
-        <div className="flex items-center gap-3 px-4 py-2.5 whitespace-nowrap">{body}</div>
-      );
-    }
+    case "row":
+      return <Row item={it} busy={busy} onPress={onPress} pressable={pressable} chosen={chosen} h={v6} />;
     case "button":
       return (
         <div className="px-4 py-2.5">
@@ -481,6 +478,8 @@ function StatGrid({ item, compact }: { item: UIItem; compact?: boolean }) {
               <div className={cx("mt-0.5 truncate leading-tight font-semibold text-ink", compact ? "text-[18px]" : "text-[20px]")} title={st.value}>
                 <Rolling value={st.value} />
               </div>
+              {/* UI version 6: the stat's trend, under its number (beside it, a narrow column would cut the number short) */}
+              {st.spark && <Sparkline spark={st.spark} width={64} height={18} className="mt-1" />}
               {st.detail && <div className={cx("mt-0.5 truncate text-[11.5px] tabular-nums", tone === "neutral" ? "text-ink-3" : TEXT[tone])}>{st.detail}</div>}
             </div>
           );
@@ -526,14 +525,21 @@ function Field({ item: it, value, locked, onChange }: { item: UIItem; value: str
   const id = `extension-ui-${it.name}`;
   if (it.kind === "toggle")
     return (
-      <div className="flex items-center gap-3 px-4 py-2.5">
-        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{it.label}</span>
-        <Switch on={value === "true"} disabled={locked} onChange={(on) => onChange(on ? "true" : "false")} label={it.label || it.name || ""} />
+      <div className="px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{it.label}</span>
+          <Switch on={value === "true"} disabled={locked} onChange={(on) => onChange(on ? "true" : "false")} label={it.label || it.name || ""} />
+        </div>
+        {it.detail && <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{it.detail}</p>}
       </div>
     );
   const problem = it.kind === "number" ? numberProblem(value) : "";
   let control: React.ReactNode;
-  if (it.kind === "choice") {
+  // UI version 6
+  if (it.kind === "date" || it.kind === "time" || it.kind === "datetime") control = <DateInput id={id} item={it} value={value} locked={locked} onChange={onChange} />;
+  else if (it.kind === "multiline") control = <MultilineInput id={id} item={it} value={value} locked={locked} onChange={onChange} />;
+  else if (it.kind === "multichoice") control = <MultiChoice id={id} item={it} value={value} locked={locked} onChange={onChange} />;
+  else if (it.kind === "choice") {
     const choices = it.choices ?? [];
     control =
       choices.length <= 4 ? (
@@ -591,6 +597,7 @@ function Field({ item: it, value, locked, onChange }: { item: UIItem; value: str
         {it.label}
       </label>
       {control}
+      {it.detail && <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{it.detail}</p>}
       {problem && (
         <p role="alert" className="mt-1 text-[11.5px] text-red">
           {problem}
@@ -609,35 +616,101 @@ export const ROW_ICON: Record<RowIcon, IconName> = {
   money: "money", person: "person", chat: "chat", mail: "mail", link: "link", folder: "folder", star: "star", check: "check",
   warning: "warning", clock: "clock", tag: "tag", search: "search", settings: "gear", branch: "branch", commit: "commit", code: "code",
   pull_request: "pullRequest", merge: "merge", file: "read",
+  ...NEW_ICON_GLYPH,
 };
 
-/** What leads a row: its icon, a picture (its initials until it loads, or when it does not), or a thumbnail. */
-function RowLead({ item }: { item: UIItem }) {
-  const [failed, setFailed] = useState(false);
+/** What leads a row: its icon (UI version 6: in its color), a picture (its initials until it loads, or when it does not), or a thumbnail. */
+function RowLead({ item, onImageFailed }: { item: UIItem; onImageFailed?: () => void }) {
+  // UI version 6: an https url, or the hub's path for the extension's own picture (ref)
+  const thumb = useImage(item.thumbnail, onImageFailed);
+  const avatar = useImage(item.avatar, onImageFailed);
   if (item.thumbnail) {
-    const url = imageURL(item.thumbnail.url);
     const wide = item.thumbnail.aspect === "wide";
     return (
       <span className={cx("flex shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-inset shadow-hairline", wide ? "h-9 w-16" : "size-10")}>
-        {url && !failed ? <img src={url} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(true)} className="size-full object-cover" /> : <Icon name="image" size={14} className="text-ink-3" />}
+        {thumb.url ? <img src={thumb.url} alt="" referrerPolicy="no-referrer" loading="lazy" onError={thumb.onError} className="size-full object-cover" /> : <Icon name="image" size={14} className="text-ink-3" />}
       </span>
     );
   }
   if (item.avatar) {
-    const url = imageURL(item.avatar.url);
     return (
       <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-tint text-[12px] font-medium text-accent-ink">
-        {url && !failed ? <img src={url} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(true)} className="size-full object-cover" /> : initials(item.avatar.text, item.title)}
+        {avatar.url ? <img src={avatar.url} alt="" referrerPolicy="no-referrer" loading="lazy" onError={avatar.onError} className="size-full object-cover" /> : initials(item.avatar.text, item.title)}
       </span>
     );
   }
-  const icon = rowIcon(item.icon);
-  if (!icon) return null;
+  const glyph = glyphOf(item.icon, ROW_ICON);
+  if (!glyph) return null;
+  const colored = !!colorOf(item.icon_color);
   return (
-    <span className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-inset text-ink-2 shadow-hairline">
-      <Icon name={ROW_ICON[icon]} size={14} />
+    <span
+      className={cx("flex size-7 shrink-0 items-center justify-center rounded-[8px]", colored ? "" : "bg-inset text-ink-2 shadow-hairline")}
+      style={colored ? { background: hueTint(item.icon_color), color: hue(item.icon_color) } : undefined}
+    >
+      <Icon name={glyph} size={14} />
     </span>
   );
+}
+
+/**
+ * A row: what leads it, its title and subtitle, its value (UI version 6: with a spark), its badge; pressing it does its
+ * action. UI version 6: a switch or a stepper at its end (a slider on a line under it), and its extra actions in a
+ * menu (right click, a long press, the … button). The control and the … sit beside the row's button, never in it.
+ */
+function Row({ item: it, busy, onPress, pressable, chosen, h }: { item: UIItem; busy: string; onPress: ViewHandlers["onPress"]; pressable: (a: UIAction) => boolean; chosen?: string; h: V6Handlers }) {
+  const menu = useRowMenu(it.actions, ROW_ICON, onPress, !busy);
+  const c = it.control;
+  const slider = c?.kind === "slider";
+  const body = (
+    <>
+      <RowLead item={it} onImageFailed={h.onImageFailed} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] text-ink">{it.title}</div>
+        {it.subtitle && <div className="mt-0.5 truncate text-[11.5px] text-ink-3">{it.subtitle}</div>}
+      </div>
+      {it.spark && <Sparkline spark={it.spark} />}
+      {it.value && !slider && <span className="shrink-0 truncate text-[12.5px] text-ink-2 tabular-nums"><Rolling value={it.value} /></span>}
+      {/* a slider's row says the value it is at, as the thumb moves */}
+      {slider && <span className="shrink-0 truncate text-[12.5px] text-ink-2 tabular-nums">{sliderText(c, h)}</span>}
+      {it.badge?.text && <Badge badge={it.badge} />}
+      {it.action && (busy === it.action.id ? <Spinner /> : <Icon name={chosen === it.action.id ? "check" : "chevronRight"} size={12} stroke={2} className={cx("shrink-0", chosen === it.action.id ? "text-accent" : "text-ink-3")} />)}
+    </>
+  );
+  const line = it.action ? (
+    <button
+      type="button"
+      disabled={!!busy || !pressable(it.action)}
+      aria-pressed={chosen ? chosen === it.action.id : undefined}
+      onClick={() => onPress(it.action!)}
+      className={cx("flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left whitespace-nowrap transition-colors enabled:hover:bg-hover", chosen === it.action.id && "bg-accent-tint", c && !slider ? "pr-2" : menu.button ? "pr-1" : "pr-4")}
+    >
+      {body}
+    </button>
+  ) : (
+    <div className={cx("flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 whitespace-nowrap", c && !slider ? "pr-2" : menu.button ? "pr-1" : "pr-4")}>{body}</div>
+  );
+  if (!c && !menu.button) return line;
+  return (
+    <div {...menu.props} className="group/row">
+      <div className="flex items-center">
+        {line}
+        {c && !slider && (
+          <span className={cx("flex shrink-0 items-center", menu.button ? "pr-1" : "pr-4")}>
+            <TrailingControl control={c} label={it.title || c.name} h={h} />
+          </span>
+        )}
+        {menu.button && <span className="flex shrink-0 items-center pr-3">{menu.button}</span>}
+      </div>
+      {slider && <SliderLine control={c} label={it.title || c.name} h={h} />}
+      {menu.menu}
+    </div>
+  );
+}
+
+/** A slider row's value as shown (the user's while it is on its way). */
+function sliderText(c: NonNullable<UIItem["control"]>, h: V6Handlers): string {
+  const v = Number(h.controls?.[c.name] ?? c.value ?? c.min ?? 0);
+  return c.display && v === c.value ? c.display : `${v}${c.unit ? ` ${c.unit}` : ""}`;
 }
 
 // markdown: only the safe part — headings, paragraphs, lists, emphasis, code, quotes and https links. No HTML, no
@@ -721,11 +794,13 @@ function Table({ item, compact }: { item: UIItem; compact?: boolean }) {
 
 /** empty: nothing here yet, in the web's empty-state look, with a button to do something about it. */
 function Empty({ item, compact, busy, onPress }: { item: UIItem; compact?: boolean; busy: string; onPress: ViewHandlers["onPress"] }) {
-  const icon = rowIcon(item.icon);
+  const glyph = glyphOf(item.icon, ROW_ICON);
+  // UI version 6: the icon in its color
+  const tinted = colorOf(item.icon_color) ? { background: hueTint(item.icon_color), color: hue(item.icon_color) } : undefined;
   return (
     <div className={cx("flex flex-col items-center gap-2 px-6 text-center", compact ? "py-4" : "py-8")}>
-      <span className="flex size-9 items-center justify-center rounded-[10px] bg-inset text-ink-3 shadow-hairline">
-        <Icon name={icon ? ROW_ICON[icon] : "extension"} size={16} />
+      <span className={cx("flex size-9 items-center justify-center rounded-[10px]", tinted ? "" : "bg-inset text-ink-3 shadow-hairline")} style={tinted}>
+        <Icon name={glyph ?? "extension"} size={16} />
       </span>
       <p className="text-[13px] font-medium text-ink">{item.title}</p>
       {item.detail && <p className="max-w-[420px] text-[12px] leading-relaxed break-words text-ink-3">{item.detail}</p>}

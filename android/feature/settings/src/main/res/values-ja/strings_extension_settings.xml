@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_extension_enabled_note">オフにすると、この拡張機能の機能は利用できなくなります。設定は保持されます。</string>
+    <string name="settings_extension_configured">設定ファイル（manager.json）</string>
+    <string name="settings_extension_configuration">拡張機能の設定</string>
+    <string name="settings_extension_empty">設定は不要です</string>
+    <string name="settings_extension_information">情報</string>
+    <string name="settings_extension_updates">更新</string>
+    <string name="settings_extension_danger">危険な操作</string>
+    <string name="settings_extension_missing">未提供</string>
+    <string name="settings_extension_id">拡張機能 ID</string>
+    <string name="settings_extension_runtime">ランタイム</string>
+    <string name="settings_extension_installed_from">インストール元</string>
+    <string name="settings_extension_attached">接続済み</string>
+    <string name="settings_extension_development">開発モード</string>
+    <string name="settings_extension_local_source">ローカルインストール</string>
+    <string name="settings_extension_check">更新を確認</string>
+    <string name="settings_extension_check_hint">拡張機能マーケットで新しいバージョンを確認します。</string>
+    <string name="settings_extension_current">最新のバージョンです</string>
+    <string name="settings_extension_builtin_updates">組み込みの拡張機能は Persona と一緒に更新されます。</string>
+    <string name="settings_extension_builtin_uninstall">組み込みの拡張機能はアンインストールできません。</string>
+    <string name="settings_extension_external_updates">この拡張機能はマーケットで管理されていません。提供元で更新してください。</string>
+    <string name="settings_extension_external_uninstall">この拡張機能はアプリ外で管理されています。提供元で削除してください。</string>
+    <string name="settings_extension_external_enabled">有効状態はこの拡張機能の提供元で管理されます。</string>
+    <string name="settings_extension_unknown">このマネージャーはこの操作を提供していません。</string>
+    <string name="settings_extension_market_unavailable">拡張機能マーケットを利用できません。復元して再試行してください。</string>
+    <string name="settings_extension_market_missing">この拡張機能はマーケットに掲載されていません。</string>
+    <string name="settings_extension_market_removed">マーケットが削除されたため自動更新は一時停止中です。保存した設定は保持されます。</string>
+    <string name="settings_extension_global_off">このマネージャーの自動更新はオフです。拡張機能の設定は保持されます。</string>
+    <string name="settings_extension_global_unknown">このマネージャーの全体の自動更新設定を読み取れません。</string>
+    <string name="settings_extension_rollback">ロールバック</string>
+    <string name="settings_extension_rollback_unavailable">このマネージャーはロールバックの確認プレビューを提供していません。このページからは実行しません。</string>
+    <string name="settings_extension_remove_version">インストール済みバージョン：%1$s</string>
+</resources>

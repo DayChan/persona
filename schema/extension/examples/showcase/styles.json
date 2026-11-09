@@ -1,0 +1,404 @@
+{
+  "title": "样式",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "text",
+          "style": "title",
+          "text": "大标题（title）"
+        },
+        {
+          "type": "text",
+          "style": "headline",
+          "text": "小标题（headline）"
+        },
+        {
+          "type": "text",
+          "text": "正文（body）：标题样式只给一节开头用，不是一段话。"
+        }
+      ]
+    },
+    {
+      "title": "11 种颜色",
+      "items": [
+        {
+          "type": "row",
+          "key": "c-red",
+          "title": "red",
+          "icon": "star",
+          "icon_color": "red",
+          "badge": {
+            "text": "red",
+            "color": "red"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-orange",
+          "title": "orange",
+          "icon": "star",
+          "icon_color": "orange",
+          "badge": {
+            "text": "orange",
+            "color": "orange"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-amber",
+          "title": "amber",
+          "icon": "star",
+          "icon_color": "amber",
+          "badge": {
+            "text": "amber",
+            "color": "amber"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-yellow",
+          "title": "yellow",
+          "icon": "star",
+          "icon_color": "yellow",
+          "badge": {
+            "text": "yellow",
+            "color": "yellow"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-green",
+          "title": "green",
+          "icon": "star",
+          "icon_color": "green",
+          "badge": {
+            "text": "green",
+            "color": "green"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-teal",
+          "title": "teal",
+          "icon": "star",
+          "icon_color": "teal",
+          "badge": {
+            "text": "teal",
+            "color": "teal"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-blue",
+          "title": "blue",
+          "icon": "star",
+          "icon_color": "blue",
+          "badge": {
+            "text": "blue",
+            "color": "blue"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-indigo",
+          "title": "indigo",
+          "icon": "star",
+          "icon_color": "indigo",
+          "badge": {
+            "text": "indigo",
+            "color": "indigo"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-purple",
+          "title": "purple",
+          "icon": "star",
+          "icon_color": "purple",
+          "badge": {
+            "text": "purple",
+            "color": "purple"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-pink",
+          "title": "pink",
+          "icon": "star",
+          "icon_color": "pink",
+          "badge": {
+            "text": "pink",
+            "color": "pink"
+          }
+        },
+        {
+          "type": "row",
+          "key": "c-gray",
+          "title": "gray",
+          "icon": "star",
+          "icon_color": "gray",
+          "badge": {
+            "text": "gray",
+            "color": "gray"
+          }
+        }
+      ]
+    },
+    {
+      "title": "45 个新图标",
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "各端把每个名字画成自己的同义图标。"
+        },
+        {
+          "type": "grid",
+          "key": "icons",
+          "max_columns": 4,
+          "tiles": [
+            {
+              "key": "i-home",
+              "title": "home",
+              "icon": "home"
+            },
+            {
+              "key": "i-sofa",
+              "title": "sofa",
+              "icon": "sofa"
+            },
+            {
+              "key": "i-light",
+              "title": "light",
+              "icon": "light"
+            },
+            {
+              "key": "i-power",
+              "title": "power",
+              "icon": "power"
+            },
+            {
+              "key": "i-fan",
+              "title": "fan",
+              "icon": "fan"
+            },
+            {
+              "key": "i-thermometer",
+              "title": "thermometer",
+              "icon": "thermometer"
+            },
+            {
+              "key": "i-droplet",
+              "title": "droplet",
+              "icon": "droplet"
+            },
+            {
+              "key": "i-lock",
+              "title": "lock",
+              "icon": "lock"
+            },
+            {
+              "key": "i-unlock",
+              "title": "unlock",
+              "icon": "unlock"
+            },
+            {
+              "key": "i-door",
+              "title": "door",
+              "icon": "door"
+            },
+            {
+              "key": "i-window",
+              "title": "window",
+              "icon": "window"
+            },
+            {
+              "key": "i-camera",
+              "title": "camera",
+              "icon": "camera"
+            },
+            {
+              "key": "i-video",
+              "title": "video",
+              "icon": "video"
+            },
+            {
+              "key": "i-play",
+              "title": "play",
+              "icon": "play"
+            },
+            {
+              "key": "i-pause",
+              "title": "pause",
+              "icon": "pause"
+            },
+            {
+              "key": "i-stop",
+              "title": "stop",
+              "icon": "stop"
+            },
+            {
+              "key": "i-speaker",
+              "title": "speaker",
+              "icon": "speaker"
+            },
+            {
+              "key": "i-tv",
+              "title": "tv",
+              "icon": "tv"
+            },
+            {
+              "key": "i-plug",
+              "title": "plug",
+              "icon": "plug"
+            },
+            {
+              "key": "i-battery",
+              "title": "battery",
+              "icon": "battery"
+            },
+            {
+              "key": "i-bolt",
+              "title": "bolt",
+              "icon": "bolt"
+            },
+            {
+              "key": "i-sun",
+              "title": "sun",
+              "icon": "sun"
+            },
+            {
+              "key": "i-moon",
+              "title": "moon",
+              "icon": "moon"
+            },
+            {
+              "key": "i-cloud",
+              "title": "cloud",
+              "icon": "cloud"
+            },
+            {
+              "key": "i-rain",
+              "title": "rain",
+              "icon": "rain"
+            },
+            {
+              "key": "i-snow",
+              "title": "snow",
+              "icon": "snow"
+            },
+            {
+              "key": "i-wind",
+              "title": "wind",
+              "icon": "wind"
+            },
+            {
+              "key": "i-leaf",
+              "title": "leaf",
+              "icon": "leaf"
+            },
+            {
+              "key": "i-car",
+              "title": "car",
+              "icon": "car"
+            },
+            {
+              "key": "i-location",
+              "title": "location",
+              "icon": "location"
+            },
+            {
+              "key": "i-robot",
+              "title": "robot",
+              "icon": "robot"
+            },
+            {
+              "key": "i-wifi",
+              "title": "wifi",
+              "icon": "wifi"
+            },
+            {
+              "key": "i-shield",
+              "title": "shield",
+              "icon": "shield"
+            },
+            {
+              "key": "i-trend_up",
+              "title": "trend_up",
+              "icon": "trend_up"
+            },
+            {
+              "key": "i-trend_down",
+              "title": "trend_down",
+              "icon": "trend_down"
+            },
+            {
+              "key": "i-wallet",
+              "title": "wallet",
+              "icon": "wallet"
+            },
+            {
+              "key": "i-bank",
+              "title": "bank",
+              "icon": "bank"
+            },
+            {
+              "key": "i-heart",
+              "title": "heart",
+              "icon": "heart"
+            },
+            {
+              "key": "i-plus",
+              "title": "plus",
+              "icon": "plus"
+            },
+            {
+              "key": "i-minus",
+              "title": "minus",
+              "icon": "minus"
+            },
+            {
+              "key": "i-trash",
+              "title": "trash",
+              "icon": "trash"
+            },
+            {
+              "key": "i-edit",
+              "title": "edit",
+              "icon": "edit"
+            },
+            {
+              "key": "i-refresh",
+              "title": "refresh",
+              "icon": "refresh"
+            },
+            {
+              "key": "i-share",
+              "title": "share",
+              "icon": "share"
+            },
+            {
+              "key": "i-info",
+              "title": "info",
+              "icon": "info"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "空状态的图标颜色",
+      "items": [
+        {
+          "type": "empty",
+          "key": "empty",
+          "title": "没有设备",
+          "detail": "icon_color: teal",
+          "icon": "plug",
+          "icon_color": "teal"
+        }
+      ]
+    }
+  ]
+}
