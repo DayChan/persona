@@ -50,8 +50,12 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				store := &restartReceiptStore{}
 				oldNode := newFakeHub()
-				oldNode.sessions["box"] = nil
+				oldNode.sessions["box"] = []proto.Session{{MachineID: "box", SessionID: "session", Status: proto.StatusWorking, State: proto.StateWorking}}
 				old := New(Options{Hub: oldNode, Store: func() Store { return store }})
+				linked := time.Now().Add(-time.Hour)
+				todo := Todo{ID: "task", Title: "Task", Origin: "conversation", CreatedAt: linked,
+					Agents: []TodoAgent{{MachineID: "box", SessionID: "session", LinkedAt: linked}}}
+				putTodo(old, todo)
 				oldCtx, stopOld := context.WithCancel(context.Background())
 				oldDone := make(chan struct{})
 				go func() { defer close(oldDone); old.Run(oldCtx) }()
@@ -69,8 +73,7 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 					State: proto.StateIdle, LastText: "Finished", UpdatedAt: time.Now()}}
 				node.items = []proto.Item{{Role: "assistant", Kind: "text", Text: "Finished"}}
 				restarted := New(Options{Hub: node, Store: func() Store { return store }})
-				putTodo(restarted, Todo{ID: "task", Title: "Task", Origin: "conversation", CreatedAt: time.Now().Add(-time.Hour),
-					Agents: []TodoAgent{{MachineID: "box", SessionID: "session"}}})
+				putTodo(restarted, todo)
 				ctx, stop := context.WithCancel(context.Background())
 				done := make(chan struct{})
 				go func() { defer close(done); restarted.Run(ctx) }()
