@@ -148,6 +148,48 @@ func TestTodayCardOmitsEmptyPendingReview(t *testing.T) {
 
 // POST .../today reads the conversation's feed twice (is today's card there; what finished since yesterday 18:00) and
 // looks only at the items: it loads none of the plans its plan cards name, and the card is the same as before.
+// dayStart is the first instant of the user's day, also where the clocks jump forward at midnight: there time.Date
+// answers 23:00 the evening before, and the Today card was filed under yesterday's date.
+func TestDayStart(t *testing.T) {
+	for _, tc := range []struct {
+		name, zone, now, start string
+	}{
+		{"santiago spring forward at midnight", "America/Santiago", "2024-09-08 12:00", "2024-09-08T01:00:00-03:00"},
+		{"santiago just after the jump", "America/Santiago", "2024-09-08 01:00", "2024-09-08T01:00:00-03:00"},
+		{"santiago the evening before", "America/Santiago", "2024-09-07 23:59", "2024-09-07T00:00:00-04:00"},
+		{"havana spring forward at midnight", "America/Havana", "2024-03-10 08:30", "2024-03-10T01:00:00-04:00"},
+		{"asuncion spring forward at midnight", "America/Asuncion", "2023-10-01 20:00", "2023-10-01T01:00:00-03:00"},
+		{"santiago normal day", "America/Santiago", "2024-07-01 09:00", "2024-07-01T00:00:00-04:00"},
+		{"santiago fall back, the day before", "America/Santiago", "2024-04-06 22:00", "2024-04-06T00:00:00-03:00"},
+		{"santiago fall back, the day after", "America/Santiago", "2024-04-07 09:00", "2024-04-07T00:00:00-04:00"},
+		{"new york spring forward at 02:00", "America/New_York", "2024-03-10 12:00", "2024-03-10T00:00:00-05:00"},
+		{"utc", "UTC", "2024-09-08 12:00", "2024-09-08T00:00:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loc, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				t.Skipf("no zone data for %s: %v", tc.zone, err)
+			}
+			now, err := time.ParseInLocation("2006-01-02 15:04", tc.now, loc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := time.Parse(time.RFC3339, tc.start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := dayStart(now)
+			date := now.Format("2006-01-02")
+			if !got.Equal(want) || got.Location() != loc {
+				t.Fatalf("dayStart(%s) = %s, want %s in %s", now, got, want.In(loc), loc)
+			}
+			if got.Format("2006-01-02") != date || got.Add(-time.Nanosecond).Format("2006-01-02") == date {
+				t.Fatalf("dayStart(%s) = %s is not the first instant of %s", now, got, date)
+			}
+		})
+	}
+}
+
 func TestTodayCardReadsNoPlans(t *testing.T) {
 	st := &countingPlans{DB: todoTestDB(t)}
 	// planReads are the plan reads that reached the database, one plan at a time or in one batch.

@@ -78,8 +78,8 @@ func (s *Service) ensureToday(ctx context.Context, conversation string) (FeedIte
 	defer s.tasks.todayLocks.release(conversation)
 	loc := s.location(ctx)
 	now := time.Now().In(loc)
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	date := day.Format("2006-01-02")
+	day := dayStart(now)
+	date := now.Format("2006-01-02")
 	items, err := s.feedItems(ctx, conversation, day.Add(-time.Second))
 	if err != nil {
 		return FeedItem{}, false, err
@@ -156,6 +156,19 @@ func (s *Service) ensureToday(ctx context.Context, conversation string) (FeedIte
 	body.Failed, body.FailedTotal = s.todayFailures(ctx, conversation, since, loc)
 	it, err := s.appendFeedAt(ctx, conversation, feedToday, date, body, day)
 	return it, true, err
+}
+
+// dayStart is the first instant of now's calendar day in now's location. Where the clocks jump forward at midnight
+// (America/Santiago, America/Havana, America/Asuncion), that midnight does not exist and time.Date answers 23:00 the
+// evening before; the day then begins at the jump, 01:00.
+func dayStart(now time.Time) time.Time {
+	y, m, d := now.Date()
+	t := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	if t.Day() != d {
+		_, end := t.ZoneBounds()
+		return end
+	}
+	return t
 }
 
 // todayFailures is what did not go through since since (#4124), newest first: the conversation's tasks whose agent did
