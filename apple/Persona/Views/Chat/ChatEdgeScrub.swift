@@ -384,7 +384,7 @@ struct SessionNavigationOverlay: View {
 private struct EdgeNavigationProbe: View {
     let navigation: SessionNavigationModel
     let scrub: EdgeScrubState
-    private struct Snapshot: Encodable {
+    private struct Snapshot: Encodable, Equatable {
         var mode: String
         var pickedSeq: Int?
         var marks: Int
