@@ -1,6 +1,8 @@
 {
   "started": "已开始独立审查，完成后这里会出现结果卡片",
   "busy": "它正在忙",
+  "no_changes": "没有可审查的改动",
+  "checking_changes": "正在检查改动…",
   "title": "这项工作的独立审查",
   "send": "发给 Agent",
   "send_note": "发现会作为一条消息发给这个 Agent，由它核对修复",

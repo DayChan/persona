@@ -1,6 +1,8 @@
 {
   "started": "Independent review started — a card with its findings appears here when it finishes.",
   "busy": "Busy",
+  "no_changes": "No changes to review",
+  "checking_changes": "Checking changes…",
   "title": "Independent review of this work",
   "send": "Send to agent",
   "send_note": "The findings go to the agent as one message, for it to check and fix.",
