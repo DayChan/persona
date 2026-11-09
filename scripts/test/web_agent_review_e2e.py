@@ -62,12 +62,18 @@ def run(browser, base, hub, token, size, theme, shots):
     def open_chat(card=True):
         mock(hub, token, "?state=" + ("card" if card else "none") + "&count=1&refuse=&running=0")
         page.goto(f"{base}/s/{MID}/{SID}")
+        expect(page).to_have_url(f"{base}/s/{MID}/{SID}")
         page.wait_for_selector("[data-composer], textarea")
         page.wait_for_function("dark => document.documentElement.classList.contains('dark') === dark", arg=theme == "dark")
 
     def menu_item():
         page.get_by_role("button", name="更多").first.click()
         return page.get_by_role("menuitem", name="独立审查这项工作")
+
+    def close_menu():
+        page.keyboard.press("Escape")
+        # On phones closing the menu schedules history.back(); wait for it before navigating again.
+        page.wait_for_function("!history.state?.personaOverlay")
 
     # the menu entry starts a review; the hub notes the ask
     mock(hub, token, "?mode=1", route="review")
@@ -83,7 +89,7 @@ def run(browser, base, hub, token, size, theme, shots):
     if len(starts) != 1 or starts[0]["machine"] != MID or starts[0]["session"] != SID:
         fail(f"{tag}: the hub was not asked to review {SID}: {starts}")
     ok(f"{tag}: the menu entry starts a review of this session")
-    page.keyboard.press("Escape")
+    close_menu()
 
     # a busy chat keeps the entry, disabled with its reason
     mock(hub, token, "?state=none&refuse=")
@@ -95,7 +101,7 @@ def run(browser, base, hub, token, size, theme, shots):
     expect(busy).to_be_disabled()
     expect(busy).to_contain_text("它正在忙")
     ok(f"{tag}: a busy chat keeps the entry, disabled with its reason")
-    page.keyboard.press("Escape")
+    close_menu()
 
     # a clean repository keeps the entry disabled with its reason
     mock(hub, token, "?mode=clean", route="review")
@@ -105,7 +111,7 @@ def run(browser, base, hub, token, size, theme, shots):
     expect(clean).to_contain_text("没有可审查的改动")
     shot("clean")
     ok(f"{tag}: a clean repository disables the entry with its reason")
-    page.keyboard.press("Escape")
+    close_menu()
     mock(hub, token, "?mode=1", route="review")
 
     # a refusal comes back in the hub's own words
@@ -116,7 +122,7 @@ def run(browser, base, hub, token, size, theme, shots):
     item.click()
     expect(page.get_by_text("这个 Agent 正在工作，等它停下来再审查")).to_be_visible()
     ok(f"{tag}: the hub's refusal is shown in its own words")
-    page.keyboard.press("Escape")
+    close_menu()
 
     # the finished review's card: the count line, the report, both buttons
     open_chat(card=True)

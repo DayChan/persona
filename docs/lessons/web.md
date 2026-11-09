@@ -1,5 +1,9 @@
 # Lessons: web UI and interactions
 
+## Wait for a phone menu's history entry before navigating
+
+Closing a narrow-screen menu schedules `history.back()` to remove its overlay entry. A browser test that navigates immediately after Escape can have that navigation aborted by the pending history traversal. Wait until the `personaOverlay` marker leaves `history.state`, then navigate; keep the wait bounded and verify the intended page.
+
 ## Streamed stat grids need the same text bounds as snapshots (#1703)
 
 Fixed grid columns do not constrain a value's painted text. Give each cell `min-w-0` and its value `truncate`, retaining the full DOM text and title. The legacy renderer can already have these guards while a separate native stream renderer omits them. A six-column grid exposed overlapping values that looked fine with two columns. Regress the native snapshot/delta DOM contract, then check real wide/narrow light/dark browser geometry; jsdom cannot prove clipping.
