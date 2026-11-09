@@ -100,7 +100,17 @@ func (ps *extensions) storageCall(ctx context.Context, p *extension.Extension, m
 	call, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	initial, _ := json.Marshal(storage.NewState())
-	value, err := backend.ExtensionStorage(call, scope, initial, func(raw json.RawMessage, previousRun string) (json.RawMessage, any, bool, error) {
+	value, err := backend.ExtensionStorage(call, scope, initial, storageCallUpdate(scope, method, params))
+	return value, storeError(ctx, err)
+}
+
+// storageCallUpdate runs one guest call on the stored document. A call that
+// changes nothing (get, list, request, a receipt replay) hands the stored bytes
+// back as they are: the backend writes nothing for it, and encoding a document
+// of up to storage.DocumentMost would run inside the open transaction, with its
+// locks held.
+func storageCallUpdate(scope storage.Scope, method string, params json.RawMessage) db.StorageUpdate {
+	return func(raw json.RawMessage, previousRun string) (json.RawMessage, any, bool, error) {
 		state, err := loadBusinessStorage(raw)
 		if err != nil {
 			return nil, nil, false, err
@@ -116,10 +126,12 @@ func (ps *extensions) storageCall(ctx context.Context, p *extension.Extension, m
 		if err != nil || wire.ValidateResult(method, encoded) != nil {
 			return nil, nil, false, storage.ErrCorrupt
 		}
+		if !changed {
+			return raw, value, false, nil
+		}
 		next, err := json.Marshal(state)
-		return next, value, changed, err
-	})
-	return value, storeError(ctx, err)
+		return next, value, true, err
+	}
 }
 
 // storageStart binds the run in the same initialize attempt before any guest
