@@ -123,6 +123,8 @@ export interface WorkState {
   then?: string;
   /** When the hub acts next on its own: "Continue" (transient) or a wake (external, agent). */
   wake_at?: string;
+  /** When a subscription usage limit that stopped the turn resets (docs/assistant/agent-work.md "Usage limits"). */
+  resets_at?: string;
   attempts?: number;
   max?: number;
   agent?: { machine_id: string; session_id: string; label?: string };
@@ -242,11 +244,16 @@ export interface Session {
   activity_at?: string;
   /** Its latest turn ended in a model API error (the hub sets it while it is stopped, #1516): its task is interrupted. */
   turn_error?: string;
-  /** What the agent's record says of turn_error: "transient" (worth a "Continue") or "user" (the user must act). */
+  /** What the agent's record says of turn_error: "transient" (worth a "Continue"), "user" (the user must act),
+   *  or "usage_limit" (a subscription limit, until it resets). */
   turn_error_kind?: string;
   /** What is wrong, when the hub can tell from turn_error (docs/assistant/onboarding.md 5.2): not_logged_in / auth_failed /
    *  model_route / rate_limited. */
   turn_error_code?: string;
+  /** When turn_error_kind is "usage_limit": when that subscription limit resets. Absent when it is not known. */
+  turn_error_resets_at?: string;
+  /** The CLI continues by itself once the usage limit resets. */
+  turn_error_resumes?: boolean;
   /** Where it stands in its work (docs/assistant/agent-work.md): set by the hub once it triaged a stopped turn. */
   work?: WorkState;
   pending_interactions?: number;

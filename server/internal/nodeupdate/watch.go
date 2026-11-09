@@ -18,19 +18,21 @@ import (
 )
 
 type pending struct {
-	ID           string    `json:"id"`
-	Exe          string    `json:"exe"`
-	Backup       string    `json:"backup"`
-	Stage        string    `json:"stage"`
-	Version      string    `json:"version"`
-	From         string    `json:"from"`
-	OldHash      string    `json:"old_sha256"`
-	NewHash      string    `json:"new_sha256"`
-	PID          int       `json:"pid"`
-	ProcessStart string    `json:"process_start"`
-	WatchPID     int       `json:"watch_pid"`
-	WatchStart   string    `json:"watch_start"`
-	Deadline     time.Time `json:"deadline"`
+	ID             string    `json:"id"`
+	Exe            string    `json:"exe"`
+	Backup         string    `json:"backup"`
+	Stage          string    `json:"stage"`
+	Version        string    `json:"version"`
+	From           string    `json:"from"`
+	OldHash        string    `json:"old_sha256"`
+	NewHash        string    `json:"new_sha256"`
+	PID            int       `json:"pid"`
+	ProcessStart   string    `json:"process_start"`
+	ProcessPrecise string    `json:"process_start_precise,omitempty"` // exact instance identity; absent in older markers
+	WatchPID       int       `json:"watch_pid"`
+	WatchStart     string    `json:"watch_start"`
+	WatchPrecise   string    `json:"watch_start_precise,omitempty"`
+	Deadline       time.Time `json:"deadline"`
 }
 
 func markerPath(exe string) string { return exe + ".node-update-pending.json" }
@@ -77,12 +79,13 @@ func loadPending(path string) (pending, error) {
 	// descriptor. A late writer cannot recreate a transaction canceled by the
 	// parent; a partial append cannot corrupt the durable first JSON object.
 	var ready struct {
-		ID    string `json:"id"`
-		PID   int    `json:"watch_pid"`
-		Start string `json:"watch_start"`
+		ID      string `json:"id"`
+		PID     int    `json:"watch_pid"`
+		Start   string `json:"watch_start"`
+		Precise string `json:"watch_start_precise"`
 	}
 	if decoder.Decode(&ready) == nil && ready.ID == p.ID && ready.PID > 1 && ready.Start != "" {
-		p.WatchPID, p.WatchStart = ready.PID, ready.Start
+		p.WatchPID, p.WatchStart, p.WatchPrecise = ready.PID, ready.Start, ready.Precise
 	}
 	id, idErr := hex.DecodeString(p.ID)
 	if idErr != nil || len(id) != 16 || filepath.Clean(p.Exe) != p.Exe || filepath.IsAbs(p.Exe) == false || markerPath(p.Exe) != path || p.Backup != p.Exe+".node-update-backup-"+p.ID || filepath.Dir(p.Stage) != filepath.Dir(p.Exe) || !strings.HasPrefix(filepath.Base(p.Stage), ".node-update-stage-") || p.PID < 2 || len(p.OldHash) != 64 || len(p.NewHash) != 64 || p.Deadline.IsZero() {
@@ -121,6 +124,11 @@ func (m *Manager) recover() error {
 		}
 		if !time.Now().Before(p.Deadline) {
 			if err := restore(p); err != nil {
+				if errors.Is(err, errSuperseded) {
+					// A deployment we did not stage replaced the file after the
+					// check above; never undo its file.
+					return cleanup(p)
+				}
 				return err
 			}
 			m.needsRestart = true
@@ -134,16 +142,13 @@ func (m *Manager) recover() error {
 		if err != nil {
 			return err
 		}
+		p.ProcessPrecise = osproc.Identify(p.PID).Start
 		if err := savePending(p); err != nil {
 			return err
 		}
 		// The existing watchdog normally survives startup crashes. Starting another
 		// is harmless (directory lock + transaction id) and recovers a dead watchdog.
-		watchAlive := false
-		if p.WatchPID > 1 && p.WatchStart != "" {
-			birth, err := processStart(p.WatchPID)
-			watchAlive = err == nil && birth == p.WatchStart
-		}
+		watchAlive := aliveIs(p.WatchPID, p.WatchStart, p.WatchPrecise)
 		if !watchAlive {
 			if err := m.startWatch(p.Backup, markerPath(m.exe), p.ID); err != nil {
 				return err
@@ -202,6 +207,7 @@ func startWatchdog(backup, path, id string) error {
 		p.WatchPID = cmd.Process.Pid
 		p.WatchStart, err = processStart(p.WatchPID)
 		if err == nil {
+			p.WatchPrecise = osproc.Identify(p.WatchPID).Start
 			err = savePending(p)
 		}
 	}
@@ -234,11 +240,8 @@ func startSystemdWatchdog(backup, path, id string) error {
 		if p.ID != id {
 			return errors.New("watchdog transaction changed")
 		}
-		if p.WatchPID > 1 && p.WatchStart != "" {
-			birth, err := processStart(p.WatchPID)
-			if err == nil && birth == p.WatchStart {
-				return nil
-			}
+		if p.WatchPID > 1 && p.WatchStart != "" && aliveIs(p.WatchPID, p.WatchStart, p.WatchPrecise) {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -263,6 +266,7 @@ func WatchManaged(ctx context.Context, path, id string) error {
 	if err != nil {
 		return err
 	}
+	precise := osproc.Identify(os.Getpid()).Start
 	// Never create or rename the marker here. The creator holds the directory
 	// lock while waiting; a delayed service must not resurrect a canceled swap.
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
@@ -279,10 +283,11 @@ func WatchManaged(ctx context.Context, path, id string) error {
 		return errors.New("node watchdog transaction changed")
 	}
 	ready, err := json.Marshal(struct {
-		ID    string `json:"id"`
-		PID   int    `json:"watch_pid"`
-		Start string `json:"watch_start"`
-	}{id, os.Getpid(), birth})
+		ID      string `json:"id"`
+		PID     int    `json:"watch_pid"`
+		Start   string `json:"watch_start"`
+		Precise string `json:"watch_start_precise,omitempty"`
+	}{id, os.Getpid(), birth, precise})
 	if err == nil {
 		_, err = f.Write(append([]byte{'\n'}, ready...))
 	}
@@ -345,15 +350,21 @@ func Watch(ctx context.Context, path, id string, ready io.Writer) error {
 			}
 			if sum == p.NewHash {
 				if err := restore(p); err != nil {
+					if errors.Is(err, errSuperseded) {
+						// A deployment we did not stage replaced the file after
+						// the hash check above; never undo its file.
+						done = true
+						return cleanup(p)
+					}
 					return err
 				}
 			}
 			// PID survives exec. A service restart records its replacement PID on
-			// startup. The birth time prevents killing an unrelated reused PID.
-			if birth, err := processStart(p.PID); err == nil && birth == p.ProcessStart && birth != "" {
-				if err := osproc.Kill(p.PID); err != nil {
-					return err
-				}
+			// startup. The recorded identity — exact where the platform gives
+			// one, the second-resolution start everywhere — prevents killing an
+			// unrelated reused PID.
+			if err := killRecorded(p.PID, p.ProcessStart, p.ProcessPrecise); err != nil {
+				return err
 			}
 			// Keep the rollback barrier for a supervisor replacement that may
 			// already have loaded the new inode. Old-version startup clears it.
@@ -371,6 +382,9 @@ func Watch(ctx context.Context, path, id string, ready io.Writer) error {
 	}
 }
 
+// restore puts the backup back only while the installed file is still this
+// transaction's own staged build, rechecked through one descriptor right before
+// the swap; an external deployment racing the rollback keeps its file.
 func restore(p pending) error {
 	sum, err := fileHash(p.Backup)
 	if err != nil {
@@ -379,7 +393,7 @@ func restore(p pending) error {
 	if sum != p.OldHash {
 		return errors.New("node rollback backup checksum mismatch")
 	}
-	if err := os.Rename(p.Backup, p.Exe); err != nil {
+	if err := renameStill(p.Backup, p.Exe, p.NewHash); err != nil {
 		return err
 	}
 	return syncDir(filepath.Dir(p.Exe))
@@ -408,4 +422,39 @@ func processStart(pid int) (string, error) {
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
 	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// aliveIs says whether pid is still the exact recorded process instance. The
+// exact identity decides whenever the marker carries one and the platform can
+// read it now; the second-resolution start — what every older version wrote —
+// decides otherwise and stays the fallback when the exact identity cannot be
+// read right now (a masked procfs): still a guard against pid reuse.
+func aliveIs(pid int, start, precise string) bool {
+	if pid < 2 || start == "" {
+		return false
+	}
+	if precise != "" {
+		if id := osproc.Identify(pid); id.Start != "" {
+			return id.Start == precise
+		}
+	}
+	birth, err := processStart(pid)
+	return err == nil && birth != "" && birth == start
+}
+
+// killRecorded ends the recorded process, but only when it is still that exact
+// instance: pinned by pidfd or process handle where the platform has one, so a
+// pid reused between the identity check and the kill is never hit. Without a
+// readable exact identity the portable start time decides.
+func killRecorded(pid int, start, precise string) error {
+	if pid < 2 || start == "" {
+		return nil
+	}
+	if precise != "" && osproc.Identify(pid).Start != "" {
+		return osproc.ProcIdentity{Start: precise}.KillIfStill(pid)
+	}
+	if !aliveIs(pid, start, precise) {
+		return nil
+	}
+	return osproc.Kill(pid)
 }

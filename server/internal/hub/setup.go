@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,8 +22,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/pgdocker"
 )
@@ -134,6 +137,8 @@ type setupEnv struct {
 	// it when the manager's program did not trade it.
 	builtinCode func(ctx context.Context, cfg *Config) (string, error)
 	voidCode    func(ctx context.Context, cfg *Config, code string) error
+	// keptMachines: machine → the manager that keeps it, as the hub's database has it (keptMachines).
+	keptMachines func(ctx context.Context, cfg *Config) (map[string]string, error)
 
 	healthWait  time.Duration
 	dbWait      time.Duration
@@ -174,7 +179,8 @@ func newSetupEnv(out io.Writer, o setupOptions) (*setupEnv, error) {
 			code, _, err := builtinCode(ctx, cfg)
 			return code, err
 		},
-		voidCode: voidBuiltinCode,
+		voidCode:     voidBuiltinCode,
+		keptMachines: keptMachines,
 
 		healthWait:  90 * time.Second,
 		dbWait:      30 * time.Second,
@@ -233,6 +239,9 @@ func (e *setupEnv) setup(ctx context.Context) error {
 		return err
 	}
 	if err := e.database(ctx, cfg); err != nil {
+		return err
+	}
+	if err := e.localMachine(ctx, cfg); err != nil {
 		return err
 	}
 	if err := e.service(ctx, cfg); err != nil {
@@ -294,6 +303,8 @@ func newInstallConfig(in installInputs) *Config {
 type setupConfig struct {
 	*Config
 	fresh bool
+	// noLocal: a hub.json a hub has run with lists no machine, and claude or herdr is here (localMachine).
+	noLocal bool
 }
 
 func (e *setupEnv) hubJSON() string { return filepath.Join(e.root, "hub.json") }
@@ -352,20 +363,6 @@ func (e *setupEnv) config() (*setupConfig, error) {
 				return nil, e.fail("config", "写不了 "+e.hubJSON()+"："+err.Error(), "检查这个目录的权限")
 			}
 		}
-		// No machine yet (installed before claude / herdr were, #4083): this machine is the first one once it has them.
-		if noMachines(raw) && e.hasAgents() {
-			if err := editHubJSON(e.root, func(o *jsonObject) error {
-				if !noMachines(o) {
-					return nil
-				}
-				return o.set("machines", []MachineConfig{defaultLocalMachine()})
-			}); err != nil {
-				return nil, e.fail("config", "写不了 "+e.hubJSON()+"："+err.Error(), "检查这个目录的权限")
-			}
-			e.restartHub = true // a running hub reads machines only when it starts
-			e.restartWhy = append(e.restartWhy, "hub.json 补了本机")
-			notes = append(notes, "补上本机作为电脑（kind: local）")
-		}
 	}
 	b, err := os.ReadFile(e.hubJSON())
 	if err != nil {
@@ -396,7 +393,60 @@ func (e *setupEnv) config() (*setupConfig, error) {
 		detail += "；" + strings.Join(notes, "；")
 	}
 	e.report("config", true, detail, "")
-	return &setupConfig{Config: cfg, fresh: fresh}, nil
+	return &setupConfig{Config: cfg, fresh: fresh, noLocal: !fresh && noMachines(raw) && e.hasAgents()}, nil
+}
+
+// localMachine adds this machine to a hub.json a hub has run with that lists none, once claude or herdr is here
+// (installed before them, #4083), and has service restart the hub, which reads machines only when it starts. Not while
+// a manager keeps any machine (machines_kept.go): their entries left hub.json for its own list, and one added here
+// would be handed to a manager on every rerun, over the entry it keeps. It reads that from the database, so it runs
+// after database (which may start it).
+func (e *setupEnv) localMachine(ctx context.Context, cfg *setupConfig) error {
+	if !cfg.noLocal {
+		return nil
+	}
+	kept, err := e.keptMachines(ctx, cfg.Config)
+	if err != nil {
+		e.report("config", false, "hub.json 里没有电脑，但读不了哪些电脑归管理者管（"+err.Error()+"），这次没补本机",
+			"看管理界面的「电脑」里有没有这台电脑，没有就加上；修好后重跑 personad hub setup")
+		return nil
+	}
+	if len(kept) > 0 {
+		return nil
+	}
+	if err := editHubJSON(e.root, func(o *jsonObject) error {
+		if !noMachines(o) {
+			return nil
+		}
+		return o.set("machines", []MachineConfig{defaultLocalMachine()})
+	}); err != nil {
+		return e.fail("config", "写不了 "+e.hubJSON()+"："+err.Error(), "检查这个目录的权限")
+	}
+	e.restartHub = true
+	e.restartWhy = append(e.restartWhy, "hub.json 补了本机")
+	e.report("config", true, "补上本机作为电脑（kind: local）", "")
+	return nil
+}
+
+// keptMachines is machine → the manager that keeps it, as the hub reads it (loadMachinesKept). It migrates nothing:
+// the hub running may be an older build than this program.
+func keptMachines(ctx context.Context, cfg *Config) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	database, err := db.Attach(ctx, cfg.DatabaseURL, db.HubSet)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", machinesKeptKey, err)
+	}
+	defer database.Close()
+	h := &Hub{cfg: cfg, store: database, logger: log.New(io.Discard, "", 0)}
+	if err := h.loadMachinesKept(ctx); err != nil {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "42P01" {
+			return nil, nil // no hub_settings: a hub from before managers kept machines
+		}
+		return nil, fmt.Errorf("read %s: %w", machinesKeptKey, err)
+	}
+	return h.devices.kept, nil
 }
 
 // keptListenNote is what a rerun says about --listen / --tls on a hub.json a hub has run with: those flags only shape

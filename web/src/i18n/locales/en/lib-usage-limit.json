@@ -1,0 +1,6 @@
+{
+  "short": "Usage limit",
+  "resumes": "Usage limit · resumes {time}",
+  "resets": "Usage limit · resets {time}",
+  "resumes_later": "Usage limit · resumes after the reset"
+}

@@ -53,7 +53,8 @@ func (n *Node) dirs(path string) (*proto.DirList, error) {
 }
 
 // dirsByUse is every working directory a session on this node is known to have run in, with when it was last used
-// (its newest transcript); a running agent's without a transcript yet has the zero time. Nothing is read from disk.
+// (its newest transcript, deleted ones included); a running agent's without a transcript yet has the zero time.
+// Nothing is read from disk.
 func (n *Node) dirsByUse() map[string]time.Time {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -61,6 +62,11 @@ func (n *Node) dirsByUse() map[string]time.Time {
 	for _, m := range n.metas {
 		if m.cwd != "" && m.mtime.After(last[m.cwd]) {
 			last[m.cwd] = m.mtime
+		}
+	}
+	for dir, at := range n.goneDirs { // transcripts pruned since they were deleted (meta_prune.go)
+		if at.After(last[dir]) {
+			last[dir] = at
 		}
 	}
 	for _, a := range n.agents {

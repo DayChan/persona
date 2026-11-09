@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/update"
 )
@@ -270,7 +271,7 @@ func (m *Manager) Commit(ctx context.Context, id string, idle func() error) (pro
 				return err
 			}
 			if !os.SameFile(m.identity, current) {
-				return errors.New("node executable was replaced by another deployment")
+				return errSuperseded
 			}
 		}
 		oldHash, err := fileHash(m.exe)
@@ -286,7 +287,7 @@ func (m *Manager) Commit(ctx context.Context, id string, idle func() error) (pro
 			_ = os.Remove(backup)
 			return err
 		}
-		p := pending{ID: id, Exe: m.exe, Backup: backup, Stage: u.Path, Version: u.Spec.Version, From: m.version, OldHash: oldHash, NewHash: u.Spec.SHA256, PID: os.Getpid(), ProcessStart: birth, Deadline: time.Now().Add(m.timeout)}
+		p := pending{ID: id, Exe: m.exe, Backup: backup, Stage: u.Path, Version: u.Spec.Version, From: m.version, OldHash: oldHash, NewHash: u.Spec.SHA256, PID: os.Getpid(), ProcessStart: birth, ProcessPrecise: osproc.Identify(os.Getpid()).Start, Deadline: time.Now().Add(m.timeout)}
 		if err := savePending(p); err != nil {
 			_ = os.Remove(backup)
 			return err
@@ -308,14 +309,12 @@ func (m *Manager) Commit(ctx context.Context, id string, idle func() error) (pro
 				return err
 			}
 		}
-		currentHash, err := fileHash(m.exe)
-		if err != nil || currentHash != oldHash {
+		// The directory lock orders Persona's own writers, but an external
+		// deployment (a plain copy, a package manager) never takes it. The swap
+		// lands only while the installed file is still the one this transaction
+		// examined, checked through one descriptor right before the rename.
+		if err := renameStill(u.Path, m.exe, oldHash); err != nil {
 			_ = cleanupPendingOnly(p)
-			return errors.New("node executable changed while preparing update")
-		}
-		if err := os.Rename(u.Path, m.exe); err != nil {
-			_ = os.Remove(markerPath(m.exe))
-			_ = os.Remove(backup)
 			return err
 		}
 		// Once renamed, keep the marker and backup even if directory fsync fails:
@@ -534,6 +533,53 @@ func fileHash(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+// errSuperseded marks a swap that stopped because the installed file was
+// replaced by a deployment this transaction did not stage: the file on disk is
+// someone else's now and must be left in place, the transaction cleaned up.
+var errSuperseded = errors.New("node executable was replaced by another deployment")
+
+// renameStill replaces dst with src only while dst is still the file whose
+// sha256 is want. The file's inode, size and modification time are snapshotted
+// before and rechecked after the hash is read through one open descriptor, and
+// once more against the path immediately before the rename, so a deployment
+// that renamed dst into place or rewrote it in place (cp never takes the
+// directory lock) between those points is detected, not overwritten. The
+// window that remains is the one between the last check and the rename, two
+// adjacent syscalls.
+func renameStill(src, dst, want string) error {
+	f, err := os.Open(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	before, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	sum := sha256.New()
+	if _, err := io.Copy(sum, f); err != nil {
+		return err
+	}
+	if hex.EncodeToString(sum.Sum(nil)) != want {
+		return errSuperseded
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+		return errSuperseded
+	}
+	now, err := os.Stat(dst)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(after, now) || !now.ModTime().Equal(after.ModTime()) || now.Size() != after.Size() {
+		return errSuperseded
+	}
+	return os.Rename(src, dst)
 }
 func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)

@@ -1,5 +1,6 @@
 import type { AgentState, Session, SessionCapabilities } from "./types";
 import { formatDate, formatRelative, t } from "../i18n";
+import { usageLimitLabel } from "./usage-limit";
 import { workLine } from "./work";
 
 // Missing session metadata is not permission to write; legacy sources retain their existing behavior.
@@ -114,7 +115,7 @@ export function attentionReason(s: Session): string | undefined {
  *  error, else where its work stands when the hub triaged its turn (docs/assistant/agent-work.md), else its last words (iOS
  *  listPreview). */
 export function sessionPreview(s: Session): string {
-  return attentionReason(s) ?? failureReason(s) ?? workLine(s) ?? s.last_text ?? "";
+  return attentionReason(s) ?? failureReason(s) ?? usageLimitLabel(s) ?? workLine(s) ?? s.last_text ?? "";
 }
 
 /** A failure notice without the warning sign botmux starts it with: the page draws its own (iOS Session.failureText). */

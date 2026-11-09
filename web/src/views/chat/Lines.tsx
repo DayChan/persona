@@ -28,6 +28,8 @@ export interface LineProps {
   fix?: { title: string; detail: string; action: string } | null;
   /** A Persona conversation: a model error's text may name a fix in Persona's settings. Agent sessions keep "Retry". */
   assistant?: boolean;
+  /** The session is waiting out a subscription usage limit: the last error card says that, not that the turn was interrupted. */
+  limit?: string;
 }
 
 export const ChatLineView = memo(function ChatLineView(props: LineProps) {
@@ -39,7 +41,7 @@ export const ChatLineView = memo(function ChatLineView(props: LineProps) {
   );
 });
 
-function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assistant }: LineProps) {
+function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assistant, limit }: LineProps) {
   switch (line.kind) {
     case "segment":
       return (
@@ -61,6 +63,7 @@ function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assista
     case "recaps":
       return <RecapChip items={line.items} />;
     case "apiError": {
+      if (limit) return <UsageLimitLine text={limit} />;
       // the text-derived fix points at Persona's model settings: only for Persona's own conversations
       const f = assistant ? (fix ?? turnErrorFix(line.info.code)) : null;
       return <APIErrorCard info={line.info} count={line.count} at={line.item.ts} fix={f} onRetry={onRetry && retryable(line.info) && !f ? onRetry : undefined} />;
@@ -252,6 +255,16 @@ export function closeRecap(key: string, id: string) {
 }
 
 // ── model API errors ──
+
+/** A subscription usage limit, where an error card would have said the turn was interrupted. */
+function UsageLimitLine({ text }: { text: string }) {
+  return (
+    <div role="status" className="flex items-start gap-2 rounded-card bg-field px-3.5 py-3 shadow-hairline">
+      <Icon name="clock" size={15} stroke={2.2} className="mt-[2px] shrink-0 text-orange" />
+      <span className="min-w-0 text-[14px] font-semibold text-ink">{text}</span>
+    </div>
+  );
+}
 
 /** A model API error: why, whether it passes by itself, the original under the fold, "Retry". One the user must fix (not
  *  signed in, a wrong key, a model that is not there) says so instead, with "Fix it" (docs/assistant/onboarding.md 4.4). */

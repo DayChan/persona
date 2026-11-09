@@ -8,6 +8,7 @@ import { ChatView } from "../chat/ChatView";
 import { PanelHeader } from "../SidePanel";
 import { place, removeTaskNow, retryTaskNow, useRetrying, useTaskState, useTodo } from "./Tasks";
 import { stateOf } from "../../lib/format";
+import { usageLimitLabel } from "../../lib/usage-limit";
 import { href, type Route } from "../../lib/router";
 import { t } from "../../i18n";
 
@@ -36,7 +37,9 @@ export function TaskPanel({ todoId, onClose }: { todoId: string; onClose: () => 
   const info = TODO_STATUS_INFO[st.status];
   // the header also stands for the agent shown: after ⌄ picks another, its machine and project, not the lead's
   const shown = chosen ? (sessions[chosen.machine_id] ?? []).find((x) => x.session_id === chosen.session_id) : undefined;
-  const subtitle = [info.label, chosen ? place({ ...todo, agents: [chosen] }, shown ?? lead) : place(todo, lead)].filter(Boolean).join(" · ");
+  // The chat header prepends the usage-limit line of the agent it shows, so the status word is not said twice.
+  const head = st.status === "usage_limit" && usageLimitLabel(shown ?? lead) ? "" : info.label;
+  const subtitle = [head, chosen ? place({ ...todo, agents: [chosen] }, shown ?? lead) : place(todo, lead)].filter(Boolean).join(" · ");
   const taskItems: MenuItem[] = [
     openInWindow({ name: "todos", id: todo.id }),
     ...(isRemovable(st.status) ? [{ key: "remove", label: t("assistant-taskpanel.remove_ellipsis"), icon: "trash" as const, danger: true, onSelect: () => removeTaskNow(todo) }] : []),

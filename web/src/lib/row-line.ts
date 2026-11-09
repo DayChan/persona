@@ -3,6 +3,7 @@
 import { stateName } from "./state-labels";
 import { t } from "../i18n";
 import { sessionPreview, stateOf } from "./format";
+import { usageLimitLabel } from "./usage-limit";
 import { replyAsk } from "./agent-groups";
 import { interactionAsk } from "./inbox";
 import { plainMarkdown } from "./plain-markdown";
@@ -37,6 +38,9 @@ const MAX = 160;
  */
 export function rowLine(s: Session, ix?: Interaction, awaiting = false): { lead?: string; text: string; tone?: "needs" | "reply" } | undefined {
   const st = stateOf(s);
+  // A usage limit is a wait, not "needs you" and not an unseen finish: the row says when it resumes.
+  const limit = st !== "needs_you" ? usageLimitLabel(s) : undefined;
+  if (limit) return { text: limit };
   if (awaiting && st === "idle") {
     const text = plainMarkdown(replyAsk(s)).slice(0, MAX);
     const lead = stateName("awaits_reply");

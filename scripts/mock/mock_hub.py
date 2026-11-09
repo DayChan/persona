@@ -3226,6 +3226,35 @@ if MOCK_TASKS:
                                          "review": {"state": "awaiting", "criteria": _n}}))
 
 
+# MOCK_USAGE_LIMIT=1: two agents stopped on a subscription usage limit (docs/assistant/agent-work.md "Usage limits").
+# One the CLI continues, one nothing continues. With MOCK_TASKS=1 the first is also a task card in the main chat.
+if os.environ.get("MOCK_USAGE_LIMIT") == "1":
+    _limit_resumes = "a9e0c000-0000-4000-8000-000000000001"
+    _limit_resets = "a9e0c000-0000-4000-8000-000000000002"
+    _reset_soon = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _reset_later = (datetime.now(timezone.utc) + timedelta(days=2, hours=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _limit_error = "You've hit your usage limit."
+    SESSIONS += [
+        sess("macbook", _limit_resumes, "等用量重置后继续修登录", "/Users/me/code/weather", "done", "idle", "weather", 1, "limit", 8, 2,
+             _limit_error, turn_error=_limit_error, turn_error_kind="usage_limit", turn_error_resets_at=_reset_soon,
+             turn_error_resumes=True, work={"phase": "blocked", "on": "external", "resets_at": _reset_soon,
+                                            "line": "用量额度用完了，重置后自己接着做"}),
+        sess("macbook", _limit_resets, "导出周报", "/Users/me/code/weather", "done", "idle", "weather", 1, "weekly", 9, 5,
+             _limit_error, turn_error=_limit_error, turn_error_kind="usage_limit", turn_error_resets_at=_reset_later,
+             work={"phase": "blocked", "on": "external", "wait": "用量重置", "resets_at": _reset_later,
+                   "line": "用量额度用完了，重置后再继续"}),
+    ]
+    ITEMS[_limit_resumes] = [it("assistant", "text", 2, text="API Error: 429 You've hit your usage limit.")]
+    if MOCK_TASKS:
+        _limit_todo = {"id": "todo_usage_limit", "title": "等用量重置后继续修登录", "notes": "", "done_at": None,
+                       "created_at": ago(minutes=3), "updated_at": ago(minutes=1), "origin": ASK1, "plan_id": "",
+                       "spaces": [], "agents": [{"machine_id": "macbook", "session_id": _limit_resumes,
+                       "linked_at": ago(minutes=3), "released_at": None, "title": "等用量重置后继续修登录",
+                       "cwd": "/Users/me/code/weather", "agent": "claude", "start_error": "", "source": "manual", "via": ""}]}
+        TODOS.append(_limit_todo)
+        TASK_FEED.setdefault(ASK1, []).append(
+            {"id": "feed_usage_limit", "conversation": ASK1, "at": ago(minutes=2), "kind": "task", "ref": "todo_usage_limit", "body": {}})
+
 RETRY_TASK_STARTED = "a1f3c2d4-0000-4000-8000-0000000000a1"
 RETRY_MODE = {"mode": os.environ.get("MOCK_RETRY", "")}
 BRIEF_ACCEPTED = set()  # the tasks verified from a brief item's Accept button (reset with the mock hub)

@@ -1,0 +1,6 @@
+{
+  "short": "利用上限",
+  "resumes": "利用上限 · {time}に再開",
+  "resets": "利用上限 · {time}にリセット",
+  "resumes_later": "利用上限 · リセット後に再開"
+}

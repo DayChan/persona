@@ -3,7 +3,9 @@ package node
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"slices"
@@ -49,6 +51,9 @@ func (n *Node) backgroundTasks(path string) (tasks []proto.BackgroundTask, loop 
 	defer sc.mu.Unlock()
 	f, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) { // deleted: the scan would stay for the node's whole uptime
+			n.forgetBgScan(path, sc)
+		}
 		return nil, nil, nil, false
 	}
 	defer f.Close()
@@ -121,10 +126,19 @@ func (n *Node) bgPlan(path string) *proto.PlanInfo {
 	return &p
 }
 
+// bgReaders are scanBackground's 256 KiB buffers: every session list scans each growing transcript, and a fresh
+// buffer per scan was nearly all the bytes it allocated.
+var bgReaders = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 256<<10) }}
+
 // scanBackground reads the marker lines between *off and size into m, streamed (the first look at a 300 MB
 // transcript once held all of it in memory). A last line not complete yet is read next time.
 func scanBackground(f *os.File, off *int64, m *transcript.Meta, size int64) {
-	r := bufio.NewReaderSize(io.NewSectionReader(f, *off, size-*off), 256<<10)
+	r := bgReaders.Get().(*bufio.Reader)
+	r.Reset(io.NewSectionReader(f, *off, size-*off))
+	defer func() {
+		r.Reset(nil) // drop the file; the lines read are only used before this returns
+		bgReaders.Put(r)
+	}()
 	at, long := *off, false
 	for {
 		line, err := r.ReadSlice('\n')

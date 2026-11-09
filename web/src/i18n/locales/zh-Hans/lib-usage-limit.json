@@ -1,0 +1,6 @@
+{
+  "short": "用量上限",
+  "resumes": "用量上限 · {time} 恢复",
+  "resets": "用量上限 · {time} 重置",
+  "resumes_later": "用量上限 · 重置后恢复"
+}

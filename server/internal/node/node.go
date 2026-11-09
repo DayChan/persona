@@ -112,7 +112,8 @@ type Node struct {
 	akeys     map[string]*assistantProc  // the key a Codex conversation's MCP server reports until its thread exists
 	lastList  string                     // serialized last sessions.changed payload
 	lastRevs  map[string]int64           // session id -> rev as last pushed (sessions.changed or sessions.revs)
-	metas     map[string]quickMeta       // transcript path -> cached meta
+	metas     map[string]quickMeta       // transcript path -> cached meta; deleted ones leave it (meta_prune.go)
+	goneDirs  map[string]time.Time       // cwd -> newest mtime of a deleted transcript pruned from metas (dirsByUse)
 	bgScans   map[string]*bgScan         // transcript path -> incremental background-task scan
 	panePIDs  map[string]panePID         // pane -> its claude pid (machines without herdr's claude integration)
 	paneSeen  map[string]time.Time       // claude pane without a host session id -> first seen (zero: there when node started)

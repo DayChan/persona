@@ -72,12 +72,66 @@ func TestParsePs(t *testing.T) {
 
 // /proc/<pid>/stat on Linux: comm may hold spaces and parentheses; tty_nr 0 is no terminal.
 func TestParseStat(t *testing.T) {
-	p, ok := parseStat("4242 (node (vite) x) S 4200 4242 4100 34817 4242 4194304 1 0 0 0")
+	p, ok := parseStat([]byte("4242 (node (vite) x) S 4200 4242 4100 34817 4242 4194304 1 0 0 0"))
 	if !ok || p.ppid != 4200 || p.tty != "34817" || p.cmd != "node (vite) x" {
 		t.Fatalf("parseStat = %+v %v", p, ok)
 	}
-	if p, _ := parseStat("1 (systemd) S 0 1 1 0 -1 4194560"); p.tty != "" {
+	if p, _ := parseStat([]byte("1 (systemd) S 0 1 1 0 -1 4194560")); p.tty != "" {
 		t.Fatalf("no terminal: %+v", p)
+	}
+}
+
+// parseStatFields is the strings.Fields parser parseStat replaced, kept as its reference.
+func parseStatFields(s string) (proc, bool) {
+	open, end := strings.IndexByte(s, '('), strings.LastIndexByte(s, ')')
+	if open < 0 || end < open {
+		return proc{}, false
+	}
+	f := strings.Fields(s[end+1:])
+	if len(f) < 5 {
+		return proc{}, false
+	}
+	ppid, err := strconv.Atoi(f[1])
+	if err != nil {
+		return proc{}, false
+	}
+	tty := f[4]
+	if tty == "0" {
+		tty = ""
+	}
+	return proc{ppid: ppid, tty: tty, cmd: s[open+1 : end]}, true
+}
+
+// The byte parser reads every line the way the strings.Fields one did, odd names and broken lines included.
+func TestParseStatBytes(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		want proc
+		ok   bool
+	}{
+		{"4242 (node) S 4200 4242 4100 34817 4242 4194304\n", proc{ppid: 4200, tty: "34817", cmd: "node"}, true},
+		{"7 (my server) R 1 7 7 0 -1\n", proc{ppid: 1, cmd: "my server"}, true},
+		{"8 (a) S 1 (b) S 2 8 8 34818 -1", proc{ppid: 2, tty: "34818", cmd: "a) S 1 (b"}, true},
+		{"9 ((sd-pam)) S 1 9 9 0 -1", proc{ppid: 1, cmd: "(sd-pam)"}, true},
+		{"10 () Z 3 10 10 0", proc{ppid: 3, cmd: ""}, true},
+		{"11 (tab\tname)\tS\t5\t11 11  \t34816\n", proc{ppid: 5, tty: "34816", cmd: "tab\tname"}, true},
+		{"12 (x)S 6 12 12 00", proc{ppid: 6, tty: "00", cmd: "x"}, true},
+		{"13 (x) S +6 13 13 0 -1 extra fields 1 2 3 4 5 6 7 8 9", proc{ppid: 6, cmd: "x"}, true},
+		{"14 (x) S 6 14 14", proc{}, false},             // truncated before tty_nr
+		{"15 (x) S 6 15 15 \n", proc{}, false},          // tty_nr missing, trailing space
+		{"16 (x) S notapid 16 16 0", proc{}, false},     // ppid not a number
+		{"17 (unterminated S 1 17 17 0", proc{}, false}, // no ')'
+		{"18 x) S 1 18 18 0", proc{}, false},            // no '('
+		{"19 )x( S 1 19 19 0", proc{}, false},           // ')' before '('
+		{"", proc{}, false},
+	} {
+		got, ok := parseStat([]byte(tc.line))
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("parseStat(%q) = %+v %v, want %+v %v", tc.line, got, ok, tc.want, tc.ok)
+		}
+		if ref, refOK := parseStatFields(tc.line); got != ref || ok != refOK {
+			t.Errorf("parseStat(%q) = %+v %v, the Fields parser %+v %v", tc.line, got, ok, ref, refOK)
+		}
 	}
 }
 

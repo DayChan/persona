@@ -2,6 +2,7 @@ package node
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -505,47 +506,45 @@ func parseLsof(out string) []listener {
 	return ls
 }
 
-// procfsProcs lists processes from /proc/<pid>/stat (Linux): "pid (comm) state ppid pgrp session tty_nr …".
-func procfsProcs(root string) (map[int]proc, error) {
-	ents, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-	procs := map[int]proc{}
-	for _, e := range ents {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(root, e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		if p, ok := parseStat(string(b)); ok {
-			procs[pid] = p
-		}
-	}
-	return procs, nil
-}
-
-func parseStat(s string) (proc, bool) {
-	open, end := strings.IndexByte(s, '('), strings.LastIndexByte(s, ')')
+// parseStat reads one /proc/<pid>/stat line (procfsProcs, Linux): "pid (comm) state ppid pgrp session tty_nr …". comm
+// may hold spaces and parentheses, so it ends at the last ')'. It runs for every process on every sweep, so it walks
+// the bytes instead of splitting the line, and copies out only one string, from comm to tty_nr, that cmd and tty share.
+func parseStat(b []byte) (proc, bool) {
+	open, end := bytes.IndexByte(b, '('), bytes.LastIndexByte(b, ')')
 	if open < 0 || end < open {
 		return proc{}, false
 	}
-	f := strings.Fields(s[end+1:])
-	if len(f) < 5 {
-		return proc{}, false
+	// The fields after comm, as [from, to) offsets in b: 0 state, 1 ppid, 2 pgrp, 3 session, 4 tty_nr.
+	var from, to [5]int
+	i := end + 1
+	for k := range from {
+		for i < len(b) && isStatSpace(b[i]) {
+			i++
+		}
+		from[k] = i
+		for i < len(b) && !isStatSpace(b[i]) {
+			i++
+		}
+		if i == from[k] {
+			return proc{}, false // a short line
+		}
+		to[k] = i
 	}
-	ppid, err := strconv.Atoi(f[1])
+	ppid, err := strconv.Atoi(string(b[from[1]:to[1]]))
 	if err != nil {
 		return proc{}, false
 	}
-	tty := f[4]
+	s := string(b[open+1 : to[4]])
+	tty := s[from[4]-open-1:]
 	if tty == "0" {
 		tty = ""
 	}
-	return proc{ppid: ppid, tty: tty, cmd: s[open+1 : end]}, true
+	return proc{ppid: ppid, tty: tty, cmd: s[:end-open-1]}, true
+}
+
+// isStatSpace separates the fields after comm, which the kernel writes in ASCII.
+func isStatSpace(c byte) bool {
+	return c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\v' || c == '\f'
 }
 
 // procfsListeners: the TCP listeners of pids (Linux): the sockets in /proc/net/tcp{,6} in state LISTEN, matched by

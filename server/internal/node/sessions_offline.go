@@ -66,6 +66,7 @@ func (n *Node) keptSessions() map[string]bool {
 func (n *Node) scanOffline() []proto.Session {
 	var out []proto.Session
 	files := n.globProjects("*", "*.jsonl")
+	n.maybePruneGoneMetas(files)
 	type cand struct {
 		path string
 		st   os.FileInfo

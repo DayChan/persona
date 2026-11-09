@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 	"github.com/nwverse/persona/server/internal/update/updatetest"
@@ -411,6 +412,7 @@ func TestWatchdogTimeoutRestoresAndStopsFailedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.ProcessPrecise = osproc.Identify(p.PID).Start
 	p.Deadline = time.Now().Add(-time.Second)
 	if err := savePending(p); err != nil {
 		t.Fatal(err)
@@ -527,6 +529,7 @@ func TestSupervisorReplacementLoadedBeforeRollbackMustExecRestoredBinary(t *test
 		t.Fatal(err)
 	}
 	p.ProcessStart = "the previously crashed process"
+	p.ProcessPrecise = "not the test process"
 	p.Deadline = time.Now().Add(-time.Second)
 	if err := savePending(p); err != nil {
 		t.Fatal(err)
@@ -579,6 +582,7 @@ func TestRealIndependentWatchdogSurvivesNodeStartupCrash(t *testing.T) {
 			return err
 		}
 		p.ProcessStart = "not the test process"
+		p.ProcessPrecise = "not the test process"
 		p.Deadline = time.Now().Add(100 * time.Millisecond)
 		return savePending(p)
 	})

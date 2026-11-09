@@ -18,6 +18,7 @@ describe("the task board (iOS TaskBoardSheet)", () => {
   const cases: [TodoStatus, ReviewState | null, BoardSectionKey][] = [
     ["needs_you", null, "waiting"],
     ["interrupted", null, "waiting"],
+    ["usage_limit", null, "waiting"],
     ["working", null, "working"],
     ["not_started", null, "working"],
     ["unread", null, "unread"],

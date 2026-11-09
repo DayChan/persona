@@ -3,14 +3,15 @@ import type { AgentGroup, AgentMutes } from "./agent-groups";
 import { repoOf } from "./agent-repos";
 import { backgroundWaiting, stateOf } from "./format";
 import { buildTodoAgentGroups, interruptedAgent, todoStatus, type SessionLookup, type Todo, type TodoStatus } from "./todos";
+import { usageLimitAgent } from "./usage-limit";
 import type { Machine, Session } from "./types";
 import { stateName } from "./state-labels";
 
 /** The one-word state every node of the tree shows (#2526): "Needs you" before "Working" before "Waiting in the
  *  background" (#6045) before "Done". */
-export type TreeState = "needs_you" | "working" | "bg_waiting" | "done";
+export type TreeState = "needs_you" | "working" | "bg_waiting" | "waiting" | "done";
 
-const TREE_RANK: Record<TreeState, number> = { needs_you: 0, working: 1, bg_waiting: 2, done: 3 };
+const TREE_RANK: Record<TreeState, number> = { needs_you: 0, working: 1, bg_waiting: 2, waiting: 3, done: 4 };
 
 export function treeStateLabel(s: TreeState): string {
   return stateName(s);
@@ -67,6 +68,7 @@ export interface TodoTree {
 
 export function agentTreeState(s: Session): TreeState {
   const st = stateOf(s);
+  if (usageLimitAgent(s)) return "waiting"; // a limit resetting is a wait, not work (#1758)
   if (st === "needs_you" || interruptedAgent(s)) return "needs_you";
   if (s.starting) return "working";
   if (backgroundWaiting(s)) return "bg_waiting";
@@ -78,6 +80,7 @@ export function agentTreeState(s: Session): TreeState {
  *  waits) is "Waiting in the background" (#6045). */
 export function todoTreeState(status: TodoStatus, agents: readonly Session[] = []): TreeState {
   if (status === "needs_you" || status === "interrupted") return "needs_you";
+  if (status === "usage_limit") return "waiting";
   if (status === "working") {
     const states = agents.map(agentTreeState);
     return states.includes("bg_waiting") && !states.includes("working") ? "bg_waiting" : "working";

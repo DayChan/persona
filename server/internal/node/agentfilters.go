@@ -47,10 +47,25 @@ const marksHead = 512 << 10
 type marksEntry struct {
 	size    int64
 	marks   proto.SessionMarks
-	settled bool // the first prompt was read: what the head says no longer changes
+	settled bool      // the first prompt was read: what the head says no longer changes
+	used    time.Time // the last time sessionMarks handed these marks out
 }
 
-var marksCache sync.Map // path → marksEntry
+// The callers ask for every file in their window on each scan (the offline list every 20 s, Codex's every 5 s), so an
+// entry nobody asked for in marksIdle is a file that left the window or was deleted. A sweep at most every
+// marksSweepEvery drops those; reading the head again later gives the same marks.
+const (
+	marksIdle       = 10 * time.Minute
+	marksSweepEvery = time.Minute
+)
+
+var marksCache = struct {
+	sync.Mutex
+	m     map[string]*marksEntry // path → marks
+	swept time.Time
+}{m: map[string]*marksEntry{}}
+
+var marksNow = time.Now // tests move the clock
 
 // sessionMarks reads what the head of a Claude transcript or Codex rollout says of where the session came from:
 // Codex's originator, Claude's added directories (the environment attachment after the first prompt) and the first
@@ -58,17 +73,40 @@ var marksCache sync.Map // path → marksEntry
 func sessionMarks(path string) proto.SessionMarks {
 	st, err := os.Stat(path)
 	if err != nil {
+		marksCache.Lock()
+		delete(marksCache.m, path)
+		marksCache.Unlock()
 		return proto.SessionMarks{}
 	}
-	if v, ok := marksCache.Load(path); ok {
-		if e := v.(marksEntry); e.settled || e.size == st.Size() {
-			return e.marks
+	now := marksNow()
+	marksCache.Lock()
+	sweepMarksLocked(now)
+	if e, ok := marksCache.m[path]; ok && (e.settled || e.size == st.Size()) {
+		e.used = now
+		m := e.marks
+		marksCache.Unlock()
+		return m
+	}
+	marksCache.Unlock()
+	e := readSessionMarks(path)
+	e.size, e.used = st.Size(), now
+	marksCache.Lock()
+	marksCache.m[path] = &e
+	marksCache.Unlock()
+	return e.marks
+}
+
+// sweepMarksLocked drops the entries nobody asked for in marksIdle, at most once every marksSweepEvery.
+func sweepMarksLocked(now time.Time) {
+	if now.Sub(marksCache.swept) < marksSweepEvery {
+		return
+	}
+	marksCache.swept = now
+	for path, e := range marksCache.m {
+		if now.Sub(e.used) > marksIdle {
+			delete(marksCache.m, path)
 		}
 	}
-	e := readSessionMarks(path)
-	e.size = st.Size()
-	marksCache.Store(path, e)
-	return e.marks
 }
 
 func readSessionMarks(path string) marksEntry {

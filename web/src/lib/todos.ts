@@ -9,6 +9,7 @@ import type { AgentState, Machine, Session } from "./types";
 import type { Route } from "./router";
 import { byTime } from "./times";
 import { stateName } from "./state-labels";
+import { usageLimitAgent } from "./usage-limit";
 
 export type TodoAgentSource = "manual" | "space" | "spawned" | "chat";
 
@@ -87,13 +88,14 @@ export function heldDelivery(todo: Todo): TodoDelivery | null {
   return d.state === "pr" || d.state === "merged" || d.state === "off" ? d : null;
 }
 
-export type TodoStatus = "done" | "needs_you" | "interrupted" | "unread" | "working" | "follow_up" | "not_started" | "failed";
+export type TodoStatus = "done" | "needs_you" | "interrupted" | "usage_limit" | "unread" | "working" | "follow_up" | "not_started" | "failed";
 
 /** Where a status sorts, as the task board orders its sections (lib/task-board.ts): what the user must act on first —
  *  Needs you, Awaiting review (rank 2, see todoRank), Failed to start — then Working, Finished, Stopped, Done (#4896). */
 export const TODO_STATUS_RANK: Record<TodoStatus, number> = {
   needs_you: 0,
   interrupted: 1,
+  usage_limit: 1.5, // after Interrupted, before Awaiting review (todoRank returns 2)
   failed: 3,
   working: 4,
   not_started: 5,
@@ -126,6 +128,7 @@ export const TODO_STATUS_INFO: Record<TodoStatus, { label: string; tone: "red" |
   done: { label: stateName("done"), tone: "off" },
   needs_you: { label: stateName("needs_you"), tone: "amber" },
   interrupted: { label: stateName("interrupted"), tone: "red" },
+  usage_limit: { label: t("lib-usage-limit.short"), tone: "amber" },
   unread: { label: stateName("unread"), tone: "green" },
   working: { label: stateName("working"), tone: "amber" },
   follow_up: { label: stateName("follow_up"), tone: "idle" },
@@ -170,7 +173,9 @@ export function makeSessionLookup(sessions: Session[] | Record<string, Session[]
  * 0. Didn't start: a task agent opened from a conversation never started and the hub ended it (start_error, #1077)
  * 1. Done: the user marked it done (done_at != null)
  * 2. Needs you: an attached agent needs you (a question, an approval)
- * 2.5 Interrupted: an attached agent's turn ended on a model API error (turn_error, #1516), unfinished, waiting for you to continue it
+ * 2.5 Interrupted: an attached agent's turn ended on a model API error (turn_error, #1516), unfinished, waiting for you to continue it.
+ *     A subscription usage limit is not this (usage_limit, below).
+ * 2.6 Usage limit: an attached agent is stopped on a subscription usage limit that has not reset yet
  * 3. Unread: an attached agent finished and you have not seen it
  * 4. Working: an attached agent is working or starting
  * 5. Follow-up: every attached agent is stopped (seen, not running, failed to start)
@@ -184,6 +189,7 @@ export function todoStatus(todo: Todo, lookup?: SessionLookup): TodoStatus {
 
   let hasNeedsYou = false;
   let hasInterrupted = false;
+  let hasLimit = false;
   let hasUnread = false;
   let hasWorking = false;
 
@@ -198,13 +204,15 @@ export function todoStatus(todo: Todo, lookup?: SessionLookup): TodoStatus {
       hasNeedsYou = true;
       break;
     }
-    if (interruptedAgent(s)) hasInterrupted = true;
+    if (usageLimitAgent(s)) hasLimit = true;
+    else if (interruptedAgent(s)) hasInterrupted = true;
     else if (st === "unread") hasUnread = true;
     else if (st === "working" || s?.starting) hasWorking = true;
   }
 
   if (hasNeedsYou) return "needs_you";
   if (hasInterrupted) return "interrupted";
+  if (hasLimit) return "usage_limit";
   if (hasUnread) return "unread";
   if (hasWorking) return "working";
   return "follow_up";
@@ -212,7 +220,7 @@ export function todoStatus(todo: Todo, lookup?: SessionLookup): TodoStatus {
 
 /** The agent stopped on a model API error (the hub's turn_error): cut off, not finished (#1516). */
 export function interruptedAgent(s?: Session): boolean {
-  if (!s?.turn_error) return false;
+  if (!s?.turn_error || usageLimitAgent(s)) return false;
   const st = stateOf(s);
   return st === "unread" || st === "idle";
 }
@@ -255,6 +263,7 @@ export function mostUrgentAgent(
 
   const score = (st: AgentState | "failed", s?: Session) => {
     if (interruptedAgent(s)) return 3.5; // after one waiting on the user, before one done
+    if (usageLimitAgent(s)) return 3.4;
     switch (st) {
       case "needs_you":
         return 4;
