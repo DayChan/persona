@@ -114,7 +114,7 @@ func (n *Node) resumeInEngine(ctx context.Context, h *runtimeConn, id string, ar
 	pane := created.Pane.String()
 	n.bindPane(pane, id)               // the pane is this session's before herdr or the extension says so
 	time.Sleep(300 * time.Millisecond) // the fresh shell loads ~/.zshrc; typed input is buffered either way
-	if err := launch.Run(ctx, created.Pane, n.agentCommand(shellQuote(n.bin)+" tab-start "+shellQuote(file), shellQuote, paneShells(ctx)...)); err != nil {
+	if err := launch.Run(ctx, created.Pane, n.agentCommand(shellQuote(n.bin)+" tab-start "+shellQuote(file), shellQuote, paneShells(ctx, created)...)); err != nil {
 		return nil, fmt.Errorf("run %s: %w", argv[0], err)
 	}
 	deadline := time.Now().Add(piResumeWait)

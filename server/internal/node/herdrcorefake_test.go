@@ -114,6 +114,25 @@ func (f *fakeHC) serveConn(c net.Conn) {
 		}
 	case "terminal.read":
 		result = map[string]any{"text": f.screen[str(req.Params["terminal"])], "complete": true, "how": "screen"}
+	case "terminal.label":
+		if h != nil {
+			break
+		}
+		for _, t := range f.terms {
+			if t["address"] == req.Params["terminal"] {
+				labels, _ := t["labels"].(map[string]any)
+				if labels == nil {
+					labels = map[string]any{}
+					for key, value := range t["labels"].(map[string]string) {
+						labels[key] = value
+					}
+				}
+				for key, value := range req.Params["labels"].(map[string]any) {
+					labels[key] = value
+				}
+				t["labels"], result = labels, t
+			}
+		}
 	case "doc.get":
 		result = map[string]any{"value": f.doc, "version": f.docVer}
 	case "doc.set":

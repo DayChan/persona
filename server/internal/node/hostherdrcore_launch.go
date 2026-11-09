@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -112,6 +113,17 @@ func (l *appLayout) space(id string) map[string]any {
 	return nil
 }
 
+// folderSpace finds the app space for this directory regardless of its displayed name.
+func (l *appLayout) folderSpace(cwd string) map[string]any {
+	for _, s := range l.spaces {
+		sm := s.(map[string]any)
+		if folder := layoutString(sm["folder"]); folder != "" && filepath.Clean(folder) == filepath.Clean(cwd) {
+			return sm
+		}
+	}
+	return nil
+}
+
 func (l *appLayout) tab(id string) map[string]any {
 	for _, s := range l.spaces {
 		for _, t := range s.(map[string]any)["tabs"].([]any) {
@@ -176,66 +188,107 @@ func (h *herdrCoreHost) CreateSlot(ctx context.Context, space, cwd, label string
 	return h.createTerminal(ctx, space, cwd, "", label)
 }
 
-// createTerminal opens a shell in cwd as a new tab named tabName of the app's space (a new space for cwd, named
-// spaceName unless that is its folder's name, when space is "" or a directory group). Nothing is typed into it. A
+// createTerminal opens a shell in cwd as a new tab named tabName of the app's space. An automatic or directory-group
+// start reuses the space for cwd, else adds one named spaceName unless that is its folder's name. Nothing is typed. A
 // terminal the layout document did not take is ended, not left running where the app does not show it.
 func (h *herdrCoreHost) createTerminal(ctx context.Context, space, cwd, spaceName, tabName string) (*host.Created, error) {
+	inSpace := space != "" && !strings.HasPrefix(space, dirSpace)
 	raw, _, err := h.c.DocRaw(ctx, herdrAppDoc)
 	if err != nil {
 		return nil, hcErr(err)
 	}
 	l, err := parseAppLayout(raw)
 	if err != nil {
+		if inSpace {
+			return nil, host.Mark(fmt.Errorf("herdr-core: cannot resolve app space %s: %w", space, err), host.ErrNotDelivered)
+		}
 		return h.createUnplaced(ctx, cwd)
 	}
-	inSpace := space != "" && !strings.HasPrefix(space, dirSpace)
-	spaceID, title, number := space, "", 1
-	if inSpace {
-		s := l.space(space)
-		if s == nil {
+	if spaceName == filepath.Base(cwd) {
+		spaceName = ""
+	}
+	newSpaceID := layoutID("sp")
+	chooseSpace := func(l *appLayout) (map[string]any, error) {
+		if inSpace {
+			if s := l.space(space); s != nil {
+				return s, nil
+			}
 			return nil, errNoAppSpace(space)
 		}
-		title, number = spaceTitle(s), len(s["tabs"].([]any))+1
-	} else {
-		spaceID = layoutID("sp")
-		if spaceName == filepath.Base(cwd) {
-			spaceName = ""
+		if s := l.folderSpace(cwd); s != nil {
+			return s, nil
 		}
-		title = firstOf(spaceName, filepath.Base(cwd))
+		return l.addSpace(newSpaceID, cwd, spaceName), nil
 	}
+	s, err := chooseSpace(l)
+	if err != nil {
+		return nil, err
+	}
+	spaceID := layoutString(s["id"])
 	tabID, block := layoutID("tb"), layoutID("p")
-	t, err := h.c.Run(ctx, herdrcore.RunOpts{Cwd: cwd, Env: hcAppTerminalEnv, Keep: true, NoParent: true, Labels: map[string]string{
+	where := func(s map[string]any) string {
+		return spaceTitle(s) + " / " + firstOf(tabName, strconv.Itoa(len(s["tabs"].([]any))+1))
+	}
+	labels := map[string]string{
 		herdrSpaceLabel: spaceID, herdrTabLabel: tabID, herdrSeenLabel: "0",
-		herdrWhereLabel: title + " / " + firstOf(tabName, strconv.Itoa(number)),
-	}})
+		herdrWhereLabel: where(s),
+	}
+	t, err := h.openShell(ctx, cwd, labels)
 	if err != nil {
 		return nil, hcErr(err)
 	}
 	err = h.editLayout(ctx, func(l *appLayout) error {
-		s := l.space(spaceID)
-		if s == nil && inSpace {
-			return errNoAppSpace(space) // closed in the app meanwhile
+		s, err := chooseSpace(l)
+		if err != nil {
+			return err
 		}
-		if s == nil {
-			s = l.addSpace(spaceID, cwd, spaceName)
+		spaceID = layoutString(s["id"])
+		if labels[herdrSpaceLabel] != spaceID || labels[herdrWhereLabel] != where(s) {
+			labels[herdrSpaceLabel], labels[herdrWhereLabel] = spaceID, where(s)
+			if err := h.c.Label(ctx, t.Address, map[string]string{
+				herdrSpaceLabel: spaceID, herdrWhereLabel: labels[herdrWhereLabel],
+			}); err != nil {
+				return hcErr(err)
+			}
 		}
 		addTab(s, tabID, block, tabName, t.Address)
 		return nil
 	})
 	if err != nil {
-		_, _ = h.c.Kill(context.WithoutCancel(ctx), t.Address)
-		return nil, fmt.Errorf("herdr-core: add the new terminal to the Herdr app: %w", err)
+		return nil, h.failedTerminal(ctx, t, fmt.Errorf("herdr-core: add the new terminal to the Herdr app: %w", err))
 	}
-	return &host.Created{SpaceID: spaceID, SlotID: tabID, Pane: host.PaneRef{Kind: host.HerdrCore, ID: t.Address}}, nil
+	return &host.Created{SpaceID: spaceID, SlotID: tabID, Pane: host.PaneRef{Kind: host.HerdrCore, ID: t.Address}, Shell: t.Argv[0]}, nil
 }
 
 // createUnplaced opens the shell outside the app's layout, in the directory group of an `hc run` terminal.
 func (h *herdrCoreHost) createUnplaced(ctx context.Context, cwd string) (*host.Created, error) {
-	t, err := h.c.Run(ctx, herdrcore.RunOpts{Cwd: cwd, Env: hcAppTerminalEnv, Keep: true, NoParent: true})
+	t, err := h.openShell(ctx, cwd, nil)
 	if err != nil {
 		return nil, hcErr(err)
 	}
-	return &host.Created{SpaceID: dirSpace + t.Cwd, Pane: host.PaneRef{Kind: host.HerdrCore, ID: t.Address}}, nil
+	return &host.Created{SpaceID: dirSpace + t.Cwd, Pane: host.PaneRef{Kind: host.HerdrCore, ID: t.Address}, Shell: t.Argv[0]}, nil
+}
+
+// openShell records the core's actual shell, which can differ from the node's login shell. An unknown program
+// cannot safely select command syntax, even if a later terminal.get happens to show a shell in front.
+func (h *herdrCoreHost) openShell(ctx context.Context, cwd string, labels map[string]string) (*herdrcore.Terminal, error) {
+	t, err := h.c.Run(ctx, herdrcore.RunOpts{Cwd: cwd, Env: hcAppTerminalEnv, Keep: true, NoParent: true, Labels: labels})
+	if err != nil {
+		return nil, hcErr(err)
+	}
+	if len(t.Argv) == 0 || !shellProgram(t.Argv[0]) {
+		err := host.Mark(fmt.Errorf("herdr-core: %s did not report its shell", t.Address), host.ErrNotDelivered)
+		return nil, h.failedTerminal(ctx, t, err)
+	}
+	return t, nil
+}
+
+// failedTerminal closes an owned terminal after a failed start and preserves both the start and cleanup errors.
+func (h *herdrCoreHost) failedTerminal(ctx context.Context, t *herdrcore.Terminal, err error) error {
+	if closeErr := h.Close(context.WithoutCancel(ctx), host.PaneRef{Kind: host.HerdrCore, ID: t.Address}, "", ""); closeErr != nil {
+		return errors.Join(err, fmt.Errorf("herdr-core: cleanup of %s failed: %w", t.Address, closeErr))
+	}
+	return err
 }
 
 // errNoAppSpace: the space a start was to open in is not in the app any more; nothing was started in it.
@@ -250,7 +303,7 @@ func (h *herdrCoreHost) Run(ctx context.Context, pane host.PaneRef, command stri
 	if err != nil {
 		return inputErr(err)
 	}
-	if t.State != "live" || t.Foreground != nil && !isShell(t.Foreground) {
+	if t.State != "live" || t.Foreground == nil || !isShell(t.Foreground) {
 		return host.Mark(fmt.Errorf("herdr-core: %s does not show its shell", pane.ID), host.ErrNotDelivered)
 	}
 	return inputErr(h.c.Send(ctx, pane.ID, command))

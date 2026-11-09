@@ -174,7 +174,7 @@ func (n *Node) resumeCodex(ctx context.Context, launch host.Launcher, id string,
 	}
 	pane := created.Pane.String()
 	time.Sleep(300 * time.Millisecond) // the fresh shell loads ~/.zshrc; typed input is buffered either way
-	shells := paneShells(ctx)
+	shells := paneShells(ctx, created)
 	done, err := n.runAgentCommand(ctx, launch, created, ws, "", n.agentCommand(shellQuote(n.bin)+" codex-start "+shellQuote(file), shellQuote, shells...), shells...) // typedstart.go
 	if err != nil {
 		return err // the tab is closed: no pane to bind
@@ -209,7 +209,11 @@ func (n *Node) newTab(ctx context.Context, launch host.Launcher, cwd, ws, tabNam
 	var err error
 	if ws == "" {
 		if created, err = launch.CreateSpace(ctx, cwd, filepath.Base(cwd)); err == nil && created.SlotID != "" {
-			_ = renameSlot(ctx, launch, created.SlotID, tabLabel(tabName, nil))
+			var taken map[string]bool
+			if _, ok := launch.(*herdrCoreHost); ok {
+				taken = n.tabLabels(ctx, launch, created.SpaceID) // CreateSpace can reuse an app space by its folder.
+			}
+			_ = renameSlot(ctx, launch, created.SlotID, tabLabel(tabName, taken))
 		}
 	} else {
 		created, err = launch.CreateSlot(ctx, ws, cwd, tabLabel(tabName, n.tabLabels(ctx, launch, ws)))

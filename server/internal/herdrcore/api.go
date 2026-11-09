@@ -131,6 +131,11 @@ func (c *Client) Run(ctx context.Context, o RunOpts) (*Terminal, error) {
 	return &t, nil
 }
 
+// Label updates terminal labels without replacing labels owned by other callers.
+func (c *Client) Label(ctx context.Context, terminal string, labels map[string]string) error {
+	return c.Call(ctx, callTimeout, "terminal.label", map[string]any{"terminal": terminal, "labels": labels}, nil)
+}
+
 // Doc is doc.get: an app's JSON document on the core (null when never written).
 func (c *Client) Doc(ctx context.Context, name string, out any) error {
 	raw, _, err := c.DocRaw(ctx, name)

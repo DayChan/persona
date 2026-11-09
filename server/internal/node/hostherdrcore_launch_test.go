@@ -79,7 +79,7 @@ func TestHerdrCoreStartsInTheAppsSpace(t *testing.T) {
 	env, _ := run["env"].(map[string]any)
 	if run["cwd"] != proj || run["keep"] != true || run["no_parent"] != true || run["argv"] != nil ||
 		labels[herdrSpaceLabel] != "S1" || !strings.HasPrefix(str(labels[herdrTabLabel]), "tb") ||
-		labels[herdrWhereLabel] != "proj / agent-1" || labels[herdrSeenLabel] != "0" ||
+		labels[herdrWhereLabel] != "proj / 2" || labels[herdrSeenLabel] != "0" ||
 		env["TERM"] != "xterm-256color" || env["TERM_PROGRAM"] != "ghostty" {
 		t.Errorf("terminal.run %s", runs[0])
 	}

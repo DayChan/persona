@@ -329,9 +329,14 @@ have no folder.
   whatever the app keeps that Persona does not know is written back as it was. `doc.set` writes at the version read; `conflict` (the app wrote
   meanwhile) reads it again and redoes the change, at most 4 times.
 - **Only a known form is written**: no document (the app never ran on this core), `spaces` not a list, a space or tab without an id or `tabs`
-  / `root` of another type: nothing is written, and a start opens its terminal unplaced (its directory's `dir:` group, like `hc run`).
+  / `root` of another type: nothing is written, and an automatic or directory-group start opens its terminal unplaced (its directory's `dir:`
+  group, like `hc run`). An explicit app-space target is refused before opening a terminal if that layout cannot resolve it.
+- **Folder identity**: automatic starts match the space's `folder` to the cleaned directory path, not its mutable display name. Each conflict
+  retry repeats that match so concurrent first starts reuse the same space; `terminal.label` keeps the terminal's space and `where` labels
+  consistent with the selected space. Explicit targets keep their space id even if another space matches the directory.
 - **Order**: the terminal starts first (its address goes in the block), then the document; a document the core refuses ends that terminal
-  rather than leave it running where the app does not show it. A space that disappeared meanwhile refuses the start (`not delivered`).
+  rather than leave it running where the app does not show it. Cleanup errors, including a terminal still live after kill, accompany the
+  placement error. A space that disappeared meanwhile refuses the start (`not delivered`).
 - **The app removes closed tabs itself**: `Close` stays `terminal.kill`; Persona does not delete blocks.
 
 ### Cautions

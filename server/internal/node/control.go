@@ -161,7 +161,7 @@ func (n *Node) start(ctx context.Context, cwd, launcher, prompt, resume, workspa
 		Plugins: n.claudeLoadsPlugins(ctx)}
 	// herdr told it is Claude (hostherdr.go): a launcher that wraps another binary is otherwise not seen as one. The
 	// node's directory in front, the assistant's environment left out (agentenv.go).
-	shells := paneShells(ctx)
+	shells := paneShells(ctx, created)
 	cmd := withHerdrAgent(typedHerdrAgent(launch, "claude", shells...), n.claudeCommandLine(spec, args+modeFlags(mode, effort), shellQuote))
 	cmd = n.agentCommand(cmd, shellQuote, shells...)
 	n.notePaneStart(launcher) // not in the agent sandbox unless a managed launcher (agentsandbox.go)
@@ -286,6 +286,11 @@ func tabLabel(name string, taken map[string]bool) string {
 
 // workspaceFor reuses the workspace named after the project directory (the user keeps one workspace per project).
 func (n *Node) workspaceFor(ctx context.Context, launch host.Launcher, cwd string) (string, error) {
+	if _, ok := launch.(*herdrCoreHost); ok {
+		// The app's folder identity is resolved on each layout retry. Passing an id here would turn an automatic
+		// choice into an explicit destination and miss a space created concurrently for the same directory.
+		return "", nil
+	}
 	var startErr error
 	if _, ok := launch.(*herdrHost); ok {
 		startErr = n.ensureHerdr(ctx, "start or resume a session") // herdrstart.go

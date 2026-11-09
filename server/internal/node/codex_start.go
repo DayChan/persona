@@ -152,7 +152,7 @@ func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launch
 		delete(n.codexStarting, pane)
 		n.mu.Unlock()
 	}()
-	shells := paneShells(ctx)
+	shells := paneShells(ctx, created)
 	cmd := n.agentCommand(shellQuote(n.bin)+" codex-start "+shellQuote(file), shellQuote, shells...) // agentenv.go
 	began := time.Now()
 	time.Sleep(300 * time.Millisecond)                                           // the fresh shell loads ~/.zshrc; typed input is buffered either way

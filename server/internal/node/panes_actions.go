@@ -204,10 +204,13 @@ func adoptedPane(ctx context.Context) *host.Created {
 }
 
 // paneShells are the shells that read what a start types (typedHerdrAgent): the programs in front of the pane the
-// user picked, else the shell herdr opens a tab with.
-func paneShells(ctx context.Context) []string {
+// user picked, else the shell the host opened, falling back to herdr's shell when the host does not report one.
+func paneShells(ctx context.Context, created *host.Created) []string {
 	if a, ok := ctx.Value(adoptedPaneKey{}).(adopted); ok {
 		return a.shells
+	}
+	if created.Shell != "" {
+		return []string{created.Shell}
 	}
 	return []string{herdrPaneShell()}
 }

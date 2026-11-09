@@ -116,10 +116,12 @@ Orca New Agent creates terminals inside already-open Orca workspaces or subdirec
 Resume of a running session returns it. A Claude session whose agent exited is continued like on herdr (#5548): a new terminal in the Orca workspace holding its directory (the same rules as New Agent), `cd` there, the launcher that started it with `--resume`, then the message. Never a second writer: a session a live claude still has open (Claude's desktop app, another terminal, suspended) is refused (`open_elsewhere`), and so is one whose last pane is still open (its agent may be suspended there; close the pane to resume elsewhere). A session an Orca native chat owns is refused too. Codex, TRAEX and pi sessions are not resumed in Orca. Orca's own `terminal create --agent claude --resume` is not used: it exists only in some Orca builds' CLI, and it starts Orca's claude command, not the session's launcher.
 
 Herdr App New Agent (#2532) opens a terminal the way the app does (the machine's shell, kept, with the app's terminal identity) as a new tab of
-the Herdr App space shown under the directory's name, else of a new space for the directory, and adds it to the app's layout document, so the app
-shows it like a tab opened there; the launcher is then typed as on herdr. The document is edited, never replaced: only that tab (and space) is
-added, at the version read, redone after a conflict. When there is no layout document (Herdr App never ran on this core) or it is in a form
-Persona does not know, nothing is written and the terminal opens outside the app's spaces, grouped by its directory. A Not running session is
+the Herdr App space whose folder matches the directory, else of a new space for the directory, and adds it to the app's layout document, so the app
+shows it like a tab opened there. The core's returned shell determines command syntax, file sourcing and startup probes; an unknown foreground
+never receives a start command. The document is edited, never replaced: only that tab (and space) is added, at the version read, redone after a
+conflict, including folder selection and terminal labels. When there is no layout document (Herdr App never ran on this core) or it is in a form
+Persona does not know, nothing is written and an automatic start opens outside the app's spaces, grouped by its directory. A start explicitly
+targeting an app space is refused if its layout or space cannot be resolved. A Not running session is
 continued as on herdr: a new tab, its launcher with `--resume`. Space and tab renames write the same document.
 
 Selecting `herdr-both` attaches both herdr and herdr-core hosts:
