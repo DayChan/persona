@@ -500,19 +500,63 @@ func TestReadinessAuthStatusRetry(t *testing.T) {
 	f.auth = map[string]proto.ClaudeAuthStatus{"server/claude": {State: proto.ClaudeAuthUnknown, Reason: proto.ClaudeAuthTimeout}}
 	getReadiness(t, s, "", "")
 	getReadiness(t, s, "", "")
-	f.mu.Lock()
-	asked := len(f.authAsked)
-	f.mu.Unlock()
-	if asked != 2 {
-		t.Fatalf("timeout asked %d times", asked)
+	authAsked := func(f *fakeHub) int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.authAsked)
 	}
+	// The second ask is not waited for (TestReadinessUnknownStatusNotWaitedFor): it lands a moment later.
+	waitFor(t, "the timeout asked again", func() bool { return authAsked(f) == 2 })
 	f2, s2, _ := readyMachine(t) // f2.auth nil: unknown method
 	getReadiness(t, s2, "", "")
 	getReadiness(t, s2, "", "")
-	f2.mu.Lock()
-	asked = len(f2.authAsked)
-	f2.mu.Unlock()
+	asked := authAsked(f2)
 	if asked != 1 {
 		t.Fatalf("old node asked %d times", asked)
 	}
+}
+
+// An expired status that said nothing (a launcher whose `claude auth status` prints no status, a timeout) is asked
+// again without the readiness waiting for it: such a launcher says nothing on every ask, and each ask runs the login
+// shell and Claude Code for seconds. What the new ask says is there for the next readiness.
+func TestReadinessUnknownStatusNotWaitedFor(t *testing.T) {
+	old := readinessClaudeRetry
+	readinessClaudeRetry = 0
+	t.Cleanup(func() { readinessClaudeRetry = old })
+	f, s, _ := readyMachine(t)
+	f.auth = map[string]proto.ClaudeAuthStatus{"server/claude": {State: proto.ClaudeAuthUnknown, Reason: proto.ClaudeAuthUnreadable}}
+	if m := readinessStep(t, getReadiness(t, s, "", ""), StepModel); m.State != StepUnknown {
+		t.Fatalf("first: model = %+v", m)
+	}
+	hold := make(chan struct{})
+	f.mu.Lock()
+	f.authHold = hold
+	f.auth["server/claude"] = proto.ClaudeAuthStatus{State: proto.ClaudeLoggedIn, AuthMethod: "claude.ai"}
+	f.mu.Unlock()
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(hold)
+		}
+	}
+	t.Cleanup(release)
+	start := time.Now()
+	r := getReadiness(t, s, "", "")
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("readiness waited %v for the node's sign-in status", took)
+	}
+	if m := readinessStep(t, r, StepModel); m.State != StepUnknown {
+		t.Fatalf("while asked again: model = %+v", m)
+	}
+	waitFor(t, "the second ask on its way", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.authAsked) == 2
+	})
+	release()
+	readinessClaudeRetry = time.Hour // the new answer is the one kept
+	waitFor(t, "the new status", func() bool {
+		return readinessStep(t, getReadiness(t, s, "", ""), StepModel).State == StepOK
+	})
 }

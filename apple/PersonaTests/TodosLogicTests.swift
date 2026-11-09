@@ -777,4 +777,46 @@ struct TodosLogicTests {
         let byUser = TodoItem(id: "u", title: "自己点的", doneAt: Date())
         #expect(!byUser.autoDone && byUser.statusLabel(.done) == "已完成" && byUser.autoDoneReason == nil)
     }
+
+    /// #1683: what needs the user stays on top; the rest go by due date (a due day counts to its end), those without
+    /// one after in the old order; done ones last.
+    @Test func sortTodosByDueDate() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = Date()
+        let needs = TodoItem(id: "needs", title: "Needs", createdAt: now, agents: [TodoItem.Agent(machineID: "m", sessionID: "s_needs")])
+        let dayLater = TodoItem(id: "day", title: "Day", createdAt: now, dueDate: "2026-11-12")
+        let morning = TodoItem(id: "morning", title: "Morning", createdAt: now,
+                               dueAt: cal.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 9)))
+        let overdue = TodoItem(id: "overdue", title: "Overdue", createdAt: now, dueDate: "2020-01-01")
+        let none = TodoItem(id: "none", title: "None", createdAt: now.addingTimeInterval(-10))
+        let noneNew = TodoItem(id: "none_new", title: "NoneNew", createdAt: now)
+        let done = TodoItem(id: "done", title: "Done", doneAt: now, createdAt: now, dueDate: "2020-01-01")
+        let lookup = TodosLogic.makeSessionLookup([session("s_needs", state: .needsYou)])
+        let sorted = TodosLogic.sortTodos([done, none, dayLater, noneNew, morning, overdue, needs], lookup: lookup, calendar: cal)
+        #expect(sorted.map(\.id) == ["needs", "overdue", "morning", "day", "none_new", "none", "done"])
+        #expect(TodosLogic.isOverdue(overdue, calendar: cal) && !TodosLogic.isOverdue(done, calendar: cal))
+        #expect(TodosLogic.dueBy(dayLater, calendar: cal) == cal.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 23, minute: 59, second: 59)))
+    }
+
+    /// #1683: the plan decodes from the hub (absent from an older one), and a change is sent as the hub reads it: a
+    /// cleared field as null, an untouched one left out.
+    @Test func todoPlanDecodesAndEncodes() throws {
+        let json = """
+        {"id":"t","title":"Renew","due_date":"2026-12-01","remind_at":"2026-11-30T01:00:00Z","reminded_at":"2026-11-30T01:00:05Z","priority":"high"}
+        """
+        let t = try JSON.decoder.decode(TodoItem.self, from: Data(json.utf8))
+        #expect(t.dueDate == "2026-12-01" && t.dueAt == nil && t.remindAt != nil && t.remindedAt != nil && t.priority == "high")
+        let old = try JSON.decoder.decode(TodoItem.self, from: Data(#"{"id":"o","title":"Old"}"#.utf8))
+        #expect(old.dueAt == nil && old.dueDate == nil && old.remindAt == nil && old.priority == nil)
+
+        func body(_ c: APIClient.TodoPlanChange) throws -> [String: Any] {
+            try JSONSerialization.jsonObject(with: JSON.encoder.encode(c)) as? [String: Any] ?? [:]
+        }
+        let cleared = try body(APIClient.TodoPlanChange(due: .some(.none), remindAt: .some(nil)))
+        #expect(cleared.keys.sorted() == ["due_at", "remind_at"] && cleared["due_at"] is NSNull && cleared["remind_at"] is NSNull)
+        let day = try body(APIClient.TodoPlanChange(due: .day("2026-12-01"), priority: "low"))
+        #expect(day["due_date"] as? String == "2026-12-01" && day["priority"] as? String == "low" && day["due_at"] == nil && day["remind_at"] == nil)
+        #expect(try body(APIClient.TodoPlanChange()).isEmpty)
+    }
 }

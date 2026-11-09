@@ -217,6 +217,8 @@ struct MacTodosPage: View {
                         if !todo.isDone { ReviewChip(todo: todo, compact: true) }
                     }
 
+                    TodoPlanLine(todo: todo)
+
                     if let reason = todo.closedReason {
                         Text(reason)
                             .font(Theme.Font.caption)

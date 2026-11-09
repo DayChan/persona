@@ -13,6 +13,8 @@
   "total": "Total",
   "by_kind": "By kind",
   "old_node": "This computer's node doesn't record launchers yet. Update it to filter by launcher.",
+  "retry": "Retry",
+  "stale_report": "Showing the last successful report for these filters; it may be out of date.",
   "old_hub": "Deploy a newer hub to see this computer's token usage here.",
   "throughput": "Throughput",
   "per_minute": "Per minute",

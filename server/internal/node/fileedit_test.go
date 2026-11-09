@@ -219,6 +219,33 @@ func TestMoveFiles(t *testing.T) {
 	}
 }
 
+// A replace whose rename fails (the source went away after the request checked it) puts the destination back instead
+// of leaving it in the trash (#1968).
+func TestReplaceMoveFailureKeepsDestination(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
+	n, home := writeNode(t)
+	makeFile(t, filepath.Join(home, "proj", "report.txt"), "new")
+	makeFile(t, filepath.Join(home, "dest", "report.txt"), "original destination")
+	e, err := n.entry("~/proj/report.txt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(e.real); err != nil { // another program moved it meanwhile
+		t.Fatal(err)
+	}
+	if _, err := n.moveOne(e, filepath.Join(home, "dest"), "report.txt", proto.UploadConflictReplace); err == nil {
+		t.Fatal("a move of a missing source succeeded")
+	}
+	if got := fileText(t, filepath.Join(home, "dest", "report.txt")); got != "original destination" {
+		t.Fatalf("destination after a failed replace: %q", got)
+	}
+	files, info, _ := n.trashDirs()
+	notThere(t, filepath.Join(files, "report.txt"))
+	if info != "" {
+		notThere(t, filepath.Join(info, "report.txt.trashinfo"))
+	}
+}
+
 // Trash and restore round-trip through the id alone (a fresh node puts it back), a name the trash already has gets a
 // number, Linux writes a .trashinfo, and a name taken meanwhile refuses the restore.
 func TestTrashAndRestore(t *testing.T) {

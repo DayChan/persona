@@ -660,6 +660,15 @@ targets:
       - path: PersonaTests/UsageWindowsTests.swift
       - path: PersonaTests/SessionListTests.swift
       - path: PersonaTests/AgentListFallbackTests.swift
+      - path: PersonaTests/AgentRepoTreeTests.swift
+      - path: PersonaTests/AgentListOrderTests.swift
+      - path: PersonaTests/AgentListProjectionTests.swift
+      - path: PersonaTests/WorkspaceCatalogTests.swift
+      - path: PersonaTests/WorkspaceNavigationTests.swift
+      - path: PersonaTests/NewChatDestinationTests.swift
+      - path: PersonaTests/AgentWorktreeTests.swift
+      - path: PersonaTests/WorktreeFormTests.swift
+      - path: PersonaTests/SessionRenameFormTests.swift
       - path: PersonaTests/HubNamingCompatibilityTests.swift
       - path: PersonaTests/OldHubCompatibilityIntegrationTests.swift
       - path: PersonaTests/PersonaSelectionTests.swift

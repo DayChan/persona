@@ -418,12 +418,13 @@ The programs (`update.ProgramNames`): `personad-wechat` (the WeChat bot), and `p
 - **Release build**:
   - The hub checks 1 minute after startup, then every hour (every 6 hours until 2026-11-07, when the user asked for hourly so a release reaches hubs sooner); the App can "Check now" (`POST /api/v1/hub/update/check`);
   - It only fetches the manifest (a few KB): there is an update only if the build number is larger than its own and not in the bad-version list; the result is broadcast to open Apps.
+  - While an install is running or the new process has not confirmed the update, checks refresh `latest` and `last_check` without changing `state`, `progress` or `error`. This applies to manual checks, the first check after startup and hourly checks, including responses to requests started before the install. A failed check advances `last_check` and keeps the previous `latest`; it still returns an error to the caller. Confirmation also prevents a check from starting another automatic install.
 - **Docker build**:
   - Every hour, query the image repository's tags (anonymous GHCR `tags/list`), take the highest stable semver, and show a notice if it is newer;
   - The hub installs nothing; Docker pulls the image and verifies by digest;
   - CI writes the image name into the binary at build time; it is not hard-coded in the source.
 - **dev**: no checks, only shows the version.
-- Network unavailable or bad manifest: log it and show the reason under **Check for Updates** in the App; do not hammer retries (keep the hourly interval).
+- Network unavailable or bad manifest: show the reason under **Check for Updates** in the App when no install or confirmation is in progress; otherwise keep the update's progress and error. Do not hammer retries (keep the hourly interval).
 
 ## 8. Updating (release build; automatic and manual use the same flow)
 
@@ -440,6 +441,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
      now a missing platform is one that should have been in the release, and installing cannot recover it later. The release script uploads every `.gz` first, then switches the site serving `latest.json`
      (`scripts/release/publish.sh`), so "listed in the manifest but not uploaded yet" cannot happen;
    - Restart interrupted downloads, at most 3 attempts; rename the temporary file only after the download finishes.
+   - The downloads live only as long as the update: `<build>/` is removed when the update fails (download, check, swap or restart), once it is confirmed and its node binaries are in place, and when it goes back. A hub start also removes every other `<build>/` (one that went back through the watchdog or the entry process, which run the old build, or one an older build left), keeping only the one it is confirming.
 2. **Verify**:
    - Continue only if both sha256 values match the manifest; otherwise delete the download and report an error, leaving the current binary untouched;
    - After decompression, run `<new> version` once; it must report the manifest's version and the `release` channel.
@@ -482,6 +484,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
      - Under systemd (with `INVOCATION_ID`) or launchd: restore `.prev`, kill the main process, and let the service manager start the old binary;
      - Without a service manager: after restoring it, start the old hub in the background with the original arguments, as the program it ran as (`run` in `pending.json`, else `target`).
      - It signals the hub only while the hub is still its parent process (SIGTERM, then SIGKILL after 10 seconds if it is still there): once the hub has exited, its pid may belong to another process.
+     - Before restoring anything it claims the marker by renaming `pending.json` to `pending.json.watch`. A confirm that removed the marker first (while the last health check was still out, or timed out) ends the watchdog with nothing undone; a confirm that finds it already claimed records nothing and leaves the update to the watchdog. If the restore fails, the marker goes back. A marker it cannot rename (an update directory that is read-only or has the wrong owner, where a confirm cannot remove it either) does not stop it: it goes back without the claim. A watchdog that dies while it holds the claim (power loss, or a stop of the hub unit: under systemd it shares the hub's cgroup) leaves `pending.json.watch`; the hub's next start renames it back to `pending.json` and handles the update as usual.
    - After rollback, record this build number in the **bad-version** list: automatic updates no longer try it and wait for a newer version. The user can still install it manually; the App says, "This version failed to start last time and was rolled back."
 9. **Update nodes along with it (only with `auto_update_nodes: true`)**:
    - After the hub confirms success, run `deploy.go` for each online machine with a different version (push binary, restart the persistent node, wait for it to reconnect), one at a time;
@@ -572,6 +575,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
   - Retry after interrupted download; delete without replacing on a sha256 mismatch;
   - New version cannot start: compile a deliberately unstartable binary in the test; verify both the new process's self-check and the watchdog can roll back, record the bad version and do not retry it automatically;
   - Wait for idle: do not restart while the assistant or any Agent is busy (automatic and manual alike); `now` skips the wait;
+  - Checks during installation or confirmation preserve the update state, progress and error on success and failure, including when an install starts while the manifest request is in flight;
   - Skills: symlink creation and cleanup, automatic migration of old installs, user precedence on a name collision, gate command only present with its skill; built-in skill directory contains only redistributable skills;
   - dev / docker channels never install, however new the manifest is (API 409);
   - **No downgrade** (`TestNoDowngrade`): a directly deployed binary (build number = build time) does not install a manifest with a smaller or equal build number; only larger ones install;

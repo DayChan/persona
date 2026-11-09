@@ -5,12 +5,14 @@
 package kb
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,13 +51,14 @@ type Tagging struct {
 
 // Chat is one conversation: a Feishu chat (lark-<feedId>) or the mail exchanged with one address (mail-<account>-<addr>).
 type Chat struct {
-	ID       string   `json:"id"`
-	Source   string   `json:"source"` // lark | mail
-	SourceID string   `json:"source_id"`
-	Kind     string   `json:"kind"` // dm | group | bot | mail
-	Name     string   `json:"name"`
-	People   []string `json:"people,omitempty"`
-	Projects []string `json:"projects,omitempty"`
+	ID        string   `json:"id"`
+	Source    string   `json:"source"` // lark | mail
+	SourceID  string   `json:"source_id"`
+	Connector string   `json:"connector,omitempty"` // the connector that wrote this archive source
+	Kind      string   `json:"kind"`                // dm | group | bot | mail
+	Name      string   `json:"name"`
+	People    []string `json:"people,omitempty"`
+	Projects  []string `json:"projects,omitempty"`
 	Tagging
 	// Archive state: the newest position read, when the newest archived message was written, how many lines so far.
 	Cursor   string    `json:"cursor,omitempty"`
@@ -84,14 +87,15 @@ type Chat struct {
 
 // Person is someone the owner talks to: lark-<userId> or mail-<address>.
 type Person struct {
-	ID       string    `json:"id"`
-	Source   string    `json:"source"`
-	SourceID string    `json:"source_id"`
-	Name     string    `json:"name"`
-	Note     string    `json:"note,omitempty"` // who they are to the owner, one line (AI)
-	Chats    []string  `json:"chats,omitempty"`
-	Projects []string  `json:"projects,omitempty"`
-	LastSeen time.Time `json:"last_seen,omitempty"`
+	ID        string    `json:"id"`
+	Source    string    `json:"source"`
+	SourceID  string    `json:"source_id"`
+	Connector string    `json:"connector,omitempty"`
+	Name      string    `json:"name"`
+	Note      string    `json:"note,omitempty"` // who they are to the owner, one line (AI)
+	Chats     []string  `json:"chats,omitempty"`
+	Projects  []string  `json:"projects,omitempty"`
+	LastSeen  time.Time `json:"last_seen,omitempty"`
 	Tagging
 }
 
@@ -165,7 +169,8 @@ func (p *Project) Live() bool { return p.Status != "merged" }
 
 // Item is a document, meeting or calendar event the owner came across.
 type Item struct {
-	Kind     string    `json:"kind"` // docs | meetings | events
+	Kind     string    `json:"kind"`             // docs | meetings | events
+	Source   string    `json:"source,omitempty"` // the connector that supplied the item
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
 	URL      string    `json:"url,omitempty"`
@@ -174,6 +179,7 @@ type Item struct {
 	Projects []string  `json:"projects,omitempty"`
 	Note     string    `json:"note,omitempty"`
 	Seen     time.Time `json:"seen"`
+	Signals  []string  `json:"signals,omitempty"` // kbwire.Signal*: why it concerns the owner, as the source told
 	Tagging
 }
 
@@ -184,7 +190,13 @@ type Store struct {
 	mu       sync.Mutex
 	metaMu   sync.Mutex // acquire before mu when both are needed (projectInput reads Log under metaMu)
 	applyMu  sync.Mutex
-	recMu    sync.Mutex // a recording's read-compare-write (recordings.go)
+
+	recMu             sync.Mutex                 // a recording's read-compare-write (recordings.go)
+	recFilesMu        sync.RWMutex               // acquire before metaMu for recording snapshots and recovery
+	recordingWrite    func(string, []byte) error // per-store candidate fault injection
+	recordingReadWait func()                     // per-store read-entry observation for concurrency tests
+	recordingRemove   func(string) error         // per-store commit fault injection
+
 	dedupeMu sync.Mutex // projects/.dedupe.json's read-modify-write (dedupe.go)
 	ingestMu sync.Mutex // live identity filtering through attachment preparation and commit
 	// chatMu: a chat's read-modify-write of meta.json by the pipeline (Ingest, saveArchived, WriteHistory in history.go,
@@ -207,6 +219,9 @@ func NewStore(dir string) (*Store, error) {
 		}
 	}
 	s := &Store{Dir: dir}
+	if err := s.recoverRecordings(); err != nil {
+		return nil, err
+	}
 	if err := s.recoverIngests(); err != nil {
 		return nil, err
 	}
@@ -421,15 +436,27 @@ func (s *Store) Log(slug string, n int) []string {
 	_, _ = s.settleLogLocked(slug)
 	s.mu.Unlock()
 	raw, _ := os.ReadFile(s.path(KindProject, slug, "log.md"))
+	return lastLogLines(raw, n)
+}
+
+// lastLogLines are the last n "- " lines of a timeline, oldest first, taken from its end so that the lines before them
+// are never collected. nil when it has none; empty when n <= 0 and it has one.
+func lastLogLines(raw []byte, n int) []string {
 	var lines []string
-	for _, l := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(l, "- ") {
-			lines = append(lines, l)
+	for end := len(raw); end >= 0; {
+		start := bytes.LastIndexByte(raw[:end], '\n') + 1
+		if l := raw[start:end]; bytes.HasPrefix(l, []byte("- ")) {
+			if n <= 0 {
+				return []string{}
+			}
+			lines = append(lines, string(l))
+			if len(lines) == n {
+				break
+			}
 		}
+		end = start - 1
 	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
+	slices.Reverse(lines)
 	return lines
 }
 
@@ -522,31 +549,27 @@ func (s *Store) Since(chatID string, t time.Time, max int) string {
 			continue
 		}
 		raw, _ := os.ReadFile(s.path(KindChat, chatID, "messages", d+".md"))
+		// The kept messages' lines, joined once below: appending each continuation line to its message would copy
+		// the whole message again per line, quadratic in a long paste.
 		var keep []string
-		cur := ""
-		flush := func() {
-			if cur != "" {
-				keep = append(keep, cur)
-			}
-			cur = ""
-		}
+		open := false // the last "- " line was kept, so the indented lines that continue it are too
 		for _, l := range strings.Split(string(raw), "\n") {
 			switch {
 			case strings.HasPrefix(l, "- "):
-				flush()
+				open = false
 				if len(l) >= 7 {
 					if at, err := time.ParseInLocation("2006-01-02 15:04", d+" "+l[2:7], zone); err == nil && at.Before(t.Truncate(time.Minute)) {
 						continue
 					}
 				}
-				cur = l
-			case strings.HasPrefix(l, "  ") && cur != "":
-				cur += "\n" + l
+				keep = append(keep, l)
+				open = true
+			case strings.HasPrefix(l, "  ") && open:
+				keep = append(keep, l)
 			default:
-				flush()
+				open = false
 			}
 		}
-		flush()
 		if len(keep) > 0 {
 			fmt.Fprintf(&b, "## %s\n%s\n", d, strings.Join(keep, "\n"))
 		}

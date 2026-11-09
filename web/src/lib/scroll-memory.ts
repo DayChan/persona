@@ -9,11 +9,6 @@ const where = new Map<string, number>();
 const SETTLE_MS = 1500;
 const READER = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
-/** The remembered scrollTop of `key`, if any. */
-export function rememberedScroll(key: string): number | undefined {
-  return where.get(key);
-}
-
 export function rememberScroll(key: string, top: number) {
   where.set(key, top);
 }

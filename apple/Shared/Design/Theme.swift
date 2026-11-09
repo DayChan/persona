@@ -39,6 +39,39 @@ nonisolated enum AppStyle: String, CaseIterable, Identifiable, Sendable {
 }
 
 nonisolated enum Theme {
+    /// Orca-compatible workspace cards. Scoped to repository browsing, including nested selection surfaces.
+    enum WorkspaceSidebar {
+        static let background = Color(light: 0xF5F5F5, dark: 0x2A2A2A)
+        static let foreground = Color(light: 0x0A0A0A, dark: 0xF0F0F0)
+        static let muted = Color(light: 0x737373, dark: 0xA3A3A3)
+        static let border = Color(light: 0xE5E5E5, dark: 0x404040)
+        static let chip = Color(light: 0xFFFFFF, dark: 0x353535)
+        static let success = Color(light: 0x00BC7D, dark: 0x00BC7D)
+        static let unread = Color(light: 0xFF9800, dark: 0xFFB020)
+        static let selected = foreground.opacity(0.08)
+        static let hovered = foreground.opacity(0.04)
+        static let cardLeading: CGFloat = 10
+        static let childInset: CGFloat = 10
+        static let statusLane: CGFloat = 16
+        static let titleHeight: CGFloat = 20
+        static let agentHeight: CGFloat = 24
+        static let badgeHeight: CGFloat = 16
+        static let projectBadgeWidth: CGFloat = 96
+        static let cardRadius: CGFloat = 8
+        static let chipRadius: CGFloat = 4
+        static let rule: CGFloat = 1
+        static let hostRotation = Angle.degrees(90)
+        #if os(macOS)
+        static var title: SwiftUI.Font { Font.body }
+        static var titleUnread: SwiftUI.Font { Font.bodyStrong }
+        #else
+        static var title: SwiftUI.Font { Font.caption }
+        static var titleUnread: SwiftUI.Font { Font.captionStrong }
+        #endif
+        static var meta: SwiftUI.Font { Font.label }
+        static var agent: SwiftUI.Font { Font.label }
+    }
+
     private static var spec: StyleSpec { StyleSpec.current }
     #if os(watchOS)
     static let systemPage = Color.black
@@ -190,6 +223,18 @@ nonisolated enum Theme {
         static let scrim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.45) : UIColor.black.withAlphaComponent(0.2) })
         #endif
     }
+
+    #if !os(watchOS)
+    /// A long-pressed message lifted over its chat (`MessageLift`, #603).
+    enum Lift {
+        /// How far the chat behind is blurred: its words still show, faintly.
+        static let blur: CGFloat = 3
+        /// Over the blurred chat: lighter than `Fill.scrim`, for the same reason.
+        static let scrim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.3) : UIColor.black.withAlphaComponent(0.08) })
+        /// The bar of actions next to it: light in light mode, the dark bar it always was in dark mode.
+        static let bar = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : UIColor.white })
+    }
+    #endif
 
     /// The image viewer's backdrop (`ImageViewer`), as Photos has it: the page's own color while its bars show (white
     /// in light mode, black in dark), black once a tap hides them.

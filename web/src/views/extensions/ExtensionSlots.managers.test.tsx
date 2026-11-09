@@ -5,7 +5,8 @@
 // manager that is none of their pushes is taken, and both are read again once it does.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../../lib/lazy-page";
 
 const hub = vi.hoisted(() => ({ listeners: new Map<string, ((m: Record<string, unknown>) => void)[]>() }));
 const STATE = vi.hoisted(() => ({
@@ -70,6 +71,9 @@ function Slot({ placement, manager }: { placement: "inbox_item" | "nav_page"; ma
   const places = useExtensionSlot(placement, manager);
   return <p data-places>{places.map((p) => `${p.extension}/${p.id}:${p.badge?.text ?? 0}`).join(",")}</p>;
 }
+
+// the code views and the extension page are their own chunks (lib/lazy-page.ts, #1794): in before anything is drawn
+beforeAll(() => loadPages(), 60_000);
 
 describe("the extensions' places of each manager", () => {
   it("takes no badge before the roster says which manager is the default, and reads the places again once it does", async () => {

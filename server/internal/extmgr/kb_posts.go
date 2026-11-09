@@ -12,7 +12,7 @@ import (
 
 // A connector's program writes a feed's public posts into the knowledge base's post archive and reads which posts'
 // comments to read again (connector.KnowledgeBase, docs/assistant/knowledge.md "External posts"). The archive is the knowledge
-// base's, the assistant's: the hub checks the connector may write now ("Add to knowledge base") and passes each call on
+// base's, the assistant's: the hub checks the connector is enabled with "Add to knowledge base" on and passes each call on
 // with the connector's names (kb.posts_*, kb.archived_chats). While the assistant is not connected a call waits for it
 // a while (kbPostsWait), then fails (assistant_offline): the program's round ends there and it reads the same again
 // next round.
@@ -31,13 +31,15 @@ var kbPostsWait = 30 * time.Second
 
 // call passes one of the program's calls on, when this connector may write to the knowledge base now.
 func (k kbPosts) call(ctx context.Context, method string, p assistantwire.KBPosts, out any) error {
+	k.h.kbPostsMu.RLock()
+	defer k.h.kbPostsMu.RUnlock()
 	if k.h.kbReadOnly() {
 		return kb.ErrReadOnly
 	}
 	if k.h.kbOff() {
 		return errKBOff
 	}
-	if k.h.connectors != nil && !k.h.connectors.Feeds(k.id, connector.FeedArchive) {
+	if k.h.connectors != nil && (!k.h.connectors.Enabled(k.id) || !k.h.connectors.Feeds(k.id, connector.FeedArchive)) {
 		return errArchiveOff
 	}
 	p.Connector, p.Sources = k.id, k.sources()

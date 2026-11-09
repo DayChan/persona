@@ -99,6 +99,7 @@ func Download(ctx context.Context, client *http.Client, base string, f File, dir
 	}
 	bin := filepath.Join(dir, strings.TrimSuffix(f.Name, ".gz"))
 	if err := unpack(gz, bin, f.BinarySHA256); err != nil {
+		_ = os.Remove(gz) // a download that cannot be installed is not kept either
 		var local *fs.PathError
 		if !errors.Is(err, errMismatch) && !errors.As(err, &local) {
 			// An archive that matched the manifest's sha256 and does not unpack: the release's, broken.

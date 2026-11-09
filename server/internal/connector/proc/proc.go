@@ -24,6 +24,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/extension"
 	"github.com/nwverse/persona/server/internal/extension/host"
 	"github.com/nwverse/persona/server/internal/kb"
@@ -915,6 +916,29 @@ func (c *Conn) ArchiveMedia(ctx context.Context, ref string) (connector.Media, e
 	return out, err
 }
 
+// HistoryChats are the conversations the program can import the history of (history.chats); the hub asks only a
+// program declaring history. An error (with its rpc code) comes back as the program said it.
+func (c *Conn) HistoryChats(ctx context.Context) ([]connectorwire.HistoryChat, error) {
+	var out serve.HistoryChatsResult
+	err := c.call(ctx, serve.MHistoryChats, struct{}{}, &out)
+	return out.Chats, err
+}
+
+// History is one page of a conversation (archive.history). A call that timed out may still have been read by the
+// program: it is not sent again here (docs/protocol/connector-protocol.md "History").
+func (c *Conn) History(ctx context.Context, q connectorwire.HistoryQuery) (connectorwire.HistoryPage, error) {
+	var out connectorwire.HistoryPage
+	err := c.call(ctx, serve.MHistory, q, &out)
+	return out, err
+}
+
+// HistoryAnchors are the owner's messages over a window (history.anchors), for a program declaring history_anchors.
+func (c *Conn) HistoryAnchors(ctx context.Context, q connectorwire.HistoryAnchorsQuery) (connectorwire.HistoryAnchors, error) {
+	var out connectorwire.HistoryAnchors
+	err := c.call(ctx, serve.MHistoryAnchors, q, &out)
+	return out, err
+}
+
 func firstLine(s string) string {
 	line, _, _ := bytes.Cut([]byte(s), []byte("\n"))
 	return string(line)
@@ -922,21 +946,23 @@ func firstLine(s string) string {
 
 // The capabilities Conn answers for: what the hub's pipes look for.
 var (
-	_ connector.Accounts     = (*Conn)(nil)
-	_ connector.Login        = (*Conn)(nil)
-	_ connector.Archive      = (*Conn)(nil)
-	_ connector.Inbox        = (*Conn)(nil)
-	_ connector.ReadTools    = (*Conn)(nil)
-	_ connector.Actions      = (*Conn)(nil)
-	_ connector.RefActions   = (*Conn)(nil)
-	_ connector.Threads      = (*Conn)(nil)
-	_ connector.Events       = (*Conn)(nil)
-	_ connector.Runner       = (*Conn)(nil)
-	_ connector.Items        = (*Conn)(nil)
-	_ connector.ArchiveMedia = (*Conn)(nil)
-	_ connector.Snapshot     = (*Conn)(nil)
-	_ connector.Grouper      = (*Conn)(nil)
-	_ connector.EventWriter  = (*Conn)(nil)
+	_ connector.Accounts       = (*Conn)(nil)
+	_ connector.Login          = (*Conn)(nil)
+	_ connector.Archive        = (*Conn)(nil)
+	_ connector.Inbox          = (*Conn)(nil)
+	_ connector.ReadTools      = (*Conn)(nil)
+	_ connector.Actions        = (*Conn)(nil)
+	_ connector.RefActions     = (*Conn)(nil)
+	_ connector.Threads        = (*Conn)(nil)
+	_ connector.Events         = (*Conn)(nil)
+	_ connector.Runner         = (*Conn)(nil)
+	_ connector.Items          = (*Conn)(nil)
+	_ connector.ArchiveMedia   = (*Conn)(nil)
+	_ connector.Snapshot       = (*Conn)(nil)
+	_ connector.Grouper        = (*Conn)(nil)
+	_ connector.EventWriter    = (*Conn)(nil)
+	_ connector.History        = (*Conn)(nil)
+	_ connector.HistoryAnchors = (*Conn)(nil)
 )
 
 // Snapshot is the program's live state (snapshot.get).

@@ -56,6 +56,7 @@ inbox.write          DELETE /api/v1/inbox/mutes/{id}
 inbox.write          DELETE /api/v1/inbox/policies/{id}
 -                    DELETE /api/v1/launchers/{name}
 -                    DELETE /api/v1/machines/{mid}/browser/cookies
+-                    DELETE /api/v1/machines/{mid}/computer/apps/revoke/{bundle}
 -                    DELETE /api/v1/machines/{mid}/computer/apps/{bundle}
 -                    DELETE /api/v1/machines/{mid}/health/reports/{name}
 -                    DELETE /api/v1/machines/{mid}/launchers/{name}/models/custom
@@ -101,6 +102,7 @@ assistant.ask        GET /api/v1/assistant
 assistant.ask        GET /api/v1/assistant/capabilities
 -                    GET /api/v1/assistant/conversations/{id}/always
 assistant.ask        GET /api/v1/assistant/conversations/{id}/feed
+-                    GET /api/v1/assistant/feishu/notices
 -                    GET /api/v1/assistant/followups
 -                    GET /api/v1/assistant/memory
 -                    GET /api/v1/assistant/places
@@ -288,6 +290,8 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/assistant/conversations/{id}/unarchive
 -                    POST /api/v1/assistant/conversations/{id}/views/{key}/actions
 -                    POST /api/v1/assistant/conversations/{id}/views/{key}/html-actions
+-                    POST /api/v1/assistant/feishu/notices/action
+-                    POST /api/v1/assistant/feishu/workbench
 -                    POST /api/v1/assistant/followups/{id}/run
 -                    POST /api/v1/assistant/main/new
 -                    POST /api/v1/assistant/origins/backfill
@@ -390,6 +394,7 @@ agents.control       POST /api/v1/interactions/{id}/resolve
 -                    POST /api/v1/machines/{mid}/worktree/create
 -                    POST /api/v1/machines/{mid}/worktree/prepare
 -                    POST /api/v1/machines/{mid}/worktree/remove
+-                    POST /api/v1/machines/{mid}/worktree/rename
 -                    POST /api/v1/machines/{mid}/worktree/status
 -                    POST /api/v1/managers
 -                    POST /api/v1/managers/{id}/code
@@ -445,6 +450,7 @@ todos.write          POST /api/v1/todos
 -                    PUT /api/v1/agents/prefs
 -                    PUT /api/v1/agents/triage
 -                    PUT /api/v1/assistant
+-                    PUT /api/v1/assistant/feishu/companions
 -                    PUT /api/v1/assistant/memory/{name}
 -                    PUT /api/v1/assistant/places/{id}
 -                    PUT /api/v1/assistant/routines

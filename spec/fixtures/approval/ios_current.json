@@ -822,11 +822,11 @@
       "expected": {
         "actions": [
           {
-            "id": "approve_all",
+            "id": "approve_edits",
             "authentication": "platform_default",
             "requires_unlock": false,
             "available_now": true,
-            "mode": "bypassPermissions"
+            "mode": "acceptEdits"
           },
           {
             "id": "reject",
@@ -859,11 +859,11 @@
       "expected": {
         "actions": [
           {
-            "id": "approve_all",
+            "id": "approve_edits",
             "authentication": "platform_default",
             "requires_unlock": null,
             "available_now": null,
-            "mode": "bypassPermissions"
+            "mode": "acceptEdits"
           },
           {
             "id": "reject",
@@ -1077,6 +1077,7 @@
       "name": "ios_current_siri_shortcut_plan_unlocked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1088,11 +1089,11 @@
       "expected": {
         "actions": [
           {
-            "id": "approve_all",
-            "authentication": "platform_default",
+            "id": "approve_edits",
+            "authentication": "required",
             "requires_unlock": false,
             "available_now": true,
-            "mode": "bypassPermissions"
+            "mode": "acceptEdits"
           }
         ]
       },
@@ -1102,6 +1103,7 @@
       "name": "ios_current_siri_shortcut_plan_locked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1113,11 +1115,11 @@
       "expected": {
         "actions": [
           {
-            "id": "approve_all",
-            "authentication": "platform_default",
-            "requires_unlock": null,
-            "available_now": null,
-            "mode": "bypassPermissions"
+            "id": "approve_edits",
+            "authentication": "required",
+            "requires_unlock": true,
+            "available_now": false,
+            "mode": "acceptEdits"
           }
         ]
       },
@@ -1127,6 +1129,7 @@
       "name": "ios_current_siri_shortcut_permission_unlocked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1139,7 +1142,7 @@
         "actions": [
           {
             "id": "allow",
-            "authentication": "platform_default",
+            "authentication": "required",
             "requires_unlock": false,
             "available_now": true
           }
@@ -1151,6 +1154,7 @@
       "name": "ios_current_siri_shortcut_permission_locked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1163,9 +1167,9 @@
         "actions": [
           {
             "id": "allow",
-            "authentication": "platform_default",
-            "requires_unlock": null,
-            "available_now": null
+            "authentication": "required",
+            "requires_unlock": true,
+            "available_now": false
           }
         ]
       },
@@ -1175,6 +1179,7 @@
       "name": "ios_current_siri_shortcut_question_unlocked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1199,6 +1204,7 @@
       "name": "ios_current_siri_shortcut_question_locked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1223,6 +1229,7 @@
       "name": "ios_current_siri_shortcut_screen_unlocked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {
@@ -1247,6 +1254,7 @@
       "name": "ios_current_siri_shortcut_screen_locked",
       "description": "核对Siri 与快捷指令的可用动作、批准模式和解锁要求。",
       "source": [
+        "ios/Persona/Intents/ApproveFirstIntent.swift：authenticationPolicy",
         "ios/Persona/Intents/ApproveFirstIntent.swift：resolution(for:)、perform"
       ],
       "input": {

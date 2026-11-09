@@ -1,4 +1,5 @@
 {
+  "supervise_other": "督办：{count} 个派出去的任务要处理",
   "task_done": "任务「{title}」做完了",
   "task_needs": "任务「{title}」在等你",
   "task_interrupted": "任务「{title}」被打断了",

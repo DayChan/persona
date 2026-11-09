@@ -30,7 +30,7 @@ English · [简体中文](README.zh-CN.md)
 
 ## Video tour
 
-https://github.com/user-attachments/assets/ef623c61-619e-43bd-a84c-67dd109c0bc4
+https://github.com/user-attachments/assets/1c16db32-72e3-4d74-8cbf-1976d27b0b78
 
 <sub>[HD video and subtitles](https://github.com/nwverse/persona/releases/tag/promo-v1).</sub>
 

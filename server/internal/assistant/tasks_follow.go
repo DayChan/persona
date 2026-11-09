@@ -124,7 +124,7 @@ func (s *Service) taskWaits(ctx context.Context, t Todo) bool {
 }
 
 // taskWorking: one of the task's agents started a turn. The agent of a task the hub closed meanwhile (judged done,
-// reviewed) works on it again — sent more by agent_send, which resumes a closed one, or by the user: the task is open
+// accepted) works on it again — sent more by agent_send, which resumes a closed one, or by the user: the task is open
 // again first, as a change asked for on its "Please verify" card reopens it (#3457), so this turn is followed
 // (interrupted or done receipt, judgment) and the task shows in progress, not done (#5892).
 func (s *Service) taskWorking(ctx context.Context, mid, sid string) {
@@ -166,7 +166,7 @@ type receiptBody struct {
 }
 
 type receiptReview struct {
-	State    string `json:"state"` // awaiting
+	State    string `json:"state"` // checking: Persona follows up; awaiting: completion already judged
 	Criteria int    `json:"criteria"`
 }
 
@@ -305,7 +305,11 @@ func (s *Service) taskTurnEnded(ctx context.Context, machine, sid string) {
 	// needs_user waits on the user instead. Read the latest todo in case it changed while reading the reply.
 	if current, ok := s.todoNow(t.ID); ok && current.DoneAt == nil {
 		if v := current.Supervision; v != nil && v.state(current) != reviewNeedsUser {
-			body.Review = &receiptReview{State: "awaiting", Criteria: len(v.DoneWhen)}
+			state := "checking" // receipt stays ahead of the model; a stopped turn is not a completion verdict
+			if v.state(current) == reviewPending {
+				state = "awaiting"
+			}
+			body.Review = &receiptReview{State: state, Criteria: len(v.DoneWhen)}
 		}
 	}
 	if body.Summary == "" {

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -130,7 +132,7 @@ func machineExtrasEqual(a, b map[string]extwire.MachineExtras) bool {
 
 // features are the hub's features with those of the extensions serving part of the API.
 func (h *Hub) features() []string {
-	out := append(slices.Clone(proto.Features), featureSessionsList, featureSessionsLookup, featureMachineRename)
+	out := append(slices.Clone(proto.Features), featureSessionsList, featureSessionsLookup, featureSessionsPaneSource, featureMachineRename)
 	out = append(out, h.agentSessionArchiveFeatures()...)
 	// The assistant's card interfaces that answer now (docs/assistant/assistant-views.md): assistant_views is declarative actions
 	// (expected_version), live cards and transcript cards; assistant_html_bridge is …/html-actions with both switches
@@ -320,6 +322,10 @@ func (h *Hub) relayToManager(w http.ResponseWriter, r *http.Request, admin bool)
 // hub's headers (any the client sent are dropped); the hub's credentials stay with the hub. While the manager is
 // away: 503 assistant_offline, or the last answer of a kept GET.
 func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id string) {
+	guardedApps, guardedRevoke, ok := computerAppsPrecondition(w, r, id)
+	if !ok {
+		return
+	}
 	keep := r.Method == http.MethodGet && slices.Contains(extwire.KeptRoutes, r.URL.Path)
 	key := r.URL.Path + "?" + r.URL.RawQuery
 	if id != devicesOwner {
@@ -370,6 +376,13 @@ func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id str
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", "manager"
 			pr.Out.Host = "manager"
+			if guardedRevoke {
+				// A legacy manager receives its existing endpoint only after this hub enforced the owner.
+				segments := strings.SplitN(pr.Out.URL.EscapedPath(), "/", 8)
+				segments[7] = strings.TrimPrefix(segments[7], "revoke/")
+				pr.Out.URL.RawPath = strings.Join(segments, "/")
+				pr.Out.URL.Path, _ = url.PathUnescape(pr.Out.URL.RawPath)
+			}
 			for k := range pr.Out.Header {
 				if strings.HasPrefix(strings.ToLower(k), "x-persona-") {
 					pr.Out.Header.Del(k)
@@ -385,6 +398,15 @@ func (h *Hub) relayTo(w http.ResponseWriter, r *http.Request, admin bool, id str
 				pr.Out.URL.RawQuery = q.Encode()
 			}
 			pr.Out.Header["X-Forwarded-For"] = nil
+		},
+		ModifyResponse: func(res *http.Response) error {
+			if apps, _ := computerAppsRoute(r); apps {
+				res.Header.Del(computerAppsOwnerHeader)
+				if guardedApps && res.StatusCode >= 200 && res.StatusCode < 300 {
+					res.Header.Set(computerAppsOwnerHeader, id)
+				}
+			}
+			return nil
 		},
 		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return h.dialManager(ctx, id)
@@ -507,6 +529,23 @@ func (h *Hub) pushPayloadAllowed(from string, payload map[string]any) error {
 	return nil
 }
 
+// localizedPayload is the payload of an extension's push.localized for a device in lang. One it left lang out of
+// gets the one its text would fall back to (i18n.T: the fallback language, then the default), else the first by
+// language code, so the pick does not change between pushes. nil: no language has one.
+func localizedPayload(payloads map[string]map[string]any, lang i18n.Lang) map[string]any {
+	for _, l := range []i18n.Lang{lang, i18n.Fallback, i18n.Default} {
+		if pl := payloads[string(l)]; len(pl) > 0 {
+			return pl
+		}
+	}
+	for _, l := range slices.Sorted(maps.Keys(payloads)) {
+		if pl := payloads[l]; len(pl) > 0 {
+			return pl
+		}
+	}
+	return nil
+}
+
 // ---- an extension's token on the hub's own routes ----
 
 // extTokenPrefix starts every extension's token (the manager makes them).
@@ -586,13 +625,16 @@ func (h *Hub) extAppCall(ctx context.Context, from string, p assistantwire.AppCa
 	}
 	switch p.Method {
 	case extwire.HubPushLocalized:
+		if localizedPayload(a.Payloads, i18n.Default) == nil {
+			return nil, true, errors.New("hub: push.localized without a payload in any language")
+		}
 		for _, pl := range a.Payloads {
 			if err := h.pushPayloadAllowed(from, pl); err != nil {
 				return nil, true, err
 			}
 		}
 		// the manager's extension's: not to the devices that turned that manager's pushes off
-		h.push.sendFrom(from, func(l i18n.Lang) map[string]any { return a.Payloads[string(l)] }, a.CollapseID, nil, quietNone, nil)
+		h.push.sendFrom(from, func(l i18n.Lang) map[string]any { return localizedPayload(a.Payloads, l) }, a.CollapseID, nil, quietNone, nil)
 		out = map[string]any{}
 	case extwire.HubPushBackground:
 		if err := h.pushPayloadAllowed(from, a.Payload); err != nil {

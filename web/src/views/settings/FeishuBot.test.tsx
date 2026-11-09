@@ -117,6 +117,14 @@ describe("Feishu bot dialog", () => {
     expect(calls.update[1].body).toEqual({ features: { only_conclusions: true } });
   });
 
+  it("switches the workbench on its own, off by default", async () => {
+    const workbench = () => document.body.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t("settings-feishubot.feature_workbench_title")}"]`)!;
+    await open(saved({ features: { ...saved().features, workbench: false } }));
+    expect(workbench().getAttribute("aria-checked")).toBe("false");
+    await act(async () => workbench().click());
+    expect(calls.update[0].body).toEqual({ features: { workbench: true } });
+  });
+
   it("sends every switch to a hub from before 0.1.12, which replaces the whole set", async () => {
     const { reports: _reports, board: _board, ...old } = saved().features;
     await open(saved({ features: old }));

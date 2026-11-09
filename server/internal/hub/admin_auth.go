@@ -115,15 +115,6 @@ func adminPasswordProblem(password string) error {
 
 // --- sessions ---------------------------------------------------------------------------------------------------
 
-// Separate cookies for TLS and plaintext: a Secure cookie set over https would otherwise keep the plaintext port's
-// sign-in from being stored (browsers do not let http overwrite a Secure cookie of the same name).
-func adminCookieName(r *http.Request) string {
-	if r.TLS != nil {
-		return "persona_admin_tls"
-	}
-	return "persona_admin"
-}
-
 const adminCookiePath = "/api/v1/admin/"
 
 func sha256Hex(s string) string {

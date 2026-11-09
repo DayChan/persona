@@ -513,6 +513,12 @@ func (b *BusHub) request(ctx context.Context, method string, params json.RawMess
 	case assistantwire.MethodAgentStartParams, assistantwire.MethodAgentResumeParams, assistantwire.MethodAgentTabName:
 		return b.agentRequest(ctx, s, method, decode) // agents_bus.go
 	// The channels' (channels.go, feishu.go).
+	case assistantwire.MethodChannelUnbound:
+		var p ChannelUnbound
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, s.ChannelUnbound(ctx, p)
 	case assistantwire.MethodChannelReceive:
 		var p ChannelReceive
 		if err := decode(&p); err != nil {

@@ -725,6 +725,50 @@ func TestInstallBuiltinLaunchd(t *testing.T) {
 	}
 }
 
+// The built-in manager's unit (or agent) is replaced in one step when its text changes, never cut short in place, and
+// left as it is (the same file) when it does not.
+func TestBuiltinServiceReplacesTheFile(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			home := isolate(t)
+			data := filepath.Join(home, ".persona")
+			f := &fakeServices{}
+			e, _ := f.env(t, goos)
+			path := e.unitPath(assistantwire.AssistantID)
+			if goos == "darwin" {
+				path = e.plistPath(assistantwire.AssistantID)
+			}
+			if err := e.builtinService(context.Background(), data, "/opt/personad", false); err != nil {
+				t.Fatal(err)
+			}
+			old, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer old.Close()
+			had, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.builtinService(context.Background(), data, "/opt/new/persona-manager", false); err != nil {
+				t.Fatal(err)
+			}
+			checkReplaced(t, path, old, had, "/opt/new/persona-manager")
+
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.builtinService(context.Background(), data, "/opt/new/persona-manager", false); err != nil {
+				t.Fatal(err)
+			}
+			if after, err := os.Stat(path); err != nil || !os.SameFile(before, after) {
+				t.Fatalf("unchanged text written again: %v", err)
+			}
+		})
+	}
+}
+
 // BindBuiltin (a container's supervisor): a binding the hub takes stays and no code is asked for; not bound, or
 // refused, a code is asked for and traded; a code that cannot be had is the error.
 func TestBindBuiltin(t *testing.T) {

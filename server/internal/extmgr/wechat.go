@@ -8,6 +8,17 @@ import (
 	wechat "github.com/nwverse/persona/server/internal/wechat/spec"
 )
 
+// addWeChatBuiltin preserves the built-in until an installed package takes its id.
+// The registry's handoff stops the old process before starting its replacement;
+// without a package, ownership, switches and behavior are unchanged.
+func (h *Manager) addWeChatBuiltin(reg *extension.Registry, path string) error {
+	if err := reg.AddBuiltin(wechatManifest(h, path), filepath.Dir(path), true); err != nil {
+		return err
+	}
+	reg.Yields(wechat.ID)
+	return nil
+}
+
 // wechatManifest is the WeChat bot as a built-in plugin (docs/extensions/wechat.md): the program at path, contributing its
 // connector (a status and a QR sign-in, known before the program ever runs) and its channel (docs/extensions/channels.md). It runs
 // while the connector is on. The hub's pipeline does the rest (where a message goes, the turn, what

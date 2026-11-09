@@ -17,7 +17,7 @@ import (
 // The plugin API (docs/extensions/extensions.md "The hub's API"). /api/v1/plugins/<id>/… is relayed to the plugin, so the hub's own
 // routes live under the reserved "-" segment: /api/v1/plugins/-/… and /api/v1/plugins/<id>/-/….
 
-// PluginDetail is one plugin with its form, settings and permissions (GET /api/v1/plugins/{id}/-/).
+// ExtensionDetail is one plugin with its form, settings and permissions (GET /api/v1/plugins/{id}/-/).
 type ExtensionDetail struct {
 	ExtensionView
 	Publisher       string                     `json:"publisher,omitempty"`
@@ -47,7 +47,7 @@ type ExtensionDetail struct {
 	SecretsCleared []string `json:"secrets_cleared,omitempty"`
 }
 
-// PluginSecretView is a declared secret and whether it has a value (never the value).
+// ExtensionSecretView is a declared secret and whether it has a value (never the value).
 type ExtensionSecretView struct {
 	Name        string `json:"name"`
 	Title       string `json:"title"`

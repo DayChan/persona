@@ -21,10 +21,10 @@ import (
 // assistant with assistant.prepare (the files only when that machine does not have them yet), and its instructions are
 // added to the assistant's CLAUDE.md; the assistant asks for both (app.call plugins.assistant, assistant_apps.go).
 
-// pluginSkillMost is the most a plugin's skills may weigh, all files together.
+// extensionSkillMost is the most a plugin's skills may weigh, all files together.
 const extensionSkillMost = 8 << 20
 
-// PluginSkill is one plugin skill as assistant.prepare carries it: Files only when the machine needs them.
+// ExtensionSkill is one plugin skill as assistant.prepare carries it: Files only when the machine needs them.
 type ExtensionSkill struct {
 	Name      string            `json:"name"`
 	Extension string            `json:"plugin"`
@@ -32,7 +32,7 @@ type ExtensionSkill struct {
 	Files     map[string][]byte `json:"files,omitempty"` // relative path → content
 }
 
-// pluginSkills are the skills of every plugin switched on, read from their packages.
+// extensionSkills are the skills of every plugin switched on, read from their packages.
 func (ps *extensions) extensionSkills() []ExtensionSkill {
 	var out []ExtensionSkill
 	if ps == nil {
@@ -82,7 +82,7 @@ func (ps *extensions) extensionSkills() []ExtensionSkill {
 	return out
 }
 
-// pluginSkillsFor is pluginSkills for machine id, the files left out of those it was sent already.
+// extensionSkillsFor is extensionSkills for machine id, the files left out of those it was sent already.
 func (ps *extensions) extensionSkillsFor(machine string) []ExtensionSkill {
 	all := ps.extensionSkills()
 	if ps == nil {
@@ -102,7 +102,7 @@ func (ps *extensions) extensionSkillsFor(machine string) []ExtensionSkill {
 	return out
 }
 
-// pluginInstructions are the plugins' parts of the assistant's CLAUDE.md, each under its plugin's name.
+// extensionInstructions are the plugins' parts of the assistant's CLAUDE.md, each under its plugin's name.
 func (ps *extensions) extensionInstructions() string {
 	if ps == nil {
 		return ""

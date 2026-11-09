@@ -372,6 +372,10 @@
     <string name="agents_todo_notes_empty">編集をタップして説明と要件を追加…</string>
     <string name="agents_todo_auto_reason">自動完了の理由：%1$s</string>
     <string name="agents_todo_hold_pr">PR で止まっています</string>
+    <string name="agents_todo_due">期限 %1$s</string>
+    <string name="agents_todo_was_due">期限切れ %1$s</string>
+    <string name="agents_todo_remind_at">リマインド %1$s</string>
+    <string name="agents_todo_priority_high">優先度：高</string>
     <string name="agents_todo_hold_merged">マージ済み・未リリース</string>
     <string name="agents_todo_hold_off">リリース済み・既定でオフ</string>
     <string name="agents_todo_hold_gate">「%1$s」で止まっています</string>

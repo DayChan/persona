@@ -31,13 +31,13 @@ type channelsHub struct {
 	call func(ctx context.Context, id, method string, params, out any) error
 }
 
-// pluginChannel is a channel a plugin contributes, as the registry has it now.
+// extensionChannel is a channel a plugin contributes, as the registry has it now.
 type extensionChannel struct {
 	item      channel.Item
 	extension *extension.Extension
 }
 
-// pluginChannels are the channels the installed plugins contribute (switched off ones too), by id.
+// extensionChannels are the channels the installed plugins contribute (switched off ones too), by id.
 func (h *Manager) extensionChannels() []extensionChannel {
 	if h.extensions == nil {
 		return nil
@@ -135,6 +135,7 @@ func (h *Manager) feishuChannel(ctx context.Context) channel.View {
 		{ID: "main", On: f.Main}, {ID: "cards", On: f.Cards}, {ID: "all_cards", On: f.AllCards},
 		{ID: "pushes", On: f.Pushes}, {ID: "sync", On: f.Sync}, {ID: "agents", On: f.Agents},
 		{ID: "reports", On: f.Reports}, {ID: "board", On: f.Board}, {ID: "only_conclusions", On: f.OnlyConclusions},
+		{ID: "workbench", On: f.Workbench},
 	}
 	for i := range out.Features {
 		id := out.Features[i].ID
@@ -345,6 +346,8 @@ func (h *Manager) configureFeishu(ctx context.Context, enabled *bool, features m
 				f.Reports = on
 			case "board":
 				f.Board = on
+			case "workbench":
+				f.Workbench = on
 			case "only_conclusions":
 				f.OnlyConclusions = on
 			default:

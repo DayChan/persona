@@ -20,5 +20,6 @@
   "git_token": "A git token requires a clean HTTPS clone URL and cannot authorize registry requests.",
   "credential_move": "Clear the marketplace token before moving to another origin or GitHub owner.",
   "no_store": "This extension manager has no settings store.",
-  "http_status": "The registry returned HTTP {status}."
+  "http_status": "The registry returned HTTP {status}.",
+  "credential_refused": "The registry refused this marketplace's token (HTTP {status}) and the package can't be pulled without it. If the package is private, the token needs permission to read packages (read:packages on GitHub)."
 }

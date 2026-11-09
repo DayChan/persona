@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/prompts"
 )
 
@@ -16,6 +17,7 @@ func TestInboxNotesToldWhileTheAgentStartsAreKept(t *testing.T) {
 	for _, wake := range []bool{false, true} {
 		t.Run(map[bool]string{false: "note", true: "waking note"}[wake], func(t *testing.T) {
 			h := agentHub(t)
+			h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 			it := actionItem("x", time.Now())
 			it.Agent = &InboxAgent{State: AgentQueued, Task: "查 1013 是否合入"}
 			h.inbox.items[it.ID] = it
@@ -70,6 +72,7 @@ func fullPending(h *inboxHub, it *InboxItem) {
 // into the conversation: the trim to 20 keeps the list as long, so the carried notes are counted, not indexed.
 func TestInboxNoteToldWhileTheAgentStartsWithFullPendingIsKept(t *testing.T) {
 	h := agentHub(t)
+	h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 	it := actionItem("x", time.Now())
 	it.Agent = &InboxAgent{State: AgentQueued, Task: "查 1013 是否合入"}
 	h.inbox.items[it.ID] = it
@@ -116,6 +119,7 @@ func TestInboxNoteToldWhileTheAgentStartsWithFullPendingIsKept(t *testing.T) {
 // The same holds for a delivery: with 20 notes sent, one told while the send is on its way waits for the next one.
 func TestInboxNoteToldWhileDeliveringFullPendingIsKept(t *testing.T) {
 	h := agentHub(t)
+	h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 	it := actionItem("x", time.Now())
 	it.Agent = &InboxAgent{State: AgentRunning, MachineID: "server", SessionID: "s1", Task: "查 1013 是否合入"}
 	h.inbox.items[it.ID] = it
@@ -151,6 +155,7 @@ func TestInboxNoteToldWhileDeliveringFullPendingIsKept(t *testing.T) {
 // after the sent notes, so it waits for the next delivery instead of being trimmed with them.
 func TestInboxClosedNoteWhileDeliveringIsKept(t *testing.T) {
 	h := agentHub(t)
+	h.setConfig(func(c *assistantwire.InboxConfig) { c.Agent.Enabled = true })
 	it := actionItem("x", time.Now())
 	it.Handling = &InboxHandling{State: HandlingAgent}
 	it.Agent = &InboxAgent{State: AgentRunning, MachineID: "server", SessionID: "s1", Task: "查 1013 是否合入"}

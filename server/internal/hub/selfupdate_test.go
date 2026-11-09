@@ -191,6 +191,138 @@ func TestUpdateBadDownloadChangesNothing(t *testing.T) {
 	}
 }
 
+// An update that fails once its files are downloaded (here the new binary says another version than the release's)
+// leaves none of them in update/<build>/: not the hub's binary, its .gz or the node binaries staged beside it.
+func TestUpdateFailureLeavesNoDownload(t *testing.T) {
+	p := newPublisherWith(t, "v2-202611021700", 202611021700, func(m *update.Manifest) {
+		m.Version = "v2-202611021700-other" // the binary says v2-202611021700: not the release's
+	})
+	h, _, target, execs := updatingHub(t, p, "release")
+	h.cfg.AutoUpdateNodes = true // the node binaries are staged before the check
+	ctx := context.Background()
+	if _, err := h.upd.check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.upd.begin(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the failure", func() bool { return h.upd.view().State == "failed" })
+	if b, _ := os.ReadFile(target); string(b) != "#!/bin/sh\necho old\n" || len(execs()) != 0 {
+		t.Fatal("a binary that is not the release's was installed")
+	}
+	if !strings.Contains(h.upd.view().Error, "v2-202611021700-other") {
+		t.Fatalf("failed for another reason: %q", h.upd.view().Error)
+	}
+	if left, err := os.ReadDir(filepath.Join(h.upd.dir, "202611021700")); !os.IsNotExist(err) {
+		t.Fatalf("the failed update's downloads stayed: %v (%v)", left, err)
+	}
+}
+
+// The new version's downloads go once nothing reads them any more: after it is confirmed (the node binaries are in
+// NodeBinaryDir by then), and after it goes back.
+func TestUpdateConfirmRemovesStagedDownload(t *testing.T) {
+	for _, back := range []bool{false, true} {
+		t.Run(map[bool]string{false: "confirmed", true: "rolled back"}[back], func(t *testing.T) {
+			nodes := t.TempDir()
+			t.Setenv("PERSONA_NODE_BINARIES", nodes)
+			p := newPublisher(t, "v2-202611021700", 202611021700)
+			h, m, target, execs := updatingHub(t, p, "release")
+			h.build = update.Make("v2-202611021700", "release", "202611021700", p.srv.URL+"/dl")
+			h.version = h.build.Version
+			h.cfg.AutoUpdateNodes = true
+			if back {
+				m.mu.Lock()
+				m.online = false // it does not come back: the update goes back
+				m.mu.Unlock()
+			}
+			os.WriteFile(target+".prev", []byte("#!/bin/sh\necho old\n"), 0o755)
+			os.WriteFile(target, p.script, 0o755)
+			staged := filepath.Join(h.upd.dir, "202611021700")
+			for name, body := range map[string]string{
+				"personad-" + runtime.GOOS + "-" + runtime.GOARCH:                 string(p.script),
+				"personad-" + runtime.GOOS + "-" + runtime.GOARCH + ".gz":         "the download",
+				"nodes/personad-darwin-arm64":                                     "node for macs",
+				"nodes/personad-darwin-arm64.gz":                                  "its download",
+				"programs/personad-wechat-" + runtime.GOOS + "-" + runtime.GOARCH: "a program",
+			} {
+				path := filepath.Join(staged, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pending := update.Pending{FromVersion: "v1-202611021500", FromBuild: 202611021500, ToVersion: "v2-202611021700",
+				ToBuild: 202611021700, Target: target, Prev: target + ".prev", Online: []string{"box"}, Started: time.Now(),
+				Nodes: filepath.Join(staged, "nodes")}
+			if err := update.Save(update.PendingPath(h.upd.dir), pending); err != nil {
+				t.Fatal(err)
+			}
+			h.upd.confirm(context.Background(), pending)
+			if back {
+				if b, _ := os.ReadFile(target); string(b) != "#!/bin/sh\necho old\n" || len(execs()) != 1 {
+					t.Fatal("did not go back to the old binary")
+				}
+			} else {
+				if !h.upd.view().Confirmed {
+					t.Fatal("not confirmed")
+				}
+				if b, _ := os.ReadFile(filepath.Join(nodes, "personad-darwin-arm64")); string(b) != "node for macs" {
+					t.Fatalf("node binary %q", b)
+				}
+			}
+			if left, err := os.ReadDir(staged); !os.IsNotExist(err) {
+				t.Fatalf("the update's downloads stayed: %v (%v)", left, err)
+			}
+		})
+	}
+}
+
+// A start removes the downloads of every update but the one this process is confirming: an older update's (one
+// that went back through the watchdog or the edge, which run the old build) and anything an older build left.
+// The markers, the logs and what is not an update's download stay.
+func TestUpdateStartPrunesOldDownloads(t *testing.T) {
+	p := newPublisher(t, "v2-202611021700", 202611021700)
+	h, m, target, _ := updatingHub(t, p, "release")
+	h.build = update.Make("v2-202611021700", "release", "202611021700", p.srv.URL+"/dl")
+	h.version = h.build.Version
+	m.mu.Lock()
+	m.online = false // the update stays being confirmed while the test looks
+	m.mu.Unlock()
+	h.upd.confirmIn = time.Hour
+	dir := h.upd.dir
+	older, current, other := filepath.Join(dir, "202611011200"), filepath.Join(dir, "202611021700"), filepath.Join(dir, "notes")
+	for _, d := range []string{filepath.Join(older, "nodes"), filepath.Join(current, "nodes"), other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "personad-darwin-arm64"), []byte("a binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "watch.log"), []byte("log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pending := update.Pending{FromBuild: 202611021500, ToBuild: 202611021700, Target: target, Prev: target + ".prev",
+		Online: []string{"box"}, Nodes: filepath.Join(current, "nodes")}
+	if err := update.Save(update.PendingPath(dir), pending); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	h.upd.start(ctx)
+	if _, err := os.Stat(older); !os.IsNotExist(err) {
+		t.Fatalf("an older update's downloads stayed: %v", err)
+	}
+	for _, keep := range []string{filepath.Join(current, "nodes", "personad-darwin-arm64"), filepath.Join(other, "personad-darwin-arm64"),
+		filepath.Join(dir, "watch.log"), update.PendingPath(dir)} {
+		if _, err := os.Stat(keep); err != nil {
+			t.Fatalf("%s went: %v", keep, err)
+		}
+	}
+}
+
 // The new version confirms once the machines are back; when one does not come back it goes back to the old binary,
 // which records it, and that build is not installed automatically again.
 func TestUpdateConfirmOrRollBack(t *testing.T) {
@@ -252,6 +384,65 @@ func TestUpdateConfirmOrRollBack(t *testing.T) {
 	if !old.upd.view().Latest.Bad {
 		t.Fatal("the app is not told this build went back")
 	}
+}
+
+// A confirm that finds the marker claimed by the watchdog (update.Watch reached its deadline first) leaves the update
+// to it: nothing is recorded as updated and nobody is told, so the rollback the old version records stands alone.
+func TestUpdateConfirmLeavesAClaimedUpdateToTheWatchdog(t *testing.T) {
+	p := newPublisher(t, "v2-202611021700", 202611021700)
+	h, _, target, _ := updatingHub(t, p, "release")
+	h.build = update.Make("v2-202611021700", "release", "202611021700", p.srv.URL+"/dl")
+	told := 0
+	h.upd.notify = func(string, string) { told++ }
+	h.upd.edgeConfirmed = func() { told++ }
+	pending := update.Pending{FromBuild: 202611021500, ToBuild: 202611021700, Target: target, Prev: target + ".prev", Online: []string{"box"}, Auto: true}
+	update.Save(update.PendingPath(h.upd.dir), pending)
+	h.upd.boot()
+	os.Rename(update.PendingPath(h.upd.dir), update.PendingPath(h.upd.dir)+".watch") // the watchdog's claim
+	h.upd.confirm(context.Background(), pending)
+	if h.upd.view().Confirmed || len(h.upd.settings.History) != 0 || told != 0 {
+		t.Fatalf("confirmed an update the watchdog is undoing: history %+v, told %d", h.upd.settings.History, told)
+	}
+}
+
+// A watchdog that died while it held the claim (power loss, or a stop of the hub's unit, whose cgroup it shares)
+// leaves pending.json.watch: the next start takes it as the marker. The new build counts its start and confirms; the
+// old build records the rollback, so the build is marked bad.
+func TestUpdateBootTakesBackAWatchdogsClaim(t *testing.T) {
+	pending := update.Pending{FromVersion: "v1-202611021500", FromBuild: 202611021500, ToVersion: "v2-202611021700", ToBuild: 202611021700, Online: []string{"box"}}
+	t.Run("new build", func(t *testing.T) {
+		p := newPublisher(t, "v2-202611021700", 202611021700)
+		h, _, target, execs := updatingHub(t, p, "release")
+		h.build = update.Make("v2-202611021700", "release", "202611021700", p.srv.URL+"/dl")
+		pending.Target, pending.Prev = target, target+".prev"
+		update.Save(update.PendingPath(h.upd.dir)+".watch", pending)
+		if !h.upd.boot() || len(execs()) != 0 {
+			t.Fatalf("the new build has no update to confirm (execd %v)", execs())
+		}
+		var back update.Pending
+		if ok, _ := update.Load(update.PendingPath(h.upd.dir), &back); !ok || back.Starts != 1 {
+			t.Fatalf("the start is not counted: %v %+v", ok, back)
+		}
+		if _, err := os.Stat(update.PendingPath(h.upd.dir) + ".watch"); !os.IsNotExist(err) {
+			t.Fatal("the claim stayed")
+		}
+	})
+	t.Run("old build", func(t *testing.T) {
+		p := newPublisher(t, "v2-202611021700", 202611021700)
+		h, _, target, _ := updatingHub(t, p, "release")
+		pending.Target, pending.Prev = target, target+".prev"
+		update.Save(update.PendingPath(h.upd.dir)+".watch", pending)
+		if h.upd.boot() {
+			t.Fatal("the old build thinks it has an update to confirm")
+		}
+		var rb update.RolledBack
+		if ok, _ := update.Load(update.RolledBackPath(h.upd.dir), &rb); !ok || rb.ToBuild != 202611021700 {
+			t.Fatal("the rollback is not written down")
+		}
+		if left, _ := filepath.Glob(update.PendingPath(h.upd.dir) + "*"); len(left) != 0 {
+			t.Fatalf("left %v behind", left)
+		}
+	})
 }
 
 // A build deployed straight from master during an update's checks clears the marker without calling it a failure.

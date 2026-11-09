@@ -199,10 +199,11 @@ export async function worktreeStatus(mid: string, cwd: string, signal?: AbortSig
   }
 }
 
-export function addAgentWorktree(mid: string, cwd: string, nameHint: string, branch = ""): Promise<WorktreeAdded> {
+export function addAgentWorktree(mid: string, cwd: string, nameHint: string, branch = "", owner: Pick<NonNullable<Parameters<typeof api>[1]>, "signal" | "token" | "tokenOwner"> = {}): Promise<WorktreeAdded> {
   return api<WorktreeAdded>(`/machines/${enc(mid)}/worktree/add`, {
     method: "POST",
     json: { cwd, ...(nameHint ? { name_hint: nameHint } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) },
+    ...owner,
   });
 }
 

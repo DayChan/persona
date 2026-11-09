@@ -403,6 +403,7 @@ func RenderAskTodoAnswer(a AskTodoAnswer) string { return render("assistant/ask_
 // Supervise is a supervise message: the tasks the main conversation handed out that need it now (#3124), what waits on a
 // decision first.
 type Supervise struct {
+	Level   string
 	Entries []SuperviseEntry
 }
 
@@ -416,6 +417,7 @@ type SuperviseEntry struct {
 	Round           int      // reworks so far
 	Machine         string   // where its agent runs (a name)
 	Session         string   // its agent's session id (short)
+	AgentID         string   // full id for durable deduplication; not rendered
 	Last            string   // what its agent said last
 	Link            string   // the task's page ("" when the hub has no public_url)
 	Quiet           bool     // the user was not pushed about it
@@ -521,10 +523,20 @@ func RenderTaskDone(d TaskDone) string { return render("assistant/task_done", d)
 // docs/assistant/todos.md "Delivery"): done is live and checked, and its last line says how far it got.
 func RenderTaskDelivery() string { return render("assistant/task_delivery", nil) }
 
+// SideConversation preserves the provenance of a non-owner's message to a tasked Agent.
+type SideConversation struct {
+	From, Text string
+}
+
+func RenderSideConversation(in SideConversation) string {
+	return render("assistant/side_conversation", in)
+}
+
 // TaskDoneInput is the task as it was handed out and what its agents said when they stopped (assistant/task_done_input).
 type TaskDoneInput struct {
 	Title, Prompt string
 	Replies       []TaskDoneReply
+	Criteria      []string `json:"criteria,omitempty"`
 	// Hints the hub found in the replies: a merged pull request, a TestFlight build number.
 	MergedPR, Build bool
 }
@@ -533,6 +545,8 @@ type TaskDoneInput struct {
 // own prompt (a follow-up the user sent the agent later).
 type TaskDoneReply struct {
 	Machine, Ask, Text string
+	From               string `json:"from,omitempty"`
+	Source             string `json:"source,omitempty"`
 }
 
 func RenderTaskDoneInput(in TaskDoneInput) string { return render("assistant/task_done_input", in) }

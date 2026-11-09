@@ -247,9 +247,13 @@ func startWatchdog(prev, pendingPath string) error {
 
 // boot runs once, first thing when the hub starts, before the config or the database: a new version that keeps
 // dying (in a service manager's restart loop) goes back after updateMaxStarts starts; an old version that finds a
-// marker for an update it is not (the watchdog or a person put it back) clears it for recording. It says whether
-// this process has an update of its own to confirm.
+// marker for an update it is not (the watchdog or a person put it back) clears it for recording. A marker a watchdog
+// claimed and then died with (update.Unclaim) counts as the marker. It says whether this process has an update of its
+// own to confirm.
 func (u *updater) boot() (pending bool) {
+	if err := update.Unclaim(update.PendingPath(u.dir)); err != nil {
+		u.h.logf("update: put back the watchdog's claim on the pending marker: %v", err)
+	}
 	var p update.Pending
 	ok, err := update.Load(update.PendingPath(u.dir), &p)
 	if err != nil || !ok {
@@ -278,12 +282,20 @@ func (u *updater) boot() (pending bool) {
 	return true
 }
 
-// start loads the settings, records an update that went back, confirms one under way, and checks for releases.
+// start loads the settings, records an update that went back, confirms one under way, removes the downloads nothing
+// reads any more, and checks for releases.
 func (u *updater) start(ctx context.Context) {
 	u.load(ctx)
 	u.recordRolledBack(ctx)
 	var p update.Pending
-	if ok, _ := update.Load(update.PendingPath(u.dir), &p); ok && p.ToBuild == u.h.build.Number {
+	ok, _ := update.Load(update.PendingPath(u.dir), &p)
+	confirming := ok && p.ToBuild == u.h.build.Number
+	keep := int64(0) // the update this process confirms: its node binaries are put in place once it is confirmed
+	if confirming {
+		keep = p.ToBuild
+	}
+	u.pruneDownloads(keep)
+	if confirming {
 		go u.confirm(ctx, p)
 	}
 	go u.loop(ctx)
@@ -406,7 +418,12 @@ func (u *updater) confirm(ctx context.Context, p update.Pending) {
 		case <-time.After(2 * time.Second):
 		}
 	}
-	_ = os.Remove(update.PendingPath(u.dir))
+	if err := os.Remove(update.PendingPath(u.dir)); errors.Is(err, os.ErrNotExist) {
+		// The watchdog claimed the marker at its deadline and is putting the old version back (update.Watch):
+		// recording this update as done would contradict the rollback the old version records.
+		u.h.logf("update: %s -> %s: the watchdog is already going back", p.FromVersion, p.ToVersion)
+		return
+	}
 	u.mu.Lock()
 	u.confirmed = true
 	u.mu.Unlock()
@@ -422,6 +439,7 @@ func (u *updater) confirm(ctx context.Context, p update.Pending) {
 		u.edgeConfirmed() // the edge's own check of this update ends (it would go back after 3 minutes)
 	}
 	u.updateNodes(ctx, p.Nodes, p.FromVersion)
+	u.removeDownloads(u.stagedDir(p.ToBuild)) // the node binaries are in NodeBinaryDir now
 }
 
 // offline lists which of ids are not connected.
@@ -442,10 +460,12 @@ func (u *updater) offline(ids []string) []string {
 	return out
 }
 
-// rollback writes why, puts the old binary back and runs it. It returns only when that fails.
+// rollback writes why, puts the old binary back and runs it. It returns only when that fails. The update's downloads
+// go first: the old binary comes from Prev, and nothing reads them after this.
 func (u *updater) rollback(p update.Pending, reason string) {
 	u.h.logf("update: going back to %s: %s", p.FromVersion, reason)
 	u.markRolledBack(p, reason)
+	u.removeDownloads(u.stagedDir(p.ToBuild))
 	if err := update.RestoreAll(p); err != nil {
 		u.h.logf("update: restore %s: %v", p.Prev, err)
 		return

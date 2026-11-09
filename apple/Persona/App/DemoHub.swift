@@ -405,6 +405,16 @@ final class DemoHub {
             if let title = edit["title"] { t["title"] = title }
             if let notes = edit["notes"] { t["notes"] = notes }
             if let done = edit["done"]?.bool { t["done_at"] = done ? .string(Self.iso(.now)) : .null }
+            // Due date, reminder, priority (#1683): either due field replaces the other; a new reminder is pushed again.
+            if edit["due_at"] != nil || edit["due_date"] != nil {
+                t["due_at"] = edit["due_at"] ?? .null
+                t["due_date"] = edit["due_date"] ?? .null
+            }
+            if let remind = edit["remind_at"], remind != t["remind_at"] {
+                t["remind_at"] = remind
+                t["reminded_at"] = .null
+            }
+            if let priority = edit["priority"] { t["priority"] = priority }
             t["updated_at"] = .string(Self.iso(.now))
             todos[i] = .object(t)
             return ["todo": .object(t)]

@@ -24,6 +24,9 @@ var pastePlaceholder = lazyre.New(`^\s*(?:\[Image #\d+\]\s*)*\[Pasted text #\d+`
 // How long a prompt may sit in Claude's input box before ensureSubmitted presses Enter for it.
 var submitGrace = 2 * time.Second
 
+// graceLook is how often the transcript is looked at during submitGrace: a prompt it already has ends the grace (#1707).
+var graceLook = 100 * time.Millisecond
+
 // submitWindow is how long after typing ensureSubmitted waits for the transcript to take a prompt, looking at the
 // input box every submitPoll (#6428). Zero: one look, nothing confirmed (the tests whose fakes never write the
 // transcript, TestMain).
@@ -32,7 +35,8 @@ var (
 	submitPoll   = time.Second
 )
 
-// ensureSubmitted presses Enter once when what was just prompted is in Claude's input box after submitGrace.
+// ensureSubmitted presses Enter once when what was just prompted is in Claude's input box after submitGrace (cut short
+// once the transcript has the prompt: waitGrace).
 // Seen with images (2026-10-31 and 11-01, Claude Code 2.1.206, a photo from the phone): the text and its
 // `[Image #n]` chip sat in the box, the agent `done`, until Enter was pressed on the computer; 42 tries in an
 // isolated herdr did not repeat it, so the cause is unknown. Only the box after the grace counts: right after the
@@ -49,10 +53,8 @@ var (
 // box showing anything else is logged and counts as sent, as before. It returns the screen it read last ("" when
 // none), for afterPrompt.
 func (n *Node) ensureSubmitted(ctx context.Context, pane, text string, typedAt time.Time, watch *promptWatch) (string, error) {
-	select {
-	case <-ctx.Done():
+	if !waitGrace(ctx, watch) {
 		return "", nil
-	case <-time.After(submitGrace):
 	}
 	end := typedAt.Add(submitWindow)
 	var last string
@@ -111,6 +113,29 @@ func (n *Node) ensureSubmitted(ctx context.Context, pane, text string, typedAt t
 		case <-ctx.Done():
 			return last, nil
 		case <-time.After(submitPoll):
+		}
+	}
+}
+
+// waitGrace waits out submitGrace, or less once watch shows the transcript took the prompt (#1707): Claude usually
+// writes it well within a second, and the rest of the grace only guards prompts the transcript never gets (one stuck in
+// the box, one a guide took), which still wait all of it. The one screen read after it still looks for a guide. No
+// watch, or no confirming (submitWindow 0): the whole grace, as before. False when ctx ended.
+func waitGrace(ctx context.Context, watch *promptWatch) bool {
+	end := time.Now().Add(submitGrace)
+	look := submitGrace
+	if submitWindow > 0 && watch.usable() {
+		look = graceLook
+	}
+	for {
+		left := time.Until(end)
+		if left <= 0 || look < submitGrace && watch.took() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(min(left, look)):
 		}
 	}
 }

@@ -293,7 +293,7 @@ func wireSamples(t *testing.T) map[string][]wireSample {
 		"server/internal/transcript/transcript.go: ParseLine", "server/internal/proto/item.go: TurnDuration", "apple/Shared/Models.swift: ItemKind.init")
 	durationClient := &client{out: make(chan []byte, 1), subs: map[[2]string]bool{{"m1", "s1"}: true}}
 	durationHub := &Hub{clients: map[*client]struct{}{durationClient: {}}}
-	durationHub.itemsToSubscribers("m1", "s1", durations, itemSpan{History: "history_example"})
+	durationHub.itemsToSubscribers("m1", "s1", durations, itemSpan{History: "history_example"}, false)
 	add("item_events", "items_live_recorded_turn_duration", "轮次耗时沿用订阅 items 事件，不新增事件或顶层字段。", "event", wireReceive(t, durationClient),
 		map[string]any{"/type": "items", "/items/0/id": "duration_example#0"},
 		"server/internal/hub/http.go: Hub.itemsToSubscribers", "apple/Shared/LiveConnection.swift: ServerEvent.decode")
@@ -452,10 +452,10 @@ func wireItemEvents(t *testing.T, add wireAdder, now time.Time, items []proto.It
 	from, to := 0, 8
 	c := &client{out: make(chan []byte, 1), subs: map[[2]string]bool{{"m1", "s1"}: true}, lazy: true}
 	h := &Hub{clients: map[*client]struct{}{c: {}}}
-	h.itemsToSubscribers("m1", "s1", items, itemSpan{History: "history_example", FromSeq: &from, ToSeq: &to})
+	h.itemsToSubscribers("m1", "s1", items, itemSpan{History: "history_example", FromSeq: &from, ToSeq: &to}, false)
 	add("item_events", "items_live_lazy", "实时事件保留起点零值，并按订阅要求移除图片数据。", "event", wireReceive(t, c), map[string]any{"/type": "items", "/from_seq": 0, "/to_seq": 8, "/backlog": false, "/has_more": nil, "/more_after": false, "/items/1/image/lazy": true, "/items/1/image/data": ""}, "server/internal/hub/http.go: Hub.itemsToSubscribers", "apple/Shared/LiveConnection.swift: ServerEvent.decode")
 	from, to = 8, 10
-	h.itemsToSubscribers("m1", "s1", nil, itemSpan{History: "history_example", FromSeq: &from, ToSeq: &to})
+	h.itemsToSubscribers("m1", "s1", nil, itemSpan{History: "history_example", FromSeq: &from, ToSeq: &to}, false)
 	add("item_events", "items_empty_advance", "没有内容块的行仍发送空数组和连续性范围。", "event", wireReceive(t, c), map[string]any{"/items": []any{}, "/from_seq": 8, "/to_seq": 10}, "server/internal/hub/http.go: Hub.itemsToSubscribers", "docs/protocol/protocol.md: items 的连续性", "apple/Shared/LiveConnection.swift: ServerEvent.decode")
 	for _, scenario := range []string{"latest", "catchup", "capped"} {
 		calls := 0

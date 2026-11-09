@@ -311,3 +311,65 @@ func TestLongPaste(t *testing.T) {
 		}
 	}
 }
+
+// #1707: the transcript has the prompt right after it is typed, as it usually does within a second. The send answers then,
+// not after the whole submitGrace; the one screen read for a guide still happens.
+func TestSendAnswersOnceTheTranscriptTookThePrompt(t *testing.T) {
+	n, f, home, cwd := guideNode(t, true)
+	withSubmitGrace(t, 3*time.Second)
+	withSubmitWindow(t, 10*time.Second, 20*time.Millisecond)
+	enters := confirmPane(t, f, home, cwd, 0, false)
+	f.after(func(c herdrCall) {
+		if c.Method == "agent.prompt" {
+			appendTranscript(t, home, cwd, sidA, promptLine(cwd, "fix the flaky test", 0))
+		}
+	})
+	start := time.Now()
+	if _, err := request(t, n, "session.send", map[string]any{"session_id": sidA, "text": "fix the flaky test"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("send answered after %s: it waited out the grace with the prompt already in the transcript", took)
+	}
+	if enters() != 0 {
+		t.Fatalf("Enter pressed %d times for a prompt the transcript had", enters())
+	}
+	reads := 0
+	for _, c := range f.calls() {
+		if c.Method == "pane.read" {
+			reads++
+		}
+	}
+	if reads == 0 {
+		t.Fatal("no screen read after the prompt: a guide would go unseen")
+	}
+}
+
+// A prompt the transcript does not get still waits the whole grace before its box is looked at: the early end is only
+// for one the transcript has.
+func TestSendWithoutTheTranscriptWaitsTheGrace(t *testing.T) {
+	n, f, home, cwd := guideNode(t, true)
+	withSubmitGrace(t, 600*time.Millisecond)
+	withSubmitWindow(t, 900*time.Millisecond, 20*time.Millisecond)
+	confirmPane(t, f, home, cwd, 0, false)
+	var typed, firstRead time.Time
+	var mu sync.Mutex
+	f.after(func(c herdrCall) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case c.Method == "agent.prompt":
+			typed = time.Now()
+		case c.Method == "pane.read" && !typed.IsZero() && firstRead.IsZero():
+			firstRead = time.Now()
+		}
+	})
+	if _, err := request(t, n, "session.send", map[string]any{"session_id": sidA, "text": "fix the flaky test"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if firstRead.IsZero() || firstRead.Sub(typed) < 550*time.Millisecond {
+		t.Fatalf("box first read %s after typing, want the whole grace", firstRead.Sub(typed))
+	}
+}

@@ -640,6 +640,7 @@ export type DisplayLine =
 
 /** When the user sent the line's message (feed items go before the first message sent after them). */
 function inputTime(line: ChatLine): number | undefined {
+  if (line.kind === "supervision") return line.lines.map(inputTime).find((at) => at !== undefined);
   if (line.kind !== "segment" || !line.seg.user?.ts) return undefined;
   return Date.parse(line.seg.user.ts);
 }
@@ -651,6 +652,7 @@ function lineTime(l: DisplayLine): number | undefined {
       return Date.parse(l.item.at);
     case "chat": {
       const c = l.line;
+      if (c.kind === "supervision") return inputTime(c);
       if (c.kind === "segment") return Date.parse(c.seg.user?.ts ?? c.seg.start ?? "") || undefined;
       if (c.kind === "notice" || c.kind === "apiError" || c.kind === "compact") return Date.parse(c.item.ts ?? "") || undefined;
       return undefined;

@@ -143,7 +143,7 @@ func (r *Registry) Enabled(id string) bool {
 type Feed string
 
 const (
-	FeedArchive Feed = "archive" // its conversations into the knowledge base (Archive)
+	FeedArchive Feed = "archive" // its conversations, items and posts into the knowledge base
 	FeedInbox   Feed = "inbox"   // its things into the inbox (Inbox)
 )
 

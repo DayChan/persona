@@ -67,6 +67,12 @@ extension Theme {
         static let instructed = "quote.bubble"
         /// The manager's conclusion: done, just read it.
         static let concluded = "flag.checkered"
+        /// A to-do's due date (#1683): the list row and the detail page.
+        static let dueDate = "calendar.badge.clock"
+        /// A to-do's reminder: the phone is pushed about it at a set time (#1683).
+        static let reminder = "bell.circle"
+        /// A to-do of high priority (#1683).
+        static let highPriority = "flag.fill"
         /// Remind When Seen, Unanswered (#5096): a question the user saw and did not answer, reminded once after a while.
         static let replyReminder = "clock.badge.exclamationmark"
         /// Persona woke a waiting agent up (a message it typed in for the model, `Injected`).
@@ -120,6 +126,8 @@ extension Theme {
         static let gitBranch = "arrow.triangle.branch"
         /// The spaces a host nests under another (Orca's child worktrees,「N 个子项」, #3075).
         static let childSpaces = "square.3.layers.3d.down.right"
+        static let workspaceUnread = "bell.fill"
+        static let workspaceHost = "powerplug"
         /// Branch to New Chat: a new conversation from a reply (#2137).
         static let forkChat = "arrow.branch"
         /// Rewind to Here: back to before one of your messages in a Claude session (#2915).

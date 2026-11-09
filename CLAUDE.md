@@ -1,5 +1,12 @@
 # CLAUDE.md
 
+## Highest-priority rules
+
+Read [the super rules](docs/SUPER_RULES.md) before acting. They take precedence over this file, `AGENTS.md`, and all
+other repository documentation. Changes to the super-rules file, including additions and deletions, require a
+GitHub issue and explicit approval from administrator `chyroc` in that issue before editing or opening a PR.
+The PR must link the approved issue. No Agent or delegated task may bypass this requirement, even to fix a failing check.
+
 Persona is a self-hosted personal SuperAgent. A Go server, `personad`, runs as the **hub** on an always-on machine and holds all state;
 the clients (iPhone, Apple Watch, Mac, Vision Pro, Android and the web) talk only to the hub. Each of your computers runs a **node**
 (connected to the hub through Persona Link), where coding Agents (Claude Code, Codex, pi, opencode and other runtimes) run in an engine
@@ -209,6 +216,7 @@ Every maintained doc under `docs/` (lessons excluded) must be listed here.
 
 | Area | Docs |
 | --- | --- |
+| Super rules | `docs/SUPER_RULES.md` highest-priority rules and prior administrator approval for changes |
 | Start | `docs/README.md` navigation · `docs/operations/getting-started.md` setup without a terminal · `docs/assistant/onboarding.md` new-user onboarding · `docs/operations/config.md` config.json and hub.json · `docs/operations/collaboration.md` claims, PRs, templates · `docs/protocol/i18n.md` localization |
 | Architecture and protocol | `docs/server/architecture.md` · `docs/protocol/protocol.md` HTTP / WebSocket API and node RPC · `docs/protocol/agent-states.md` · `docs/protocol/multi-hub.md` one device, several hubs · `docs/protocol/connector-protocol.md` · `docs/protocol/rolling-upgrade-compatibility.md` old / new name interop · `docs/operations/rename.md` naming contract · `docs/operations/persona-cutover.md` approval-gated naming cutover tool |
 | Server | `docs/server/server.md` modes and operations · `docs/server/mesh.md` linked hubs · `docs/server/machines.md` monitoring · `docs/server/usage-windows.md` subscription usage · `docs/server/launcher-health.md` · `docs/server/agent-sandbox.md` macOS agent sandbox |

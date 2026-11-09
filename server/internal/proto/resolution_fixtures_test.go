@@ -326,7 +326,7 @@ func TestResolutionFixturesIOS(t *testing.T) {
 	}
 	source += "default: fatalError(action)\n}\n}\n"
 	watch := read("apple/PersonaWatch/PersonaWatchApp.swift")
-	watchExpr := "Resolution(approve: true, mode: \"bypassPermissions\")"
+	watchExpr := "Resolution(approve: true, mode: \"acceptEdits\")"
 	at := strings.Index(watch, watchExpr)
 	if at < 0 {
 		t.Fatal("watch plan constructor changed")
@@ -510,7 +510,7 @@ func TestResolutionFixtureSourceEvidence(t *testing.T) {
 			"Resolution(keys: [\"enter\"], text: t)", "Resolution(keys: keys)",
 		},
 		"apple/PersonaWatch/PersonaWatchApp.swift": {
-			"Resolution(approve: true, mode: \"bypassPermissions\")", "Resolution(approve: false, feedback: \"请重新考虑这个计划\")",
+			"Resolution(approve: true, mode: \"acceptEdits\")", "Resolution(approve: false, feedback: \"请重新考虑这个计划\")",
 			"Resolution(allow: true)", "Resolution(allow: false)", "Resolution(option: opt.key)", "Resolution(keys: [opt.key])",
 			"Button(\"Submit\") { submit() }", "act(.dismissed)",
 		},
@@ -525,6 +525,9 @@ func TestResolutionFixtureSourceEvidence(t *testing.T) {
 			"#expect(AllowPermissionIntent.authenticationPolicy == .requiresAuthentication)",
 			"#expect(ApprovePlanIntent.authenticationPolicy == .requiresAuthentication)",
 			"#expect(DenyPermissionIntent.authenticationPolicy == .alwaysAllowed)",
+		},
+		"apple/PersonaTests/IntentsTests.swift": {
+			"#expect(ApproveFirstIntent.authenticationPolicy == .requiresAuthentication)",
 		},
 		"apple/PersonaWidgets/FleetLiveActivity.swift": {
 			"Button(intent: ApprovePlanIntent(interactionID: id))", "Link(destination: FleetLink.url(item)!)", ".widgetURL(FleetLink.whole(state))",
@@ -565,12 +568,13 @@ func TestResolutionFixtureSourceEvidence(t *testing.T) {
 			t.Errorf("notification authentication changed: %s must keep options [%s]", id, options)
 		}
 	}
-	// The existing Siri and watch code does not declare an unlock policy; never infer one from omission.
+	// Siri says yes from a locked phone only after an unlock, like the Live Activity (#1878). The watch declares no
+	// policy of its own; its fixtures never infer one from omission.
 	data, err := os.ReadFile(filepath.Join(root, "apple/Persona/Intents/ApproveFirstIntent.swift"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "authenticationPolicy") {
-		t.Fatal("Siri now has an explicit policy: revisit current fixtures")
+	if !strings.Contains(swiftBlock(t, string(data), "struct ApproveFirstIntent:"), "authenticationPolicy: IntentAuthenticationPolicy { .requiresAuthentication }") {
+		t.Fatal("Siri authentication policy changed: revisit current fixtures")
 	}
 }

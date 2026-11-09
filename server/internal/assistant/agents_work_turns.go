@@ -237,7 +237,15 @@ func (s *Service) triageTurn(ctx context.Context, v *workView, machine string, c
 	if now, ok := s.session(ctx, machine, c.SessionID); ok && !sameTurn(now, e.TurnAt) {
 		return // it went on while the model read it: the next end decides
 	}
-	s.actOn(ctx, v, machine, c, &e)
+	closed, err := s.completedTodo(ctx, machine, c.SessionID)
+	if err != nil {
+		s.logf("triage %s/%s: cannot read todos: %v", machine, short(c.SessionID), err)
+		s.workEvent(machine, c.SessionID, "failed", map[string]any{"error": "todo state unavailable"})
+		return // leave the turn retryable when its task state is unknown
+	}
+	if !closed {
+		s.actOn(ctx, v, machine, c, &e)
+	}
 	if e.WakeAt != nil && e.Work.On == proto.WaitExternal && e.Work.ResetsAt == nil {
 		if ciWaitIntent(&e.Work) {
 			ask, reply := s.lastTurnOf(ctx, machine, c.SessionID)

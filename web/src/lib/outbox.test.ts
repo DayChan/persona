@@ -187,6 +187,14 @@ describe("where a failed message goes (#1122)", () => {
     expect([...placeFailed([line("l1", { ts: 10_000_000 + 180_000 })], [failed]).before.keys()]).toEqual(["l1"]);
   });
 
+  it("keeps failed real messages outside a quiet supervision wrapper at its original input time", () => {
+    const quiet: ChatLine = { kind: "supervision", id: "quiet", live: false, lines: [line("child", { ts: 10_000_000 + 180_000 })] };
+    const failed = entry({ id: "f", state: "failed", at: 10_000_000 });
+    const placed = placeFailed([quiet], [failed]);
+    expect([...placed.before.keys()]).toEqual(["quiet"]);
+    expect(placed.rest).toEqual([]);
+  });
+
   it("keepFailed puts the composer's message in the outbox as failed, with why", () => {
     keepFailed("m", "s", { id: "k1", text: "你好", images: [], at: 1000 }, new Error("断了"));
     expect(outbox()["m/s"]).toEqual([expect.objectContaining({ id: "k1", state: "failed", error: "断了", text: "你好" })]);

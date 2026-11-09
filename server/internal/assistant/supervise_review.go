@@ -207,7 +207,7 @@ type reviewFeedBody struct {
 	Checks  []ReviewCheck `json:"checks,omitempty"`
 }
 
-// reviewDoneTodo closes todo id after its review (done_by review, with reason); false when it was done already. An
+// reviewDoneTodo closes todo id after its review (done_by review or cancelled, with reason); false when it was done already. An
 // accepted task's outcome is recorded, as when it closes by itself or the user closes it (todo_outcome.go, #2820); a
 // cancelled one came to nothing and records none.
 func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepted bool) (bool, error) {
@@ -215,7 +215,7 @@ func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepte
 	now := time.Now().UTC()
 	var row db.TodoRow
 	if st := s.supervisionDB(); st != nil && s.todoDB() != nil {
-		r, ok, err := st.ReviewDoneTodo(ctx, id, reason, now)
+		r, ok, err := st.ReviewDoneTodo(ctx, id, reason, accepted, now)
 		if err != nil || !ok {
 			s.todos.writing.Unlock()
 			return false, err
@@ -230,6 +230,9 @@ func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepte
 		row = db.TodoRow{ID: t.ID, Title: t.Title, Notes: t.Notes, CreatedAt: t.CreatedAt, Origin: t.Origin, PlanID: t.PlanID,
 			ReopenedAt: t.ReopenedAt, Quiet: t.Quiet}
 		row.DoneAt, row.DoneBy, row.DoneReason, row.UpdatedAt = &now, db.DoneByReview, reason, now
+		if !accepted {
+			row.DoneBy = db.DoneByCancelled
+		}
 		t.keepPlan(&row)
 	}
 	var before Todo

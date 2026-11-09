@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nwverse/persona/server/internal/kbwire"
 	"github.com/nwverse/persona/server/internal/prompts"
@@ -20,7 +22,14 @@ type ItemSource interface {
 }
 
 // CollectItems stores new meetings and events and fills in titles of documents seen in chats.
-func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
+func (e *Engine) CollectItems(ctx context.Context, src ItemSource, sources ...string) error {
+	if e.Store.ReadOnly() {
+		return ErrReadOnly
+	}
+	source := ""
+	if len(sources) > 0 {
+		source = sources[0]
+	}
 	items, err := src.Items(ctx)
 	if err != nil {
 		return err
@@ -28,9 +37,23 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 	now := time.Now().UTC()
 	for _, w := range items {
 		it := ItemFromWire(w)
+		it.Source = source
 		old, ok := e.Store.Item(it.Kind, it.ID)
 		if ok {
-			if old.Title == it.Title && old.At.Equal(it.At) {
+			// An ID alone cannot identify an owner: legacy or colliding items stay
+			// with their original source unless a stored chat proves ownership.
+			owner := e.itemSource(old)
+			if owner != source {
+				continue
+			}
+			if old.Source == it.Source && old.Title == it.Title && old.At.Equal(it.At) {
+				if !slices.Equal(kbwire.CanonicalSignals(old.Signals), it.Signals) { // canonical: a reordering is no change
+					// Only why it concerns the owner moved: keep them as the source says now, without tagging it again.
+					old.Signals = it.Signals
+					if err := e.Store.PutItem(old); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 			it.Tagging, it.Projects, it.Note, it.Seen = old.Tagging, old.Projects, old.Note, old.Seen
@@ -44,9 +67,10 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 	}
 	n := 0
 	for _, it := range e.Store.Items(KindDoc) {
-		if it.Title != "" || n >= 10 || ctx.Err() != nil {
+		if it.Title != "" || n >= 10 || ctx.Err() != nil || e.itemSource(it) != source {
 			continue
 		}
+		it.Source = source
 		n++
 		if t := src.DocTitle(ctx, it.URL); t != "" {
 			it.Title = t
@@ -56,6 +80,20 @@ func (e *Engine) CollectItems(ctx context.Context, src ItemSource) error {
 		_ = e.Store.PutItem(it)
 	}
 	return nil
+}
+
+// itemSource recovers legacy attribution only from an existing source chat.
+func (e *Engine) itemSource(it *Item) string {
+	if it.Source != "" {
+		return it.Source
+	}
+	if c, found := e.Store.Chat(it.Where); found {
+		if c.Connector != "" {
+			return c.Connector
+		}
+		return c.Source
+	}
+	return ""
 }
 
 type itemTags struct {
@@ -107,10 +145,14 @@ func (e *Engine) TagItems(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		e.Store.applyMu.Lock()
 		now := time.Now().UTC()
 		for _, t := range out.Items {
 			it := byID[t.ID]
 			if it == nil {
+				continue
+			}
+			if _, exists := e.Store.Item(it.Kind, it.ID); !exists {
 				continue
 			}
 			applyTags(&it.Tagging, t.Importance, int(t.Relevance), t.Tags, now)
@@ -126,6 +168,7 @@ func (e *Engine) TagItems(ctx context.Context) error {
 			_ = e.Store.PutItem(it)
 			e.index(it.Kind, it.ID, it.Title, it.Tagging, it.Note, it.At)
 		}
+		e.Store.applyMu.Unlock()
 		// Ones the model skipped: mark tagged anyway so they do not come back every run.
 		for _, it := range batch {
 			if it.TaggedAt.IsZero() {
@@ -150,20 +193,21 @@ type (
 // hits.
 func (e *Engine) Search(query string, messages bool, limit int) []Hit {
 	match := matcher(query)
-	if match == nil {
+	if match == nil || limit <= 0 {
 		return nil
 	}
 	ws := words(query)
 	// Files come through Find's cache (findCache.text): a file unchanged since an earlier search is one stat, not a
 	// read and a fold, and one without every word is skipped whole. Search stops at limit, so it leaves the pruning
 	// of files no longer there to Find, which sees them all; the cache is bounded either way (findCacheBytes).
+	recording := e.Store.recordingSearchView()
 	gen := e.find.begin()
 	var hits []Hit
 	scan := func(p string) {
 		if len(hits) >= limit {
 			return
 		}
-		t, _, ok := e.find.text(p, gen)
+		t, _, ok := e.searchText(p, gen, recording)
 		if !ok || !hasAll(t.lower, ws) {
 			return
 		}
@@ -180,31 +224,17 @@ func (e *Engine) Search(query string, messages bool, limit int) []Hit {
 			}
 		}
 	}
-	var files, days, moments []string
-	sep := string(filepath.Separator)
-	_ = filepath.WalkDir(e.Store.Dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		switch {
-		case strings.Contains(p, sep+"moments"+sep+"posts"+sep):
-			// The Moments archive (moments.go): thousands of posts, read after everything else so they never crowd it out.
-			if strings.HasSuffix(p, ".md") {
-				moments = append(moments, p)
-			}
-		case strings.Contains(p, string(filepath.Separator)+"attachments"+string(filepath.Separator)):
-		case strings.Contains(p, string(filepath.Separator)+"messages"+string(filepath.Separator)):
-			if messages {
-				days = append(days, p)
-			}
-		case filepath.Base(p) == "segments.json": // a recording's: transcript.md has the same text
-		case !e.searchable(p):
-		case strings.HasSuffix(p, ".md") || strings.HasSuffix(p, ".json"):
-			files = append(files, p)
-		}
-		return nil
-	})
+	// The data dir's files come from Find's walk (searchFiles), kept while no directory changed: profile files, the
+	// ExtraDirs, the message days newest first, then the Moments archive (moments.go), thousands of posts read after
+	// everything else so they never crowd it out.
+	o := e.searchFiles()
+	for _, d := range o.files {
+		scan(d.path)
+	}
 	for _, dir := range e.ExtraDirs {
+		if len(hits) >= limit {
+			break
+		}
 		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil
@@ -213,34 +243,44 @@ func (e *Engine) Search(query string, messages bool, limit int) []Hit {
 				return filepath.SkipDir // .git and the like
 			}
 			if !d.IsDir() && strings.HasSuffix(p, ".md") {
-				files = append(files, p)
+				scan(p)
 			}
 			return nil
 		})
 	}
-	for _, p := range files {
-		scan(p)
+	if messages {
+		for _, d := range o.days {
+			if len(hits) >= limit {
+				break
+			}
+			scan(d.path)
+		}
 	}
-	sort.Slice(days, func(i, j int) bool { return filepath.Base(days[i]) > filepath.Base(days[j]) })
-	for _, p := range days {
+	for _, d := range o.moments {
 		if len(hits) >= limit {
 			break
 		}
-		scan(p)
-	}
-	sort.Slice(moments, func(i, j int) bool { return moments[i] > moments[j] }) // newer post ids first
-	for _, p := range moments {
-		if len(hits) >= limit {
-			break
-		}
-		scan(p)
+		scan(d.path)
 	}
 	return hits
 }
 
+// clip cuts s to its first n runes plus an ellipsis; a string of at most n runes comes back as it is, without a copy.
+// Ranging over s steps through the same runes as []rune(s) (one U+FFFD per invalid byte), so the cut lands where it
+// always did: a valid prefix is cut at its byte offset, and one with invalid bytes still has them replaced.
 func clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
+	if len(s) <= n { // n bytes are at most n runes
+		return s
+	}
+	runes := 0
+	for i := range s {
+		if runes == n { // rune n+1 starts at i
+			if utf8.ValidString(s[:i]) {
+				return s[:i] + "…"
+			}
+			return string([]rune(s[:i])) + "…"
+		}
+		runes++
 	}
 	return s
 }

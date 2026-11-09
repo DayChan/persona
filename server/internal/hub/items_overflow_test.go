@@ -20,7 +20,7 @@ func TestItemsBurstPastTheQueueNeverLeavesAGap(t *testing.T) {
 	const batches = 50
 	for i := 0; i < batches; i++ {
 		from, to := i, i+1
-		h.itemsToSubscribers("m1", "s1", []proto.Item{{ID: fmt.Sprintf("i%d", i+1), Seq: i + 1, Role: "assistant", Kind: proto.KindText}}, itemSpan{History: "h1", FromSeq: &from, ToSeq: &to})
+		h.itemsToSubscribers("m1", "s1", []proto.Item{{ID: fmt.Sprintf("i%d", i+1), Seq: i + 1, Role: "assistant", Kind: proto.KindText}}, itemSpan{History: "h1", FromSeq: &from, ToSeq: &to}, false)
 	}
 	got := 0
 	for len(c.out) > 0 {
@@ -62,7 +62,7 @@ func TestSubscribeByAbsorbedAliasHearsThePushes(t *testing.T) {
 	c := &client{out: make(chan []byte, 16), subs: map[[2]string]bool{}}
 	h.clients[c] = struct{}{}
 	h.onClientMessage(context.Background(), c, []byte(`{"type":"subscribe","machine_id":"alias","session_id":"s1"}`))
-	h.itemsToSubscribers("canonical", "s1", []proto.Item{{ID: "i1", Seq: 1, Role: "assistant", Kind: proto.KindText, Text: "live"}}, itemSpan{History: "h1"})
+	h.itemsToSubscribers("canonical", "s1", []proto.Item{{ID: "i1", Seq: 1, Role: "assistant", Kind: proto.KindText, Text: "live"}}, itemSpan{History: "h1"}, false)
 	deadline := time.After(2 * time.Second)
 	for {
 		select {

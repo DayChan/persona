@@ -23,8 +23,6 @@ export interface AssistantBlock {
 export const CARD_MOST = 64 << 10;
 /** At most this many named pages (AssistantPagesMost). */
 export const PAGES_MOST = 8;
-/** At most this many persona-view blocks in one text item; later ones show their fallback. */
-export const BLOCKS_MOST = 3;
 /** The most characters of a fallback, a reply or an HTML bridge text. */
 export const TEXT_MOST = 2000;
 

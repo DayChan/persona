@@ -60,7 +60,7 @@ import { publishPlan } from "../../lib/plan-store";
 import { ChatContext, FreshWords, LiveClockContext, type ChatContextValue } from "./chat-context";
 import { backgroundLine, backgroundWaitLine, waitingOnWorkflow, workflowCalls, workflowCallsKey } from "../../lib/workflows";
 import { seekCall } from "./jump";
-import { navRailTicks } from "../../lib/nav-rail";
+import { navRailTicks, type NavRailSource } from "../../lib/nav-rail";
 import { NavRail } from "./NavRail";
 import { ChatLineView, closedRecap, closeRecap, OpenRecapLine } from "./Lines";
 import { useTranscript } from "./useTranscript";
@@ -315,12 +315,14 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
     users.forEach((user) => acknowledgeLaunch(mid, sid, user));
     settleOutbox(mid, sid, users);
     if (!pending.length) return;
+    const shown = echoed(pending, users, (p) => ({ id: p.id, text: p.msg.text, images: p.msg.images, at: p.at }), claimed.current);
+    const drop = new Set([...shown].map((p) => p.id));
+    const now = Date.now();
     setPending((ps) => {
-      const shown = echoed(ps, users, (p) => ({ id: p.id, text: p.msg.text, images: p.msg.images, at: p.at }), claimed.current);
       // a sent one waits for its copy while the agent works and SENT_GRACE_MS after, as the outbox and the apps do: the
       // transcript can write it late (a long context compacted first, #1119); one held back for an ultracode change
       // waits as long as the turn does
-      return ps.filter((p) => !shown.has(p) && (p.waits || state === "working" || Date.now() - p.at < SENT_GRACE_MS));
+      return ps.filter((p) => !drop.has(p.id) && (p.waits || state === "working" || now - p.at < SENT_GRACE_MS));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segs]);
@@ -693,8 +695,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const lastTasks = useRef<TaskIndex | undefined>(undefined);
   const tasks = useMemo(() => stableValue(lastTasks.current, buildTaskIndex(tr.items)), [tr.items]);
   lastTasks.current = tasks;
-  // the question rail (#1739): one tick per question of yours among the loaded lines — the model picks them, NavRail
-  // draws them in the side margin and this view jumps (only what is loaded counts; the rail never pages history in)
+  // The loaded-message adapter is deliberately separate from the rail's gestures. An independent-index adapter
+  // can replace its ticks and resolve missing target content in select, without fetching while hovering.
   const railTicks = useMemo(() => navRailTicks(lines), [lines]);
   /** Brings a row into view in the chat's own scroller (scrollIntoView would also scroll an opening group's clipped
    *  box): following the end stops, and the jump's first frames do not pick it up again (`jumping`). */
@@ -717,6 +719,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
     },
     [landRow],
   );
+  const railSource = useMemo<NavRailSource>(() => ({ ticks: railTicks, select: railJump }), [railTicks, railJump]);
   // the subagents the agent is waiting on (#5602): running, launched in the foreground, their calls not answered yet
   const callsAnswered = useMemo(() => new Set(tr.items.filter((i) => i.kind === "tool_result" && i.tool_use_id).map((i) => i.tool_use_id!)), [tr.items]);
   const waitingOn = useMemo(() => (assistant ? null : agentsWorking(subagents, callsAnswered)), [assistant, subagents, callsAnswered]);
@@ -953,7 +956,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   // the run's time counts from the turn's start, as its "Working…" does (not from the session's last state change)
   const stateSince = session?.state_since;
   const runStart = useMemo(() => {
-    const live = lines.findLast((l) => l.kind === "segment" && l.live);
+    const live = lines.flatMap((l) => l.kind === "supervision" ? l.lines : [l]).findLast((l) => l.kind === "segment" && l.live);
     return (live?.kind === "segment" ? turnStart(live.seg) : undefined) ?? stateSince;
   }, [lines, stateSince]);
   const planPill = plan && planOut && (lastLive || !planProgress(plan.todos).allDone) ? (
@@ -1016,7 +1019,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         {(tr.notLive || (mainCache && tr.items.length > 0 && (tr.error || refreshError))) && <NotLivePill error={mainCache ? tr.error || refreshError : undefined} onReload={() => { tr.reload(); onRefresh?.(); }} lower={Boolean(picked && !search.open)} />}
         <div ref={scrollRef} onScroll={onScroll} data-chat-scroll className="relative h-full overflow-y-auto [overflow-anchor:none]">
           <ChatActionsContext.Provider value={actions}>
-          <div className="mx-auto flex w-full max-w-[880px] flex-col gap-7 px-5 pt-6 pb-10 sm:px-8">
+          <div data-chat-content className="mx-auto flex w-full max-w-[880px] flex-col gap-7 px-5 pt-6 pb-10 sm:px-8">
             {session?.start_error && (session.start_error_code ? (
               // a refusal with a code (#1642): the hub's whole sentence in the user's language, its remedy last, under a title
               <div role="alert" data-testid="start-error-coded" className="rounded-control bg-inset px-3 py-2 text-[13px]">
@@ -1063,7 +1066,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                         line={d.line}
                         mid={mid}
                         sid={sid}
-                        streaming={d.line.kind === "segment" && d.line.live ? tr.streaming || undefined : undefined}
+                        streaming={(d.line.kind === "segment" || d.line.kind === "supervision") && d.line.live ? tr.streaming || undefined : undefined}
                         expandFold={tr.expandFold}
                         onRetry={canRetry && d.line.id === lines.at(-1)?.id ? retry : undefined}
                         fix={d.line.id === lines.at(-1)?.id ? turnFix : undefined}
@@ -1081,7 +1084,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                   // only a live line streams: the others keep their memo
                   mid={mid}
                   sid={sid}
-                  streaming={line.kind === "segment" && line.live ? tr.streaming || undefined : undefined}
+                  streaming={(line.kind === "segment" || line.kind === "supervision") && line.live ? tr.streaming || undefined : undefined}
                   expandFold={tr.expandFold}
                   onRetry={canRetry && i === lines.length - 1 ? retry : undefined}
                   limit={line.kind === "apiError" && line.id === limitOn ? limitLine : undefined}
@@ -1110,8 +1113,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           {!readOnly && <CommentMarks scroller={scroller} />}
           </ChatActionsContext.Provider>
         </div>
-        {/* the rail sits in the chat area's side margin; it renders nothing when the chat is narrow or short */}
-        <NavRail ticks={railTicks} scroller={scrollEl} onJump={railJump} reset={`${mid}/${sid}`} />
+        {/* A transient edge overlay; native scrolling and the centered text column keep their existing layout. */}
+        <NavRail ticks={railSource.ticks} scroller={scrollEl} onJump={railSource.select} reset={`${mid}/${sid}`} />
         {away && !jumpInDock && <JumpPill label={jumpLabel(newSince)} onClick={toEnd} />}
         {picked && !search.open && <ReturnPill onClick={backToOrigin} />}
       </div>

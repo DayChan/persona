@@ -1074,7 +1074,7 @@ export function Toasts() {
   useEffect(() => pauseToasts(paused), [paused]);
   useEffect(() => () => pauseToasts(false), []);
   return createPortal(
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex flex-col items-center gap-2 px-4">
+    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-5 z-[70] flex flex-col items-center gap-2 px-4">
       {toasts.map((item) => (
         <div
           key={item.id}

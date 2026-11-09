@@ -78,6 +78,7 @@
   "help_main": "- `/main` back to the main chat\n- `/new` start a new chat (from your next message)\n- `/list` recent chats, tap one to switch\n",
   "help_agents": "- `/agents` the agents on your computers, tap one to chat with it here\n- `/start` start a new agent on a computer\n",
   "help_tasks": "- `/tasks` everything in flight: what needs your call and the active tasks\n",
+  "help_workbench": "- `/home` the workbench: one pinned card of everything going on, with a button for each place · `/today` the day at a glance · `/inbox` the Inbox (AI drafts, reply as you)\n",
   "tasks_overview": "📋 Tasks overview",
   "tasks_todos": "📈 Active tasks",
   "tasks_no_decide": "Nothing is waiting on your decision.",

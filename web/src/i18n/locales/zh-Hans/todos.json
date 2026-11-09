@@ -141,5 +141,17 @@
   "thread_unbound": "已解绑话题",
   "thread_unbind_failed": "解绑失败：{error}",
   "thread_empty": "这件待办还没有绑定话题。在已用 /topics 登记的话题群里开一个话题，会自动新建待办并绑定；也可以让 Agent 把这件待办绑到某个话题上。",
-  "thread_mark": "已绑定话题"
+  "thread_mark": "已绑定话题",
+  "due": "截止 {when}",
+  "was_due": "已过截止 {when}",
+  "reminder_at": "{when} 提醒",
+  "priority_high": "高优先级",
+  "priority_normal": "普通",
+  "priority_low": "低",
+  "priority_label": "优先级",
+  "due_label": "截止",
+  "due_time": "截止时间",
+  "remind_label": "提醒",
+  "save_plan_failed": "保存失败：{error}",
+  "priority_option_high": "高"
 }

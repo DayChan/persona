@@ -1,4 +1,6 @@
 {
+  "receipt_review_followup": "Persona がフォロー",
+  "report_progress": "進捗更新 · {title}",
   "removed": "「{title}」を削除しました",
   "remove_failed": "削除できませんでした：{error}",
   "remove_ellipsis": "タスクを削除…",

@@ -55,7 +55,7 @@ func serveConnectorExtensionForTest() {
 	})
 }
 
-// pluginStore is a hub store that keeps plugins too (the database's tables, in memory).
+// extensionStore is a hub store that keeps plugins too (the database's tables, in memory).
 type extensionStore struct {
 	*keepStore
 	mu         sync.Mutex
@@ -177,7 +177,7 @@ func newExtensionStore() *extensionStore {
 	return &extensionStore{keepStore: newKeepStore(), rows: map[string]extension.Record{}, secrets: map[string]map[string]string{}}
 }
 
-// startTestPlugins starts h's connectors and plugins (hub.json's cfgs) on h.store, stopping them when the test ends.
+// startTestExtensions starts h's connectors and plugins (hub.json's cfgs) on h.store, stopping them when the test ends.
 func startTestExtensions(t *testing.T, h *Manager, cfgs ...ExtensionConfig) {
 	h.connectors = connector.NewRegistry(nil)
 	h.extensions = newExtensions(h.cfg.dir, cfgs, h.logf)

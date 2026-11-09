@@ -23,6 +23,10 @@ paths and README checks, CI-regression tests, then the complete Web and runtime/
 add a new migration instead.
 The same step runs `scripts/ci/sleep_ratchet.py`. Each `_test.go` file under `server/` and `sdk/go/` has a committed count of `time.Sleep` calls (`scripts/ci/sleep_baseline.json`). The count may stay the same or go down, never up, and a new file starts at zero. Comments, string literals and a line carrying `// sleep-ok: <reason>` (the reason must be non-empty) do not count. `python3 scripts/ci/sleep_ratchet.py --update` only lowers the baseline; it refuses to raise a count or to add a file that still sleeps. See `docs/lessons/testing.md`.
 It does not queue separate guards, script shards and an aggregate runner. Any executed step failure still fails the real check.
+On a PR, all of these compare with the base branch as it is now: `scripts/ci/paths.py --print-base` takes the first parent of the
+merge commit that `actions/checkout` checks out (`refs/pull/<n>/merge`, whose second parent is the PR head), so the commit privacy range,
+the migration freeze, the sleep ratchet and lane selection see only the PR's commits. The event's `pull_request.base.sha` stays where
+the PR was opened and is only the fallback when HEAD is not that merge commit.
 Require **CI required** only; no repository rulesets are changed. A workflow change needs green hosted verification on the PR head.
 
 By maintainer decision, **server, Android, iOS/Watch, Mac and the full scripts suite are manual-only**. Sharding improved execution time,

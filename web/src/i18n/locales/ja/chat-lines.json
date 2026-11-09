@@ -1,4 +1,7 @@
 {
+  "supervision_done": "タスクの確認済み",
+  "supervision_running": "タスクを確認中…",
+  "supervision_input": "元の入力",
   "wake_count_other": "バックグラウンドタスク{count}件が完了",
   "wake_single": "バックグラウンドタスク完了",
   "wake_open": "バックグラウンドタスクが完了しました。その後のメッセージを表示",

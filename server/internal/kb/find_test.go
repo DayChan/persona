@@ -245,7 +245,8 @@ func TestFindFilesMatchesWalk(t *testing.T) {
 	}
 	check := func(step string) {
 		t.Helper()
-		f, d := e.files()
+		w := e.files()
+		f, d := walkPaths(w.files), walkPaths(w.days)
 		wf, wd := walk()
 		if !reflect.DeepEqual(f, wf) || !reflect.DeepEqual(d, wd) {
 			t.Fatalf("%s:\nfiles %v\nwalk  %v\ndays %v\nwalk %v", step, f, wf, d, wd)

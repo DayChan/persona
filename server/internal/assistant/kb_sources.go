@@ -33,6 +33,8 @@ const (
 // kbConnectors archives what moved in every connector the hub lists (signed in, "Send to knowledge base" on) that is due: its
 // manifest's Poll, else kbConnectorPoll, since it was last asked.
 func (s *Service) kbConnectors(ctx context.Context, e *kb.Engine) {
+	s.kb.sourceWrites.Lock()
+	defer s.kb.sourceWrites.Unlock()
 	if !s.kbWritable(ctx) {
 		return
 	}
@@ -73,6 +75,8 @@ func (s *Service) kbConnectors(ctx context.Context, e *kb.Engine) {
 
 // kbCollectItems records every connector's items (documents, meetings and events) and tags new ones.
 func (s *Service) kbCollectItems(ctx context.Context, e *kb.Engine) {
+	s.kb.sourceWrites.Lock()
+	defer s.kb.sourceWrites.Unlock()
 	if !s.kbWritable(ctx) {
 		return
 	}
@@ -85,7 +89,7 @@ func (s *Service) kbCollectItems(ctx context.Context, e *kb.Engine) {
 		return
 	}
 	for _, id := range list.Items {
-		if err := e.CollectItems(ctx, busItems{s: s, id: id}); err != nil {
+		if err := e.CollectItems(ctx, busItems{s: s, id: id}, id); err != nil {
 			s.logf("kb: items: %v", err)
 		}
 	}
@@ -158,8 +162,16 @@ func (b busItems) DocTitle(ctx context.Context, url string) string {
 // kbConnectorSource names a connector's chats for Ingest; their attachments come from the connector when it can hand
 // them over (connector.ArchiveMedia), else the line keeps the attachment placeholder.
 type kbConnectorSource struct {
-	id    string
-	media connector.ArchiveMedia // nil: no attachments
+	id        string
+	connector string                 // original connector, even when id is one of its archive sources
+	media     connector.ArchiveMedia // nil: no attachments
+}
+
+func (s kbConnectorSource) ConnectorID() string {
+	if s.connector != "" {
+		return s.connector
+	}
+	return s.id
 }
 
 func (s kbConnectorSource) Name() string                                      { return s.id }
@@ -204,7 +216,7 @@ func archiveConnector(ctx context.Context, e *kb.Engine, id string, a connector.
 		return 0, kb.ErrReadOnly
 	}
 	media, _ := a.(connector.ArchiveMedia)
-	src := kbConnectorSource{id: id, media: media}
+	src := kbConnectorSource{id: id, connector: id, media: media}
 	file := filepath.Join(e.Store.Dir, "cursors", id+".json")
 	var cur connectorCursor
 	if raw, err := os.ReadFile(file); err == nil {

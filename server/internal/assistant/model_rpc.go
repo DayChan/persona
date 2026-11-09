@@ -169,6 +169,13 @@ func (s *Service) extensionComplete(ctx context.Context, raw json.RawMessage) (a
 	for attempt := 0; ; attempt++ {
 		reply, err = client.Chat(cctx, ai.Request{System: system, Messages: turns, MaxTokens: p.MaxTokens})
 		if err != nil {
+			var refusal *ai.RefusalError
+			if errors.As(err, &refusal) { // the declined call still spent tokens: its usage goes back with the code
+				add(reply.Usage)
+				logged("refused (" + refusal.StopReason + ")")
+				data, _ := json.Marshal(assistantwire.ModelRefusal{StopReason: refusal.StopReason, Usage: usage})
+				return nil, &rpc.Error{Code: assistantwire.CodeModelRefused, Message: "model.complete: " + err.Error(), Data: data}
+			}
 			logged("failed")
 			return nil, modelCallError(cctx, err)
 		}
@@ -222,7 +229,7 @@ func cmpOr(s, fallback string) string {
 }
 
 // modelCallError codes a failed request for the extension: held connection, nothing set up, out of time, or the
-// upstream's refusal.
+// upstream's failure. A declined request (ai.RefusalError) is model_refused, coded by the caller with its usage.
 func modelCallError(ctx context.Context, err error) error {
 	var paused *ai.PausedError
 	switch {

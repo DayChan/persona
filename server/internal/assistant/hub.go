@@ -84,6 +84,7 @@ type (
 	ChannelMark          = assistantwire.ChannelMark
 	ChannelTurn          = assistantwire.ChannelTurn
 	ChannelReceive       = assistantwire.ChannelReceive
+	ChannelUnbound       = assistantwire.ChannelUnbound
 	ChannelNoted         = assistantwire.ChannelNoted
 	FeishuMessage        = assistantwire.FeishuMessage
 	FeishuAction         = assistantwire.FeishuAction
@@ -110,6 +111,8 @@ const (
 	FeishuPost            = assistantwire.FeishuPost
 	FeishuText            = assistantwire.FeishuText
 	FeishuUpdateCard      = assistantwire.FeishuUpdateCard
+	FeishuPin             = assistantwire.FeishuPin
+	FeishuRecall          = assistantwire.FeishuRecall
 	FeishuCotCreate       = assistantwire.FeishuCotCreate
 	FeishuCotAppend       = assistantwire.FeishuCotAppend
 	FeishuCotComplete     = assistantwire.FeishuCotComplete

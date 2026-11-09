@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 
@@ -68,9 +69,12 @@ func (p *Pusher) sendFrom(manager string, build localized, collapseID string, wa
 // sendLiveActivity pushes to a Live Activity token (an activity's own, or the push-to-start one): its own push type and
 // topic, the device's APNs environment. gone runs when APNs says the token is dead. Through the relay the payload is
 // not sealed: iOS reads a Live Activity's content-state itself (docs/operations/push-relay.md "Live Activity is plaintext").
-func (p *Pusher) sendLiveActivity(d Device, token string, payload map[string]any, priority string, gone func()) {
+// The returned channel closes after the attempt and its retries, so revocation can wait before forgetting the device.
+func (p *Pusher) sendLiveActivity(d Device, token string, payload map[string]any, priority string, gone func()) <-chan struct{} {
+	done := make(chan struct{})
 	if p == nil || token == "" || !p.reachable(d) {
-		return
+		close(done)
+		return done
 	}
 	body, _ := json.Marshal(payload)
 	event := trafficPushEvent(payload, "liveactivity")
@@ -78,6 +82,7 @@ func (p *Pusher) sendLiveActivity(d Device, token string, payload map[string]any
 		aps, _ := payload["aps"].(map[string]any)
 		p.notePush(d, nil, event, "relay", "attempt", 0, int64(len(body)), 0)
 		go func() {
+			defer close(done)
 			started := time.Now()
 			res, err := p.postRelay(d, relayproto.PushRequest{Type: "liveactivity", Priority: priority, Token: token, APS: aps})
 			p.noteRelayResult(d, nil, event, err, res.gone, int64(len(body)), time.Since(started))
@@ -87,10 +92,11 @@ func (p *Pusher) sendLiveActivity(d Device, token string, payload map[string]any
 				gone()
 			}
 		}()
-		return
+		return done
 	}
 	p.notePush(d, nil, event, "apns", "attempt", 0, int64(len(body)), 0)
 	go func() {
+		defer close(done)
 		started := time.Now()
 		res, err := p.sendDirect(d, apns.Request{Token: token, Env: d.APNSEnv, Topic: d.Topic, PushType: "liveactivity", Priority: priority, Body: body})
 		p.noteDirectResult(d, nil, event, err, res.Status, int64(len(body)), time.Since(started))
@@ -105,6 +111,7 @@ func (p *Pusher) sendLiveActivity(d Device, token string, payload map[string]any
 			}
 		}
 	}()
+	return done
 }
 
 // wake sends a silent background push: iOS gives the app ~30 s to connect and run a pending phone_* call.
@@ -189,6 +196,8 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 	type built struct {
 		payload map[string]any
 		body    []byte
+		// unfit: the direct body is over APNs' limit even shortened, so it is not sent (APNs would refuse it with 413).
+		unfit error
 	}
 	type variant struct {
 		lang  i18n.Lang
@@ -199,8 +208,17 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 		lang := p.langOf(d)
 		key := variant{lang, hush != nil && hush(d)}
 		b, ok := byLang[key]
+		if ok && b.payload == nil {
+			continue // nothing in its language: logged once below
+		}
 		if !ok {
 			b.payload = cleanAlert(build(lang))
+			if b.payload == nil {
+				// build had nothing in this language: its devices get no push, and the hub_id below is not written to a nil map
+				p.logf("push: no %s payload in %s: its devices get none", pushType, lang)
+				byLang[key] = b
+				continue
+			}
 			if key.quiet {
 				b.payload = hushed(b.payload)
 			}
@@ -215,7 +233,8 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 				if body, err := fitAlert(fitted, apnsMaxAlert); err == nil {
 					b.body = body
 				} else {
-					p.logf("apns: %s push of %d bytes does not fit even shortened: %v", pushType, len(b.body), err)
+					b.unfit = fmt.Errorf("push of %d bytes is over APNs' %d-byte limit", len(b.body), apnsMaxAlert)
+					p.logf("apns: %s push of %d bytes does not fit even shortened, not sent: %v", pushType, len(b.body), err)
 				}
 			}
 			byLang[key] = b
@@ -226,6 +245,7 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 			sealed, err := p.sealFor(d, payload)
 			if err != nil {
 				p.logf("relay %s: seal: %v", d.Name, err) // never falls back to sending it in the clear
+				p.pushed(d, fmt.Errorf("seal: %w", err))
 				continue
 			}
 			p.notePush(d, nil, event, "relay", "attempt", 0, int64(len(body)), 0)
@@ -239,6 +259,10 @@ func (p *Pusher) sendBuiltWith(build localized, collapseID, pushType, priority s
 					p.forgetIfCurrent(d)
 				}
 			}(d)
+			continue
+		}
+		if b.unfit != nil {
+			p.pushed(d, b.unfit)
 			continue
 		}
 		p.notePush(d, nil, event, "apns", "attempt", 0, int64(len(body)), 0)

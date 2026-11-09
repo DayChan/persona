@@ -230,7 +230,7 @@ private struct SiblingList: View {
     /// Where a new tab goes: the space this chat is in (its machine, directory and herdr workspace).
     private var preset: SpacePreset? {
         guard let s = space, let ws = s.spaceID else { return nil }
-        return SpacePreset(machineID: s.machineRef.path, cwd: s.cwd, workspaceID: ws, spaceName: s.spaceName ?? "")
+        return SpacePreset(machineID: s.machineRef.path, cwd: s.cwd, workspaceID: ws, spaceName: s.spaceName ?? "", host: s.hostKind ?? s.spaceKind)
     }
 
     var body: some View {
@@ -436,7 +436,7 @@ struct SpaceView: View {
         }
         .sheet(isPresented: $showNew) {
             if let first, let ws = first.spaceID {
-                NewChatView(preset: SpacePreset(machineID: first.machineRef.path, cwd: first.cwd, workspaceID: ws, spaceName: first.spaceName ?? "")) { s in
+                NewChatView(preset: SpacePreset(machineID: first.machineRef.path, cwd: first.cwd, workspaceID: ws, spaceName: first.spaceName ?? "", host: first.hostKind ?? first.spaceKind)) { s in
                     showNew = false
                     started = s.key
                 }

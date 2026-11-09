@@ -170,6 +170,24 @@ final class TodoStore {
         return res
     }
 
+    /// Changes a todo's due date, reminder or priority (#1683).
+    @discardableResult
+    func updatePlan(id: String, _ change: APIClient.TodoPlanChange, api injected: APIClient? = nil) async throws -> TodoItem {
+        guard let api = injected ?? AppModel.shared.api else { throw APIError(status: 0, message: String(localized: "Not connected to a hub [Todo Store 04f822]")) }
+        let targetGeneration = generation
+        let res = try await api.updateTodoPlan(id: id, change)
+        guard generation == targetGeneration else { return res }
+        mutationRevision += 1
+        var updated = todos
+        if let idx = updated.firstIndex(where: { $0.id == id }) {
+            updated[idx] = res
+        } else {
+            updated.insert(res, at: 0)
+        }
+        apply(updated)
+        return res
+    }
+
     /// `api` is the client to write through (tests pass a fake hub's); the app uses the current hub connection.
     func toggleDone(_ todo: TodoItem, api: APIClient? = nil) {
         let targetGeneration = generation

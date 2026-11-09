@@ -55,6 +55,7 @@ nonisolated struct AgentListProjection: Sendable {
         var sessions: [Session]
         var machines: [Machine]
         var settings: Settings
+        var workspaces: [HostWorkspace] = []
     }
 
     struct Rows: Sendable {
@@ -92,6 +93,8 @@ nonisolated struct AgentListProjection: Sendable {
     var rows: [String: Rows] = [:]
     var quietWorktrees: [String: Bool] = [:]
     var menuSections: [String] = []
+    /// Searching can match an Agent-free worktree even when no session matches the query.
+    var hasSearchResults: Bool { !base.isEmpty || !tree.isEmpty }
 
     static func build(_ input: Input) -> Self {
         let settings = input.settings
@@ -144,7 +147,14 @@ nonisolated struct AgentListProjection: Sendable {
             for group in groups { result.rows[group.id] = partition(group.sessions, settings: settings) }
             result.menuSections = result.active.map(\.id)
         } else if settings.grouping == "repo" {
-            result.tree = RepoTree.build(result.unpinned.filter { $0.state.isLive }, machines: input.machines.map(\.ref))
+            let catalog = input.workspaces.filter { workspace in
+                input.machines.contains { $0.ref == workspace.machineRef } &&
+                    (settings.machine.isEmpty || workspace.machineRef.path == settings.machine) &&
+                    (!settings.multiHub || HubFilter.matches(settings.hub, workspace.group))
+            }
+            result.tree = RepoTree.build(result.unpinned.filter { $0.state.isLive }, machines: input.machines.map(\.ref),
+                                         workspaces: catalog, includeEmpty: settings.filter == .all, search: settings.query)
+            result.byHost = settings.machine.isEmpty && result.tree.count > 1
             for host in result.tree {
                 for repo in host.repos {
                     let sessions = repo.sessions
@@ -154,15 +164,17 @@ nonisolated struct AgentListProjection: Sendable {
                     let counts = SpaceGroup(id: repo.id, machineID: repo.machine.id, spaceID: "-", group: repo.machine.group,
                         name: repo.name, index: 0, sessions: sessions,
                         bounded: settings.pagedGroups.contains(repo.machine.group))
-                    let quiet = settings.filter == .all && sessions.allSatisfy { !order.stays($0) }
+                    let quiet = !repo.structured && settings.filter == .all && sessions.allSatisfy { !order.stays($0) }
                     result.repositories[repo.id] = Repository(sessions: sessions,
                         space: spaces.count == 1 && spaces[0].spaceID != "-" ? spaces[0] : nil,
                         counts: counts, unread: sessions.filter { $0.state == .unread }.map(\.key), quiet: quiet)
                     for worktree in repo.worktrees {
-                        for item in [worktree] + worktree.children {
+                        func prepare(_ item: RepoTree.Worktree) {
                             result.rows[item.id] = partition(item.sessions, settings: settings)
                             result.quietWorktrees[item.id] = settings.filter == .all && item.treeSessions.allSatisfy { !order.stays($0) }
+                            for child in item.children { prepare(child) }
                         }
+                        prepare(worktree)
                     }
                 }
             }

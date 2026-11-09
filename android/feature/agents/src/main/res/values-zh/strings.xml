@@ -372,6 +372,10 @@
     <string name="agents_todo_notes_empty">点击编辑添加任务说明与要求…</string>
     <string name="agents_todo_auto_reason">自动完成理由：%1$s</string>
     <string name="agents_todo_hold_pr">停在 PR</string>
+    <string name="agents_todo_due">截止 %1$s</string>
+    <string name="agents_todo_was_due">已过截止 %1$s</string>
+    <string name="agents_todo_remind_at">提醒 %1$s</string>
+    <string name="agents_todo_priority_high">高优先级</string>
     <string name="agents_todo_hold_merged">已合未上线</string>
     <string name="agents_todo_hold_off">默认关待启用</string>
     <string name="agents_todo_hold_gate">卡在「%1$s」</string>

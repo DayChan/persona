@@ -1,0 +1,457 @@
+{
+  "attribution": {
+    "afterPerson": {
+      "id": "person",
+      "kind": "people",
+      "meta": {
+        "id": "person",
+        "last_seen": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "name": "Example person",
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/people/person"
+    },
+    "afterProject": {
+      "id": "project",
+      "kind": "projects",
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "people"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    },
+    "beforePerson": {
+      "id": "person",
+      "kind": "people",
+      "links": [
+        {
+          "extra": " · ",
+          "id": "project",
+          "kind": "projects",
+          "name": "Example project",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "id": "person",
+        "last_seen": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "name": "Example person",
+        "projects": [
+          "project"
+        ],
+        "provenance": {
+          "projects": {
+            "at": "2026-01-01T00:00:00Z",
+            "by": "ext:synthetic-curator"
+          }
+        },
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/people/person"
+    },
+    "beforeProject": {
+      "id": "project",
+      "kind": "projects",
+      "links": [
+        {
+          "id": "person",
+          "kind": "people",
+          "name": "Example person",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "people"
+        ],
+        "name": "Example project",
+        "people": [
+          "person"
+        ],
+        "provenance": {
+          "people": {
+            "at": "2026-01-01T00:00:00Z",
+            "by": "ext:synthetic-curator"
+          }
+        },
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    },
+    "partialPerson": {
+      "id": "person",
+      "kind": "people",
+      "meta": {
+        "id": "person",
+        "last_seen": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "name": "Example person",
+        "provenance": {
+          "projects": {
+            "at": "2026-01-01T00:00:00Z",
+            "by": "ext:synthetic-curator"
+          }
+        },
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/people/person"
+    },
+    "partialProject": {
+      "id": "project",
+      "kind": "projects",
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "people"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    }
+  },
+  "chats": {
+    "afterEntity": {
+      "id": "chats_2",
+      "kind": "chats",
+      "meta": {
+        "compressed_at": "2026-01-01T00:00:00Z",
+        "covered_until": "2026-01-01T00:00:00Z",
+        "created": "2026-01-01T00:00:00Z",
+        "id": "chats/2",
+        "kind": "",
+        "last_at": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "messages": 0,
+        "name": "Example chat",
+        "pending": 0,
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/chats/chats_2"
+    },
+    "afterProject": {
+      "id": "project",
+      "kind": "projects",
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "chats"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    },
+    "beforeEntity": {
+      "id": "chats_2",
+      "kind": "chats",
+      "links": [
+        {
+          "extra": " · ",
+          "id": "project",
+          "kind": "projects",
+          "name": "Example project",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "compressed_at": "2026-01-01T00:00:00Z",
+        "covered_until": "2026-01-01T00:00:00Z",
+        "created": "2026-01-01T00:00:00Z",
+        "id": "chats/2",
+        "kind": "",
+        "last_at": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "messages": 0,
+        "name": "Example chat",
+        "pending": 0,
+        "projects": [
+          "project"
+        ],
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/chats/chats_2"
+    },
+    "beforeProject": {
+      "id": "project",
+      "kind": "projects",
+      "links": [
+        {
+          "id": "chats/2",
+          "kind": "chats",
+          "name": "Example chat",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "chats": [
+          "chats/2"
+        ],
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "chats"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    }
+  },
+  "item": {
+    "afterItem": {
+      "id": "d_1",
+      "kind": "docs",
+      "meta": {
+        "at": "2026-01-01T00:00:00Z",
+        "id": "d/1",
+        "kind": "docs",
+        "locked_fields": [
+          "projects"
+        ],
+        "pinned": "Existing facts",
+        "relevance": 0,
+        "seen": "2026-01-01T00:00:00Z",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "title": "Example document"
+      },
+      "path": "synthetic-data/docs/d_1"
+    },
+    "afterProject": {
+      "id": "project",
+      "kind": "projects",
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "items"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    },
+    "beforeItem": {
+      "id": "d_1",
+      "kind": "docs",
+      "links": [
+        {
+          "extra": " · ",
+          "id": "project",
+          "kind": "projects",
+          "name": "Example project",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "at": "2026-01-01T00:00:00Z",
+        "id": "d/1",
+        "kind": "docs",
+        "locked_fields": [
+          "projects"
+        ],
+        "pinned": "Existing facts",
+        "projects": [
+          "project"
+        ],
+        "relevance": 0,
+        "seen": "2026-01-01T00:00:00Z",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "title": "Example document"
+      },
+      "path": "synthetic-data/docs/d_1"
+    },
+    "beforeProject": {
+      "id": "project",
+      "kind": "projects",
+      "links": [
+        {
+          "id": "d/1",
+          "kind": "docs",
+          "name": "Example document",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "items": [
+          "docs/d_1"
+        ],
+        "kind": "",
+        "locked_fields": [
+          "items"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    }
+  },
+  "people": {
+    "afterEntity": {
+      "id": "people_2",
+      "kind": "people",
+      "meta": {
+        "id": "people/2",
+        "last_seen": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "name": "Example person",
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/people/people_2"
+    },
+    "afterProject": {
+      "id": "project",
+      "kind": "projects",
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "people"
+        ],
+        "name": "Example project",
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    },
+    "beforeEntity": {
+      "id": "people_2",
+      "kind": "people",
+      "links": [
+        {
+          "extra": " · ",
+          "id": "project",
+          "kind": "projects",
+          "name": "Example project",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "id": "people/2",
+        "last_seen": "2026-01-01T00:00:00Z",
+        "locked_fields": [
+          "projects"
+        ],
+        "name": "Example person",
+        "projects": [
+          "project"
+        ],
+        "relevance": 0,
+        "source": "",
+        "source_id": "",
+        "tagged_at": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/people/people_2"
+    },
+    "beforeProject": {
+      "id": "project",
+      "kind": "projects",
+      "links": [
+        {
+          "id": "people/2",
+          "kind": "people",
+          "name": "Example person",
+          "relevance": 0,
+          "updated": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "meta": {
+        "created": "2026-01-01T00:00:00Z",
+        "kind": "",
+        "locked_fields": [
+          "people"
+        ],
+        "name": "Example project",
+        "people": [
+          "people/2"
+        ],
+        "relevance": 0,
+        "slug": "project",
+        "status": "",
+        "tagged_at": "2026-01-01T00:00:00Z",
+        "updated": "2026-01-01T00:00:00Z"
+      },
+      "path": "synthetic-data/projects/project"
+    }
+  }
+}

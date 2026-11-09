@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { errorText } from "../lib/api";
+import { ApiError, errorText } from "../lib/api";
 import { pair } from "../lib/auth";
 import { here, rememberHub } from "../lib/hubs";
 import { Button, Collapse, cx, Spinner } from "../ui/atoms";
@@ -34,7 +34,9 @@ export function Login({ onDone, error: linkError = "" }: { onDone: () => void; e
       await pair(tok);
       onDone();
     } catch (err) {
-      setError(errorText(err) === "invalid token" ? t(from === "link" ? "login.invalid_link" : "login.invalid_token") : errorText(err));
+      const msg = errorText(err);
+      const invalid = (err instanceof ApiError && err.status === 401) || msg === "invalid token";
+      setError(invalid ? t(from === "link" ? "login.invalid_link" : "login.invalid_token") : msg);
     } finally {
       setBusy("");
     }

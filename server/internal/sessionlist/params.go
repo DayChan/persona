@@ -14,7 +14,7 @@ import (
 // machine_id filtering. Presence matters: malformed new parameters must be
 // parsed and rejected rather than silently falling back to the legacy API.
 func Enabled(v url.Values) bool {
-	for _, key := range []string{"limit", "cursor", "since", "summary", "state", "project", "group", "counts"} {
+	for _, key := range []string{"limit", "cursor", "since", "summary", "state", "project", "group", "counts", "pane_source"} {
 		if _, exists := v[key]; exists {
 			return true
 		}
@@ -27,7 +27,7 @@ func Enabled(v url.Values) bool {
 // field: adapters choose the counts endpoint, while Query ignores the selector.
 func Parse(v url.Values) (Options, error) {
 	o := Options{Limit: defaultLimit}
-	for _, key := range []string{"limit", "cursor", "since", "summary", "state", "machine_id", "project", "group", "source", "provider", "q", "counts"} {
+	for _, key := range []string{"limit", "cursor", "since", "summary", "state", "machine_id", "project", "group", "source", "provider", "q", "counts", "pane_source"} {
 		if values, exists := v[key]; exists && len(values) != 1 {
 			return Options{}, failure("invalid_query", key+" must have exactly one value")
 		}
@@ -61,6 +61,12 @@ func Parse(v url.Values) (Options, error) {
 	o.State, o.Machine = v.Get("state"), v.Get("machine_id")
 	o.Project, o.Group = v.Get("project"), v.Get("group")
 	o.Source, o.Provider, o.Q = v.Get("source"), v.Get("provider"), v.Get("q")
+	if values, exists := v["pane_source"]; exists {
+		if values[0] == "" {
+			return Options{}, failure("invalid_query", "pane_source must not be empty")
+		}
+		o.PaneSource = values[0]
+	}
 	return validate(o)
 }
 
@@ -93,6 +99,11 @@ func validate(o Options) (Options, error) {
 	if o.Limit < 1 || o.Limit > maxLimit {
 		return Options{}, failure("invalid_query", "limit must be between 1 and 200")
 	}
+	switch o.PaneSource {
+	case "", "terminal", "feishu", "desktop", "unknown":
+	default:
+		return Options{}, failure("invalid_query", "pane_source is not a supported pane origin")
+	}
 	switch o.State {
 	case "", "needs_you", "working", "unread", "idle", "offline", "unknown":
 	default:
@@ -118,7 +129,7 @@ func validate(o Options) (Options, error) {
 func normalizeQ(s string) string { return strings.ToLower(s) }
 
 func (o Options) filters() filters {
-	return filters{ID: o.ID, State: o.State, Machine: o.Machine, Project: o.Project, Group: o.Group, Source: o.Source, Provider: o.Provider, Q: o.Q}
+	return filters{ID: o.ID, State: o.State, Machine: o.Machine, Project: o.Project, Group: o.Group, Source: o.Source, Provider: o.Provider, Q: o.Q, PaneSource: o.PaneSource}
 }
 
 func (o Options) binding() binding {

@@ -3,6 +3,7 @@ package extmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -49,11 +50,17 @@ func TestKBOffAtTheSources(t *testing.T) {
 		Params: json.RawMessage(`{"id":"example"}`)}); err == nil || f.calls != 0 {
 		t.Fatalf("changes read with the knowledge base off: %v", err)
 	}
+	for _, m := range []string{assistantwire.ConnectorsHistoryChats, assistantwire.ConnectorsHistory, assistantwire.ConnectorsHistoryAnchors} {
+		if _, ok, err := h.kbSourcesCall(ctx, assistantwire.AppCall{AppID: assistantwire.AppConnectors, Method: m,
+			Params: json.RawMessage(`{"id":"example","query":{"chat":"g1"}}`)}); !ok || !errors.Is(err, errKBOff) || f.calls != 0 {
+			t.Fatalf("%s with the knowledge base off: %v", m, err)
+		}
+	}
 	if _, err := h.kbFor("example").PendingPosts(ctx, 10); err == nil || err.Error() != "这个管理者没开知识库" {
 		t.Fatalf("posts: %v", err)
 	}
-	if c, p, err := h.forgetArchive(ctx, "example"); c != 0 || p != 0 || err != nil {
-		t.Fatalf("forget asked: %d %d %v", c, p, err)
+	if f, err := h.forgetArchive(ctx, "example"); f != (assistantwire.KBForgotten{}) || err != nil {
+		t.Fatalf("forget asked: %+v %v", f, err)
 	}
 	if got := a.got(assistantwire.MethodKBForget); len(got) != 0 {
 		t.Fatalf("the knowledge base was asked to forget: %v", got)

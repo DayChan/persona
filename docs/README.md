@@ -1,5 +1,8 @@
 # Documentation
 
+[Super rules](SUPER_RULES.md) are the highest-priority repository rules. Read them before acting; changes to that
+file require explicit approval from administrator `chyroc` in a GitHub issue before editing or opening a linked PR.
+
 Start with [Getting started](operations/getting-started.md), [configuration](operations/config.md),
 and the [architecture](server/architecture.md). The [protocol](protocol/protocol.md) is the client/server contract.
 

@@ -48,4 +48,8 @@ import Testing
     @Test func aHubFromBeforeTheSwitchShowsNothing() {
         #expect(ExtensionConnectorsModel.shown([c("github", inbox: nil)], ids: ["github"]).isEmpty)
     }
+
+    @Test func messagesKeepsItsOwnSettingsEntry() {
+        #expect(ExtensionConnectorsModel.shown([c("imessage", inbox: nil)], ids: ["imessage"]).map(\.id) == ["imessage"])
+    }
 }

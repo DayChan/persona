@@ -74,7 +74,8 @@ func readCompletions(body io.Reader) (Reply, error) {
 	var reply Reply
 	var text strings.Builder
 	var data []string
-	finished, done, refused := false, false, false
+	finished, done := false, false
+	refusal := "" // the RefusalError reason once the model declines: refusal, or content_filter
 	consume := func() error {
 		if len(data) == 0 {
 			return nil
@@ -124,7 +125,11 @@ func readCompletions(body io.Reader) (Reply, error) {
 				continue
 			}
 			text.WriteString(choice.Delta.Content)
-			refused = refused || choice.Delta.Refusal != "" || choice.FinishReason == "content_filter"
+			if choice.FinishReason == "content_filter" {
+				refusal = "content_filter"
+			} else if choice.Delta.Refusal != "" && refusal == "" {
+				refusal = "refusal"
+			}
 			if choice.FinishReason != "" {
 				finished = true
 				reply.Truncated = choice.FinishReason == "length"
@@ -156,8 +161,8 @@ func readCompletions(body io.Reader) (Reply, error) {
 	if !done && !finished {
 		return Reply{}, errors.New("ai: stream ended without a completed reply")
 	}
-	if refused {
-		return reply, ErrRefused
+	if refusal != "" {
+		return reply, &RefusalError{StopReason: refusal}
 	}
 	reply.Text = text.String()
 	if strings.TrimSpace(reply.Text) == "" && !reply.Truncated {

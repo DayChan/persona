@@ -1,4 +1,7 @@
 {
+  "supervision_done": "督办已处理",
+  "supervision_running": "督办处理中…",
+  "supervision_input": "原始输入",
   "wake_count_other": "{count} 个后台任务完成",
   "wake_single": "后台任务完成",
   "wake_open": "后台任务完成，查看之后的消息",

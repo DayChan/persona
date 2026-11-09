@@ -316,6 +316,12 @@ func (s *Service) sendReports() {
 		return keep[i].todo < keep[j].todo // identical timestamps stay in a stable, repost-safe order
 	})
 	cards, fallbacks := s.reportCards(ctx, keep)
+	// A notifications companion takes the report (feishu_companions.go); the decisions' own cards, which answer for
+	// the owner, still go to the chat below.
+	if s.divertNotices(ctx, "report", cards, fallbacks) {
+		s.postReportAsks(append(asks, keep...))
+		return
+	}
 	// Every card must land: a failure after some went out requeues the whole batch (reposts early ones, retry-capped).
 	for i, c := range cards {
 		if _, err := s.botPost(ctx, "", c, fallbacks[i]); err != nil {

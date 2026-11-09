@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/bus"
+	"github.com/nwverse/persona/server/internal/extwire"
 )
 
 // ---- merged lists ----
@@ -71,6 +74,46 @@ func (h *Hub) listManagers(ctx context.Context) []string {
 	return append(out, rest...)
 }
 
+// retainedListManagers also asks installed offline managers, so relayTo can serve their retained GET answers.
+// Identities, never cache keys, decide who still belongs to the roster. An unreadable roster fails closed.
+func (h *Hub) retainedListManagers(ctx context.Context) ([]string, error) {
+	present := map[string]bool{}
+	if h.builtinManager(assistantwire.AssistantID) {
+		present[assistantwire.AssistantID] = true
+	}
+	if s := h.busStore(); s != nil {
+		idents, err := s.BusIdentities(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range idents {
+			if p.Role == bus.RoleManager {
+				present[p.ID] = true
+			}
+		}
+	}
+	for _, p := range h.busRoster() {
+		if p.Role == bus.RoleManager {
+			present[p.ID] = true
+		}
+	}
+	def, err := h.defaultManagerOrErr(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for id := range present {
+		if id != def {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	if present[def] { // a removed external default must not reappear from its retained answer
+		out = append([]string{def}, out...)
+	}
+	return out, nil
+}
+
 // mergeList answers a list request: a request for a manager (one it names, an extension's: its own, impliedManager) gets
 // that manager's answer, else every manager is asked (ask, one after the other: the managers are few) and the lists under key merged, the default's first. Every
 // item is stamped with its manager. A manager that does not answer is left out; when none does, the default's
@@ -88,8 +131,18 @@ func (h *Hub) mergeList(w http.ResponseWriter, r *http.Request, key string, ask 
 			return
 		}
 		ids = append(ids, id)
+	} else if r.Method == http.MethodGet && slices.Contains(extwire.KeptRoutes, r.URL.Path) {
+		ids, err = h.retainedListManagers(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusServiceUnavailable, err)
+			return
+		}
 	} else {
 		ids = h.listManagers(r.Context())
+	}
+	if len(ids) == 0 {
+		writeErrCode(w, http.StatusServiceUnavailable, assistantwire.CodeAssistantOffline, errAssistantOffline)
+		return
 	}
 	body, err := readBody(w, r)
 	if err != nil {

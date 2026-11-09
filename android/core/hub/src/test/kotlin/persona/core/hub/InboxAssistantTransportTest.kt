@@ -11,6 +11,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InboxAssistantTransportTest {
+    @Test fun handOffPostsTheItemAndStableAttemptIdAndReturnsItsSession() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())
+            val response = """{"item":{"id":"item/with#separator"},"session":{"machine_id":"hub","session_id":"main"}}"""
+            server.enqueue(MockResponse().setBody(response))
+            assertEquals(JsonCodec.parseToJsonElement(response).jsonObject, transport.handOff("item/with#separator", "Please handle this", "attempt-id"))
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/api/v1/inbox/item%2Fwith%23separator/handoff", request.path)
+            assertEquals("Bearer test-token", request.getHeader("Authorization"))
+            assertEquals("""{"text":"Please handle this","client_id":"attempt-id"}""", request.body.readUtf8())
+        }
+    }
+
+    @Test fun handOffPreservesUnsupportedAndUncertainFailuresForTheCaller() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())
+            for (status in listOf(404, 405, 502)) {
+                server.enqueue(MockResponse().setResponseCode(status).setBody("""{"error":"unavailable"}"""))
+                try { transport.handOff("item", "Please handle this", "attempt-id"); fail("The caller must handle HTTP $status") }
+                catch (e: HubFailure) { assertEquals(status, e.status) }
+                assertEquals("/api/v1/inbox/item/handoff", server.takeRequest().path)
+            }
+            assertEquals(3, server.requestCount)
+        }
+    }
+
     @Test fun conversationNamesUseTheCorrectAccountAndCursor() = runBlocking {
         MockWebServer().use { server ->
             val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())

@@ -9,7 +9,6 @@ import (
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
-	"github.com/nwverse/persona/server/internal/transcript"
 )
 
 // Where each agent stands in its work as the session lists show it (docs/assistant/agent-work.md "Model"): what the Agents
@@ -134,10 +133,11 @@ func interactionLine(l i18n.Lang, ix proto.Interaction) string {
 // decorateAwaits says whether sess (decorated, its work on it) stopped on a question to the user nobody answered yet
 // (Session.AwaitsReply, docs/protocol/agent-states.md "Awaiting your reply", #5096), and puts on it what it asks when the node could not
 // say (an older node, a host whose words come another way: no AsksRead): the list's last words, when they are the whole
-// reply. A node that read the reply and found no question (or found it answered) is taken at its word.
-func decorateAwaits(sess *proto.Session) {
+// reply. A node that read the reply and found no question (or found it answered) is taken at its word. asks reads them
+// (fleet_asks.go: again only when they changed since the machine's last list).
+func decorateAwaits(sess *proto.Session, asks askReader) {
 	if !sess.AsksRead && sess.Asks == "" && sess.LastText != "" && !strings.HasSuffix(sess.LastText, "…") {
-		sess.Asks = transcript.AskOf(sess.LastText)
+		sess.Asks = asks.of(sess.SessionID, sess.LastText)
 	}
 	sess.AwaitsReply = awaitsReply(*sess)
 }

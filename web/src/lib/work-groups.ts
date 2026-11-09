@@ -46,6 +46,8 @@ interface WorkGroupOptions {
   agentStatus?: (step: ToolStep) => AgentStatus;
   /** Whether a Workflow call draws its run's card (the hub lists the run): it stays in the open, running or ended. */
   workflowCard?: (step: ToolStep) => boolean;
+  /** Round-specific visibility receipts stay discoverable outside the ordinary work fold. */
+  keepTool?: (step: ToolStep) => boolean;
 }
 
 /** History that was never loaded between two steps: further apart than this, they do not share a group. */
@@ -119,6 +121,7 @@ function adapter(opts: WorkGroupOptions) {
   const isActivity = (s: Step) => {
     if (s.kind === "text" || isCompactStep(s)) return false;
     if (isPlanStep(s) || isAgentStep(s)) return false;
+    if (s.kind === "tool" && opts.keepTool?.(s)) return false;
     if (isWorkflowStep(s) && opts.workflowCard?.(s)) return false;
     return true;
   };

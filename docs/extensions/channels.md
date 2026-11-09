@@ -119,6 +119,8 @@ the assistant asks hub to send or edit through `app.call` (`feishu.*`, `channels
 A run ends only when the turn's answer has actually been handed to hub (`channels.send` / `feishu.post` succeeds): if hub can't respond temporarily (restart, extension program restarting), retry next time with the same `ref`, for up to 2 minutes.
 When the Lark bot's pairing changes (someone else pairs, the same person re-pairs, or unpairing), chat state starts over: back to main chat, with thread bindings and pending answers cleared. The assistant not only listens for `feishu.owner`, but also checks pairing (`owner` + `paired_at`) each time it reads `feishu.status`; a pairing changed while it was away therefore starts over just the same when it returns.
 
+Signing out of an extension channel's connector clears the pending turns and text questions of every channel backed by that connector, just like **Settings › Channels › Unbind** (#1837). The extension manager calls the assistant's `channels.unbound` synchronously. A completed sign-in clears the state again before returning success, so rebinding cannot report success while cleanup still fails. This also clears the channel's late-answer reminder; the underlying cards remain answerable in the App. A question being sent or a message being forwarded during unbinding cannot restore the old pending entry when the operation finishes. For WeChat, saving or deleting credentials with no bound account takes the same path, including automatic unbinding after iLink `errcode -14`.
+
 ### When the assistant is away
 
 While the assistant process is restarting or disconnected from hub, **receivers keep receiving; nothing is silently dropped**:
@@ -285,7 +287,7 @@ Other languages follow the protocol above, one JSON line per message (`docs/exte
 | GET | `/api/v1/channels/{id}` | `View` plus `waiting: {answers, asks}`, `conversations` (the channel's recent chats, up to 5: `{machine_id, session_id, title, at}`), `settings_url` (for channels like the Lark bot with a full settings page of their own, linked by the App) |
 | PUT | `/api/v1/channels/{id}` | `{enabled?, target?, features?: {id: bool}}`, changes only supplied fields; returns `View`. `target.kind` is `main` / `new` / `conversation` (with `machine_id`, `session_id`; must be an assistant chat) |
 | POST | `/api/v1/channels/{id}/bind` | `{step?, values?}` → `connector.Prompt` (the step-by-step login in `docs/extensions/connectors.md`: fields, QR scan `qr`, pairing code `pair_code`). Empty `step` starts over. Extension channels forward to their connector; Lark bot: one step for App ID / Secret if no credentials, then a pairing code once they exist |
-| DELETE | `/api/v1/channels/{id}/binding` | Unbind: connector logout for extension channels; unpair for the Lark bot. Clears runs and pending questions together |
+| DELETE | `/api/v1/channels/{id}/binding` | Unbind: connector logout for extension channels; unpair for the Lark bot. Clears runs and pending questions together, as signing out of the channel's connector does |
 | POST | `/api/v1/channels/{id}/test` | Send a test message to **the owner themselves** (only the bound person) |
 
 Read-only devices can only GET. These APIs exist only when `/health` and hello's `features` include `channels`. Since 2026-11-04, except for `POST …/bind`, these routes belong to the assistant (`assistantwire.Routes`, forwarded unchanged by hub):
