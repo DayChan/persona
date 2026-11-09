@@ -133,10 +133,6 @@ func (s *Service) taskWaits(ctx context.Context, t Todo) bool {
 // again first, as a change asked for on its "Please verify" card reopens it (#3457), so this turn is followed
 // (interrupted or done receipt, judgment) and the task shows in progress, not done (#5892).
 func (s *Service) taskWorking(ctx context.Context, mid, sid string) {
-	s.taskWorkingObserved(ctx, mid, sid, false)
-}
-
-func (s *Service) taskWorkingObserved(ctx context.Context, mid, sid string, initial bool) {
 	s.tasks.completionMu.Lock()
 	defer s.tasks.completionMu.Unlock()
 	t, ok := s.taskOf(ctx, mid, sid)
@@ -154,21 +150,12 @@ func (s *Service) taskWorkingObserved(ctx context.Context, mid, sid string, init
 		}
 		s.logf("task %s: reopened: its agent works again", t.ID)
 	}
-	work, generation := time.Now(), randomHex(16)
 	s.tasks.mu.Lock()
-	ref := SessionRef{MachineID: mid, SessionID: sid}
-	if previous, alreadyWorking := s.tasks.working[t.ID]; initial && alreadyWorking && s.tasks.workRefs[t.ID] == ref {
-		work, generation = previous, s.tasks.workIDs[t.ID]
-	}
-	s.tasks.working[t.ID] = work
+	s.tasks.working[t.ID] = time.Now()
 	if s.tasks.workIDs == nil {
 		s.tasks.workIDs = make(map[string]string)
 	}
-	if s.tasks.workRefs == nil {
-		s.tasks.workRefs = make(map[string]SessionRef)
-	}
-	s.tasks.workIDs[t.ID] = generation
-	s.tasks.workRefs[t.ID] = ref
+	s.tasks.workIDs[t.ID] = randomHex(16)
 	s.tasks.mu.Unlock()
 	s.setTaskStage(ctx, t.ID, "develop", "")
 	if t.Supervision != nil {
@@ -264,6 +251,9 @@ func (s *Service) retryTaskReceipt(ctx context.Context, t Todo, machine, sid str
 	s.retryTaskTurnEnded(ctx, machine, sid, expected)
 }
 
+// receiptRecheckID names a fresh observation made when the old turn cannot be identified.
+func receiptRecheckID(id string) string { return "feed_recheck_" + strings.TrimPrefix(id, "feed_") }
+
 // recoverTaskReceipt resumes follow-up from the committed feed, never from a later turn's transcript.
 func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptLook) (bool, error) {
 	if look == nil || look.ID == "" || s.store() == nil {
@@ -279,7 +269,13 @@ func (s *Service) recoverTaskReceipt(ctx context.Context, t Todo, look *receiptL
 		return false, err
 	}
 	if row == nil {
-		return false, nil
+		row, err = s.store().FeedItem(ctx, receiptRecheckID(look.ID))
+		if err != nil {
+			return false, err
+		}
+		if row == nil {
+			return false, nil
+		}
 	}
 	if row.Kind != feedReceipt || row.Ref != t.ID || row.Conversation != t.Origin {
 		return true, errors.New("receipt feed identity changed")
@@ -374,16 +370,6 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		return
 	} else if handled {
 		return
-	}
-	if expected != nil && expected.ID != "" {
-		s.tasks.mu.Lock()
-		current, observed := s.tasks.workIDs[t.ID]
-		s.tasks.mu.Unlock()
-		if observed && current != expected.Generation {
-			// Without an old feed there is no proof that the current transcript
-			// belongs to this wait; keep it rather than attributing a new turn to it.
-			return
-		}
 	}
 	agents, reached := s.taskAgentsReached(ctx, t)
 	if !reached {
@@ -606,11 +592,22 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	s.taskNotice(cctx, t, name, "done", "", clipMarkdown(text, 1500))
 	stage, pr := stageOf(text)
 	s.setTaskStage(cctx, t.ID, stage, pr)
-	if stageIndex(stage) >= stageIndex("deploy") {
-		go s.askAcceptance(t, last.MachineID, last.SessionID, text) // the user tries it (acceptance.go)
-	}
 	s.taskReport(t, reportDone, name, [2]string{last.MachineID, last.SessionID}, text, nil)
-	s.autoFinishTask(t, since, worked) // the work may be finished: then the todo is done (done.go)
+	sameWork := true
+	if expected != nil && expected.ID != "" {
+		s.tasks.mu.Lock()
+		current, observed := s.tasks.workIDs[t.ID]
+		s.tasks.mu.Unlock()
+		sameWork = observed && current == expected.Generation
+	}
+	if sameWork {
+		if stageIndex(stage) >= stageIndex("deploy") {
+			go s.askAcceptance(t, last.MachineID, last.SessionID, text) // the user tries it (acceptance.go)
+		}
+		s.autoFinishTask(t, since, worked) // the work may be finished: then the todo is done (done.go)
+	} else {
+		s.logf("task %s: receipt judgment skipped: current work generation is not confirmed", t.ID)
+	}
 	if !s.taskReceiptActive(ctx, receiptID) {
 		return
 	}
@@ -658,7 +655,7 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	}
 	var look receiptLook
 	s.tasks.mu.Lock()
-	generation := s.tasks.workIDs[t.ID]
+	generation, observed := s.tasks.workIDs[t.ID]
 	s.tasks.mu.Unlock()
 	for _, candidate := range s.tasks.receiptLooks {
 		if candidate.Todo != t.ID {
@@ -704,7 +701,13 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 	if err != nil {
 		return "", err
 	}
-	item := FeedItem{ID: look.ID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
+	feedID := look.ID
+	if expected != nil && expected.ID != "" && (!observed || generation != expected.Generation) {
+		// This is a fresh check of the current turn, not evidence about the
+		// older wait. A new ID avoids assigning its text to that older receipt.
+		feedID = receiptRecheckID(look.ID)
+	}
+	item := FeedItem{ID: feedID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
 	row := db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body}
 	var inserted bool
 	if atomicStore, ok := s.store().(interface {
