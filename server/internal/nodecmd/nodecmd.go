@@ -111,8 +111,12 @@ func runNode(ctx context.Context, args []string, b Build) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--attach":
+			supervised, err := residentArgs(args[1:])
+			if err != nil {
+				exitNodeUsage(err)
+			}
 			osproc.SealInherited() // as the node on stdin / stdout does, below
-			return runResident(ctx, b)
+			return runResident(ctx, b, supervised)
 		case "tailcat":
 			return runNodeTailcat(ctx, args[1:])
 		case "doctor":

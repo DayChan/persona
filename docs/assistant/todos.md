@@ -149,6 +149,7 @@ A herdr workspace can be linked as a whole to an unfinished to-do:
 - If the project is already linked elsewhere, unlink it first (remove the old to-do's space-linked Agents belonging to this project), then transfer to the new to-do.
 - If an Agent in the to-do was dismissed, whole-project linking clears that dismissed state too.
 - Unlinking deletes the workspace association and physically deletes Agent rows under this to-do with `source = "space"` and this project's `via` (manual/spawned Agents remain).
+- Workspace writes (link, move, unlink, rename and task deletion) commit and publish their ownership changes in the same order. Session lookup happens outside that write boundary; a superseded request cannot later attach Agents to its former owner. Pending automatic Agent writes recheck current workspace ownership before persistence.
 
 ### Automatic linking with a project
 When assistant receives a computer's session list (`sessions.changed`), it checks online Agents in whole-linked projects:

@@ -264,7 +264,7 @@ func TestInstallWithoutSystemd(t *testing.T) {
 	out := f.out.String()
 	bin := f.binPath()
 	for _, want := range []string{"系统不是由 systemd 启动的", "nohup " + bin + " run --log " + f.logPath() + " >/dev/null 2>&1 &",
-		"@reboot " + bin + " run --log", "| crontab -", "群晖", "unless-stopped"} {
+		"@reboot " + bin + " run --log", "| crontab -", "群晖", "unless-stopped", "node --attach --supervised"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

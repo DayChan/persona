@@ -555,15 +555,31 @@ WantedBy=default.target
 - Run in the background now: `nohup ~/.persona/bin/persona-link run --log ~/.persona/link.log >/dev/null 2>&1 &`
 - At boot: cron `@reboot` with the same command;
 - Synology: a user script triggered at startup in Task Scheduler, containing the nohup line above;
-- Container: `persona-link run --log …` as the main process, restart policy `unless-stopped`, `~/.persona` mounted as a volume, resident node in the same container;
-- supervisord, runit, s6, OpenRC: run `persona-link run --log …` in foreground and restart on exit.
+- Container: a small supervisor script as the main process (under `docker run --init`) that runs `persona-link run --log …` and `personad node --attach --supervised` and starts each again when it exits; restart policy `unless-stopped`, `~/.persona` mounted as a volume ([lessons/server.md](../lessons/server.md) "A node service in a Docker container on the hub's own NAS");
+- supervisord, runit, s6, OpenRC: run `persona-link run --log …` in foreground and restart on exit, and the resident node the same way as `personad node --attach --supervised`.
 
 Resident node likewise: `nohup ~/.persona/bin/personad node --attach >> ~/.persona/node-attach.log 2>&1 &`.
 
 Two things to know about a node without systemd:
-- The hub cannot update it: remote node updates need launchd or systemd for their rollback watchdog, so the machine shows `can_deploy: false`
-  and Redeploy and the automatic node update after a hub update skip it. Upgrade by hand: replace `~/.persona/bin/personad` with the hub's
-  own build for that platform (same version as the hub) and restart the node process.
+- **The hub updates it only when its supervisor says so.** systemd and launchd are recognized by the environment they set; anything else
+  that starts the node again whenever it exits declares itself with `node --attach --supervised` (personad or persona-node; Linux and macOS).
+  The machine then shows `can_deploy: true`, and Redeploy and the hub's node updates reach it as they reach any other computer
+  ([node-update.md](node-update.md)). nohup, cron `@reboot` and Synology's Task Scheduler restart nothing: leave the flag out there. Such a
+  node shows `can_deploy: false` ("not managed by launchd/systemd") and is upgraded by hand: replace `~/.persona/bin/personad` with the hub's
+  own build for that platform (same version as the hub) and restart the node process. What the supervisor has to do:
+  - Start the node again, with the same command line, whenever it exits. A normal update doesn't need it: the node runs the new program in
+    place (exec, same process id), so the supervisor sees nothing. It matters when the new version crashes, or never confirms with the hub
+    within three minutes: the rollback watchdog then puts the old file back and stops the node, and the restart runs the old program.
+  - Stop and restart only the node's own process. The watchdog runs from the old program in a session of its own, outside the node's process
+    group, so killing the group or the session leaves it alone; killing every process of the user or the container doesn't (a container
+    stop is fine: on the next start the node finds the unfinished update and starts another watchdog).
+  - Have a `ps` that reports a process's start time (`ps -p <pid> -o lstart=`; procps on Linux, macOS's own). BusyBox's can't: the machine
+    then says "ps here cannot report a process’s start time…" instead of offering Redeploy. Install procps.
+  - Keep the folder holding the node's program (the real file behind `~/.persona/bin/personad`) writable by the node's user: the new file is
+    staged and swapped there, next to a backup of the old one.
+
+  As on any other computer, only personad is updated: persona-link, herdr and the Agents' CLIs keep their versions. herdr's server runs in a
+  session of its own and keeps its panes when the node restarts. Windows nodes still can't be updated by the hub ([windows.md](windows.md)).
 - A container on the hub's own machine may not reach the hub at the hub's LAN address or public name (a NAS's policy routing sends the
   replies elsewhere; a default bridge network has no IPv6). Its bridge's gateway does reach it: pair with the link's `url` host replaced by the
   gateway address, and add `https://<gateway>:<TLS port>` with `persona-link address add` so it stays first ([lessons/server.md](../lessons/server.md)

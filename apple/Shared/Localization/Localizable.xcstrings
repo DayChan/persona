@@ -16739,24 +16739,24 @@
         }
       }
     },
-    "Allows the oldest tool permission request, or approves a plan (it starts right away). Questions and terminal prompts need the app." : {
+    "Allows the oldest tool permission request, or approves a plan with edits accepted automatically (commands still ask). Asks you to unlock first when locked. Questions and terminal prompts need the app." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allows the oldest tool permission request, or approves a plan (it starts right away). Questions and terminal prompts need the app."
+            "value" : "Allows the oldest tool permission request, or approves a plan with edits accepted automatically (commands still ask). Asks you to unlock first when locked. Questions and terminal prompts need the app."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最も古いツールの許可リクエストを許可するか、プランを承認します（承認後すぐに実行されます）。質問とターミナルの入力はアプリを開く必要があります。"
+            "value" : "最も古いツールの許可リクエストを許可するか、プランを承認します（編集は自動で承認され、コマンドは引き続き実行前に確認を求めます）。ロック中は先にロック解除を求めます。質問とターミナルの入力はアプリを開く必要があります。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允许最早的那条工具授权，或者批准一个计划（批准后自动执行）。提问和终端需要打开 App。"
+            "value" : "允许最早的那条工具授权，或者批准一个计划（自动接受编辑，命令仍会询问）。锁屏时会先要求解锁。提问和终端需要打开 App。"
           }
         }
       },
