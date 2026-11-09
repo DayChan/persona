@@ -89,7 +89,7 @@ func older(n int) []string {
 	out := make([]string, n)
 	for i := range out {
 		out[i] = note(strconv.Itoa(500+i), "subscribed", "Issue", fmt.Sprintf("https://api.github.com/repos/example-org/example-repo/issues/%d", 500+i),
-			"2026-11-02T08:00:00Z")
+			fixtureAt(8*time.Hour))
 	}
 	return out
 }

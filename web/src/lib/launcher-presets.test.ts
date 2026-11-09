@@ -8,6 +8,7 @@ import {
   presetChoices,
   presetDefaultModel,
   presetHost,
+  presetRunsClaude,
   presetSubtitle,
   presetTestBody,
   presetTestable,
@@ -101,6 +102,16 @@ describe("launcher presets", () => {
     expect(assignByDefault(false, { ok: false, ms: 120, code: "region_blocked", error: "x" })).toBe(false);
     expect(assignByDefault(true, null)).toBe(false);
     expect(assignByDefault(true, { ok: true, ms: 300 })).toBe(false);
+  });
+
+  // Claude Code needs a Messages endpoint: a direct API on Responses / Chat Completions runs neither the main conversation nor Agents.
+  it("runs the main conversation and Agents only on Messages", () => {
+    expect(presetRunsClaude(glm)).toBe(true);
+    expect(presetRunsClaude(team)).toBe(true);
+    expect(presetRunsClaude(api)).toBe(false);
+    expect(presetRunsClaude({ ...api, api: "chat" })).toBe(false);
+    expect(presetRunsClaude({ ...api, api: "messages" })).toBe(true);
+    expect(presetRunsClaude({ ...api, api: undefined })).toBe(true); // an empty api is Messages
   });
 
   it("an older hub without presets answers none", async () => {

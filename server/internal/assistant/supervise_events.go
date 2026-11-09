@@ -51,6 +51,9 @@ func (s *Service) superviseJudged(ctx context.Context, t Todo, work time.Time, c
 	st := t.Supervision.state(t)
 	key := work.UTC().Format(time.RFC3339Nano)
 	if err == nil && c.Verdict == verdictDone {
+		if s.autoReviewBegin(ctx, t, work, c.Reason) {
+			return // the independent review first; it ends in rework or the wait for review (supervise_autoreview.go)
+		}
 		v, _, uerr := s.updateSupervision(ctx, t.ID, func(v *Supervision) bool {
 			if v.state(t) == reviewPending {
 				return false
@@ -91,6 +94,7 @@ var verdictWords = map[string]string{verdictNotDone: "没做完", verdictWaiting
 
 // supervisedWorking: one of supervised task t's agents started a turn: a review waiting is moot (the work goes on).
 func (s *Service) supervisedWorking(ctx context.Context, t Todo) {
+	s.autoReviewWorking(ctx, t)
 	if t.Supervision.state(t) != reviewPending {
 		return
 	}

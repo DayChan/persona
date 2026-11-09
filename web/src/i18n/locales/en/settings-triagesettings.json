@@ -14,6 +14,8 @@
   "auto_continue_hint": "Sends \"continue\" after a temporary model error (503 and the like), up to 3 times",
   "wake": "Wake on schedule",
   "wake_hint": "Agents waiting on a deploy, CI or another agent get woken up to check for themselves",
+  "tool_loop": "Detect tool loops",
+  "tool_loop_hint": "Ask whether to interrupt when an agent appears stuck repeating tool calls",
   "reply_reminder": "Remind me when I haven't replied",
   "reply_reminder_hint": "If an agent asked you something and you still haven't replied {minutes} minutes after seeing it, you get one reminder. Rule-based, no tokens used"
 }

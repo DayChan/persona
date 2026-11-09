@@ -139,6 +139,7 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 				m.turnErr.set(&s)
 				s.Activity, s.ActivityAt = m.activityOf()
 				setContext(&s, m)
+				s.ModelFallback = m.modelFallback
 				if a.Agent != "codex" && a.Agent != traexAgent {
 					s.PermissionMode, s.Effort = n.currentModes(id, m)
 				}
@@ -223,6 +224,10 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 	for _, s := range n.codexSessions(seen) {
 		out = append(out, s)
 	}
+	for _, s := range n.codexAssistantsAtRest(seen) {
+		out = append(out, s)
+		seen[s.SessionID] = true
+	}
 	offlineRows := n.offline(seen)
 	n.markInterrupted(offlineRows, seen) // the restart cut these off (#1917)
 	for _, s := range offlineRows {
@@ -239,7 +244,11 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 		if s.Cwd != "" && n.cwdBlocked(s.Cwd) && !n.isAssistantSession(s.SessionID) && !n.keptSessions()[s.SessionID] {
 			continue
 		}
+		if s.Status == proto.StatusWorking && (s.Agent == "" || s.Agent == "claude" || s.Agent == "codex") {
+			s.ToolLoop = n.toolLoopOf(s.SessionID)
+		}
 		s.WorkspaceCwd = n.sessionWorkspaceCwd(s.Cwd)
+		fillGitPlace(&s)          // project, worktree and branch for the apps' tree (gitplace.go)
 		s.CanFork = n.forkable(s) // "Branch to New Chat" (fork.go)
 		keptSessions = append(keptSessions, s)
 	}

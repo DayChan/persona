@@ -1,25 +1,27 @@
 name: CI
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
+      full:
+        description: 'Run every platform, including unchanged ones'
+        type: boolean
+        default: true
       lanes:
-        description: 'auto (diff against origin/main), all, or comma-separated server,web,android,apple,runtimes,scripts'
+        description: 'When full is false: all, auto (diff against origin/main), or comma-separated server,web,android,apple,runtimes,scripts'
         type: string
         default: auto
       base:
-        description: 'Optional diff base; defaults to origin/main'
+        description: 'Optional diff base for lanes=auto; defaults to origin/main'
         type: string
         default: ''
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-${{ github.event_name == 'pull_request' && 'pr-fast' || inputs.lanes || 'auto' }}
+  group: ci-${{ github.repository }}-${{ github.ref_name }}-${{ inputs.full }}-${{ inputs.lanes }}
   cancel-in-progress: true
 jobs:
   changes:
     name: Manual repository guards and path selection
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -46,9 +48,15 @@ jobs:
       - id: paths
         name: Select platforms
         env:
+          CI_FULL: ${{ inputs.full }}
           CI_LANES: ${{ inputs.lanes || 'auto' }}
           CI_BASE_SHA: ${{ steps.base.outputs.base }}
-        run: python3 scripts/ci/paths.py --lanes "$CI_LANES" --base "$CI_BASE_SHA"
+        run: |
+          if [ "$CI_FULL" = true ]; then
+            python3 scripts/ci/paths.py --all
+          else
+            python3 scripts/ci/paths.py --lanes "$CI_LANES" --base "$CI_BASE_SHA"
+          fi
   server:
     needs: changes
     if: needs.changes.outputs.server == 'true'
@@ -64,14 +72,14 @@ jobs:
   apple:
     name: iOS and Watch
     needs: changes
-    if: needs.changes.outputs.apple == 'true' && github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.apple == 'true'
     uses: ./.github/workflows/apple-test.yml
     with:
       lane: ios
   apple_macos:
     name: Mac (non-blocking)
     needs: changes
-    if: needs.changes.outputs.apple == 'true' && github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.apple == 'true'
     uses: ./.github/workflows/apple-test.yml
     with:
       lane: macos
@@ -83,8 +91,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.scripts == 'true'
     uses: ./.github/workflows/scripts-tests.yml
-  # PR checks use one allocation; full manual lanes retain independent runners.
   # An unselected manual lane is never represented as a passed platform test.
+  # Mac has a visible independent result but does not block CI required.
   required:
     name: CI required
     needs: [changes, server, web, android, apple, runtimes, scripts]
@@ -96,59 +104,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - id: auto_base
-        name: Resolve automatic comparison base
-        if: github.event_name == 'pull_request'
-        run: python3 scripts/ci/paths.py --print-base
-      - name: Automatic repository guards
-        if: github.event_name == 'pull_request'
-        env:
-          CI_BASE_SHA: ${{ steps.auto_base.outputs.base }}
-        run: scripts/ci/guards.sh
-      - id: auto_paths
-        name: Select automatic fast lanes
-        if: github.event_name == 'pull_request'
-        env:
-          CI_BASE_SHA: ${{ steps.auto_base.outputs.base }}
-        run: python3 scripts/ci/paths.py --base "$CI_BASE_SHA"
-      - uses: actions/setup-python@v5
-        if: github.event_name == 'pull_request'
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: scripts/ci/requirements.txt
-      - name: Install automatic Python test dependencies
-        if: github.event_name == 'pull_request'
-        run: python3 -m pip install -r scripts/ci/requirements.txt
-      - name: Automatic documentation and CI regression checks
-        if: github.event_name == 'pull_request'
-        run: |
-          python3 scripts/test/test_doc_paths.py
-          python3 scripts/test/test_doc_go_paths.py
-          python3 scripts/test/test_doc_wire.py
-          python3 scripts/test/test_readme_languages.py
-          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-      - uses: actions/setup-node@v4
-        if: github.event_name == 'pull_request' && (steps.auto_paths.outputs.web == 'true' || steps.auto_paths.outputs.runtimes == 'true')
-        with:
-          node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            sdk/ts/package-lock.json
-            integrations/agent-sdk/package-lock.json
-      - name: Automatic Web checks
-        if: github.event_name == 'pull_request' && steps.auto_paths.outputs.web == 'true'
-        run: scripts/ci/web.sh
-      - uses: oven-sh/setup-bun@v2
-        if: github.event_name == 'pull_request' && steps.auto_paths.outputs.runtimes == 'true'
-        with:
-          bun-version: '1.4.2'
-      - name: Automatic runtime and SDK checks
-        if: github.event_name == 'pull_request' && steps.auto_paths.outputs.runtimes == 'true'
-        run: scripts/ci/runtimes.sh
-      - name: Verify selected manual platform results
-        if: github.event_name == 'workflow_dispatch'
+      - name: Verify selected platform results
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: python3 scripts/ci/required.py

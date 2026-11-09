@@ -60,7 +60,8 @@ nonisolated struct EdgeScrubColumn: Equatable, Sendable {
     /// /loop tick.
     static func marks(_ lines: [ChatLine]) -> [EdgeMark] {
         lines.compactMap { line in
-            guard case .row(.user(let item)) = line.content, Injected.of(item) == nil, item.from == nil else { return nil }
+            guard case .row(.user(let item)) = line.content, Injected.of(item) == nil, item.from == nil,
+                  MessageSource.of(item) == nil else { return nil }
             let raw = item.text ?? ""
             guard !raw.hasPrefix("/loop") else { return nil }
             let shown = UserRowText(raw).shown.trimmingCharacters(in: .whitespacesAndNewlines)

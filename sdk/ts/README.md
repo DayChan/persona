@@ -41,6 +41,27 @@ undefined there; never serialize parsed values and present them as original
 raw metadata. Protocol checks, initialization single-flight/retry, events,
 reply serialization, page deadlines and sandbox permissions remain unchanged.
 
+## Installation-owned business storage
+
+`ExtensionStorage` forwards typed `storage.*` calls through the initialized `Hub`.
+An installed source manifest must explicitly declare `permissions.storage` keys
+or literal-prefix patterns; queues and blobs also require their own flags. The
+manager checks actual grants and the installation/process identity, not a
+caller-supplied extension ID. `storageBytes` / `storageValue` handle canonical
+base64 values or chunks of at most 64 KiB. Neither grants filesystem, SQL,
+credential, hub or new network access.
+
+Request a mutation ID with `store.request()` and retain that exact ID and payload
+for an uncertain outcome. The client never retries automatically. Transactions
+combine revision-checked entries and queue reservation/completion writes in one
+commit. Request receipts expire after five minutes, and a replay cannot bypass a
+withdrawn grant or resurrect an expired/replaced lease. Unknown external outcomes
+are not safe new sends; protocol-specific confirmations and recovery still apply.
+The generic store does not import legacy files or provide media URLs, lease
+renewal or external-effect authority. Full bounds, lifecycle and owner-only
+retained-data restore are in `docs/extensions/extensions.md` ("Installation-owned
+business storage"). Production/source publication gates remain unchanged.
+
 ## Finite page loading
 
 Use `useLoadEffect` from `@persona/extension/ui` for finite data loads. Keep

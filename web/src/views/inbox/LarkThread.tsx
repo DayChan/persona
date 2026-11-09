@@ -30,7 +30,7 @@ import { clickLink, linkHref, prefetchLink } from "../../lib/links";
 import { isResumed } from "../../lib/reconnect";
 import { navigate } from "../../lib/router";
 import { getState, onHubEvent, useStore } from "../../lib/store";
-import { isForeignCached, requestTranslation, translatesChat, translationOf, useTranslatePrefs, useTranslations } from "../../lib/translate";
+import { isForeignCached, translatesChat, useTranslatePrefs, useTranslation } from "../../lib/translate";
 import { t } from "../../i18n";
 import { Button, cx, Dialog, Loading, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -932,11 +932,7 @@ function isSystem(m: LarkMessage) {
 function TranslationLine({ m, target }: { m: LarkMessage; target: string }) {
   const text = m.text?.trim() ?? "";
   const applies = !m.is_mine && !m.recalled && text !== "" && isForeignCached(text, target);
-  useTranslations();
-  useEffect(() => {
-    if (applies) requestTranslation(text, target);
-  }, [applies, text, target]);
-  const tr = applies ? translationOf(text, target) : undefined;
+  const tr = useTranslation(text, target, applies);
   if (!tr) return null;
   return (
     <p className="mt-1 flex items-start gap-1.5 text-[12.5px] leading-relaxed text-ink-2" aria-label={t("inbox-larkthread.translation_label", { text: tr })}>

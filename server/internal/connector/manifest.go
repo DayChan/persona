@@ -23,6 +23,7 @@ type Capability string
 const (
 	CapStatus   Capability = "status"   // Accounts
 	CapTools    Capability = "tools"    // ReadTools
+	CapCatalog  Capability = "catalog"  // Catalog
 	CapActions  Capability = "actions"  // Actions
 	CapEvents   Capability = "events"   // Events
 	CapInbox    Capability = "inbox"    // Inbox
@@ -56,6 +57,7 @@ type capability struct {
 var capabilities = []capability{
 	{CapStatus, reflect.TypeFor[Accounts](), true},
 	{CapTools, reflect.TypeFor[ReadTools](), true},
+	{CapCatalog, reflect.TypeFor[Catalog](), true},
 	{CapActions, reflect.TypeFor[Actions](), true},
 	{CapEvents, reflect.TypeFor[Events](), true},
 	{CapInbox, reflect.TypeFor[Inbox](), true},

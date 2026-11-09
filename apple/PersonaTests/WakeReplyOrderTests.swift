@@ -30,13 +30,12 @@ struct WakeReplyOrderTests {
             let key = store.key
             let newest = pacer.pendingText(key)
             switch pacer.offer(key, text, now: .now) {
-            case .draw(let t) where t.isEmpty: store.clearLive(newest: newest)
-            case .draw(let t): store.liveText = t
+            case .draw(let t): store.streamed(t, agents: false, newest: newest)
             case .later(let wait):
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(wait))
                     guard let self, let t = self.pacer.due(key, now: .now) else { return }
-                    self.store.liveText = t
+                    self.store.streamed(t, agents: false)
                 }
             case .kept: break
             }

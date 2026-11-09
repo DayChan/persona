@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/secretkey"
 )
@@ -86,6 +87,7 @@ type Service struct {
 	relays     relayBook         // conversations.go
 	quiet      quietBook         // quiet.go
 	supervise  superviseBook     // supervise_signals.go
+	autoRuns   autoReviewBook    // supervise_autoreview.go
 	reports    reportBook        // reports.go
 	upReports  reportRate        // agent_control.go: report_to_supervisor
 	noteRate   reportRate        // todo_decisions.go: todo_decision_add
@@ -198,6 +200,13 @@ func fullRole(r *http.Request) bool {
 	return role == "" || role == roleFull
 }
 
+// todoWriter says whether r may change todos: a full device, or an extension token. The hub relays an extension's
+// request only to the routes its granted scopes open (extwire.RouteScopes: todos.write), so reaching a todo write
+// here already means the extension holds todos.write.
+func todoWriter(r *http.Request) bool {
+	return fullRole(r) || r.Header.Get(RoleHeader) == roleExtension
+}
+
 // owner is how the assistant calls the user: manager.json's assistant.owner, else the Chinese word for "user".
 func (s *Service) owner(ctx context.Context) string {
 	if o := strings.TrimSpace(s.hello(ctx).Owner); o != "" {
@@ -223,6 +232,18 @@ func (s *Service) lang(ctx context.Context) i18n.Lang {
 
 // call is a DeviceCall whose answer is read into out (nil: not read).
 func (s *Service) call(ctx context.Context, device, method string, params, out any) error {
+	if p, ok := params.(map[string]any); ok && (method == DeviceAssistantSend || method == DeviceSessionSend) {
+		if text, ok := p["text"].(string); ok {
+			source, _ := p["message_source"].(*proto.MessageSource)
+			if source == nil {
+				source = prompts.ItemSource(proto.Item{Role: "user", Kind: proto.KindText, Text: text})
+			}
+			if source != nil {
+				p["message_source"] = source
+				p["text"] = prompts.MessageSourceText(text, source)
+			}
+		}
+	}
 	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend && p["supervision"] != true {
 		if id, _ := p["session_id"].(string); id != "" && s.supervising(id) {
 			s.releasePushes(ctx, id) // something else speaks there: its turns are pushed again (a supervision message holds them anew)
@@ -323,12 +344,13 @@ func (s *Service) device(ctx context.Context, id string) (Device, bool) {
 
 // startParams are what a new conversation starts with.
 type startParams struct {
-	Text           string `json:"text"`
-	PermissionMode string `json:"permission_mode,omitempty"`
-	Purpose        string `json:"purpose,omitempty"` // the model configuration's purpose; "" is the assistant's
-	Space          string `json:"space,omitempty"`   // "health" starts it in the health space (docs/assistant/health.md)
-	Origin         string `json:"origin,omitempty"`  // where it comes from (origins.go); "" is the user's
-	OriginRef      string `json:"origin_ref,omitempty"`
+	Text           string               `json:"text"`
+	PermissionMode string               `json:"permission_mode,omitempty"`
+	Purpose        string               `json:"purpose,omitempty"` // the model configuration's purpose; "" is the assistant's
+	Space          string               `json:"space,omitempty"`   // "health" starts it in the health space (docs/assistant/health.md)
+	Origin         string               `json:"origin,omitempty"`  // where it comes from (origins.go); "" is the user's
+	OriginRef      string               `json:"origin_ref,omitempty"`
+	Source         *proto.MessageSource `json:"source,omitempty"`
 }
 
 // kbReady: there is a knowledge base (kb.go; on, opened or about to).
@@ -441,6 +463,7 @@ func (s *Service) snapshot(ctx context.Context) Snapshot {
 // UserSpoke: the user is talking in the conversation again: back in the list, and it works for them, not for a chain
 // of conversations.
 func (s *Service) UserSpoke(ctx context.Context, r SessionRef) {
+	s.clearToolLoop([2]string{r.MachineID, r.SessionID}, loopUserInput)
 	s.releasePushes(ctx, r.SessionID) // the user speaks: its turns are pushed as ever (supervise_digest.go)
 	s.withdrawAskUser(r.SessionID)    // a question it waits on is taken back: the user's words are not left behind its turn
 	s.unarchiveOnSend(r.MachineID, r.SessionID)
@@ -452,15 +475,22 @@ func (s *Service) UserSpoke(ctx context.Context, r SessionRef) {
 
 // TurnStarted: one of a task's agents is working; what was going to be done about an agent's last turn is off.
 func (s *Service) TurnStarted(ctx context.Context, r SessionRef) {
+	s.turnStartedObserved(ctx, r, true)
+}
+
+func (s *Service) turnStartedObserved(ctx context.Context, r SessionRef, newTurn bool) {
 	s.taskWorking(ctx, r.MachineID, r.SessionID)
-	s.workStarted(ctx, r.MachineID, r.SessionID, time.Now())
+	s.workStartedObserved(ctx, r.MachineID, r.SessionID, time.Now(), newTurn)
 }
 
 // TurnEnded: a task's agent may be done (in the background: it waits for the agents to settle), an agent's turn is
 // triaged; a new conversation is named after its first turn.
 func (s *Service) TurnEnded(ctx context.Context, r SessionRef) {
+	s.clearToolLoop([2]string{r.MachineID, r.SessionID}, loopTurnChanged)
 	go s.registerInlineTurn(context.WithoutCancel(ctx), r)
 	go s.taskTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)
+	// A review's reviewer answered (supervise_autoreview.go).
+	go s.autoReviewTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)
 	go s.workTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID)    // its triage (agents_work_turns.go)
 	go s.channelTurnEnded(context.WithoutCancel(ctx), r.MachineID, r.SessionID) // a channel's answer, the sync mirror
 	// A usage limit marks the launcher there until it resets (launcher_health.go).
@@ -491,6 +521,7 @@ func (s *Service) InteractionResolved(ctx context.Context, r InteractionResolved
 // SessionsChanged: messages from other conversations go to those no longer running; the todos follow the list
 // (todo_sessions.go).
 func (s *Service) SessionsChanged(ctx context.Context, d DeviceSessions) {
+	s.toolLoopsChanged(d)
 	s.drainRelays(d.MachineID, d.Sessions)
 	s.originsChanged(d.MachineID, d.Sessions) // conversations from before origins were noted (origins.go)
 	s.todosSessionsChanged(ctx, d)

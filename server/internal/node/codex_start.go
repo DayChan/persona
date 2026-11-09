@@ -112,7 +112,7 @@ func codexOwnProcess(argv []string) string {
 
 // startCodex starts a Codex launcher in a new tab with the first message and returns its session once the thread is
 // known.
-func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launcher string, argv []string, prompt, ws, tabName string) (*proto.Session, error) {
+func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launcher string, argv []string, prompt, ws, tabName, mode string) (*proto.Session, error) {
 	if strings.TrimSpace(prompt) == "" {
 		return nil, refusal("codex_needs_prompt", "新建 Codex 会话要连第一条消息一起发：Codex 收到第一条消息才建会话。", nil)
 	}
@@ -148,19 +148,26 @@ func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launch
 		delete(n.codexStarting, pane)
 		n.mu.Unlock()
 	}()
-	cmd := n.agentCommand(shellQuote(n.bin)+" codex-start "+shellQuote(file), shellQuote, paneShells(ctx)...) // agentenv.go
+	shells := paneShells(ctx)
+	cmd := n.agentCommand(shellQuote(n.bin)+" codex-start "+shellQuote(file), shellQuote, shells...) // agentenv.go
 	began := time.Now()
-	time.Sleep(300 * time.Millisecond) // the fresh shell loads ~/.zshrc; typed input is buffered either way
-	if err := launch.Run(ctx, created.Pane, cmd); err != nil {
-		return nil, fmt.Errorf("run launcher: %w", err)
+	time.Sleep(300 * time.Millisecond)                                           // the fresh shell loads ~/.zshrc; typed input is buffered either way
+	done, err := n.runAgentCommand(ctx, launch, created, ws, "", cmd, shells...) // typedstart.go
+	if err != nil {
+		return nil, err
 	}
+	defer done()
 	id, err := n.waitCodexThread(ctx, pane, cwd, prompt, began)
 	if err != nil {
 		screen, _ := n.readPane(ctx, pane, "recent-unwrapped", 30)
 		return nil, fmt.Errorf("%v\n%s", err, lastLines(screen, 12))
 	}
 	n.bindPane(pane, id)
-	n.state.put(id, sessionState{Pane: pane, Launcher: launcher, Cwd: cwd, StartedAt: began.UTC()})
+	st := sessionState{Pane: pane, Launcher: launcher, Cwd: cwd, StartedAt: began.UTC()}
+	if mode == "plan" { // Other modes still come from the launcher's arguments, not this request.
+		st.AppMode = mode
+	}
+	n.state.put(id, st)
 	_ = n.refreshHosts(ctx)
 	a, ok := n.agent(id)
 	if !ok {

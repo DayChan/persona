@@ -122,6 +122,7 @@ type fakeHub struct {
 	// does to the checks.
 	checks    map[string]proto.LauncherCheck
 	checked   []string
+	onCheck   func(f *fakeHub) // runs (under the fake's lock) inside each launchers.check
 	repairs   []map[string]any
 	repairRes *proto.LauncherRepair
 	onRepair  func(f *fakeHub)
@@ -261,6 +262,9 @@ func (f *fakeHub) deviceCall(ctx context.Context, p DeviceCall) (json.RawMessage
 	case assistantwire.DeviceLaunchersCheck:
 		name, _ := a["name"].(string)
 		f.checked = append(f.checked, p.Device+"/"+name)
+		if f.onCheck != nil {
+			f.onCheck(f)
+		}
 		if c, ok := f.checks[p.Device+"/"+name]; ok {
 			return json.Marshal(c)
 		}
@@ -473,7 +477,7 @@ func (f *fakeHub) NotifyRequest(_ context.Context, p NotifyRequest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch p.Notification.Kind {
-	case NotifyPush, assistantwire.NotifyDone, assistantwire.NotifyInput, assistantwire.NotifyReply:
+	case NotifyPush, assistantwire.NotifyDone, assistantwire.NotifyInput, assistantwire.NotifyReply, assistantwire.NotifyDecide:
 	default:
 		return fmt.Errorf("kind %q", p.Notification.Kind)
 	}

@@ -15,15 +15,15 @@ import (
 	"github.com/nwverse/persona/server/internal/connector"
 )
 
-// longStart is a cursor from before both fake threads, so no test depends on today's date.
-const longStart = `{"since":"2026-11-01T00:00:00Z"}`
+// longStart is a cursor from before both fake threads.
+var longStart = `{"since":"` + fixtureAt(dayBefore) + `"}`
 
 // fakeLongThread serves issue 6 (its description only) and issue 7 (a PR when reviews or inline are above zero) with
 // comments issue comments, reviews reviews and inline review comments. Two of a kind share every ten seconds, so a
 // page can end inside a second; every list honors per_page, page and since as GitHub does. While the returned switch
 // is on, every page 2 fails.
 func fakeLongThread(t *testing.T, comments, reviews, inline int) (*Connector, *atomic.Bool) {
-	base := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	base := fixtureDay.Add(dayBefore + 8*time.Hour)
 	pr := ""
 	if reviews+inline > 0 {
 		pr = `,"pull_request":{}`
@@ -50,10 +50,10 @@ func fakeLongThread(t *testing.T, comments, reviews, inline int) (*Connector, *a
 		case p == "/user":
 			_, _ = w.Write([]byte(`{"login":"me"}`))
 		case p == "/search/issues":
-			item := `{"number":%d,"title":"Long thread","user":{"login":"alice"},"body":"Many replies","created_at":"2026-11-01T07:00:00Z",
+			item := `{"number":%d,"title":"Long thread","user":{"login":"alice"},"body":"Many replies","created_at":"` + fixtureAt(dayBefore+7*time.Hour) + `",
 				"repository_url":"https://api.github.com/repos/example-org/example-repo","updated_at":"%s"%s}`
-			_, _ = fmt.Fprintf(w, `{"total_count":2,"items":[%s,%s]}`, fmt.Sprintf(item, 6, "2026-11-02T09:00:00Z", ""),
-				fmt.Sprintf(item, 7, "2026-11-02T10:00:00Z", pr))
+			_, _ = fmt.Fprintf(w, `{"total_count":2,"items":[%s,%s]}`, fmt.Sprintf(item, 6, fixtureAt(9*time.Hour), ""),
+				fmt.Sprintf(item, 7, fixtureAt(10*time.Hour), pr))
 		case p == "/repos/example-org/example-repo/issues/6/comments":
 			_, _ = w.Write([]byte(`[]`))
 		case p == "/repos/example-org/example-repo/issues/7/comments":
@@ -143,7 +143,7 @@ func TestChangesPageErrorReadsTheThreadAgain(t *testing.T) {
 		t.Fatalf("%d batches, %v", len(batches), err)
 	}
 	if cur := longCursor(t, next); !cur.Threads["example-org/example-repo#7"].IsZero() ||
-		!cur.Since.Equal(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)) {
+		!cur.Since.Equal(fixtureDay.Add(9*time.Hour)) {
 		t.Fatalf("cursor %s moved past the failed thread", next)
 	}
 	failing.Store(false)
@@ -175,7 +175,7 @@ func TestChangesLongListGoesOnInTheNextCall(t *testing.T) {
 			}
 			seen[m.ID] = true
 		}
-		if since := longCursor(t, cursor).Since; more == since.Equal(time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)) {
+		if since := longCursor(t, cursor).Since; more == since.Equal(fixtureDay.Add(10*time.Hour)) {
 			t.Fatalf("call %d: more %v, since %v", call, more, since)
 		}
 	}

@@ -1,10 +1,56 @@
 import Foundation
 
+/// Pure, round-wide visibility policy shared by every chat UI. Pass all items in the round (including continuations
+/// after recaps), and a result index from the complete loaded transcript: a receipt can arrive after the next input.
+nonisolated enum Supervision {
+    /// Only these bare tools or tools in Persona's exact MCP namespaces count, never unrelated servers with the same
+    /// suffix. Plugin namespaces and the compatibility server id follow the web's `supervisionTool` contract.
+    static func tool(_ name: String?) -> String? {
+        guard var name else { return nil }
+        if name.hasPrefix("mcp__") {
+            let rest = String(name.dropFirst(5))
+            guard let separator = rest.range(of: "__", options: .backwards) else { return nil }
+            var server = String(rest[..<separator.lowerBound])
+            if server.hasPrefix("plugin_") { server = String(server.dropFirst(7)) }
+            guard server == "persona" || server == LegacyNames.product else { return nil }
+            name = String(rest[separator.upperBound...])
+        }
+        switch name {
+        case "notify_user", "ask_user", "supervision_finish", "task_review": return name
+        default: return nil
+        }
+    }
+
+    static func visible(_ items: [Item], results: [String: Item], live: Bool) -> Bool {
+        if items.contains(where: { it in
+            it.supervisionUser == true || it.fold?.supervisionUser == true ||
+                (Injected.of(it).map { $0.isSupervision && $0.level == "user" } ?? false)
+        }) { return true }
+        for use in items where use.kind == .toolUse {
+            guard let name = tool(use.toolName) else { continue }
+            guard let result = use.toolUseID.flatMap({ results[$0] }) else {
+                // ask_user needs the person before it can return; only a live pending question is visible.
+                if name == "ask_user", live { return true }
+                continue
+            }
+            guard result.isError != true else { continue }
+            if name == "task_review" {
+                if case .string(let verdict)? = use.toolInput?["verdict"], verdict == "accepted" || verdict == "needs_user" { return true }
+            } else if name != "supervision_finish" {
+                return true
+            } else if let text = result.text, let receipt = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+                      case .string("user")? = receipt["visibility"] {
+                return true // Only the successful receipt, never the call's requested visibility or prose.
+            }
+        }
+        return false
+    }
+}
+
 /// A message Persona typed into a conversation for the model, as if the user had (docs/protocol/protocol.md「Persona 注入的消息」):
 /// a quiet task's notice, a scheduled run, a wake-up, the background tasks a node restart stopped. The model reads its
-/// words; the apps show `line` in their place, centered, never a user bubble and never the instructions inside. The hub
-/// marks such items (`Item.injected`); an older hub does not, and `Injected.parse` reads the text the way the hub does
-/// (`prompts.ParseInjected`; the shared cases are `spec/fixtures/injected`).
+/// words; the apps show `line` in their place, never a user bubble or the instructions inside. The hub marks such items
+/// (`Item.injected`); for an older hub, `Injected.parse` reads the exact templates (`prompts.ParseInjected`).
 nonisolated struct Injected: Codable, Hashable, Sendable {
     /// task_notice | followup | system
     var kind: String
@@ -20,14 +66,16 @@ nonisolated struct Injected: Codable, Hashable, Sendable {
     var line: String
     /// followup (once / daily / interval): what the task asks, shown when the line is opened.
     var detail: String?
+    /// supervise: triage (quiet unless promoted) or user. Older hub marks omit it; `of` defaults them to triage.
+    var level: String?
 
     enum CodingKeys: String, CodingKey {
-        case kind, state, title, machine, line, detail
+        case kind, state, title, machine, line, detail, level
         case todoID = "todo_id"
     }
 
     init(kind: String, state: String? = nil, title: String? = nil, machine: String? = nil, todoID: String? = nil,
-         line: String, detail: String? = nil) {
+         line: String, detail: String? = nil, level: String? = nil) {
         self.kind = kind
         self.state = state
         self.title = title
@@ -35,16 +83,22 @@ nonisolated struct Injected: Codable, Hashable, Sendable {
         self.todoID = todoID
         self.line = line
         self.detail = detail
+        self.level = level
     }
 
     var isTaskNotice: Bool { kind == "task_notice" }
     var isFollowup: Bool { kind == "followup" }
+    var isSupervision: Bool { state == "supervise" }
 
     /// The item as one of Persona's messages for the model: the hub's mark, else read off its text. A line an app sent
     /// (`client_msg_id`) or another session did (`from`) is the user's whatever it says.
     static func of(_ item: Item) -> Injected? {
         guard item.role == "user", item.kind == .text else { return nil }
-        if let marked = item.injected { return marked }
+        if MessageSource.protectsUser(item.text ?? "") { return nil }
+        if var marked = item.injected {
+            if marked.isSupervision, marked.level == nil { marked.level = parse(item.text ?? "")?.level ?? "triage" }
+            return marked
+        }
         guard item.clientMsgID == nil, item.from == nil, let text = item.text else { return nil }
         return parse(text)
     }
@@ -60,6 +114,9 @@ nonisolated struct Injected: Codable, Hashable, Sendable {
     private static let followupHead = try! NSRegularExpression(pattern: #"^⏰ (.+)（(你之前安排的跟进|定时任务(?:，每 [^）]+)?)）$"#) // i18n-ignore: matches the hub's text
     private static let wakeHead = try! NSRegularExpression(pattern: #"^⏰（Persona 叫醒你，第 \d+ 次）你上一轮停下时说在等「(.*?)」"#) // i18n-ignore: matches the hub's text
     private static let leadContext = try! NSRegularExpression(pattern: #"^\s*<"# + HubNaming.contextPattern + #"\b[^>]*>[\s\S]*?</"# + HubNaming.contextPattern + ">") // i18n-ignore: matches the hub's text
+    private static let supervisionHead = try! NSRegularExpression(pattern: #"^📋 督办：你派出去的任务有 (\d+) 个要你处理$"#) // i18n-ignore: matches the hub's text
+    private static let supervisionMarker = "这是 Persona 的督办消息" // i18n-ignore: matches the hub's text
+    private static let supervisionLevel = try! NSRegularExpression(pattern: #"(?m)^\s*<persona-supervision level="(triage|user)"\s*/>\s*$"#)
     private static let noticeMarker = "这是 Persona 的任务通知" // i18n-ignore: matches the hub's text
     private static let lostTasksHead = "⚠️ 运行你的 node 刚重启过" // i18n-ignore: matches the hub's text
     private static let kbHintHead = "（知识库" // i18n-ignore: matches the hub's text
@@ -76,6 +133,7 @@ nonisolated struct Injected: Codable, Hashable, Sendable {
     }
 
     private static func compute(_ raw: String) -> Injected? {
+        guard !MessageSource.protectsUser(raw) else { return nil }
         var text = raw
         while let m = leadContext.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let r = Range(m.range, in: text) {
@@ -90,6 +148,10 @@ nonisolated struct Injected: Codable, Hashable, Sendable {
         } else {
             head = text
             rest = ""
+        }
+        if groups(supervisionHead, head) != nil, rest.contains(supervisionMarker) {
+            let level = groups(supervisionLevel, rest)?[0] == "user" ? "user" : "triage"
+            return Injected(kind: "system", state: "supervise", line: String(localized: "Supervision [Chat Layout]"), level: level)
         }
         if head.hasPrefix("🔔 任务「") { // i18n-ignore
             guard let g = groups(noticeHead, head), rest.contains(noticeMarker), let state = noticeStates[g[1] ?? ""] else { return nil }

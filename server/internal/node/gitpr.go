@@ -26,14 +26,11 @@ const (
 	gitCodeNotGitHub = "git_not_github" // no GitHub remote to make one on
 )
 
-// ghLookPath is exec.LookPath("gh"); tests point it at a script.
-var ghLookPath = func() (string, error) { return exec.LookPath("gh") }
-
 // ghRun runs gh in dir without prompting; its output, or an rpc.Error saying what kept it from answering.
 func ghRun(ctx context.Context, dir string, timeout time.Duration, args ...string) ([]byte, error) {
 	gh, err := ghLookPath()
 	if err != nil {
-		return nil, &rpc.Error{Code: proto.CodeNoGh, Message: "gh is not installed on this machine"}
+		return nil, &rpc.Error{Code: proto.CodeNoGh, Message: ghMissing(err)}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

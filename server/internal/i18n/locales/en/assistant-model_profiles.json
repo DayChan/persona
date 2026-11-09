@@ -23,5 +23,9 @@
   "err_cannot_run": "Cannot run {purpose}: {error}",
   "err_profiles": "At most {max} model profiles are allowed.",
   "err_active": "Profile {name} is in use. Switch to another profile before deleting it.",
-  "err_role": "Full access is required to change model profiles."
+  "err_role": "Full access is required to change model profiles.",
+  "err_tier_model": "Tier {tier}: {model} is not a model ID. Start with a letter or digit, then use only letters, digits and . _ - / : @ [ ].",
+  "err_tier_description": "The description of tier {tier} must be at most {max} characters on one line.",
+  "tier_strong": "The main chat's model when this profile was made: design, review and hard problems.",
+  "tier_standard": "The New Agent model when this profile was made: everyday coding."
 }

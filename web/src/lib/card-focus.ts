@@ -1,6 +1,7 @@
 // The card a row in "Overview"'s "Needs you" was opened for (#4089): the chat puts it first, so on a phone it is the one shown in
 // full and not folded into "N more" under another card of the same agent. It rides on that history entry only: the
 // sidebar, a notification or a new tab open the chat without it.
+import type { Route } from "./router";
 import type { Interaction } from "./types";
 
 const KEY = "card";
@@ -20,4 +21,9 @@ export function focusedCard(state: unknown = typeof history !== "undefined" ? hi
 export function focusedFirst<T extends Pick<Interaction, "id">>(cards: T[], id: string | undefined): T[] {
   const i = id === undefined ? -1 : cards.findIndex((c) => c.id === id);
   return i <= 0 ? cards : [cards[i], ...cards.slice(0, i), ...cards.slice(i + 1)];
+}
+
+/** A script with no session opens its card, never an empty conversation URL. */
+export function requestRoute(ix: Pick<Interaction, "id" | "machine_id" | "session_id">): Route {
+  return ix.session_id === "" ? { name: "request", id: ix.id } : { name: "session", mid: ix.machine_id, sid: ix.session_id };
 }

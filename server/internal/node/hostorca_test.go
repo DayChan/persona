@@ -52,6 +52,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("ORCA_USER_DATA_PATH", "/tmp/persona-test-no-orca")
 	// Nor the user's botmux: a node registers no botmux host unless a test gives it one.
 	botmuxBin = func() string { return "" }
+	// Nor the user's gh outside the test's PATH (ghpath.go).
+	ghFallbackDirs = func() []string { return nil }
 	// Nor the user's Paseo: its home points nowhere (a test that wants one sets its own).
 	os.Setenv("PASEO_HOME", "/tmp/persona-test-no-paseo")
 	// Nor the user's Claude config directory (claude under a profile, or these tests run from inside a Claude Code

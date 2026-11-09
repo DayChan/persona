@@ -38,6 +38,7 @@ func (s *Service) kbRoutes() {
 		return e
 	}
 	s.recordingRoutes(engine)
+	s.kbSelectionRoutes()
 	s.handle("GET /api/v1/kb/{kind}", func(w http.ResponseWriter, r *http.Request) {
 		e := engine(w, r)
 		kind := r.PathValue("kind")

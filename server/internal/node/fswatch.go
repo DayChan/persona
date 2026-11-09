@@ -230,8 +230,11 @@ func (w *fsWatcher) poll(n *Node, ctx context.Context, stop <-chan struct{}, eve
 	}
 }
 
-// dirSignature is a hash of what a listing of d shows. A folder that cannot be read has the signature of its error
-// (so it going away is a change, and staying away is not).
+// dirSignature is a hash of what a listing of d shows: the entry count, and the name, type, size and time of the entries
+// listDir keeps. A folder within maxDirEntries shows all of them; a bigger one shows the first maxDirEntries in treeOrder
+// (not os.ReadDir's byte order), so only such a folder pays for the sort and for following its links, and still only
+// the shown entries' Info is read.
+// A folder that cannot be read has the signature of its error (so it going away is a change, and staying away is not).
 func (n *Node) dirSignature(d fsWatchDir) string {
 	_, real, err := n.resolveDir(d.Path, d.Cwd)
 	if err != nil {
@@ -241,11 +244,15 @@ func (n *Node) dirSignature(d fsWatchDir) string {
 	if err != nil {
 		return "err"
 	}
-	h := fnv.New64a()
-	for i, e := range ents {
-		if i >= maxDirEntries {
-			break
+	shown := ents
+	if len(ents) > maxDirEntries {
+		shown = make([]os.DirEntry, maxDirEntries)
+		for i, t := range n.treeOrder(real, ents)[:maxDirEntries] {
+			shown[i] = t.e
 		}
+	}
+	h := fnv.New64a()
+	for _, e := range shown {
 		fmt.Fprintf(h, "%s\x00%d\x00", e.Name(), e.Type())
 		if info, err := e.Info(); err == nil {
 			fmt.Fprintf(h, "%d\x00%d\x00", info.Size(), info.ModTime().UnixNano())

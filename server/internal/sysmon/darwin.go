@@ -3,7 +3,6 @@
 package sysmon
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -70,14 +69,18 @@ func NewCollector(ctx context.Context) Collector {
 	ctx, cancel := context.WithCancel(ctx)
 	c := &darwinCollector{cancel: cancel}
 	every := fmt.Sprint(int(proto.MetricEvery / time.Second))
-	go c.follow(ctx, func(line string) {
+	go follow(ctx, time.Minute, isIostatRow, func(line string) {
 		if busy, _, ok := parseIostatRow(line); ok {
 			c.mu.Lock()
 			c.busy = &busy
 			c.mu.Unlock()
 		}
+	}, func() {
+		c.mu.Lock()
+		c.busy = nil
+		c.mu.Unlock()
 	}, "iostat", "-n", "0", "-w", every)
-	go c.follow(ctx, func(line string) {
+	go follow(ctx, time.Minute, nil, func(line string) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if page, ok := parseVMStatHeader(line); ok {
@@ -85,41 +88,22 @@ func NewCollector(ctx context.Context) Collector {
 		} else if v, ok := parseVMStatRow(line); ok {
 			c.vm = &v
 		}
+	}, func() {
+		// The page size stays: it cannot change while the machine runs.
+		c.mu.Lock()
+		c.vm = nil
+		c.mu.Unlock()
 	}, "vm_stat", every)
 	return c
 }
 
 func (c *darwinCollector) Close() { c.cancel() }
 
-// follow runs a periodic command for as long as ctx lives, restarting it if it exits.
-func (c *darwinCollector) follow(ctx context.Context, line func(string), name string, args ...string) {
-	first := true
-	for ctx.Err() == nil {
-		cmd := exec.CommandContext(ctx, name, args...)
-		out, err := cmd.StdoutPipe()
-		if err == nil && cmd.Start() == nil {
-			sc := bufio.NewScanner(out)
-			skipped := false
-			for sc.Scan() {
-				// iostat's first row is the average since boot, not the last 10 s.
-				if name == "iostat" && !skipped {
-					if _, _, ok := parseIostatRow(sc.Text()); ok {
-						skipped = true
-						continue
-					}
-				}
-				line(sc.Text())
-			}
-			_ = cmd.Wait()
-		}
-		if !first {
-			select {
-			case <-ctx.Done():
-			case <-time.After(time.Minute):
-			}
-		}
-		first = false
-	}
+// isIostatRow tells follow which line is iostat's first row, dropped because it is the average since boot, not the
+// last 10 s.
+func isIostatRow(line string) bool {
+	_, _, ok := parseIostatRow(line)
+	return ok
 }
 
 func (c *darwinCollector) Sample(now time.Time) proto.MetricSample {

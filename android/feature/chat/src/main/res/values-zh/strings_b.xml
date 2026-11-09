@@ -240,6 +240,14 @@
     <string name="chat_draft_save_failed">草稿没保存上。打的字还在这一页，先别退出 App</string>
     <string name="chat_dictation_prompt">说吧，说完会放进输入框</string>
     <string name="chat_dictation_unavailable">这台手机上没有语音输入</string>
+    <string name="chat_source_label">@%1$s</string>
+    <string name="chat_source_conversation">对话</string>
+    <string name="chat_source_patrol">例行巡检</string>
+    <string name="chat_source_followup">跟进</string>
+    <string name="chat_source_supervision">督办</string>
+    <string name="chat_source_unknown">来源</string>
+    <string name="chat_source_expand">展开</string>
+    <string name="chat_source_collapse">收起</string>
     <string name="chat_injected_open_task">打开任务</string>
     <string name="chat_injected_view_request">看任务的要求</string>
     <string name="chat_read_only_history">历史会话只读，请先继续这个会话</string>

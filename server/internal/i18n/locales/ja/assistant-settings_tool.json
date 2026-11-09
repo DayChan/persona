@@ -13,5 +13,7 @@
   "title_recording_days": "録音をナレッジベースに保存する日数",
   "change_recording_days": "録音をナレッジベースに保存：{before} → {after} 日",
   "title_done_needs_delivery": "リリースして確認できたら完了",
-  "change_done_needs_delivery": "「リリースして確認できたら完了」：{before} → {after}"
+  "change_done_needs_delivery": "「リリースして確認できたら完了」：{before} → {after}",
+  "title_model_tiers": "Agent プリセット",
+  "change_model_tier": "{profile} · {tier}：{before} → {after}"
 }

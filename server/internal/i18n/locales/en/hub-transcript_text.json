@@ -102,5 +102,7 @@
   "read_only_claude_bg": "A Claude Code background session: view only here; to reply, open it on the computer with claude agents",
   "read_only_claude_no_inbox": "This Claude session has no message channel (an older version, or turned off): view only here; reply on the computer",
   "read_only_claude_inbox": "Persona can’t use this Claude session’s message channel (unknown version or missing key): view only here; reply on the computer",
-  "attention_claude_computer": "It’s waiting on a question or a permission prompt that can only be answered on the computer"
+  "attention_claude_computer": "It’s waiting on a question or a permission prompt that can only be answered on the computer",
+  "model_refusal": "Claude Code refusal notice ({subtype}). Original record:",
+  "model_refusal_fallback": "Claude Code reported an upstream refusal and switched from {original} to {fallback}. Category: {category}. Scope: {scope}. If the fallback model is unavailable, start a new conversation or use /model in the Claude Code terminal to select the configured model. The request may be refused again. Original record:"
 }

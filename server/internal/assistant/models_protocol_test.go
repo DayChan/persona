@@ -53,7 +53,8 @@ func TestProviderProtocolProbe(t *testing.T) {
 			if api == "chat" && (payload["stream"] != true || !strings.Contains(jsonText(payload["messages"]), "ping")) {
 				t.Fatalf("chat body: %v", payload)
 			}
-			if api == "responses" && (payload["stream"] != true || !strings.Contains(jsonText(payload["input"]), "ping")) {
+			if api == "responses" && (payload["stream"] != true || !strings.Contains(jsonText(payload["input"]), "ping") ||
+				!strings.Contains(jsonText(payload["input"]), `"role":"developer"`)) { // as the real calls send their system prompt
 				t.Fatalf("body: %v", payload)
 			}
 			if api == "messages" && (payload["max_tokens"] != float64(1) || !strings.Contains(jsonText(payload["messages"]), "ping")) {

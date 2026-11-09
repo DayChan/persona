@@ -275,9 +275,17 @@ export function onDraftEvent(key: string, l: Listener): () => void {
   listeners.get(key)!.add(l);
   tellRows();
   return () => {
-    listeners.get(key)?.delete(l);
+    const ls = listeners.get(key);
+    ls?.delete(l);
+    // the last composer of a key takes its set along: readers only ask for its size, so a missing key reads the same
+    if (ls?.size === 0) listeners.delete(key);
     tellRows();
   };
+}
+
+/** Tests only: how many draft keys have a listener set. */
+export function draftListenerKeysForTests() {
+  return listeners.size;
 }
 
 export function storeDraft(key: string, text: string) {

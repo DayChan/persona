@@ -279,3 +279,76 @@ func TestTaskPlanReportsQueuedDispatchBeforeAnAgentExists(t *testing.T) {
 		t.Fatalf("dispatch was reported as an actual start: %s", res)
 	}
 }
+
+func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
+	s, f := newTaskService(t)
+	res, err := s.toolTaskPlan(context.Background(), "conv1", json.RawMessage(`{"tasks":[{"title":"Read code","prompt":"Review code","machine":"box","cwd":"/code/app","readonly":true}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res, "Queued 1 task(s)") {
+		t.Fatalf("unexpected plan response: %s", res)
+	}
+	todo := onlyTodo(s)
+	plan, err := s.loadPlan(context.Background(), todo.PlanID)
+	if err != nil {
+		t.Fatalf("loadPlan failed: %v", err)
+	}
+	if len(plan.Tasks) != 1 {
+		t.Fatalf("expected 1 task in plan, got: %+v", plan)
+	}
+	if plan.Tasks[0].Permission != "default" {
+		t.Fatalf("plan task permission = %q, want explicit \"default\"", plan.Tasks[0].Permission)
+	}
+	waitFor(t, "task started", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.starts) == 1
+	})
+	f.mu.Lock()
+	start := f.starts[0]
+	f.mu.Unlock()
+	if got := start["permission_mode"]; got != "default" {
+		t.Fatalf("started permission_mode = %v, want \"default\"", got)
+	}
+
+	// When DefaultPermissionMode is configured in settings, empty permission resolves to it.
+	if _, err := s.updateSettings(context.Background(), func(v *Settings) error {
+		v.DefaultPermissionMode = "acceptEdits"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := s.toolTaskPlan(context.Background(), "conv2", json.RawMessage(`{"tasks":[{"title":"Read 2","prompt":"Review 2","machine":"box","cwd":"/code/app","readonly":true}]}`))
+	if err != nil || !strings.Contains(res2, "Queued 1 task(s)") {
+		t.Fatalf("second plan failed: %s, %v", res2, err)
+	}
+	waitFor(t, "second task started", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.starts) == 2
+	})
+	f.mu.Lock()
+	start2 := f.starts[1]
+	f.mu.Unlock()
+	if got := start2["permission_mode"]; got != "acceptEdits" {
+		t.Fatalf("second started permission_mode = %v, want \"acceptEdits\"", got)
+	}
+
+	// Explicit permission mode in plan is preserved.
+	res3, err := s.toolTaskPlan(context.Background(), "conv3", json.RawMessage(`{"tasks":[{"title":"Read 3","prompt":"Review 3","machine":"box","cwd":"/code/app","readonly":true,"permission":"bypassPermissions"}]}`))
+	if err != nil || !strings.Contains(res3, "Queued 1 task(s)") {
+		t.Fatalf("third plan failed: %s, %v", res3, err)
+	}
+	waitFor(t, "third task started", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.starts) == 3
+	})
+	f.mu.Lock()
+	start3 := f.starts[2]
+	f.mu.Unlock()
+	if got := start3["permission_mode"]; got != "bypassPermissions" {
+		t.Fatalf("third started permission_mode = %v, want \"bypassPermissions\"", got)
+	}
+}

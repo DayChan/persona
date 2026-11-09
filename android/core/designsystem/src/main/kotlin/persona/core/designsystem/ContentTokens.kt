@@ -31,4 +31,6 @@ object ContentTokens {
     val reactionEmoji = 14.sp
     val quickReactionEmoji = 18.sp
     val pickerReactionEmoji = 22.sp
+    /** Compact provenance messages show their first few lines until the reader expands them. */
+    const val sourcePreviewLines = 4
 }

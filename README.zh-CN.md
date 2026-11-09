@@ -47,7 +47,7 @@ https://github.com/user-attachments/assets/5ef97ffd-f6d8-4136-834c-ffcddbf56846
 
 ## 怎么工作
 
-在一台常开的机器上跑一个小小的 hub，你的设备只连它，它再连到你的每台电脑，Agent 跑在那里的 herdr 或 Orca 里。数据留在你自己的机器上。
+在一台常开的机器上跑一个小小的 hub，你的设备只连它，它再连到你的每台电脑，Agent 跑在那里的 herdr、Orca 或 Paseo 里。数据留在你自己的机器上。
 [架构](docs/server/architecture.md) · [网络与安全](docs/operations/network.md)
 
 ## 开始使用

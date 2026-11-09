@@ -1,5 +1,5 @@
 // Where Settings is (#1996): which category the URL opens, and the list of them a phone shows first. Wide, the
-// categories are tabs in the bar and /settings is "General"; phone width, /settings is the list (as on iOS), a category is
+// categories are in the left sidebar and /settings is "General"; phone width, /settings is the list (as on iOS), a category is
 // /settings?tab=… pushed over it, and Back goes back to the list.
 import { t } from "../../i18n";
 import { settingsTab } from "../../lib/channels";
@@ -32,7 +32,7 @@ export const TAB_INFO: Record<Tab, { label: string; icon: IconName; hint: string
   managers: { label: t("settings-nav.tab_managers"), icon: "person", hint: t("settings-nav.hint_managers") },
 };
 
-/** The phone's list: groups of categories, in the tab bar's order. */
+/** The phone's list: groups of categories, retaining the desktop categories within each group. */
 export const LIST_GROUPS: { title: string; tabs: Tab[] }[] = [
   { title: t("settings-nav.group_general"), tabs: ["general", "notifications", "assistant", "translate", "shortcuts"] },
   { title: t("settings-nav.group_models"), tabs: ["models", "model-config", "claude", "codex", "agy", "omp"] },

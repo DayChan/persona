@@ -71,12 +71,12 @@ func TestRuntimeLaunchers(t *testing.T) {
 		return map[string]any{"ok": true}, nil
 	}
 	if _, err := nodeCall(t, n, "session.start", map[string]any{"cwd": "/w/app", "launcher": "paseo-codex", "model": "gpt-6",
-		"permission_mode": "plan", "effort": "high", "workspace_id": "wks_1", "async": true}); err != nil {
+		"permission_mode": "default", "effort": "high", "workspace_id": "wks_1", "async": true}); err != nil {
 		t.Fatal(err)
 	}
 	var start map[string]any
 	_ = json.Unmarshal(host.got("session.start")[0], &start)
-	if start["launcher"] != "paseo-codex" || start["model"] != "gpt-6" || start["permission_mode"] != "plan" || start["effort"] != "high" ||
+	if start["launcher"] != "paseo-codex" || start["model"] != "gpt-6" || start["permission_mode"] != "default" || start["effort"] != "high" ||
 		start["workspace_id"] != "wks_1" || start["shell_launcher"] != nil || start["resume"] != nil {
 		t.Fatalf("started with %v", start)
 	}

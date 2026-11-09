@@ -24,7 +24,7 @@ import (
 // each device says which widgets it has, so an extension's ui.invalidate wakes the devices that show it.
 
 // widgetPushEvery is how often one device is woken for one widget at most: iOS budgets background pushes and widget
-// reloads, and a widget a minute old is fine.
+// reloads, and a widget a minute old is fine. Lifecycle changes bypass this content refresh budget.
 var widgetPushEvery = 15 * time.Minute
 
 // deviceWidgetsKey is the setting keeping the widgets each device has.
@@ -42,11 +42,12 @@ type ShortcutPlace = wire.ShortcutPlace
 // widgets keeps what the hub knows of widgets: views drawn and not yet due, the widgets each device has, when each was
 // last woken for one.
 type widgets struct {
-	mu      sync.Mutex
-	views   map[string]widgetView          // widgetCacheKey → the view
-	devices map[string][]wire.DeviceWidget // device id → its widgets
-	loaded  bool                           // devices read from the store
-	woken   map[string]time.Time           // device/extension/ui → when it was last woken for it
+	mu         sync.Mutex
+	views      map[string]widgetView          // widgetCacheKey → the view
+	devices    map[string][]wire.DeviceWidget // device id → its widgets
+	loaded     bool                           // devices read from the store
+	woken      map[string]time.Time           // device/extension/ui → when it was last woken for it
+	generation map[string]uint64              // extension → lifecycle revision, fencing renders from an old runtime
 }
 
 type widgetView struct {
@@ -142,6 +143,11 @@ func localizedKind(kind error, key string, args i18n.Args) error {
 // due, else the extension's ui.render held to the family (FitWidget), kept until the widget's refresh is due.
 func (h *Manager) widgetCall(ctx context.Context, id, uiID string, in uiRequest) (wire.WidgetAnswer, error) {
 	var out wire.WidgetAnswer
+	id = h.extensions.reg.CanonicalID(id)
+	w := &h.extensions.widgets
+	w.mu.Lock()
+	generation := w.generation[id]
+	w.mu.Unlock()
 	p := h.extensions.reg.Get(id)
 	hp := h.extensions.get(id)
 	if p == nil || !p.Record.Enabled || hp == nil || hp.proc == nil {
@@ -164,9 +170,12 @@ func (h *Manager) widgetCall(ctx context.Context, id, uiID string, in uiRequest)
 	params := h.uiParams(item, slot, in)
 	params.Size, params.State, params.Action, params.Values = family, "", "", nil
 	key := widgetCacheKey(id, uiID, params)
-	w := &h.extensions.widgets
 	now := time.Now()
 	w.mu.Lock()
+	if w.generation[id] != generation {
+		w.mu.Unlock()
+		return out, errNoExtension
+	}
 	if v, ok := w.views[key]; ok && now.Before(v.expires) {
 		w.mu.Unlock()
 		return wire.WidgetAnswer{View: v.view, ExpiresAt: v.expires}, nil
@@ -195,6 +204,10 @@ func (h *Manager) widgetCall(ctx context.Context, id, uiID string, in uiRequest)
 	}
 	expires := now.Add(item.Refresh()).UTC().Truncate(time.Second)
 	w.mu.Lock()
+	if w.generation[id] != generation {
+		w.mu.Unlock()
+		return out, errNoExtension
+	}
 	if w.views == nil {
 		w.views = map[string]widgetView{}
 	}
@@ -325,6 +338,23 @@ func (h *Manager) setDeviceWidgets(ctx context.Context, id string, list []wire.D
 	return h.store.PutSetting(ctx, deviceWidgetsKey, all)
 }
 
+// widgetsDropExtension retires every cached family/context and any render still in flight, even after uninstall
+// or an upgrade that removed its widget declarations. Device reports survive to target the lifecycle wake.
+func (h *Manager) widgetsDropExtension(id string) {
+	w := &h.extensions.widgets
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.generation == nil {
+		w.generation = map[string]uint64{}
+	}
+	w.generation[id]++
+	for k := range w.views {
+		if strings.HasPrefix(k, id+"\x00") {
+			delete(w.views, k)
+		}
+	}
+}
+
 // widgetsChanged takes what an extension said changed (ui.invalidate: its ui ids, "" for all of them): the views kept
 // of them are dropped, and each device showing one of them is woken (a background push with extension_widget), once
 // in widgetPushEvery per widget.
@@ -354,8 +384,15 @@ func (h *Manager) widgetsChanged(id string, ids map[string]bool) {
 		}
 	}
 	w.mu.Unlock()
+	h.widgetsWake(id, changed, false)
+}
+
+// widgetsWake uses the persisted device reports, not the current manifest: nil ids means every reported widget
+// of the extension, including removed contributions. Lifecycle changes force a wake even after a content push.
+func (h *Manager) widgetsWake(id string, ids map[string]bool, force bool) {
 	devices := h.deviceWidgets(context.Background())
 	now := time.Now()
+	w := &h.extensions.widgets
 	w.mu.Lock()
 	if w.woken == nil {
 		w.woken = map[string]time.Time{}
@@ -364,7 +401,8 @@ func (h *Manager) widgetsChanged(id string, ids map[string]bool) {
 	for dev, list := range devices {
 		for _, dw := range list {
 			k := dev + "/" + dw.Extension + "/" + dw.ID
-			if dw.Extension != id || !changed[dw.ID] || slices.Contains(wake[dev], dw.ID) || now.Sub(w.woken[k]) < widgetPushEvery {
+			if dw.Extension != id || (ids != nil && !ids[dw.ID]) || slices.Contains(wake[dev], dw.ID) ||
+				(!force && now.Sub(w.woken[k]) < widgetPushEvery) {
 				continue
 			}
 			w.woken[k] = now

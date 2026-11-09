@@ -2,7 +2,7 @@
 - 模型档位：未设置（model_profiles_list 查看，model_profile_switch 切换）
 - 在线的电脑：
 - Agents：需要你 0 个，完成未看 0 个，工作中 0 个（详情用 agents_list）
-- 从对话开的任务（task_plan；用 agent_send 对它的 Agent 说话）：
+- 从对话开的任务（task_plan；问已有结果看这里，不够用 agent_read 读它的对话；要它新查、新做或改方向才用 agent_send）：
   - 部署 hub（todo_2）：停着；督办：等你决定，验收标准 1 条
   - 修登录崩溃（todo_1）：做完了（用户还没看）；督办：待验收，验收标准 2 条
   - 跑 UI 测试（todo_3）：在做；督办：卡住 35 分钟，没写验收标准

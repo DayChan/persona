@@ -256,8 +256,93 @@ func TestReadinessAnswered(t *testing.T) {
 	r = getReadiness(t, s, "", "")
 	m := readinessStep(t, r, StepModel)
 	if m.State != StepProblem || m.Code != proto.TurnErrorRateLimited || r.Mode != ReadinessFull || // a rate limit passes by itself
-		readinessStep(t, r, StepFirstMessage).State != StepOK {
+		m.Action == nil || m.Action.ID != "connect_model" || len(m.AltActions) != 0 || readinessStep(t, r, StepFirstMessage).State != StepOK {
 		t.Fatalf("after a rate limit: %+v", r)
+	}
+}
+
+// Once first_message is complete, a later key or model failure still needs a way to verify a repair in this chat.
+func TestReadinessRetryAfterAnswered(t *testing.T) {
+	for _, tc := range []struct {
+		code, text, action string
+	}{
+		{proto.TurnErrorAuthFailed, "Invalid API key · Please run /login", "edit_provider"},
+		{proto.TurnErrorModelRoute, "There's an issue with the selected model (example-model). It may not exist or you may not have access to it.", "connect_model"},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			f, s, st := readyMachine(t, proto.Session{SessionID: "m1", State: proto.StateIdle, LastText: "Hello.", UpdatedAt: time.Now().Add(-time.Minute)})
+			if r := getReadiness(t, s, "", "en"); !r.Ready || readinessStep(t, r, StepFirstMessage).State != StepOK {
+				t.Fatalf("initial answer: %+v", r)
+			}
+			f.setSessions("server", proto.Session{SessionID: "m1", State: proto.StateIdle, LastText: tc.text, UpdatedAt: time.Now().Add(-time.Second)})
+			// Reload the persisted first answer, as when the assistant restarts before the repair.
+			s = newServiceOn(t, f, st)
+			assertBlocked := func(r Readiness) {
+				t.Helper()
+				m, first := readinessStep(t, r, StepModel), readinessStep(t, r, StepFirstMessage)
+				if r.Ready || r.Mode != ReadinessSetup || nextOf(r) != StepModel || m.State != StepProblem || m.Code != tc.code ||
+					m.Action == nil || m.Action.ID != tc.action || len(m.AltActions) != 1 || m.AltActions[0].ID != "test_assistant" ||
+					first.State != StepOK || first.Action != nil {
+					t.Fatalf("model repair must remain testable after the first answer: %+v", r)
+				}
+			}
+			assertBlocked(getReadiness(t, s, "", "en"))
+			f.mu.Lock()
+			if len(f.checked) != 0 {
+				t.Error("readiness spent tokens without an explicit probe")
+			}
+			f.checks = map[string]proto.LauncherCheck{"server/claude": {Error: tc.text}}
+			f.mu.Unlock()
+			failed := getReadiness(t, s, "probe=1", "en")
+			assertBlocked(failed)
+			if failed.Probe == nil || failed.Probe.OK || failed.Probe.Error != tc.text {
+				t.Fatalf("failed probe: %+v", failed.Probe)
+			}
+			// Let the previous probe expire without a wall-clock sleep.
+			if err := s.readinessUpdate(context.Background(), func(r *readinessRecord) { r.Probe.At = time.Now().Add(-time.Minute) }); err != nil {
+				t.Fatal(err)
+			}
+			f.mu.Lock()
+			f.checks = nil
+			f.mu.Unlock()
+			recovered := getReadiness(t, s, "probe=1", "en")
+			if recovered.Probe == nil || !recovered.Probe.OK || !recovered.Ready || recovered.Mode != ReadinessFull || recovered.Next != nil ||
+				readinessStep(t, recovered, StepModel).State != StepOK || readinessStep(t, recovered, StepFirstMessage).State != StepOK {
+				t.Fatalf("successful retry: %+v", recovered)
+			}
+			if r := getReadiness(t, newServiceOn(t, f, st), "", "en"); !r.Ready || readinessStep(t, r, StepFirstMessage).State != StepOK {
+				t.Fatalf("recovered record after restart: %+v", r)
+			}
+			if v := s.settings(context.Background()); v.Main != "m1" || len(v.Former) != 0 {
+				t.Fatalf("retry replaced or archived the main conversation: %+v", v)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if len(f.checked) != 2 || f.checked[0] != "server/claude" || f.checked[1] != "server/claude" || f.made != 0 || len(f.sends) != 0 || len(f.retired) != 0 ||
+				len(f.sessions["server"]) != 1 || f.sessions["server"][0].SessionID != "m1" || f.sessions["server"][0].LastText != tc.text {
+				t.Fatalf("retry must only check the current launcher: checks=%v made=%d sends=%v retired=%v sessions=%+v", f.checked, f.made, f.sends, f.retired, f.sessions)
+			}
+		})
+	}
+}
+
+// A successful check on a different machine or launcher cannot clear this main chat's failure.
+func TestReadinessRetryProbeIdentity(t *testing.T) {
+	for _, identity := range []struct{ machine, launcher string }{{"other", "claude"}, {"server", "other"}} {
+		t.Run(identity.machine+"/"+identity.launcher, func(t *testing.T) {
+			_, s, _ := readyMachine(t, proto.Session{SessionID: "m1", State: proto.StateIdle, LastText: "Invalid API key · Please run /login", UpdatedAt: time.Now().Add(-time.Minute)})
+			if err := s.readinessUpdate(context.Background(), func(r *readinessRecord) {
+				now := time.Now()
+				r.AnsweredAt = &now
+				r.Probe = &readinessProbe{Machine: identity.machine, Launcher: identity.launcher, At: now, Check: proto.LauncherCheck{OK: true}}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			r := getReadiness(t, s, "", "en")
+			if r.Ready || readinessStep(t, r, StepModel).Code != proto.TurnErrorAuthFailed || readinessStep(t, r, StepFirstMessage).State != StepOK {
+				t.Fatalf("unrelated probe cleared the current failure: %+v", r)
+			}
+		})
 	}
 }
 
@@ -285,9 +370,18 @@ func TestReadinessProbe(t *testing.T) {
 	f.mu.Lock()
 	f.checks = nil
 	f.mu.Unlock()
-	if r4 := getReadiness(t, s, "probe=1", ""); r4.Probe == nil || !r4.Probe.OK || readinessStep(t, r4, StepModel).State != StepOK ||
+	r4 := getReadiness(t, s, "probe=1", "")
+	if r4.Probe == nil || !r4.Probe.OK || readinessStep(t, r4, StepModel).State != StepOK ||
 		len(f.checked) != 2 || r4.Mode != ReadinessFull {
 		t.Fatalf("again later: %+v, checked %v", r4, f.checked)
+	}
+	if first := readinessStep(t, r4, StepFirstMessage); first.State != StepOK || r4.Next != nil {
+		t.Fatalf("probe ok should complete first_message: first = %+v, next = %v", first, r4.Next)
+	}
+	// Stays ok on later reads without probe and persists AnsweredAt.
+	r5 := getReadiness(t, s, "", "")
+	if first := readinessStep(t, r5, StepFirstMessage); first.State != StepOK || r5.Next != nil {
+		t.Fatalf("persisted first_message: %+v", first)
 	}
 }
 

@@ -2,8 +2,10 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/i18n"
@@ -151,13 +153,63 @@ func withManagedSnapshot(ctx context.Context, list []storedLauncher) context.Con
 	return context.WithValue(ctx, managedSnapshotKey{}, list)
 }
 
+type settingsMemoKey struct{}
+
+// settingsMemo is what one read-only request has read of the settings, by key: Settings › Model configuration
+// resolves every purpose against the same provider list and records, which would otherwise be read again for each.
+type settingsMemo struct {
+	mu   sync.Mutex
+	vals map[string]memoVal
+}
+
+type memoVal struct {
+	raw   json.RawMessage
+	found bool
+}
+
+// withSettingsMemo lets memoSetting read each key once for the rest of ctx. Only for requests that write none of
+// the keys read through it: a write in the same ctx would not be seen.
+func withSettingsMemo(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(settingsMemoKey{}).(*settingsMemo); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, settingsMemoKey{}, &settingsMemo{vals: map[string]memoVal{}})
+}
+
+// memoSetting is st.Setting, read once per key when ctx has a memo (withSettingsMemo). Every call decodes into out
+// anew, so callers that change what they got do not change what the next one gets; a failed read is not kept.
+func memoSetting(ctx context.Context, st Store, key string, out any) (bool, error) {
+	m, ok := ctx.Value(settingsMemoKey{}).(*settingsMemo)
+	if !ok {
+		return st.Setting(ctx, key, out)
+	}
+	m.mu.Lock()
+	v, hit := m.vals[key]
+	m.mu.Unlock()
+	if !hit {
+		var raw json.RawMessage
+		found, err := st.Setting(ctx, key, &raw)
+		if err != nil {
+			return false, err
+		}
+		v = memoVal{raw: raw, found: found}
+		m.mu.Lock()
+		m.vals[key] = v
+		m.mu.Unlock()
+	}
+	if !v.found {
+		return false, nil
+	}
+	return true, json.Unmarshal(v.raw, out)
+}
+
 func (s *Service) storedLaunchers(ctx context.Context) []storedLauncher {
 	if list, ok := ctx.Value(managedSnapshotKey{}).([]storedLauncher); ok {
 		return list
 	}
 	var list []storedLauncher
 	if st := s.store(); st != nil {
-		_, _ = st.Setting(ctx, launchersManagedKey, &list)
+		_, _ = memoSetting(ctx, st, launchersManagedKey, &list)
 	}
 	return list
 }
@@ -186,7 +238,7 @@ func (s *Service) readStoredLaunchers(ctx context.Context) (list []storedLaunche
 func (s *Service) hiddenLaunchers(ctx context.Context) []string {
 	var list []string
 	if st := s.store(); st != nil {
-		_, _ = st.Setting(ctx, launchersHiddenKey, &list)
+		_, _ = memoSetting(ctx, st, launchersHiddenKey, &list)
 	}
 	return list
 }

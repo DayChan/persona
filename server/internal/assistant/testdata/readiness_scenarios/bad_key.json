@@ -25,6 +25,11 @@
         "action": {
           "id": "edit_provider"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "auth_failed",
         "detail": "The model's key is wrong or has expired. Use one that works.",
         "id": "model",
@@ -84,6 +89,11 @@
         "action": {
           "id": "edit_provider"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "auth_failed",
         "detail": "モデルのキーが間違っているか期限切れです。使えるキーに替えてください。",
         "id": "model",
@@ -143,6 +153,11 @@
         "action": {
           "id": "edit_provider"
         },
+        "alt_actions": [
+          {
+            "id": "test_assistant"
+          }
+        ],
         "code": "auth_failed",
         "detail": "模型的 Key 不对或过期了，换一个能用的。",
         "id": "model",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -18,16 +19,16 @@ func fakeArchiveAPI(t *testing.T) (*Connector, *[]string) {
 	routes := map[string]string{
 		"/user": `{"login":"me"}`,
 		"/search/issues": `{"total_count":1,"items":[{"number":12,"title":"Add the example","state":"open","user":{"login":"alice"},
-			"body":"示例描述","repository_url":"https://api.github.com/repos/example-org/example-repo","created_at":"2026-11-01T08:00:00Z",
-			"updated_at":"2026-11-02T10:00:00Z","pull_request":{}}]}`,
+			"body":"示例描述","repository_url":"https://api.github.com/repos/example-org/example-repo","created_at":"` + fixtureAt(dayBefore+8*time.Hour) + `",
+			"updated_at":"` + fixtureAt(10*time.Hour) + `","pull_request":{}}]}`,
 		"/repos/example-org/example-repo/issues/12/comments": `[
-			{"id":1,"user":{"login":"bob"},"body":"请看一下","created_at":"2026-11-01T09:00:00Z"},
-			{"id":2,"user":{"login":"ci-bot[bot]","type":"Bot"},"body":"Preview ready.","created_at":"2026-11-01T09:30:00Z"}]`,
+			{"id":1,"user":{"login":"bob"},"body":"请看一下","created_at":"` + fixtureAt(dayBefore+9*time.Hour) + `"},
+			{"id":2,"user":{"login":"ci-bot[bot]","type":"Bot"},"body":"Preview ready.","created_at":"` + fixtureAt(dayBefore+9*time.Hour+30*time.Minute) + `"}]`,
 		"/repos/example-org/example-repo/pulls/12/reviews": `[
-			{"id":3,"user":{"login":"me"},"state":"APPROVED","body":"","submitted_at":"2026-11-02T10:00:00Z"},
-			{"id":4,"user":{"login":"bob"},"state":"COMMENTED","body":"","submitted_at":"2026-11-01T09:10:00Z"}]`,
+			{"id":3,"user":{"login":"me"},"state":"APPROVED","body":"","submitted_at":"` + fixtureAt(10*time.Hour) + `"},
+			{"id":4,"user":{"login":"bob"},"state":"COMMENTED","body":"","submitted_at":"` + fixtureAt(dayBefore+9*time.Hour+10*time.Minute) + `"}]`,
 		"/repos/example-org/example-repo/pulls/12/comments": `[
-			{"id":5,"user":{"login":"bob"},"body":"这里要判空","path":"src/example.go","line":42,"created_at":"2026-11-01T09:05:00Z"}]`,
+			{"id":5,"user":{"login":"bob"},"body":"这里要判空","path":"src/example.go","line":42,"created_at":"` + fixtureAt(dayBefore+9*time.Hour+5*time.Minute) + `"}]`,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/" { // a node's port probe (node/ports.go), not this test's client
@@ -76,7 +77,7 @@ func TestChangesArchiveAThreadOnce(t *testing.T) {
 	}
 	var cur archiveCursor
 	_ = json.Unmarshal([]byte(next), &cur)
-	if !cur.Since.Equal(time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)) || cur.Threads["example-org/example-repo#12"].IsZero() {
+	if !cur.Since.Equal(fixtureDay.Add(10*time.Hour)) || cur.Threads["example-org/example-repo#12"].IsZero() {
 		t.Fatalf("cursor %s", next)
 	}
 
@@ -85,7 +86,7 @@ func TestChangesArchiveAThreadOnce(t *testing.T) {
 	if err != nil || len(batches) != 0 {
 		t.Fatalf("again: %d batches, %v", len(batches), err)
 	}
-	if q := (*seen)[len(*seen)-1]; !strings.Contains(q, "since=2026-11-02T10%3A00%3A00Z") {
+	if q := (*seen)[len(*seen)-1]; !strings.Contains(q, "since="+url.QueryEscape(fixtureAt(10*time.Hour))) {
 		t.Errorf("not asked since the last message: %s", q)
 	}
 }

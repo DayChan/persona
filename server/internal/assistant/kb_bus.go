@@ -94,6 +94,11 @@ func (s *Service) kbRequest(ctx context.Context, method string, params json.RawM
 func (s *Service) kbEvent(ctx context.Context, name string, params json.RawMessage) (bool, error) {
 	switch name {
 	case assistantwire.EventKBKick:
+		var k assistantwire.KBKick
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &k) // a manager before #1562 sends {}: only the round
+		}
+		s.kbNoteKick(k)
 		s.kbKick()
 	case assistantwire.EventKBAgentTurn:
 		var t assistantwire.KBAgentTurn

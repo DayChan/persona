@@ -5,7 +5,7 @@
 // Whether a text needs translating is decided here. The app asks the system's language recognizer; a browser has
 // none it can rely on, so this looks at the scripts the text is written in and, for Latin script, at common words.
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { api, enc } from "./api";
 import { itemHeaders } from "./manager-choice";
 
@@ -232,8 +232,11 @@ export interface MailTranslation {
   clipped?: boolean;
 }
 
+// The chat translations, least recently read first. A tab left open on chats for hours would keep every foreign
+// message twice, so only the TEXTS_KEPT read last are kept, plus those of the lines on screen (pinned by useTranslation).
 const texts = new Map<string, string>();
 const failed = new Set<string>();
+const pinned = new Map<string, number>();
 const queued = new Map<string, { text: string; target: string }>();
 let flushing: ReturnType<typeof setTimeout> | null = null;
 const textListeners = new Set<() => void>();
@@ -241,10 +244,39 @@ let version = 0;
 
 const textKey = (text: string, target: string) => target + "\u0000" + text;
 const BATCH = 30;
+export const TEXTS_KEPT = 2000;
 
 /** The translation of a short text, if it came back already. */
 export function translationOf(text: string, target: string): string | undefined {
-  return texts.get(textKey(text, target));
+  const k = textKey(text, target);
+  const v = texts.get(k);
+  if (v !== undefined) {
+    texts.delete(k); // read now: the last to go
+    texts.set(k, v);
+  }
+  return v;
+}
+
+function pin(k: string) {
+  pinned.set(k, (pinned.get(k) ?? 0) + 1);
+}
+
+function unpin(k: string) {
+  const n = (pinned.get(k) ?? 0) - 1;
+  if (n > 0) pinned.set(k, n);
+  else pinned.delete(k);
+}
+
+/** Drops the least recently read translations above TEXTS_KEPT, never one a line on screen shows. */
+function trimTexts() {
+  for (const k of texts.keys()) {
+    if (texts.size <= TEXTS_KEPT) break;
+    if (!pinned.has(k)) texts.delete(k);
+  }
+  for (const k of failed) {
+    if (failed.size <= TEXTS_KEPT) break;
+    failed.delete(k);
+  }
 }
 
 /** Asks for a short text's translation; texts asked for within a moment go in one request (30 at a time). */
@@ -270,6 +302,7 @@ async function flush() {
     } catch {
       picked.forEach(([k]) => failed.add(k)); // not again this visit; the original stays readable
     }
+    trimTexts();
     version++;
     textListeners.forEach((l) => l());
   }
@@ -284,21 +317,48 @@ const subscribeTexts = (l: () => void) => {
 };
 
 /** Re-renders when a batch of translations came back. */
-export function useTranslations(): number {
+function useTranslations(): number {
   return useSyncExternalStore(subscribeTexts, () => version);
 }
 
+/**
+ * The translation of a short text a line on screen shows, once it came back (when `applies`): asked for as the line
+ * mounts and kept while it stays mounted.
+ */
+export function useTranslation(text: string, target: string, applies: boolean): string | undefined {
+  useTranslations();
+  useEffect(() => {
+    if (!applies) return;
+    const k = textKey(text, target);
+    pin(k);
+    requestTranslation(text, target);
+    return () => unpin(k);
+  }, [applies, text, target]);
+  return applies ? translationOf(text, target) : undefined;
+}
+
+// The mail translations, least recently asked first. MailBody keeps its own copy of the one it shows, so dropping
+// one here only means asking the hub again when that mail opens again.
 const mails = new Map<string, Promise<MailTranslation>>();
+export const MAILS_KEPT = 50;
 
 /** One mail's subject and body, translated by the hub from the message it reads itself; asked once per mail and target. */
 export function translateMail(account: string, uid: number, mailbox: string, target: string, manager?: string): Promise<MailTranslation> {
   const k = [manager ?? "", account, mailbox, uid, target].join("\u0000");
   let p = mails.get(k);
-  if (!p) {
+  if (p) {
+    mails.delete(k); // asked now: the last to go
+  } else {
     // the mail is the manager's that reads it (an inbox item's, docs/assistant/managers.md "Clients")
-    p = api<MailTranslation>("/translate/mail", { method: "POST", json: { account_id: account, uid, mailbox, target }, headers: itemHeaders(manager) });
-    mails.set(k, p);
-    p.catch(() => mails.delete(k)); // a failure can be asked again next time
+    const asked = api<MailTranslation>("/translate/mail", { method: "POST", json: { account_id: account, uid, mailbox, target }, headers: itemHeaders(manager) });
+    // a failure can be asked again next time (unless it was dropped and asked again already)
+    asked.catch(() => mails.get(k) === asked && mails.delete(k));
+    p = asked;
+  }
+  mails.set(k, p);
+  for (const old of mails.keys()) {
+    if (mails.size <= MAILS_KEPT) break;
+    mails.delete(old);
   }
   return p;
 }
@@ -316,10 +376,16 @@ export async function larkChatChoices(token: string): Promise<{ id: string; name
 }
 
 /** Tests only. */
+export function translateCacheSizesForTests() {
+  return { texts: texts.size, failed: failed.size, pinned: pinned.size, mails: mails.size };
+}
+
+/** Tests only. */
 export function resetTranslateForTests() {
   prefs = null;
   texts.clear();
   failed.clear();
+  pinned.clear();
   queued.clear();
   mails.clear();
   foreignMemo.clear();

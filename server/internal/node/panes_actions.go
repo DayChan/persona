@@ -373,7 +373,8 @@ func (n *Node) gitOp(ctx context.Context, dir, op string) (proto.PaneGitResult, 
 		if st.Upstream == "" {
 			return res, errors.New("没有上游分支，请先在电脑上设置上游")
 		}
-		if st.Ahead == 0 {
+		// a deleted upstream counts nothing ahead: the push below publishes the branch there again
+		if st.Ahead == 0 && !st.Gone {
 			res.Message = "没有要推送的提交"
 			return res, nil
 		}
