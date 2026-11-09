@@ -53,3 +53,20 @@ internal suspend fun handOffToNewAgent(
         AgentStartResult.Unknown -> HandOffOutcome.Unconfirmed(operation, AgentText(R.string.agents_new_error_unknown))
     }
 }
+
+/**
+ * "Hand to Agent" → "Give to a running one": [link]s the agent to the to-do, then [send]s it the prompt. Null once both went; else
+ * what to say in the sheet (#1856), as the new-agent branch does: a link the hub refuses (the to-do done or gone, the hub
+ * unreachable) sends nothing, and cancelling (the pairing changed) is not a failure to show.
+ */
+internal suspend fun handOffToRunningAgent(link: suspend () -> Unit, send: suspend () -> Unit): AgentText? {
+    try {
+        link()
+        send()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        return AgentText(R.string.agents_todo_hand_off_failed, e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName)
+    }
+    return null
+}

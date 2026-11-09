@@ -229,14 +229,20 @@ fun EntryProviderScope<NavKey>.agentsEntries(
                 },
                 onHandOffExisting = { target, prompt ->
                     handOffStarting = true
+                    handOffError = null
                     scope.launch {
-                        try {
-                            tasksStore?.linkTodoAgent(targetTodo.id, target.machineId, target.sessionId)
-                            dependencies.sender().send(target, prompt, java.util.UUID.randomUUID().toString())
+                        val failed = try {
+                            handOffToRunningAgent(
+                                link = { tasksStore?.linkTodoAgent(targetTodo.id, target.machineId, target.sessionId) },
+                                send = { dependencies.sender().send(target, prompt, java.util.UUID.randomUUID().toString()) },
+                            )
+                        } finally { handOffStarting = false }
+                        if (failed != null) {
+                            handOffError = failed
+                        } else {
                             handOffTodo = null
                             navigator.navigate(ChatRoute(target.machineId, target.sessionId))
-                        } catch (_: Exception) {}
-                        handOffStarting = false
+                        }
                     }
                 }
             )

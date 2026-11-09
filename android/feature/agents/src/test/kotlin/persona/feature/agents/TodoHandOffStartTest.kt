@@ -81,4 +81,25 @@ class TodoHandOffStartTest {
         assertEquals(1, service.starts.size)
         assertNotEquals("old-op", service.starts.single())
     }
+
+    // "Give to a running one" (#1856): a refused link (a done to-do: 409, a gone one, an unreachable hub) is said in the sheet and
+    // sends nothing; once linked, a send that fails is said too; cancelling is not a failure to show.
+    @Test fun aRunningAgentsHandOffSaysWhyItDidNotGo() = runTest {
+        val sent = mutableListOf<String>()
+        val refused = handOffToRunningAgent(link = { throw java.io.IOException("todo is already completed") }, send = { sent += "prompt" })
+        assertEquals(R.string.agents_todo_hand_off_failed, refused?.id)
+        assertEquals(listOf("todo is already completed"), refused?.args?.toList())
+        assertEquals("nothing is sent after a refused link", emptyList<String>(), sent)
+
+        val unsent = handOffToRunningAgent(link = {}, send = { throw java.io.IOException("Unreachable") })
+        assertEquals(listOf("Unreachable"), unsent?.args?.toList())
+
+        assertNull(handOffToRunningAgent(link = {}, send = { sent += "prompt" }))
+        assertEquals(listOf("prompt"), sent)
+
+        try {
+            handOffToRunningAgent(link = { throw kotlinx.coroutines.CancellationException("pairing changed") }, send = {})
+            fail("cancellation is passed on")
+        } catch (_: kotlinx.coroutines.CancellationException) {}
+    }
 }

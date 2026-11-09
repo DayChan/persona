@@ -401,6 +401,8 @@
     <string name="agents_todo_active_agents">Agents on it</string>
     <string name="agents_todo_no_agents">No agents assigned</string>
     <string name="agents_todo_no_agents_hint">Tap “Hand to agent” below to assign it.</string>
+    <string name="agents_todo_no_agents_done_hint">Reopen it to hand it to an agent.</string>
+    <string name="agents_todo_hand_off_failed">Couldn\'t hand it over: %1$s</string>
     <string name="agents_todo_session_short">Session %1$s</string>
     <string name="agents_todo_not_listed">(Not in the current active list)</string>
     <string name="agents_todo_remove_agent">Remove</string>

@@ -1051,7 +1051,7 @@ function TodoDetail({
 
         {activeAgents.length === 0 ? (
           <div className="rounded-control border border-dashed border-line p-6 text-center text-[13px] text-ink-3">
-            {t("todos.no_agents")}
+            {todo.done_at ? t("todos.no_agents_done") : t("todos.no_agents")}
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -1197,11 +1197,13 @@ function TodoDetail({
         )}
       </div>
 
-      {/* Bottom Action Bar */}
+      {/* Bottom Action Bar. A done to-do can't be handed over (the hub refuses, #1856): Reopen next to it comes first. */}
       <div className="mt-8 flex flex-wrap items-center gap-2.5 border-t border-line pt-4">
-        <Button tone="accent" icon="hand" onClick={onOpenHandover} className="h-8.5 px-3.5 text-[13px]">
-          {t("todos.hand_over")}
-        </Button>
+        {!todo.done_at && (
+          <Button tone="accent" icon="hand" onClick={onOpenHandover} className="h-8.5 px-3.5 text-[13px]">
+            {t("todos.hand_over")}
+          </Button>
+        )}
         <Button tone="secondary" icon="check" onClick={onToggleDone} className="h-8.5 px-3 text-[13px]">
           {todo.done_at ? t("todos.reopen") : t("todos.complete")}
         </Button>
@@ -1709,6 +1711,8 @@ export function HandoverDialog({
     setBusy(true);
     try {
       const fullText = [previewCard, prompt.trim()].filter(Boolean).join("\n\n");
+      // It only queues the start and opens the new agent's page, which says how it went: no success toast before the hub
+      // has answered (#1856).
       launchAgent({
         machineId: mid,
         cwd: cwd.trim(),
@@ -1717,7 +1721,6 @@ export function HandoverDialog({
         attachments: [],
         todoId: todo.id,
       });
-      toast(t("todos.launched"), "ok");
       onClose();
     } catch (e) {
       toast(t("todos.launch_failed", { error: errorText(e) }), "error");

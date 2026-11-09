@@ -385,6 +385,8 @@
     <string name="agents_todo_active_agents">対応中のエージェント</string>
     <string name="agents_todo_no_agents">割り当てられたエージェントはありません</string>
     <string name="agents_todo_no_agents_hint">下の「エージェントに任せる」をタップして割り当てます。</string>
+    <string name="agents_todo_no_agents_done_hint">エージェントに任せるには、まず再開してください。</string>
+    <string name="agents_todo_hand_off_failed">引き継げませんでした：%1$s</string>
     <string name="agents_todo_session_short">セッション%1$s</string>
     <string name="agents_todo_not_listed">（現在のアクティブな一覧にありません）</string>
     <string name="agents_todo_remove_agent">外す</string>

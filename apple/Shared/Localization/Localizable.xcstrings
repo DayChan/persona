@@ -67921,6 +67921,29 @@
       },
       "extractionState" : "manual"
     },
+    "No agents on it now. Reopen it to hand it to an agent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No agents on it now. Reopen it to hand it to an agent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在エージェントはいません。エージェントに任せるには、まず再開してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现在没有 Agent 在做。要交给 Agent，先重新打开。"
+          }
+        }
+      }
+    },
     "No agents right now" : {
       "localizations" : {
         "en" : {

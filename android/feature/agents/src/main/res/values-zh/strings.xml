@@ -385,6 +385,8 @@
     <string name="agents_todo_active_agents">正在做的 Agent</string>
     <string name="agents_todo_no_agents">暂无分配的 Agent</string>
     <string name="agents_todo_no_agents_hint">点击底部「交给 Agent」指派任务。</string>
+    <string name="agents_todo_no_agents_done_hint">要交给 Agent，先重新打开。</string>
+    <string name="agents_todo_hand_off_failed">没交出去：%1$s</string>
     <string name="agents_todo_session_short">会话 %1$s</string>
     <string name="agents_todo_not_listed">（不在当前活跃列表）</string>
     <string name="agents_todo_remove_agent">移出</string>
