@@ -397,7 +397,11 @@ The schema is `schema/extension/models.schema.json`; the Go SDK has it as `ext.H
   `cache_read_input_tokens`, `cache_creation_input_tokens`, `requests`); the manager logs one line per call with the extension, `label`, model and usage. Keep it in the extension's own report if the user should see it.
 - **A held connection**: when the connection is out of quota or busy (docs/assistant/model-config.md "Upstream rate limits") nothing is sent and the answer is `model_paused` with `{reason, until}`; try again after `until`.
 - **Errors**: `permission_denied` (`{scope: "models"}`), `invalid_params`, `assistant_offline`, `model_unavailable` (nothing callable for this extension: the user sets one up in Settings › Model configuration),
-  `model_paused`, `model_failed` (the upstream refused or failed), `timeout`, `invalid_output`.
+  `model_paused`, `model_failed` (the upstream failed: an error status, a dropped connection), `model_refused`, `timeout`, `invalid_output`.
+- **A declined input**: when the model declines to answer (the Messages API's `stop_reason: "refusal"`, a Responses API refusal part, a Chat Completions refusal, or a response stopped by a `content_filter`)
+  the answer is `model_refused` with `{stop_reason, usage}`; `usage` is what the declined call spent. Sending the same input again gets the same answer: split it into smaller pieces, drop
+  a part or report which input was declined. Match the code, never the message, which is for people and may change. Hubs older than this code answer `model_failed`
+  with the message `model.complete: ai: the model declined to answer`; an extension that supports them can keep that match as a fallback for `model_failed` only.
 - Internally the manager forwards it to the assistant as `models.extension_complete {extension, params}` (not callable by extensions), so the call is always the extension's own; the assistant lists the
   extensions with a purpose through `app.call plugins.models` (enabled, compatible, granted `models` itself).
 
@@ -943,7 +947,7 @@ OCI packages use immutable references: `oci:<registry>/<repository>@sha256:<64 l
 
 Verification checks the digest of the manifest's original bytes, the layer digest and size, then the catalog package's `sha256` and required OCI `size`. Packages cannot exceed 200 MiB. The download keeps the archive filename so unpacking works; cached packages are checked again on use.
 
-Anonymous registries may challenge for a short-lived bearer. Realms, services and scopes are bound to the current registry and exact repository's pull namespace. Private HTTPS catalog credentials are usable only by a registry and realm at that same origin. A GitHub marketplace token may authorize only the derived `ghcr.io/<owner>/<market-repo>/…` namespace, through GHCR's standard `/token` realm and pull scope. Another organization, marketplace or registry never inherits that token. Git clone tokens never authorize OCI requests. Both the market credential and issued bearer are stripped on external CDN and cross-namespace redirects; authentication endpoints cannot redirect.
+Anonymous registries may challenge for a short-lived bearer. Realms, services and scopes are bound to the current registry and exact repository's pull namespace. Private HTTPS catalog credentials are usable only by a registry and realm at that same origin. A GitHub marketplace token may authorize only the derived `ghcr.io/<owner>/<market-repo>/…` namespace, through GHCR's standard `/token` realm and pull scope. Another organization, marketplace or registry never inherits that token. Git clone tokens never authorize OCI requests. Both the market credential and issued bearer are stripped on external CDN and cross-namespace redirects; authentication endpoints cannot redirect. When the registry refuses the market credential (401 / 403 at the token endpoint or on the manifest / blob request), the download tries once more anonymously and pulls the rest of that package without it (#2042): a token that can read the catalog repository may still lack package access (on GitHub, `read:packages`), and a public package needs none. A package refused both ways reports that the token may lack permission to read packages.
 
 Mirror settings belong to **one extension manager**, not a globally distributed hub setting:
 
@@ -2499,6 +2503,8 @@ and the node follows (`node/plugins.go`). Reconciliation runs on computer connec
   old nodes still receive direct `connector.*`. Built-in **Messages (iMessage)** settings have one Mac selector `machines` (`x-os: darwin`, `maxItems: 1`):
   enabling a second Mac while one is already enabled returns hub 400 `invalid_config`, `field: machines`, "Only one Mac can be read; turn off ‘<that one>’ first". The `imessage` connector stays the same,
   with its computer selected here: use it if the extension is enabled and one is selected, otherwise manager.json `imessage.machine`; with neither, no connector (`extmgr/imessage_extension.go`).
+  The extension then reports `needs_setup`, not running. Selecting another Mac replaces the old selection in one save. Its **Connector Settings** link opens Messages' own access/status and Hand to Persona settings, not a second generic Inbox switch.
+  Reading `chat.db` needs **Full Disk Access** on the chosen Mac for the process that runs the node. Grant it to the SSH-server process for an SSH-launched node, or to personad for a launchd-installed node; reconnect/restart the node after granting. The connector page reports the resulting access error instead of treating a configured extension as proof of permission.
   manager.json values migrate once at hub startup: name becomes machine id, extension enabled, marker recorded (`imessage.migrated_to_extension`); later user disable/switch choices are not overwritten.
   Unknown machine names or failed writes produce one log line and retry next startup, reading manager.json meanwhile. The manager.json field remains unchanged for one version.
   All three built-in manifests specify `node: {command: "builtin", machines: "machines"}` (`NodeBuiltin`). Installed packages with `builtin` are rejected; only hub built-ins may use it.
@@ -3020,6 +3026,8 @@ plus one shared `GET /api/v1/ws` (`subscribe` main chat, receive `turn_duration`
 
 If the upstream session drops mid-conversation (service restart, network loss), the app connection stays open and shows "Disconnected, reconnecting"; the extension opens a new session with the last 40 utterances in the prompt,
 at most 3 consecutive reconnects per conversation (reset after a session lasts 60 seconds). On app `interrupt`, the extension discards unsent audio for this response (GPT-Live has no interrupt frame; the model stops when it hears the interruption).
+
+**Provider compatibility (#1229)**: `live` and `codex` are GPT-Live dialects. An ordinary ARK API Key, an OpenAI-compatible `/v1/realtime` endpoint, or a Doubao speech-service key does not make either dialect speak Volcengine's protocol. Volcengine Seeduplex uses `wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue`, `X-Api-Key` and `session.model = "1.2.6.1"`; its adapter is tracked separately in #1229. Until it lands, this settings form requires a real GPT-Live-compatible service and key. A complete configuration (`GET /info` without `setup`) is not proof that the upstream WebSocket, account, audio or delegation works; there is no connection-test endpoint yet. The service must be enabled in its console before testing with its own credentials.
 
 ### Deployment
 

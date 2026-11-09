@@ -231,6 +231,12 @@ func (s *Service) channelRuns(id string) []channel.Run {
 // startChannelRun records a run and watches it. An earlier run of the same channel on the same conversation that has
 // not answered yet is folded into this one: one answer covers both messages.
 func (s *Service) startChannelRun(r *channel.Run) {
+	s.startChannelRunForBinding(r, nil)
+}
+
+// startChannelRunForBinding records the run only if the binding that sent its message is still current.
+// A nil generation is for callers whose channel does not use the plugin binding lifecycle.
+func (s *Service) startChannelRunForBinding(r *channel.Run, generation *uint64) {
 	if r.MachineID == "" || r.SessionID == "" {
 		s.logf("channels: %s: no conversation to follow", r.ID)
 		return
@@ -238,6 +244,10 @@ func (s *Service) startChannelRun(r *channel.Run) {
 	c := &s.chans
 	c.mu.Lock()
 	s.loadChannelStateLocked(context.Background())
+	if generation != nil && c.generation[r.Channel] != *generation {
+		c.mu.Unlock()
+		return
+	}
 	var folded []*channel.Run
 	keep := c.st.Runs[:0]
 	for _, o := range c.st.Runs {
@@ -358,15 +368,26 @@ func (s *Service) sinkReady(ctx context.Context, id string) bool {
 }
 
 // forgetChannelTurns drops what channel id waits on (unbound).
-func (s *Service) forgetChannelTurns(id string) {
+func (s *Service) forgetChannelTurns(id string) error {
 	c := &s.chans
 	c.mu.Lock()
 	s.loadChannelStateLocked(context.Background())
+	if !c.stLoaded {
+		c.mu.Unlock()
+		return errChannelsUnread
+	}
+	if c.generation == nil {
+		c.generation = map[string]uint64{}
+	}
+	c.generation[id]++
+	delete(c.lastEnded, id)
+	c.list = nil
 	c.st.Runs = slices.DeleteFunc(c.st.Runs, func(r *channel.Run) bool { return r.Channel == id })
 	c.st.Asks = slices.DeleteFunc(c.st.Asks, func(a *channel.Ask) bool { return a.Channel == id })
-	s.saveChannelStateLocked()
+	err := s.saveChannelStateLocked()
 	c.mu.Unlock()
 	s.channelsChanged()
+	return err
 }
 
 // channelWaiting is how many answers and questions channel id waits on.

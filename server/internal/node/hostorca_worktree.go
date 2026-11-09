@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -34,6 +35,24 @@ var orcaWorktreeTerminalWait = 5 * time.Second
 // one too), gets a "-2" branch and folder instead (Orca 1.4.250). So both are refused here before Orca is asked, and
 // an answer on another branch (taken meanwhile, or a folder setting of Orca's own that is taken) is an error.
 func (h *orcaHost) CreateWorktree(ctx context.Context, space, branch, path string) (*host.Created, error) {
+	return h.CreateWorktreeUnder(ctx, space, branch, path, space)
+}
+
+// CreateWorktreeUnder keeps the Git source separate from the sidebar parent, which can belong to another project.
+func (h *orcaHost) CreateWorktreeUnder(ctx context.Context, space, branch, path, parent string) (*host.Created, error) {
+	return h.createWorktree(ctx, space, branch, path, parent, false)
+}
+
+// These seeds belong to Orca's generated creature-name pool. Orca applies its retired-name registry, branch prefix
+// and collision retries; omitting branchNameOverride keeps the branch eligible for its first-work rename.
+var orcaGeneratedNames = [...]string{"nautilus", "seahorse", "starfish", "coral", "narwhal", "jellyfish", "octopus", "manta",
+	"dolphin", "manatee", "cuttlefish", "anemone", "urchin", "triton", "nudibranch", "coelacanth"}
+
+func (h *orcaHost) CreateGeneratedWorktree(ctx context.Context, space, parent string) (*host.Created, error) {
+	return h.createWorktree(ctx, space, "", "", parent, true)
+}
+
+func (h *orcaHost) createWorktree(ctx context.Context, space, branch, path, parent string, automatic bool) (*host.Created, error) {
 	trees, _, _, err := h.c.Worktrees(ctx, "")
 	if err != nil {
 		return nil, orcaErr(err)
@@ -48,20 +67,40 @@ func (h *orcaHost) CreateWorktree(ctx context.Context, space, branch, path strin
 	if src == nil {
 		return nil, errors.New("Orca 里找不到这个工作区")
 	}
+	parentFound := false
+	for _, w := range trees {
+		if w.WorktreeID == parent && (w.HostID == "" || w.HostID == "local") {
+			parentFound = true
+			break
+		}
+	}
+	if !parentFound {
+		return nil, errors.New("The parent workspace is no longer available in Orca")
+	}
 	repoID, _, ok := strings.Cut(space, "::") // Orca's worktree ids are <repo id>::<path>
 	if !ok || repoID == "" {
 		return nil, errors.New("不知道这个工作区属于 Orca 的哪个项目")
 	}
-	if at, err := branchCheckedOutAt(ctx, src.Path, branch); err != nil {
-		return nil, fmt.Errorf("读不了这个仓库的 worktree 列表：%w", err)
-	} else if at != "" {
-		return nil, fmt.Errorf("分支 %s 已经在 %s 检出了", branch, at)
+	if !automatic {
+		if at, err := branchCheckedOutAt(ctx, src.Path, branch); err != nil {
+			return nil, fmt.Errorf("读不了这个仓库的 worktree 列表：%w", err)
+		} else if at != "" {
+			return nil, fmt.Errorf("分支 %s 已经在 %s 检出了", branch, at)
+		}
+		if _, err := os.Lstat(path); err == nil {
+			return nil, errors.New("检出路径已存在：Orca 不用已有的目录（空目录也不行）")
+		}
 	}
-	if _, err := os.Lstat(path); err == nil {
-		return nil, errors.New("检出路径已存在：Orca 不用已有的目录（空目录也不行）")
+	req := orcart.WorktreeCreate{Repo: "id:" + repoID, Name: filepath.Base(path), Branch: branch, Parent: "id:" + parent}
+	if automatic {
+		var seed [1]byte
+		if _, err := rand.Read(seed[:]); err != nil {
+			return nil, err
+		}
+		req.Name, req.Generated = orcaGeneratedNames[int(seed[0])%len(orcaGeneratedNames)], true
 	}
-	req := orcart.WorktreeCreate{Repo: "id:" + repoID, Name: filepath.Base(path), Branch: branch, Parent: "id:" + space}
-	if _, err := git(ctx, src.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+	_, branchErr := git(ctx, src.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	if automatic || branchErr != nil {
 		base, err := git(ctx, src.Path, "branch", "--show-current")
 		if base = strings.TrimSpace(base); err != nil || base == "" {
 			if base, err = git(ctx, src.Path, "rev-parse", "HEAD"); err != nil {
@@ -74,12 +113,16 @@ func (h *orcaHost) CreateWorktree(ctx context.Context, space, branch, path strin
 	if err != nil {
 		return nil, orcaErr(err)
 	}
-	if got := strings.TrimPrefix(wt.Branch, "refs/heads/"); got != branch {
+	got := strings.TrimPrefix(wt.Branch, "refs/heads/")
+	if automatic && got == "" {
+		return nil, errors.New("Orca did not report its generated branch")
+	}
+	if !automatic && got != branch {
 		// Made all the same (nothing is deleted): the user sees what Orca did instead.
 		return nil, fmt.Errorf("Orca 没有用分支 %s，而是建了 %s（在 %s）：%s 可能刚被别处检出，或者 Orca 的目录被占了", branch, got,
 			wt.Path, branch)
 	}
-	c := &host.Created{SpaceID: wt.ID, Path: wt.Path, Branch: branch}
+	c := &host.Created{SpaceID: wt.ID, Path: wt.Path, Branch: got}
 	if t := h.terminalIn(ctx, wt.ID); t != nil {
 		c.SlotID, c.Pane = t.TabID, host.PaneRef{Kind: host.Orca, ID: t.PaneKey()}
 	}

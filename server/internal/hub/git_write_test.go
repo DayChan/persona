@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func TestGitWriteRoutes(t *testing.T) {
 		{"POST", "commit", `{"cwd":"/work/web","message":"Fix"}`, "git.commit", "message"},
 		{"POST", "push", `{"cwd":"/work/web","set_upstream":true}`, "git.push", "set_upstream"},
 		{"POST", "switch", `{"cwd":"/work/web","branch":"main"}`, "git.switch", "branch"},
-		{"POST", "stash", `{"cwd":"/work/web","op":"pop","index":1}`, "git.stash", "op"},
+		{"POST", "stash", `{"cwd":"/work/web","op":"pop","index":1,"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "git.stash", "oid"},
 		{"POST", "pr", `{"cwd":"/work/web","title":"Fix","base":"main"}`, "git.pr_create", "title"},
 		{"POST", "pr/merge", `{"cwd":"/work/web","number":7,"method":"squash","auto":true}`, "git.pr_merge", "auto"},
 	} {
@@ -61,6 +62,9 @@ func TestGitWriteRoutes(t *testing.T) {
 		mu.Unlock()
 		if code != http.StatusOK || res["ok"] != c.method || params == nil || params[c.key] == nil || params["cwd"] != "/work/web" {
 			t.Fatalf("%s %s: %d %v, node got %v", c.verb, c.path, code, res, params)
+		}
+		if c.method == "git.stash" && params["oid"] != strings.Repeat("a", 40) {
+			t.Fatalf("stash identity lost at HTTP/RPC boundary: %v", params)
 		}
 		if code, _ := call(t, handler, c.verb, base+c.path, watch["token"].(string), c.body); code != http.StatusForbidden {
 			t.Fatalf("a watch's token %s %s: %d", c.verb, c.path, code)

@@ -95,6 +95,7 @@ func copyCounts(c Counts) Counts {
 	c.Project = maps.Clone(c.Project)
 	c.Group = maps.Clone(c.Group)
 	c.State = maps.Clone(c.State)
+	c.PaneSource = maps.Clone(c.PaneSource)
 	return c
 }
 
@@ -109,6 +110,7 @@ func (f filters) matches(r *record) bool {
 		(f.Project == "" || f.Project == v.Project) &&
 		(f.Group == "" || f.Group == v.Group) &&
 		(f.Source == "" || f.Source == v.Source) &&
+		(f.PaneSource == "" || f.PaneSource == v.PaneSource) &&
 		(f.Provider == "" || f.Provider == v.Provider) &&
 		(f.Q == "" || strings.Contains(r.search, f.Q))
 }
@@ -149,11 +151,17 @@ func (i *Index) remember(key cacheKey, r *result) *result {
 }
 
 func emptyCounts(revision string) Counts {
-	return Counts{Machine: make(map[string]int), Project: make(map[string]int), Group: make(map[string]int), State: make(map[string]int), Revision: revision}
+	return Counts{Machine: make(map[string]int), Project: make(map[string]int), Group: make(map[string]int), State: make(map[string]int), PaneSource: make(map[string]int), Revision: revision}
 }
 
 func addCount(c *Counts, v Item, delta int) {
 	c.Total += delta
+	if v.PaneSource != "" {
+		c.PaneSource[v.PaneSource] += delta
+		if c.PaneSource[v.PaneSource] == 0 {
+			delete(c.PaneSource, v.PaneSource)
+		}
+	}
 	if v.BackgroundWaiting {
 		c.BackgroundWaiting += delta
 	}

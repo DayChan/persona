@@ -20,5 +20,6 @@
   "git_token": "git token 需要不含凭据的 HTTPS 克隆地址，不能用于镜像仓库请求。",
   "credential_move": "迁移到其他来源或 GitHub 所有者前，请先清空市场 token。",
   "no_store": "此扩展管理器没有设置存储。",
-  "http_status": "镜像仓库返回 HTTP {status}。"
+  "http_status": "镜像仓库返回 HTTP {status}。",
+  "credential_refused": "镜像仓库拒绝了这个市场的 token（HTTP {status}），不带 token 也拉不到这个包。如果是私有包，token 需要读取包的权限（GitHub 上是 read:packages）。"
 }

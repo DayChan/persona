@@ -221,6 +221,7 @@ func (s *Service) deliverNotes(ctx context.Context, it *InboxItem) {
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
+	enabled := s.inboxConfig(ctx).Agent.Enabled
 	owner := s.owner(ctx)
 	b.mu.Lock()
 	if cur := b.items[it.ID]; cur != it {
@@ -230,6 +231,14 @@ func (s *Service) deliverNotes(ctx context.Context, it *InboxItem) {
 			b.telling.CompareAndDelete(it.ID, mu)
 		}
 		b.mu.Unlock()
+		return
+	}
+	if !enabled {
+		w := b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), time.Now())
+		b.mu.Unlock()
+		if w != nil {
+			s.saveWrites(ctx, []*inboxWrite{w}, "the disabled AI twin's work")
+		}
 		return
 	}
 	a := it.Agent
@@ -537,6 +546,7 @@ func (s *Service) inboxAgentStarted(ctx context.Context, self, machine, session,
 		s.handoffAgentStarted(hs, machine, session, prompt)
 		return
 	}
+	enabled := s.inboxConfig(ctx).Agent.Enabled
 	b := &s.inbox
 	b.mu.Lock()
 	it := b.itemOfAgent(self)
@@ -547,7 +557,7 @@ func (s *Service) inboxAgentStarted(ctx context.Context, self, machine, session,
 	now := time.Now()
 	b.chainAdd(it, InboxChainEntry{Kind: ChainAgent, At: now.UTC(), Text: i18n.T(b.userLang(), "assistant-inbox_chain.agent",
 		i18n.Args{"title": clip(oneLine(prompt), 40)}), Link: &InboxChainLink{Type: LinkSession, MachineID: machine, SessionID: session}})
-	if it.Suggestion == nil {
+	if enabled && it.Suggestion == nil {
 		t := now.UTC()
 		it.Agent.StartedAt = &t
 		b.setHandling(it, HandlingAgent, "", now)
@@ -648,6 +658,7 @@ func (s *Service) inboxSuggestionRoutes() {
 // actOnSuggestion confirms, rejects or answers the item's current suggestion, at the version the user saw. full is
 // false for an answer-only device (the watch): it may only confirm a reply or a conclusion, as text.
 func (s *Service) actOnSuggestion(ctx context.Context, id string, in suggestionReq, full bool) (InboxItem, error) {
+	enabled := s.inboxConfig(ctx).Agent.Enabled
 	b := &s.inbox
 	b.mu.Lock()
 	it := b.items[id]
@@ -676,6 +687,7 @@ func (s *Service) actOnSuggestion(ctx context.Context, id string, in suggestionR
 	if g.Conversation != nil {
 		return s.actOnHandedSuggestion(ctx, it, g, in, text) // it lets b.mu go
 	}
+	w := beginWrite(it)
 	if it.Agent == nil { // an old draft's item: its conversation's bookkeeping starts here
 		it.Agent = &InboxAgent{State: AgentSkipped}
 	}
@@ -709,11 +721,21 @@ func (s *Service) actOnSuggestion(ctx context.Context, id string, in suggestionR
 	default:
 		b.chainAdd(it, confirmedEntry(l, text, edited, now))
 	}
+	if !enabled && !execute {
+		b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now)
+		b.settle(w)
+	}
 	last := it.Last
 	b.mu.Unlock()
 	if !execute || g.Kind == SuggestConclusion {
-		s.saveInbox(ctx, []*InboxItem{it})
-		if it.Agent != nil && len(it.Agent.Pending) > 0 {
+		if !enabled && !execute {
+			if failed := s.saveWrites(ctx, []*inboxWrite{w}, "its suggestion response"); failed[it.ID] {
+				return InboxItem{}, errInboxNotPersisted
+			}
+		} else {
+			s.saveInbox(ctx, []*InboxItem{it})
+		}
+		if enabled && it.Agent != nil && len(it.Agent.Pending) > 0 {
 			s.tellSoon(ctx, it)
 		}
 		b.mu.Lock()
@@ -788,6 +810,7 @@ func (s *Service) confirmAgent(ctx context.Context, it *InboxItem, g *InboxSugge
 	}
 	args, _ := json.Marshal(map[string]string{"machine": machine, "cwd": cwd, "prompt": text})
 	res, err := s.runTool(ctx, s.settings(ctx).MachineID, self, "agent_start", args)
+	enabled := s.inboxConfig(ctx).Agent.Enabled
 	now := time.Now()
 	b.mu.Lock()
 	if err != nil {
@@ -806,6 +829,9 @@ func (s *Service) confirmAgent(ctx context.Context, it *InboxItem, g *InboxSugge
 		b.setHandling(it, HandlingAgent, "", now)
 		b.tell(it, inboxNote{Name: prompts.NoteAgentStarted, Text: text, Edited: edited, Machine: machine, Session: session}, false, now)
 		_ = res
+	}
+	if !enabled {
+		b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now)
 	}
 	out := it.listed()
 	b.mu.Unlock()

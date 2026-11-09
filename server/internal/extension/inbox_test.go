@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// inboxPlugin makes the example an inbox plugin: its connector has an inbox (and fallback when asked); rules adds
+// inboxExtension makes the example an inbox plugin: its connector has an inbox (and fallback when asked); rules adds
 // triage_rules of that type to its settings ("" none).
 func inboxExtension(fallback bool, rules string) func(m map[string]any) {
 	return func(m map[string]any) {

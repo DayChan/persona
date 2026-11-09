@@ -4,6 +4,7 @@ import persona.core.contracts.CoreText
 import persona.core.contracts.CoreText.Key
 import persona.core.contracts.InboxEvent
 import persona.core.contracts.LarkEvent
+import persona.core.contracts.SessionKey
 import persona.core.contracts.api.*
 import persona.core.domain.inbox.InboxInteraction
 import persona.core.domain.inbox.InboxItem
@@ -39,8 +40,8 @@ class RealInboxRepository(
     /** The ordinary sessions' outbox (the one Agents uses): "Hand to AI" to an Agent queues its message there. */
     private val messageSender: MessageSender? = null,
     /**
-     * Manager's main conversation, in [messageSender]'s ids (docs/assistant/managers.md "Clients"): "Hand to AI" with no Agent of
-     * another manager's item goes there, through [messageSender]; null: the default's main queue for every item.
+     * Manager's main conversation, in [messageSender]'s ids (docs/assistant/managers.md "Clients"): older hubs without the
+     * hand-off route send another manager's item there; null: the default's main queue for every item.
      */
     private val mainConversationOf: (suspend (String) -> persona.core.contracts.SessionKey)? = null,
     /** How long a burst of hub inbox events is collected before the one refresh it causes. */
@@ -425,23 +426,42 @@ class RealInboxRepository(
         return outcome
     }
 
-    override suspend fun handOff(request: InboxHandOffRequest) {
+    override suspend fun handOff(request: InboxHandOffRequest): SessionKey? {
         require(request.itemId.isNotBlank() && request.text.isNotBlank() && request.operationId.isNotBlank())
         scope.coroutineContext.ensureActive()
         val machine = request.machineId
         val session = request.sessionId
-        // Both outboxes commit before returning and deduplicate by the operation ID, so a retry is not queued twice.
-        // Persona is the item's own manager's (a merged list's stamp): another manager's item goes to its main
-        // conversation, the default's to the main queue as before.
-        val owner = recordOf(request.itemId)?.manager
-            ?.takeIf { it.isNotBlank() && it != AssistantManagerChoice.current.value.defaultId }
-        if (machine.isNullOrBlank() || session.isNullOrBlank()) {
+        if (!machine.isNullOrBlank() && !session.isNullOrBlank()) {
+            val key = SessionKey(machine, session)
+            checkNotNull(messageSender) { "agent message sender not wired" }.send(key, request.text, request.operationId)
+            return key
+        }
+        // Main-chat hand-offs need a receipt from the item's manager, not merely a local queue entry.
+        if (!online()) throw IOException("network offline")
+        val transport = requireTransport()
+        val old = recordOf(request.itemId)
+        val result = try {
+            asItem(old) { transport.handOff(old?.hubItemId ?: request.itemId, request.text, request.operationId) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (e !is UnsupportedOperationException && hubCodedFailure(e)?.status !in setOf(404, 405)) throw e
+            // Older hubs have no hand-off route. Keep the original manager-aware outbox path and operation ID.
+            val owner = old?.manager?.takeIf { it.isNotBlank() && it != AssistantManagerChoice.current.value.defaultId }
             val main = owner?.let { checkNotNull(mainConversationOf) { "managers unavailable" }(it) }
             if (main == null) checkNotNull(mainConversationSender) { "main chat sender not wired" }.sendToMain(request.text, request.operationId)
             else checkNotNull(messageSender) { "agent message sender not wired" }.send(main, request.text, request.operationId)
+            return null
         }
-        else checkNotNull(messageSender) { "agent message sender not wired" }
-            .send(persona.core.contracts.SessionKey(machine, session), request.text, request.operationId)
+        if (!owns(transport)) throw CancellationException("Pairing changed")
+        val destination = result.obj("session")
+        val machineId = destination?.optional("machine_id")?.takeIf { it.isNotBlank() }
+        val sessionId = destination?.optional("session_id")?.takeIf { it.isNotBlank() }
+        if (machineId == null || sessionId == null) throw IOException("hand-off response has no session")
+        result.obj("item")?.takeIf { it.optional("id") == (old?.hubItemId ?: request.itemId) }?.let { data ->
+            refreshLock.withLock { replaceRecord(record(data, transport, old)) }
+        }
+        return SessionKey(machineId, sessionId)
     }
 
     override suspend fun reply(target: ReplyTarget, request: ReplyRequest) = sendLock.withLock {

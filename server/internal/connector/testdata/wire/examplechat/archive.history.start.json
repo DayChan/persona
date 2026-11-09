@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "id": "880000000001",
+      "position": "1",
+      "type": "TEXT",
+      "text": "Synthetic first message",
+      "at": "2026-11-03T18:00:00.000Z",
+      "sender_id": "user_example_a",
+      "sender_name": "Example A"
+    },
+    {
+      "id": "880000000002",
+      "position": "2",
+      "type": "TEXT",
+      "text": "Synthetic question: are you free today?",
+      "at": "2026-11-04T08:22:00.000Z",
+      "sender_id": "user_example_a",
+      "sender_name": "Example A",
+      "mentioned": true
+    }
+  ],
+  "newer": "2"
+}

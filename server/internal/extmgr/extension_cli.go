@@ -64,7 +64,7 @@ const extensionUsage = `usage: personad extension <command> (also: personad ext,
   audit [<id>] [--limit=N]          who installed, switched, signed in, deleted what, and when, newest first
                                     (an extension, a connector, feishu for the Feishu bot; all of them without an id)`
 
-// PluginCommand runs `personad extension <args>`.
+// ExtensionCommand runs `personad extension <args>`.
 func ExtensionCommand(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(clitext.Named(extensionUsage + extensionBuildUsage))

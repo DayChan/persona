@@ -59,7 +59,7 @@ func writeAddMachineErr(w http.ResponseWriter, err error) {
 // addMachine checks mc's name and icon (filling in the defaults) and hands it to the carrier, which connects it now (no
 // restart): put in its own list when it keeps one and is connected (machines_kept.go), else written to hub.json (it
 // moves into the carrier's own list when that one reports). by is who added it, for the log. A machine with its id
-// already there is 409 exists.
+// already there is 409 exists; for a new id, the Persona Link left under it is revoked first (revokeComputer).
 func (h *Hub) addMachine(mc *MachineConfig, by string) error {
 	h.devices.moving.Lock()
 	defer h.devices.moving.Unlock()
@@ -88,6 +88,15 @@ func (h *Hub) addMachineMoving(mc *MachineConfig, by string) error {
 		mc.Icon = "laptop"
 	}
 	exists := h.knownEntry(mc.ID) != nil
+	if !h.machineIDTaken(mc.ID) {
+		// A credential of a computer this id named before would connect as this one. Bounded: d.moving is held.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err := h.revokeComputer(ctx, mc.ID)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
 	d := &h.devices
 	d.mu.Lock()
 	target := cmp.Or(d.assign[mc.ID], devicesOwner) // a dedicated machine's reserved owner (machines_owned_local.go)
@@ -246,7 +255,9 @@ func (h *Hub) computerFor(ctx context.Context, machine string, add *machineAddRe
 			if !h.machinePending(machine) {
 				return "", false, refuseAdd(http.StatusConflict, "not_pending", i18n.Err("hub-pairing.confirmed_computer"))
 			}
-			if err := h.revokeComputer(ctx, machine); err != nil {
+			// Its code asked again: the earlier one did not reach the right computer (or was forwarded), and whatever
+			// traded it must not stay in and become the confirmed computer along with the one that trades the new code.
+			if _, err := h.revokeComputer(ctx, machine); err != nil {
 				return "", false, err
 			}
 		}
@@ -270,7 +281,7 @@ func (h *Hub) computerFor(ctx context.Context, machine string, add *machineAddRe
 	// reuse is the code for a computer there is already: a device's revokes what an earlier code of it gave.
 	reuse := func(id string) (string, bool, error) {
 		if fromDevice {
-			if err := h.revokeComputer(ctx, id); err != nil {
+			if _, err := h.revokeComputer(ctx, id); err != nil {
 				return "", false, err
 			}
 		}
@@ -317,10 +328,6 @@ func (h *Hub) computerFor(ctx context.Context, machine string, add *machineAddRe
 	if ts == nil {
 		return "", false, refuseAdd(http.StatusServiceUnavailable, "internal", errors.New("no database"))
 	}
-	// A credential left from a computer of this id that was removed from hub.json would connect as the new one.
-	if err := h.revokeComputer(ctx, id); err != nil {
-		return "", false, err
-	}
 	// Pending before the entry is there: there is no moment it is a confirmed computer.
 	if err := h.markMachinePending(ctx, id, actor); err != nil {
 		return "", false, err
@@ -335,22 +342,21 @@ func (h *Hub) computerFor(ctx context.Context, machine string, add *machineAddRe
 	return id, true, nil
 }
 
-// revokeComputer revokes every Persona Link credential of computer id. A device asking a pending computer's code
-// again means the earlier one did not reach the right computer (or was forwarded): whatever traded it must not stay
-// in and become the confirmed computer along with the one that trades the new code.
-func (h *Hub) revokeComputer(ctx context.Context, id string) error {
-	ts := h.trustStore()
-	if ts == nil {
-		return refuseAdd(http.StatusServiceUnavailable, "internal", errors.New("no database"))
+// revokeComputer revokes every Persona Link credential of computer id and its pairing codes not used yet, closing what
+// they have open; how many credentials it revoked. A store that keeps no credentials has none to revoke.
+func (h *Hub) revokeComputer(ctx context.Context, id string) (int, error) {
+	cr, _ := h.store.(credentialRevoker)
+	if cr == nil {
+		return 0, nil
 	}
-	revoked, err := ts.RevokeMachineCredentials(ctx, id)
+	revoked, err := cr.RevokeMachineCredentials(ctx, id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for _, cred := range revoked {
-		h.revoked(cred)
+		h.revoked(cred) // its open link goes too
 	}
-	return nil
+	return len(revoked), nil
 }
 
 // siteURL is where this hub's build was published (the site serving install.sh: the config's publish.site_url, the

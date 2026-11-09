@@ -407,18 +407,20 @@ struct ExtensionDetailView: View {
         if d.plugin.enabled ?? true {
             ForEach(connectorInbox.connectors) { c in
                 Section {
-                    Toggle(isOn: Binding(get: { c.inbox ?? false }, set: { on in
-                        Task { await connectorInbox.setInbox(c.id, on: on) }
-                    })) {
-                        Text("Show in Inbox").lineLimit(1)
+                    if let inbox = c.inbox {
+                        Toggle(isOn: Binding(get: { inbox }, set: { on in
+                            Task { await connectorInbox.setInbox(c.id, on: on) }
+                        })) {
+                            Text("Show in Inbox").lineLimit(1)
+                        }
+                        .disabled(connectorInbox.changing != nil)
+                        .accessibilityIdentifier("extension-connector-inbox-\(c.id)")
                     }
-                    .disabled(connectorInbox.changing != nil)
-                    .accessibilityIdentifier("extension-connector-inbox-\(c.id)")
                     NavigationLink(value: SettingsPage.connector(c.id, manager: page.manager)) {
                         Label {
                             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                                 Text("Connector Settings").lineLimit(1)
-                                Text("Sign-in, status and more Inbox settings").font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
+                                Text(c.id == "imessage" ? String(localized: "Access, status and Hand to Persona [Extensions Views 1224]") : String(localized: "Sign-in, status and more Inbox settings")).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
                             }
                         } icon: {
                             ThemedIcon(Theme.Icon.connectors)
@@ -428,10 +430,12 @@ struct ExtensionDetailView: View {
                 } header: {
                     SettingsHeading(String(localized: "Connector \(c.name)"))
                 } footer: {
-                    if c.inbox == true {
-                        Text("New \(c.name) items show in the Inbox. This is the same switch as Show in Inbox on the connector's page.")
-                    } else {
-                        Text("Not showing in Inbox: nothing new arrives; existing items stay.")
+                    if let inbox = c.inbox {
+                        if inbox {
+                            Text("New \(c.name) items show in the Inbox. This is the same switch as Show in Inbox on the connector's page.")
+                        } else {
+                            Text("Not showing in Inbox: nothing new arrives; existing items stay.")
+                        }
                     }
                 }
             }
@@ -732,6 +736,13 @@ private struct ExtensionMachineSwitches: View {
             }
             ForEach(machines) { m in
                 row(m.id, name: m.name, status: nodeStatus(m) ?? (browsers ? Self.browserStatus(m) : Self.status(m, computers: computers)))
+                if computers || browsers {
+                    NavigationLink(value: MachineDetailRoute(m.ref)) {
+                        Label("Set Up [Extensions Views 1224]", systemImage: Theme.Icon.settings)
+                            .font(Theme.Font.label).lineLimit(1)
+                    }
+                    .accessibilityIdentifier("extension-machine-setup-\(m.id)")
+                }
             }
             ForEach(unknown, id: \.self) { id in
                 row(id, name: id, status: String(localized: "Can't find this machine"))
@@ -758,7 +769,11 @@ private struct ExtensionMachineSwitches: View {
 
     private func save(_ id: String, on: Bool) {
         var next = items.filter { $0 != id }
-        if on { next.append(id) }
+        if on {
+            // A single-choice field replaces its old value in one save; asking the hub to keep both cannot succeed.
+            if field.maxItems == 1 { next = [] }
+            next.append(id)
+        }
         Task { await page.saveNow(next.isEmpty ? nil : .array(next.map(JSONValue.string)), at: path) }
     }
 

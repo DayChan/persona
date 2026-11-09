@@ -208,6 +208,15 @@ func (f *Fake) answerLocked(method string, p map[string]any) any {
 	case "repo.add":
 		path, _ := p["path"].(string)
 		return map[string]any{"repo": map[string]any{"path": path, "ok": true}}
+	case "worktree.set":
+		id, _ := p["worktree"].(string)
+		for _, tree := range f.trees {
+			if tree["worktreeId"] == strings.TrimPrefix(id, "id:") {
+				tree["displayName"] = p["displayName"]
+				return map[string]any{"worktree": tree}
+			}
+		}
+		return Fail{Code: "worktree_not_found"}
 	case "terminal.create":
 		wtID, _ := p["worktree"].(string)
 		wtID = strings.TrimPrefix(wtID, "id:")
@@ -397,9 +406,11 @@ func validate(method string, p map[string]any) string {
 		return first(handle(), str("title", true))
 	case "repo.add":
 		return str("path", true)
+	case "worktree.set":
+		return first(str("worktree", true), str("displayName", true))
 	case "worktree.create":
 		return first(str("repo", true), str("name", false), str("branchNameOverride", false), str("baseBranch", false),
-			str("parentWorktree", false), boolean("activate"))
+			str("parentWorktree", false), boolean("activate"), boolean("nameWasGenerated"))
 	case "terminal.create":
 		return first(str("worktree", true), str("title", true))
 	case "terminal.send":

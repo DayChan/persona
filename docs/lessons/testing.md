@@ -461,7 +461,7 @@ Retain strict checks for the complete target set, existing modules, artifact pat
 
 ## Hub end-to-end waits must exceed managers' fixed delays (2026-11-05, #2960)
 
-- Managers have fixed delays: `reconnectGrace` keeps disconnected nodes online for 5 seconds (`devices/warm.go`); repeated route failures back off 2, 4, 8 seconds, etc. in `pathEnded` (`devices/paths.go`).
+- Managers have fixed delays: `reconnectGrace` keeps disconnected nodes online for 5 seconds (`devices/warm.go`); repeated route failures back off 2, 4, 8 seconds, etc. in `pathEnded` (`devices/paths_choose.go`).
   `eventually` windows only a second or two longer time out under load (`TestCenterServiceConnector` waits 10 seconds for an 8-second backoff). Leave ample margin based on the delay, with comments explaining the wait.
 - Running 8–16 copies of the same test binary on two cores via `taskset -c 0,1` exposes these more readily than serial `-count=50`.
   It also exposed a real `TestCenterServiceConnector` race (late probe reply overwrote 4002's "Pair again"), so timeouts are not always tight windows; inspect whether logged state is stuck first.

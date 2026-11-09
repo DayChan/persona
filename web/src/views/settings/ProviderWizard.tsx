@@ -6,7 +6,7 @@
 // is lib/providers.ts and lib/launcher-presets.ts. It reads the main conversation's readiness (4.3 B.3 / B.4): with a
 // Claude Code that already answers, "Use it for the main conversation and new Agents" starts off; a key saved for a computer with no Claude Code
 // says so (the main conversation still starts claude there) with how to install it.
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, enc, errorText } from "../../lib/api";
 import {
   assignByDefault,
@@ -92,6 +92,10 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
   const [probeModel, setProbeModel] = useState("");
   const [discovering, setDiscovering] = useState(false);
   const [found, setFound] = useState<{ n: number; error?: string } | null>(null);
+  const connectionGeneration = useRef(0);
+  const discoverySeq = useRef(0);
+  const connectionTestSeq = useRef(0);
+  const modelToTest = probeModel.trim() || testModel(f);
   // the hub's providers (built-in ones, then the extensions'); null while loading
   const [presets, setPresets] = useState<LauncherPreset[] | null>(null);
   const [presetsError, setPresetsError] = useState("");
@@ -111,6 +115,25 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
   const preset = presets?.find((p) => p.id === choice);
   // a hub with built-in presets names a provider itself and takes assign; an older one needs the name and knows no assign
   const hubNames = useStore((s) => hubHas(s.features, BUILTIN_PRESETS_FEATURE, true));
+
+  // Settings keeps this component mounted when closed. A request belongs to one opening and connection,
+  // even if the user later returns to the same provider or restores the same input values.
+  useLayoutEffect(() => {
+    ++connectionGeneration.current;
+    setDiscovering(false);
+    setFound(null);
+    setTesting(false);
+    setTest(null);
+    return () => { ++connectionGeneration.current; };
+  }, [existing, choice, f.name, f.kind, f.agent, f.api, f.base_url, f.auth, f.api_key, f.headers, f.headers_touched]);
+
+  // Changing the probe model retires only its test; model edits must still merge with pending discovery.
+  useLayoutEffect(() => {
+    ++connectionTestSeq.current;
+    setTesting(false);
+    setTest(null);
+    return () => { ++connectionTestSeq.current; };
+  }, [modelToTest]);
 
   useEffect(() => {
     if (existing === null) return;
@@ -184,33 +207,41 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
 
   const runTest = async () => {
     if (hasLegacyChat) return;
-    const model = probeModel.trim() || testModel(f);
+    const generation = connectionGeneration.current;
+    const seq = ++connectionTestSeq.current;
+    const current = () => generation === connectionGeneration.current && seq === connectionTestSeq.current;
     setTesting(true);
     setTest(null);
     try {
-      setTest(await api<TestResult>("/launchers/test", { method: "POST", json: probeBody(f, old?.name ?? null, model) }));
+      const result = await api<TestResult>("/launchers/test", { method: "POST", json: probeBody(f, old?.name ?? null, modelToTest) });
+      if (current()) setTest(result);
     } catch (e) {
-      setTest({ ok: false, ms: 0, error: errorText(e) });
+      if (current()) setTest({ ok: false, ms: 0, error: errorText(e) });
     } finally {
-      setTesting(false);
+      if (current()) setTesting(false);
     }
   };
   const runDiscover = async () => {
     if (hasLegacyChat) return;
+    const generation = connectionGeneration.current;
+    const seq = ++discoverySeq.current;
+    const current = () => generation === connectionGeneration.current && seq === discoverySeq.current;
     setDiscovering(true);
     setFound(null);
     try {
       const r = await api<{ models?: ProviderModel[]; error?: string }>("/launchers/discover", { method: "POST", json: probeBody(f, old?.name ?? null) });
+      if (!current()) return;
       const list = r.models ?? [];
       setF((x) => {
+        if (!current()) return x;
         const models = mergeDiscovered(x.models, list, x.kind === "api" && x.api === "chat");
         return { ...x, models, model: x.model || models.find((m) => m.checked)?.id || "" };
       });
       setFound({ n: list.length, error: r.error });
     } catch (e) {
-      setFound({ n: 0, error: errorText(e) });
+      if (current()) setFound({ n: 0, error: errorText(e) });
     } finally {
-      setDiscovering(false);
+      if (current()) setDiscovering(false);
     }
   };
 

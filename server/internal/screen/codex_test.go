@@ -137,3 +137,24 @@ func TestReadCodexHistoryNumbered(t *testing.T) {
 		t.Errorf("picker: %+v", s)
 	}
 }
+
+// Compact TUI layouts put the status directly below the composer, without a blank separating row.
+func TestReadCodexComposerWithAdjacentFooter(t *testing.T) {
+	footer := "  GPT-6.1-Sol xhigh · ~/project · Review project · Main [default]    Goal achieved (30m)\n" +
+		"  ← for agents · ? for shortcuts                              ⚠ 2 warnings · f2 to view\n"
+	for _, tc := range []struct{ name, composer, want string }{
+		{"empty", "› Ask Codex to do anything\n", ""},
+		{"typed", "› check the build\n", "check the build"},
+		{"multiline", "› check the build\n  and keep my changes\n", "check the build\nand keep my changes"},
+		{"footer-like draft", "› keep this text\n  GPT-6.1-Sol xhigh · /work/example\n  ← for agents · ? for shortcuts\n  and this final line\n", "keep this text\nGPT-6.1-Sol xhigh · /work/example\n← for agents · ? for shortcuts\nand this final line"},
+		{"colored empty", "› \x1b[2mAsk Codex to do anything\x1b[0m\n", ""},
+		{"colored real placeholder", "› \x1b[37mAsk Codex to do anything\x1b[0m\n", CodexPlaceholder},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := ReadCodex("• Done.\n\n" + tc.composer + footer)
+			if s.View != CodexComposer || s.Draft != tc.want {
+				t.Fatalf("view %q draft %q, want composer draft %q", s.View, s.Draft, tc.want)
+			}
+		})
+	}
+}

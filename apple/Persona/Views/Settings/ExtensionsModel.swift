@@ -637,9 +637,12 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
         saving = true
         defer { saving = false }
         formError = nil
+        let key = path.joined(separator: ".")
         let ok = await run(refused: { self.formError = $0 }) { api in
             try await api.setExtension(self.id, config: Self.compact(Self.setting(saved, path[...], value)))
         }
+        // A retry that succeeds clears this field's refusal; errors on fields still being edited stay.
+        if ok { fieldErrors.removeValue(forKey: key) }
         // run took the hub's answer as the draft: the other edits go back on top of it.
         draft = Self.setting(editing, path[...], ok ? self.value(path) : Self.value(in: saved, path))
     }

@@ -129,7 +129,10 @@ func (n *Node) listWorkspaces(ctx context.Context) (proto.WorkspacesResponse, er
 				}
 			}
 			out.Workspaces = append(out.Workspaces, proto.Workspace{ID: s.ID, Source: h.Kind(), SourceID: s.ID,
-				Title: s.Label, Cwd: cwd, Branch: s.Branch, Online: true, Available: true})
+				Title: firstOf(s.DisplayName, s.Label), Cwd: cwd, Branch: s.Branch, Online: true, Available: true,
+				ParentSourceID: s.ParentID, Index: s.Number,
+				ProjectID: s.ProjectID, ProjectName: s.ProjectName, ProjectPath: s.ProjectPath, IsMain: s.IsMain,
+				Unread: s.Unread, SidebarStatus: s.SidebarStatus, WorkspaceKind: s.WorkspaceKind, Head: s.Head})
 		}
 	}
 	if succeeded == 0 && len(failures) > 0 {

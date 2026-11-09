@@ -7,7 +7,7 @@ import (
 	"github.com/nwverse/persona/server/internal/connector"
 )
 
-// pluginLark stands in for a plugin's connector "lark": an inbox that records replies.
+// extensionLark stands in for a plugin's connector "lark": an inbox that records replies.
 type extensionLark struct {
 	things []connector.InboxThing
 	got    []connector.InboxReply

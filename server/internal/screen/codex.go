@@ -137,6 +137,7 @@ var (
 	codexQuestionRE = lazyre.New(`^\s*Question (\d+)/(\d+)\b`)
 	codexColumnsRE  = lazyre.New(`^(.*?\S)\s{2,}(\S.*)$`)
 	codexNumberedRE = lazyre.New(`^›\s*\d+\.\s`)
+	codexStatusRE   = lazyre.New(`^\s{2,}\S.*\s·\s(?:~[/\\]|/|[A-Za-z]:[/\\])`)
 )
 
 // ReadCodex reads a Codex screen, best read with its colors: without them a draft the user typed cannot be told from
@@ -215,10 +216,20 @@ func codexBox(plain []string) int {
 }
 
 // codexDraft is the box's text that is not its dim placeholder: the › row and the rows right under it (a draft of
-// several lines), up to the first blank row.
+// several lines), up to the first blank row or the TUI's bottom status. Compact layouts omit the blank separator.
 func codexDraft(raw, plain []string, i int, noColor bool) string {
 	var rows []string
-	for k := i; k < len(plain); k++ {
+	end := len(plain)
+	if end > i+2 {
+		last := strings.TrimSpace(plain[end-1])
+		if (strings.HasPrefix(last, "? for shortcuts") || strings.HasPrefix(last, "← for agents · ? for shortcuts")) &&
+			codexStatusRE.MatchString(plain[end-2]) {
+			// Match the status/path and shortcut footer together at the bottom, not model names or hint text
+			// inside a multiline draft. Real text above this pair remains protected from remote input.
+			end -= 2
+		}
+	}
+	for k := i; k < end; k++ {
 		if k > i && (strings.TrimSpace(plain[k]) == "" || !strings.HasPrefix(plain[k], "  ")) {
 			break
 		}

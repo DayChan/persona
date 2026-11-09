@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net/http"
 	"slices"
@@ -11,11 +12,13 @@ import (
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/sessionlist"
+	"github.com/nwverse/persona/server/internal/sessionorigin"
 )
 
 const (
-	featureSessionsList   = "sessions_list"
-	featureSessionsLookup = "sessions_lookup"
+	featureSessionsList       = "sessions_list"
+	featureSessionsLookup     = "sessions_lookup"
+	featureSessionsPaneSource = "sessions_pane_source"
 )
 
 // runtimeList is a transport cache of the manager's already-decorated rows. It
@@ -41,7 +44,7 @@ func (h *Hub) sessionListIndex() *sessionlist.Index {
 }
 
 // indexSessionsLocked consumes the same encoded whole rows used by the legacy
-// push path. Only row summaries are additionally encoded, once per update.
+// push path. Bounded rows add the scalar origin; summaries encode once per update.
 func (h *Hub) indexSessionsLocked(mid string, list []proto.Session, encoded []sentSession) {
 	if h.listCache.machines == nil {
 		return // no paginated reader yet; legacy users pay no indexing overhead
@@ -53,7 +56,7 @@ func (h *Hub) indexSessionsLocked(mid string, list []proto.Session, encoded []se
 	items := make([]sessionlist.Item, 0, len(list))
 	seen := make(map[string]bool, len(list))
 	for _, row := range list {
-		if row.SessionID == "" || seen[row.SessionID] {
+		if row.SessionID == "" || seen[row.SessionID] || len(full[row.SessionID]) == 0 {
 			continue
 		}
 		seen[row.SessionID] = true
@@ -69,11 +72,16 @@ func (h *Hub) indexSessionsLocked(mid string, list []proto.Session, encoded []se
 			group = row.WorkspaceID
 		}
 		summary, _ := json.Marshal(runtimeSummary(row))
+		// Reuse the exact legacy encoding, including compatibility keys.
+		indexedFull := runtimeListFields(full[row.SessionID], struct {
+			PaneSource string `json:"pane_source"`
+		}{sessionorigin.Of(row)})
 		items = append(items, sessionlist.Item{
 			ID: runtimeListID(mid, row.SessionID), Machine: mid, Project: project, Group: group,
-			State: row.State, BackgroundWaiting: row.BackgroundWaiting, Source: row.SourceKind, Provider: row.Agent, UpdatedAt: row.UpdatedAt,
+			PaneSource: sessionorigin.Of(row),
+			State:      row.State, BackgroundWaiting: row.BackgroundWaiting, Source: row.SourceKind, Provider: row.Agent, UpdatedAt: row.UpdatedAt,
 			SearchText: strings.Join([]string{row.Title, row.Cwd, row.RepoRoot, row.SpaceName, row.SlotName, row.AgentName, row.LastText}, "\n"),
-			Summary:    json.RawMessage(summary), Full: full[row.SessionID],
+			Summary:    json.RawMessage(summary), Full: json.RawMessage(indexedFull),
 		})
 	}
 	h.listCache.index.Replace(mid, items)
@@ -108,10 +116,47 @@ func rowText(s string, max int) string {
 // configuration. The normal info/items routes remain the source for chat detail.
 type runtimeRowSummary struct {
 	proto.Session
-	Waiting          bool `json:"waiting"`
-	BackgroundCount  int  `json:"background_count,omitempty"`
-	RunningSubagents int  `json:"running_subagents,omitempty"`
-	RunningWorkflows int  `json:"running_workflows,omitempty"`
+	PaneSource       string `json:"pane_source"`
+	Waiting          bool   `json:"waiting"`
+	BackgroundCount  int    `json:"background_count,omitempty"`
+	RunningSubagents int    `json:"running_subagents,omitempty"`
+	RunningWorkflows int    `json:"running_workflows,omitempty"`
+}
+
+// runtimeListFields joins two encoded objects. Embedding proto.Session in a
+// wrapper directly would promote its compatibility MarshalJSON and hide all
+// sibling fields. Both objects here are produced by our own JSON encoders.
+func runtimeListFields(session json.RawMessage, fields any) json.RawMessage {
+	extra, _ := json.Marshal(fields)
+	out := make([]byte, 0, len(session)+len(extra))
+	out = append(out, session[:len(session)-1]...)
+	out = append(out, ',')
+	out = append(out, extra[1:]...)
+	return out
+}
+
+func (s runtimeRowSummary) MarshalJSON() ([]byte, error) {
+	raw, err := json.Marshal(s.Session)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeListFields(raw, struct {
+		PaneSource       string `json:"pane_source"`
+		Waiting          bool   `json:"waiting"`
+		BackgroundCount  int    `json:"background_count,omitempty"`
+		RunningSubagents int    `json:"running_subagents,omitempty"`
+		RunningWorkflows int    `json:"running_workflows,omitempty"`
+	}{s.PaneSource, s.Waiting, s.BackgroundCount, s.RunningSubagents, s.RunningWorkflows}), nil
+}
+
+// MarshalJSONTo shadows the promoted (*proto.Session).MarshalJSONTo, which encoding/json prefers for an addressable
+// summary (a pointer, a slice element) and which would drop the fields beside the session.
+func (s *runtimeRowSummary) MarshalJSONTo(enc *jsontext.Encoder) error {
+	b, err := s.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	return enc.WriteValue(b)
 }
 
 func runtimeSummary(s proto.Session) runtimeRowSummary {
@@ -162,7 +207,8 @@ func runtimeSummary(s proto.Session) runtimeRowSummary {
 		cp.Reason = rowText(cp.Reason, 120)
 		out.Loop = &cp
 	}
-	row := runtimeRowSummary{Session: out, BackgroundCount: len(s.Background)}
+	out.Host = s.Host
+	row := runtimeRowSummary{Session: out, PaneSource: sessionorigin.Of(s), BackgroundCount: len(s.Background)}
 	for _, sub := range s.Subagents {
 		if sub.Running {
 			row.RunningSubagents++
@@ -212,6 +258,12 @@ func (h *Hub) pagedSessions(w http.ResponseWriter, r *http.Request) {
 			opts.Machine = own[0]
 		}
 		limited = opts.Machine == ""
+	}
+	if limited && opts.PaneSource != "" {
+		// The legacy ownership projection recomputes totals outside the frozen view.
+		// Require one authorized machine for this stricter origin contract.
+		sessionListErr(w, errors.New("pane_source requires machine_id for a manager-scoped aggregate"))
+		return
 	}
 	if counts := r.URL.Query().Get("counts"); counts == "1" || counts == "true" {
 		var counts sessionlist.Counts

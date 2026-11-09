@@ -30,6 +30,12 @@ import (
 // launcherModelsTTL: a list is kept this long per launcher (and managed launcher's settings); refresh skips it.
 const launcherModelsTTL = 10 * time.Minute
 
+// launcherModelsStale: a list older than launcherModelsTTL but younger than this is still answered at once, while the CLI
+// is asked again in the background for the next ask (#1501): asking takes seconds (the login shell, the CLI's start,
+// the gateway's /models) and the picker would wait for it every ten minutes. A changed launcher has a new key
+// (executionFingerprint), so it is never answered with its old list.
+const launcherModelsStale = 24 * time.Hour
+
 // launcherModelsTimeout covers a slow ~/.zshrc, the CLI's start and the gateway's /models.
 var launcherModelsTimeout = 45 * time.Second
 
@@ -66,10 +72,7 @@ func (n *Node) launcherModels(ctx context.Context, name, agentType string, refre
 	at, ok := launcherModelsCache.at[key]
 	cached := launcherModelsCache.got[key]
 	launcherModelsCache.Unlock()
-	if ok && !refresh && time.Since(at) < launcherModelsTTL {
-		return cached, nil
-	}
-	v, err, _ := launcherModelsCache.flight.Do(key, func() (any, error) {
+	ask := func() (any, error) {
 		res := proto.LauncherModels{Agent: agent, Models: []proto.AgentModel{}}
 		if agent != "claude" && agent != "codex" {
 			return res, nil
@@ -101,7 +104,19 @@ func (n *Node) launcherModels(ctx context.Context, name, agentType string, refre
 		launcherModelsCache.at[key], launcherModelsCache.got[key] = time.Now(), res
 		launcherModelsCache.Unlock()
 		return res, nil
-	})
+	}
+	if ok && !refresh {
+		switch age := time.Since(at); {
+		case age < launcherModelsTTL:
+			return cached, nil
+		case age < launcherModelsStale:
+			// The kept list now, a fresh one for the next ask; an ask already running is joined, not repeated. A failed
+			// one leaves the kept list as it was.
+			launcherModelsCache.flight.DoChan(key, ask)
+			return cached, nil
+		}
+	}
+	v, err, _ := launcherModelsCache.flight.Do(key, ask)
 	if err != nil {
 		return proto.LauncherModels{}, err
 	}

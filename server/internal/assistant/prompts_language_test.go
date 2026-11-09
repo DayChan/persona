@@ -85,7 +85,7 @@ func TestGoldenSessionTitleLanguage(t *testing.T) {
 		f.hello.Locale = c.locale
 		f.replies = []string{c.reply}
 		s := newTestService(t, f)
-		if got := s.makeTitle(context.Background(), started, "搜索的时候搜索框和顶栏叠在一起了", "是两个组件一起用导致的。"); got != c.want {
+		if got, _ := s.makeTitle(context.Background(), started, "搜索的时候搜索框和顶栏叠在一起了", "是两个组件一起用导致的。"); got != c.want {
 			t.Fatalf("%s: %q", c.locale, got)
 		}
 		system := f.modelCalls()[0].System

@@ -1,6 +1,6 @@
 // Beautiful UI Todos View: left list (sorted by status & created_at), right detail, handover dialog.
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, enc, errorText } from "../lib/api";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { api, credentialOwner, enc, errorText, subscribeCredentialOwner } from "../lib/api";
 import { ago, clock, shortPath, stateOf, tabLabel, uuid } from "../lib/format";
 import { launchAgent } from "../lib/new-agent";
 import { initialLauncher, launcherBlock, usableFirst } from "../lib/launcher-health";
@@ -60,6 +60,7 @@ import { dayKey, isCalendarMode, parseDayKey, startOfDay, type CalendarMode } fr
 import type { Route } from "../lib/router";
 import { ReviewBadge, ReviewChecklist } from "./assistant/Supervision";
 import { TodoStageBar } from "./TodoStageBar";
+import { useTodoField } from "./use-todo-field";
 import { todoUltracode } from "../lib/ultracode";
 import { UltraMark } from "./chat/Ultracode";
 import { boundThread, threadLine, threadName, todoThreadsOn, unbindTodoThread } from "../lib/todo-thread";
@@ -104,6 +105,7 @@ export function TodosView({
   date?: string;
   onToggleSidebar?: () => void;
 }) {
+  const owner = useSyncExternalStore(subscribeCredentialOwner, credentialOwner, credentialOwner);
   const todos = useStore((s) => s.todos);
   const todosLoaded = useStore((s) => s.todosLoaded);
   const todosError = useStore((s) => s.todosError);
@@ -478,7 +480,8 @@ export function TodosView({
           )}
           {activeTodo ? (
             <TodoDetail
-              key={activeTodo.id}
+              key={`${owner}/${activeTodo.id}`}
+              owner={owner}
               todo={activeTodo}
               activeAgents={activeAgents}
               releasedAgents={releasedAgents}
@@ -961,6 +964,7 @@ function askText(ix: Interaction | undefined): string {
 
 function TodoDetail({
   todo,
+  owner,
   activeAgents,
   releasedAgents,
   lookup,
@@ -973,6 +977,7 @@ function TodoDetail({
   onDeleteClick,
 }: {
   todo: Todo;
+  owner: string;
   activeAgents: TodoAgent[];
   releasedAgents: TodoAgent[];
   lookup: ReturnType<typeof makeSessionLookup>;
@@ -984,10 +989,16 @@ function TodoDetail({
   onOpenHandover: () => void;
   onDeleteClick: () => void;
 }) {
-  const [title, setTitle] = useState(todo.title);
-  const [notes, setNotes] = useState(todo.notes ?? "");
-  const [savingTitle, setSavingTitle] = useState(false);
-  const [savingNotes, setSavingNotes] = useState(false);
+  const title = useTodoField({
+    remote: todo.title, owner, allowEmpty: false,
+    write: async (value) => (await updateTodo(todo.id, { title: value })).title,
+    onError: (error) => toast(t("todos.save_title_failed", { error: errorText(error) }), "error"),
+  });
+  const notes = useTodoField({
+    remote: todo.notes ?? "", owner, allowEmpty: true,
+    write: async (value) => (await updateTodo(todo.id, { notes: value })).notes ?? "",
+    onError: (error) => toast(t("todos.save_notes_failed", { error: errorText(error) }), "error"),
+  });
   const menu = useMenu();
   const allSessions = useAgentSessions();
   const spacesSupported = useStore((s) => s.spacesSupported);
@@ -1010,40 +1021,6 @@ function TodoDetail({
       toast(t("todos.space_removed"), "ok");
     } catch (e) {
       toast(t("todos.space_remove_failed", { error: errorText(e) }), "error");
-    }
-  };
-
-  useEffect(() => {
-    setTitle(todo.title);
-    setNotes(todo.notes ?? "");
-  }, [todo]);
-
-  const saveTitle = async () => {
-    if (!title.trim() || title.trim() === todo.title) {
-      setTitle(todo.title);
-      return;
-    }
-    setSavingTitle(true);
-    try {
-      await updateTodo(todo.id, { title: title.trim() });
-      await refreshTodos();
-    } catch (e) {
-      toast(t("todos.save_title_failed", { error: errorText(e) }), "error");
-    } finally {
-      setSavingTitle(false);
-    }
-  };
-
-  const saveNotes = async () => {
-    if ((notes.trim() || undefined) === (todo.notes?.trim() || undefined)) return;
-    setSavingNotes(true);
-    try {
-      await updateTodo(todo.id, { notes: notes.trim() });
-      await refreshTodos();
-    } catch (e) {
-      toast(t("todos.save_notes_failed", { error: errorText(e) }), "error");
-    } finally {
-      setSavingNotes(false);
     }
   };
 
@@ -1089,10 +1066,10 @@ function TodoDetail({
       <div className="flex items-center justify-between gap-3">
         <input
           type="text"
-          value={title}
-          disabled={savingTitle}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={saveTitle}
+          value={title.value}
+          aria-busy={title.saving}
+          onChange={(e) => title.edit(e.target.value)}
+          onBlur={title.save}
           onKeyDown={(e) => {
             if (composing(e.nativeEvent)) return;
             if (e.key === "Enter") {
@@ -1150,10 +1127,10 @@ function TodoDetail({
         <div className="relative rounded-control bg-inset p-3.5 shadow-hairline">
           <textarea
             rows={3}
-            value={notes}
-            disabled={savingNotes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={saveNotes}
+            value={notes.value}
+            aria-busy={notes.saving}
+            onChange={(e) => notes.edit(e.target.value)}
+            onBlur={notes.save}
             placeholder={t("todos.notes_placeholder")}
             className="w-full resize-none bg-transparent text-[13.5px] leading-[1.65] text-ink outline-none placeholder:text-ink-3"
           />

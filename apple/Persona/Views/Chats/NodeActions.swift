@@ -75,10 +75,10 @@ extension APIClient {
         try await get("/api/v1/machines/\(machine)/panes", as: TerminalPanes.self)
     }
 
-    /// One of the node menu's routes, `POST /machines/{mid}/<path>`; the body is only the named string fields.
+    /// One of the node menu's routes, `POST /machines/{mid}/<path>`; only allowlisted fields and boolean flags reach the node.
     @discardableResult
-    func nodeAction(machine: String, _ path: String, _ body: [String: String], timeout: TimeInterval = 40) async throws -> Data {
-        try await post("/api/v1/machines/\(machine)/\(path)", body: body, timeout: timeout)
+    func nodeAction<Body: Encodable & Sendable>(machine: String, _ path: String, _ body: Body, timeout: TimeInterval = 40, opID: UUID? = nil) async throws -> Data {
+        try await post("/api/v1/machines/\(machine)/\(path)", body: body, timeout: timeout, opID: opID)
     }
 }
 
@@ -536,8 +536,10 @@ nonisolated struct WorktreePrepare: Decodable, Sendable, Equatable {
     var branch: String
     /// The directory the host puts this repository's checkouts under; a branch's checkout is `path/<slug>`.
     var path: String
+    var chooseParent = false
+    var automaticName = false
 
-    enum CodingKeys: String, CodingKey { case root, repoName, branch, path }
+    enum CodingKeys: String, CodingKey { case root, repoName, branch, path, chooseParent = "choose_parent", automaticName = "automatic_name" }
 
     init(root: String = "", repoName: String, branch: String = "", path: String) {
         self.root = root
@@ -552,6 +554,8 @@ nonisolated struct WorktreePrepare: Decodable, Sendable, Equatable {
         repoName = try c.decodeIfPresent(String.self, forKey: .repoName) ?? ""
         branch = try c.decodeIfPresent(String.self, forKey: .branch) ?? ""
         path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        chooseParent = try c.decodeIfPresent(Bool.self, forKey: .chooseParent) ?? false
+        automaticName = try c.decodeIfPresent(Bool.self, forKey: .automaticName) ?? false
     }
 }
 
@@ -560,12 +564,31 @@ nonisolated struct WorktreeCreated: Decodable, Sendable, Equatable {
     var workspaceID: String
     var path: String
     var branch: String
-    enum CodingKeys: String, CodingKey { case path, branch, workspaceID = "workspace_id" }
+    var parentWorkspaceID: String?
+    enum CodingKeys: String, CodingKey { case path, branch, workspaceID = "workspace_id", parentWorkspaceID = "parent_workspace_id" }
+    /// Older hubs may drop the additive parent request. Never replace the server's acknowledgement with the pick.
+    func resolvedParent(sourceID: String) -> String { parentWorkspaceID ?? sourceID }
 }
 
 /// The dialog's logic, as the web's `lib/worktree.ts` (docs/integrations/terminal.md「新建 worktree…」): the path follows the branch
 /// until it is typed by hand; the computer checks everything again.
 nonisolated enum WorktreeForm: Sendable {
+    /// A retry of the same creation intent reuses its receipt, including a lost success response.
+    struct CreationAttempt: Sendable {
+        private var target: String?
+        private var body: [String: JSONValue]?
+        private var id = UUID()
+
+        mutating func operationID(target: String, body: [String: JSONValue]) -> UUID {
+            if self.target != target || self.body != body {
+                self.target = target
+                self.body = body
+                id = UUID()
+            }
+            return id
+        }
+    }
+
     struct State: Equatable, Sendable {
         var branch = ""
         var path = ""
@@ -635,8 +658,13 @@ nonisolated enum WorktreeForm: Sendable {
     }
 
     /// What stops it being sent; nil when nothing does.
-    static func problem(_ s: State) -> String? {
-        branchProblem(s.branch) ?? (s.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Enter a checkout path") : nil)
+    static func usesAutomaticName(_ s: State, supported: Bool) -> Bool {
+        supported && s.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !s.pathEdited
+    }
+
+    static func problem(_ s: State, automaticName: Bool = false) -> String? {
+        if usesAutomaticName(s, supported: automaticName) { return nil }
+        return branchProblem(s.branch) ?? (s.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Enter a checkout path") : nil)
     }
 
     static var needsUpdate: String { String(localized: "Persona on this computer is too old to create worktrees. Update it first.") }
@@ -655,9 +683,10 @@ nonisolated enum WorktreeForm: Sendable {
         return m.isEmpty ? what : String(localized: "\(what): \(m)")
     }
 
-    static func body(workspaceID: String, kind: String?) -> [String: String] {
+    static func body(workspaceID: String, kind: String?, parentWorkspaceID: String? = nil) -> [String: String] {
         var body = ["workspace_id": workspaceID]
         if let kind, !kind.isEmpty { body["kind"] = kind }
+        if let parentWorkspaceID { body["parent_workspace_id"] = parentWorkspaceID }
         return body
     }
 }
@@ -669,134 +698,244 @@ struct NewWorktreeSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     var group: SpaceGroup
+    var workspace: HostWorkspace? = nil
+    var onCreated: ((WorktreeCreated) -> Void)? = nil
 
     @State private var repo: Loadable<WorktreePrepare> = .loading
     @State private var form = WorktreeForm.State()
+    @State private var catalog = WorkspaceCatalog()
+    @State private var sourceID: String?
+    @State private var parentID: String?
     @State private var busy = false
     @State private var failure: String?
     @State private var created: WorktreeCreated?
+    @State private var advanced = false
+    @State private var attempt = WorktreeForm.CreationAttempt()
 
-    private var workspaceID: String { NodeMenu.workspaceID(group) ?? "" }
+    private var workspaceID: String { sourceID ?? workspace?.sourceID ?? NodeMenu.workspaceID(group) ?? "" }
+    private var parentWorkspaceID: String { parentID ?? workspace?.sourceID ?? NodeMenu.workspaceID(group) ?? "" }
+    private var kind: String? { workspace?.source ?? NodeMenu.kind(group) }
     private var base: String { repo.value?.path ?? "" }
+    private var choices: [HostWorkspace] {
+        var rows = catalog.workspaces.filter { $0.machineRef == group.machineRef && $0.source == "orca" }
+        if let workspace, !rows.contains(where: { $0.key == workspace.key }) { rows.append(workspace) }
+        return rows
+    }
+    private var source: HostWorkspace? { choices.first { $0.sourceID == workspaceID } }
+    private var parent: HostWorkspace? { choices.first { $0.sourceID == parentWorkspaceID } }
+    private var online: Bool { model.machine(group.machineRef)?.online == true }
+    private var automaticName: Bool { repo.value?.automaticName == true }
 
     var body: some View {
         if let created {
-            // The new workspace: start an agent in it (it shows in Agents once one runs there).
             NewChatView(preset: SpacePreset(machineID: group.machineRef.path, cwd: created.path, workspaceID: created.workspaceID,
-                                            spaceName: (repo.value?.repoName ?? group.name) + " · " + created.branch)) { s in
-                dismiss()
-                model.open(s.key)
-            }
+                                            spaceName: created.branch, host: kind)) { s in dismiss(); model.open(s.key) }
         } else {
             NavigationStack {
-                LoadableContent(state: repo, retry: { Task { await prepare() } }) { r in
-                    content(r)
+                Form {
+                    if kind == "orca" {
+                        Section {
+                            NavigationLink {
+                                WorkspacePicker(workspaces: choices, selectedID: workspaceID) { pick in sourceID = pick?.sourceID }
+                            } label: {
+                                LabeledContent(String(localized: "workspace.source", defaultValue: "Code Source"), value: source?.title ?? group.name)
+                            }
+                            .accessibilityIdentifier("worktree.source")
+                        } footer: {
+                            Text(String(localized: "workspace.sourceHelp", defaultValue: "The new worktree uses this worktree's repository and current commit."))
+                        }
+                        Section {
+                            NavigationLink {
+                                WorkspacePicker(workspaces: choices, selectedID: parentWorkspaceID) { pick in parentID = pick?.sourceID }
+                            } label: {
+                                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                                    Text(String(localized: "workspace.parent", defaultValue: "Parent Worktree"))
+                                    #if os(iOS) || os(visionOS)
+                                    Text(parent?.title ?? group.name).font(Theme.Font.secondaryStrong).lineLimit(1)
+                                    #endif
+                                    Text(parent?.breadcrumb(in: choices) ?? group.name).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            .accessibilityIdentifier("worktree.parent")
+                            .disabled(repo.value?.chooseParent != true)
+                        } footer: {
+                            if let r = repo.value, !r.chooseParent { Text(WorktreeForm.needsUpdate) }
+                            else { Text(String(localized: "workspace.parentHelp", defaultValue: "Choose any worktree on this computer, including another project's worktree or a folder.")) }
+                        }
+                    }
+                    switch repo {
+                    case .loading: Section { ProgressView() }
+                    case .failed(let message):
+                        Section {
+                            Text(message).foregroundStyle(Theme.danger)
+                            Button("Retry") { Task { await prepare() } }
+                        }
+                    case .loaded(let r): fields(r)
+                    }
+                    if let failure {
+                        Section { Text(failure).foregroundStyle(Theme.danger).accessibilityIdentifier("worktree.failure") }
+                    }
                 }
+                .disabled(busy)
                 .themedPage()
-                .navigationTitle("New Worktree")
+                #if os(macOS)
+                .formStyle(.grouped)
+                #endif
+                .navigationTitle(workspace == nil ? String(localized: "New Worktree") : String(localized: "workspace.newChildTitle", defaultValue: "New Worktree"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }.lineLimit(1).disabled(busy)
-                    }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.lineLimit(1).disabled(busy) }
                     ToolbarItem(placement: .confirmationAction) {
-                        if busy {
-                            ProgressView()
-                        } else {
-                            Button("Create") { create() }
-                                .lineLimit(1)
-                                .disabled(repo.value == nil || WorktreeForm.problem(form) != nil)
+                        if busy { ProgressView() }
+                        else {
+                            Button { create() } label: {
+                                Text(String(localized: "worktree.create", defaultValue: "Create Worktree"))
+                                    #if os(iOS) || os(visionOS)
+                                    .foregroundStyle(.white)
+                                    #endif
+                            }
+                                .lineLimit(1).formButton(prominent: true)
+                                .disabled(!online || repo.value == nil || WorktreeForm.problem(form, automaticName: automaticName) != nil || parentWorkspaceID.isEmpty || (parentWorkspaceID != workspaceID && repo.value?.chooseParent != true))
+                                .accessibilityIdentifier("worktree.create")
                         }
                     }
                 }
             }
-            .task { await prepare() }
-            .presentationDetents([.medium, .large])
+            .task { await catalog.refresh([group.group]) { model.api($0) } }
+            .task(id: workspaceID) { await prepare() }
+            .presentationDetents(workspace == nil ? [.medium, .large] : [.large])
             .interactiveDismissDisabled(busy)
+            #if os(macOS)
+            .macSheet()
+            #endif
         }
     }
 
-    @ViewBuilder private func content(_ r: WorktreePrepare) -> some View {
-        Form {
-            Section {
-                Label(r.branch.isEmpty ? String(localized: "\(r.repoName) · not on any branch") : String(localized: "\(r.repoName) · on branch \(r.branch)"),
-                      systemImage: Theme.Icon.gitBranch)
-                    .font(Theme.Font.secondary)
-                    .lineLimit(1)
-            }
-            Section {
-                TextField(String(localized: "New branch name, or an existing local branch"), text: Binding(get: { form.branch }, set: { form = WorktreeForm.typeBranch(form, base: base, $0) }))
-                    .font(Theme.Font.code)
-                    .autocorrectionDisabled()
-                    #if os(iOS) || os(visionOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("worktree.branch")
-            } header: {
-                Text("Branch")
-            } footer: {
-                if !form.branch.isEmpty, let problem = WorktreeForm.branchProblem(form.branch) {
-                    Text(problem).foregroundStyle(Theme.danger)
-                } else {
-                    Text("A new branch starts from this workspace's current commit; an existing local branch is checked out as is.")
-                }
-            }
-            Section {
-                TextField(String(localized: "Checkout Path"), text: Binding(get: { form.path }, set: { form = WorktreeForm.typePath(form, base: base, $0.replacingOccurrences(of: "\n", with: "")) }),
-                          axis: .vertical) // a long path shows whole
-                    .font(Theme.Font.code)
-                    .autocorrectionDisabled()
-                    #if os(iOS) || os(visionOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("worktree.path")
-            } header: {
-                Text("Checkout Path")
-            } footer: {
-                if let failure {
-                    Text(failure).foregroundStyle(Theme.danger).accessibilityIdentifier("worktree.failure")
-                } else {
-                    Text("Follows the branch name. Once you edit it, it stops following; clear it to follow again.")
-                }
-            }
+    @ViewBuilder private func fields(_ r: WorktreePrepare) -> some View {
+        Section {
+            Label(r.branch.isEmpty ? r.repoName + " · " + String(localized: "Detached HEAD") : String(localized: "\(r.repoName) · on branch \(r.branch)"),
+                  systemImage: Theme.Icon.gitBranch).font(Theme.Font.secondary).lineLimit(1)
         }
-        .disabled(busy)
+        if automaticName {
+            Section {
+                Button { withAnimation(Theme.Motion.layout) { advanced.toggle() } } label: {
+                    HStack {
+                        Text("Advanced")
+                        Spacer()
+                        Image(systemName: advanced ? Theme.Icon.expand : Theme.Icon.disclosure).foregroundStyle(.secondary)
+                    }.contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("worktree.advanced")
+                if advanced {
+                    VStack(alignment: .leading, spacing: Theme.Space.m) {
+                        Text("Branch").font(Theme.Font.caption).foregroundStyle(.secondary)
+                        branchField
+                        Text("Checkout Path").font(Theme.Font.caption).foregroundStyle(.secondary)
+                        pathField
+                        if let problem = WorktreeForm.problem(form, automaticName: true) {
+                            Text(problem).font(Theme.Font.caption).foregroundStyle(Theme.danger)
+                        }
+                    }.padding(.vertical, Theme.Space.s)
+                }
+            }
+        } else {
+            manualFields
+        }
+    }
+
+    @ViewBuilder private var manualFields: some View {
+        Section {
+            branchField
+        } header: { Text("Branch") } footer: {
+            if !form.branch.isEmpty, let problem = WorktreeForm.branchProblem(form.branch) { Text(problem).foregroundStyle(Theme.danger) }
+            else { Text("A new branch starts from this workspace's current commit; an existing local branch is checked out as is.") }
+        }
+        Section {
+            pathField
+        } header: { Text("Checkout Path") } footer: {
+            Text("Follows the branch name. Once you edit it, it stops following; clear it to follow again.")
+        }
+    }
+
+    private var branchField: some View {
+        WorktreeInput(title: String(localized: "New branch name, or an existing local branch"), text: Binding(get: { form.branch }, set: { form = WorktreeForm.typeBranch(form, base: base, $0) }))
+            .accessibilityIdentifier("worktree.branch")
+    }
+
+    private var pathField: some View {
+        WorktreeInput(title: String(localized: "Checkout Path"), text: Binding(get: { form.path }, set: { form = WorktreeForm.typePath(form, base: base, $0.replacingOccurrences(of: "\n", with: "")) }), multiline: true)
+            .accessibilityIdentifier("worktree.path")
     }
 
     private func prepare() async {
-        guard let api = model.api(group.group), !workspaceID.isEmpty else { repo = .failed(String(localized: "Not connected to the hub [App Model 93d955]")); return }
+        let target = workspaceID
+        guard let api = model.api(group.group), !target.isEmpty else { repo = .failed(String(localized: "Not connected to the hub [App Model 93d955]")); return }
         repo = .loading
+        failure = nil
         do {
-            let data = try await api.nodeAction(machine: group.machineID, "worktree/prepare",
-                                                WorktreeForm.body(workspaceID: workspaceID, kind: NodeMenu.kind(group)))
+            let data = try await api.nodeAction(machine: group.machineID, "worktree/prepare", WorktreeForm.body(workspaceID: target, kind: kind))
+            guard !Task.isCancelled, target == workspaceID else { return }
             let r = try JSON.decoder.decode(WorktreePrepare.self, from: data)
             if !form.pathEdited { form.path = WorktreeForm.suggestedPath(base: r.path, branch: form.branch) }
             repo = .loaded(r)
         } catch {
+            guard !Task.isCancelled, target == workspaceID else { return }
             repo = .failed(WorktreeForm.describe(error, what: String(localized: "Couldn't read this repository")))
         }
     }
 
     private func create() {
-        guard let api = model.api(group.group), WorktreeForm.problem(form) == nil else { return }
+        guard let api = model.api(group.group), online, WorktreeForm.problem(form, automaticName: automaticName) == nil,
+              parentWorkspaceID == workspaceID || repo.value?.chooseParent == true else { return }
         busy = true
         failure = nil
-        var body = WorktreeForm.body(workspaceID: workspaceID, kind: NodeMenu.kind(group))
-        body["branch"] = form.branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        body["path"] = form.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        var body = WorktreeForm.body(workspaceID: workspaceID, kind: kind, parentWorkspaceID: kind == "orca" && repo.value?.chooseParent == true ? parentWorkspaceID : nil).mapValues(JSONValue.string)
+        if WorktreeForm.usesAutomaticName(form, supported: automaticName) {
+            body["auto_name"] = .bool(true)
+        } else {
+            body["branch"] = .string(form.branch.trimmingCharacters(in: .whitespacesAndNewlines))
+            body["path"] = .string(form.path.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let operationID = attempt.operationID(target: group.machineRef.path, body: body)
         Task {
             defer { busy = false }
             do {
-                let data = try await api.nodeAction(machine: group.machineID, "worktree/create", body, timeout: 160)
-                let made = try JSON.decoder.decode(WorktreeCreated.self, from: data)
-                model.toast = Toast(String(localized: "Worktree created"), style: .success)
+                let data = try await api.nodeAction(machine: group.machineID, "worktree/create", body, timeout: 160, opID: operationID)
+                var made = try JSON.decoder.decode(WorktreeCreated.self, from: data)
+                made.parentWorkspaceID = made.resolvedParent(sourceID: workspaceID)
+                if kind == "orca", made.parentWorkspaceID != parentWorkspaceID {
+                    model.toast = Toast(String(localized: "Worktree created") + "\n" + WorktreeForm.needsUpdate, style: .error)
+                } else {
+                    model.toast = Toast(String(localized: "Worktree created"), style: .success)
+                }
                 Haptics.success()
                 await model.refresh()
-                created = made
+                if let onCreated { onCreated(made) } else { created = made }
             } catch {
                 failure = WorktreeForm.describe(error, what: String(localized: "Couldn't create the worktree"))
                 Haptics.error()
             }
         }
+    }
+}
+
+/// A real editable control even inside a Mac Form's custom vertical row; its title is the placeholder, not another form label.
+struct WorktreeInput: View {
+    var title: String
+    @Binding var text: String
+    var multiline = false
+
+    var body: some View {
+        Group {
+            #if os(macOS)
+            TextField(title, text: $text).textFieldStyle(.roundedBorder).controlSize(.large)
+            #else
+            TextField(title, text: $text, axis: multiline ? .vertical : .horizontal).textInputAutocapitalization(.never)
+            #endif
+        }
+            .font(Theme.Font.code).autocorrectionDisabled()
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

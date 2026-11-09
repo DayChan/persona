@@ -538,7 +538,7 @@ func (s connectorSecrets) Save(ctx context.Context, data []byte) error {
 		return err
 	}
 	if s.id == "wechat" {
-		s.h.reportWeChatIdentity(data)
+		return s.h.reportWeChatIdentity(ctx, data)
 	}
 	return nil
 }
@@ -552,7 +552,7 @@ func (s connectorSecrets) Delete(ctx context.Context) error {
 		return err
 	}
 	if s.id == "wechat" {
-		s.h.reportWeChatIdentity(nil)
+		return s.h.reportWeChatIdentity(ctx, nil)
 	}
 	return nil
 }
