@@ -401,7 +401,7 @@ func TestReadinessProbeOutlivesTheClient(t *testing.T) {
 		}
 		select {
 		case <-release:
-			return nil
+			return ctx.Err() // a check cut off with the client fails, however the select woke
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -419,7 +419,6 @@ func TestReadinessProbeOutlivesTheClient(t *testing.T) {
 		t.Fatal("the check never started")
 	}
 	cancel() // the client hangs up while the check runs
-	time.Sleep(50 * time.Millisecond)
 	close(release)
 	<-done
 	r := getReadiness(t, s, "probe=1", "")
