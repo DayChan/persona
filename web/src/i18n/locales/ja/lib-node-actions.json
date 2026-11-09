@@ -1,6 +1,9 @@
 {
   "git_pull": "プル",
   "git_push": "プッシュ",
+  "git_push_confirm": "プッシュする",
+  "git_push_confirm_detail": "{branch} をアップストリームブランチにプッシュします。強制プッシュはしません。リモートに新しいコミットがあれば止めて知らせます。",
+  "git_push_confirm_detail_current": "現在のブランチをアップストリームブランチにプッシュします。強制プッシュはしません。リモートに新しいコミットがあれば止めて知らせます。",
   "git_fetch": "フェッチ",
   "git_pull_done": "プル：{message}",
   "git_push_done": "プッシュ：{message}",

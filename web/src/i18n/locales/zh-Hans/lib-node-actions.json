@@ -1,6 +1,9 @@
 {
   "git_pull": "拉取",
   "git_push": "推送",
+  "git_push_confirm": "确认推送",
+  "git_push_confirm_detail": "{branch} 会推到它的上游分支。不会强制推送：远端有更新的提交时会停下并说明。",
+  "git_push_confirm_detail_current": "当前分支会推到它的上游分支。不会强制推送：远端有更新的提交时会停下并说明。",
   "git_fetch": "获取",
   "git_pull_done": "拉取：{message}",
   "git_push_done": "推送：{message}",

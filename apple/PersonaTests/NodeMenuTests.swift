@@ -60,6 +60,22 @@ import Testing
         #expect(actions.closingTab?.name == "#2", "a numbered tab reads as in the chat's header")
     }
 
+    /// Push sends the branch off the computer: it waits for a yes, naming where it runs (#1883). Pull and Fetch don't ask.
+    @Test func pushAsksFirst() {
+        let actions = NodeActions()
+        actions.git(.push, session: session("a"))
+        #expect(actions.askingPush?.body == ["op": "push", "pane": "w1:p1"])
+        #expect(actions.askingPush?.place == "p", "the pane's folder")
+        actions.askingPush = nil
+        actions.git(.push, space: group([session("a")]))
+        #expect(actions.askingPush?.body == ["op": "push", "workspace_id": "w1", "kind": "herdr"])
+        #expect(actions.askingPush?.place == "app")
+        actions.askingPush = nil
+        actions.git(.pull, session: session("a"))
+        actions.git(.fetch, space: group([session("a")]))
+        #expect(actions.askingPush == nil)
+    }
+
     @Test func shellsAreTheWorkspacesPanesWithoutAnAgent() throws {
         let json = """
         {"hosts":[{"kind":"herdr","stream":true,"new_tab":true,"worktree":true,

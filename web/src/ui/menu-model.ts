@@ -42,6 +42,9 @@ export interface MenuItem {
   accel?: string;
   /** Asks again before running: the first choice turns the row into this label ("Close"), the second runs it. */
   confirm?: string;
+  /** What the question means, under it while the row asks (and the body of the command palette's dialog): a push
+   *  says where it goes and that it is never forced. */
+  confirmDetail?: string;
   /** The row ⌫ / Delete chooses (the menu's close action). */
   closes?: boolean;
   /** A submenu (→ opens it, ← goes back). A function loads the rows when it opens ("Loading…" meanwhile). */

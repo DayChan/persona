@@ -115,7 +115,7 @@ function failed(e: unknown) {
   toast(errorText(e), "error");
 }
 
-/** The item's work, with what the menu would ask first: a name for a rename, a yes for a close. */
+/** The item's work, with what the menu would ask first: a name for a rename, a yes for a close or a push. */
 async function perform(item: MenuItem) {
   try {
     if (item.rename) {
@@ -124,7 +124,7 @@ async function perform(item: MenuItem) {
       if (next && next !== item.rename.value.trim()) await item.rename.commit(next);
       return;
     }
-    if (item.confirm && !(await askConfirm(item.label, t("lib-node-palette.close_confirm"), item.confirm))) return;
+    if (item.confirm && !(await askConfirm(item.label, item.confirmDetail ?? t("lib-node-palette.close_confirm"), item.confirm))) return;
     await item.onSelect();
   } catch (e) {
     failed(e);

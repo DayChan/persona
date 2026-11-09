@@ -131,6 +131,17 @@ describe("git", () => {
     expect(d.notify).toHaveBeenCalledWith("推送：已是最新", "ok");
   });
 
+  it("push asks first and says where it goes and that it is never forced; pull and fetch run at once (#1883)", () => {
+    const ops = by(nodeActions(tab, deps()), "node-git").children as MenuItem[];
+    const [pull, push, fetch] = ops;
+    expect(push.confirm).toBe("确认推送");
+    expect(push.confirmDetail).toBe("main 会推到它的上游分支。不会强制推送：远端有更新的提交时会停下并说明。");
+    expect(pull.confirm).toBeUndefined();
+    expect(fetch.confirm).toBeUndefined();
+    const noBranch = by(nodeActions({ ...tab, branch: undefined }, deps()), "node-git").children as MenuItem[];
+    expect(noBranch[1].confirmDetail).toBe("当前分支会推到它的上游分支。不会强制推送：远端有更新的提交时会停下并说明。");
+  });
+
   it("a workspace without a pane is named by its id and host", async () => {
     const d = deps();
     const ws: MenuNode = { kind: "workspace", mid: "m1", host: "herdr", workspaceId: "w1", label: "proj" };

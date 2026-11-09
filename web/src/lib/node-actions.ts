@@ -174,10 +174,16 @@ export function nodeActions(node: MenuNode, deps: NodeActionDeps, opts: NodeActi
       deps.changed();
     },
   });
+  // a push sends the branch off the computer: it asks first, as the Git panel's Push does (#1883); pull and fetch run at once
+  const pushAsk = {
+    confirm: t("lib-node-actions.git_push_confirm"),
+    confirmDetail: node.branch ? t("lib-node-actions.git_push_confirm_detail", { branch: node.branch }) : t("lib-node-actions.git_push_confirm_detail_current"),
+  };
   const git = (op: (typeof GIT_OPS)[number]): MenuItem => ({
     key: `node-git-${op.op}`,
     label: op.label,
     accel: op.accel,
+    ...(op.op === "push" ? pushAsk : {}),
     inline: true,
     onSelect: async () => {
       const res = (await deps.post(mid, "panes/git", { op: op.op, ...gitTarget }).catch((e) => Promise.reject(new Error(errorText(e))))) as { message?: string } | undefined;

@@ -78,6 +78,30 @@ describe("a node's items as palette commands", () => {
     expect(d.post).toHaveBeenCalledWith("m1", "tabs/close", { tab_id: "w1:t2", kind: "herdr" });
   });
 
+  it("a push asks with its own question, and pushes only when confirmed (#1883)", async () => {
+    const d = deps();
+    const push = itemsToCommands("s", tab, nodeActions(tab, d)).find((c) => c.title === "Git · 推送")!;
+    let asked: { title?: string; body?: string; label?: string } = {};
+    const off = subscribeAsk(() => {
+      const a = getAsk();
+      if (a?.kind === "confirm") asked = { title: a.title, body: a.body, label: a.label };
+    });
+    answerWith(false);
+    push.run();
+    await flush();
+    off();
+    expect(asked).toEqual({ title: "推送", body: "main 会推到它的上游分支。不会强制推送：远端有更新的提交时会停下并说明。", label: "确认推送" });
+    expect(d.post).not.toHaveBeenCalled();
+    answerWith(true);
+    push.run();
+    await flush();
+    expect(d.post).toHaveBeenCalledWith("m1", "panes/git", { op: "push", pane: "w1:p2" });
+    const pull = itemsToCommands("s", tab, nodeActions(tab, d)).find((c) => c.title === "Git · 拉取")!;
+    pull.run();
+    await flush();
+    expect(d.post).toHaveBeenCalledWith("m1", "panes/git", { op: "pull", pane: "w1:p2" });
+  });
+
   it("a plain item just runs", async () => {
     const d = deps();
     itemsToCommands("s", tab, nodeActions(tab, d)).find((c) => c.title === "复制路径")!.run();

@@ -1,6 +1,9 @@
 {
   "git_pull": "Pull",
   "git_push": "Push",
+  "git_push_confirm": "Push now",
+  "git_push_confirm_detail": "{branch} goes to its upstream branch. Never forced: if the remote has newer commits, the push stops and says so.",
+  "git_push_confirm_detail_current": "The current branch goes to its upstream branch. Never forced: if the remote has newer commits, the push stops and says so.",
   "git_fetch": "Fetch",
   "git_pull_done": "Pull: {message}",
   "git_push_done": "Push: {message}",

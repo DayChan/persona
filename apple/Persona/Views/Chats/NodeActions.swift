@@ -201,6 +201,18 @@ final class NodeActions {
     }
 
     var closingTab: CloseTab?
+
+    /// A push waiting for its yes (#1883): it sends the branch off the computer, so it asks first as the Git panel's
+    /// Push does; Pull and Fetch run at once.
+    struct PushAsk: Identifiable, Equatable {
+        var machine: MachineRef
+        var body: [String: String]
+        /// The folder or space it runs in, for the question ("" when unknown).
+        var place: String
+        var id: String { machine.path + "/" + (body["pane"] ?? body["workspace_id"] ?? "") }
+    }
+
+    var askingPush: PushAsk?
     /// The space whose Run Agent Here… sheet is open.
     var runningHere: SpaceGroup?
     /// The space whose New Worktree… sheet is open.
@@ -210,15 +222,26 @@ final class NodeActions {
 
     func git(_ op: NodeMenu.GitOp, session s: Session) {
         guard let pane = s.paneID, !pane.isEmpty else { return }
-        git(op, machine: s.machineRef, body: NodeMenu.gitBody(op, pane: pane))
+        git(op, machine: s.machineRef, body: NodeMenu.gitBody(op, pane: pane), place: s.folderName)
     }
 
     func git(_ op: NodeMenu.GitOp, space g: SpaceGroup) {
         guard let ws = NodeMenu.workspaceID(g) else { return }
-        git(op, machine: g.machineRef, body: NodeMenu.gitBody(op, workspaceID: ws, kind: NodeMenu.kind(g)))
+        git(op, machine: g.machineRef, body: NodeMenu.gitBody(op, workspaceID: ws, kind: NodeMenu.kind(g)), place: g.name)
     }
 
-    private func git(_ op: NodeMenu.GitOp, machine: MachineRef, body: [String: String]) {
+    /// Push once it is confirmed.
+    func push(_ a: PushAsk) { run(.push, machine: a.machine, body: a.body) }
+
+    private func git(_ op: NodeMenu.GitOp, machine: MachineRef, body: [String: String], place: String) {
+        if op == .push {
+            askingPush = PushAsk(machine: machine, body: body, place: place)
+            return
+        }
+        run(op, machine: machine, body: body)
+    }
+
+    private func run(_ op: NodeMenu.GitOp, machine: MachineRef, body: [String: String]) {
         guard let api = model.api(machine.group) else { return }
         model.toast = Toast(String(localized: "\(op.title)…"))
         Task {
@@ -289,14 +312,15 @@ private struct NodeActionPrompts: ViewModifier {
         content
             #if DEBUG
             // `-showRunAgentHere <machine id>`: Run Agent Here for that computer's first herdr space once its agents are
-            // in, for screenshots (#1643). It polls `sessionsNow`, which nothing watches, so the view is not redrawn on
-            // each push; without the argument it reads nothing.
+            // in, for screenshots (#1643); `-showPushAsk <machine id>`: that space's Git ▸ Push question (#1883). It polls
+            // `sessionsNow`, which nothing watches, so the view is not redrawn on each push; without either it reads nothing.
             .task {
-                guard !debugShownHere, let mid = UserDefaults.standard.string(forKey: "showRunAgentHere") else { return }
+                let here = UserDefaults.standard.string(forKey: "showRunAgentHere"), push = UserDefaults.standard.string(forKey: "showPushAsk")
+                guard !debugShownHere, let mid = here ?? push else { return }
                 for _ in 0..<60 {
                     if let g = SpaceGroup.build(model.sessionsNow).first(where: { $0.machineID == mid && NodeMenu.offersSpaceActions($0) }) {
                         debugShownHere = true
-                        actions.runningHere = g
+                        if here != nil { actions.runningHere = g } else { actions.git(.push, space: g) }
                         return
                     }
                     try? await Task.sleep(for: .milliseconds(500))
@@ -311,6 +335,15 @@ private struct NodeActionPrompts: ViewModifier {
             } message: { _ in
                 Text("Every pane in the tab closes, and the agents running in them end too.")
             }
+            .confirmationDialog("Push to the Remote?", isPresented: Binding(get: { actions.askingPush != nil }, set: { if !$0 { actions.askingPush = nil } }),
+                                titleVisibility: .visible, presenting: actions.askingPush) { a in
+                Button("Push") { actions.push(a) }
+                Button("Cancel", role: .cancel) {}
+            } message: { a in
+                Text(a.place.isEmpty
+                     ? String(localized: "The current branch goes to its upstream branch. Never forced: if the remote has newer commits, the push stops and says so.")
+                     : String(localized: "The current branch in “\(a.place)” goes to its upstream branch. Never forced: if the remote has newer commits, the push stops and says so."))
+            }
             .sheet(item: Binding(get: { actions.runningHere }, set: { actions.runningHere = $0 })) { g in
                 RunAgentHereSheet(group: g)
             }
@@ -322,7 +355,8 @@ private struct NodeActionPrompts: ViewModifier {
 
 // MARK: - Menu items
 
-/// The node items of an agent row's long-press menu (`AgentRowMenu`): split its pane, Git in its folder, close its tab.
+/// The node items of an agent row's long-press menu (`AgentRowMenu`): split its pane, Git in its folder (Push asks
+/// first), close its tab.
 struct AgentNodeMenuItems: View {
     var now: () -> Session?
 
