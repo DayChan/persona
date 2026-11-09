@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { managerHeaderFor } from "./manager-choice";
 import { applyMachine, dropAnswered, endInteraction, getState, hubHas, larkOn, refresh, refreshAssistant, refreshTodos, reset, setSpacesSupported } from "./store";
 
 describe("待办 store 与 404 兼容 (C2)", () => {
@@ -320,6 +321,26 @@ describe("待办列表：先发的 /todos 晚回来不盖掉新的 (#3540)", () 
     turns[1]([todo("t1", "second")]);
     await b;
     expect(getState().todos.map((t) => t.title)).toEqual(["second"]);
+  });
+
+  it("GET /api/v1/todos 返回携带 manager 的待办时，自动记录其 manager 归属", async () => {
+    const managerTodos = [
+      { id: "t-default", title: "默认待办", created_at: "", updated_at: "" },
+      { id: "t-other", title: "其他管理者的待办", manager: "m-other", created_at: "", updated_at: "" },
+    ];
+    const fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/todos")) {
+        return Promise.resolve(new Response(JSON.stringify({ todos: managerTodos }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await refresh();
+    expect(getState().todos).toHaveLength(2);
+    expect(managerHeaderFor("/todos/t-other")).toBe("m-other");
+    expect(managerHeaderFor("/todos/t-other/retry")).toBe("m-other");
+    expect(managerHeaderFor("/todos/t-default")).toBeUndefined();
   });
 });
 

@@ -15,7 +15,7 @@ import { Choice } from "./Choice";
 /** A question the assistant just answered, in the chat over the composer, until put away. */
 export function DelegatedCard({ d }: { d: DelegatedAnswer }) {
   return (
-    <div data-delegated className="overflow-hidden rounded-card bg-surface px-3.5 py-2.5 shadow-card" style={{ animation: `fade-up 300ms ${EASE} both` }}>
+    <div data-delegated className="shrink-0 overflow-hidden rounded-card bg-surface px-3.5 py-2.5 shadow-card" style={{ animation: `fade-up 300ms ${EASE} both` }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-accent-ink">

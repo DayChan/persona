@@ -300,3 +300,10 @@ describe("tasks in progress", () => {
     expect(heading(html, "进行中的任务")).toBe(-1);
   });
 });
+
+it("opens an explicitly sessionless request and offers its quick answers", () => {
+  const html = render([], [{ id: "script-request", machine_id: "mac", session_id: "", kind: "permission", tool_name: "personad_ask", summary: "Publish the draft?" }]);
+  expect(html).toContain('href="/requests/script-request"');
+  expect(buttonLabels(html)).toContain("允许");
+  expect(html).not.toContain('href="/s/mac/"');
+});

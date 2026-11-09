@@ -179,6 +179,10 @@ var Routes = []string{
 	"GET /api/v1/kb/chats/{id}/context",
 	"GET /api/v1/kb/chats/{id}/days/{day}",
 	"GET /api/v1/kb-search",
+	// The selection: what the knowledge base brings in and keeps (kb_selection.go there).
+	"GET /api/v1/kb/selection",
+	"PUT /api/v1/kb/selection",
+	"GET /api/v1/kb/selection/candidates",
 	// The phone's recordings (kb_recordings.go there, docs/protocol/protocol.md "Recording sync").
 	"PUT /api/v1/recordings/{id}",
 	"DELETE /api/v1/recordings/{id}",

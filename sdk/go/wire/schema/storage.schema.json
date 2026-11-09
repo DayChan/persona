@@ -1,0 +1,735 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "storage.schema.json",
+  "title": "Extension business storage",
+  "description": "Explicit declarative default-deny storage for declared logical keys/prefixes, separate from credentials. The manager binds the installed process attempt; source params never select an installation, SQL, files, hub routes or new network authority. Existing RPC/frame bounds remain; additional per-value/chunk/queue/receipt/aggregate quotas apply. Lost or expired queue workers become unknown, never a safe automatic external resend. Owner-only restore after keep_data=1 is not a source method. See docs/extensions/extensions.md (Business storage).",
+  "x-side": "plugin",
+  "x-methods": {
+    "storage.request": {
+      "from": "program",
+      "params": "StorageEmptyParams",
+      "result": "StorageRequestResult"
+    },
+    "storage.get": {
+      "from": "program",
+      "params": "StorageKeyParams",
+      "result": "StorageEntry"
+    },
+    "storage.list": {
+      "from": "program",
+      "params": "StorageListParams",
+      "result": "StorageListResult"
+    },
+    "storage.transaction": {
+      "from": "program",
+      "params": "StorageTransactionParams",
+      "result": "StorageTransactionResult"
+    },
+    "storage.queue.list": {
+      "from": "program",
+      "params": "StorageQueueListParams",
+      "result": "StorageQueueListResult"
+    },
+    "storage.queue.enqueue": {
+      "from": "program",
+      "params": "StorageEnqueueParams",
+      "result": "StorageJobResult"
+    },
+    "storage.queue.claim": {
+      "from": "program",
+      "params": "StorageClaimParams",
+      "result": "StorageClaimResult"
+    },
+    "storage.queue.ack": {
+      "from": "program",
+      "params": "StorageSettleParams",
+      "result": "StorageJobResult"
+    },
+    "storage.queue.forget": {
+      "from": "program",
+      "params": "StorageSettleParams",
+      "result": "StorageDeleteResult"
+    },
+    "storage.queue.retry": {
+      "from": "program",
+      "params": "StorageRetryParams",
+      "result": "StorageJobResult"
+    },
+    "storage.blob.create": {
+      "from": "program",
+      "params": "StorageBlobCreateParams",
+      "result": "StorageBlobCreateResult"
+    },
+    "storage.blob.write": {
+      "from": "program",
+      "params": "StorageBlobWriteParams",
+      "result": "StorageBlobWriteResult"
+    },
+    "storage.blob.finish": {
+      "from": "program",
+      "params": "StorageBlobMutateParams",
+      "result": "StorageBlobFinishResult"
+    },
+    "storage.blob.delete": {
+      "from": "program",
+      "params": "StorageBlobMutateParams",
+      "result": "StorageDeleteResult"
+    },
+    "storage.blob.read": {
+      "from": "program",
+      "params": "StorageBlobReadParams",
+      "result": "StorageBlobReadResult"
+    }
+  },
+  "$defs": {
+    "StorageEmptyParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "StorageRequestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "description": "Opaque timestamped request identity from the host. Retry only the same ID and payload; expires after five minutes and is never automatically regenerated for an unknown effect."
+    },
+    "StorageKeyParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "StorageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        }
+      },
+      "required": [
+        "revision",
+        "data"
+      ],
+      "description": "Canonical base64 business bytes, at most64KiB decoded; revision is an opaque CAS token."
+    },
+    "StorageListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "after": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        }
+      },
+      "required": []
+    },
+    "StorageMutationItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "job_id": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "StorageListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/StorageMutationItem"
+          }
+        },
+        "more": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "more"
+      ]
+    },
+    "StorageOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "check",
+            "put",
+            "delete",
+            "enqueue",
+            "ack"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 80,
+          "x-go-pointer": true
+        },
+        "dedup": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "not_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        },
+        "job_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lease": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "description": "One atomic operation. Empty revision means require absence; missing revision is unconditional. Queue enqueue/ack require separate queue permission; their job and progress changes commit atomically."
+    },
+    "StorageTransactionParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/StorageOperation"
+          }
+        }
+      },
+      "required": [
+        "request_id",
+        "operations"
+      ]
+    },
+    "StorageTransactionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/StorageMutationItem"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "StorageQueueListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "after": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "StorageJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "dedup": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "leased",
+            "unknown",
+            "completed"
+          ]
+        },
+        "not_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        },
+        "lease": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lease_until": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "dedup",
+        "data",
+        "state",
+        "not_before",
+        "attempts"
+      ]
+    },
+    "StorageQueueListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/StorageJob"
+          }
+        },
+        "more": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "more"
+      ]
+    },
+    "StorageEnqueueParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "dedup": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "not_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "dedup",
+        "data"
+      ]
+    },
+    "StorageJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "state": {
+          "type": "string",
+          "maxLength": 16
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "StorageClaimParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lease_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "lease_seconds"
+      ]
+    },
+    "StorageClaimResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "$ref": "#/$defs/StorageJob"
+        }
+      },
+      "required": [],
+      "description": "One claimed job; job is absent when no pending job is due."
+    },
+    "StorageSettleParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lease": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "id"
+      ]
+    },
+    "StorageRetryParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lease": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "not_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-type": "int64"
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "id",
+        "lease",
+        "not_before"
+      ]
+    },
+    "StorageDeleteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ]
+    },
+    "StorageBlobCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "request_id",
+        "key"
+      ]
+    },
+    "StorageBlobCreateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "handle"
+      ]
+    },
+    "StorageBlobWriteParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "handle": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "handle",
+        "offset",
+        "data"
+      ]
+    },
+    "StorageBlobWriteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        }
+      },
+      "required": [
+        "bytes"
+      ]
+    },
+    "StorageBlobMutateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "handle": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "request_id",
+        "key",
+        "handle"
+      ]
+    },
+    "StorageBlobFinishResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "handle",
+        "bytes",
+        "complete"
+      ]
+    },
+    "StorageBlobReadParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "handle": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        }
+      },
+      "required": [
+        "key",
+        "handle",
+        "offset",
+        "limit"
+      ]
+    },
+    "StorageBlobReadResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "eof": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "data",
+        "offset",
+        "bytes",
+        "eof"
+      ]
+    }
+  }
+}

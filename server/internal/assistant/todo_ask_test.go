@@ -222,7 +222,10 @@ func TestOKOfAnEarlierRoundTakesNothing(t *testing.T) {
 		t.Fatalf("%d decide pushes", len(pushes))
 	}
 	first, _ := pushes[0]["todo"].(map[string]any)
-	time.Sleep(2 * time.Millisecond) // the next round is asked at another time
+	firstAt := askOf(s, todo.ID).AskedAt
+	waitFor(t, "the clock to advance past the first decision", func() bool {
+		return time.Now().UTC().After(firstAt)
+	})
 	reviewTask(t, s, todo.ID, map[string]any{"verdict": "needs_user", "reason": "灰度比例定多少", "recommend": "灰度 5%"})
 	pushes = decidePushes(t, f)
 	if len(pushes) != 2 {

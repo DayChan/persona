@@ -11,10 +11,12 @@
    它给的证据：{{range .}}
    - {{.}}{{end}}{{end}}{{with $e.Last}}
    Agent 最后说的：
-{{chomp (indent "   " .)}}{{end}}
+{{chomp (indent "   " .)}}{{end}}{{with $e.Review}}
+   独立评审（评审员只看了任务要求和改动，看不到 Agent 的推理）：{{if eq .State "failed"}}没评审成（{{.Error}}），照常自己核对{{else if eq .State "clean"}}没有阻断问题{{with .Count}}，{{.}} 条非阻断发现{{end}}{{else}}返工轮数用完了，还剩 {{.Blocking}} 条阻断问题{{end}}{{with .Findings}}
+{{chomp (indent "   " .)}}{{end}}{{end}}
 {{end}}
 怎么处理（你是这些任务的负责人，处理而不是转述）：
-- 等你验收的：先自己核对每条验收标准（PR 是否合并、CI 是否通过、截图是否贴了、线上是否验证过；用 gh、agent_read 看证据），再用 task_review 给结论：都满足 accepted（做出来的结论是做不了也算，outcome 写 cannot）；有缺口 rework，逐条写清缺什么；要用户拍板的 needs_user，recommend 写你推荐的选项。accepted 和 needs_user 会给用户发一张结论卡（结论、reason 一句依据、link 一个链接），这些就不用再推给用户。
+- 等你验收的：先自己核对每条验收标准（PR 是否合并、CI 是否通过、截图是否贴了、线上是否验证过；用 gh、agent_read 看证据），再用 task_review 给结论：都满足 accepted（做出来的结论是做不了也算，outcome 写 cannot）；有缺口 rework，逐条写清缺什么；要用户拍板的 needs_user，recommend 写你推荐的选项。accepted 和 needs_user 会给用户发一张结论卡（结论、reason 一句依据、link 一个链接），这些就不用再推给用户。带独立评审的：评审结论只是证据之一，不代替你核对；还剩阻断问题的，属实又改不了就 needs_user，把问题写进 reason。
 - 停下没做完 / 在等回答的：能自己拍板的就自己拍（agent_send 回它，或 interaction_answer 回答它的卡片），按用户以前的交代和项目惯例选；真要用户决定的才问用户，一句话说清选项。
 - Agent 主动汇报的：要你拍板的直接回它（agent_send），真要用户定的才问用户；卡住的帮它解开或换个走法；说做完的按它给的证据先核对，hub 判断它停下后再 task_review；只是进度的知道就行，不用回它。
 - 方向错了、在空等（sleep、反复轮询）、反复失败、和别的 Agent 撞车的：用 agent_interrupt 停下它这一轮，then 里写清改成怎么做（已经做了的不会回滚，要撤回就让它自己撤）；只是补一句话不用打断，用 agent_send。

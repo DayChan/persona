@@ -2,10 +2,7 @@
 // The session page keeps the terminal view out of its chunk (#2677): ChatView only reaches TerminalPanel through a
 // dynamic import, so a visit that never switches to "Terminal" does not download or parse it.
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
-// SidePanel's task and subagent panels pull in the whole chat view; nothing here opens them.
-vi.mock("../assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("./SubagentPanel", () => ({ SubagentPanel: () => null }));
+import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./ChatView.tsx", import.meta.url), "utf8");
 

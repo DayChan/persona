@@ -4,14 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nwverse/persona/server/internal/workspaceboard"
 	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
-func openWorkspaceBoard(t *testing.T) *DB {
+func openWorkspaceBoard(t testing.TB) *DB {
 	t.Helper()
 	d := open(t)
 	if _, err := d.pool.Exec(context.Background(), `TRUNCATE workspace_board, workspace_snapshots`); err != nil {
@@ -186,5 +191,125 @@ func TestWorkspaceBoardInUseIgnoresTheSeededBoard(t *testing.T) {
 	}
 	if used, err := d.WorkspaceBoardInUse(ctx); err != nil || !used {
 		t.Fatalf("changed board: %v %v", used, err)
+	}
+}
+
+// statementLog records the first word of every statement a pool sends, to count a read's round trips.
+type statementLog struct {
+	mu  sync.Mutex
+	sql []string
+}
+
+func (l *statementLog) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if words := strings.Fields(data.SQL); len(words) > 0 {
+		l.mu.Lock()
+		l.sql = append(l.sql, words[0])
+		l.mu.Unlock()
+	}
+	return ctx
+}
+
+func (*statementLog) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (l *statementLog) take() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := l.sql
+	l.sql = nil
+	return out
+}
+
+// tracedWorkspaceBoard is a second handle on the test database whose pool logs the statements it sends.
+func tracedWorkspaceBoard(t *testing.T) (*DB, *statementLog) {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(os.Getenv("PERSONA_TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &statementLog{}
+	cfg.ConnConfig.Tracer = log
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return &DB{pool: pool}, log
+}
+
+// The first read seeds the default board; later reads are one SELECT and leave the row alone (the web board polls
+// every 10 s).
+func TestWorkspaceBoardSeedsOnlyAMissingRow(t *testing.T) {
+	d := openWorkspaceBoard(t)
+	traced, log := tracedWorkspaceBoard(t)
+	ctx := context.Background()
+	first, err := traced.WorkspaceBoard(ctx)
+	if err != nil || !reflect.DeepEqual(first, workspaceboard.Default()) {
+		t.Fatalf("first read: %+v %v", first, err)
+	}
+	if got := log.take(); !slices.Equal(got, []string{"SELECT", "INSERT", "SELECT"}) {
+		t.Fatalf("first read statements: %v", got)
+	}
+	var revision int64
+	var seededAt time.Time
+	if err := d.pool.QueryRow(ctx, `SELECT revision, updated_at FROM workspace_board WHERE id = true`).Scan(&revision, &seededAt); err != nil || revision != 0 {
+		t.Fatalf("seeded row: revision %d %v", revision, err)
+	}
+	for range 2 {
+		again, err := traced.WorkspaceBoard(ctx)
+		if err != nil || !reflect.DeepEqual(again, first) {
+			t.Fatalf("later read: %+v %v", again, err)
+		}
+		if got := log.take(); !slices.Equal(got, []string{"SELECT"}) {
+			t.Fatalf("later read statements: %v", got)
+		}
+	}
+	var updatedAt time.Time
+	if err := d.pool.QueryRow(ctx, `SELECT updated_at FROM workspace_board WHERE id = true`).Scan(&updatedAt); err != nil || !updatedAt.Equal(seededAt) {
+		t.Fatalf("read rewrote the row: %s -> %s %v", seededAt, updatedAt, err)
+	}
+}
+
+// An edited board comes back as stored: a read never reseeds or overwrites it.
+func TestWorkspaceBoardReadKeepsAnEditedBoard(t *testing.T) {
+	d := openWorkspaceBoard(t)
+	ctx := context.Background()
+	initial, err := d.WorkspaceBoard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := "Edited"
+	next, err := workspaceboard.Apply(initial, workspaceboard.Mutation{Action: "add_card", ID: "card-a", Title: &title, ColumnID: "doing", MachineID: "machine-a", WorkspaceID: "workspace-a", Cwd: "/projects/a", Source: "directory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := d.SaveWorkspaceBoard(ctx, initial.Revision, next)
+	if err != nil || saved.Revision != 1 {
+		t.Fatalf("save: %+v %v", saved, err)
+	}
+	traced, log := tracedWorkspaceBoard(t)
+	for range 2 {
+		got, err := traced.WorkspaceBoard(ctx)
+		if err != nil || !reflect.DeepEqual(got, saved) {
+			t.Fatalf("edited board: %+v %v", got, err)
+		}
+		if got := log.take(); !slices.Equal(got, []string{"SELECT"}) {
+			t.Fatalf("edited board statements: %v", got)
+		}
+	}
+}
+
+// BenchmarkWorkspaceBoardRead reads an existing board, which every open web board does twice every 10 s (the board and
+// the workspace list).
+func BenchmarkWorkspaceBoardRead(b *testing.B) {
+	d := openWorkspaceBoard(b)
+	ctx := context.Background()
+	if _, err := d.WorkspaceBoard(ctx); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := d.WorkspaceBoard(ctx); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

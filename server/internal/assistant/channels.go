@@ -62,8 +62,8 @@ type channelsBook struct {
 	live     map[string]*chanLive // run id -> its live progress (not persisted)
 	// answered: conversation -> when its last run was answered (no "finished" push, no mirror for it)
 	answered map[[2]string]time.Time
-	// notified: conversation -> when it pushed what matters itself (notify_user)
-	notified map[string]time.Time
+	// notified: channel + conversation (machine, session) -> when its notify_user copy arrived
+	notified map[[3]string]time.Time
 	// answering: the runs whose answer is going out now (finishChannelRun): a later message is not folded into them
 	answering map[string]bool
 	// follows: how many runs follow each conversation (session.follow)
@@ -732,29 +732,29 @@ func (s *Service) InteractionEnded(_ context.Context, p InteractionEnded) {
 }
 
 // channelsPushed: the conversation pushed what matters itself (notify_user): it goes to the channels with pushes on
-// too, and their sync mirror leaves the turn alone. The "pushed" mark is written only once the first Feishu card
-// actually lands (markPushed from feishuPush): a failed first card must not make the turn-end mirror skip the turn.
+// too, and each channel's sync mirror leaves the turn alone only after its own copy arrives. A failed push must
+// not suppress that channel's turn-end mirror.
 func (s *Service) channelsPushed(machine, session, title, body string) {
 	go s.feishuPush(machine, session, title, body)
-	go s.channelPush(title, body)
+	go s.channelPush(machine, session, title, body)
 }
 
-// markPushed records that the session's notify_user first card reached Feishu, so the turn-end mirrors leave the
-// turn alone for the next three minutes (pushedLately). Entries older than an hour are swept, as before.
-func (s *Service) markPushed(session string) {
+// markPushed records a delivered notify_user copy for one channel and conversation. Its mirror leaves the turn
+// alone for the next three minutes (pushedLately). Entries older than an hour are swept.
+func (s *Service) markPushed(ch, machine, session string) {
 	c := &s.chans
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.notified == nil {
-		c.notified = map[string]time.Time{}
+		c.notified = map[[3]string]time.Time{}
 	}
-	now := time.Now()
+	now := c.clock()
 	for k, at := range c.notified {
 		if now.Sub(at) > time.Hour {
 			delete(c.notified, k)
 		}
 	}
-	c.notified[session] = now
+	c.notified[[3]string{ch, machine, session}] = now
 }
 
 // interactionEnded: the card ended (interaction.ended came) — maybe while it was being sent to a channel.
@@ -766,12 +766,12 @@ func (s *Service) interactionEnded(id string) bool {
 	return ok
 }
 
-// pushedLately: the conversation pushed itself within the last few minutes.
-func (s *Service) pushedLately(session string) bool {
+// pushedLately: this channel received the conversation's push within the last few minutes.
+func (s *Service) pushedLately(ch, machine, session string) bool {
 	c := &s.chans
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return time.Since(c.notified[session]) < 3*time.Minute
+	return c.clock().Sub(c.notified[[3]string{ch, machine, session}]) < 3*time.Minute
 }
 
 // channelsReconnected: a new connection to the hub (manager.hello): the conversations the runs follow are followed

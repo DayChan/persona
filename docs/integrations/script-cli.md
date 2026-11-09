@@ -50,9 +50,9 @@ node's replies:
 
 An old node doesn't know `ask` / `notify` (replies `{"error":"unknown kind"}`), and the command treats that as unreachable. With a new node and an old hub, the `notify` request fails with unknown method and is likewise treated as not sent.
 
-### What `ask` looks like on the phone
+### What `ask` looks like on clients
 
-It reuses existing card shapes, so **Android / web need no changes** (for answering cards without a session on iOS / Mac / watch, see "Attribution" below, #4059):
+It reuses existing question and permission card shapes. Cards without a session open directly on supported clients, including the web (#1882); see "Attribution" below.
 
 | Command | `interaction.kind` | Card |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ node uses the "pane → session" table learned from hooks (`bindPane`) to find t
 
 - Found: the card / notification is attached to that session (`session_id`), the card's subtitle is the session title, tapping the notification opens that session, and `notify` sends nothing when that session is muted.
 - Not found (Claude Code never ran in the pane, no hook has fired yet, or it isn't in herdr): `session_id` is empty, the card subtitle is the name of the calling directory, and the notification subtitle is the machine name.
-  iOS / Mac / watch can still answer (#4059): cards without sessions do not check session-source approval permissions (`Interaction.canAnswer`), and Agents' "Needs You" lists them too ("Script" and directory name, same criteria as the badge).
+  iOS / Mac / watch (#4059), Android and web (#1882) can still answer: explicitly sessionless cards do not check session-source approval permissions. On the web, Overview and Inbox open `/requests/<id>` with the existing question or permission card; ordinary session cards still require that session's approval capability. New requests notify individually, using the device's existing notification preferences, and opening one uses the same request route.
   Tapping there or in the Inbox opens the card directly (no chat exists to open).
 - `ask` also carries the calling directory (`cwd`). `notify` carries no path.
 

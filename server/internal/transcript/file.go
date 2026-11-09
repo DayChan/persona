@@ -250,7 +250,7 @@ func (f *File) Page(beforeSeq, limit int) ([]proto.Item, bool, Span) {
 }
 
 // PageTurns returns the items before beforeSeq (0 = the end) going back far enough to hold `turns` whole exchanges:
-// it starts at a user prompt, so a page never opens in the middle of a turn. maxItems caps one enormous turn.
+// it starts at a user question, not an injected supervision/wake prompt. maxItems caps one enormous turn.
 func (f *File) PageTurns(beforeSeq, turns, maxItems int) ([]proto.Item, bool, Span) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -259,7 +259,7 @@ func (f *File) PageTurns(beforeSeq, turns, maxItems int) ([]proto.Item, bool, Sp
 	start, seen := end, 0
 	for start > 0 && seen < turns && end-start < maxItems {
 		start--
-		if it := f.items[start]; it.Role == "user" && it.Kind == proto.KindText && !it.Queued {
+		if pagePrompt(f.items[start]) {
 			seen++
 		}
 	}

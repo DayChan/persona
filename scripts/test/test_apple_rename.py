@@ -53,7 +53,7 @@ class AppleRenameTests(unittest.TestCase):
         targets = blocks(TARGETS)
         expected = {
             'Persona': 'Persona', 'PersonaMac': 'Persona', 'PersonaWatch': 'Persona', 'PersonaVision': 'Persona',
-            'PersonaWidgets': 'PersonaWidgets', 'PersonaNotify': 'PersonaNotify', 'PersonaMacNotify': 'PersonaNotify',
+            'PersonaWidgets': 'PersonaWidgets', 'PersonaNotify': 'PersonaNotify', 'PersonaMacNotify': 'PersonaNotify', 'PersonaVisionNotify': 'PersonaNotify',
             'PersonaShare': 'PersonaShare', 'PersonaVisionShare': 'PersonaShare',
             'PersonaWatchWidgets': 'PersonaWatchWidgets',
         }

@@ -1,0 +1,9 @@
+{
+  "failed_title": "This browser's access wasn't revoked",
+  "failed_body": "The hub didn't revoke this browser's token. If you sign out anyway, the token stays valid on the hub until it's revoked in Settings › Devices.",
+  "sign_out_anyway": "Sign out anyway",
+  "retry": "Try again",
+  "nothing_title": "Nothing to revoke",
+  "nothing_body": "This browser is signed in with the hub's own token, or the hub doesn't give browsers tokens of their own, so there is no token of this browser's to revoke. Signing out only removes it from this browser.",
+  "sign_out": "Sign out"
+}

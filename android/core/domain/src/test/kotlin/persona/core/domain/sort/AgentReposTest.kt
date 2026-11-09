@@ -135,4 +135,44 @@ class AgentReposTest {
         assertEquals("pinned", (list.groups.first().id).zhAny())
         assertEquals(listOf("a"), (list.groups.single { it.id == "tree/machine-a//code/app" }.rows.map { it.session.sessionId }).zhAny())
     }
+
+    // The node's git place (#1805): machine → project → branch → sessions, as on web and iOS.
+    private fun placed(id: String, cwd: String, root: String, tree: String, branch: String, state: String = "working", machine: String = "machine-a") =
+        AgentSession(Session(machineId = machine, sessionId = id, title = id, cwd = cwd, state = state,
+            updatedAt = "2026-01-01T01:00:00Z", repoRoot = root, worktree = tree, branch = branch))
+
+    @Test fun linkedWorktreesGoUnderTheirMainRepositoryByBranch() {
+        val root = "/home/u/Code/app"
+        val fix = "/home/u/orca/workspaces/app/fix-login"
+        val repos = agentRepos(listOf(placed("fix", fix, root, fix, "fix/login"), placed("main", root, root, root, "main"),
+            placed("sub", "$fix/web", root, fix, "fix/login"), placed("notes", "/home/u/Code/notes", "/home/u/Code/notes", "/home/u/Code/notes", "trunk")))
+        assertEquals(listOf("app", "notes"), repos.map { it.name })
+        assertEquals(listOf("main*", "fix/login"), repos[0].worktrees.map { it.name + if (it.main) "*" else "" })
+        assertEquals(setOf("fix", "sub"), repos[0].worktrees[1].members.map { it.session.sessionId }.toSet())
+    }
+
+    @Test fun aNamedBranchKeepsItsHeadingUnderALoneMainCheckout() {
+        val named = agentRepos(listOf(placed("main", "/code/app", "/code/app", "/code/app", "main"))).single()
+        assertFalse(named.flat)
+        assertEquals(listOf("main"), named.worktrees.map { it.name })
+        assertTrue("an older node's lone main checkout stays flat", agentRepos(listOf(session("main", "/code/app"))).single().flat)
+        val list = buildAgentList(listOf(placed("main", "/code/app", "/code/app", "/code/app", "main")), machines, settings = byRepo)
+        assertEquals(listOf("repo/machine-a//code/app", "tree/machine-a//code/app"), list.machines.single().groups)
+        assertEquals(RepoLevel.MainCheckout, list.groups.single { it.id == "tree/machine-a//code/app" }.repo)
+    }
+
+    @Test fun projectsSortByNameInsideEachComputerInTheHubsOrder() {
+        val list = buildAgentList(listOf(placed("a", "/code/zeta", "/code/zeta", "/code/zeta", "main"),
+            placed("b", "/code/alpha", "/code/alpha", "/code/alpha", "main", machine = "machine-b"),
+            placed("c", "/code/beta", "/code/beta", "/code/beta", "main")), machines, settings = byRepo)
+        assertEquals(listOf("machine-b", "machine-a"), list.machines.map { it.machine.id })
+        assertEquals(listOf("repo/machine-a//code/beta", "tree/machine-a//code/beta", "repo/machine-a//code/zeta", "tree/machine-a//code/zeta"),
+            list.machines[1].groups)
+    }
+
+    @Test fun theNodesPlaceWinsOverPathInference() {
+        assertEquals(RepoPlace("/home/u/Code/app", "app", "/home/u/orca/workspaces/app/fix", main = false),
+            gitPlaceOf("/home/u/Code/app", "/home/u/orca/workspaces/app/fix/"))
+        assertNull(gitPlaceOf("/code/app", null))
+    }
 }

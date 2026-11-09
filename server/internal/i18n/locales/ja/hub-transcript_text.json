@@ -102,5 +102,7 @@
   "read_only_claude_bg": "Claude Codeのバックグラウンドセッション：ここでは表示のみ。返信はコンピューターで claude agents から開いてください",
   "read_only_claude_no_inbox": "このClaudeにはメッセージ経路がありません（古いバージョンかオフ）：ここでは表示のみ。返信はコンピューターで",
   "read_only_claude_inbox": "このClaudeのメッセージ経路はPersonaで使えません（不明なバージョンかキーがない）：ここでは表示のみ。返信はコンピューターで",
-  "attention_claude_computer": "コンピューターでしか答えられない質問または権限の確認を待っています"
+  "attention_claude_computer": "コンピューターでしか答えられない質問または権限の確認を待っています",
+  "model_refusal": "Claude Code の拒否通知（{subtype}）。元の記録：",
+  "model_refusal_fallback": "上流サービスがリクエストを拒否したため、Claude Code は {original} から {fallback} に切り替えました。カテゴリ：{category}。範囲：{scope}。代替モデルが利用できない場合は、新しい会話を開始するか、Claude Code のターミナルで /model を使って設定済みのモデルを選択してください。リクエストが再び拒否される可能性があります。元の記録："
 }

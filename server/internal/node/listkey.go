@@ -38,9 +38,15 @@ func listKeySized(list []proto.Session, size int) string {
 		w.quote(s.RootSessionID, '/')
 		w.str(strconv.FormatBool(s.IsSubagent), '/')
 		w.quote(s.RepoRoot, '/')
+		w.quote(s.Worktree, '/')
+		w.quote(s.Branch, '/')
 		w.quote(s.SpaceID, '/')
 		w.quote(s.SpaceKind, '\n')
 		writeUltracodeKey(&w, s)
+		// A completed background scan can discover a fallback without a new transcript revision or status.
+		if s.ModelFallback != nil || s.TurnErrorCode != "" {
+			fmt.Fprintf(&w.b, "model-fallback:%+v/%q\n", s.ModelFallback, s.TurnErrorCode)
+		}
 		if s.Activity != "" { // a new step shows at once, not with the next 10 s of updated_at
 			w.b.WriteString("activity:")
 			w.str(s.Activity, '/')
@@ -114,6 +120,12 @@ func listKeySized(list []proto.Session, size int) string {
 				w.b.WriteByte('/')
 				w.int(int64(a.Calls), ',')
 			}
+		}
+		if loop := s.ToolLoop; loop != nil {
+			w.b.WriteString("tool-loop:")
+			w.quote(loop.Tool, '/')
+			w.int(int64(loop.Count), '/')
+			w.str(loop.Since.Format(time.RFC3339Nano), '\n')
 		}
 		if s.Loop != nil {
 			w.b.WriteString("loop")

@@ -7,7 +7,10 @@ export type Repo = { repo: string; name: string; worktree: string; main: boolean
 
 export type RepoWorktree = {
   key: string;
+  /** Its branch when the node says (#1805), else its folder's name (the main checkout: the repository's). */
   name: string;
+  /** The branch checked out there, when the node says. */
+  branch?: string;
   path: string;
   main: boolean;
   sessions: Session[];
@@ -75,7 +78,18 @@ export function repoOf(cwd: string, repoRoot?: string): Repo {
 
 const worktreeName = (path: string, repo: string) => (path === repo ? baseName(repo) : baseName(path));
 
-type Placement = Repo & { path: string; spaceId?: string };
+const trimmed = (path: string | undefined) => (path ?? "").replace(/\/+$/, "");
+
+/** Where the node placed a session in git (#1805): its project (repo_root, else the working tree itself) and the
+ *  working tree; undefined from an older node, which leaves the path inference above. */
+export function gitPlaceOf(s: Pick<Session, "repo_root" | "worktree">): Repo | undefined {
+  const worktree = trimmed(s.worktree);
+  if (!worktree) return undefined;
+  const repo = trimmed(s.repo_root) || worktree;
+  return { repo, name: baseName(repo), worktree, main: worktree === repo };
+}
+
+type Placement = Repo & { path: string; spaceId?: string; git?: boolean };
 type OrcaWorktree = { repoId: string; spaceId: string; path: string };
 
 /** An Orca git worktree id is `<project id>::<absolute path>`; folder workspaces have no `::` and keep path inference. */
@@ -112,10 +126,15 @@ function containingOrcaWorktree(s: Session, known: ReadonlyMap<string, OrcaWorkt
 /** Orca's exact project id wins for its own sessions and for any source running inside a known Orca worktree.
  *  Other sessions keep the host-supplied root or path inference. */
 function placementOf(s: Session, known: ReadonlyMap<string, OrcaWorktree>): Placement {
+  const git = gitPlaceOf(s);
   const orca = orcaSpace(s) ?? containingOrcaWorktree(s, known);
   if (orca) {
+    // The node's git project joins an Orca worktree with every other source in the same repository; Orca's project id
+    // is the fallback for older nodes.
+    if (git) return { repo: git.repo, name: git.name, worktree: orca.spaceId, path: orca.path, main: git.main, spaceId: orca.spaceId, git: true };
     return { repo: `orca:${orca.repoId}`, name: baseName(orca.path), worktree: orca.spaceId, path: orca.path, main: false, spaceId: orca.spaceId };
   }
+  if (git) return { ...git, path: git.worktree, git: true };
   if (s.repo_root) {
     const where = repoOf(s.cwd ?? "", s.repo_root);
     return { ...where, path: where.worktree };
@@ -185,14 +204,15 @@ function nestWorktrees(worktrees: RepoWorktree[], bySpace: ReadonlyMap<string, R
 }
 
 /** Whether By repo shows a worktree row, rather than putting a lone main or equivalently named worktree's agents
- *  directly under the project. A worktree with children always keeps its level. */
+ *  directly under the project. A worktree with children always keeps its level, and so does a branch the node named
+ *  (#1805: machine → project → branch → sessions, as Orca shows it). */
 export function showsWorktreeLevel(tree: RepoTree): boolean {
   if (tree.worktrees.length !== 1) return true;
   const w = tree.worktrees[0]!;
-  return w.children.length > 0 || (!w.main && w.name !== tree.name);
+  return w.children.length > 0 || Boolean(w.branch) || (!w.main && w.name !== tree.name);
 }
 
-type RepoBucket = { tree: RepoTree; orca: boolean; bySpace: Map<string, RepoWorktree> };
+type RepoBucket = { tree: RepoTree; orca: boolean; git: boolean; bySpace: Map<string, RepoWorktree> };
 
 /** Build one computer's repositories. Learn Orca worktrees from live Orca-hosted sessions first, so every agent source
  *  running in one can share its exact identity; without a live Orca-hosted session its path is not known to be Orca's. */
@@ -211,6 +231,7 @@ function buildRepos(sessions: Session[], machineId: string): RepoTree[] {
       bucket = {
         tree: { key, machineId, name: where.name, repo: where.repo, count: 0, worktrees: [] },
         orca: Boolean(where.spaceId),
+        git: Boolean(where.git),
         bySpace: new Map(),
       };
       repos.set(key, bucket);
@@ -233,6 +254,12 @@ function buildRepos(sessions: Session[], machineId: string): RepoTree[] {
       tree.worktrees.push(worktree);
     }
     if (where.spaceId && !bucket.bySpace.has(where.spaceId)) bucket.bySpace.set(where.spaceId, worktree);
+    if (where.git) bucket.git = true;
+    // Orca's sidebar and git name a working tree by its branch.
+    if (!worktree.branch && s.branch) {
+      worktree.branch = s.branch;
+      worktree.name = s.branch;
+    }
     worktree.sessions.push(s);
     tree.count++;
   }
@@ -240,11 +267,11 @@ function buildRepos(sessions: Session[], machineId: string): RepoTree[] {
     const { tree } = bucket;
     for (const w of tree.worktrees) {
       w.sessions.sort(byAttention);
-      if (bucket.orca) w.main = w.sessions.some((s) => (s.repo_root ?? "").replace(/\/+$/, "") === w.path);
+      if (bucket.orca && !bucket.git) w.main = w.sessions.some((s) => (s.repo_root ?? "").replace(/\/+$/, "") === w.path);
     }
     const worktrees = nestWorktrees(tree.worktrees, bucket.bySpace)
       .sort((a, b) => Number(b.main) - Number(a.main) || a.name.localeCompare(b.name));
-    return { ...tree, name: bucket.orca ? orcaProjectName(tree.worktrees) : tree.name, worktrees };
+    return { ...tree, name: bucket.orca && !bucket.git ? orcaProjectName(tree.worktrees) : tree.name, worktrees };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 

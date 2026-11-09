@@ -45,6 +45,8 @@ type Permissions struct {
 	// AuthRelay: it is handed the authorization links the user's Agents stop at, the ones its contributes.auth_relay
 	// names, to complete them with the account it is signed in with (docs/operations/auth-relay.md).
 	AuthRelay bool `json:"auth_relay,omitempty"`
+	// Storage is installation-scoped logical data, separate from credentials.
+	Storage *StoragePermission `json:"storage,omitempty"`
 }
 
 var hostPattern = lazyre.New(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -65,6 +67,9 @@ func (p Permissions) validate() error {
 				strings.Join(HubScopes, ", "), ScopeCallPrefix))
 		}
 	}
+	if err := p.Storage.validate(); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
@@ -73,6 +78,7 @@ func (p Permissions) normalized() Permissions {
 	out := p
 	out.Network = slices.Compact(slices.Sorted(slices.Values(p.Network)))
 	out.Hub = slices.Compact(slices.Sorted(slices.Values(p.Hub)))
+	out.Storage = p.Storage.normalized()
 	return out
 }
 
@@ -84,7 +90,7 @@ func (p Permissions) FullHub() bool { return p.HubAPI && len(p.Hub) == 0 }
 func (p Permissions) Covers(q Permissions) bool {
 	if q.FullHub() && !p.FullHub() || q.LauncherKeys && !p.LauncherKeys || q.GhLogin && !p.GhLogin ||
 		q.UsageGateways && !p.UsageGateways || q.AgentRuntimes && !p.AgentRuntimes || q.ErrorReports && !p.ErrorReports ||
-		q.AuthRelay && !p.AuthRelay {
+		q.AuthRelay && !p.AuthRelay || !p.Storage.covers(q.Storage) {
 		return false
 	}
 	for _, s := range q.Hub {
@@ -315,6 +321,9 @@ func ExplainWith(l i18n.Lang, m *Manifest, config json.RawMessage) []PermissionL
 	if m.Permissions.ErrorReports {
 		out = append(out, permissionLine(l, "error_reports"))
 	}
+	if grant := m.Permissions.Storage; grant != nil {
+		out = append(out, storageLine(l, grant))
+	}
 	if m.Permissions.AuthRelay {
 		out = append(out, permissionLine(l, "auth_relay"))
 	}
@@ -435,6 +444,9 @@ func AddedIn(l i18n.Lang, old, m *Manifest) []PermissionLine {
 	if m.Permissions.ErrorReports && !old.Permissions.ErrorReports {
 		out = append(out, permissionLine(l, "error_reports"))
 	}
+	if !old.Permissions.Storage.covers(m.Permissions.Storage) {
+		out = append(out, storageLine(l, m.Permissions.Storage))
+	}
 	if m.Permissions.AuthRelay && !old.Permissions.AuthRelay {
 		out = append(out, permissionLine(l, "auth_relay"))
 	}
@@ -478,10 +490,8 @@ func AddedIn(l i18n.Lang, old, m *Manifest) []PermissionLine {
 		out = append(out, PermissionLine{Key: "ui_surfaces", Title: permissionText(l, "surfaces_more_title"), Detail: surfacesDetail(l, m, surfaces)})
 	}
 	var names []string
-	for _, s := range m.Secrets {
-		if !slices.ContainsFunc(old.Secrets, func(o SecretSpec) bool { return o.Name == s.Name }) {
-			names = append(names, s.Title)
-		}
+	for _, s := range newSecrets(old, m) {
+		names = append(names, s.Title)
 	}
 	if len(names) > 0 {
 		out = append(out, PermissionLine{Key: "secrets", Title: permissionText(l, "secrets_more_title"), Detail: strings.Join(names, permissionText(l, "list_separator"))})
@@ -490,6 +500,17 @@ func AddedIn(l i18n.Lang, old, m *Manifest) []PermissionLine {
 		out = append(out, nodeLines(l, m.Node, old.NodeProgram())...)
 		if names := nodeSecrets(m, old); len(names) > 0 {
 			out = append(out, PermissionLine{Key: "node_secrets", Title: permissionText(l, "node_secrets_more_title"), Detail: strings.Join(names, permissionText(l, "list_separator"))})
+		}
+	}
+	return out
+}
+
+// newSecrets are m's secrets whose names old did not declare, whether required or optional.
+func newSecrets(old, m *Manifest) []SecretSpec {
+	var out []SecretSpec
+	for _, s := range m.Secrets {
+		if !slices.ContainsFunc(old.Secrets, func(o SecretSpec) bool { return o.Name == s.Name }) {
+			out = append(out, s)
 		}
 	}
 	return out

@@ -12,5 +12,6 @@
   "empty_body_setup": "还差一步就能开始，下面告诉你缺什么。",
   "needs_calendar": "会用到手机日历",
   "load_failed": "没读到主对话：{error}",
-  "retry": "重试"
+  "retry": "重试",
+  "still_starting": "还在启动 {launcher}…"
 }

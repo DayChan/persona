@@ -72,6 +72,8 @@ type goldenMeta struct {
 	LastTurnWake   bool                   `json:"last_turn_wake,omitempty"`
 	TurnError      string                 `json:"turn_error,omitempty"`
 	TurnErrorKind  string                 `json:"turn_error_kind,omitempty"`
+	TurnErrorCode  string                 `json:"turn_error_code,omitempty"`
+	ModelFallback  *proto.ModelRefusal    `json:"model_fallback,omitempty"`
 	TurnResetsAt   *time.Time             `json:"turn_error_resets_at,omitempty"`
 	TurnResumes    bool                   `json:"turn_error_resumes,omitempty"`
 	TurnAfterWork  bool                   `json:"turn_error_after_work,omitempty"`
@@ -89,7 +91,7 @@ func snapshot(f *File) golden {
 		Title: m.Title, FirstUser: m.FirstUser, LastText: m.LastText, Model: m.Model, Cwd: m.Cwd,
 		PermissionMode: m.PermissionMode, Effort: m.Effort, Ultracode: m.Ultracode, Turns: m.Turns, Compactions: m.Compactions,
 		ContextTokens: m.ContextTokens, OutputTokens: m.OutputTokens, Queue: m.Queue, Background: m.Background,
-		TurnOpen: m.TurnOpen, LastTurnWake: m.LastTurnWake, TurnError: m.TurnError, TurnErrorKind: m.TurnErrorKind,
+		TurnOpen: m.TurnOpen, LastTurnWake: m.LastTurnWake, TurnError: m.TurnError, TurnErrorKind: m.TurnErrorKind, TurnErrorCode: m.TurnErrorCode, ModelFallback: m.ModelFallback,
 		TurnResetsAt: resets, TurnResumes: m.TurnErrorResumes, TurnAfterWork: m.TurnErrorAfterWork, LastActivity: m.LastActivity,
 	}}
 }

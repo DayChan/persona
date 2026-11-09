@@ -1,0 +1,50 @@
+{
+  "sources": [
+    {
+      "id": "announcements",
+      "name": "Announcements",
+      "icon": "bell",
+      "service": "mail:example.com",
+      "min_interval_seconds": 300,
+      "max_calls_per_hour": 120,
+      "tools": [
+        {
+          "name": "list",
+          "description": "Read announcements",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pageToken": {
+                "type": "string"
+              }
+            }
+          },
+          "read_only": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false
+          }
+        }
+      ],
+      "recipes": [
+        {
+          "mode": "items",
+          "tool": "list",
+          "args": {
+            "pageToken": "",
+            "since": "{{since}}"
+          },
+          "items_path": "$.items",
+          "fields": {
+            "id": "$.id",
+            "title": "$.title",
+            "time": "$.time",
+            "body": "$.body"
+          },
+          "kind": "sub_notice",
+          "group_by": "source"
+        }
+      ]
+    }
+  ]
+}

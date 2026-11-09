@@ -285,7 +285,7 @@ private fun MachineCard(
                 val plain = if (coded == null && machine != null) connectionFailureText(machine) else null
                 (coded ?: plain)?.let { Text(stringResource(it), style = PersonaTheme.type.caption, color = PersonaTheme.palette.ink2) }
                 // A computer being redeployed drops on purpose: its error is not news (the deploy line says what is going on).
-                if (coded == null && machine?.deploying != true) machine?.error?.takeIf { it.isNotBlank() }?.let {
+                if (coded == null && machine?.let(::deploying) != true) machine?.error?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = PersonaTheme.type.caption, color = if (plain != null) PersonaTheme.palette.ink3 else PersonaTheme.palette.ink2)
                 }
             }

@@ -37,7 +37,7 @@ import Testing
                     .selectionDisabled()
                     WorkspaceSidebarCard(workspace: tree, project: "app", selectedSession: nil,
                                          selectedWorkspace: route.workspace, folded: { _ in false }, toggle: { _ in },
-                                         open: route.selectEmpty, openAgent: route.open, ordered: { $0.reversed() }) { session in
+                                         open: route.selectEmpty, selectAgent: route.open, ordered: { $0.reversed() }) { session in
                         Text(session.title).frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                     } actions: { _, _ in Button("Create Child") {} }
                         .selectionDisabled()

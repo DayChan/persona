@@ -2,8 +2,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-vi.mock("../assistant/TaskPanel", () => ({ AgentPanel: () => null, TaskPanel: () => null }));
-vi.mock("../chat/SubagentPanel", () => ({ SubagentPanel: () => null }));
 vi.mock("../../lib/use-fs-live", () => ({ useFsLive: () => {} }));
 import type { GitStatus } from "../../lib/files";
 import { getQuotes, setQuotes } from "../../lib/drafts";
@@ -118,6 +116,26 @@ describe("GitPanel writes", () => {
     act(() => confirm.click());
     expect(last().path).toContain("/git/push");
     expect(last().body).toEqual({ cwd: "/projects/demo", set_upstream: true });
+  });
+
+  it("a branch whose upstream was deleted is not up to date, and its push asks to publish it again", async () => {
+    mount(true);
+    await act(async () => last().answer(status({ gone: true })));
+    expect(document.body.textContent).toContain(t("session-gitpanel.upstream_gone"));
+    expect(document.body.textContent).not.toContain(t("session-gitpanel.in_sync"));
+    act(() => button(t("session-gitwrite.push"))!.click());
+    expect(document.body.textContent).toContain(t("session-gitwrite.push_gone", { branch: "fix/login", upstream: "origin/fix/login" }));
+    const confirm = [...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent?.trim() === t("session-gitwrite.push")) as HTMLButtonElement;
+    act(() => confirm.click());
+    expect(last().path).toContain("/git/push");
+    expect(last().body).toEqual({ cwd: "/projects/demo", set_upstream: false });
+  });
+
+  it("offers no push on a branch level with its upstream", async () => {
+    mount(true);
+    await act(async () => last().answer(status()));
+    expect(document.body.textContent).toContain(t("session-gitpanel.in_sync"));
+    expect(button(t("session-gitwrite.push"))).toBeUndefined();
   });
 
   it("says a refusal with git's words and the files it lists", async () => {

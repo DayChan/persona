@@ -14,6 +14,8 @@
   "auto_continue_hint": "模型服务临时出错（503 等）后自动发「继续」，最多 3 次",
   "wake": "到点叫醒",
   "wake_hint": "在等部署、CI 或另一个 Agent 的，到点叫醒它自己去查",
+  "tool_loop": "检测工具调用循环",
+  "tool_loop_hint": "Agent 似乎反复调用工具时，询问你是否中断",
   "reply_reminder": "看过没回时提醒",
   "reply_reminder_hint": "Agent 问了你、你看过 {minutes} 分钟还没回，就提醒一次；只按规则判断，不花 token"
 }

@@ -38,9 +38,8 @@ final class InjectedLineTests: XCTestCase {
         let notice = any["injected-task_notice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 20), "no task notice line:\n\(app.debugDescription)")
         XCTAssertTrue(notice.label.contains("任务「整理发布说明」做完了"), notice.label)
-        let run = any["injected-followup"].firstMatch
-        XCTAssertTrue(run.exists, "no scheduled run line")
-        XCTAssertTrue(run.label.contains("定时任务「午间整理」开始运行"), run.label)
+        let run = any.matching(identifier: "message-source-label").matching(NSPredicate(format: "label == %@", "@午间整理")).firstMatch
+        XCTAssertTrue(run.exists, "no scheduled source mention")
         // The model's instructions are nowhere: neither the notice's nor the run's first line as typed.
         for text in ["这是 Persona 的任务通知", "你来决定要不要告诉用户", "Agent 最后说的", "⏰ 午间整理"] {
             XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists, "shows 「\(text)」")
@@ -48,16 +47,9 @@ final class InjectedLineTests: XCTestCase {
         sleep(1) // the list settles at the newest
         try shot(app, "lines")
 
-        // The scheduled run opens to what the task asks, and folds again.
-        run.tap()
-        let detail = any["injected-detail"].firstMatch
-        XCTAssertTrue(detail.waitForExistence(timeout: 5), "the run's line did not open")
+        // A short scheduled request is already visible in its source row; only long requests need folding.
         XCTAssertTrue(any.matching(NSPredicate(format: "label CONTAINS %@", "看看上午的邮件和飞书")).firstMatch.exists)
-        sleep(1)
-        try shot(app, "run-open")
-        run.tap()
-        let folded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: detail)
-        XCTAssertEqual(XCTWaiter.wait(for: [folded], timeout: 5), .completed, "the run's line did not fold")
+        try shot(app, "scheduled-source")
 
         // The notice opens its task's detail.
         notice.tap()

@@ -460,7 +460,7 @@ func (f *File) ensureTurns(beforeSeq, turns, maxItems int) {
 		start, seen := end, 0
 		for start > 0 && seen < turns && end-start < maxItems {
 			start--
-			if it := f.items[start]; it.Role == "user" && it.Kind == proto.KindText && !it.Queued {
+			if pagePrompt(f.items[start]) {
 				seen++
 			}
 		}

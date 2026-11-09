@@ -79,6 +79,19 @@ describe("whose a request is", () => {
     expect(managerHeaderFor("/inbox/y/done")).toBe("assistant");
   });
 
+  it("routes todos under /todos/:id and sub-routes to their noted manager", () => {
+    resetManagerChoice();
+    noteItemManager("/todos/t1", "assistant"); // default manager
+    noteItemManager("/todos/t2", "m-2");       // non-default manager
+    expect(managerHeaderFor("/todos/t2")).toBe("m-2");
+    expect(managerHeaderFor("/todos/t2/retry")).toBe("m-2");
+    expect(managerHeaderFor("/todos/t2/accept")).toBe("m-2");
+    expect(managerHeaderFor("/todos/t2/decisions")).toBe("m-2");
+    expect(managerHeaderFor("/todos/t2/agents/box/s1")).toBe("m-2");
+    expect(managerHeaderFor("/todos/t1")).toBeUndefined();
+    expect(managerHeaderFor("/todos/t1/retry")).toBeUndefined();
+  });
+
   it("one conversation's routes go to its manager, never to the page's pick", () => {
     chooseManager("m-1");
     // unknown to this page: no header, the hub sends it to the conversation's manager

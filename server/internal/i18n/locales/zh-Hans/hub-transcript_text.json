@@ -102,5 +102,7 @@
   "read_only_claude_bg": "Claude Code 的后台会话：手机上只能看，回复请在电脑上用 claude agents 打开它",
   "read_only_claude_no_inbox": "这个 Claude 没有开放会话之间的消息通道（版本较旧或功能关着）：手机上只能看，回复请在电脑上",
   "read_only_claude_inbox": "这个 Claude 的消息通道 Persona 用不了（版本不认识或缺少钥匙）：手机上只能看，回复请在电脑上",
-  "attention_claude_computer": "它在等电脑上的一个问题或权限请求：手机上答不了，请到电脑上处理"
+  "attention_claude_computer": "它在等电脑上的一个问题或权限请求：手机上答不了，请到电脑上处理",
+  "model_refusal": "Claude Code 拒绝通知（{subtype}）。原始记录：",
+  "model_refusal_fallback": "Claude Code 在上游拒绝请求后，从 {original} 切换到了 {fallback}。类别：{category}。范围：{scope}。如果备用模型不可用，请新开对话，或在 Claude Code 终端中用 /model 选择配置的模型。请求仍可能再次被拒绝。原始记录："
 }

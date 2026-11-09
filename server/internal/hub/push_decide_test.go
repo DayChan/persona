@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,12 +54,26 @@ func decideHub(t *testing.T, input bool) (*Hub, *client, *fakeAPNs) {
 	return h, c, f
 }
 
+func decidePushAttempts(h *Hub) *atomic.Int64 {
+	attempts := new(atomic.Int64)
+	h.push.traffic = func(key trafficKey, _ int64, _ time.Duration) {
+		if key.route == "apns" && key.action == "attempt" {
+			attempts.Add(1)
+		}
+	}
+	return attempts
+}
+
 // On APNs: category TODO_DECIDE, time-sensitive, the assistant's words, and `todo` at the top level (the app's OK reads
 // it from userInfo); the device that takes "needs you" pushes gets it.
 func TestDecisionPushHasItsCategoryAndTodo(t *testing.T) {
 	h, _, f := decideHub(t, true)
+	attempts := decidePushAttempts(h)
 	if err := h.deliverPush(decideNotification(t)); err != nil {
 		t.Fatal(err)
+	}
+	if n := attempts.Load(); n != 1 {
+		t.Fatalf("%d APNs attempts with needs-you on", n)
 	}
 	calls := f.calls(t, 1)
 	var got struct {
@@ -129,10 +144,13 @@ func TestDecisionPushOnTheWebSocket(t *testing.T) {
 // A device with "needs you" pushes off gets it neither way.
 func TestDecisionPushTakesTheInputSwitch(t *testing.T) {
 	h, c, f := decideHub(t, false)
+	attempts := decidePushAttempts(h)
 	if err := h.deliverPush(decideNotification(t)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	if n := attempts.Load(); n != 0 {
+		t.Fatalf("%d APNs attempts with needs-you off", n)
+	}
 	if n := len(f.calls(t, 0)); n != 0 {
 		t.Fatalf("%d APNs pushes with needs-you off", n)
 	}

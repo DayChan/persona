@@ -16,7 +16,7 @@ import { Button, cx, Dialog, IconButton, Menu, Spinner, toast, useMenu } from ".
 import type { MenuItem } from "../../ui/menu-model";
 import { Icon } from "../../ui/icons";
 import { hasKey, t } from "../../i18n";
-import { PanelHeader } from "../SidePanel";
+import { PanelHeader } from "../../ui/PanelHeader";
 import { Empty } from "./files/parts";
 import { LineBox } from "./files/LineComment";
 

@@ -66,6 +66,11 @@ data class Machine(
     @SerialName("deploying") val deploying: Boolean = false,
     /** Why the last "Redeploy" did not work. */
     @SerialName("deploy_error") val deployError: String? = null,
+    /** Whether the hub would take a "Redeploy" here (docs/operations/node-update.md); false with [deployReason]; null from older hubs. */
+    @SerialName("can_deploy") val canDeploy: Boolean? = null,
+    @SerialName("deploy_reason") val deployReason: String? = null,
+    /** A redeploy's stage: waiting_idle, transferring, restarting or confirming; null from older hubs. */
+    @SerialName("deploy_phase") val deployPhase: String? = null,
     /** ego lite on a Mac while the hub's browser plugin is on (docs/plans/plan-ego-browser.md); absent otherwise. */
     @SerialName("browser") val browser: MachineBrowser? = null,
     /** How Cua Driver is on this Mac (docs/extensions/computer-use.md), while the cua extension is on; null elsewhere. */
@@ -338,6 +343,9 @@ data class Session(
      * under its own folder, whose paths name no repository). Group by repository goes by it (core:domain repoOf); older hubs never send it.
      */
     @SerialName("repo_root") val repoRoot: String? = null,
+    /** The top of the git working tree cwd is in (repoRoot for the main checkout) and its branch, from the node (#1805). */
+    @SerialName("worktree") val worktree: String? = null,
+    @SerialName("branch") val branch: String? = null,
     @WireEnum("needs_you", "unread", "working", "idle", "offline", "unknown")
     @SerialName("state") val state: String? = AgentState.of(null, status).wire,
     @WireTime @SerialName("seen_at") val seenAt: String? = null,
@@ -529,7 +537,20 @@ data class Item(
     /** A message Persona typed in for the model (a task's notice, a scheduled run…), not by the user; the hub marks it
      *  (docs/protocol/protocol.md "Messages Persona injects"), older hubs do not (core/domain `injectedOf`). */
     val injected: Injected? = null,
+    /** Optional provenance for model input that was not typed by the user. Older hubs omit it. */
+    val source: MessageSource? = null,
 )
+
+/** Source titles are business data; clients localize the fallback for each kind. */
+@KeepGeneratedSerializer
+@Serializable(with = MessageSourceSerializer::class)
+data class MessageSource(
+    val kind: String = "",
+    @SerialName("conversation_id") val conversationId: String? = null,
+    val title: String? = null,
+)
+
+object MessageSourceSerializer : WireSerializer<MessageSource>(MessageSource.generatedSerializer())
 
 /** What a message Persona wrote for the model is: [line] is what the chat shows instead of it. */
 @KeepGeneratedSerializer

@@ -26,7 +26,6 @@ import {
   type Lang,
   type LexState,
   type Token,
-  type TokenKind,
 } from "../../../lib/files";
 import { addCodeComment, commentKey, markedLines } from "../../../lib/comment-target";
 import { codeQuote, rangeLabel, relativeTo } from "../../../lib/comments";
@@ -36,7 +35,8 @@ import { Button, copyText, cx, IconButton, Loading, toast } from "../../../ui/at
 import { Icon } from "../../../ui/icons";
 import { Markdown } from "../../../ui/Markdown";
 import { ImageViewer, type ViewerImage } from "../../chat/ImageViewer";
-import { PanelHeader } from "../../SidePanel";
+import { PanelHeader } from "../../../ui/PanelHeader";
+import { fileBytes, TOKEN_CLASS } from "./file-data";
 import { GutterNumber, LineBox, useLinePick, type LinePick } from "./LineComment";
 import { BackHeader, Empty, FileGlyph, Segmented, useWindow } from "./parts";
 import { parseNotebook } from "../../../lib/notebook";
@@ -63,20 +63,6 @@ const MAX_TABLE_BYTES = 200 << 20; // a workbook bigger than this is not opened 
 // older hub ignores it and sends base64 as before.
 export function fileURL(mid: string, path: string, cwd?: string, offset = 0) {
   return `/machines/${enc(mid)}/file?path=${enc(path)}&cwd=${enc(cwd ?? "")}${offset > 0 ? `&offset=${offset}` : ""}&stream=1`;
-}
-
-/** A binary file's whole bytes: from file/download when the hub streams it, else the base64 an older hub sent. */
-export async function fileBytes(mid: string, f: FileContent, cwd?: string, signal?: AbortSignal): Promise<ArrayBuffer> {
-  if (!f.stream && typeof f.data === "string") {
-    if (f.truncated) throw new Error(t("session-files-fileview.hub_too_old_preview"));
-    return base64Bytes(f.data).buffer;
-  }
-  const res = await fetch(fileDownloadURL(mid, f.path, cwd), { signal });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
-    throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
-  }
-  return res.arrayBuffer();
 }
 
 /** Where the browser can show a binary file itself (an image, a PDF): file/download inline, or the old base64. */
@@ -464,17 +450,6 @@ export function FileView({
 }
 
 // ── code ──────────────────────────────────────────────────
-
-export const TOKEN_CLASS: Record<TokenKind, string> = {
-  comment: "text-ink-3",
-  string: "text-green",
-  number: "text-accent-ink",
-  const: "text-accent-ink",
-  key: "text-red",
-  add: "text-green",
-  del: "text-red",
-  meta: "text-ink-3",
-};
 
 function CodeView({ doc, file, text, line, lineTo, note, where }: { doc: FileDoc; file: FileContent; text: string; line?: number; lineTo?: number; note: string; where: { mid: string; sid?: string; cwd?: string } }) {
   const name = file.name;

@@ -39,7 +39,16 @@ const (
 // be clipped shorter: the hub's sentence for the code (StartErrorCode) is bounded, and its remedy comes last (#1642).
 const CodedStartErrorMax = 600
 
+// ToolLoop is a node-detected repetition. It contains no tool input or output.
+// Since identifies the start of this repetition within the current turn.
+type ToolLoop struct {
+	Tool  string    `json:"tool"`
+	Count int       `json:"count"`
+	Since time.Time `json:"since"`
+}
+
 type Session struct {
+	ToolLoop *ToolLoop `json:"tool_loop,omitempty"`
 	// Manager is the manager it belongs to (docs/assistant/managers.md, "Ownership"); the hub stamps it on what it sends the apps.
 	Manager          string               `json:"manager,omitempty"`
 	MachineID        string               `json:"machine_id"`
@@ -65,7 +74,13 @@ type Session struct {
 	// RepoRoot is the main checkout of the repository Cwd belongs to, when the host knows it (#2840: the Paseo bridge,
 	// whose worktrees live under Paseo's own folder): "By repo" groups by it; without it the clients infer the repository
 	// from Cwd's path.
-	RepoRoot    string `json:"repo_root,omitempty"`
+	RepoRoot string `json:"repo_root,omitempty"`
+	// Worktree is the top of the git working tree Cwd is in (RepoRoot itself for the main checkout, a linked worktree's
+	// own folder otherwise) and Branch the branch checked out there ("" when detached or unknown). The node reads both,
+	// and RepoRoot when no host names it, off the filesystem (node/gitplace.go): the apps list machine → project
+	// (RepoRoot) → worktree (Worktree, labelled Branch) → sessions, as Orca does (#1805).
+	Worktree    string `json:"worktree,omitempty"`
+	Branch      string `json:"branch,omitempty"`
 	Status      string `json:"status"`
 	PaneID      string `json:"pane_id,omitempty"`
 	TabID       string `json:"tab_id,omitempty"`
@@ -228,6 +243,8 @@ type Session struct {
 	// TurnErrorCode says what is wrong when the hub can tell from TurnError (docs/assistant/onboarding.md 5.2): one of the
 	// TurnErrorCode* values, for a card that says what to fix (sign in, the key, the model). Empty: not known.
 	TurnErrorCode string `json:"turn_error_code,omitempty"`
+	// ModelFallback is the refusal fallback still active in this session, as the runtime recorded it.
+	ModelFallback *ModelRefusal `json:"model_fallback,omitempty"`
 	// Work is where the session stands in its work (docs/assistant/agent-work.md): working, blocked on a named precondition, or
 	// done, with a line saying what it waits for or what it concluded. Set by the hub; absent before the hub has
 	// triaged a stopped session's turn.
@@ -299,10 +316,11 @@ const (
 
 // Session.TurnErrorCode values (docs/assistant/onboarding.md 4.6).
 const (
-	TurnErrorNotLoggedIn = "not_logged_in" // Claude Code on that machine is not signed in
-	TurnErrorAuthFailed  = "auth_failed"   // the key or token was refused or has expired
-	TurnErrorModelRoute  = "model_route"   // the model name is not one the service or gateway knows
-	TurnErrorRateLimited = "rate_limited"  // too many requests, or a usage limit
+	TurnErrorNotLoggedIn              = "not_logged_in"              // Claude Code on that machine is not signed in
+	TurnErrorAuthFailed               = "auth_failed"                // the key or token was refused or has expired
+	TurnErrorModelRoute               = "model_route"                // the model name is not one the service or gateway knows
+	TurnErrorRateLimited              = "rate_limited"               // too many requests, or a usage limit
+	TurnErrorModelFallbackUnavailable = "model_fallback_unavailable" // a refusal selected a model the service cannot use
 )
 
 // Codes a call refuses with when the assistant's conversation cannot start on a machine (docs/assistant/onboarding.md 4.6, 5.2):
@@ -312,6 +330,9 @@ const (
 	CodeMachinePending  = "machine_pending"  // the machine has not been confirmed as the user's yet
 	CodeClaudeMissing   = "claude_missing"   // Claude Code is not installed (or not on the launcher's PATH) there
 	CodeLauncherMissing = "launcher_missing" // the launcher (a ~/.zshrc function or alias) is not there
+	// CodeTerminalNotReady: the new tab's terminal would not take the start command (herdr's pane_send_failed); nothing
+	// ran, the tab is closed, a retry may work (node/typedstart.go). 503, retryable.
+	CodeTerminalNotReady = "terminal_not_ready"
 )
 
 // TodoRef is a session's link to an active todo (docs/assistant/todos.md).

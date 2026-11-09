@@ -81,6 +81,8 @@
     <string name="chat_interaction_resolved_elsewhere">コンピューターで対応済みです</string>
     <string name="chat_interaction_prompt_changed">画面の内容が変わったため、今回は送信していません。新しい質問を確認してから選び直してください</string>
     <string name="chat_interaction_unknown">回答が届いたかまだ分かりません。先にリクエストを確認してください</string>
+    <string name="chat_interaction_refused">ハブはこの回答を受け付けませんでした。もう一度回答できます</string>
+    <string name="chat_interaction_refused_reason">ハブはこの回答を受け付けませんでした：%1$s</string>
     <string name="chat_interaction_already">回答済みです</string>
     <string name="chat_interaction_already_with">回答済み：%1$s</string>
     <string name="chat_interaction_ended_expired">このリクエストは期限切れのため、回答は届きませんでした</string>

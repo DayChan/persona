@@ -90,6 +90,7 @@
     <string name="files_git_change_options">改动选项</string>
     <string name="files_git_part_cut">改动太大，没有带回来</string>
     <string name="files_git_part_cut_message">整个提交的 diff 超过 512 KB，这个文件在截断之后。</string>
+    <string name="files_git_upstream_gone">远端已删除</string>
     <string name="files_git_synced">已同步</string>
     <string name="files_git_pull">拉取</string>
     <string name="files_git_pull_behind">拉取 %1$d</string>

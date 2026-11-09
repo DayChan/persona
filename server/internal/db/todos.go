@@ -704,6 +704,9 @@ func (d *DB) linkTodoAgentWithSource(ctx context.Context, todoID, machineID, ses
 			releasedTodoIDs = append(releasedTodoIDs, oid)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 
 		if len(releasedTodoIDs) > 0 {
 			_, err = tx.Exec(ctx, `UPDATE todo_agents SET released_at = $3 WHERE machine_id = $1 AND session_id = $2 AND released_at IS NULL AND todo_id != $4`,

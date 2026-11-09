@@ -140,10 +140,19 @@ func scanBackground(f *os.File, off *int64, m *transcript.Meta, size int64) {
 		bgReaders.Put(r)
 	}()
 	at, long := *off, false
+	var refusalLine []byte
 	for {
 		line, err := r.ReadSlice('\n')
 		at += int64(len(line))
 		if err == bufio.ErrBufferFull {
+			// While a fallback is active, a large reply can switch back and a large prompt can end a turn-scoped
+			// fallback. Keep those rows whole; request blobs only repeat history and are still skipped.
+			if !long && (m.ModelFallback != nil || bytes.Contains(line, []byte("model_refusal_"))) &&
+				!bytes.Contains(line, []byte(`"type":"api-request-blob"`)) {
+				refusalLine = append(refusalLine[:0], line...)
+			} else if refusalLine != nil {
+				refusalLine = append(refusalLine, line...)
+			}
 			long = true
 			continue
 		}
@@ -155,7 +164,13 @@ func scanBackground(f *os.File, off *int64, m *transcript.Meta, size int64) {
 		if !long && len(line) <= 64<<10 && (containsAny(line, bgMarkers) || containsAny(line, transcript.GoalMarkers) || containsAny(line, transcript.UltracodeMarkers) ||
 			containsAny(line, transcript.PlanMarkers) || containsAny(line, m.PlanPending())) {
 			transcript.ParseLine(0, bytes.TrimSuffix(line, []byte("\n")), m)
+		} else if !long {
+			m.ObserveModelFallback(bytes.TrimSuffix(line, []byte("\n")))
+		} else if refusalLine != nil {
+			refusalLine = append(refusalLine, line...)
+			m.ObserveModelFallback(bytes.TrimSuffix(refusalLine, []byte("\n")))
 		}
+		refusalLine = nil
 		long = false
 		*off = at
 	}

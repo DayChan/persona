@@ -107,12 +107,20 @@ const (
 	MethodKBPostsPending  = "kb.posts_pending"
 	MethodKBArchivedChats = "kb.archived_chats"
 
-	// EventKBKick: {}: a source has something new (a connector's realtime event, a feed turned on): go round soon.
+	// EventKBKick: KBKick: a source has something new (a connector's realtime event, a feed turned on): go round soon,
+	// and read that connector's chats (or the items) at that round even before its poll interval. A manager before
+	// #1562 sends {}: only the round.
 	EventKBKick = "kb.kick"
 	// EventKBAgentTurn: KBAgentTurn: an agent finished a turn (after the hub's done delay, not the assistant's own
 	// conversations); the projects of its directory get a timeline line.
 	EventKBAgentTurn = "kb.agent_turn"
 )
+
+// KBKick is EventKBKick's params: the connector that has something new, and what (a connector scope: chats, items).
+type KBKick struct {
+	Connector string `json:"connector,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+}
 
 // KBSettings is the knowledge base's settings the manager goes by: its manager.json's kb section, laid over the hub's
 // hello (an older hub still sends its hub.json's). Its ai is the models' (HubModels.KBAI).
@@ -125,6 +133,9 @@ type KBSettings struct {
 	// AttachmentDaysBySource: attachment_days for the chats of one source (kb.attachment_days_by_source); the sources
 	// not in it, and non-positive values, keep attachment_days.
 	AttachmentDaysBySource map[string]int `json:"attachment_days_by_source,omitempty"`
+	// History is kb.history, the history import (KBHistory; nil: off). Only manager.json sets it, and a change never
+	// reopens the knowledge base: the import reads it afresh before every call.
+	History *KBHistory `json:"history,omitempty"`
 }
 
 // CodeKBUnavailable: the knowledge base is not open yet (the user's time zone not known yet, another assistant process

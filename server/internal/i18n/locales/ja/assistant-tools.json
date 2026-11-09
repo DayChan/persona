@@ -1,5 +1,6 @@
 {
   "new_worktree": " · 新しい worktree：{branch}",
   "archive_close_card": "{agent} · {machine} をアーカイブして、コンピュータ上で閉じる（記録は残り、次のメッセージで再開します）",
-  "with_model": " · モデル：{model}"
+  "with_model": " · モデル：{model}",
+  "with_tier": " · プリセット {tier}：{runs}"
 }

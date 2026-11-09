@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: scripts-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}-scripts
+  group: scripts-${{ github.repository }}-${{ github.ref_name }}-scripts
   cancel-in-progress: true
 jobs:
   scripts:

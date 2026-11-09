@@ -7,6 +7,11 @@ import Testing
 /// answered, which the user may answer again (the web's lib/delegate.ts and its store).
 @MainActor
 struct DelegateTests {
+    /// A state folder of this test's own (#2117). `AppModel()` would restore the snapshot the simulator's app saved once
+    /// it was paired (mock-hub UI tests), cards included, and save over it.
+    private let folder = FileManager.default.temporaryDirectory.appending(path: "delegate-tests-\(UUID().uuidString)")
+    private func newModel() -> AppModel { AppModel(stateFolder: folder) }
+
     private func q(_ question: String, _ labels: [String], multi: Bool = false) -> Question {
         Question(question: question, header: nil, multiSelect: multi, options: labels.map { QuestionOption(label: $0) })
     }
@@ -131,7 +136,7 @@ struct DelegateTests {
         #expect(!Delegated.announces(handed, replacing: handed), "the same card again")
         #expect(Delegated.announces(card(), replacing: nil))
 
-        let model = AppModel()
+        let model = newModel()
         model.handle(.interaction(looking), group: "")
         #expect(model.pendingInteractions.map(\.isDelegating) == [true])
         model.handle(.interaction(handed), group: "")
@@ -140,7 +145,7 @@ struct DelegateTests {
     }
 
     @Test func aQuestionTheAssistantAnsweredStaysInItsChat() {
-        let model = AppModel()
+        let model = newModel()
         let looking = card(delegating: true)
         model.handle(.interaction(looking), group: "")
         model.handle(.interactionResolved("ix_1", assistant: AssistantAnswer(answers: ["用哪个库？": "pgx"], reason: "现有代码都用 pgx")), group: "")
@@ -163,7 +168,7 @@ struct DelegateTests {
     }
 
     @Test func atMostFiftyAreKeptTheOldestPutAwayFirst() {
-        let model = AppModel()
+        let model = newModel()
         for n in 0...Delegated.kept {
             model.handle(.interaction(card("ix_\(n)")), group: "")
             model.handle(.interactionResolved("ix_\(n)", assistant: AssistantAnswer(answers: [:], reason: "")), group: "")
@@ -177,7 +182,7 @@ struct DelegateTests {
         hub.on("POST", "/api/v1/interactions/ix_1/resolve", json: #"""
         {"ok":true,"already":true,"status":"resolved","resolution":{"answers":{"用哪个库？":"pgx"},"answered_by":"assistant","reason":"现有代码都用 pgx"}}
         """#)
-        let model = AppModel()
+        let model = newModel()
         model.apiForTests = hub.client
         let ix = card(session: "")
         model.replaceInteractions("", [ix])
@@ -190,7 +195,7 @@ struct DelegateTests {
     @Test func changeAnswerSendsWhatChangedAndShowsIt() async throws {
         let hub = FakeHub()
         hub.on("POST", "/api/v1/interactions/ix_1/reanswer", json: #"{"ok":true}"#)
-        let model = AppModel()
+        let model = newModel()
         model.apiForTests = hub.client
         let two = [q("用哪个库？", ["pgx", "sqlc"]), q("先测吗？", ["是", "否"])]
         model.handle(.interaction(card(questions: two)), group: "")
@@ -211,7 +216,7 @@ struct DelegateTests {
         hub.on("POST", "/api/v1/interactions/ix_1/reanswer") { _ in
             throw APIError(status: 503, message: "assistant offline", fields: ["code": "assistant_offline"])
         }
-        let model = AppModel()
+        let model = newModel()
         model.apiForTests = hub.client
         model.handle(.interaction(card()), group: "")
         model.handle(.interactionResolved("ix_1", assistant: AssistantAnswer(answers: ["用哪个库？": "pgx"], reason: "")), group: "")
@@ -221,7 +226,7 @@ struct DelegateTests {
     }
 
     @Test func changeAnswerTakesWhatSendingDoes() {
-        let model = AppModel()
+        let model = newModel()
         let d = DelegatedAnswer(interaction: card(), answers: [:], reason: "", at: nil)
         #expect(!model.canChangeAnswer(d), "its session not known yet")
         model.applySessions([MachineRef(id: "m"): [session(send: false)]])
@@ -261,7 +266,7 @@ struct DelegateTests {
         let hub = FakeHub()
         hub.on("POST", "/api/v1/interactions/ix_1/reanswer", json: #"{"ok":true}"#)
         hub.on("GET", "/api/v1/interactions/history", json: #"{"interactions":[{"interaction":{"id":"h","machine_id":"m","session_id":"s","kind":"question","questions":[{"question":"用哪个库？","options":[{"label":"pgx"}]}]},"status":"resolved","resolution":{"answers":{"用哪个库？":"pgx"},"answered_by":"assistant"},"resolved_at":"2026-11-07T10:00:00Z"}]}"#)
-        let model = AppModel()
+        let model = newModel()
         model.apiForTests = hub.client
         let json = #"{"id":"ix_1","machine_id":"m","session_id":"s","kind":"question","manager":"m-2","questions":[{"question":"用哪个库？","options":[{"label":"pgx"},{"label":"sqlc"}]}]}"#
         let ix = try JSON.decoder.decode(Interaction.self, from: Data(json.utf8))

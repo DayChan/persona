@@ -16,6 +16,8 @@
   "behind_other": "アップストリームより{count}コミット遅れ",
   "no_upstream": "アップストリームブランチなし",
   "in_sync": "同期済み",
+  "upstream_gone": "リモートで削除済み",
+  "upstream_gone_hint": "アップストリームブランチはリモートから削除されています（マージ済みのプルリクエストのブランチなど）。もう一度プッシュするまで、ここのコミットはこのコンピュータにしかありません。",
   "stashes_hint": "git stashのエントリ数",
   "stashes_one": "スタッシュ{count}",
   "stashes_other": "スタッシュ{count}",

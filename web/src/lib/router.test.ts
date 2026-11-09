@@ -11,3 +11,8 @@ describe("showsSession", () => {
     expect(showsSession(parse("/todos"), "mac", "s1")).toBe(false);
   });
 });
+
+it("opens a request by its own id without inventing a session", () => {
+  expect(parse("/requests/request-one")).toEqual({ name: "request", id: "request-one" });
+  expect(showsSession(parse("/requests/request-one"), "example-computer", "")).toBe(false);
+});

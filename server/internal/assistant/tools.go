@@ -29,7 +29,7 @@ import (
 // (docs/assistant/prompts.md).
 var toolNames = []string{"ask_user", "notify_user", "supervision_finish", "schedule_followup", "schedule_routine", "delete_routine", "list_followups",
 	"cancel_followup", "list_places", "save_place", "machines_list", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
-	"kb_search", "kb_list", "kb_get", "kb_update", "persona_settings", "secret_run",
+	"kb_search", "kb_list", "kb_get", "kb_update", "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume", "persona_settings", "secret_run",
 	"model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback",
 	"conversations_list", "conversation_read", "conversation_rename", "conversation_archive", "conversation_unarchive",
 	"conversation_new", "conversation_send", "task_plan", "task_review",
@@ -91,7 +91,9 @@ func (s *Service) appTool(ctx context.Context, app string, call ToolCall, args j
 }
 
 func (s *Service) runTool(ctx context.Context, machine, self, name string, args json.RawMessage) (string, error) {
-	if name == "kb_update" { // health stays in the health space (docs/assistant/health.md "Isolation")
+	// Health stays in the health space (docs/assistant/health.md "Isolation"): it writes nothing to the knowledge base,
+	// nor changes or starts what is imported into it (kb_history_status only reads).
+	if name == "kb_update" || strings.HasPrefix(name, "kb_history_") && name != "kb_history_status" {
 		if space, _ := s.selfSpace(ctx, self); space == SpaceHealth {
 			return "", errors.New("the health space doesn't write the knowledge base: health information stays in its conversations and memory")
 		}
@@ -122,6 +124,8 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolTodo(ctx, machine, self, name, args) // todo_tools.go
 	case "kb_search", "kb_list", "kb_get", "kb_update":
 		return s.toolKB(ctx, name, args)
+	case "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume":
+		return s.toolKBHistory(ctx, name, args) // kb_history_tools.go
 	case "interaction_answer":
 		return s.toolInteractionAnswer(ctx, self, args)
 	case "secret_run":
@@ -293,12 +297,35 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 			return "", fmt.Errorf("model %q is not a model id: %s; no agent was started", a.Model, proto.ModelIDRule)
 		}
 		a.Cwd = proto.ExpandHome(a.Cwd, am.Home)
+		// The tier is resolved first (an unknown one asks and starts nothing), then Model Settings' Agents laid over it as
+		// the start lays it: what runs is said on the card (a hand-off from the health space asks) and in the answer.
+		tier, runs := strings.TrimSpace(a.Tier), ""
+		if tier != "" {
+			t, err := s.tierModel(ctx, tier)
+			if err != nil {
+				return "", fmt.Errorf("%w; no agent was started", err)
+			}
+			if !layTier(t, &a.Launcher, &a.Model, &a.Effort) {
+				tier = "" // a launcher of its own: the tier gives it nothing
+			} else {
+				picks := map[string]any{"launcher": a.Launcher, "model": a.Model, "effort": a.Effort}
+				if s.applyModel(ctx, "agent.new", picks) == nil { // one that can't run is the start's to say
+					l, _ := picks["launcher"].(string)
+					m, _ := picks["model"].(string)
+					e, _ := picks["effort"].(string)
+					runs = ModelTier{Launcher: l, Model: m, Effort: e}.runs()
+				}
+			}
+		}
 		branch := strings.TrimSpace(a.Worktree.Branch)
 		where := am.Name + " · " + a.Cwd
 		if branch != "" {
 			where += i18n.T(s.lang(ctx), "assistant-tools.new_worktree", i18n.Args{"branch": branch})
 		}
-		if a.Model != "" { // the user sees what it will run on before saying yes
+		switch { // the user sees what it will run on before saying yes
+		case runs != "":
+			where += i18n.T(s.lang(ctx), "assistant-tools.with_tier", i18n.Args{"tier": tier, "runs": runs})
+		case a.Model != "":
 			where += i18n.T(s.lang(ctx), "assistant-tools.with_model", i18n.Args{"model": a.Model})
 		}
 		if a.Ultracode {
@@ -318,10 +345,7 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentStartTimeout)
 		defer cancel()
 		// The tab is named from the prompt as written; the agent gets its project's background before it (#2820).
-		params := map[string]any{"cwd": a.Cwd, "launcher": a.Launcher, "model": a.Model, "effort": a.Effort, "tier": a.Tier, "tab_name": s.tabName(sctx, a.Prompt)}
-		if err := s.applyStartTier(sctx, params); err != nil {
-			return "", err
-		}
+		params := map[string]any{"cwd": a.Cwd, "launcher": a.Launcher, "model": a.Model, "effort": a.Effort, "tab_name": s.tabName(sctx, a.Prompt)}
 		params["prompt"] = s.withProjectContext(sctx, am.ID, a.Cwd, a.Prompt)
 		if a.Ultracode {
 			params["ultracode"] = true
@@ -339,6 +363,9 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		}
 		if note != "" {
 			note = " Note: " + note + "."
+		}
+		if runs != "" {
+			note = " Preset " + tier + ": runs on " + runs + "." + note
 		}
 		if branch != "" { // the machine's engine makes the worktree (herdr's or Orca's own), the agent starts in it
 			wt, err := s.newWorktree(sctx, am.ID, a.Cwd, branch)
@@ -648,6 +675,9 @@ func (s *Service) Action(ctx context.Context, a Action) (ActionResult, error) {
 		if err := json.Unmarshal(a.Answer, &r); err != nil {
 			return ActionResult{}, err
 		}
+	}
+	if mine, err := s.toolLoopAnswer(ctx, a.InteractionID, r); mine {
+		return ActionResult{OK: err == nil}, err
 	}
 	if mine, err := s.workAnswer(ctx, a.InteractionID, r); mine {
 		return ActionResult{OK: err == nil}, err

@@ -8,7 +8,8 @@ export interface ModelProfile {
   description?: string;
   purposes?: Record<string, ModelBinding>;
   launchers?: Record<string, Record<string, string>>;
-  tiers?: Record<string, { launcher: string; model?: string; effort?: string }>;
+  /** The Agent presets (#2225): what agent_start / task_plan's tier and "New agent"'s presets run on, and when to use each. */
+  tiers?: Record<string, { launcher: string; model?: string; effort?: string; description?: string }>;
   active?: boolean;
   changes: string[];
 }

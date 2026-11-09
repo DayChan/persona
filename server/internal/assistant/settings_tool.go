@@ -80,6 +80,13 @@ func (s *Service) ownSettings() []ownSetting {
 			Value: "a launcher name from this setting's get"},
 			get: s.getLauncher,
 			set: s.setLauncher},
+		{Setting: Setting{Key: "model_profiles.tiers", Title: "Agent presets (the model profiles' tiers)", Actions: getSet,
+			About: "the Agent presets: each model profile's named tiers, what agent_start / task_plan's tier and the New Agent " +
+				"form's presets run on (launcher, model, effort) and when to use each; get lists every profile's, set adds, " +
+				"changes or removes one tier, in every profile unless profiles names some (a switch then keeps it)",
+			Value: modelTiersValue},
+			get: s.getModelTiers,
+			set: s.setModelTiers},
 	}
 }
 
@@ -185,7 +192,8 @@ func orNone(s string) string {
 // what the assistant reads).
 var settingTitles = map[string]string{"assistant.notes": "title_notes", "assistant.main_tasks_quiet": "title_main_tasks_quiet",
 	"assistant.start_requested_tasks": "title_start_requested_tasks", "assistant.launcher": "title_launcher",
-	"assistant.recording_days": "title_recording_days", "assistant.done_needs_delivery": "title_done_needs_delivery"}
+	"assistant.recording_days": "title_recording_days", "assistant.done_needs_delivery": "title_done_needs_delivery",
+	"model_profiles.tiers": "title_model_tiers"}
 
 // clipped is a value as the card shows it, in l.
 func clipped(l i18n.Lang, s string) string {

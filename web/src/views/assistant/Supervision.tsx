@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t } from "../../i18n";
 import type { FeedItem } from "../../lib/feed";
-import { checkCount, checklist, latestReview, reportLine, reviewBadge, reviewVerdictLabel, type CheckMark, type ReviewTone } from "../../lib/supervision";
+import { autoReviewLine, checkCount, checklist, latestReview, reportLine, reviewBadge, reviewVerdictLabel, type CheckMark, type ReviewTone, type Supervision } from "../../lib/supervision";
 import type { Todo } from "../../lib/todos";
 import { cx } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -73,7 +73,36 @@ export function ReviewChecklist({ todo }: { todo: Todo }) {
         </ul>
       )}
       {review?.note && <p className="mt-2 text-[12.5px] leading-[1.6] text-ink-2 select-text">{t("assistant-tasks.review_note", { note: review.note })}</p>}
+      <AutoReviewResult sup={sup} />
     </section>
+  );
+}
+
+/** The independent reviewer's result (#2173) under the criteria: a line, and its report on a click. Nothing when no
+ *  review ran, so a task without one looks as it did. */
+function AutoReviewResult({ sup }: { sup: Supervision }) {
+  const [open, setOpen] = useState(false);
+  const line = autoReviewLine(sup);
+  if (!line) return null;
+  const findings = sup.auto_review?.findings;
+  return (
+    <div data-testid="auto-review" className="mt-2 flex flex-col gap-1 text-[12.5px] text-ink-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <Icon name="target" size={12} className="shrink-0" />
+        <span className="shrink-0 whitespace-nowrap font-semibold">{t("assistant-tasks.auto_review_title")}</span>
+        <span className="min-w-0">· {line}</span>
+        {findings && (
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="touch-hit ml-auto shrink-0 whitespace-nowrap text-ink-3 hover:text-ink-2">
+            {t(open ? "assistant-tasks.auto_review_hide" : "assistant-tasks.auto_review_show")}
+          </button>
+        )}
+      </div>
+      {open && findings && (
+        <div data-testid="auto-review-findings" className="leading-[1.55] whitespace-pre-wrap text-ink select-text [overflow-wrap:anywhere]">
+          {findings}
+        </div>
+      )}
+    </div>
   );
 }
 

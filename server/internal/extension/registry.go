@@ -359,6 +359,19 @@ func (r *Registry) List() []*Extension {
 	return out
 }
 
+// Snapshots is every plugin, by id, as stable snapshots. Manifests and schemas are immutable and shared;
+// mutable records and their slices are copied under the registry lock.
+func (r *Registry) Snapshots() []*Extension {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*Extension, 0, len(r.extensions))
+	for _, p := range r.extensions {
+		out = append(out, snapshotExtension(p))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Record.ID < out[j].Record.ID })
+	return out
+}
+
 // Get is the plugin with id, nil when there is none.
 func (r *Registry) Get(id string) *Extension {
 	r.mu.Lock()
@@ -384,6 +397,12 @@ func snapshotExtension(p *Extension) *Extension {
 	out.Record.Aliases = slices.Clone(p.Record.Aliases)
 	out.Record.Granted.Network = slices.Clone(p.Record.Granted.Network)
 	out.Record.Granted.Hub = slices.Clone(p.Record.Granted.Hub)
+	if p.Record.Granted.Storage != nil {
+		storage := *p.Record.Granted.Storage
+		storage.Keys = slices.Clone(storage.Keys)
+		storage.Patterns = slices.Clone(storage.Patterns)
+		out.Record.Granted.Storage = &storage
+	}
 	out.Record.DisabledContributions = slices.Clone(p.Record.DisabledContributions)
 	if p.Record.Remote != nil {
 		remote := *p.Record.Remote

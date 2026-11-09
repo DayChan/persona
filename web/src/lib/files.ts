@@ -72,6 +72,8 @@ export interface GitStatus {
   files: GitFile[];
   stashes?: number;
   commits: GitCommit[];
+  /** The upstream was deleted on the remote: ahead / behind are 0 and mean nothing, a push publishes the branch again. */
+  gone?: boolean;
 }
 
 export interface GitDiff {

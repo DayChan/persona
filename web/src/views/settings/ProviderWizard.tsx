@@ -20,6 +20,7 @@ import {
   presetDefaultModel,
   presetHost,
   presetModelLabel,
+  presetRunsClaude,
   presetSubtitle,
   presetTestBody,
   presetTestable,
@@ -251,13 +252,20 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
     setError("");
     try {
       if (step === "key" && preset) {
-        // never decide on "not known yet": a Claude Code that already answers must not be moved off (4.3 B.3)
-        await readinessSettled();
-        const before = currentReadiness();
-        const give = hubNames && (assignSet ?? assignByDefault(claudeWorks(before), keyTest && !keyTest.running ? keyTest.result : null));
+        // a direct API cannot run the main conversation or Agents: nothing to assign, so nothing to wait for
+        const direct = !presetRunsClaude(preset);
+        let give = false;
+        let noClaude = false;
+        if (!direct) {
+          // never decide on "not known yet": a Claude Code that already answers must not be moved off (4.3 B.3)
+          await readinessSettled();
+          const before = currentReadiness();
+          give = hubNames && (assignSet ?? assignByDefault(claudeWorks(before), keyTest && !keyTest.running ? keyTest.result : null));
+          noClaude = claudeMissing(before);
+        }
         const result = await api<AddResult>("/launchers", { method: "POST", json: presetBody(preset, pf.name, pf.api_key, pf.model, give) });
         onSaved();
-        setAdded({ result, asked: give, fallback: pf.name.trim() || presetTitle(preset), noClaude: claudeMissing(before) });
+        setAdded({ result, asked: give, fallback: pf.name.trim() || presetTitle(preset), noClaude, direct });
         setStep("done");
         void readinessChanged();
       } else {
@@ -547,7 +555,8 @@ function KeyStep({ preset, pf, setPf, keyTest, onRetest, onOther, assign, setAss
       ) : (
         <p className="text-[11.5px] leading-relaxed text-ink-3">{t("settings-providerwizard.key_test_responses")}</p>
       )}
-      {assign !== null && (
+      {!presetRunsClaude(preset) && <p className="text-[11.5px] leading-relaxed text-ink-3">{t("settings-providerwizard.direct_note")}</p>}
+      {assign !== null && presetRunsClaude(preset) && (
         <div className="flex items-center gap-3 rounded-card bg-surface p-3 shadow-btn">
           <span className="min-w-0 flex-1">
             <span className="block text-[13px] text-ink">{t("settings-providerwizard.assign_label")}</span>
@@ -612,8 +621,9 @@ function KeyTestStatus({ keyTest, hasKey, onRetest, onOther }: { keyTest: KeyTes
 }
 
 /** What saving a preset gave: the hub's answer, and whether the readiness said, before it, that the computer has no
- *  Claude Code (after it the step may read `unknown`: the hub does not say a provider of its own misses claude). */
-type Added = { result: AddResult; asked: boolean; fallback: string; noClaude: boolean };
+ *  Claude Code (after it the step may read `unknown`: the hub does not say a provider of its own misses claude).
+ *  `direct`: a direct API, which the main conversation and Agents cannot run on (no Claude Code involved). */
+type Added = { result: AddResult; asked: boolean; fallback: string; noClaude: boolean; direct: boolean };
 
 /** The computer has no Claude Code: now (asked again after saving) or before saving and not found since. */
 function stillNoClaude(added: Added, r: Readiness | null): boolean {
@@ -627,7 +637,7 @@ function DoneStep({ added, readiness }: { added: Added; readiness: Readiness | n
   const name = added.result.launcher?.display_name || added.result.launcher?.name || added.fallback;
   const s = assignSummary(added.result, added.asked);
   const machine = readiness?.machine?.name ?? "";
-  const noClaude = stillNoClaude(added, readiness);
+  const noClaude = !added.direct && stillNoClaude(added, readiness);
   // "the main conversation can use it" only where the key went to it
   const toMain = added.asked && !!added.result.assigned?.includes("assistant");
   return (
@@ -642,7 +652,11 @@ function DoneStep({ added, readiness }: { added: Added; readiness: Readiness | n
           {k}
         </p>
       ))}
-      {!s.assigned && <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-3">{t("settings-providerwizard.done_pick_later")}</p>}
+      {!s.assigned && (
+        <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-3">
+          {added.direct ? t("settings-providerwizard.direct_note") : t("settings-providerwizard.done_pick_later")}
+        </p>
+      )}
       {noClaude && (
         <div data-testid="wizard-no-claude" className="mt-2 flex w-full max-w-[460px] items-start gap-2.5 rounded-card bg-orange-tint p-3 text-left">
           <Icon name="warning" size={14} stroke={2.2} className="mt-0.5 shrink-0 text-orange" />

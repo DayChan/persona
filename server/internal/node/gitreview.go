@@ -378,7 +378,11 @@ func (n *Node) reviewHunks(ctx context.Context, root, base string, spec []string
 			break
 		}
 		line = strings.TrimSuffix(line, "\n")
-		if strings.HasPrefix(line, "diff --git ") {
+		if strings.HasPrefix(line, "diff --git ") && cur != nil && cur.Status == "type_changed" && headerNames(line, cur.Path) {
+			// a type change (file to symlink or back) comes as a deletion and then a creation of the same path: the
+			// second section is the same file's, and its share keeps counting both
+			inHunk = false
+		} else if strings.HasPrefix(line, "diff --git ") {
 			if cur != nil && cur.Big {
 				cur.Hunks = nil
 			}

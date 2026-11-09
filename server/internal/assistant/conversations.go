@@ -364,6 +364,17 @@ func (s *Service) queuedRelays() (map[string][]string, bool) {
 	return out, true
 }
 
+func (msg relayMsg) source() *proto.MessageSource {
+	switch msg.Tool {
+	case "conversation_send", "conversation_new":
+		return &proto.MessageSource{Kind: proto.SourceConversation, ConversationID: msg.From, Title: msg.FromTitle}
+	case superviseTool:
+		return &proto.MessageSource{Kind: proto.SourceSupervision}
+	default:
+		return nil
+	}
+}
+
 // deliverRelay sends one message into an assistant conversation and notes the hop it is working on. A quiet task's
 // notice (quiet.go) is its own text, and the work it starts is not a hop of any chain.
 func (s *Service) deliverRelay(ctx context.Context, machine, to string, msg relayMsg) error {
@@ -375,7 +386,7 @@ func (s *Service) deliverRelay(ctx context.Context, machine, to string, msg rela
 		// Register before dispatch: a fast MCP call can arrive before assistant.send returns.
 		s.holdPushes(ctx, to)
 	}
-	if err := s.call(ctx, machine, DeviceAssistantSend, map[string]any{"session_id": to, "text": text, "resume_only": true, "supervision": msg.Tool == superviseTool}, nil); err != nil {
+	if err := s.call(ctx, machine, DeviceAssistantSend, map[string]any{"session_id": to, "text": text, "message_source": msg.source(), "resume_only": true, "supervision": msg.Tool == superviseTool}, nil); err != nil {
 		if msg.Tool == superviseTool {
 			s.releasePushes(ctx, to)
 		}
@@ -743,7 +754,7 @@ func (s *Service) toolConversationNew(ctx context.Context, self string, args jso
 	if err != nil {
 		return "", err
 	}
-	c, err := s.startConversation(sctx, startParams{Text: relayText(msg), Space: space, Origin: OriginSpawned, OriginRef: self})
+	c, err := s.startConversation(sctx, startParams{Text: relayText(msg), Source: msg.source(), Space: space, Origin: OriginSpawned, OriginRef: self})
 	if err != nil {
 		return "", err
 	}

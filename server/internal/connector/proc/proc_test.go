@@ -57,6 +57,8 @@ func TestMain(m *testing.M) {
 				return &chattyProgram{}, nil
 			case "refs":
 				return refProgram{&exampleProgram{secrets: s}}, nil
+			case "catalog":
+				return &catalogProgram{exampleProgram: &exampleProgram{secrets: s}}, nil
 			case "history":
 				return &historyProgram{exampleProgram: &exampleProgram{secrets: s}}, nil
 			}

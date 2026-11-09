@@ -41,6 +41,7 @@ func (s *Service) startPlan(ctx context.Context, id string, edits []PlanTask, re
 		if i < len(edits) {
 			applyPlanEdit(&p.Tasks[i], edits[i])
 		}
+		p.Tasks[i].normalizeReadonlyPermission()
 		if err := p.Tasks[i].normalizeMachinePolicy(); err != nil {
 			return nil, planInvalid{err}
 		}
@@ -325,6 +326,7 @@ func (s *Service) retryTask(ctx context.Context, todoID string) (json.RawMessage
 	if i < 0 {
 		return nil, errTaskNotInPlan
 	}
+	p.Tasks[i].normalizeReadonlyPermission()
 	t := p.Tasks[i]
 	m, ok := s.machineByName(ctx, t.Machine)
 	if !ok {
@@ -443,12 +445,13 @@ var (
 )
 
 // transientStartErr: the agent did not start because a link on the way was down or dropped (this hub's to the
-// machine, or one further on that answered with the same words: a member hub, a connector), not because the node
-// refused; worth one retry.
+// machine, or one further on that answered with the same words: a member hub, a connector), or the new tab's
+// terminal was not ready for the start command (proto.CodeTerminalNotReady), not because the node refused or the
+// launcher failed; worth one retry, and never counted against the launcher (launcher_health.go).
 func transientStartErr(err error) bool {
 	var re *rpc.Error
 	return errors.Is(err, rpc.ErrClosed) || errors.Is(err, apierr.ErrOffline) ||
-		errors.As(err, &re) && re.Message == rpc.ErrClosed.Error()
+		errors.As(err, &re) && (re.Message == rpc.ErrClosed.Error() || re.Code == proto.CodeTerminalNotReady)
 }
 
 func (s *Service) dismissPlan(ctx context.Context, id string) (*TaskPlan, error) {
