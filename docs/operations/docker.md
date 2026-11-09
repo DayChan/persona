@@ -82,7 +82,7 @@ The image contains:
 - `personad` for the image's own platform (`linux/<arch>`, in `/opt/persona/nodes`, `PERSONA_NODE_BUNDLED`): the hub runs it, and **Redeploy** sends it to computers of that platform.
   An image built with a release to fetch from (the build argument `UPDATE_URL`) carries no node builds for the other platforms (macOS, the other Linux architecture) and no persona-node: they come from the release, see "Node builds" below. One built without it carries personad for all four platforms, as before;
 - the web app embedded in the binary (`docs/web/web.md`): just open the hub's address;
-- the built-in extensions' programs (the WeChat bot, `docs/extensions/wechat.md`), the same version as personad;
+- `persona-hub` and `persona-manager`, the same version as personad; WeChat is installed independently from the extension marketplace (`docs/extensions/wechat.md`);
 - `openssh-client`, certificates, time zone data.
 
 The personad in the image ships no skills (like every binary): the assistant's skills live in `~/.persona/skills/` on the machine that runs the assistant (`docs/operations/hub-update.md` ("Taking skills out of the binary")).

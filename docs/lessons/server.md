@@ -123,6 +123,16 @@ A custom `http.Transport.DialContext` conservatively disables Go's automatic HTT
 A failing step reports what it actually changed: `copyFile` writes `.new` and renames, so a failed swap changed nothing (the zero `Swapped`, which `RestoreAll` skips) or only wrote `.prev` (putting that back is harmless).
 Don't add a `pending.json` field for it: older edges and watchdogs read the same file and know only `Prev == ""`.
 
+## Migrating a long-poll channel without duplicate consumers (#2020)
+
+A connector switch alone does not free a built-in extension ID for installation: the registry must explicitly
+opt into `Registry.Yields` for the approved handoff. Keep sealed connector state under the unchanged connector
+ID and finish stopping the old process before starting the replacement; two long-pollers with the same token
+can consume each other's messages. Publish the extension and signed catalog, verify an isolated hub with
+synthetic state, and approve the production handoff before removing the built-in. Never copy production
+tokens into a test hub. Retired artifact-name parsers may remain for old releases, but a new manifest must
+not republish a retired program merely because its old artifact was left in the build directory.
+
 ## Extension public identity is not storage or token authority (#1493)
 
 - An ID rename is not uninstall/reinstall: deleting the old row cascades secrets and node data. Keep the original storage primary key and directories, and commit public names, aliases, version and previous provenance atomically with compare-and-swap guards.

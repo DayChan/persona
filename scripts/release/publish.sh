@@ -166,14 +166,8 @@ for t in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
   (cd server && GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -tags public -trimpath -ldflags "$LDFLAGS" \
     -o "../$OUT/bin/persona-node-${t%/*}-${t#*/}" ./cmd/persona-node)
 done
-# The programs released with personad (update.ProgramNames): built the same way, on the same platforms; a hub swaps
-# them with personad. personad-wechat is the WeChat bot (docs/extensions/wechat.md), a plugin of its own. (Telegram's connector is
-# an extension now, released from the extension market: #1704.)
+# The hub and manager programs are released and swapped together with personad (update.ProgramNames).
 for t in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
-  for p in wechat; do
-    (cd server && GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -tags public -trimpath -ldflags "$LDFLAGS" \
-      -o "../$OUT/bin/personad-$p-${t%/*}-${t#*/}" "./cmd/personad-$p")
-  done
   # The hub's and the manager's own programs (docs/server/server.md "Programs"): the same code as personad's hub and
   # manager commands, each without the other's.
   for p in persona-hub persona-manager; do
@@ -198,7 +192,7 @@ host_link="$OUT/bin/persona-link-${host_bin##*/personad-}"
 host_node="$OUT/bin/persona-node-${host_bin##*/personad-}"
 [ "$("$host_node" version -v)" = "$("$host_bin" version -v)" ] || { echo "persona-node is not the same build as personad" >&2; exit 1; }
 "$host_bin" version -v | grep -qx "channel release, build $BUILD" || { echo "the built personad is not release build $BUILD" >&2; exit 1; }
-for p in personad-wechat persona-hub persona-manager; do
+for p in persona-hub persona-manager; do
   host_p="$OUT/bin/$p-${host_bin##*/personad-}"
   [ "$("$host_p" version -v)" = "$("$host_bin" version -v)" ] || { echo "$p is not the same build as personad" >&2; exit 1; }
 done

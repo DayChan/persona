@@ -107,7 +107,6 @@
   "internal/extmgr/mail_connector.go": 4,
   "internal/extmgr/self_settings.go": 4,
   "internal/extmgr/voice_extension.go": 4,
-  "internal/extmgr/wechat.go": 1,
   "internal/feishubot/answer.go": 26,
   "internal/feishubot/events.go": 18,
   "internal/feishubot/personacard.go": 7,
@@ -135,6 +134,5 @@
   "internal/voice/session.go": 11,
   "internal/voice/target.go": 3,
   "internal/voice/tools.go": 5,
-  "internal/wechat/spec/spec.go": 2,
   "internal/workspaceboard/board.go": 4
 }

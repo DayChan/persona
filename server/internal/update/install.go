@@ -98,7 +98,7 @@ type Pending struct {
 	Args        []string  `json:"args"`       // how it was started
 	HealthURL   string    `json:"health_url"` // where the watchdog asks
 	Nodes       string    `json:"nodes"`      // the downloaded node binaries, put in place once confirmed
-	// Programs are the programs swapped with the hub (personad-wechat): going back puts them back too.
+	// Programs are the programs swapped with the hub (persona-hub and persona-manager): going back puts them back too.
 	Programs []Swapped `json:"programs,omitempty"`
 	// Run is the program the hub goes on as, when it is not Target: the persona-hub swapped with personad, for a hub
 	// that runs as persona-hub. Target stays personad, the release's main download, so a build that does not know Run

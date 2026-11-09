@@ -1,5 +1,0 @@
-{
-  "program_missing": "没有找到 {name} 的程序（{path}）",
-  "program_fails": "{name} 的程序运行不了：{err}",
-  "program_version": "{name} 的程序和 hub 不是同一个版本（{got} / {want}）"
-}

@@ -264,12 +264,8 @@ $command")
   fi
 }
 
-# install_program <hub machine id> <os-arch> <program>: a program released with personad (update.ProgramNames) next to
-# the hub's personad, the same build as personad: personad-wechat (the WeChat bot, docs/extensions/wechat.md; the hub
-# starts it only when `version -v` matches; Telegram's connector is an extension now, #1704), and persona-hub and
-# persona-manager, the hub's and the manager's own programs (docs/server/server.md "Programs"). Those two keep a .prev
-# of the one replaced (none when there was none, so no older one is left there): a hub run as persona-hub goes back
-# on them with personad when the switch fails (hub-systemd.sh).
+# install_program <hub machine id> <os-arch> <program>: the hub and manager programs released with personad
+# (update.ProgramNames; docs/server/server.md). Keep a .prev for rollback after a failed switch.
 install_program() {
   local id=$1 plat=$2 name=$3 bin keep=
   bin="bin/$name-$plat"
@@ -351,7 +347,7 @@ for t in "${TARGETS[@]}"; do
       remote_state "$PERSONA_HUB_SSH" 'persona_alias_binaries "$PERSONA_HOME/bin/nodes"'
       hub_plat=$(machine_platform "$t") || exit 2
       install_bin "$t" "bin/personad-$hub_plat"
-      for p in personad-wechat persona-hub persona-manager; do install_program "$t" "$hub_plat" "$p"; done
+      for p in persona-hub persona-manager; do install_program "$t" "$hub_plat" "$p"; done
       ensure_herdr "$t"
       hub_admin_access
       python3 ../scripts/persona_identity.py --service hub --prepare --prefix ../scripts/deploy/hub-systemd.sh | ssh "$PERSONA_HUB_SSH" 'bash -s'

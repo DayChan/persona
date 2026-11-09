@@ -62,41 +62,14 @@ class InstallTestCase(unittest.TestCase):
         self.assertEqual(self.installed.read_bytes(), b"previous-install")
 
 
-class InstallProgramTests(InstallTestCase):
-    """PERSONA_WITH=wechat: the hub's computer also gets personad-wechat (docs/extensions/wechat.md); others do not."""
-
-    program = b"#!/bin/sh\nprintf '%s\\n' wechat\n"
-
-    def both(self):
-        files = {"personad-linux-amd64.gz": gzip.compress(self.binary, mtime=0),
-                 "personad-wechat-linux-amd64.gz": gzip.compress(self.program, mtime=0)}
-        for name, data in files.items():
-            (self.downloads / name).write_bytes(data)
-        (self.downloads / "SHA256SUMS").write_text("".join(hashlib.sha256(d).hexdigest() + "  " + n + "\n" for n, d in files.items()))
-
-    def test_the_hub_asks_for_it(self):
-        self.both()
-        self.env["PERSONA_WITH"] = "wechat"
+class InstallRetiredProgramTests(InstallTestCase):
+    def test_retired_optional_program_is_not_downloaded(self):
+        self.artifact()
+        self.env["PERSONA_WITH"] = "examplechat"
         result = self.run_install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        program = self.home / ".persona/bin/personad-wechat"
-        self.assertEqual(program.read_bytes(), self.program)
-        self.assertTrue(os.access(program, os.X_OK))
-
-    def test_other_computers_do_not_get_it(self):
-        self.both()
-        result = self.run_install()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((self.home / ".persona/bin/personad-wechat").exists())
-
-    def test_a_program_that_does_not_check_out_is_not_installed(self):
-        self.both()
-        (self.downloads / "personad-wechat-linux-amd64.gz").write_bytes(gzip.compress(b"something else", mtime=0))
-        self.env["PERSONA_WITH"] = "wechat"
-        result = self.run_install()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("checksum mismatch for personad-wechat-linux-amd64.gz", result.stderr)
-        self.assertFalse((self.home / ".persona/bin/personad-wechat").exists())
+        self.assertEqual(self.installed.read_bytes(), self.binary)
+        self.assertFalse((self.home / ".persona/bin/personad-examplechat").exists())
 
 
 class InstallCompressedTests(InstallTestCase):

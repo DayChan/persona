@@ -43,7 +43,6 @@ var hardcodedDirs = []string{
 	"internal/quota",
 	"internal/update",
 	"internal/voice",
-	"internal/wechat", // its spec, as the hub registers the built-in
 	"internal/workspaceboard",
 	"plugins",
 }

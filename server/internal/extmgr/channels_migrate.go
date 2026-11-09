@@ -8,13 +8,13 @@ import (
 
 	"github.com/nwverse/persona/server/internal/channel"
 	"github.com/nwverse/persona/server/internal/proto"
-	wechat "github.com/nwverse/persona/server/internal/wechat/spec"
 )
 
 // Before the channels' pipeline the WeChat program kept, in its own sealed state, where the owner's messages went
 // (/new), the turns it waited on and what it had asked in text. migrateWeChatState moves those three over to the
 // channels' state (settings channels and channels.state, the assistant's since) once, before the program starts and
-// before the hub starts the assistant: the new program keeps only its token, cursor, context token and the messages it
+// before the hub starts the assistant. This compatibility migration also applies to the marketplace extension,
+// which keeps only its token, cursor, context token and the messages it
 // saw, and would drop the rest the first time it saves. The hub reads the sealed state, so the move is its.
 
 // The assistant's keys and what of them the move writes (the assistant's channels.go keeps the rest as it is).
@@ -57,7 +57,7 @@ func (h *Manager) migrateWeChatState(ctx context.Context) {
 	if h.store == nil {
 		return
 	}
-	sec := h.secretsFor(wechat.ID)
+	sec := h.secretsFor("wechat")
 	data, err := sec.Load(ctx)
 	if err != nil || len(data) == 0 {
 		return
@@ -93,7 +93,7 @@ func (h *Manager) migrateWeChatState(ctx context.Context) {
 	if state == nil {
 		state = map[string]json.RawMessage{}
 	}
-	if pref := prefs[wechat.ID]; pref == nil || pref["target"] == nil {
+	if pref := prefs["wechat"]; pref == nil || pref["target"] == nil {
 		var t *channel.Target
 		switch {
 		case old.Target == nil:
@@ -105,7 +105,7 @@ func (h *Manager) migrateWeChatState(ctx context.Context) {
 		if t != nil {
 			if pref == nil {
 				pref = map[string]json.RawMessage{}
-				prefs[wechat.ID] = pref
+				prefs["wechat"] = pref
 			}
 			pref["target"], _ = json.Marshal(t)
 		}
@@ -118,12 +118,12 @@ func (h *Manager) migrateWeChatState(ctx context.Context) {
 		if o.Session == "" {
 			continue
 		}
-		runs = append(runs, &channel.Run{ID: fmt.Sprintf("%s_migrated_%d", wechat.ID, i), Channel: wechat.ID,
+		runs = append(runs, &channel.Run{ID: fmt.Sprintf("%s_migrated_%d", "wechat", i), Channel: "wechat",
 			MachineID: o.Machine, SessionID: o.Session, TargetKind: channel.TargetConversation, Base: o.Base, MsgIDs: o.MsgIDs, Probe: o.Probe,
 			Started: o.Started, Seen: o.Seen, Held: o.Held})
 	}
 	for _, o := range old.Asks {
-		asks = append(asks, &channel.Ask{ID: o.ID, Channel: wechat.ID, MachineID: o.Machine, SessionID: o.Session, Kind: o.Kind,
+		asks = append(asks, &channel.Ask{ID: o.ID, Channel: "wechat", MachineID: o.Machine, SessionID: o.Session, Kind: o.Kind,
 			Title: o.Title, Questions: o.Questions, Answers: o.Answers, Step: o.Step, Options: o.Options, At: o.At})
 	}
 	state["runs"], _ = json.Marshal(runs)

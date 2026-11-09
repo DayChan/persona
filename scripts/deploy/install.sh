@@ -187,7 +187,7 @@ prepare_state() {
 }
 
 compat_command() {
-    case "$1" in personad) old=jarvisd ;; persona-link) old=jarvis-link ;; personad-wechat) old=jarvisd-wechat ;; *) return ;; esac
+    case "$1" in personad) old=jarvisd ;; persona-link) old=jarvis-link ;; *) return ;; esac
     [ ! -d "$DEST/$old" ] || fail "legacy command is a directory: $DEST/$old"
     ln -sf "$1" "$DEST/$old"
 }
@@ -385,18 +385,6 @@ case ":$PATH:" in
 *) echo "(not on PATH: run it as $DEST/$program, or add $DEST to PATH)" ;;
 esac
 
-# On the computer that runs the hub, PERSONA_WITH=wechat also installs personad-wechat, the WeChat bot's program, next
-# to personad (docs/extensions/wechat.md). Other computers do not need it; a hub that updates itself gets it with its next update
-# anyway. (Telegram's connector is an extension now, installed from the hub's extension market: #1704.)
-for p in wechat; do
-	case ",${PERSONA_WITH:-}," in
-	*,$p,*)
-		get "personad-$p-$os-$arch" "personad-$p"
-		echo "personad-$p installed at $DEST/personad-$p"
-		;;
-	esac
-done
-
 # The places the node looks besides PATH (server/internal/node/node.go: ssh sessions get a minimal PATH).
 has_herdr() {
 	command -v herdr >/dev/null 2>&1 && return 0
@@ -583,5 +571,5 @@ if [ -f "$STATE/hub.json" ] && grep -Eq '"token"[[:space:]]*:[[:space:]]*"[^"]' 
 	exit 0
 fi
 echo "要让这台电脑跑 hub：运行 $DEST/personad hub setup（或重跑安装命令并加 --hub）。全家只要一台 hub。"
-echo "（跑 hub 的那台加 PERSONA_WITH=wechat 会一起装微信机器人。）"
+echo "Messaging connectors are installed from the hub extension marketplace."
 echo "其他电脑装 node 服务：安装命令加 --node --pair '<personad hub pair --machine <id> 打印的链接>'（或 --listen：让 hub 来连）。"

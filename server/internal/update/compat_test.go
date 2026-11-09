@@ -131,7 +131,7 @@ func TestCompatManifestProgramKeysBothDirections(t *testing.T) {
 	}
 }
 
-func TestCompatBuildManifestOldArtifactsAndLegacyConsumer(t *testing.T) {
+func TestCompatBuildManifestKeepsDaemonAliasesButOmitsRetiredPrograms(t *testing.T) {
 	for _, name := range []string{"jarvisd", "personad"} {
 		dir := t.TempDir()
 		for _, program := range []string{name, name + "-wechat"} {
@@ -144,14 +144,14 @@ func TestCompatBuildManifestOldArtifactsAndLegacyConsumer(t *testing.T) {
 		if err != nil || len(m.Files) != 1 || m.Files["linux-amd64"].Name != name+"-linux-amd64.gz" {
 			t.Fatalf("%+v %v", m, err)
 		}
-		// A baseline consumer does plain JSON decoding and looks up the old key.
+		// Historical artifacts remain readable, but a new release does not republish the retired program.
 		b, _ := json.Marshal(m)
 		var baseline Manifest
 		if err := json.Unmarshal(b, &baseline); err != nil {
 			t.Fatal(err)
 		}
-		if baseline.Programs[legacyWechat]["linux-amd64"].Name != name+"-wechat-linux-amd64.gz" {
-			t.Fatal("baseline consumer cannot find bundled program")
+		if len(baseline.Programs) != 0 {
+			t.Fatal("new manifest republished a retired bundled program")
 		}
 	}
 }

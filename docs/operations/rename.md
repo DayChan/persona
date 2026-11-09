@@ -24,7 +24,8 @@ Control Center 的旧 kind 继续注册，共用同一绘制和操作配方。Li
 | --- | --- |
 | Go module | `github.com/nwverse/persona/server` |
 | Hub / node / hook / MCP binary | `personad`, source `server/cmd/personad` |
-| Connector / built-in program | `persona-link`, `personad-wechat` |
+| Connector program | `persona-link` |
+| Hub / manager programs | `persona-hub`, `persona-manager` |
 | Linux services | `personad.service`, `personad.socket`, `personad-node.service`, `persona-link.service` |
 | macOS LaunchAgents | `com.persona.hub`, `com.persona.node` (custom connector jobs are inventoried separately) |
 | Runtime root / build config | `~/.persona`, `~/.config/persona/config.json` |

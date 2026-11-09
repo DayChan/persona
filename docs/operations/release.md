@@ -352,7 +352,7 @@ curl -fsSL <publish.site_url>/install.sh | sh   # install to ~/.persona/bin/pers
   - **Version manifest** `dl/latest.json` (each platform's archive and unpacked sha256, build number, commit), unsigned (the user's decision; trade-offs in `docs/operations/hub-update.md` ("Security"));
     before publishing, check that the build number is greater than the live one, the live version's commit is an ancestor of this one, and server/ and web/ have no uncommitted changes. The manifest includes all commits in this release (`ancestors`):
     hubs read it for auto-update, but only install automatically if it includes the commit they're running (`docs/operations/hub-update.md` ("Preventing rollback")).
-  - **Programs published together**: `personad-wechat` (WeChat bot, a separate program, `docs/extensions/wechat.md`), built for all four platforms with the same
+  - **Programs published together**: `persona-hub` and `persona-manager` (`docs/server/server.md`), built for all four platforms with the same
     `-X` flags, privacy scan and size check as personad; its `version -v` must match personad's. The manifest's `programs` lists them, and hub auto-update replaces them together.
   - Before upload, run `check_bundle_privacy.py --whole-short`: binaries must contain none of the configured values (except Go module paths; values of four characters or fewer match whole words,
     since Unicode tables and compressed JS contain short letter combinations everywhere). A few protocol names, official contact links and standard network constants in public dependencies are classified by exact context, without allowing whole domains or private network ranges;

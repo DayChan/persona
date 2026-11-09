@@ -240,7 +240,7 @@ Every extension that uses the Inbox (its connector declares `inbox`) must follow
 1. **Wake-up** (already existed): when something changes, the connector sends `connector.changed {scope: "inbox"}`; the hub also pulls periodically per `poll_seconds` (`docs/protocol/connector-protocol.md`).
 2. **Its own triage rules**: the settings must have a top-level `triage_rules` (`string`, "Conventional settings" above), attached as `rules` when handing over items.
    **Checked on install and upgrade** (at the preview step: CLI, App, admin UI, browser upload, marketplace, including auto-upgrades of marketplace extensions): without it, it can't be installed ("settings have no triage_rules … can't be installed").
-   Already installed ones are not rechecked and run as usual; rolling back to a previously installed version is not checked either. Built-in extensions (the WeChat bot and so on) are exempt.
+   Already installed ones are not rechecked and run as usual; rolling back to a previously installed version is not checked either. Built-in extensions are exempt.
 3. **Its own fallback (optional)**: add `fallback` to the connector's `capabilities`, promising every Inbox item carries a fallback tier `extra.rule_tier` (`action` / `fyi` / `noise`):
    when the model can't triage, the item enters the Inbox by that tier (`docs/assistant/inbox.md` ("AI triage")); the model still triages first. **Without `fallback`, a working triage model is required** (**Message triage** in **Settings › Models**, `inbox.triage`):
    - **Enabling**: when turning it on (`PUT /api/v1/extensions/{id}/-/enabled`, likewise in the admin UI and the toggle on the channels page), and on install (installed means on) and upgrade while on (including auto-upgrade),
@@ -2775,20 +2775,24 @@ The cases run in order, and each starts from the state the one before leaves. Wh
 | Offline hub, no marketplace | The main difference. A hub that reaches GitHub but not the official marketplace (the owner removed it, its index or signature fails, its host is blocked) gets no GitHub at all, where today it keeps the hub's own connector. Its only ways in are a package installed by hand (`file:`, out of auto-upgrade and in the sandbox) or another marketplace that lists `github`. A hub that is offline at upgrade time gets GitHub once the network is back and the install is retried; with no network, neither option syncs. |
 | More than one manager | Each manager would install it on its own; which managers get it must be decided. |
 
-**If a copy of the extension were bundled instead**, as a built-in plugin in `server/plugins/` like the WeChat plugin and its program `personad-wechat`:
+**If a copy of the extension were bundled instead**, as a built-in plugin with its own program:
 - No marketplace is needed, so a hub that can't reach the official marketplace keeps GitHub. It upgrades and downgrades with personad, with no auto-install and no permission prompts.
 - The cost is the same code in two repositories, kept in step by hand.
 - A hub that already has the marketplace `github` gets the built-in instead: the built-in is registered first, and the installed row with the same id is ignored (its settings unread) until the built-in's first write replaces it; its package and data directories stay behind. `Registry.Yields` is the existing switch for the opposite, an installed copy winning.
 - A built-in's connector starts switched off unless the user's switch was recorded, so the move must keep GitHub on.
 - The program must join the released programs (`update.ProgramNames`) and every install path (`install.sh`, the Docker image).
 
-## Built-in extension: WeChat (`wechat`)
+## Marketplace extension: WeChat (`wechat`)
 
-When `personad-wechat` is beside personad, it registers as built-in extension `wechat` (#1352, `docs/extensions/wechat.md`), contributing connector `wechat` (only `status` and QR-code `login`,
-declared in `wechat/spec`) and channel `wechat` (`channel` extension point, #1466, [channels.md](channels.md)), with only `network: *.weixin.qq.com` permission.
-It must be built alongside the hub and runs with the connector switch. The first version combined `hub_api` + `events` (extension polling sessions and tracking the turn); since #1466 these use the hub's channel pipeline,
-so the extension no longer gets the hub token or subscribes to events. A connector program acts as a channel: implement `channel.Transport` (`Send`, optional `Typing` / `Edit`), hand incoming messages to `serve.Init.Channel` (`Receive`);
-`connector/serve` forwards `channel.*` and sends only once per `ref`.
+The public `nwverse/persona-extensions` marketplace supplies extension `wechat` (`docs/extensions/wechat.md`),
+contributing connector `wechat` (`status` and QR-code `login`) and channel `wechat` (`channel` extension point,
+[channels.md](channels.md)). It is installed and upgraded independently of personad. No built-in connector is
+registered without it. Existing encrypted connector state is keyed by `wechat`, preserving binding after an
+approved single-poller handoff.
+
+The extension uses the shared channel pipeline, not a full hub token or session polling: incoming messages call
+`channel.receive`; outbound messages and typing use `channel.send` and `channel.typing`. Its public manifest declares
+its network permissions. Source, protocol behavior and tests live in the extension repository.
 
 ## Built-in extension: computer control (`cua`)
 

@@ -1,5 +1,0 @@
-{
-  "program_missing": "{name}のプログラムが見つかりません（{path}）",
-  "program_fails": "{name}のプログラムを実行できません：{err}",
-  "program_version": "{name}のプログラムとハブのバージョンが一致しません（{got} / {want}）"
-}

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,7 @@ type Manifest struct {
 	// Ancestors is every commit the release's code contains (EncodeAncestors of git rev-list <commit>): a hub installs
 	// it by itself only when its own commit is one of them (Build.Hold).
 	Ancestors string `json:"ancestors,omitempty"`
-	// Programs are the programs released with personad that the hub runs beside it (personad-wechat): name ->
+	// Programs are the programs released with personad that the hub runs beside it (persona-hub and persona-manager): name ->
 	// "linux-amd64" -> its download. The hub swaps them with personad, and goes back with it. Older hubs ignore them.
 	Programs map[string]map[string]File `json:"programs,omitempty"`
 	// Nodes are the other programs a computer's node can run (NodePrograms: persona-node, the device's own): name ->
@@ -47,15 +48,15 @@ type Manifest struct {
 // NodePrograms are the programs in Manifest.Nodes, each built from server/cmd/<name>.
 var NodePrograms = []string{"persona-node"}
 
-// ProgramNames are the programs released with personad, each built from server/cmd/<name>: the WeChat bot, and the
+// ProgramNames are the programs released with personad, each built from server/cmd/<name>: the
 // hub's and the manager's own programs (personad runs the same code: docs/server/server.md "Programs").
-var ProgramNames = []string{"personad-wechat", "persona-hub", "persona-manager"}
+var ProgramNames = []string{"persona-hub", "persona-manager"}
 
 // SplitPrograms are the ProgramNames named persona-* (no legacy name): their artifacts are <name>-<os>-<arch>.gz. A
 // service can run one in personad's place, so a release without one is not always installed (internal/hub unreplaced).
 var SplitPrograms = []string{"persona-hub", "persona-manager"}
 
-// program names the program a download belongs to ("personad-wechat-linux-amd64.gz" -> "personad-wechat"), "" for
+// program names the program a download belongs to ("persona-manager-linux-amd64.gz" -> "persona-manager"), "" for
 // personad's own.
 func program(gz string) string {
 	prog, _ := artifactIdentity(gz)
@@ -174,12 +175,16 @@ func BuildManifest(dir string, m Manifest) (*Manifest, error) {
 	}
 	m.Files = map[string]File{}
 	for _, p := range gzs {
+		base := filepath.Base(p)
+		prog, platform := artifactIdentity(base)
+		// Compatibility parsing recognizes retired programs, but new releases never publish them.
+		if prog != "" && !slices.Contains(ProgramNames, prog) {
+			continue
+		}
 		f, err := describe(p)
 		if err != nil {
 			return nil, err
 		}
-		base := filepath.Base(p)
-		prog, platform := artifactIdentity(base)
 		if prog != "" {
 			if m.Programs == nil {
 				m.Programs = map[string]map[string]File{}

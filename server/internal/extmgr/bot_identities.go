@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/extwire"
-	wechat "github.com/nwverse/persona/server/internal/wechat/spec"
 )
 
-// botIdentities reports only stable identifiers of enabled bots. The WeChat account label is localized and
+// botIdentities reports only stable identifiers of enabled bots, including an installed WeChat extension.
+// The WeChat account label is localized and
 // truncated, so it cannot identify conflicts; read only the bound user's ID from the sealed connector state.
 func (h *Manager) botIdentities() []extwire.BotIdentity {
 	if h.isMember() {
@@ -36,18 +36,18 @@ func (h *Manager) botIdentities() []extwire.BotIdentity {
 	if !h.wechatIdentityEnabled() {
 		return out
 	}
-	data, err := h.secretsFor(wechat.ID).Load(ctx)
+	data, err := h.secretsFor("wechat").Load(ctx)
 	if err != nil || len(data) == 0 {
 		return out
 	}
 	if id := wechatIdentity(data); id != "" {
-		out = append(out, extwire.BotIdentity{Kind: wechat.ID, ID: id})
+		out = append(out, extwire.BotIdentity{Kind: "wechat", ID: id})
 	}
 	return out
 }
 
 func (h *Manager) wechatIdentityEnabled() bool {
-	return !h.isMember() && h.connectors != nil && h.connectors.Get(wechat.ID) != nil && h.connectors.Enabled(wechat.ID)
+	return !h.isMember() && h.connectors != nil && h.connectors.Get("wechat") != nil && h.connectors.Enabled("wechat")
 }
 
 func wechatIdentity(data []byte) string {
@@ -72,7 +72,7 @@ func (h *Manager) reportWeChatIdentity(data []byte) {
 	h.reportMu.Lock()
 	previous := ""
 	for _, bot := range h.reportBotIdentities {
-		if bot.Kind == wechat.ID {
+		if bot.Kind == "wechat" {
 			previous = bot.ID
 			break
 		}

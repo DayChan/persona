@@ -31,7 +31,7 @@ const (
 // within says the import path p is path or a package under it.
 func within(p, path string) bool { return p == path || strings.HasPrefix(p, path+"/") }
 
-// pluginOf is the plugin an import path belongs to (…/plugins/wechat/ilink → …/plugins/wechat), "" for none.
+// pluginOf is the plugin an import path belongs to (…/plugins/example/client → …/plugins/example), "" for none.
 func pluginOf(p string) string {
 	rel, ok := strings.CutPrefix(p, plugins+"/")
 	if !ok {
@@ -79,7 +79,7 @@ func resolved(t *testing.T, path string) string {
 }
 
 // inside says the location path is dir or under it, ignoring case where the file system does by default (macOS,
-// Windows): a link to …/PLUGINS/wechat leads into the plugins there.
+// Windows): a link to …/PLUGINS/example leads into the plugins there.
 func inside(path, dir string) bool {
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		path, dir = strings.ToLower(path), strings.ToLower(dir)
@@ -223,9 +223,6 @@ func TestPluginsDependOnlyOnTheSDK(t *testing.T) {
 			t.Errorf("plugins/%s: plugins/ holds the plugins, not a package of its own", e.Name())
 		}
 	}
-	if len(mine) == 0 {
-		t.Fatal("no plugins found")
-	}
 	// The programs that run a plugin: every directory under cmd/ whose code imports one. Only they (and tests) may import
 	// a plugin (TestOnlyProgramsImportPlugins), and the SDK imports nothing of the server's, so a program cannot reach a
 	// plugin through another package.
@@ -271,9 +268,6 @@ func TestPluginsDependOnlyOnTheSDK(t *testing.T) {
 			t.Errorf("cmd/%s runs %v: a program runs one plugin (each in a directory of its own in cmd/)", e.Name(),
 				slices.Sorted(maps.Keys(used)))
 		}
-	}
-	if !slices.Contains(mine["cmd/personad-wechat"].allowed, plugins+"/wechat") {
-		t.Fatalf("the WeChat plugin's program not found: %v", mine)
 	}
 	dirs := slices.Sorted(maps.Keys(mine))
 	for _, dir := range dirs {

@@ -70,12 +70,6 @@ RUN if [ -n "$UPDATE_URL" ]; then plats="linux/$TARGETARCH"; else plats="$NODE_P
         -ldflags "-s -w -X main.version=$VERSION -X main.channel=docker -X main.image=$IMAGE -X main.updateURL=$UPDATE_URL" \
         -o /out/nodes/personad-${t%/*}-${t#*/} ./cmd/personad || exit 1; \
     done
-# The built-in plugins' programs (the WeChat bot, docs/extensions/wechat.md), for this image's platform only: the hub runs them next to personad, and starts one only when its `version -v` is
-# personad's (the same -X).
-RUN for p in wechat; do \
-      CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath \
-        -ldflags "-s -w -X main.version=$VERSION -X main.channel=docker" -o /out/personad-$p ./cmd/personad-$p || exit 1; \
-    done
 # The hub's and the manager's own programs (docs/server/server.md "Programs"), the same build as personad.
 RUN for p in persona-hub persona-manager; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath \
@@ -91,8 +85,8 @@ RUN apk add --no-cache ca-certificates tzdata openssh-client su-exec \
 COPY --from=build /out/nodes/ /opt/persona/nodes/
 RUN ln -s /opt/persona/nodes/personad-linux-$TARGETARCH /opt/persona/personad && /opt/persona/personad version
 # Next to the binary personad runs as (the link resolves into nodes/), where the hub looks for it.
-COPY --from=build /out/personad-wechat /out/persona-hub /out/persona-manager /opt/persona/nodes/
-RUN for p in personad-wechat persona-hub persona-manager; do [ "$(/opt/persona/nodes/$p version -v)" = "$(/opt/persona/personad version -v)" ] || exit 1; done
+COPY --from=build /out/persona-hub /out/persona-manager /opt/persona/nodes/
+RUN for p in persona-hub persona-manager; do [ "$(/opt/persona/nodes/$p version -v)" = "$(/opt/persona/personad version -v)" ] || exit 1; done
 COPY deploy/docker/personad.sh /usr/local/bin/personad
 COPY deploy/docker/entrypoint.sh /usr/local/bin/persona-entrypoint
 # Command and artifact aliases share the exact binaries; never create another state store.

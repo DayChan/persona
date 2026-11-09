@@ -20,13 +20,17 @@ func writeGz(t *testing.T, path string, content []byte) {
 	}
 }
 
-// A program released with personad (personad-wechat-<os>-<arch>.gz) is listed under its name, not taken for a
-// personad platform ("wechat-linux-amd64").
+// A program released with personad (persona-examplechat-<os>-<arch>.gz) is listed under its name, not taken for a
+// personad platform ("examplechat-linux-amd64").
 func TestBuildManifestPrograms(t *testing.T) {
+	programs, split := ProgramNames, SplitPrograms
+	ProgramNames = append(append([]string(nil), programs...), "persona-examplechat")
+	SplitPrograms = append(append([]string(nil), split...), "persona-examplechat")
+	t.Cleanup(func() { ProgramNames, SplitPrograms = programs, split })
 	dir := t.TempDir()
 	writeGz(t, filepath.Join(dir, "personad-linux-amd64.gz"), []byte("personad"))
-	writeGz(t, filepath.Join(dir, "personad-wechat-linux-amd64.gz"), []byte("personad-wechat"))
-	writeGz(t, filepath.Join(dir, "personad-wechat-darwin-arm64.gz"), []byte("personad-wechat for a Mac"))
+	writeGz(t, filepath.Join(dir, "persona-examplechat-linux-amd64.gz"), []byte("persona-examplechat"))
+	writeGz(t, filepath.Join(dir, "persona-examplechat-darwin-arm64.gz"), []byte("persona-examplechat for a Mac"))
 	writeGz(t, filepath.Join(dir, "persona-hub-linux-amd64.gz"), []byte("persona-hub"))
 	writeGz(t, filepath.Join(dir, "persona-manager-linux-amd64.gz"), []byte("persona-manager"))
 	writeGz(t, filepath.Join(dir, "persona-node-linux-amd64.gz"), []byte("not released with the hub"))
@@ -37,8 +41,8 @@ func TestBuildManifestPrograms(t *testing.T) {
 	if len(m.Files) != 1 || m.Files["linux-amd64"].Name != "personad-linux-amd64.gz" {
 		t.Fatalf("files %+v", m.Files)
 	}
-	tg := m.Programs["personad-wechat"]
-	if len(tg) != 2 || tg["linux-amd64"].Name != "personad-wechat-linux-amd64.gz" || tg["darwin-arm64"].BinarySHA256 == "" {
+	chat := m.Programs["persona-examplechat"]
+	if len(chat) != 2 || chat["linux-amd64"].Name != "persona-examplechat-linux-amd64.gz" || chat["darwin-arm64"].BinarySHA256 == "" {
 		t.Fatalf("programs %+v", m.Programs)
 	}
 	// the hub's and the manager's programs: listed under their names; persona-node is not released with the hub
@@ -52,7 +56,7 @@ func TestBuildManifestPrograms(t *testing.T) {
 	}
 	// Only programs, no personad: not a release.
 	only := t.TempDir()
-	writeGz(t, filepath.Join(only, "personad-wechat-linux-amd64.gz"), []byte("x"))
+	writeGz(t, filepath.Join(only, "persona-examplechat-linux-amd64.gz"), []byte("x"))
 	if _, err := BuildManifest(only, Manifest{Version: "v1", Build: 1}); err == nil {
 		t.Fatal("a release without personad")
 	}

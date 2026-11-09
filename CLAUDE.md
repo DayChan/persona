@@ -199,7 +199,7 @@ Tokens live in `apple/Shared/Design` (also compiled for the watch and widgets); 
 
 | Path | Contents |
 | --- | --- |
-| `server/` | Go module: `personad` (hub / node / hook / mcp and helper commands), `persona-link`, `personad-wechat`; `docs/server/server.md` |
+| `server/` | Go module: `personad` (hub / node / hook / mcp and helper commands), `persona-link`; `docs/server/server.md` |
 | `apple/` | XcodeGen project (`apple/project.yml`): iOS, watchOS, macOS (`Mac/`) and visionOS (`Vision/`) apps, extensions, shared code in `Shared/`, tests; `apple/PersonaLink/` is the separate Mac menu bar app (`docs/operations/link.md`) |
 | `android/` | Kotlin + Compose: `app`, `core/*`, `feature/*`, `platform/*` (`docs/android/android.md`) |
 | `web/` | Web app (Vite + React + Tailwind) served by the hub (`docs/web/web.md`) |

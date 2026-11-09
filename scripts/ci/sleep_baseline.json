@@ -325,7 +325,5 @@
   "server/internal/voice/recent_test.go": 5,
   "server/internal/voice/runs_test.go": 18,
   "server/internal/voice/suspend_test.go": 4,
-  "server/internal/voice/voice_test.go": 3,
-  "server/plugins/wechat/sendonce_test.go": 2,
-  "server/plugins/wechat/wechat_test.go": 3
+  "server/internal/voice/voice_test.go": 3
 }

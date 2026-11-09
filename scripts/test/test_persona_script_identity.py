@@ -400,11 +400,11 @@ sys.exit(2)
     def test_actual_hub_deploy_replaces_service_binary_and_web_in_its_installed_profile(self):
         self.run_script('scripts/deploy/deploy.sh', '--admin-access', 'lan', 'hub-fixture')
         # Every platform a node can run, the ones "Redeploy" takes a machine's build from (#3103).
-        for name in ('personad', 'personad-wechat', 'nodes/personad-linux-amd64', 'nodes/personad-linux-arm64',
+        for name in ('personad', 'persona-hub', 'persona-manager', 'nodes/personad-linux-amd64', 'nodes/personad-linux-arm64',
                      'nodes/personad-darwin-amd64', 'nodes/personad-darwin-arm64'):
             self.assertTrue((self.state / 'bin' / name).is_file(), name)
         self.assertEqual(os.readlink(self.state / 'bin' / (FORMER_NAME + 'd')), 'personad')
-        self.assertEqual(os.readlink(self.state / 'bin' / (FORMER_NAME + 'd-wechat')), 'personad-wechat')
+        self.assertFalse((self.state / 'bin' / 'personad-examplechat').exists())
         self.assertEqual((self.state / 'web/index.html').read_text(), 'Persona fixture web')
         self.assertEqual(identity.data_dir(self.remote, identity.service_environment(self.remote, {})), str(self.state))
         self.assertFalse((self.remote / '.persona').exists())

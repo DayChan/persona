@@ -7,16 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/github"
-	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -592,45 +588,6 @@ func (h *Manager) registerConnectors() {
 	}
 	// Messages (imessage) is registered once the extensions are there: its Mac is the extension's, else manager.json's
 	// (applyIMessage, startConnectors).
-}
-
-// siblingProgram is a program released with personad (update.ProgramNames) next to the running personad ("" when there
-// is none).
-func siblingProgram(name string) string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-	p := filepath.Join(filepath.Dir(exe), name)
-	if _, err := os.Stat(p); err != nil {
-		return ""
-	}
-	return p
-}
-
-// sameBuild holds a built-in plugin's program (named name, for people) to the hub's build: the two come from one
-// build (`version -v` says the same).
-func sameBuild(h *Manager, name, path string) func(context.Context) error {
-	want := fmt.Sprintf("%s\nchannel %s, build %d", h.version, h.build.Channel, h.build.Number)
-	return func(ctx context.Context) error {
-		if _, err := os.Stat(path); err != nil {
-			return errors.New(i18n.T(h.userLang(), "hub-connectors.program_missing", i18n.Args{"name": name, "path": path}))
-		}
-		vctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(vctx, path, "version", "-v").Output()
-		if err != nil {
-			return errors.New(i18n.T(h.userLang(), "hub-connectors.program_fails", i18n.Args{"name": name, "err": err.Error()}))
-		}
-		if got := strings.TrimSpace(string(out)); got != strings.TrimSpace(want) {
-			first := func(s string) string { line, _, _ := strings.Cut(s, "\n"); return line }
-			return errors.New(i18n.T(h.userLang(), "hub-connectors.program_version", i18n.Args{"name": name, "got": first(got), "want": first(want)}))
-		}
-		return nil
-	}
 }
 
 // ghToken reads the token of machine's gh login (credential.gh_token); it never goes to a log.

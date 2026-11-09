@@ -18,12 +18,13 @@ Also list each machine's agent harness config directories (`~/.claude` and every
 
 Inspect deployed definitions rather than guessing from new names. Inputs to this plan are [server.md](../server/server.md), [network.md](network.md), [rename.md](rename.md), `scripts/deploy/hub-systemd.sh`, `node-launchd.sh`, `link-systemd.sh`, `db.sh`, and the connector's platform installers. Existing deployment helpers may restart services or initialize a missing store; **do not run them during inventory or before data has been moved**. Review the final helpers at the frozen commit before any later approved use.
 
-Target identities from the implementation:
+Target identities from the implementation (WeChat is now a marketplace extension, not a required server artifact;
+its old executable filename remains recognized by the historical filesystem tool):
 
 | Layer | Persona-only target | Manual work |
 | --- | --- | --- |
 | Runtime / build configuration | `~/.persona`, `~/.config/persona/config.json` | Custom roots, other users, XDG locations, network mounts and Windows ACLs require a separate reviewed path plan. |
-| Programs | `personad` (including the `node` subcommand), `persona-link`, `personad-wechat` | Install matching verified artifacts; remove previous aliases from PATH and package wrappers. |
+| Programs | `personad` (including the `node` subcommand), `persona-link` | Install matching verified artifacts; remove previous aliases from PATH and package wrappers. |
 | Linux | `personad.service`, `personad.socket`, `personad-node.service`, `persona-link.service` | Recreate units, enabled links, timers, drop-ins and environment files; preserve actual listen addresses and owner. |
 | Mac | `com.persona.hub`, `com.persona.node` | Boot out actual prior labels/domains; update plist filename, Label, ProgramArguments, EnvironmentVariables, working/log paths and login helpers. Stock code has no separate `com.persona.link` LaunchAgent; inventory custom connector jobs by their actual Label. |
 | Windows | Scheduled task `Persona Link` | Export and disable/end the actual prior task; update XML action, arguments, environment, working directory, triggers and account. Keep the new task disabled until the barrier. |

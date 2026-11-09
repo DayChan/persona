@@ -319,9 +319,11 @@ The binary gets three more `-X` variables (`cmd/personad`):
 ```
 
 - `ancestors`: all commits reachable from this commit (`git rev-list <commit>`), the first 6 bytes of each, sorted, then base64 ("no regression").
-- `programs`: programs published together with personad that the hub runs alongside (`update.ProgramNames`: `personad-wechat`, `docs/extensions/wechat.md`; `persona-hub` and `persona-manager`, [../server/server.md](../server/server.md) ("Programs");
-  Telegram's `personad-telegram` was also here up to #1704; after that it is an extension and goes through the extension market):
-  `{"personad-wechat": {"linux-amd64": {name, size, sha256, binary_sha256}, …}}`. Old hubs ignore this field and still only swap personad.
+- `programs`: programs published together with personad that the hub runs alongside (`update.ProgramNames`:
+  `persona-hub` and `persona-manager`, [../server/server.md](../server/server.md) ("Programs")):
+  `{"persona-manager": {"linux-amd64": {name, size, sha256, binary_sha256}, …}}`. Old hubs ignore this field
+  and still only swap personad. Messaging extensions, including WeChat and Telegram, are published through the
+  extension marketplace, not bundled program downloads.
 
 - `nodes`: the other programs a node can run, published with personad (`update.NodePrograms`: `persona-node`, the device's own): `{"persona-node": {"linux-amd64": {name, size, sha256, binary_sha256}, …}}`.
   `node_protocol`, `node_protocol_min`, `node_capabilities`: what the release's nodes announce in `node.info` (`docs/protocol/protocol.md` ("Node handshake")), so a manager of another build sends one only when it drives it (`docs/operations/node-update.md` ("Node packages")). Old hubs ignore all three.
@@ -366,8 +368,7 @@ The existing path of building from the default branch and deploying directly (`d
 - The main session's deploy script lives outside the repo and must add the same four `-X` flags to its `go build` (the report gives the line to add).
 - **Deploy only from a working tree that contains the default branch**: `deploy.sh` first fetches the remote's default branch (how it finds the branch: the comment above the check); if the current HEAD does not contain it, nothing is deployed and it exits 2 (same if it cannot be fetched);
   deploying a branch that is behind would swap changes someone else just deployed (hub and web) back to old ones. For a deliberate rollback, use `PERSONA_DEPLOY_ANY_COMMIT=1`. See `docs/lessons/server.md` ("Deploying from a stale branch").
-- The hub machine also needs `personad-wechat` (the WeChat bot program, `docs/extensions/wechat.md`): `deploy.sh` builds the same version for the hub and puts it next to personad; nodes do not need it.
-  Telegram is not here: it is an extension (#1704), installed and upgraded on the hub from the extension market.
+- WeChat and Telegram are installed and upgraded from the extension marketplace; `deploy.sh` does not build their programs.
 - **Update a hub with `deploy.sh <hub machine id>`, not by copying a binary and running `personad hub switch` by hand.** `deploy.sh` first puts this build's node packages for every platform in the hub's `bin/nodes/`, then switches the hub blue-green (no restart while the socket units are unchanged, `docs/operations/hub-restart.md`).
   A hand switch leaves `bin/nodes/` on the previous build: the hub hands out a `personad-<os>-<arch>` there as its own version (it has no version file), so **Redeploy** in the app puts the old node back on a computer.
   To check: every `bin/nodes/persona-node-*.version` on the hub machine equals the hub's `/api/v1/health` version.
@@ -392,7 +393,7 @@ Comparing only build numbers can go backwards: a directly deployed hub runs comm
 
 ### Programs swapped together with personad (2026-11-03, #533)
 
-The programs (`update.ProgramNames`): `personad-wechat` (the WeChat bot), and `persona-hub` and `persona-manager`, the hub's and the manager's own programs ([../server/server.md](../server/server.md) ("Programs")).
+The programs (`update.ProgramNames`): `persona-hub` and `persona-manager`, the hub's and the manager's own programs ([../server/server.md](../server/server.md) ("Programs")).
 
 - When the manifest has `programs` for this hub's platform, they are downloaded and verified (same sha256, and `version -v` must be this version), then swapped in together with personad: placed next to personad,
   existing ones kept as `.prev`, and ones that did not exist before recorded as newly installed. If any one fails to download or verify, the whole update is skipped. A program whose swap fails midway is left as it was, and going back leaves it too.
