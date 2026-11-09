@@ -349,7 +349,8 @@ export function TodosView({
                 <IconButton icon="x" label={t("todos.calendar_close")} onClick={() => navigate(calendarRoute(calendarMode, anchor))} className="ml-auto max-md:hidden" />
               </div>
               <TodoDetail
-                key={selectedTodo.id}
+                key={`${owner}/${selectedTodo.id}`}
+                owner={owner}
                 todo={selectedTodo}
                 activeAgents={(selectedTodo.agents ?? []).filter((a) => !a.released_at)}
                 releasedAgents={(selectedTodo.agents ?? []).filter((a) => a.released_at)}
