@@ -208,6 +208,49 @@ func TestAttachNeedsAPackageWithAProgram(t *testing.T) {
 	}
 }
 
+// A source runtime's program is the manager's to run (in its isolate), so its package cannot be attached.
+func TestAttachRefusesASourceRuntime(t *testing.T) {
+	ctx := context.Background()
+	r, store, _ := newTestRegistry(t)
+	installNotes(t, r)
+	r.mu.Lock()
+	p := r.extensions["example-notes"]
+	rt := *p.Full.Runtime
+	rt.Mode, rt.Source = RuntimeDeno, &SourceRuntime{Entry: "src/main.ts", Bundle: "bundle/main.mjs"}
+	p.Full.Runtime = &rt
+	r.mu.Unlock()
+	r.RemoteManifest = func(context.Context, Remote) (*Manifest, error) { return Parse(with(t, func(map[string]any) {})) }
+	if _, err := r.Attach(ctx, "example-notes", "remote:rpc=/tmp/example-notes.sock", "cli"); messageKey(err) != "extension-status.attach_no_program" {
+		t.Fatal(err)
+	}
+	if store.rows["example-notes"].Remote != nil || r.Get("example-notes").Record.Remote != nil {
+		t.Fatal("attached")
+	}
+}
+
+// An upgrade previewed before the package was attached is not installed over it once attached.
+func TestAttachedPackageRefusesAnUpgradePreviewedBefore(t *testing.T) {
+	ctx := context.Background()
+	r, store, _ := newTestRegistry(t)
+	installNotes(t, r)
+	pkg2 := t.TempDir()
+	writePackage(t, pkg2, func(m map[string]any) { m["version"] = "1.3.0" })
+	pv, err := r.Preview(ctx, "dir:"+pkg2, "example-notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.RemoteManifest = func(context.Context, Remote) (*Manifest, error) { return Parse(with(t, func(map[string]any) {})) }
+	if _, err := r.Attach(ctx, "example-notes", "remote:rpc=/tmp/example-notes.sock", "cli"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Upgrade(ctx, "example-notes", pv.ID, pv.Digest, "cli"); messageKey(err) != "extension-status.attached_detach_first" {
+		t.Fatal("the upgrade previewed before:", err)
+	}
+	if row := store.rows["example-notes"]; row.Version != "1.2.0" || !row.AttachedPackage() {
+		t.Fatalf("%s %+v", row.Version, row.Remote)
+	}
+}
+
 // Detaching runs the package again, so it has to be there.
 func TestDetachNeedsThePackage(t *testing.T) {
 	ctx := context.Background()

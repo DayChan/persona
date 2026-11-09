@@ -39,8 +39,8 @@ func attachablePackage(t *testing.T) (dir string, manifest []byte) {
 }
 
 // startAttached runs the scoped extension on its own on sockets in dir, as version (its manifest is manifest), saying
-// what initialize gave it.
-func startAttached(t *testing.T, dir string, manifest []byte, version string) (rpcSock, httpSock string, init func() *extension.InitializeParams) {
+// what initialize gave it; stop ends it and frees the sockets.
+func startAttached(t *testing.T, dir string, manifest []byte, version string) (rpcSock, httpSock string, init func() *extension.InitializeParams, stop func()) {
 	t.Helper()
 	rpcSock, httpSock = filepath.Join(dir, "rpc.sock"), filepath.Join(dir, "http.sock")
 	hl, err := net.Listen("unix", httpSock)
@@ -79,10 +79,23 @@ func startAttached(t *testing.T, dir string, manifest []byte, version string) (r
 	}()
 	t.Cleanup(n.stop)
 	return rpcSock, httpSock, func() *extension.InitializeParams {
-		mu.Lock()
-		defer mu.Unlock()
-		return got
-	}
+			mu.Lock()
+			defer mu.Unlock()
+			return got
+		}, func() {
+			n.stop()
+			hl.Close()
+		}
+}
+
+// liveToken says whether extension id holds a token now, and whether tok still opens a route of agents.control.
+func liveToken(h *Manager, id, tok string) (holds, opens bool) {
+	h.extTokens.mu.Lock()
+	_, holds = h.extTokens.byExt[id]
+	h.extTokens.mu.Unlock()
+	a := h.authorize(extwire.Authorize{Hash: hashToken(tok), Pattern: "POST /api/v1/sessions/{mid}/{sid}/messages", Method: "POST",
+		Path: "/api/v1/sessions/m/s/messages"})
+	return holds, a.OK || a.Extension != ""
 }
 
 // An installed package attached to its program running on its own keeps its package (its skills still reach the
@@ -118,7 +131,7 @@ func TestAttachedPackageKeepsItsPackageAndGetsAScopedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	rpcSock, httpSock, init := startAttached(t, dir, manifest, "1.0.0")
+	rpcSock, httpSock, init, _ := startAttached(t, dir, manifest, "1.0.0")
 	source := `{"source": "remote:rpc=` + rpcSock + `,http=` + httpSock + `"}`
 	if code, out := callFrom(t, mux, "POST", "/api/v1/extensions/scoped/-/attach", master, source, "[fd00::10]:1234"); code != 403 || out["code"] != "this_machine_only" {
 		t.Fatalf("attach from another machine: %d %v", code, out)
@@ -227,7 +240,8 @@ func installAttachable(t *testing.T, h *Manager, mux http.Handler) []byte {
 }
 
 // An attached package whose program says another version is not used, and the page says to run the package's version
-// or detach it to upgrade: an upgrade is refused while it is attached.
+// or detach it to upgrade: an upgrade is refused while it is attached. Its manifest said the package's version, so it
+// was asked to initialize: the token that gave it goes with the refusal, and none is left once nothing more reaches it.
 func TestAttachedPackageAtAnotherVersion(t *testing.T) {
 	shortHostTimings(t)
 	h, _ := extensionTestHub(t)
@@ -238,7 +252,7 @@ func TestAttachedPackageAtAnotherVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	rpcSock, httpSock, _ := startAttached(t, dir, manifest, "1.1.0") // its manifest still says 1.0.0
+	rpcSock, httpSock, init, stop := startAttached(t, dir, manifest, "1.1.0") // its manifest still says 1.0.0
 	if code, out := call(t, mux, "POST", "/api/v1/extensions/scoped/-/attach", h.cfg.Token, `{"source": "remote:rpc=`+rpcSock+`,http=`+httpSock+`"}`); code != 200 {
 		t.Fatalf("attach: %d %v", code, out)
 	}
@@ -250,6 +264,82 @@ func TestAttachedPackageAtAnotherVersion(t *testing.T) {
 	if v.Version != "1.0.0" || !strings.Contains(v.Error, "1.1.0") || !strings.Contains(v.Error, "personad extension detach scoped") ||
 		strings.Contains(v.Error, "personad extension upgrade") {
 		t.Fatalf("%s: %q", v.Status, v.Error)
+	}
+	ip := init()
+	if ip == nil || !strings.HasPrefix(ip.Hub.Token, extTokenPrefix) {
+		t.Fatalf("initialize: %+v", ip)
+	}
+	stop()
+	waitLong(t, "no token once it is refused", func() bool {
+		holds, opens := liveToken(h, "scoped", ip.Hub.Token)
+		return !holds && !opens
+	})
+}
+
+// A program on an attached package's sockets that says it is another version (the owner replaced it there) is refused
+// before initialize: it gets no token, settings or secrets, and the token of the program before it goes.
+func TestAttachedPackageReplacedByAnotherVersionGetsNothing(t *testing.T) {
+	shortHostTimings(t)
+	h, _ := extensionTestHub(t)
+	mux := h.routes()
+	manifest := installAttachable(t, h, mux)
+	dir, err := os.MkdirTemp("/tmp", "att-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	rpcSock, httpSock, init, stop := startAttached(t, dir, manifest, "1.0.0")
+	if code, out := call(t, mux, "POST", "/api/v1/extensions/scoped/-/attach", h.cfg.Token, `{"source": "remote:rpc=`+rpcSock+`,http=`+httpSock+`"}`); code != 200 {
+		t.Fatalf("attach: %d %v", code, out)
+	}
+	var ip *extension.InitializeParams
+	waitLong(t, "the attached program initialized", func() bool { ip = init(); return ip != nil })
+	stop()
+	newer := []byte(strings.Replace(string(manifest), `"version": "1.0.0"`, `"version": "1.1.0"`, 1))
+	_, _, initNewer, _ := startAttached(t, dir, newer, "1.1.0")
+	var v ExtensionView
+	waitLong(t, "the other version refused", func() bool {
+		v = h.extensions.view(t.Context(), h.extensions.reg.Get("scoped"))
+		return v.Attached != nil && v.Attached.Version == "1.1.0" && strings.Contains(v.Error, "1.1.0")
+	})
+	if got := initNewer(); got != nil {
+		t.Fatalf("a program at another version was initialized: token %q, %d secrets", got.Hub.Token, len(got.Secrets))
+	}
+	waitLong(t, "no token left", func() bool {
+		holds, opens := liveToken(h, "scoped", ip.Hub.Token)
+		return !holds && !opens
+	})
+}
+
+// The every-scope token is an attached package's only: a package installed from remote: and granted hub_api gets no
+// token in initialize, as before packages could be attached; an attached one gets every scope but
+// agents.permission_mode and models.
+func TestOnlyAnAttachedPackageGetsATokenOfEveryScope(t *testing.T) {
+	h := newTestManager(t)
+	initOf := func(id string, pkg bool) extension.InitializeParams {
+		t.Helper()
+		kbExtensionSpec(t, h, id, extension.Permissions{HubAPI: true})
+		p := h.extensions.reg.Get(id)
+		p.Record.Source = extension.SourceInstalled
+		dir := t.TempDir()
+		p.Record.Remote = &extension.Remote{RPCSocket: filepath.Join(dir, "rpc.sock"), HTTPSocket: filepath.Join(dir, "http.sock"), Package: pkg}
+		spec, err := h.extensions.specOf(t.Context(), p, &hubExtension{id: id})
+		if err != nil || !spec.Attached || spec.Version != "1.0.0" {
+			t.Fatal(id, err, spec.Version)
+		}
+		ip, err := spec.Init(t.Context())
+		if err != nil {
+			t.Fatal(id, err)
+		}
+		return ip
+	}
+	if ip := initOf("example-remote", false); ip.Hub.Token != "" || len(ip.Hub.Scopes) > 0 {
+		t.Fatalf("installed from remote: with hub_api: %q %v", ip.Hub.Token, ip.Hub.Scopes)
+	}
+	ip := initOf("example-attached", true)
+	want := slices.DeleteFunc(extension.EveryScope(), func(s string) bool { return s == extension.ScopeModels })
+	if !strings.HasPrefix(ip.Hub.Token, extTokenPrefix) || !slices.Equal(ip.Hub.Scopes, want) {
+		t.Fatalf("an attached package with hub_api: %q %v", ip.Hub.Token, ip.Hub.Scopes)
 	}
 }
 

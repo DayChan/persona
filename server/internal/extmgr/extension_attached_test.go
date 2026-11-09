@@ -2,6 +2,7 @@ package extmgr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -48,7 +49,8 @@ func startProgram(t *testing.T, sock, id, version string) *notesProgram {
 			n.mu.Unlock()
 			go func() {
 				defer c.Close()
-				_ = serve.Serve(context.Background(), c, c, serve.Program{ID: id, Version: version})
+				manifest := json.RawMessage(fmt.Sprintf(`{"manifest_version": 1, "id": %q, "version": %q}`, id, version))
+				_ = serve.Serve(context.Background(), c, c, serve.Program{ID: id, Version: version, Manifest: manifest})
 			}()
 		}
 	}()

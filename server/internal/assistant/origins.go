@@ -130,6 +130,34 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref, ext s
 	s.publish(ctx)
 }
 
+// originMadeMain drops the extension that opened conversation id, which becomes the main one: it is the user's from
+// then on, also once another one is main. An error (the book could not be read or saved) leaves it as it was.
+func (s *Service) originMadeMain(ctx context.Context, id string) error {
+	b := &s.origins
+	b.mu.Lock()
+	if !s.originsLocked(ctx) {
+		b.mu.Unlock()
+		return errors.New("the conversations' origins could not be read")
+	}
+	o := b.m[id]
+	if o == nil || o.Ext == "" {
+		b.mu.Unlock()
+		return nil
+	}
+	mine := *o
+	mine.Ext = ""
+	b.m[id] = &mine
+	err := s.saveOriginsLocked(ctx)
+	if err != nil {
+		b.m[id] = o
+	}
+	b.mu.Unlock()
+	if err == nil {
+		s.publish(ctx)
+	}
+	return err
+}
+
 type shownOrigin struct{ origin, ref, machine, ext string }
 
 // conversationOrigins are the origins to show, by session id; false while they could not be read.

@@ -16,8 +16,10 @@ import (
 
 // An extension's token changes the permission mode of a conversation its extension opened, and nothing else of any
 // session (agents.permission_mode, docs/extensions/extensions.md "Hub API: scopes"): who opened it is what its
-// manager's snapshot says (assistantwire.SessionView.OpenedBy). Approving a plan sets its session's permission mode
-// too, so it is held to the same. Every refusal goes to the extension's audit in its manager (extwire.HubAudit).
+// manager's snapshot says (assistantwire.SessionView.OpenedBy), and a main conversation is the user's whoever opened
+// it. Approving a plan sets its session's permission mode too, and so may the keys that answer a terminal's dialog (a
+// screen card): both are held to the same. Every refusal goes to the extension's audit in its manager
+// (extwire.HubAudit).
 
 // codeModeRefused answers a permission mode change an extension's token may not make; the body's reason says why.
 const codeModeRefused = "permission_mode_refused"
@@ -38,8 +40,15 @@ func (h *Hub) extensionModeRefused(p principal, mid, sid string, fields map[stri
 	if mode, ok := fields["permission_mode"].(string); !ok || mode == "" || len(fields) != 1 {
 		return modeRefusedFields
 	}
+	return h.extensionNotOpened(p, mid, sid)
+}
+
+// extensionNotOpened is modeRefusedNotOpened unless session sid on machine mid is a conversation extension token p's
+// extension opened, on its own manager's machine, and not a main conversation ("" then).
+func (h *Hub) extensionNotOpened(p principal, mid, sid string) string {
 	owner, v := h.conversation(sid)
-	if p.Extension == "" || p.Manager == "" || owner != p.Manager || v.MachineID != mid || v.OpenedBy != p.Extension {
+	if p.Extension == "" || p.Manager == "" || owner != p.Manager || v.MachineID != mid || v.OpenedBy != p.Extension ||
+		h.mainOf(mid, sid) {
 		return modeRefusedNotOpened
 	}
 	return ""
@@ -48,19 +57,42 @@ func (h *Hub) extensionModeRefused(p principal, mid, sid string, fields map[stri
 // planApproveMode is the permission mode approving a plan sets when the answer names none (the agent's).
 const planApproveMode = "bypassPermissions"
 
-// extensionPlanRefused is why extension token p may not approve card id with mode ("" when it may), and the card's
-// machine and session: approving a plan sets its session's permission mode (planApproveMode when mode is ""). Only a
-// plan's answer approves, so one for a card the hub does not hold pending is refused as well.
-func (h *Hub) extensionPlanRefused(p principal, id, mode string) (why, mid, sid string) {
+// extensionResolveRefused is why extension token p may not send res as card id's answer ("" when it may), the
+// permission mode it would set ("" for a screen card's) and the card's machine and session. Approving a plan sets its
+// session's mode (planApproveMode when res names none). Any answer to a screen card but a bare dismiss presses keys in
+// its terminal, whichever field carries them, and a dialog's keys may switch the mode: it is held to the same, without
+// telling one dialog from another. An answer that would do either to a card the hub does not hold pending is refused.
+func (h *Hub) extensionResolveRefused(p principal, id string, res proto.Resolution) (why, mode, mid, sid string) {
+	approve := res.Approve != nil && *res.Approve
+	if approve {
+		mode = cmp.Or(res.Mode, planApproveMode)
+	}
 	ix, pending := h.pendingInteraction(id)
-	if !pending {
-		return modeRefusedNotOpened, "", ""
+	switch {
+	case !pending:
+		if approve || pressesKeys(res) {
+			return modeRefusedNotOpened, mode, "", ""
+		}
+		return "", "", "", ""
+	case ix.Kind == proto.IxPlan && approve:
+		return h.extensionModeRefused(p, ix.MachineID, ix.SessionID, map[string]any{"permission_mode": mode}), mode, ix.MachineID, ix.SessionID
+	case ix.Kind == proto.IxScreen && !bareDismiss(res):
+		if !slices.Contains(p.Scopes, extwire.ScopeAgentsPermissionMode) {
+			return modeRefusedScope, "", ix.MachineID, ix.SessionID
+		}
+		return h.extensionNotOpened(p, ix.MachineID, ix.SessionID), "", ix.MachineID, ix.SessionID
 	}
-	if ix.Kind != proto.IxPlan {
-		return "", ix.MachineID, ix.SessionID
-	}
-	fields := map[string]any{"permission_mode": cmp.Or(mode, planApproveMode)}
-	return h.extensionModeRefused(p, ix.MachineID, ix.SessionID, fields), ix.MachineID, ix.SessionID
+	return "", "", ix.MachineID, ix.SessionID
+}
+
+// pressesKeys: res carries what a screen card's answer types or picks (assistant/fleet_ix.go screenAnswer).
+func pressesKeys(res proto.Resolution) bool {
+	return res.Option != "" || len(res.Options) > 0 || len(res.Keys) > 0 || len(res.PreKeys) > 0 || res.Text != ""
+}
+
+// bareDismiss: res hands a screen card back to the computer and nothing else; its manager presses no key for it.
+func bareDismiss(res proto.Resolution) bool {
+	return res.Dismiss && !res.Cancel && (res.Approve == nil || !*res.Approve) && !pressesKeys(res)
 }
 
 // refuseModeScope refuses a permission mode change by extension token p, not granted agents.permission_mode: the auth

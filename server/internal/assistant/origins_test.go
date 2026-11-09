@@ -350,9 +350,10 @@ func TestBackfillOriginsOnPostgres(t *testing.T) {
 }
 
 // The hub's snapshot says which extension's token opened a conversation, noted when it opened and from the hub's
-// headers only: none for the main conversation an extension opens, a conversation the hub's features or a channel
-// start (whatever their origin's ref), a bus caller naming one, a request whose role is not an extension's, or a
-// conversation noted before opened_by was (it is never backfilled).
+// headers only: none for the main conversation an extension opens, one the owner makes main later (for good, also
+// once main moves on), a conversation the hub's features or a channel start (whatever their origin's ref), a bus
+// caller naming one, a request whose role is not an extension's, or a conversation noted before opened_by was (it is
+// never backfilled).
 func TestOpenedByIsTheExtensionThatAsked(t *testing.T) {
 	ctx := context.Background()
 	f := newFakeHub().withMachine()
@@ -392,6 +393,28 @@ func TestOpenedByIsTheExtensionThatAsked(t *testing.T) {
 	}
 	if c := open("extension", `{"prompt":"x","main":true}`); openedBy(c.SessionID) != "" || c.OpenedBy != "" {
 		t.Fatalf("the main conversation: %+v", c)
+	}
+	put := func(body string) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPut, "/api/v1/assistant", strings.NewReader(body))
+		r.Header.Set(RoleHeader, "full")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("PUT %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	adopted := open("extension", `{"prompt":"x"}`)
+	put(`{"main":"` + adopted.SessionID + `"}`)
+	if got := openedBy(adopted.SessionID); got != "" || s.settings(ctx).Main != adopted.SessionID {
+		t.Fatalf("a conversation the owner makes main keeps its opener: %q", got)
+	}
+	put(`{"main":"-"}`)
+	if got := openedBy(adopted.SessionID); got != "" {
+		t.Fatalf("once main moved on: %q", got)
+	}
+	if got := openedBy(c.SessionID); got != "example-notes" {
+		t.Fatalf("another conversation of the extension: %q", got)
 	}
 
 	var fromBus StartParams

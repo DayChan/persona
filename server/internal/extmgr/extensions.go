@@ -830,6 +830,10 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 	m := p.Manifest
 	id := p.Record.ID
 	s := host.Spec{ID: id, Name: m.Name, Logf: ps.hostLogf()}
+	if ps.h != nil {
+		// A start that does not come up keeps no token, whatever stopped it: initialize or the environment had it already.
+		s.NotUp = func() { ps.h.extTokens.revoke(id, tokenStopReason(ps.reg.GetExact(id))) }
+	}
 	if st := ps.stats.of(id); st != nil {
 		s.Observe = st
 	}
@@ -892,6 +896,7 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 		s.RPC, s.HTTP = r.RPCSocket != "", r.HTTPSocket != ""
 		hp.socket = r.HTTPSocket
 		s.Attached = true
+		s.Version = p.Record.Version // the program on the sockets must say it is this one before Init gives it anything
 	} else {
 		if rt.IsDeno() {
 			if err := ps.sourceSpec(ctx, p, &s); err != nil {
@@ -976,9 +981,9 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 		if ps.h != nil && !ps.h.builtin() {
 			params.Hub.Manager = ps.h.opts.ManagerID
 		}
-		// An attached one granted the full token the old way (hub_api) gets one of every scope instead: never the hub's
-		// own, whatever runs on its sockets.
-		attachedFull := p.Record.Remote != nil && p.Record.Granted.FullHub()
+		// An attached package granted the full token the old way (hub_api) gets one of every scope instead: never the
+		// hub's own, whatever runs on its sockets. One installed from remote: gets none, as before.
+		attachedFull := p.Record.AttachedPackage() && p.Record.Granted.FullHub()
 		if g := p.Record.Granted; (attachedFull || !g.FullHub() && len(g.Hub) > 0) && ps.h != nil {
 			url, err := ps.hubURL()
 			if err != nil {

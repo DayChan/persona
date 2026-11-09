@@ -81,6 +81,13 @@ func (s *Service) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.Main != "" && in.Main != "-" {
+		// The user's from now on, as a main conversation started as one (startMain): no extension keeps its mode.
+		if err := s.originMadeMain(ctx, in.Main); err != nil {
+			apierr.Write(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	launcher := s.launcherNow(ctx)
 	if _, err := s.updateSettings(ctx, func(v *Settings) error {
 		*v = s.effective(ctx, *v) // saved as they are in effect, as the hub saved them

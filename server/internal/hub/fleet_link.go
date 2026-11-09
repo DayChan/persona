@@ -512,9 +512,9 @@ func (h *Hub) fleetRoutesRelayed(api *http.ServeMux) {
 			writeErr(w, http.StatusForbidden, errors.New("this device can only answer with a card's own choices"))
 			return
 		}
-		if pr := principalOf(r.Context()); pr.Role == roleExtension && res.Approve != nil && *res.Approve {
-			if why, mid, sid := h.extensionPlanRefused(pr, r.PathValue("id"), res.Mode); why != "" { // extension_modes.go
-				h.refuseExtensionMode(w, r, pr, mid, sid, cmp.Or(res.Mode, planApproveMode), why)
+		if pr := principalOf(r.Context()); pr.Role == roleExtension {
+			if why, mode, mid, sid := h.extensionResolveRefused(pr, r.PathValue("id"), res); why != "" { // extension_modes.go
+				h.refuseExtensionMode(w, r, pr, mid, sid, mode, why)
 				return
 			}
 		}
