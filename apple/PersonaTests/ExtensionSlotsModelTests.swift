@@ -183,7 +183,7 @@ import Testing
         // The context: the machine, the card's size, the app's time zone, platform and UI version.
         let body = try JSON.decoder.decode(JSONValue.self, from: hub.sent("POST", "/api/v1/plugins/example-gateway/-/ui/today")[0].body ?? Data())
         #expect(body["context"]?["machine"] == .string("macbook") && body["context"]?["size"] == .string("compact"))
-        #expect(body["context"]?["ui_version"] == .number(3))
+        #expect(body["context"]?["ui_version"] == .number(6))
 
         // refresh_after: due that long after it was drawn; drawn again, what the user typed stays.
         #expect(v.refreshAfter == 300)

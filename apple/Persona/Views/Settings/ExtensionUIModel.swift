@@ -24,10 +24,10 @@ nonisolated extension ExtensionUIPlace: Identifiable {
 }
 
 nonisolated extension ExtensionUIContext {
-    /// The UI version a whole page of the app draws (`ExtensionPageView`): 4 adds the code-hosting parts (header,
-    /// breadcrumb, file_tree, code, diff, comment_thread, composer, tabs, the split layout) and actions' own values
-    /// (#2961). Cards, widgets, the watch and the extensions keep `version` (Shared, 3): they draw none of them.
-    static let pageVersion = 4
+    /// The UI version a whole page of the app draws (`ExtensionPageView`): 4's code hosting (#2961), 5's code review
+    /// (#3136) and 6's pictures, controls, tiles, charts and fields (#5464). Cards and sections draw the same version
+    /// (`version`, Shared): they draw 4–5's parts read-only (`ExtensionCodeSummary`).
+    static let pageVersion = 6
 
     /// This context for a whole page: the page's UI version.
     func forPage() -> Self {
@@ -265,6 +265,8 @@ extension APIClient {
     /// A refresh held back while busy is retried once the current operation ends; starting a request does not change the task key.
     private(set) var completedOperations = 0
     var group: String { deps.api()?.group ?? "" }
+    /// The hub this page is drawn by (its pictures load from it).
+    var hubAPI: APIClient? { deps.api() }
 
     func invalidate() {
         invalidationVersion += 1

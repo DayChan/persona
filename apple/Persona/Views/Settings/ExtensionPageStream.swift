@@ -6,11 +6,11 @@ import Observation
 @MainActor @Observable final class ExtensionPageStream {
     typealias Raw = ExtensionStreamJSON
     static let feature = "extension_ui_stream_v1"
-    static let uiVersion = 5
+    static let uiVersion = 6
     // These are renderer implementations, not every component declared in the generated vocabulary.
     static let components: Set<String> = ["text", "metric", "progress", "row", "button", "link", "field", "divider",
         "chart", "stat_grid", "segmented", "markdown", "table", "empty", "loading", "header", "breadcrumb",
-        "file_tree", "code", "diff", "comment_thread", "composer"]
+        "file_tree", "code", "diff", "comment_thread", "composer", "image", "grid", "carousel"]
 
     private(set) var tree: ExtensionStreamTree?
     private(set) var ready = false

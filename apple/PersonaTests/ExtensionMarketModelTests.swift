@@ -241,7 +241,7 @@ struct ExtensionViewModelTests {
         // Drawing sends no action and no values; the context says where and for whom (docs/extensions/extensions.md「UI 插槽」, context).
         let body = try JSON.decoder.decode(JSONValue.self, from: hub.requests.last?.body ?? Data())
         #expect(body["action"] == nil && body["values"] == nil && body["state"] == nil)
-        #expect(body["context"]?["ui_version"] == .number(3) && body["context"]?["platform"] == .string("ios"))
+        #expect(body["context"]?["ui_version"] == .number(6) && body["context"]?["platform"] == .string("ios"))
         #expect(body["context"]?["tz"]?.string == TimeZone.current.identifier && body["context"]?["locale"]?.string?.isEmpty == false)
         #expect(body["context"]?["launcher"] == nil && body["context"]?["machine"] == nil)
     }

@@ -157,6 +157,9 @@ nonisolated enum Theme {
         static let delFill = Color(light: 0xE5484D, dark: 0xFF6369).opacity(0.12)
         /// A modified file ("M"), the way editors mark it, kept apart from the working amber.
         static let changed = Color(light: 0x8A6A00, dark: 0xE3B341)
+        /// The words that changed inside a changed line (UI version 5's word-level highlighting): stronger than the line.
+        static let addWord = Color(light: 0x30A46C, dark: 0x4CC38A).opacity(0.34)
+        static let delWord = Color(light: 0xE5484D, dark: 0xFF6369).opacity(0.32)
     }
 
     /// Corner radii: five, plus capsules and circles. Static: the styles differ in color and surface, not in corners
@@ -522,6 +525,23 @@ nonisolated enum Theme {
         static let codeSideColumn: CGFloat = 300
         /// The width from which an extension's code page puts its side column beside the main one (#2961).
         static let codeSplitMin: CGFloat = 700
+        // An extension's tiles and trend lines (UI version 6).
+        /// A grid's narrowest tile: two to a phone, more on wider screens.
+        static let tileMin: CGFloat = 150
+        /// A grid tile's least height.
+        static let tileHeight: CGFloat = 96
+        /// A carousel's narrow tile (scenes) and its usual one (rooms); a wide one takes most of the width.
+        static let tileNarrow: CGFloat = 140
+        static let tileRegular: CGFloat = 200
+        /// A wide carousel tile's share of the width it scrolls in (the next one's edge shows).
+        static let tileWideShare: CGFloat = 0.8
+        /// A row's trend line, before its value.
+        static let sparkWidth: CGFloat = 56
+        static let sparkHeight: CGFloat = 20
+        /// A donut's hole, as a share of its radius.
+        static let donutHole: CGFloat = 0.62
+        /// A candlestick chart's volume bars under it, as a share of the plot's height.
+        static let volumeShare: CGFloat = 0.25
     }
 
     /// The system's sidebar column on iPad (iOS 26, the glass styles), measured from its pixels: the split fills the
@@ -590,6 +610,19 @@ nonisolated enum Theme {
         static let pink = Color(light: 0xD62E5C, dark: 0xFF6B8B)
         /// A quiet mark: a list row's tile that is information, not a place to go.
         static let gray = Color(light: 0x8E8E93, dark: 0x636366)
+        // The rest of an extension's named colors (UI version 6, `ExtensionUIStyle.color`): marks only (icons, badges,
+        // tiles, chart series), never text.
+        static let red = Color(light: 0xD1342C, dark: 0xFF6961)
+        static let amber = Color(light: 0xB7791F, dark: 0xF5B342)
+        static let yellow = Color(light: 0x9A7B00, dark: 0xFFD60A)
+        static let teal = Color(light: 0x0F7C80, dark: 0x40C8C8)
+    }
+
+    /// A candlestick's rising and falling candles: the diff's green and red (which one rises is the extension's
+    /// `rising`, as the market writes it).
+    enum Market {
+        static let green = Diff.add
+        static let red = Diff.del
     }
 
     /// The user's own messages.

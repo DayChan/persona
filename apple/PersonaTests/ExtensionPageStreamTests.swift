@@ -63,9 +63,9 @@ import Testing
         let (connection, page) = setup(socket, context: context); defer { page.close(); connection.disconnect() }
         #expect(socket.request?["request"]?.string == "open")
         #expect(socket.request?["state"] == .string(""))
-        #expect(ExtensionPageStream.uiVersion == 5)
-        #expect(socket.request?["context"]?["ui_version"] == .number("5"))
-        #expect(context.uiVersion == 3 && ExtensionUIContext.here().uiVersion == 3)
+        #expect(ExtensionPageStream.uiVersion == 6)
+        #expect(socket.request?["context"]?["ui_version"] == .number("6"))
+        #expect(context.uiVersion == 6 && ExtensionUIContext.here().uiVersion == 6)
         #expect(socket.request?["context"]?["launcher"] == .string("test-launcher"))
         #expect(socket.request?["context"]?["machine"] == .string("test-computer"))
         #expect(socket.request?["context"]?["item"] == .string("test-item"))

@@ -9,6 +9,8 @@ struct ExtensionComponentRowLabel: View {
     var row: ExtensionRowComponent
     var model: (any ExtensionViewControlling)?
     var chevron: Bool
+    /// What goes at its end before the chevron (a switch, a stepper: UI version 6's controls).
+    var trailing: AnyView? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -19,13 +21,15 @@ struct ExtensionComponentRowLabel: View {
                 if let s = row.subtitle, !s.isEmpty { Text(s).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(2) }
             }
             Spacer(minLength: Theme.Space.s)
+            if let sp = row.spark { ExtensionSparkView(spark: sp) }
             if let v = row.value, !v.isEmpty { ExtensionChangingText(v).font(Theme.Font.body.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1) }
             if let b = row.badge {
                 // Drawn again with another tone, its colors change; with other words, they fade in (#37).
-                Chip(text: b.text, look: b.tone == nil || b.tone == "neutral" ? .neutral : .tint(ExtensionUIStyle.tone(b.tone)))
+                Chip(text: b.text, look: ExtensionUIStyle.badge(b))
                     .contentTransition(.opacity)
                     .animation(reduceMotion ? nil : Theme.Motion.state, value: b)
             }
+            if let trailing { trailing }
             if let action = row.action, model?.selected(action.id) == true {
                 ThemedIcon(Theme.Icon.success).font(Theme.Font.labelStrong).foregroundStyle(Theme.positive)
                     .accessibilityLabel("Selected [Extension Components 7ecf1c]")
@@ -41,27 +45,19 @@ struct ExtensionComponentRowLabel: View {
     }
 
     @ViewBuilder private var leading: some View {
-        if let t = row.thumbnail, let url = Self.image(t.url ?? "") {
+        if let t = row.thumbnail, t.url.flatMap(Self.image) != nil || t.path != nil {
             let wide = t.aspect == ExtensionThumbnailAspect.wide
-            ExtensionRemoteImage(url: url)
+            ExtensionThumbnailImage(url: t.url, path: t.path, points: wide ? Theme.Size.box80 : Theme.Size.box50)
                 .scaledFrame(width: wide ? Theme.Size.box80 : Theme.Size.box50, height: Theme.Size.box50)
                 .clipShape(.rect(cornerRadius: Theme.Radius.badge))
                 .accessibilityHidden(true)
-        } else if let a = row.avatar, a.url != nil || a.text?.isEmpty == false {
-            Group {
-                if let url = a.url.flatMap(Self.image) {
-                    ExtensionRemoteImage(url: url, fallback: a.text)
-                } else {
-                    Monogram(name: a.text ?? "", size: Theme.Size.wellL, fill: Theme.Fill.chip, font: Theme.Font.labelStrong, letters: 2)
-                }
-            }
-            .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
-            .clipShape(.circle)
-            .accessibilityHidden(true)
+        } else if let a = row.avatar, a.url != nil || a.path != nil || a.text?.isEmpty == false {
+            ExtensionAvatarImage(url: a.url, path: a.path, text: a.text ?? "")
+                .accessibilityHidden(true)
         } else if let i = row.icon, !i.isEmpty {
             ThemedIcon(ExtensionUIStyle.icon(i))
                 .font(Theme.Font.heading)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(ExtensionUIStyle.color(row.iconColor) ?? Theme.accent)
                 .scaledFrame(width: Theme.Size.icon, height: Theme.Size.icon)
                 .accessibilityHidden(true)
         }
@@ -194,7 +190,7 @@ struct ExtensionEmpty: View {
 
     var body: some View {
         EmptyStateView(symbol: ExtensionUIStyle.icon(empty.icon), title: empty.title, message: empty.detail ?? "",
-                       action: button)
+                       action: button, tint: ExtensionUIStyle.color(empty.iconColor))
             .frame(maxWidth: .infinity)
             .listRowBackground(Color.clear)
             .accessibilityIdentifier("plugin-ui-empty")
@@ -332,7 +328,10 @@ struct ExtensionChartItem: View {
     @Environment(\.pluginUICompact) private var compact
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var series: [ExtensionChartSeries] { Array(item.series.prefix(4)) }
+    private var series: [ExtensionChartSeries] {
+        // A candlestick, a donut and a pie have one series; the others up to four.
+        Array(item.series.prefix(["candlestick", "donut", "pie"].contains(item.kind) ? 1 : 4))
+    }
     /// The x axis: the first series' labels (the others line up with them).
     private var labels: [String] { series.first?.points.map(\.label) ?? [] }
 
@@ -342,13 +341,17 @@ struct ExtensionChartItem: View {
                 if let t = item.title, !t.isEmpty {
                     Text(t).font(compact ? Theme.Font.labelStrong : Theme.Font.secondaryStrong).foregroundStyle(compact ? .secondary : .primary).lineLimit(1)
                 }
-                DataChart(kind: item.kind == "line" ? .line : .bar, labels: labels,
+                DataChart(kind: kind, labels: labels,
                           series: series.enumerated().map { i, s in
                               DataChart.Series(name: s.name?.isEmpty == false ? s.name! : String(localized: "Series \(i + 1)"),
-                                               color: ExtensionUIStyle.series(s.tone), values: s.points.map(\.value),
-                                               displays: s.points.map(\.display))
+                                               color: ExtensionUIStyle.color(s.color) ?? ExtensionUIStyle.series(s.tone),
+                                               values: s.points.map(\.value), displays: s.points.map(\.display))
                           },
-                          stacked: item.stacked == true, format: format, compact: compact)
+                          stacked: item.stacked == true, format: format, compact: compact,
+                          candles: candles,
+                          rising: item.rising == "red" ? Theme.Market.red : Theme.Market.green,
+                          falling: item.rising == "red" ? Theme.Market.green : Theme.Market.red,
+                          center: item.center)
                 // Drawn again with other values, the bars and lines move to them (#37).
                 .animation(reduceMotion ? nil : Theme.Motion.layout, value: item.series)
                 if let d = item.detail, !d.isEmpty, !compact {
@@ -357,6 +360,28 @@ struct ExtensionChartItem: View {
             }
             .padding(.vertical, Theme.Space.xs)
         }
+    }
+
+    /// The kind this app draws: UI version 6's area, candlestick, donut and pie; an unknown one as bars.
+    private var kind: DataChart.Kind {
+        switch item.kind {
+        case "line": .line
+        case "area": .area
+        case "candlestick": candles.isEmpty ? .line : .candlestick
+        case "donut": .donut
+        case "pie": .pie
+        default: .bar
+        }
+    }
+
+    /// A candlestick's prices: every point needs all four (else it is drawn as the closes' line).
+    private var candles: [DataChart.Candle] {
+        guard item.kind == "candlestick", let s = item.series.first else { return [] }
+        let out = s.points.compactMap { p -> DataChart.Candle? in
+            guard let o = p.open, let h = p.high, let l = p.low else { return nil }
+            return DataChart.Candle(open: o, high: h, low: l, close: p.close ?? p.value, volume: p.volume)
+        }
+        return out.count == s.points.count ? out : []
     }
 
     private func format(_ v: Double) -> String {
@@ -407,6 +432,7 @@ struct ExtensionStatGrid: View {
             if let d = s.detail, !d.isEmpty {
                 Text(d).font(Theme.Font.label).foregroundStyle(ExtensionUIStyle.tone(s.tone)).lineLimit(1).minimumScaleFactor(0.8)
             }
+            if let sp = s.spark { ExtensionSparkView(spark: sp) }
         }
         .accessibilityElement(children: .combine)
     }
@@ -496,6 +522,7 @@ struct ExtensionFieldItem: View {
     @Environment(\.extensionDisplayedRevision) private var displayed
     @Environment(\.scenePhase) private var phase
     @State private var secretDraft = ""
+    @State private var choosing = false
     var field: ExtensionFieldComponent
     var model: any ExtensionViewControlling
 
@@ -513,38 +540,10 @@ struct ExtensionFieldItem: View {
     }
 
     var body: some View {
-        Group {
-            switch field.kind {
-            case "toggle":
-                Toggle(isOn: Binding(get: { model.values[name] == "true" }, set: { model.values[name] = $0 ? "true" : "false" })) {
-                    Text(label).lineLimit(2)
-                }
-            case "choice":
-                Picker(selection: text) {
-                    if !(field.choices ?? []).contains(where: { $0.value == (model.values[name] ?? "") }) {
-                        Text(field.placeholder ?? String(localized: "None [Extension Components 3005ea]")).tag(model.values[name] ?? "")
-                    }
-                    ForEach(field.choices ?? []) { c in Text(c.label).tag(c.value) }
-                } label: {
-                    Text(label).lineLimit(2)
-                }
-            case "secret":
-                labeled {
-                    SecretField(field.placeholder ?? "", filled: privateInput ? String(localized: "Hidden") : String(localized: "Filled in; sent when you submit"), text: text)
-                        .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
-                }
-            case "number":
-                labeled {
-                    TextField(field.placeholder ?? "", text: text).keyboardType(.decimalPad)
-                        .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
-                }
-            default:
-                labeled {
-                    TextField(field.placeholder ?? "", text: text)
-                        .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            control
+            if let d = field.detail, !d.isEmpty {
+                Text(d).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(3)
             }
         }
         .disabled(!model.fieldsEnabled)
@@ -554,6 +553,135 @@ struct ExtensionFieldItem: View {
         .onChange(of: field.kind) { _, _ in secretDraft = "" }
         .onChange(of: phase) { _, phase in if phase != .active { secretDraft = "" } }
         .onTabVisibility(appear: {}, disappear: { secretDraft = "" })
+    }
+
+    @ViewBuilder private var control: some View {
+        switch field.kind {
+        case "toggle":
+            Toggle(isOn: Binding(get: { model.values[name] == "true" }, set: { model.values[name] = $0 ? "true" : "false" })) {
+                Text(label).lineLimit(2)
+            }
+        case "choice":
+            Picker(selection: text) {
+                if !(field.choices ?? []).contains(where: { $0.value == (model.values[name] ?? "") }) {
+                    Text(field.placeholder ?? String(localized: "None [Extension Components 3005ea]")).tag(model.values[name] ?? "")
+                }
+                ForEach(field.choices ?? []) { c in Text(c.label).tag(c.value) }
+            } label: {
+                Text(label).lineLimit(2)
+            }
+        case "secret":
+            labeled {
+                SecretField(field.placeholder ?? "", filled: privateInput ? String(localized: "Hidden") : String(localized: "Filled in; sent when you submit"), text: text)
+                    .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
+            }
+        case "number":
+            labeled {
+                TextField(field.placeholder ?? "", text: text).keyboardType(.decimalPad)
+                    .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
+            }
+        case "date", "time", "datetime":
+            DatePicker(selection: date, in: bounds, displayedComponents: components) { Text(label).lineLimit(2) }
+                .datePickerStyle(.compact)
+                .environment(\.timeZone, ExtensionFieldValue.zone)
+        case "multichoice":
+            multichoice
+        case "multiline":
+            labeled {
+                TextField(field.placeholder ?? "", text: text, axis: .vertical)
+                    .lineLimit(3...8)
+                    .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
+            }
+        default:
+            labeled {
+                TextField(field.placeholder ?? "", text: text)
+                    .modifier(ExtensionFieldFocus(binding: focus, key: field.key ?? name))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+        }
+    }
+
+    // MARK: Dates and times
+
+    private var components: DatePickerComponents {
+        switch field.kind {
+        case "date": .date
+        case "time": .hourAndMinute
+        default: [.date, .hourAndMinute]
+        }
+    }
+
+    private var date: Binding<Date> {
+        Binding(get: { ExtensionFieldValue.date(model.values[name] ?? "", kind: field.kind) ?? Self.now(field.kind) },
+                set: { model.values[name] = ExtensionFieldValue.write($0, kind: field.kind) })
+    }
+
+    /// What an empty date field starts on: now, to the minute.
+    private static func now(_ kind: String) -> Date {
+        ExtensionFieldValue.date(ExtensionFieldValue.write(.now, kind: kind), kind: kind) ?? .now
+    }
+
+    private var bounds: ClosedRange<Date> {
+        let lo = field.earliest.flatMap { ExtensionFieldValue.date($0, kind: field.kind) } ?? .distantPast
+        let hi = field.latest.flatMap { ExtensionFieldValue.date($0, kind: field.kind) } ?? .distantFuture
+        return lo <= hi ? lo...hi : lo...lo
+    }
+
+    // MARK: Several choices
+
+    private var picked: [String] { ExtensionFieldValue.chosen(model.values[name] ?? "") }
+
+    private func toggle(_ v: String) {
+        var now = picked
+        if let i = now.firstIndex(of: v) { now.remove(at: i) } else { now.append(v) }
+        // In the extension's order, whatever order they were picked in.
+        let order = (field.choices ?? []).map(\.value)
+        now.sort { (order.firstIndex(of: $0) ?? .max) < (order.firstIndex(of: $1) ?? .max) }
+        model.values[name] = ExtensionFieldValue.write(chosen: now)
+    }
+
+    /// Up to six choices: a row each with a check; more: a row that says how many, opening a list to search.
+    @ViewBuilder private var multichoice: some View {
+        let choices = field.choices ?? []
+        if choices.count <= 6 {
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(label).font(Theme.Font.labelStrong).foregroundStyle(.secondary).lineLimit(2)
+                ForEach(choices) { c in check(c) }
+            }
+            .padding(.vertical, Theme.Space.xxs)
+        } else {
+            Button { choosing = true } label: {
+                HStack(spacing: Theme.Space.s) {
+                    Text(label).foregroundStyle(Color.primary).lineLimit(2)
+                    Spacer(minLength: Theme.Space.s)
+                    Text(picked.isEmpty ? String(localized: "None [Extension Components 3005ea]") : String(localized: "\(picked.count) chosen")).foregroundStyle(.secondary).lineLimit(1)
+                    ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $choosing) {
+                ExtensionMultiChoiceSheet(title: label, choices: choices, picked: picked, toggle: toggle)
+            }
+        }
+    }
+
+    private func check(_ c: ExtensionChoice) -> some View {
+        let on = picked.contains(c.value)
+        return Button { toggle(c.value) } label: {
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: on ? Theme.Icon.successFilled : Theme.Icon.unchecked)
+                    .foregroundStyle(on ? Theme.accent : Color.secondary)
+                Text(c.label).foregroundStyle(Color.primary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .scaledFrame(minHeight: Theme.Size.wellL)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("plugin-ui-choice-\(name)-\(c.value)")
     }
 
     /// The label above the field.
@@ -567,5 +695,109 @@ struct ExtensionFieldItem: View {
             #endif
         }
         .padding(.vertical, Theme.Space.xxs)
+    }
+}
+
+/// Many choices of a `multichoice` field (more than six): a list to search, each with a check.
+struct ExtensionMultiChoiceSheet: View {
+    var title: String
+    var choices: [ExtensionChoice]
+    @State var picked: [String]
+    var toggle: (String) -> Void
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(choices.filter { query.isEmpty || $0.label.localizedCaseInsensitiveContains(query) }) { c in
+                    Button {
+                        toggle(c.value)
+                        if let i = picked.firstIndex(of: c.value) { picked.remove(at: i) } else { picked.append(c.value) }
+                    } label: {
+                        HStack(spacing: Theme.Space.s) {
+                            Text(c.label).foregroundStyle(Color.primary).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if picked.contains(c.value) { Image(systemName: Theme.Icon.done).foregroundStyle(Theme.accent) }
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(picked.contains(c.value) ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .searchable(text: $query)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { dismiss() } label: { Text("Done").lineLimit(1) }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: Theme.Size.box380, minHeight: Theme.Size.box380)
+        #endif
+    }
+}
+
+/// UI version 6's field values as the protocol writes them: a date `YYYY-MM-DD`, a time `HH:MM` (24 hours), a date
+/// and time `YYYY-MM-DDTHH:MM` without an offset, in the app's time zone (the context's `tz`); several choices a JSON
+/// array of their values.
+nonisolated enum ExtensionFieldValue {
+    static var zone: TimeZone { .current }
+
+    private static func calendar(_ tz: TimeZone) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = tz
+        return c
+    }
+
+    static func date(_ s: String, kind: String, in tz: TimeZone = zone) -> Date? {
+        let digits = s.split(whereSeparator: { "-T:".contains($0) }).map { Int($0) }
+        guard !digits.contains(nil) else { return nil }
+        let n = digits.compactMap { $0 }
+        var c = DateComponents()
+        switch kind {
+        case "date":
+            guard n.count == 3, s.count == 10 else { return nil }
+            (c.year, c.month, c.day) = (n[0], n[1], n[2])
+        case "time":
+            guard n.count == 2, s.count == 5, n[0] < 24, n[1] < 60 else { return nil }
+            // A time alone is on a fixed day, so that two of them compare by the clock only.
+            (c.year, c.month, c.day, c.hour, c.minute) = (2000, 1, 1, n[0], n[1])
+        default:
+            guard n.count == 5, s.count == 16 else { return nil }
+            (c.year, c.month, c.day, c.hour, c.minute) = (n[0], n[1], n[2], n[3], n[4])
+        }
+        guard c.month.map({ (1...12).contains($0) }) ?? true, c.day.map({ (1...31).contains($0) }) ?? true else { return nil }
+        let cal = calendar(tz)
+        guard let d = cal.date(from: c) else { return nil }
+        // No rolling over (02-30 is not 03-02).
+        let back = cal.dateComponents([.year, .month, .day], from: d)
+        guard back.year == c.year, back.month == c.month, back.day == c.day else { return nil }
+        return d
+    }
+
+    static func write(_ d: Date, kind: String, in tz: TimeZone = zone) -> String {
+        let c = calendar(tz).dateComponents([.year, .month, .day, .hour, .minute], from: d)
+        let day = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+        let clock = String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+        switch kind {
+        case "date": return day
+        case "time": return clock
+        default: return day + "T" + clock
+        }
+    }
+
+    /// The values a multichoice holds; anything that is not a JSON array of strings is none.
+    static func chosen(_ s: String) -> [String] {
+        guard let d = s.data(using: .utf8), let a = try? JSONDecoder().decode([String].self, from: d) else { return [] }
+        return a
+    }
+
+    static func write(chosen: [String]) -> String {
+        guard let d = try? JSONEncoder().encode(chosen), let s = String(data: d, encoding: .utf8) else { return "[]" }
+        return s
     }
 }

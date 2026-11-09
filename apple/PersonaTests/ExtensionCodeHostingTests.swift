@@ -192,7 +192,7 @@ struct ExtensionCodeHostingTests {
         try hub.sent("POST", "/api/v1/plugins/github/-/ui/pr").map { try JSON.decoder.decode(JSONValue.self, from: $0.body ?? Data()) }
     }
 
-    @Test func anActionsOwnValuesWinOverTheComponentsAndTheAppSaysVersion4() async throws {
+    @Test func anActionsOwnValuesWinOverTheComponentsAndTheAppSaysVersion6() async throws {
         let hub = FakeHub()
         hub.on("POST", "/api/v1/plugins/github/-/ui/pr", json: #"{"view":\#(try Self.example("View.code-review.json"))}"#)
         let m = page(hub)
@@ -200,16 +200,16 @@ struct ExtensionCodeHostingTests {
         let reply = ExtensionAction(id: "reply", values: ["thread": "t1"])
         _ = await m.perform(reply, with: ["body": "ok", "thread": "other"])
         let sent = try bodies(hub)
-        #expect(sent.first?["context"]?["ui_version"] == .number(4))
+        #expect(sent.first?["context"]?["ui_version"] == .number(6))
         #expect(sent.last?["action"] == .string("reply"))
         #expect(sent.last?["values"] == .object(["body": .string("ok"), "thread": .string("t1")]))
     }
 
-    @Test func aWholePageSaysVersion4AndACardStaysOnTheSharedVersion() {
+    @Test func aWholePageAndACardBothSayVersion6() {
         #expect(ExtensionUIContext.here().forPage().uiVersion == ExtensionUIContext.pageVersion)
-        #expect(ExtensionUIContext.here(size: "full").forPage().uiVersion == 4)
-        #expect(ExtensionUIContext.here(size: "compact").forPage().uiVersion == ExtensionUIContext.version,
-                "a card (compact) draws none of the code components: the hub keeps sending it what it can draw")
+        #expect(ExtensionUIContext.here(size: "full").forPage().uiVersion == 6)
+        #expect(ExtensionUIContext.here(size: "compact").forPage().uiVersion == ExtensionUIContext.version)
+        #expect(ExtensionUIContext.version == 6, "cards draw version 6 too (#5473)")
         #expect(ExtensionUIContext.here().uiVersion == ExtensionUIContext.version)
     }
 

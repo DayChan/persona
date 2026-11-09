@@ -7,7 +7,16 @@ import SwiftUI
 /// every series' value above the plot. Compact (a card): no axis text, only the marks and the first and last labels.
 /// Nothing here knows about plugins: the caller maps its data onto `DataChart.Series`.
 struct DataChart: View {
-    enum Kind: Sendable { case bar, line }
+    enum Kind: Sendable { case bar, line, area, candlestick, donut, pie }
+
+    /// A candlestick's four prices (and how much traded), at one category.
+    struct Candle: Sendable {
+        var open: Double
+        var high: Double
+        var low: Double
+        var close: Double
+        var volume: Double?
+    }
 
     struct Series: Identifiable, Sendable {
         var name: String
@@ -34,6 +43,13 @@ struct DataChart: View {
     var format: (Double) -> String = { DataChart.compact($0) }
     /// A card: a shorter plot, no axis text, no legend.
     var compact = false
+    /// A candlestick's prices, one per label.
+    var candles: [Candle] = []
+    /// A candlestick's rising and falling colors (which is green is the market's).
+    var rising: Color = Theme.Market.green
+    var falling: Color = Theme.Market.red
+    /// The words in a donut's hole.
+    var center: String? = nil
 
     @State private var picked: String?
 
@@ -47,6 +63,9 @@ struct DataChart: View {
 
     /// The data hues, in order: different enough from each other in light and dark.
     static let hues: [Color] = [Theme.accent, Theme.Hue.orange, Theme.Hue.green, Theme.Hue.purple]
+    /// A donut's or a pie's slices: up to eight, each its own.
+    static let sliceHues: [Color] = [Theme.accent, Theme.Hue.orange, Theme.Hue.green, Theme.Hue.purple, Theme.Hue.teal,
+                                     Theme.Hue.pink, Theme.Hue.amber, Theme.Hue.indigo]
 
     private func color(_ i: Int) -> Color { series[i].color ?? Self.hues[i % Self.hues.count] }
 
@@ -73,6 +92,17 @@ struct DataChart: View {
     }
 
     var body: some View {
+        switch kind {
+        case .donut, .pie: SharesChart(labels: labels, values: series.first?.values ?? [],
+                                       displays: series.first?.displays ?? [], colors: series.first?.color.map { [$0] },
+                                       hole: kind == .donut, center: center, format: format, compact: compact)
+        case .candlestick: CandleChart(labels: labels, candles: candles, rising: rising, falling: falling,
+                                       format: format, compact: compact, shownLabels: shownLabels)
+        default: plot
+        }
+    }
+
+    @ViewBuilder private var plot: some View {
         let pts = points
         let names = series.map(\.name)
         let shown = Set(shownLabels)
@@ -91,7 +121,27 @@ struct DataChart: View {
                             .position(by: .value(String(localized: "Series"), p.series))
                             .opacity(picked == nil || picked == p.label ? 1 : 0.4)
                     }
-                case .line:
+                case .area:
+                    if stacked {
+                        AreaMark(x: .value(String(localized: "Category"), p.label), y: .value(String(localized: "Value [Data Chart cda1d5]"), p.value), stacking: .standard)
+                            .foregroundStyle(by: .value(String(localized: "Series"), p.series))
+                            .interpolationMethod(.monotone)
+                            .opacity(0.55)
+                    } else {
+                        AreaMark(x: .value(String(localized: "Category"), p.label), y: .value(String(localized: "Value [Data Chart cda1d5]"), p.value), stacking: .unstacked)
+                            .foregroundStyle(by: .value(String(localized: "Series"), p.series))
+                            .interpolationMethod(.monotone)
+                            .opacity(0.18)
+                        LineMark(x: .value(String(localized: "Category"), p.label), y: .value(String(localized: "Value [Data Chart cda1d5]"), p.value), series: .value(String(localized: "Series"), p.series))
+                            .foregroundStyle(by: .value(String(localized: "Series"), p.series))
+                            .interpolationMethod(.monotone)
+                            .lineStyle(StrokeStyle(lineWidth: Theme.Size.rule))
+                    }
+                    if picked == p.label {
+                        RuleMark(x: .value(String(localized: "Category"), p.label)).foregroundStyle(Theme.Fill.chip)
+                    }
+                // Candlesticks and shares are drawn by their own charts (`body`).
+                case .line, .candlestick, .donut, .pie:
                     LineMark(x: .value(String(localized: "Category"), p.label), y: .value(String(localized: "Value [Data Chart cda1d5]"), p.value), series: .value(String(localized: "Series"), p.series))
                         .foregroundStyle(by: .value(String(localized: "Series"), p.series))
                         .interpolationMethod(.monotone)

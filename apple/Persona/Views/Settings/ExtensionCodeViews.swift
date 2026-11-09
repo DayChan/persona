@@ -397,10 +397,14 @@ enum CodeTime {
 struct CodeCommentView: View {
     var author: String
     var avatar: String?
+    /// The hub's path for the avatar's `ref` (UI version 6).
+    var avatarPath: String? = nil
     var at: String?
     var markdown: String
     var badge: (text: String, tone: String?)?
     var event: Bool
+    /// The lines the comment is on (UI version 5): what a ```suggestion in it replaces.
+    var original: [String] = []
     @Binding var link: LinkTarget?
 
     var body: some View {
@@ -414,7 +418,7 @@ struct CodeCommentView: View {
             .accessibilityElement(children: .combine)
         } else {
             HStack(alignment: .top, spacing: Theme.Space.m) {
-                CodeAvatarView(url: avatar, text: author)
+                CodeAvatarView(url: avatar, path: avatarPath, text: author)
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     HStack(spacing: Theme.Space.s) {
                         Text(author).font(Theme.Font.labelStrong).lineLimit(1)
@@ -436,19 +440,12 @@ struct CodeCommentView: View {
 /// An author's picture, or their initials while there is none (as an extension row's avatar).
 struct CodeAvatarView: View {
     var url: String?
+    /// The hub's path for an avatar's `ref` (UI version 6).
+    var path: String? = nil
     var text: String
 
     var body: some View {
-        Group {
-            if let url, let u = URL(string: url), u.scheme == "https" {
-                ExtensionRemoteImage(url: u, fallback: text)
-            } else {
-                Monogram(name: text, size: Theme.Size.wellL, fill: Theme.Fill.chip, font: Theme.Font.labelStrong, letters: 2)
-            }
-        }
-        .scaledFrame(width: Theme.Size.wellL, height: Theme.Size.wellL)
-        .clipShape(.circle)
-        .accessibilityHidden(true)
+        ExtensionAvatarImage(url: url, path: path, text: text).accessibilityHidden(true)
     }
 }
 

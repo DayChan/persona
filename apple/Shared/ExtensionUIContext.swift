@@ -7,7 +7,9 @@ nonisolated extension ExtensionUIContext {
              locale: appLocale, platform: platform, uiVersion: version)
     }
 
-    static let version = 3
+    /// The UI version cards, sections, widgets and shortcuts send (docs/extensions/extensions.md "UI version 6"): a
+    /// widget still gets what version 5 gets (the hub's `FitWidget`), whose subset the widget renderer draws.
+    static let version = 6
 
     static var platform: String {
         #if os(macOS)

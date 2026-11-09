@@ -17,6 +17,17 @@ protocol ExtensionViewControlling: AnyObject {
     func filter(_ value: String) async -> ExtensionViewModel.Outcome
     func search() async -> ExtensionViewModel.Outcome
     func more(_ more: ExtensionMore) async -> ExtensionViewModel.Outcome
+
+    // UI version 6's controls in rows and tiles (docs/extensions/extensions.md "UI version 6"): an extension page's
+    // model sends them; a card that cannot (an assistant card) draws them as they are, not to be used.
+    /// It sends controls; false: they are drawn disabled.
+    var drawsControls: Bool { get }
+    /// What a control shows while the user's value is not yet the extension's, by its row's or tile's key.
+    var controlValues: [String: String] { get }
+    /// Controls whose request has been out for over a second.
+    var slowControls: Set<String> { get }
+    func preview(_ key: String, _ value: String?)
+    func change(_ key: String, _ control: ExtensionRowControl, to value: String, after delay: Duration) async -> ExtensionViewModel.Outcome?
 }
 
 extension ExtensionViewControlling {
@@ -28,6 +39,12 @@ extension ExtensionViewControlling {
         { await self.perform(action, with: chosen) }
     }
     func perform(_ action: ExtensionAction) async -> ExtensionViewModel.Outcome { await perform(action, with: [:]) }
+    var drawsControls: Bool { false }
+    var controlValues: [String: String] { [:] }
+    var slowControls: Set<String> { [] }
+    func preview(_ key: String, _ value: String?) {}
+    func change(_ key: String, _ control: ExtensionRowControl, to value: String,
+                after delay: Duration) async -> ExtensionViewModel.Outcome? { nil }
 }
 
 extension ExtensionViewModel: ExtensionViewControlling {}

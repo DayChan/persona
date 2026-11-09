@@ -34,7 +34,14 @@ struct ExtensionViewRenderer: View {
         ForEach(ExtensionParts.of(view, heading: heading, includeHTML: htmlContext != nil)) { g in
             Section {
                 ForEach(g.items) { item in
-                    ExtensionItemRow(item: item.component, model: model, link: $link)
+                    if g.bare {
+                        ExtensionItemRow(item: item.component, model: model, link: $link)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        ExtensionItemRow(item: item.component, model: model, link: $link)
+                    }
                 }
                 if let more = g.more, let model { ExtensionMoreRow(more: more, model: model, link: $link) }
             } header: {
@@ -65,6 +72,8 @@ struct ExtensionParts: Identifiable {
     var footer: String?
     var more: ExtensionMore?
     var items: [Item]
+    /// A grid or a carousel (UI version 6): a part of its own, drawn without the row's inset and background.
+    var bare = false
 
     static func of(_ view: ExtensionView, heading: String? = nil, includeHTML: Bool = false) -> [ExtensionParts] {
         var out: [ExtensionParts] = []
@@ -74,7 +83,15 @@ struct ExtensionParts: Identifiable {
                 if case .divider = c { parts.append([]); continue }
                 if case .unknown = c { continue }
                 if case .html = c, !includeHTML { continue } // Extensions never receive the assistant sandbox context.
-                parts[parts.count - 1].append(Item(id: Item.id(c, section: i, index: j), component: c))
+                let item = Item(id: Item.id(c, section: i, index: j), component: c)
+                if c.isTiles {
+                    // Tiles are their own part, between the rows before and after them.
+                    if !parts[parts.count - 1].isEmpty { parts.append([]) }
+                    parts[parts.count - 1].append(item)
+                    parts.append([])
+                } else {
+                    parts[parts.count - 1].append(item)
+                }
             }
             parts = parts.filter { !$0.isEmpty }
             if parts.isEmpty { parts = [[]] }
@@ -82,7 +99,7 @@ struct ExtensionParts: Identifiable {
                 let title = j == 0 ? (s.title?.isEmpty == false ? s.title : (i == 0 ? heading : nil)) : nil
                 let last = j == parts.count - 1
                 out.append(ExtensionParts(id: s.key.map { "k:" + $0 + ".part:\(j)" } ?? "\(out.count)", title: title, footer: last ? s.footer : nil, more: last ? s.more : nil,
-                                          items: part))
+                                          items: part, bare: part.count == 1 && part[0].component.isTiles))
             }
         }
         return out
@@ -123,11 +140,46 @@ enum ExtensionUIStyle {
         t == nil || t == "neutral" ? Theme.accent : tone(t)
     }
 
+    /// A named color (UI version 6, docs/extensions/extensions.md "UI version 6") as the app's hue: marks only, never
+    /// text. nil: none named, or one this app does not know (drawn as the quiet ink by the caller).
+    static func color(_ name: String?) -> Color? {
+        switch name {
+        case "red": Theme.Hue.red
+        case "orange": Theme.Hue.orange
+        case "amber": Theme.Hue.amber
+        case "yellow": Theme.Hue.yellow
+        case "green": Theme.Hue.green
+        case "teal": Theme.Hue.teal
+        case "blue": Theme.Hue.blue
+        case "indigo": Theme.Hue.indigo
+        case "purple": Theme.Hue.purple
+        case "pink": Theme.Hue.pink
+        case "gray": Theme.Hue.gray
+        default: nil
+        }
+    }
+
+    /// A badge's look: its color (UI version 6), else its tone, else neutral.
+    static func badge(_ b: ExtensionBadge) -> Chip.Look {
+        if let c = color(b.color) { return .tint(c) }
+        return b.tone == nil || b.tone == "neutral" ? .neutral : .tint(tone(b.tone))
+    }
+
+    /// A mark's ink (a spark, an icon): its color, else its tone's, else `fallback`.
+    static func mark(color c: String?, tone t: String?, fallback: Color) -> Color {
+        if let c = color(c) { return c }
+        if let t, t != "neutral" { return tone(t) }
+        return fallback
+    }
+
     static func font(_ style: String?) -> Font {
         switch style {
         case "secondary": Theme.Font.secondary
         case "caption": Theme.Font.caption
         case "code": Theme.Font.code
+        // UI version 6: a section's big title and a small heading.
+        case "title": Theme.Font.title
+        case "headline": Theme.Font.heading
         default: Theme.Font.body
         }
     }
@@ -136,6 +188,57 @@ enum ExtensionUIStyle {
     /// symbols: one meaning each; anything else (and `extension`, `plugin`) is the extensions' own.
     static func icon(_ name: String?) -> String {
         switch name {
+        case "branch": Theme.Icon.gitBranch
+        case "commit": Theme.Icon.pluginCommit
+        case "code": Theme.Icon.code
+        case "pull_request": Theme.Icon.pullRequest
+        case "merge": Theme.Icon.merged
+        case "file": Theme.Icon.file
+        case "home": Theme.Icon.home
+        case "sofa": Theme.Icon.pluginSofa
+        case "light": Theme.Icon.pluginLight
+        case "power": Theme.Icon.pluginPower
+        case "fan": Theme.Icon.pluginFan
+        case "thermometer": Theme.Icon.pluginThermometer
+        case "droplet": Theme.Icon.pluginDroplet
+        case "lock": Theme.Icon.locked
+        case "unlock": Theme.Icon.pluginUnlock
+        case "door": Theme.Icon.pluginDoor
+        case "window": Theme.Icon.pluginWindow
+        case "camera": Theme.Icon.camera
+        case "video": Theme.Icon.video
+        case "play": Theme.Icon.run
+        case "pause": Theme.Icon.pause
+        case "stop": Theme.Icon.interrupt
+        case "speaker": Theme.Icon.pluginSpeaker
+        case "tv": Theme.Icon.pluginTV
+        case "plug": Theme.Icon.pluginPlug
+        case "battery": Theme.Icon.pluginBattery
+        case "bolt": Theme.Icon.pluginBolt
+        case "sun": Theme.Icon.lightMode
+        case "moon": Theme.Icon.darkMode
+        case "cloud": Theme.Icon.pluginCloud
+        case "rain": Theme.Icon.pluginRain
+        case "snow": Theme.Icon.pluginSnow
+        case "wind": Theme.Icon.pluginWind
+        case "leaf": Theme.Icon.pluginLeaf
+        case "car": Theme.Icon.pluginCar
+        case "location": Theme.Icon.pluginLocation
+        case "robot": Theme.Icon.pluginRobot
+        case "wifi": Theme.Icon.pluginWifi
+        case "shield": Theme.Icon.pluginShield
+        case "trend_up": Theme.Icon.pluginTrendUp
+        case "trend_down": Theme.Icon.pluginTrendDown
+        case "wallet": Theme.Icon.pluginWallet
+        case "bank": Theme.Icon.pluginBank
+        case "heart": Theme.Icon.health
+        case "plus": Theme.Icon.add
+        case "minus": Theme.Icon.pluginMinus
+        case "trash": Theme.Icon.delete
+        case "edit": Theme.Icon.edit
+        case "refresh": Theme.Icon.reload
+        case "share": Theme.Icon.share
+        case "info": Theme.Icon.info
         case "chart": Theme.Icon.pluginChart
         case "gauge": Theme.Icon.pluginGauge
         case "list": Theme.Icon.pluginList
@@ -164,26 +267,40 @@ enum ExtensionUIStyle {
 struct ExtensionItemRow: View {
     var item: ExtensionComponent
     @Environment(\.assistantHTMLRendering) private var htmlContext
+    @Environment(AppModel.self) private var app
     var model: (any ExtensionViewControlling)?
     @Binding var link: LinkTarget?
 
     var body: some View {
+        content.extensionImages(model)
+    }
+
+    @ViewBuilder private var content: some View {
         switch item {
         case .text(let t):
             Text(t.text)
                 .font(ExtensionUIStyle.font(t.style))
                 .foregroundStyle(t.style == "secondary" || t.style == "caption" ? Color.secondary : Color.primary)
+                .accessibilityAddTraits(t.style == "title" || t.style == "headline" ? .isHeader : [])
                 .textSelection(.enabled)
         case .markdown(let m): ExtensionMarkdown(text: m.text, link: $link)
         case .metric(let m): metric(m)
         case .progress(let p): progress(p)
         case .row(let r):
-            if let action = r.action, let model {
-                ExtensionActionButton(action: action, title: r.title, model: model, link: $link) { ExtensionComponentRowLabel(row: r, model: model, chevron: true) }
-                    .foregroundStyle(Color.primary)
-            } else {
-                ExtensionComponentRowLabel(row: r, model: model, chevron: false)
+            Group {
+                if let control = r.control {
+                    ExtensionControlRow(row: r, control: control, model: model, link: $link)
+                } else if let action = r.action, let model {
+                    ExtensionActionButton(action: action, title: r.title, model: model, link: $link) { ExtensionComponentRowLabel(row: r, model: model, chevron: true) }
+                        .foregroundStyle(Color.primary)
+                } else {
+                    ExtensionComponentRowLabel(row: r, model: model, chevron: false)
+                }
             }
+            .rowActions(ExtensionRowActions.items(r.actions, model: model, app: app, link: $link))
+        case .image(let i): ExtensionImageItem(item: i)
+        case .grid(let g): ExtensionGridItem(grid: g, model: model, link: $link)
+        case .carousel(let c): ExtensionCarouselItem(carousel: c, model: model, link: $link)
         case .button(let b):
             if let model {
                 ExtensionActionButton(action: b.action, title: b.title, destructive: b.role == "destructive", model: model, link: $link) {
@@ -226,19 +343,32 @@ struct ExtensionItemRow: View {
                         return await context.onRequest(request, key, version)
                     })
             }
-        // UI version 6's picture, grid and carousel are drawn in #5473; the app still asks for version 5, so the hub
-        // turns them into version 5 components before they get here.
-        case .divider, .unknown, .image, .grid, .carousel: EmptyView()
-        // UI version 4's code-hosting components: a View with them is drawn by the code page (`ExtensionCodePage`, #2961).
-        case .header, .breadcrumb, .fileTree, .code, .diff, .commentThread, .composer: EmptyView()
+        case .divider, .unknown: EmptyView()
+        // UI version 4's code-hosting components: a whole page with them is the code page (`ExtensionCodePage`, #2961);
+        // a card or a section draws what they say, read-only.
+        case .header, .breadcrumb, .fileTree, .code, .diff, .commentThread, .composer:
+            ExtensionCodeSummary(item: item, model: model, link: $link)
         }
     }
 
     private func metric(_ m: ExtensionMetricComponent) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-            Text(m.label).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
-            ExtensionChangingText(m.value).font(Theme.Font.title.monospacedDigit()).foregroundStyle(ExtensionUIStyle.ink(m.tone)).lineLimit(1)
-                .minimumScaleFactor(0.6)
+            HStack(spacing: Theme.Space.xs) {
+                if let i = m.icon, !i.isEmpty {
+                    Image(systemName: ExtensionUIStyle.icon(i)).font(Theme.Font.label)
+                        .foregroundStyle(ExtensionUIStyle.color(m.iconColor) ?? Color.secondary)
+                        .accessibilityHidden(true)
+                }
+                Text(m.label).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
+            }
+            HStack(alignment: .lastTextBaseline, spacing: Theme.Space.m) {
+                ExtensionChangingText(m.value).font(Theme.Font.title.monospacedDigit()).foregroundStyle(ExtensionUIStyle.ink(m.tone)).lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let sp = m.spark {
+                    Spacer(minLength: 0)
+                    ExtensionSparkView(spark: sp, width: Theme.Size.box80, height: Theme.Size.wellS)
+                }
+            }
             if let d = m.detail, !d.isEmpty { Text(d).font(Theme.Font.label).foregroundStyle(.secondary) }
         }
         .padding(.vertical, Theme.Space.xxs)

@@ -13,7 +13,7 @@ import Testing
         let data = try #require(hub.sent("POST", "/api/v1/extensions/sample/-/widget/today").first?.body)
         let body = try JSON.decoder.decode(JSONValue.self, from: data)
         #expect(body["context"]?["size"] == .string("small"))
-        #expect(body["context"]?["ui_version"] == .number(3))
+        #expect(body["context"]?["ui_version"] == .number(6))
         #expect(body["context"]?["platform"] == .string("ios"))
         do {
             _ = try await hub.client.extensionWidget(place, family: "large")
