@@ -292,9 +292,28 @@ if os.environ.get("MOCK_NODE_MISMATCH"):  # a machine whose personad is another 
 def mock_workspaces():
     rows = [("server", "herdr", "persona", "/home/me/code/persona", "master"), ("macbook", "herdr", "weather-app", "/Users/me/code/weather-app", "main"),
             ("macbook", "session", "notes", "/Users/me/notes", ""), ("studio", "herdr", "site", "/Users/me/code/site", "redesign")]
-    return [{"id": f"{m}:{src}:{i}", "machine_id": m, "source": src, "source_id": str(i), "title": t, "cwd": cwd,
+    result = [{"id": f"{m}:{src}:{i}", "machine_id": m, "source": src, "source_id": str(i), "title": t, "cwd": cwd,
              **({"branch": br} if br else {}), "online": True, "available": True, "last_seen": ago()}
             for i, (m, src, t, cwd, br) in enumerate(rows)]
+    if os.environ.get("MOCK_ORCA_CHILDREN"):
+        result.append({"id": "orca-collection", "machine_id": "macbook", "source": "orca", "source_id": "orca:collection",
+                       "title": "Workspace collection", "cwd": "/Users/me/code", "index": 1, "online": True, "available": True})
+        result.append({"id": "orca-archived", "machine_id": "macbook", "source": "orca", "source_id": "orca:archived",
+                       "title": "Archived workspace", "cwd": "/Users/me/code/archived", "index": 8, "parent_source_id": "orca:collection",
+                       "online": True, "available": True})
+        for s in SESSIONS:
+            if s.get("space_kind") == "orca":
+                result.append({"id": "catalog-" + s["space_id"], "machine_id": s["machine_id"], "source": "orca",
+                               "source_id": s["space_id"], "title": s["space_name"], "cwd": s["cwd"],
+                               "parent_source_id": s.get("parent_space_id") or "orca:collection",
+                               "index": s.get("space_index", 1), "online": True, "available": True})
+        for mid, rows in WORKTREES.items():
+            for wid, label, path, branch in rows:
+                if (mid, wid) in WORKSPACE_LINEAGE:
+                    result.append({"id": "catalog-" + wid, "machine_id": mid, "source": "orca", "source_id": wid,
+                                   "title": branch, "cwd": path, "index": 20, "parent_source_id": WORKSPACE_LINEAGE[mid, wid],
+                                   "online": True, "available": True})
+    return list({(w["machine_id"], w["source"], w["source_id"]): w for w in result}.values())
 
 
 # ---------- node self-check (#2429, docs/server/machines.md "Self-check") ----------
@@ -999,13 +1018,16 @@ if os.environ.get("MOCK_ORCA_CHILDREN"):
                   slot_index=1, tab_id="tab-" + wt, workspace_id=wid, pane_id="orca:tab-" + wt + ":leaf1")
         if parent:
             kw["parent_space_id"] = "app::/Users/me/code/app" + ("" if parent == "main" else "/.worktrees/" + parent)
-        return sess("macbook", sid, title, "/Users/me/code/app", status, state, wt, idx, "claude", 1, minutes, last, **kw)
+        return sess("macbook", sid, title, wid.split("::", 1)[1], status, state, wt, idx, "claude", 1, minutes, last, **kw)
     SESSIONS += [
         _orca("c2073000-0000-4000-8000-000000000001", "拆分登录流程", "main", 1, "done", "idle", 20, "拆成三个子任务，各开了一个工作区。"),
         _orca("c2073000-0000-4000-8000-000000000002", "登录页表单", "login-form", 2, "blocked", "needs_you", 1, "要不要保留旧的记住我选项？", parent="main"),
         _orca("c2073000-0000-4000-8000-000000000003", "会话续期", "session-refresh", 3, "working", "working", 0, "在补续期失败的测试。", parent="main"),
         _orca("c2073000-0000-4000-8000-000000000004", "续期的文档", "refresh-docs", 4, "done", "unread", 3, "文档写好了。", parent="session-refresh"),
         _orca("c2073000-0000-4000-8000-000000000005", "登录埋点", "login-metrics", 5, "done", "unread", 6, "埋点加好了，等你看。", parent="main"),
+        sess("macbook", "c2073000-0000-4000-8000-000000000006", "Earlier workspace notes", "/Users/me/code/archived", "offline", "offline",
+             "legacy-provider", 8, "codex", 1, 60, "Saved workspace history", space_kind="codex_app", space_id="provider-project",
+             pane_id=None, workspace_id=None, capabilities={"read": True, "send": False}),
     ]
 # MOCK_MANUAL_HERDR=1: two agents opened by hand in herdr (started_by_persona false) on no todo: Agents' "By to-do" lists them
 # in "Opened manually" (#2608 web, #2917 iOS / Mac).
@@ -2609,6 +2631,11 @@ EDIT_NEW = """    func makeEntry(for date: Date) -> WeatherEntry {
     }"""
 
 ITEMS = {}
+if os.environ.get("MOCK_ORCA_CHILDREN"):
+    ITEMS["c2073000-0000-4000-8000-000000000006"] = [
+        it("user", "text", 61, text="Review the prior work in this workspace."),
+        it("assistant", "text", 60, text="Saved workspace history. You can start a new session here."),
+    ]
 for _a, _label, _phase, _run, _text in MOCK_WORKFLOW_AGENTS:  # MOCK_WORKFLOWS: each workflow agent's conversation
     ITEMS[f"{WIDGET}@{_a}"] = [it("user", "text", 13, text=f"{_label}：审计小组件的这一块，列出问题")] + (
         [it("assistant", "text", 1, text=_text)] if _text else [])
@@ -4287,6 +4314,7 @@ CLOSED_PANES, CLOSED_TABS, TAB_NAMES, SPLIT_PANES = set(), set(), {}, {}
 # #2431 "New worktree…": worktree/create adds a workspace (with one shell pane) next to the persona one; a branch or a path
 # containing "taken" is refused the way git refuses a branch checked out elsewhere / a directory with files in it.
 WORKTREES = {}  # machine id -> [(workspace id, label, path, branch)]
+WORKSPACE_LINEAGE = {}  # (machine, workspace) -> parent source id for Orca-created children
 
 
 def mock_panes(mid):
@@ -4331,7 +4359,8 @@ def worktree_route(h, p, body):
     mid, verb = p.split("/")[4], p.split("/")[6]
     NODE_ACTIONS.append({"machine": mid, "route": "worktree/" + verb, **body})
     if verb == "prepare":
-        return h.send_json({"root": "/home/me/persona", "repoName": "persona", "branch": "main", "path": "/home/me/.herdr/worktrees/persona"})
+        return h.send_json({"root": "/home/me/persona", "repoName": "persona", "branch": "main", "path": "/home/me/.herdr/worktrees/persona",
+                            "choose_parent": body.get("kind") == "orca"})
     branch, path = str(body.get("branch", "")), str(body.get("path", ""))
     if "taken" in branch:
         return h.send_json({"error": "'%s' is already used by worktree at '/home/me/persona'" % branch, "code": "internal"}, 502)
@@ -4339,7 +4368,9 @@ def worktree_route(h, p, body):
         return h.send_json({"error": "检出路径已存在且不是空目录"}, 502)
     wid = "w%d" % (3 + len(WORKTREES.setdefault(mid, [])))
     WORKTREES[mid].append((wid, "persona", path, branch))
-    return h.send_json({"workspace_id": wid, "tab_id": wid + ":t1", "pane": wid + ":p1", "terminal": "pane:" + wid + ":p1", "path": path, "branch": branch})
+    parent = body.get("parent_workspace_id") or body.get("workspace_id", "")
+    if body.get("kind") == "orca": WORKSPACE_LINEAGE[mid, wid] = parent
+    return h.send_json({"workspace_id": wid, "parent_workspace_id": parent, "tab_id": wid + ":t1", "pane": wid + ":p1", "terminal": "pane:" + wid + ":p1", "path": path, "branch": branch})
 
 
 # MOCK_AGENT_WORKTREE=1 (#6115): a new agent in a worktree of its own. worktree/status says a folder under
@@ -15146,6 +15177,11 @@ class H(BaseHTTPRequestHandler):
                      "working", "working", body.get("cwd", "").rsplit("/", 1)[-1] or "new", 9, body.get("tab_name") or "agent-%d" % n, n, 0, "",
                      agent="codex" if codex else "claude")
             s["launcher"] = body.get("launcher") or "claude"
+            if os.environ.get("MOCK_ORCA_CHILDREN") and body.get("workspace_id"):
+                w = next((w for w in mock_workspaces() if w["machine_id"] == s["machine_id"] and w["source_id"] == body["workspace_id"] and w["source"] == "orca"), None)
+                if w:
+                    s.update(space_kind="orca", space_id=w["source_id"], workspace_id=w["source_id"], space_name=w["title"], space_index=w["index"])
+                    if w.get("parent_source_id"): s["parent_space_id"] = w["parent_source_id"]
             if body.get("model"): s["model"] = body["model"]  # picked in "New Agent"
             if codex:  # the node answers once the first message is in the thread's rollout
                 ITEMS[s["session_id"]] = [it("user", "text", 0, text=body["prompt"])]

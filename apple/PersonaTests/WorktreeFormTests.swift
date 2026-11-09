@@ -4,6 +4,49 @@ import Testing
 
 /// New Worktree…'s form (`WorktreeForm`, docs/integrations/terminal.md「新建 worktree…」), the same cases as the web's worktree.test.ts.
 struct WorktreeFormTests {
+    @Test func creationRetriesKeepTheirReceiptUntilTheTargetOrParametersChange() {
+        var attempt = WorktreeForm.CreationAttempt()
+        let body: [String: JSONValue] = ["workspace_id": .string("source"), "auto_name": .bool(true)]
+        let first = attempt.operationID(target: "machine", body: body)
+        #expect(attempt.operationID(target: "machine", body: body) == first)
+        var changed = body
+        changed["parent_workspace_id"] = .string("elsewhere")
+        let next = attempt.operationID(target: "machine", body: changed)
+        #expect(next != first)
+        #expect(attempt.operationID(target: "machine", body: changed) == next)
+        #expect(attempt.operationID(target: "other-hub|machine", body: changed) != next)
+    }
+
+    @MainActor @Test func aLostCreationResponseCanBeRecoveredWithTheSameOperationID() async throws {
+        let transport = LostCreationResponse()
+        let api = APIClient(config: .demo, transport: { try await transport.reply($0) })
+        var attempt = WorktreeForm.CreationAttempt()
+        let body: [String: JSONValue] = ["workspace_id": .string("source"), "auto_name": .bool(true)]
+        var recovered = 0
+        for _ in 0..<2 {
+            do {
+                let data = try await api.nodeAction(machine: "machine", "worktree/create", body,
+                                                    opID: attempt.operationID(target: "machine", body: body))
+                #expect(try JSON.decoder.decode(WorktreeCreated.self, from: data).workspaceID == "made")
+                recovered += 1
+            } catch { #expect(error is URLError) }
+        }
+        let requests = await transport.requests
+        #expect(recovered == 1)
+        #expect(requests.count == 2)
+        #expect(requests[0].headers == requests[1].headers)
+        #expect(requests[0].headers[OpRetry.header] != nil)
+    }
+
+    private actor LostCreationResponse {
+        var requests: [LocalRequest] = []
+        func reply(_ request: LocalRequest) throws -> Data {
+            requests.append(request)
+            if requests.count == 1 { throw URLError(.networkConnectionLost) }
+            return Data(#"{"workspace_id":"made","path":"/wt/made","branch":"generated"}"#.utf8)
+        }
+    }
+
     @Test func namesTheFolderTheWayHerdrDoes() {
         #expect(WorktreeForm.slug("Feat/A_b.c") == "feat-a-b-c")
         #expect(WorktreeForm.slug("feat/2431-worktree") == "feat-2431-worktree")
@@ -52,6 +95,22 @@ struct WorktreeFormTests {
         #expect(WorktreeForm.problem(.init(branch: "a..b", path: "/p", pathEdited: true)) != nil)
         #expect(WorktreeForm.problem(.init(branch: "中文", path: "", pathEdited: false)) == "请填写检出路径")
         #expect(WorktreeForm.problem(.init(branch: "feat/x", path: "/p/x", pathEdited: false)) == nil)
+    }
+
+    @Test func automaticNamesRequireTheHostsCapabilityAndNoExplicitPath() {
+        #expect(WorktreeForm.problem(.init(), automaticName: true) == nil)
+        #expect(WorktreeForm.usesAutomaticName(.init(branch: "  "), supported: true))
+        #expect(!WorktreeForm.usesAutomaticName(.init(), supported: false))
+        #expect(WorktreeForm.problem(.init(), automaticName: false) != nil)
+        #expect(WorktreeForm.problem(.init(path: "/custom", pathEdited: true), automaticName: true) != nil)
+        #expect(WorktreeForm.problem(.init(branch: "a..b", path: "/custom", pathEdited: true), automaticName: true) != nil)
+        #expect(WorktreeForm.problem(.init(branch: "feature/x", path: "/custom", pathEdited: true), automaticName: true) == nil)
+    }
+
+    @Test func olderPrepareResponsesNeverEnableAutomaticNaming() throws {
+        let old = try JSON.decoder.decode(WorktreePrepare.self, from: Data(#"{"repoName":"app","path":"/wt"}"#.utf8))
+        let current = try JSON.decoder.decode(WorktreePrepare.self, from: Data(#"{"repoName":"app","path":"/wt","automatic_name":true}"#.utf8))
+        #expect(!old.automaticName && current.automaticName)
     }
 
     @Test func anOlderComputerIsToldToUpdate() {

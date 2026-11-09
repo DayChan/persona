@@ -1,26 +1,28 @@
 // @vitest-environment jsdom
 // An agent's chat on screen is seen (lib/store.ts viewSession): opened, it registers; closed or switched, it lets go;
 // a subagent's read-only transcript is not an agent of its own and marks nothing.
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "../../lib/types";
+import type { Item, Session } from "../../lib/types";
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
   g.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  HTMLElement.prototype.scrollTo = () => {};
   g.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   g.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } };
 });
 
 const captured = vi.hoisted(() => ({
   session: { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "done", state: "unread" } as Session,
+  send: undefined as undefined | ((out: { text: string; images: [] }) => Promise<boolean>),
   views: [] as string[],
   released: [] as string[],
 }));
 
-vi.mock("./Composer", async (importOriginal) => ({ ...await importOriginal<typeof import("./Composer")>(), Composer: () => null }));
-const transcript = vi.hoisted(() => ({ items: [], loading: false, error: "", hasMore: false, streaming: "" }));
+vi.mock("./Composer", async (importOriginal) => ({ ...await importOriginal<typeof import("./Composer")>(), Composer: ({ onSend }: { onSend: NonNullable<typeof captured.send> }) => { captured.send = onSend; return null; } }));
+const transcript = vi.hoisted(() => ({ items: [] as Item[], loading: false, error: "", hasMore: false, streaming: "" }));
 vi.mock("./useTranscript", () => ({ useTranscript: () => transcript }));
 vi.mock("../../lib/store", async (importOriginal) => {
   const store = await importOriginal<typeof import("../../lib/store")>();
@@ -61,6 +63,8 @@ const { ChatView } = await import("./ChatView");
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  transcript.items = [];
+  captured.send = undefined;
   captured.views = [];
   captured.released = [];
   localStorage.clear();
@@ -97,4 +101,19 @@ describe("an agent's chat on screen", () => {
     act(() => root.render(<ChatView mid="hub" sid="c1@agent-1" readOnly />));
     expect(captured.views).toEqual([]);
   });
+});
+
+it("removes the sending bubble when its transcript echo arrives under StrictMode", async () => {
+  const text = "Example message for StrictMode";
+  const render = () => root.render(<StrictMode><ChatView mid="hub" sid="c1" inPage /></StrictMode>);
+  await act(async () => render());
+  await act(async () => { expect(await captured.send!({ text, images: [] })).toBe(true); });
+  expect(host.querySelectorAll("[data-user-bubble]:not([data-items])")).toHaveLength(1);
+  expect(host.querySelector("[data-user-bubble]")?.textContent).toContain(text);
+
+  transcript.items = [{ id: "echo-1", seq: 1, role: "user", kind: "text", text, ts: new Date().toISOString() } as Item];
+  await act(async () => render());
+  expect(host.querySelectorAll("[data-user-bubble]:not([data-items])")).toHaveLength(0);
+  expect(host.querySelectorAll("[data-user-bubble]")).toHaveLength(1);
+  expect(host.querySelector('[data-user-bubble][data-items="echo-1"]')?.textContent).toContain(text);
 });

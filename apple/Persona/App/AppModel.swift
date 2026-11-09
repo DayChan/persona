@@ -2825,13 +2825,13 @@ final class AppModel {
     func renameSession(_ k: SessionKey, tab: String?, title: String?) async {
         guard session(k)?.canTerminal == true, let api = api(k.group) else { return }
         let tab = tab?.trimmingCharacters(in: .whitespacesAndNewlines), title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        edit(machine: k.machineRef) { s in
-            guard s.sessionID == k.sessionID else { return }
-            if let tab, !tab.isEmpty { s.slotName = tab }
-            if let title, !title.isEmpty { s.title = title }
-        }
         do {
             try await api.renameSession(k, tabName: tab?.isEmpty == false ? tab : nil, title: title?.isEmpty == false ? title : nil)
+            edit(machine: k.machineRef) { s in
+                guard s.sessionID == k.sessionID else { return }
+                if let tab, !tab.isEmpty { s.slotName = tab }
+                if let title, !title.isEmpty { s.title = title }
+            }
             toast = Toast(String(localized: "Renamed"), style: .success)
         } catch { show(error) }
         await refresh()
