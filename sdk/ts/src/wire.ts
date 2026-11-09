@@ -4514,12 +4514,14 @@ export interface TodoDecisionEvent {
  * error.code of model.complete besides permission_denied (data {scope: "models"}): invalid_params; assistant_offline
  * (the manager is away: try again); model_unavailable (nothing to call for this extension: the user picks a model for
  * it in Settings › Model configuration); model_paused (the connection is held for quota or load, nothing was sent;
- * data ModelPause: try again after until); model_failed (the upstream refused or failed the request); timeout (past
+ * data ModelPause: try again after until); model_failed (the upstream failed the request: an error status or a
+ * dropped connection); model_refused (the model declined to answer this input, a refusal or a content filter: sending
+ * it again unchanged gets the same answer, so split it, drop a part or report it; data ModelRefusal); timeout (past
  * timeout_seconds); invalid_output (with json_schema, the reply was still not JSON matching it after one more try;
  * data ModelInvalidOutput).
  */
-export type ModelErrorCode = "invalid_params" | "assistant_offline" | "model_unavailable" | "model_paused" | "model_failed" | "timeout" | "invalid_output" | (string & {});
-export const MODEL_ERROR_CODES = ["invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "timeout", "invalid_output"] as const;
+export type ModelErrorCode = "invalid_params" | "assistant_offline" | "model_unavailable" | "model_paused" | "model_failed" | "model_refused" | "timeout" | "invalid_output" | (string & {});
+export const MODEL_ERROR_CODES = ["invalid_params", "assistant_offline", "model_unavailable", "model_paused", "model_failed", "model_refused", "timeout", "invalid_output"] as const;
 
 /**
  * One turn of the conversation: the user's, or the model's earlier answer.
@@ -4594,6 +4596,15 @@ export interface ModelPause {
 export interface ModelInvalidOutput {
   problem: string;
   text: string;
+  usage: ModelUsage;
+}
+
+/**
+ * The data of model_refused: what the upstream said and what the declined call spent.
+ */
+export interface ModelRefusal {
+  /** The upstream's reason: refusal (a refusal stop or part) or content_filter. */
+  stop_reason?: string;
   usage: ModelUsage;
 }
 

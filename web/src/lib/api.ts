@@ -195,9 +195,13 @@ export function fileDownloadURL(mid: string, path: string, cwd?: string, opts: {
   return `${BASE}/api/v1/machines/${enc(mid)}/file/download?path=${enc(path)}&cwd=${enc(cwd ?? "")}${opts.inline ? "&inline=1" : ""}&token=${enc(getToken())}`;
 }
 
+// Fresh legacy URLs must miss the browser cache after this client upgrades. A page-load identity also retries
+// after the node upgrades later; the same URL remains reusable while this page is open.
+const thumbnailCacheEpoch = `v2-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
 /** A machine file's thumbnail, at most `size` px on its long side; 404 `no_thumbnail` when the machine can't draw it. */
 export function fileThumbURL(mid: string, path: string, cwd?: string, size = 256) {
-  return `${BASE}/api/v1/machines/${enc(mid)}/file/thumb?path=${enc(path)}&cwd=${enc(cwd ?? "")}&size=${size}&token=${enc(getToken())}`;
+  return `${BASE}/api/v1/machines/${enc(mid)}/file/thumb?path=${enc(path)}&cwd=${enc(cwd ?? "")}&size=${size}&token=${enc(getToken())}&thumb=${thumbnailCacheEpoch}`;
 }
 
 export function isAbort(e: unknown) {

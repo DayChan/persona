@@ -204,7 +204,9 @@ export function ImageViewer({
 
   const download = async () => {
     try {
-      const blob = await (await fetch(cur.src)).blob();
+      const response = await fetch(cur.src);
+      if (!response.ok) throw new Error(`Image download failed: HTTP ${response.status}`);
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

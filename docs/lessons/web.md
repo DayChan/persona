@@ -260,6 +260,7 @@ Six parallel lanes (chat rendering, message actions, Agents list / Machines, Ter
 - `Menu` anchors only to elements: temporarily place a `position:fixed`, 0×0 span at the click point; delete on close (not as a side effect in a setState updater).
 - Own message bubbles originally had no action row; adding one changes chat spacing. Put an `absolute right-full` hover bar left of the bubble (already 12% margin there).
 - Browsers prohibit top-level navigation to `data:`; use `fetch(dataURL).blob()` then `URL.createObjectURL`. Image clipboard writes (`ClipboardItem`) require a secure context; hide the button on plaintext-HTTP hubs.
+- An image that displayed successfully can fail its separate download request (#1588). Check `Response.ok` before reading the body or creating a save link; use the existing failure toast and leave Download available for retry. Regress the actual viewer with JSON/HTML HTTP errors, then a successful retry, preserving original bytes, MIME, filename and Blob URL cleanup. Inspect the toast in the built app: DOM visibility alone misses a toast painted behind the full-screen viewer at the same stacking level.
 - Viewer / editor Esc handlers must run in window capture phase and `stopPropagation`, or chat's Esc interrupt fires too.
 
 ### Sidebar and Machines

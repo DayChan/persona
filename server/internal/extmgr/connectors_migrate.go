@@ -53,7 +53,7 @@ func (h *Manager) restoreOwnConnector(id string) {
 	h.logf("connector %s: back to the hub's own", id)
 }
 
-// removePluginConnector takes a plugin's connector out, and gives a migratable id back to the hub.
+// removeExtensionConnector takes a plugin's connector out, and gives a migratable id back to the hub.
 func (h *Manager) removeExtensionConnector(id string) {
 	h.connectors.Remove(id)
 	h.restoreOwnConnector(id)

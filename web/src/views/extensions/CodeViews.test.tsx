@@ -4,7 +4,8 @@
 import { act as flush } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../../lib/lazy-page";
 import { SHOWCASE } from "../../showcase/snapshots";
 import type { UIAction } from "../../lib/extension-ui";
 import { INERT, ViewSections } from "./ViewBody";
@@ -44,6 +45,9 @@ const type = (el: HTMLTextAreaElement, text: string) =>
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
+
+// the code views and the extension page are their own chunks (lib/lazy-page.ts, #1794): in before anything is drawn
+beforeAll(() => loadPages(), 60_000);
 
 describe("代码托管组件", () => {
   it.each(["code-review", "code-browse", "code-overview"])("draws %s", (name) => {
