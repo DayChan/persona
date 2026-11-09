@@ -29,7 +29,9 @@ jobs:
           go-version-file: server/go.mod
           cache: false
       - name: Restore shard Go caches
-        uses: actions/cache@v4
+        id: go-cache
+        # Only a manual main run saves (below); PRs and other refs restore main's entries and never write their own.
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/go/pkg/mod
@@ -44,3 +46,11 @@ jobs:
           bun-version: '1.4.2'
       - name: Server checks
         run: scripts/ci/server.sh "$CI_SERVER_SHARD"
+      - name: Save shard Go caches
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}

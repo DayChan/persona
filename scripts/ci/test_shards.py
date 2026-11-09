@@ -78,6 +78,15 @@ class ShardTests(unittest.TestCase):
             self.assertIn(label, script)
         self.assertIn('lane="${1:-all}"', script)
 
+    def test_server_go_cache_is_saved_only_by_main_dispatches(self):
+        # actions/cache saves on every ref; branch entries pushed main's out of the 10 GB repository cache.
+        workflow = (ROOT / ".github/workflows/server-test.yml").read_text()
+        self.assertNotIn("actions/cache@", workflow)
+        self.assertEqual(workflow.count("actions/cache/save@v4"), 1)
+        save = workflow.split("- name: Save shard Go caches", 1)[1]
+        self.assertIn("if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", save)
+        self.assertIn("key: ${{ steps.go-cache.outputs.cache-primary-key }}", save)
+
 
 if __name__ == "__main__":
     unittest.main()
