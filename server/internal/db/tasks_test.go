@@ -11,7 +11,7 @@ import (
 
 func TestAppendFeedOnce(t *testing.T) {
 	d, ctx := open(t), context.Background()
-	row := FeedRow{ID: "receipt_once", Conversation: "c1", At: time.Now(), Kind: "receipt", Ref: "task", Body: json.RawMessage(`{"state":"done"}`)}
+	row := FeedRow{ID: "receipt_once", Conversation: "receipt-once-test", At: time.Now(), Kind: "receipt", Ref: "task", Body: json.RawMessage(`{"state":"done"}`)}
 	inserted, err := d.AppendFeedOnce(ctx, row)
 	if err != nil || !inserted {
 		t.Fatalf("first insert = %v, %v", inserted, err)
@@ -24,6 +24,74 @@ func TestAppendFeedOnce(t *testing.T) {
 	got, err := d.FeedItem(ctx, row.ID)
 	if err != nil || got == nil || !strings.Contains(string(got.Body), "done") {
 		t.Fatalf("stored receipt = %+v, %v", got, err)
+	}
+}
+
+func TestAppendTaskReceiptOnceMembershipOrdering(t *testing.T) {
+	d, ctx := open(t), context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if err := d.CreateTodo(ctx, TodoRow{ID: "receipt-task", Title: "Task", Origin: "receipt-membership-test", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.LinkTodoAgent(ctx, "receipt-task", "box", "s1", "", "", "", "", now); err != nil {
+		t.Fatal(err)
+	}
+	row := FeedRow{ID: "receipt-after-unlink", Conversation: "receipt-membership-test", At: now, Kind: "receipt", Ref: "receipt-task"}
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockTodoAgentMembership(ctx, tx, row.Ref, "box", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE todo_agents SET released_at = $4, dismissed_at = $4 WHERE todo_id = $1 AND machine_id = $2 AND session_id = $3`, row.Ref, "box", "s1", now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		inserted, valid bool
+		err             error
+	}
+	started, resultCh := make(chan struct{}), make(chan result, 1)
+	go func() {
+		close(started)
+		a, b, err := d.AppendTaskReceiptOnce(ctx, row, "box", "s1", now)
+		resultCh <- result{a, b, err}
+	}()
+	<-started
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-resultCh; got.err != nil || got.valid || got.inserted {
+		t.Fatalf("receipt after unlink = %+v", got)
+	}
+	if got, err := d.FeedItem(ctx, row.ID); err != nil || got != nil {
+		t.Fatalf("invalid receipt = %+v, %v", got, err)
+	}
+
+	relinked := now.Add(time.Minute)
+	if _, err := d.LinkTodoAgent(ctx, "receipt-task", "box", "s1", "", "", "", "", relinked); err != nil {
+		t.Fatal(err)
+	}
+	row.ID = "receipt-before-unlink"
+	tx, err = d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inserted, valid, err := appendTaskReceiptOnceTx(ctx, tx, row, "box", "s1", relinked)
+	if err != nil || !inserted || !valid {
+		t.Fatalf("receipt before unlink = %v %v %v", inserted, valid, err)
+	}
+	started2, done := make(chan struct{}), make(chan error, 1)
+	go func() { close(started2); done <- d.UnlinkTodoAgent(ctx, row.Ref, "box", "s1") }()
+	<-started2
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := d.FeedItem(ctx, row.ID); err != nil || got == nil {
+		t.Fatalf("committed receipt = %+v, %v", got, err)
 	}
 }
 
