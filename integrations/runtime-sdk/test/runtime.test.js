@@ -61,6 +61,29 @@ test('content rewritten under another history goes out even where its seq did no
   assert.equal(n.all('session.items').length, 3)
 })
 
+test('a capped watch catch-up says there is more after its last batch', async (t) => {
+  const n = await startFakeNode(t)
+  const { page } = await import('../index.js')
+  const all = Array.from({ length: 4500 }, (_, i) => ({ id: `${i + 2}#0`, seq: i + 2, role: 'assistant', kind: 'text', text: `item ${i + 2}` }))
+  let calls = 0
+  const rt = createRuntime(minimal({
+    items: async (params) => {
+      calls++
+      return page(all, params, { history: 'h', toSeq: 4501 })
+    },
+  }), { runtime: 'toy', socketPath: n.path, retryMs: 20, refreshMs: 0 })
+  t.after(() => rt.stop())
+  rt.start()
+  await n.ready
+  await n.peer.call('session.watch', { session_id: 's1', since_seq: 1 })
+  const batches = n.all('session.items')
+  assert.equal(calls, 8, 'the existing catch-up cap stays at eight pages')
+  assert.equal(batches.length, 8)
+  assert.equal(batches.at(-1).to_seq, 4001)
+  assert.equal(batches.at(-1).more_after, true, 'the client must fetch the 500 items still missing')
+  assert.ok(batches.slice(0, -1).every((b) => b.more_after === undefined), 'only the capped batch needs client recovery')
+})
+
 test('content committed while a watch catches up is held, then sent once without repeats', async (t) => {
   const n = await startFakeNode(t)
   let release

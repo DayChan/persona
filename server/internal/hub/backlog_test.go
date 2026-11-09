@@ -118,6 +118,25 @@ func TestBacklogCatchUpCapsAndSaysSo(t *testing.T) {
 	}
 }
 
+// A runtime's capped rewatch replay arrives as live events rather than through sendBacklog. Its final batch must
+// still tell the subscriber to fetch the rest instead of looking like a complete, contiguous catch-up.
+func TestRuntimeItemsForwardMoreAfter(t *testing.T) {
+	m := newMachine(&Hub{}, MachineConfig{ID: "m1", Name: "m1"})
+	c := &client{out: make(chan []byte, 2), subs: map[[2]string]bool{{"m1", "s1"}: true}}
+	h := &Hub{clients: map[*client]struct{}{c: {}}}
+	m.hub = h
+	from, to := 3501, 4001
+	m.onEvent("session.items", json.RawMessage(`{"session_id":"s1","items":[],"history":"h1","from_seq":3501,"to_seq":4001,"more_after":true}`))
+	batches := drain(t, c)
+	if len(batches) != 1 || !batches[0].MoreAfter {
+		t.Fatalf("a capped runtime batch lost more_after: %+v", batches)
+	}
+	if batches[0].History != "h1" || batches[0].FromSeq == nil || *batches[0].FromSeq != from ||
+		batches[0].ToSeq == nil || *batches[0].ToSeq != to || m.lastSeq["s1"] != to {
+		t.Fatalf("the capped batch's continuity changed: %+v, last seq %d", batches[0], m.lastSeq["s1"])
+	}
+}
+
 // An app that subscribes with fold_work gets the latest page with the agent's work folded; a catch-up (since_seq)
 // is not folded: its items continue what the app holds, calls whose results it is waiting for included.
 func TestBacklogFoldsOnlyTheLatestPage(t *testing.T) {

@@ -519,6 +519,14 @@ func (m *Machine) takeNext() *nodeConn {
 // ones come back through the next connection). Unless another connection takes over at once (planned), the machine is
 // offline.
 func (m *Machine) detach(err error, planned bool) {
+	if m.stopped() {
+		// Its entry changed or went away: the machine taking its id (or none) speaks for that computer now. Reporting
+		// this connection's end would be read as the replacement's, ending the questions waiting on it (#1949).
+		m.mu.Lock()
+		m.peer, m.active, m.transport = nil, nil, ""
+		m.mu.Unlock()
+		return
+	}
 	if m.d.stopping.Load() {
 		// The manager is stopping for a restart: the next one shows the machine as it was while its node reconnects
 		// (warm.go). Telling the apps it went offline, or ending its questions, would only be noise.
