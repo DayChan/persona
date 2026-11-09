@@ -128,5 +128,6 @@
   "how_install": "インストール方法",
   "assign_checking": "メインの会話がすでに使えるか確認しています…",
   "done_no_claude_kept": "キーを保存しました。このキーで動かすには、{machine} に Claude Code をインストールする必要があります。",
-  "done_no_claude_kept_any": "キーを保存しました。このキーで動かすには、コンピューターに Claude Code をインストールする必要があります。"
+  "done_no_claude_kept_any": "キーを保存しました。このキーで動かすには、コンピューターに Claude Code をインストールする必要があります。",
+  "step_devices": "コンピューター"
 }

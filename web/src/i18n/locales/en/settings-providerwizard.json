@@ -129,5 +129,6 @@
   "how_install": "How to install",
   "assign_checking": "Checking whether the main conversation already works…",
   "done_no_claude_kept": "The key is saved. Claude Code still needs to be installed on {machine} before anything can run on it.",
-  "done_no_claude_kept_any": "The key is saved. Claude Code still needs to be installed on the computer before anything can run on it."
+  "done_no_claude_kept_any": "The key is saved. Claude Code still needs to be installed on the computer before anything can run on it.",
+  "step_devices": "Devices"
 }

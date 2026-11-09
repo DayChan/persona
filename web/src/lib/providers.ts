@@ -4,6 +4,7 @@
 import { ApiError, errorText } from "./api";
 import { hostOf as urlHost } from "./hubs";
 import { launcherNameProblem } from "./launcher-presets";
+import type { ScopeView } from "./provider-scope";
 import { EFFORTS } from "./session-actions";
 import { t } from "../i18n";
 
@@ -22,8 +23,8 @@ export interface ProviderModel {
 }
 
 /** GET /api/v1/launchers' managed launcher (hub LauncherView): never the key, the headers or the environment, only
- *  has_key / has_headers / has_env. */
-export interface ProviderView {
+ *  has_key / has_headers / has_env; the device scope's fields (lib/provider-scope.ts) when the hub has them. */
+export interface ProviderView extends ScopeView {
   name: string;
   /** The name it shows, in any language (one added from a preset gets the provider's). */
   display_name?: string;

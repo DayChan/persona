@@ -12,7 +12,7 @@ Code: `server/internal/assistant/models_launchers.go` (owned by the manager; hub
 | **rc file (~/.zshrc / ~/.bashrc) and PATH** | Functions and aliases in each computer's login shell config (zsh reads `~/.zshrc`, bash reads `~/.bashrc`), grouped by file, and wrapper scripts on its PATH (`source: "path"`), synchronized when opening this page (node caches for 1 minute) | View each computer's function definition or script text (Key / Token redacted), hide / restore in Persona |
 | **Built-in** | Each computer's plain `claude` command (“Claude Code default” in Model Configuration, `source: "builtin"`), listed per computer with its version | View only; can't be hidden (the hub refuses) |
 
-- Scope is **one global set**: Persona-managed entries work on every computer; ~/.zshrc entries identify their source computers (same-name entries merge into one row). Offline computers use their last synchronized lists (settings `launchers.zshrc`).
+- Scope: each Persona-managed entry has its own **device scope** (“Device scope and on-demand delivery” below): all your computers, chosen ones, or none (the key stays with the manager). ~/.zshrc entries identify their source computers (same-name entries merge into one row). Offline computers use their last synchronized lists (settings `launchers.zshrc`).
 - Deleting a ~/.zshrc launcher **only hides it in Persona** (settings `launchers.hidden`), leaving the file unchanged; it disappears from new-chat and assistant pickers.
 - Persona-managed entries win name collisions (shadowing the ~/.zshrc entry). Names may contain only letters, digits, `_`, and `-`, and cannot be `claude`.
 
@@ -121,7 +121,7 @@ Supported since herdr 0.7.1 (Linux) / 0.7.5 (macOS); ignored by older herdr and 
 ## Running Persona-managed launchers
 
 - Stored in settings `launchers.managed`; the manager AES-GCM encrypts API keys with its own `secret.key` (the built-in manager's `~/.persona/managers/assistant/secret.key`, the same key used for email credentials, `server/internal/secretkey`). **The API never returns keys**.
-- When nodes connect and after every change, the manager pushes full settings (including keys) through hub to all nodes (`launchers.managed`). node keeps them only in memory; hub neither stores nor decrypts them.
+- Which computers get a provider, and when its key travels, is the provider's device scope (next section). A computer in scope gets the provider's name and settings without secrets on connect and after every change (`launchers.catalog`); its key, headers and environment come only when the node asks for them (`launchers.pull`). node keeps them only in memory; hub neither stores nor decrypts them.
 - At startup, node types `personad launch <name> …` into a herdr pane (or executes it for the headless assistant). This subcommand gets settings through local node.sock
   (`launcher.env`), removes inherited `ANTHROPIC_*` and related shell variables, sets `ANTHROPIC_BASE_URL`, the key (see “Authentication method” below), and model tiers
   (`ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL`; the small model goes to haiku / small fast; the sub-Agent model to `CLAUDE_CODE_SUBAGENT_MODEL`, following the primary model if empty;
@@ -168,7 +168,33 @@ Supported since herdr 0.7.1 (Linux) / 0.7.5 (macOS); ignored by older herdr and 
   and removed from `rejected` (`node/apikeyapproval.go`). Writes use Claude's own configuration lock
   (`<config path>.lock` directory, stale after 10 seconds), avoiding concurrent writes with running claude. Already approved keys are not rewritten; no write occurs before a configuration file exists (first run,
   when Claude handles onboarding). Write failures print one line to stderr and startup continues. Headless `-p` (assistant) does not ask in the first place.
-- Before settings arrive after a hub restart or node reconnection, `personad launch` reports “hub 还没发过来” (“hub hasn't sent them yet”).
+- Before settings arrive after a hub restart or node reconnection, `personad launch` reports “hub 还没发过来” (“hub hasn't sent them yet”). A provider out of this computer's scope is never named to it, so the same message appears.
+
+## Device scope and on-demand delivery (#SCOPE)
+
+A key bought for one computer (an isolated container the assistant runs on) should not reach every other computer, nor show in their pickers. Each Persona-managed provider says where it may run and when its secrets travel (`server/internal/assistant/models_launchers_scope.go`, node `server/internal/node/managed.go`):
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `share` | `all` / `selected` / `none` | `all`: every confirmed personal computer (work computers, `trust: "work"`, only when listed in `scope_machines`). `selected`: only the computers in `scope_machines`. `none`: no computer; the key stays with the manager (direct API calls such as triage and translation still use it) |
+| `scope_machines` | machine ids | With `selected` the computers it runs on; with `all` the work computers added to it |
+| `delivery` | `on_demand` / `push` | `on_demand`: a computer gets the key the first time it needs it, then keeps it in memory. `push` (“Keep a copy on each computer”): every computer in scope fetches it as soon as it connects, so it still launches after the hub becomes unreachable |
+| `own_service` | `skip` / `use` | `skip`: not used on a computer whose harness already has a usable service of its own (below); `use`: used there too |
+| `machine_keys` | `{machine id: key}` (write only) | A key for one computer that replaces the provider's key there (`""` removes it). Reads return only `key_machines`, the ids that have one |
+
+- **Invariants**: secrets go only to a computer that is in scope, confirmed (not pending, `docs/protocol/protocol.md` “Pending computers”) and connected to this manager; the API never returns keys. A computer out of scope receives nothing about the provider (not even its name), does not list it in `GET /api/v1/machines/{mid}/launchers` or new-Agent pickers, and every start with it there (main chat, Agents, tasks, scheduled runs, the availability test) is refused by the manager with `launcher_out_of_scope`; Model configuration's status explains it for a purpose bound to that computer.
+- **Defaults**: a provider added now is `all` + `on_demand` + `skip`; `use` when it is added with `assign` (it is meant for the main chat and new Agents right away, even where Claude Code is signed in). Records saved before these fields existed are read as `all` + `push` + `use` **including work computers**, exactly the old behavior (`legacy_scope: true` in reads); saving any of the four fields makes the record explicit. A `PUT` without them keeps what is stored.
+- **A usable service of its own** (`own_service`), per harness, read by the node with the checks it already has and cached ten minutes (`launchers.own_service`, `node/ownservice.go`):
+  - Claude Code: plain `claude` signed in or given a key or gateway by its environment (`claude.auth_status`, `node/claudeauth.go`), or any Claude launcher in the login shell's rc file or PATH (`launchers.list`).
+  - Codex: `codex login status` succeeds (ChatGPT or API key login), or a Codex alias in the rc file.
+  - Antigravity, Oh My Pi: not detected; they always count as having none.
+  Unknown (an old node, a timeout) counts as none: the rule is a convenience, the scope is the boundary.
+- **Pull**: the node asks the manager with `launchers.pull {name, own_service?}` before it uses a provider whose catalog entry is `withheld`: a `session.start` / `assistant.send` / `assistant.warm` / `session.send`, the availability test, model listing, sign-in status, and `personad launch` (typed in a terminal or herdr's `resume_argv`). It reports its own service for that harness only when the provider says `skip`. The manager checks the connection's machine (never a field in params) against the scope, picks that computer's key, and answers the full `ManagedLauncher`; otherwise it answers `launcher_out_of_scope` or `launcher_own_service` in the user's language. A `push` provider is pulled in the background right after each catalog.
+- **Cache**: what a node pulled stays in its memory until the next catalog says the provider changed (`rev`) or left its scope, or the node restarts. Nothing is written to disk beyond the per-start settings files above.
+- **What degrades when the manager is unreachable** (the node's link to its manager is down: hub machine restarting, network): a provider this node already pulled since it started, or any `push` provider, still launches (`personad launch` by hand, herdr's `resume_argv` after a herdr restart). An `on_demand` provider not used since the node started fails with “cannot reach the hub to fetch the settings”; a node restarted while the manager is away has nothing, as before. Choose `push` for providers that must survive that.
+- **Rolling upgrade**: a node without `launchers.catalog` (it answers `unknown method`) gets `launchers.managed` as before, but only with the providers in its scope, keys included, so on-demand and the own-service rule apply only once it is updated. An old manager keeps pushing `launchers.managed` to new nodes, which still take it (every entry there is full).
+- Per-computer keys live in their own setting `launchers.machine_keys` (`[{launcher, machine, key_sealed}]`, sealed and re-sealed with the providers' keys); deleting a provider deletes them.
+- Web: Settings › Model providers › a provider › “Devices” (`web/src/views/settings/ProviderScope.tsx`), grouped by harness in the list.
 
 ## Parameters on the launcher page (`node/launcherprobe.go`)
 
@@ -230,7 +256,7 @@ Persona-managed entries swipe to “Delete,” removing the stored key too, with
 | `GET /api/v1/launchers` | All entries (first synchronize each computer's rc file and PATH, at most 10 seconds per computer), plus the built-in `claude`; `sync` is each computer's sync state |
 | `GET /api/v1/launchers/{name}` | One entry; ~/.zshrc entries include `definitions` (redacted functions per computer) and `details` (parameters from running once) |
 | `POST /api/v1/launchers/{name}/check?machine=` | Test availability |
-| `POST /api/v1/launchers` | Add `{name, base_url, model, small_model?, subagent_model?, custom_model?, custom_model_name?, custom_model_description?, args?, api_key, auth?, preset?, display_name?, assign?}`; `auth` is `api_key` (default) or `bearer`. With `preset`, missing values are filled from the preset, and `name` may be empty (see “Built-in presets” and “Adding from extensions” below); with `assign`, returns `{launcher, assigned, kept}` |
+| `POST /api/v1/launchers` | Add `{name, base_url, model, small_model?, subagent_model?, custom_model?, custom_model_name?, custom_model_description?, args?, api_key, auth?, preset?, display_name?, assign?, share?, scope_machines?, delivery?, own_service?, machine_keys?}` (scope fields: “Device scope and on-demand delivery”); `auth` is `api_key` (default) or `bearer`. With `preset`, missing values are filled from the preset, and `name` may be empty (see “Built-in presets” and “Adding from extensions” below); with `assign`, returns `{launcher, assigned, kept}` |
 | `GET /api/v1/launchers/presets` | Provider presets: built-ins (`plugin: "builtin"`) plus extensions (`docs/extensions/extensions.md`, “Model providers”), sorted by request language. Old hubs return 404; the app treats this as none |
 | `PUT /api/v1/launchers/{name}` | Edit (`api_key` unchanged if omitted); Persona-managed only. Fields under “Provider model and gateway parameters” below retain their old values if omitted |
 | `POST /api/v1/launchers/test` | Test connection (without node, see below): `{name?, base_url?, api?, auth?, api_key?, headers?, model, preset?}` → `{ok, ms, model, error?, code?}` (`code: "region_blocked"` means Anthropic blocked the region; changing keys will not help, see `docs/protocol/protocol.md`). With `preset`, missing address, protocol and model use preset defaults |
@@ -238,7 +264,7 @@ Persona-managed entries swipe to “Delete,” removing the stored key too, with
 | `DELETE /api/v1/launchers/{name}` | Delete Persona-managed entries; hide ~/.zshrc entries |
 | `POST /api/v1/launchers/{name}/restore` | Unhide |
 | `GET /api/v1/launchers/{name}/quota?machine=&refresh=1` | Quota (see below): `{machine, checked_at, quota}`, or `{error, unsupported}` if unavailable. The manager caches for one minute; `refresh=1` rereads |
-| `GET /api/v1/machines/{mid}/launchers` | Launchers this computer can start (for pickers): its ~/.zshrc entries excluding hidden ones, plus Persona-managed entries; each includes `source` |
+| `GET /api/v1/machines/{mid}/launchers` | Launchers this computer can start (for pickers): its ~/.zshrc entries excluding hidden ones, plus the Persona-managed entries in its scope (not those skipped for its own service); each includes `source` |
 
 The assistant's model is selected only in “Model Settings › Main Chat” (“Settings › Assistant” no longer has a model entry, #1291); scheduled tasks' model entry opens unified “Model Settings.” Providers own connections and defaults; purposes own specific choices. See `docs/assistant/model-config.md`.
 

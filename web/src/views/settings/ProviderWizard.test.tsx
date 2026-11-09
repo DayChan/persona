@@ -515,3 +515,96 @@ describe("ProviderWizard from presets", () => {
     expect(text()).toContain("claude.ai/install.sh");
   });
 });
+
+// docs/integrations/launchers.md "Device scope and on-demand delivery": the "Devices" step, sent only as changed.
+describe("ProviderWizard device scope", () => {
+  const scoped = { name: "gw", base_url: "https://gw.example.com", model: "m1", has_key: true, auth: "bearer" as const, models: [{ id: "m1" }], share: "all" as const, delivery: "on_demand" as const, own_service: "skip" as const, key_machines: ["box"] };
+  const put = () => calls.find((c) => c.method === "PUT" && c.path.endsWith("/launchers/gw"));
+  const scopeKeys = ["share", "scope_machines", "delivery", "own_service", "machine_keys"];
+  const labelled = (label: string) => {
+    const el = [...document.body.querySelectorAll("label")].find((l) => l.textContent === label);
+    return document.getElementById(el!.htmlFor) as HTMLInputElement;
+  };
+  async function edit(existing: Record<string, unknown>) {
+    act(() => root.render(<ProviderWizard existing={existing as never} onClose={() => {}} onSaved={() => {}} />));
+    await flush();
+  }
+  const toDevices = () => {
+    act(() => button("下一步")!.click());
+    act(() => button("下一步")!.click());
+  };
+
+  beforeEach(() => {
+    Object.assign(getState(), { features: ["builtin_presets", "launcher_scope"], machines: [{ id: "mbp", name: "MacBook", online: true }, { id: "box", name: "Devbox", online: true }] });
+  });
+  afterEach(() => {
+    Object.assign(getState(), { machines: [] });
+  });
+
+  it("leaves the scope fields out of a PUT when they did not change", async () => {
+    await edit(scoped);
+    toDevices();
+    expect(text()).toContain("我的所有电脑");
+    await act(async () => button("保存")!.click());
+    const body = put()?.body ?? {};
+    for (const k of scopeKeys) expect(body, k).not.toHaveProperty(k);
+  });
+
+  it("has no Devices step for a provider whose hub has no scope", async () => {
+    const { share: _share, delivery: _delivery, own_service: _own, key_machines: _keys, ...plain } = scoped;
+    await edit(plain);
+    act(() => button("下一步")!.click());
+    expect(button("下一步")).toBeUndefined();
+    await act(async () => button("保存")!.click());
+    for (const k of scopeKeys) expect(put()?.body, k).not.toHaveProperty(k);
+  });
+
+  it("sends a computer's key only when one is typed, and \"\" to remove a stored one", async () => {
+    await edit(scoped);
+    toDevices();
+    act(() => button("单台电脑的 Key")!.click());
+    expect(text()).toContain("已有单独的 Key");
+    type(labelled("MacBook 的 Key"), "sk-mbp-1");
+    act(() => button("移除")!.click());
+    await act(async () => button("保存")!.click());
+    expect(put()?.body).toMatchObject({ machine_keys: { mbp: "sk-mbp-1", box: "" } });
+    for (const k of ["share", "scope_machines", "delivery", "own_service"]) expect(put()?.body, k).not.toHaveProperty(k);
+  });
+
+  it("blocks saving chosen computers until one is checked", async () => {
+    await edit(scoped);
+    toDevices();
+    act(() => button("指定电脑")!.click());
+    expect(text()).toContain("至少选一台电脑");
+    expect(button("保存")!.disabled).toBe(true);
+    await act(async () => button("保存")!.click());
+    expect(put()).toBeUndefined();
+    act(() => button("Devbox")!.click());
+    act(() => (document.body.querySelector('button[role="switch"][aria-label="每台电脑存一份"]') as HTMLButtonElement).click());
+    expect(button("保存")!.disabled).toBe(false);
+    await act(async () => button("保存")!.click());
+    expect(put()?.body).toMatchObject({ share: "selected", scope_machines: ["box"], delivery: "push" });
+    expect(put()?.body).not.toHaveProperty("own_service");
+  });
+
+  it("explains a provider saved before scopes existed", async () => {
+    await edit({ ...scoped, delivery: "push", own_service: "use", legacy_scope: true, key_machines: [] });
+    toDevices();
+    expect(text()).toContain("这个供应商是在有电脑范围之前存的");
+    await act(async () => button("保存")!.click());
+    for (const k of scopeKeys) expect(put()?.body, k).not.toHaveProperty(k);
+  });
+
+  it("adds a preset with only the scope fields changed from the defaults", async () => {
+    await open();
+    act(() => button("智谱 GLM")!.click());
+    type(keyInput(), "sk-test-123456");
+    await waitAutoTest();
+    act(() => button("电脑")!.click());
+    act(() => button("不给电脑（只在 hub）")!.click());
+    await act(async () => button("保存")!.click());
+    await flush();
+    const post = calls.find((c) => c.method === "POST" && c.path.endsWith("/launchers"));
+    expect(post?.body).toEqual({ api_key: "sk-test-123456", preset: "builtin/glm", assign: ["assistant", "agent.new"], share: "none" });
+  });
+});

@@ -1,0 +1,13 @@
+{
+  "pick_machine": "Choose at least one computer",
+  "summary_none": "Hub only",
+  "summary_legacy": "All computers, work ones included",
+  "summary_selected_none": "No computers chosen",
+  "summary_all": "All computers",
+  "summary_all_work_one": "All computers + {count} work computer",
+  "summary_all_work_other": "All computers + {count} work computers",
+  "summary_push": "kept on each",
+  "summary_on_demand": "on demand",
+  "summary_use": "also where signed in",
+  "harness_api": "Direct API"
+}

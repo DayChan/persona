@@ -47,6 +47,7 @@ import {
   type ProviderView,
   type TestResult,
 } from "../../lib/providers";
+import { formScope, newScope, scopeBody, scopeFromView, scopeProblem, scopeShown, scopeSummary, type ScopeForm } from "../../lib/provider-scope";
 import { claudeMissing, claudeWorks, currentReadiness, readinessChanged, readinessSettled, useReadiness, type Readiness } from "../../lib/readiness";
 import { effortLabel } from "../../lib/routines";
 import { composing } from "../../lib/send-history";
@@ -57,9 +58,10 @@ import { Segmented } from "../assistant/parts";
 import { InstallClaudeHelp } from "../assistant/Readiness";
 import { Pill, Switch } from "./SettingsParts";
 import { CheckMark, Disclosure, FIELD, INPUT, Labelled, SecretField, SMALL, TextField } from "./ProviderFields";
+import { ProviderScope } from "./ProviderScope";
 import { t } from "../../i18n";
 
-type Step = "pick" | "key" | "done" | "connect" | "models";
+type Step = "pick" | "key" | "done" | "connect" | "models" | "devices";
 const CUSTOM = "custom";
 /** The hub's hello feature for built-in presets, a name it makes up and assign (docs/integrations/launchers.md "Built-in presets"). */
 const BUILTIN_PRESETS_FEATURE = "builtin_presets";
@@ -70,6 +72,7 @@ const stepTitle = (s: Step) =>
     done: t("settings-providerwizard.step_done"),
     connect: t("settings-providerwizard.step_connect"),
     models: t("settings-providerwizard.step_models"),
+    devices: t("settings-providerwizard.step_devices"),
   })[s];
 
 /** A preset's key test: running, or what it answered. */
@@ -115,6 +118,12 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
   const preset = presets?.find((p) => p.id === choice);
   // a hub with built-in presets names a provider itself and takes assign; an older one needs the name and knows no assign
   const hubNames = useStore((s) => hubHas(s.features, BUILTIN_PRESETS_FEATURE, true));
+  // the device scope (docs/integrations/launchers.md "Device scope and on-demand delivery"): an existing provider's
+  // when its hub returns one, a new one's when the hub says it takes it
+  const scopeOn = useStore((s) => scopeShown(old, s.features));
+  const machines = useStore((s) => s.machines);
+  const [scope, setScope] = useState<ScopeForm>(() => newScope());
+  const [devicesOpen, setDevicesOpen] = useState(false);
 
   // Settings keeps this component mounted when closed. A request belongs to one opening and connection,
   // even if the user later returns to the same provider or restores the same input values.
@@ -144,6 +153,8 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
     setFound(null);
     setProbeModel("");
     setF(old ? formFromView(old) : newForm());
+    setScope(scopeFromView(old) ?? newScope());
+    setDevicesOpen(false);
     setStep(old ? "connect" : "pick");
     if (!isNew) return;
     setChoice("");
@@ -190,7 +201,8 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
   const hasLegacyChat = Object.keys(legacyChatClears(old)).length > 0;
   const presetFlow = isNew && choice !== CUSTOM;
   const presetReady = !!preset && (hubNames || !!pf.name.trim()) && !launcherNameProblem(pf.name) && !!pf.api_key.trim() && !keyTest?.running;
-  const canSave = step === "key" ? presetReady : !problems.connect && !problems.models && !problems.advanced && (!hasLegacyChat || clearLegacyChat);
+  const devicesProblem = scopeOn ? scopeProblem(scope) : "";
+  const canSave = !devicesProblem && (step === "key" ? presetReady : !problems.connect && !problems.models && !problems.advanced && (!hasLegacyChat || clearLegacyChat));
 
   const pick = (id: string) => {
     setError("");
@@ -255,13 +267,13 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
         await readinessSettled();
         const before = currentReadiness();
         const give = hubNames && (assignSet ?? assignByDefault(claudeWorks(before), keyTest && !keyTest.running ? keyTest.result : null));
-        const result = await api<AddResult>("/launchers", { method: "POST", json: presetBody(preset, pf.name, pf.api_key, pf.model, give) });
+        const result = await api<AddResult>("/launchers", { method: "POST", json: { ...presetBody(preset, pf.name, pf.api_key, pf.model, give), ...(scopeOn ? scopeBody(scope, null, machines, give) : {}) } });
         onSaved();
         setAdded({ result, asked: give, fallback: pf.name.trim() || presetTitle(preset), noClaude: claudeMissing(before) });
         setStep("done");
         void readinessChanged();
       } else {
-        const body = providerBody(f, old, clearLegacyChat);
+        const body = { ...providerBody(f, old, clearLegacyChat), ...(scopeOn ? scopeBody(scope, old, machines) : {}) };
         await api(isNew ? "/launchers" : `/launchers/${enc(String(body.name))}`, { method: isNew ? "POST" : "PUT", json: body });
         toast(isNew ? t("settings-providerwizard.added", { name: String(body.name) }) : t("settings-providerwizard.saved", { name: String(body.name) }), "ok");
         onSaved();
@@ -275,9 +287,10 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
     }
   };
 
-  const steps: Step[] = !isNew ? ["connect", "models"] : presetFlow ? ["pick", "key", "done"] : ["pick", "connect", "models"];
+  const devices: Step[] = scopeOn ? ["devices"] : [];
+  const steps: Step[] = !isNew ? ["connect", "models", ...devices] : presetFlow ? ["pick", "key", "done"] : ["pick", "connect", "models", ...devices];
   const at = steps.indexOf(step);
-  const stepProblem = step === "connect" ? problems.connect : step === "models" ? problems.models || problems.advanced : "";
+  const stepProblem = step === "connect" ? problems.connect : step === "models" ? problems.models || problems.advanced : step === "devices" ? devicesProblem : "";
   const next = () => {
     if (stepProblem) return setError(stepProblem);
     setError("");
@@ -289,7 +302,7 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
     if (step === "done") return s === "done";
     if (s === "done") return false;
     const i = steps.indexOf(s);
-    return i <= at || !isNew || (s === "models" && !problems.connect);
+    return i <= at || !isNew || (s === "models" && !problems.connect) || (s === "devices" && !problems.connect && !problems.models && !problems.advanced);
   };
   const done = step === "done";
 
@@ -323,7 +336,12 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
                 {t("settings-providerwizard.next")}
               </Button>
             )}
-            {(step === "key" || step === "models" || !isNew) && step !== "pick" && (
+            {step === "models" && scopeOn && (
+              <Button tone="secondary" onClick={next}>
+                {t("settings-providerwizard.next")}
+              </Button>
+            )}
+            {(step === "key" || step === "models" || step === "devices" || !isNew) && step !== "pick" && (
               <Button tone="primary" busy={busy} disabled={!canSave} onClick={() => void save()}>
                 {t("common.save")}
               </Button>
@@ -336,7 +354,7 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (step === "key" || step === "models") void save();
+          if (step === "key" || step === "models" || step === "devices") void save();
           else if (step === "connect") next();
         }}
       >
@@ -368,7 +386,13 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
         {step === "pick" && <PickStep presets={presets} error={presetsError} choice={choice} onPick={pick} />}
 
         {step === "key" && preset && (
-          <KeyStep preset={preset} pf={pf} setPf={setPf} keyTest={keyTest} onRetest={() => void runKeyTest()} onOther={() => (setError(""), setChoice(""), setStep("pick"))} assign={hubNames ? assign : null} setAssign={setAssign} checking={pending && assignSet === null} works={works ? readiness?.machine?.name ?? "" : null} more={more} setMore={setMore} />
+          <KeyStep preset={preset} pf={pf} setPf={setPf} keyTest={keyTest} onRetest={() => void runKeyTest()} onOther={() => (setError(""), setChoice(""), setStep("pick"))} assign={hubNames ? assign : null} setAssign={setAssign} checking={pending && assignSet === null} works={works ? readiness?.machine?.name ?? "" : null} more={more} setMore={setMore}
+            devices={scopeOn && (
+              <Disclosure title={t("settings-providerwizard.step_devices")} open={devicesOpen} onToggle={() => setDevicesOpen((o) => !o)}
+                badge={devicesOpen ? undefined : scopeSummary(formScope(scope, hubNames && assign), (id) => machines.find((m) => m.id === id)?.name || id)}>
+                <ProviderScope scope={scope} setScope={setScope} old={null} kind={preset.kind} assign={hubNames && assign} />
+              </Disclosure>
+            )} />
         )}
 
         {step === "done" && added && <DoneStep added={added} readiness={readiness} />}
@@ -432,6 +456,8 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
               </div>
           </div>
         )}
+
+        {step === "devices" && <ProviderScope scope={scope} setScope={setScope} old={old} kind={f.kind} agent={f.agent} />}
 
         {step === "models" && (
           <div className="flex flex-col gap-3">
@@ -498,7 +524,7 @@ function PickStep({ presets, error, choice, onPick }: { presets: LauncherPreset[
 type PresetForm = { name: string; api_key: string; model: string };
 
 /** (2) for a preset: only the key; it is tested by itself. The name and another model wait under "More options". */
-function KeyStep({ preset, pf, setPf, keyTest, onRetest, onOther, assign, setAssign, checking, works, more, setMore }: {
+function KeyStep({ preset, pf, setPf, keyTest, onRetest, onOther, assign, setAssign, checking, works, more, setMore, devices }: {
   preset: LauncherPreset;
   pf: PresetForm;
   setPf: React.Dispatch<React.SetStateAction<PresetForm>>;
@@ -515,6 +541,8 @@ function KeyStep({ preset, pf, setPf, keyTest, onRetest, onOther, assign, setAss
   works: string | null;
   more: boolean;
   setMore: (fn: (o: boolean) => boolean) => void;
+  /** The "Devices" disclosure, when the hub takes a scope. */
+  devices?: React.ReactNode;
 }) {
   const signup = signupHref(preset);
   const choices = presetChoices(preset);
@@ -581,6 +609,7 @@ function KeyStep({ preset, pf, setPf, keyTest, onRetest, onOther, assign, setAss
           )}
         </Labelled>
       </Disclosure>
+      {devices}
     </div>
   );
 }

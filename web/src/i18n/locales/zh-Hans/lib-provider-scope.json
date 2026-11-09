@@ -1,0 +1,12 @@
+{
+  "pick_machine": "至少选一台电脑",
+  "summary_none": "只留在 hub",
+  "summary_legacy": "所有电脑，包括工作电脑",
+  "summary_selected_none": "还没选电脑",
+  "summary_all": "所有电脑",
+  "summary_all_work_other": "所有电脑 + {count} 台工作电脑",
+  "summary_push": "每台存一份",
+  "summary_on_demand": "用到时再取",
+  "summary_use": "已登录的电脑也用",
+  "harness_api": "直接 API"
+}

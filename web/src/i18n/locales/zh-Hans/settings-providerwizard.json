@@ -128,5 +128,6 @@
   "how_install": "怎么装",
   "assign_checking": "正在看主对话现在能不能用…",
   "done_no_claude_kept": "Key 存好了；要用它，还得先在 {machine} 上装 Claude Code。",
-  "done_no_claude_kept_any": "Key 存好了；要用它，还得先在电脑上装 Claude Code。"
+  "done_no_claude_kept_any": "Key 存好了；要用它，还得先在电脑上装 Claude Code。",
+  "step_devices": "电脑"
 }

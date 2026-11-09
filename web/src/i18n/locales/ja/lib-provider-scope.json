@@ -1,0 +1,12 @@
+{
+  "pick_machine": "コンピューターを 1 台以上選んでください",
+  "summary_none": "ハブのみ",
+  "summary_legacy": "すべてのコンピューター（仕事用を含む）",
+  "summary_selected_none": "コンピューター未選択",
+  "summary_all": "すべてのコンピューター",
+  "summary_all_work_other": "すべてのコンピューター + 仕事用 {count} 台",
+  "summary_push": "各コンピューターに保存",
+  "summary_on_demand": "必要なときに取得",
+  "summary_use": "サインイン済みでも使用",
+  "harness_api": "直接 API"
+}
