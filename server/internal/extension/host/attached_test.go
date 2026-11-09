@@ -333,6 +333,55 @@ func TestRunProgramIdleAfterFailingKeepsError(t *testing.T) {
 	}
 }
 
+// What an attached plugin's run was handed does not outlive the run, though it came up: after an idle stop or a lost
+// connection its program goes on elsewhere. A program the host runs is released only after a run that never came up.
+func TestAttachedReleasedAfterEveryRun(t *testing.T) {
+	timings(t, 20*time.Millisecond, time.Hour)
+	sock := filepath.Join(farDir(t), "far.sock")
+	f := serveFar(t, sock, false)
+	s := attachedSpec(t, sock, nil)
+	s.Startup, s.OnCall, s.Idle = false, true, 200*time.Millisecond
+	var inits, released atomic.Int32
+	init := s.Init
+	s.Init = func(ctx context.Context) (extension.InitializeParams, error) { inits.Add(1); return init(ctx) }
+	s.Release = func() { released.Add(1) }
+	p := Start(context.Background(), s)
+	defer p.Stop()
+	pid(t, p)
+	if n := released.Load(); n != 0 {
+		t.Fatalf("released %d times while up", n)
+	}
+	waitState(t, p, StateStopped) // unused past Idle, the program still listening
+	waitFor(t, "the idle stop released", func() bool { return released.Load() == 1 })
+
+	hold := p.Hold()
+	defer hold()
+	waitState(t, p, StateRunning)
+	f.mu.Lock()
+	for _, c := range f.conns { // the connection drops, the program stays
+		c.Close()
+	}
+	f.conns = nil
+	f.mu.Unlock()
+	waitFor(t, "the lost connection released, then a new run", func() bool { return released.Load() == 2 && inits.Load() == 3 })
+	waitState(t, p, StateRunning)
+	if n := released.Load(); n != 2 {
+		t.Fatalf("released %d times, want once per run that ended", n)
+	}
+
+	r := spec(t, "rpc")
+	r.OnCall, r.Idle = true, 200*time.Millisecond
+	var ran atomic.Int32
+	r.Release = func() { ran.Add(1) }
+	q := Start(context.Background(), r)
+	defer q.Stop()
+	pid(t, q)
+	waitState(t, q, StateStopped)
+	if n := ran.Load(); n != 0 {
+		t.Fatalf("a program the host runs was released %d times after a run that came up", n)
+	}
+}
+
 // One that answers as another version is refused: an error at once, whatever the grace, tried again with the backoff,
 // and Link says what it said.
 func TestAttachedOtherVersionIsRefused(t *testing.T) {

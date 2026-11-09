@@ -832,7 +832,8 @@ func (ps *extensions) specOf(ctx context.Context, p *extension.Extension, hp *hu
 	s := host.Spec{ID: id, Name: m.Name, Logf: ps.hostLogf()}
 	if ps.h != nil {
 		// A start that does not come up keeps no token, whatever stopped it: initialize or the environment had it already.
-		s.NotUp = func() { ps.h.extTokens.revoke(id, tokenStopReason(ps.reg.GetExact(id))) }
+		// Nor does a program elsewhere once its run ends (an idle stop, a lost connection): it goes on running there.
+		s.Release = func() { ps.h.extTokens.revoke(id, tokenStopReason(ps.reg.GetExact(id))) }
 	}
 	if st := ps.stats.of(id); st != nil {
 		s.Observe = st

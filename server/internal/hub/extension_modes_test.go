@@ -189,6 +189,10 @@ func TestAnExtensionChangesThePermissionModeOfItsOwnConversationsOnly(t *testing
 		{"an empty answer to a dialog", scoped, "/api/v1/interactions/" + scrUser + "/resolve", `{}`, "not_opened", ""},
 		{"its own dialog without the scope", unscoped, "/api/v1/interactions/" + scrOwn + "/resolve", `{"option":"1"}`, "scope", ""},
 		{"a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"keys":["1"]}`, "not_opened", ""},
+		{"an option of a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"option":"1"}`, "not_opened", ""},
+		{"options of a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"options":["1"]}`, "not_opened", ""},
+		{"pre-keys of a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"pre_keys":["shift+tab"]}`, "not_opened", ""},
+		{"text typed into a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"text":"1"}`, "not_opened", ""},
 		{"approving a card the hub does not hold", scoped, "/api/v1/interactions/no_such_card/resolve", `{"approve":true}`, "not_opened", "bypassPermissions"},
 	} {
 		code, out := do(c.tok, c.path, c.body)

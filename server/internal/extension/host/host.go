@@ -107,9 +107,10 @@ type Spec struct {
 	// Version, for an attached plugin that speaks the protocol, is the version it must be: before Init is asked it must
 	// answer manifest as ID at Version, or it is refused and gets nothing Init makes (a token, the settings, secrets).
 	Version string
-	// NotUp is called after each run that never became ready (a start that failed or was refused, or stopped first):
-	// what Init or StartEnv handed out for it must not outlive it.
-	NotUp func()
+	// Release is called after each run that never became ready (a start that failed or was refused, or stopped first),
+	// and after every run of an attached plugin, whose program goes on elsewhere once its run ends: what Init or StartEnv
+	// handed out for it must not outlive it.
+	Release func()
 	// Check runs before each start (a built-in program must be the hub's build); its error is the status's.
 	Check func(ctx context.Context) error
 	// Accept holds what the program said to what the hub expects; an error stops it.
@@ -554,8 +555,8 @@ func (p *Proc) loop(ctx context.Context) {
 		wasUp := p.ready
 		p.sess, p.ready, p.kill, p.strikes = nil, false, nil, 0
 		p.mu.Unlock()
-		if !wasUp && p.spec.NotUp != nil {
-			p.spec.NotUp()
+		if (!wasUp || p.spec.attached()) && p.spec.Release != nil {
+			p.spec.Release()
 		}
 		if ctx.Err() != nil {
 			p.set(StateStopped, "")
