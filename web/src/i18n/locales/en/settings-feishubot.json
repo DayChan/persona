@@ -13,6 +13,8 @@
   "feature_reports_detail": "When tasks from the main chat finish, wait for you or get cut off, one card sums them up in Lark, with stages and links",
   "feature_board_title": "Waiting-for-you board in Lark",
   "feature_board_detail": "/tasks sends one card listing everything waiting for you, then keeps it up to date in place instead of sending a new one",
+  "feature_workbench_title": "Workbench in Lark",
+  "feature_workbench_detail": "/home brings up a pinned home card of everything going on (kept the only one and up to date), every card gets a button back to it, /today and /inbox show the day and the Inbox, and /start asks for a permission mode",
   "feature_only_conclusions_title": "Only conclusions to Lark",
   "feature_only_conclusions_detail": "Tasks from the main chat no longer send their progress (a finished turn, waiting for you, interrupted), which stays in the to-do list and the briefing; a conclusion card still comes when there is one: done, can't be done, or needs your decision",
   "feature_agents_title": "Drive agents",

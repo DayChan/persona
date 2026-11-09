@@ -177,7 +177,7 @@ struct UserBubble: View, Equatable {
                 HStack {
                     Spacer(minLength: 48)
                     UserBubbleBody(quotes: quotes, text: shown, paths: d.pathRefs)
-                        .messageLongPress(id: item.id)
+                        .messageLongPress(id: item.id) { UserBubbleBody(quotes: quotes, text: shown, paths: d.pathRefs) }
                 }
             }
             if let openFile { FileChips(paths: d.chips, open: openFile) }
@@ -243,8 +243,17 @@ struct PeerMessage: View {
     @Environment(\.subagentsByCall) private var agents
 
     var body: some View {
+        card
+            .padding(.trailing, Theme.Space.xxl)
+            .chatPinned(pinKey)
+            .messageLongPress(id: item.id) { card }
+            .messageActionBar(id: item.id, text: item.text ?? "", isUser: false, date: item.ts)
+    }
+
+    /// The message in its card (also what a long press lifts).
+    var card: some View {
         let d = RowMemo.assistant(RowMemo.key(memoScope, item.id)) { _ in AssistantRowText(item.text ?? "") } // once per message
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+        return VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Label("From \(from)", systemImage: "arrow.left.arrow.right.circle")
                 .font(Theme.Font.labelStrong)
                 .foregroundStyle(.secondary)
@@ -259,10 +268,6 @@ struct PeerMessage: View {
         .padding(Theme.Space.m)
         .background(Theme.Fill.well, in: .rect(cornerRadius: Theme.Radius.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
-        .padding(.trailing, Theme.Space.xxl)
-        .chatPinned(pinKey)
-        .messageLongPress(id: item.id)
-        .messageActionBar(id: item.id, text: item.text ?? "", isUser: false, date: item.ts)
     }
 
     private var pinKey: String { "peer-" + item.id }
@@ -340,7 +345,7 @@ struct PendingBubble: View {
                 }
                 UserBubbleBody(quotes: ContextRef.quotes(parsed.refs) ?? [], text: shown)
                     .opacity(msg.state == .failed || msg.state == .waiting ? 0.6 : 1)
-                    .messageLongPress(id: msg.id.uuidString)
+                    .messageLongPress(id: msg.id.uuidString) { UserBubbleBody(quotes: ContextRef.quotes(parsed.refs) ?? [], text: shown) }
             }
             if msg.state == .waiting {
                 Text("Sends when connected").font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
@@ -484,25 +489,34 @@ struct AssistantText: View, Equatable {
     /// The new conversation layout (#1666, `ChatLayout`): Persona's answer in its pale gray box.
     @Environment(\.chatLayout) private var layout
 
+    /// In the new layout's box (not the words between an agent's steps).
+    private var boxed: Bool { layout.on && !quiet }
+
+    /// The answer's words, in their box when there is one (also what a long press lifts).
+    private func answer(_ d: AssistantRowText) -> some View {
+        AssistantRichMarkdown(text: item.text ?? "", itemID: item.id, memo: d, memoKey: RowMemo.key(memoScope, item.id))
+            // Inside the theme (applied first), or the theme's text style wins (docs/lessons/ios.md).
+            .modifier(QuietMarkdown(on: quiet))
+            .markdownTheme(.persona)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .chatBoxed(Theme.ChatBox.persona, on: boxed)
+    }
+
     var body: some View {
         #if DEBUG || PERF_SIGNPOST
         let _ = PerfTrace.body("AssistantText")
         #endif
         let d = RowMemo.assistant(RowMemo.key(memoScope, item.id)) { _ in AssistantRowText(item.text ?? "") } // once per message
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            AssistantRichMarkdown(text: item.text ?? "", itemID: item.id, memo: d, memoKey: RowMemo.key(memoScope, item.id))
+            answer(d)
                 .task(id: item.id) { await Self.preloadLinks(item) }
-                // Inside the theme (applied first), or the theme's text style wins (docs/lessons/ios.md).
-                .modifier(QuietMarkdown(on: quiet))
-                .markdownTheme(.persona)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .chatBoxed(Theme.ChatBox.persona, on: layout.on && !quiet)
                 #if os(macOS)
                 // Drag to select and ⌘C, as on the web (#2542); iOS keeps the long-press menu's Select.
                 .textSelection(.enabled)
                 #endif
                 .contentShape(.rect)
-                .messageLongPress(id: item.id)
+                // A boxed answer is lifted in its own box, a bare one on a card.
+                .messageLongPress(id: item.id, card: !boxed) { answer(d) }
             if let openFile {
                 // Documents as cards with their first page (#1543), the rest as chips.
                 FileChips(paths: d.chips, open: openFile)

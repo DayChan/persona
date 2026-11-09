@@ -568,6 +568,7 @@ func (m *Machine) onEvent(event string, params json.RawMessage) {
 		var p struct {
 			SessionID string       `json:"session_id"`
 			Items     []proto.Item `json:"items"`
+			MoreAfter bool         `json:"more_after"`
 			itemSpan
 		}
 		// A batch without items still matters when it has a span: it moves the apps' "complete up to" forward.
@@ -587,7 +588,7 @@ func (m *Machine) onEvent(event string, params json.RawMessage) {
 		}
 		m.mu.Unlock()
 		p.Items = m.hub.withInjected(p.Items)
-		m.hub.itemsToSubscribers(m.cfg.ID, p.SessionID, p.Items, p.itemSpan)
+		m.hub.itemsToSubscribers(m.cfg.ID, p.SessionID, p.Items, p.itemSpan, p.MoreAfter)
 	case "session.screen":
 		var p struct {
 			SessionID string `json:"session_id"`

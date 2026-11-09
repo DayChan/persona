@@ -36,7 +36,6 @@
     "hstackSpacing" : 1
   },
   "Persona\/Views\/Chat\/MessageMenu.swift" : {
-    "animation" : 2,
     "hstackSpacing" : 1
   },
   "Persona\/Views\/Chat\/MessageViews.swift" : {

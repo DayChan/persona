@@ -50,17 +50,17 @@ func TestAwaitsReply(t *testing.T) {
 // An older node sends no asks: the list's last words stand in when they are the whole reply, not when they were cut.
 func TestDecorateAwaitsReadsShortLastText(t *testing.T) {
 	s := proto.Session{Status: proto.StatusDone, State: proto.StateIdle, LastText: "改好了。要合并吗？"}
-	decorateAwaits(&s)
+	decorateAwaits(&s, askReader{})
 	if !s.AwaitsReply || s.Asks != "要合并吗？" {
 		t.Fatalf("short reply: awaits %v asks %q", s.AwaitsReply, s.Asks)
 	}
 	s = proto.Session{Status: proto.StatusDone, State: proto.StateIdle, LastText: "要合并吗？还有很多…"}
-	if decorateAwaits(&s); s.AwaitsReply {
+	if decorateAwaits(&s, askReader{}); s.AwaitsReply {
 		t.Fatal("a cut reply's beginning is not its close")
 	}
 	// A node that read the whole reply and found nothing (the user answered after it) is taken at its word.
 	s = proto.Session{Status: proto.StatusDone, State: proto.StateIdle, LastText: "改好了。要合并吗？", AsksRead: true}
-	if decorateAwaits(&s); s.AwaitsReply || s.Asks != "" {
+	if decorateAwaits(&s, askReader{}); s.AwaitsReply || s.Asks != "" {
 		t.Fatalf("read by the node: awaits %v asks %q", s.AwaitsReply, s.Asks)
 	}
 }

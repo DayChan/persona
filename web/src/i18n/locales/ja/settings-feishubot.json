@@ -13,6 +13,8 @@
   "feature_reports_detail": "メインチャットのタスクが完了・あなた待ち・中断になると、段階とリンク付きで 1 枚のカードにまとめて送ります",
   "feature_board_title": "Larkの「あなた待ち」ボード",
   "feature_board_detail": "/tasks があなた待ちの項目をまとめた1枚のカードを送り、その後は新しく送らずにその場で更新します",
+  "feature_workbench_title": "Lark のワークベンチ",
+  "feature_workbench_detail": "/home で全体をまとめたホームカードをピン留めして呼び出し（常に1枚だけ、自動で更新）、どのカードにもそこへ戻るボタンが付きます。/today で今日、/inbox で受信箱を表示し、/start で権限モードを選べます",
   "feature_only_conclusions_title": "Lark には結論だけ送る",
   "feature_only_conclusions_detail": "メインチャットのタスクの途中経過（ひと区切りの完了・あなた待ち・中断）は単独では送らずやることリストとブリーフィングにだけ残し、結論（完了・できない・あなたの判断が必要）が出たら結論カードをこれまでどおり送ります",
   "feature_agents_title": "エージェントを操作",

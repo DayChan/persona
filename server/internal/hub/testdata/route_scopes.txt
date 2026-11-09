@@ -101,6 +101,7 @@ assistant.ask        GET /api/v1/assistant
 assistant.ask        GET /api/v1/assistant/capabilities
 -                    GET /api/v1/assistant/conversations/{id}/always
 assistant.ask        GET /api/v1/assistant/conversations/{id}/feed
+-                    GET /api/v1/assistant/feishu/notices
 -                    GET /api/v1/assistant/followups
 -                    GET /api/v1/assistant/memory
 -                    GET /api/v1/assistant/places
@@ -288,6 +289,8 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/assistant/conversations/{id}/unarchive
 -                    POST /api/v1/assistant/conversations/{id}/views/{key}/actions
 -                    POST /api/v1/assistant/conversations/{id}/views/{key}/html-actions
+-                    POST /api/v1/assistant/feishu/notices/action
+-                    POST /api/v1/assistant/feishu/workbench
 -                    POST /api/v1/assistant/followups/{id}/run
 -                    POST /api/v1/assistant/main/new
 -                    POST /api/v1/assistant/origins/backfill
@@ -443,6 +446,7 @@ todos.write          POST /api/v1/todos
 -                    PUT /api/v1/agents/prefs
 -                    PUT /api/v1/agents/triage
 -                    PUT /api/v1/assistant
+-                    PUT /api/v1/assistant/feishu/companions
 -                    PUT /api/v1/assistant/memory/{name}
 -                    PUT /api/v1/assistant/places/{id}
 -                    PUT /api/v1/assistant/routines

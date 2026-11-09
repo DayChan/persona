@@ -108,6 +108,8 @@ type Service struct {
 	tposts     threadPoster      // feishu_thread_posts.go: what a todo tells its chat thread
 	tevents    todoEvents        // todo_events.go: what the extensions are told of the todos
 	standing   standingBoard     // feishu_board.go: the standing "waiting for you" card
+	workbench  workbenchState    // feishu_workbench_pin.go: the pinned workbench
+	companions companionState    // feishu_companions.go: the notices for a companion bot
 	kb         kbState           // kb.go
 	inbox      inboxBook         // inbox.go
 	board      boardBook         // workspace_board.go: the workspace board
@@ -165,6 +167,7 @@ func New(o Options) *Service {
 	s.agentRoutes()
 	s.workspaceBoardRoutes()
 	s.channelRoutes()
+	s.companionRoutes()
 	s.kbInit(o.KB)
 	s.kbRoutes()
 	s.inboxRoutes()

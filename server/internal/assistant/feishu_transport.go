@@ -49,7 +49,7 @@ func (s *Service) botPostTo(ctx context.Context, to feishuTarget, replyTo string
 	var res struct {
 		MessageID string `json:"message_id"`
 	}
-	p := map[string]any{"reply_to": replyTo, "card": card.JSON(), "fallback": fallback}
+	p := map[string]any{"reply_to": replyTo, "card": s.workbenchStamp(ctx, card).JSON(), "fallback": fallback}
 	if key != "" {
 		p["uuid"] = key
 	}
@@ -78,7 +78,7 @@ func (s *Service) botSay(ctx context.Context, text string) {
 }
 
 func (s *Service) botUpdateCard(ctx context.Context, messageID string, card *feishubot.Card) error {
-	return s.appCall(ctx, AppFeishu, FeishuUpdateCard, map[string]any{"message_id": messageID, "card": card.JSON()}, nil)
+	return s.appCall(ctx, AppFeishu, FeishuUpdateCard, map[string]any{"message_id": messageID, "card": s.workbenchStamp(ctx, card).JSON()}, nil)
 }
 
 func (s *Service) botReact(ctx context.Context, messageID, emoji string) (string, error) {

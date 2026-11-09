@@ -201,17 +201,24 @@ func (n *Node) moveOne(e editEntry, realDir, name, conflict string) (string, err
 	if err := n.writable(to); err != nil {
 		return "", err
 	}
+	var replaced string // the trash id of the destination a replace moved aside
 	if conflict == proto.UploadConflictReplace {
 		if st, err := os.Lstat(to); err == nil {
 			if st.IsDir() || e.info.IsDir() {
 				return "", errExists(name)
 			}
-			if _, err := n.toTrash(to, to); err != nil {
+			if replaced, err = n.toTrash(to, to); err != nil {
 				return "", err
 			}
 		}
 	}
 	err := renameExcl(e.real, to)
+	if err != nil && replaced != "" {
+		// Nothing took the destination's place (the source went away, another file system): it goes back (#1968).
+		if _, rerr := n.restoreFiles([]string{replaced}); rerr != nil {
+			return "", fmt.Errorf("%w; %s is in the trash and could not be put back: %v", err, name, rerr)
+		}
+	}
 	if conflict != proto.UploadConflictKeep || !errors.Is(err, os.ErrExist) {
 		if errors.Is(err, os.ErrExist) {
 			return "", errExists(name)

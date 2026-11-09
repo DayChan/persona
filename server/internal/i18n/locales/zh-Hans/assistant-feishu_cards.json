@@ -78,6 +78,7 @@
   "help_main": "- `/main` 回到主对话\n- `/new` 开一段新对话（下一条消息开始）\n- `/list` 最近的对话，点一下切换\n",
   "help_agents": "- `/agents` 各台电脑上的 Agent，点一下就在这里和它聊\n- `/start` 在某台电脑上开一个新 Agent\n",
   "help_tasks": "- `/tasks` 在途任务总览：等你拍板的事和全部在途任务（也可发 `/进展`、`/总览`）\n",
+  "help_workbench": "- `/home` 工作台：一张置顶卡片看全局，按钮直达各处（也可发 `/工作台`）· `/today` 今日概览 · `/inbox` 收件箱（AI 起草、以你的身份回复）\n",
   "tasks_overview": "📋 任务总览",
   "tasks_todos": "📈 在途任务",
   "tasks_no_decide": "暂时没有等你拍板的事。",

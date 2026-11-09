@@ -7668,6 +7668,49 @@ def subagent_step():
     return {"step": n}
 
 
+# MOCK_MESSAGE_LIFT=1: chats for the lifted message of a long press (#603): short messages, the newest one just above the
+# composer, and a long answer with a heading, a list, a code block and a table, taller than any screen. Synthetic text.
+LIFT_SHORT = "a1f3c2d4-0000-4000-8000-0000000c1e08"
+LIFT_LONG = "a1f3c2d4-0000-4000-8000-0000000c1e09"
+
+
+def mock_message_lift():
+    ITEMS[LIFT_SHORT] = [
+        it("user", "text", 30, text="登录页的按钮文字太长了，小屏上换行了"),
+        it("assistant", "text", 29, text="看到了：「使用手机号和验证码登录」在 320 宽的屏幕上折成两行。改成「验证码登录」，再把说明放到按钮下面一行小字，可以吗？"),
+        it("user", "text", 20, text="可以，就这么改"),
+        it("assistant", "text", 19, text="改好了，三种语言的文案都换了，截图在 `shots/login-after.png`。"),
+        it("user", "text", 12, text="顺手看看注册页有没有同样的问题"),
+        it("assistant", "text", 10, text="注册页的按钮没有换行，但「获取验证码」在日语下被截短了，我把它改成两个字的「送信」，其他语言不变。"),
+        it("user", "text", 3, text="好的"),
+        it("assistant", "text", 2, text="收到，都提交了。"),
+    ]
+    rows = "\n".join("| %s | %d | %d | %s |" % r for r in [
+        ("登录", 42, 42, "全部通过"), ("注册", 38, 37, "1 个超时，重跑通过"), ("找回密码", 21, 21, "全部通过"),
+        ("个人资料", 30, 28, "2 个截图对比失败"), ("设置", 25, 25, "全部通过"), ("消息列表", 56, 56, "全部通过")])
+    long = ("## 改动和验证\n\n这次一共改了三处，下面按模块说明，最后是测试结果和还没做的事。\n\n"
+            "### 1. 登录页\n\n- 按钮文字从「使用手机号和验证码登录」改成「验证码登录」，说明挪到按钮下面一行小字。\n"
+            "- 小屏（320 宽）上不再换行；大字号下按钮高度跟着字号变，不截断。\n- 深色模式下说明文字的对比度从 3.2 提到 4.8。\n\n"
+            "### 2. 注册页\n\n- 「获取验证码」在日语下被截短，改成「送信」。\n- 倒计时期间按钮显示剩余秒数，读屏会念出来。\n"
+            "- 手机号输入框加了格式提示，输错时在框下面说明原因，不再只是变红。\n\n"
+            "### 3. 共用的按钮组件\n\n按钮标签统一单行，放不下时先缩小字号，最小到 0.8 倍：\n\n"
+            "```swift\nstruct PrimaryButton: View {\n    var title: String\n    var action: () -> Void\n\n    var body: some View {\n"
+            "        Button(action: action) {\n            Text(title)\n                .lineLimit(1)\n                .minimumScaleFactor(0.8)\n"
+            "                .frame(maxWidth: .infinity)\n        }\n        .buttonStyle(.borderedProminent)\n    }\n}\n```\n\n"
+            "### 测试结果\n\n| 模块 | 用例 | 通过 | 说明 |\n| --- | --- | --- | --- |\n" + rows + "\n\n"
+            "个人资料页的两个截图对比失败是因为头像换了新的占位图，基准图要更新，和这次改动无关。\n\n"
+            "### 还没做\n\n- 安卓端的同样问题还没改，文案已经同步到共享的字符串表里。\n- 网页端的登录页用的是另一套组件，下次一起改。\n"
+            "- 截图基准图等你确认后再更新。\n\n有问题的话告诉我具体哪一页，我再调整。")
+    ITEMS[LIFT_LONG] = [it("user", "text", 15, text="把这次登录和注册页的改动整理一下，带上测试结果"),
+                        it("assistant", "text", 5, text=long)]
+    SESSIONS.append(sess("macbook", LIFT_SHORT, "登录页文案", "/Users/me/code/shop-app", "done", "done", "shop-app", 17, "lift", 1, 2, "收到，都提交了。"))
+    SESSIONS.append(sess("macbook", LIFT_LONG, "改动整理", "/Users/me/code/shop-app", "done", "done", "shop-app", 17, "lift", 2, 5, "有问题的话告诉我具体哪一页。"))
+
+
+if os.environ.get("MOCK_MESSAGE_LIFT") == "1":
+    mock_message_lift()
+
+
 # MOCK_SUBAGENT_PARALLEL=1: three subagents launched together in the live exchange (#5602, the grid): one done, one
 # still running (its latest call is what its card says it does), one that failed.
 SUBPAR = "a1f3c2d4-0000-4000-8000-0000000c1e05"

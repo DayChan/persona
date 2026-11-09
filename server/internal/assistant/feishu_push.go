@@ -27,7 +27,6 @@ func (s *Service) feishuPush(machine, session, title, body string) {
 	l := s.botLang(ctx)
 	cards := answerCards(l, body, false, nil, "")
 	head := feishubot.NewCard("", "", title)
-	var missing []int // the pieces that did not get out (1-based): said at the end
 	for i, ac := range cards {
 		if i == 0 {
 			// The push's title heads the card; the body's own heading and status ("Please verify" / "No changes") are kept (Retitle).
@@ -37,6 +36,13 @@ func (s *Service) feishuPush(machine, session, title, body string) {
 		if i == len(cards)-1 && session != "" {
 			ac.card.Buttons(s.openButton(ctx, machine, session))
 		}
+	}
+	if s.divertAnswer(ctx, "push", cards) { // a notifications companion takes it (feishu_companions.go)
+		s.markPushed(session)
+		return
+	}
+	var missing []int // the pieces that did not get out (1-based): said at the end
+	for i, ac := range cards {
 		mid, err := s.botPost(ctx, "", ac.card, ac.fallback)
 		if err != nil {
 			s.logf("bots: push: %v", err)
@@ -155,6 +161,14 @@ var (
 // nothing did: the same cards go again later, while mirrorStillDue, up to feishuMirrorRetries times; not when Feishu
 // refused it for good. Later ones that fail are named at the end.
 func (s *Service) feishuMirrorPost(ctx context.Context, m *mirrorSend, attempt int) {
+	// A scheduled task's result goes to a notifications companion when one takes the notices (feishu_companions.go);
+	// the main conversation's turns stay in the chat, where a reply continues them.
+	if !m.main && s.divertAnswer(ctx, "task", m.cards) {
+		if m.sent != nil {
+			m.sent()
+		}
+		return
+	}
 	var missing []int // the pieces that did not get out (1-based): said at the end
 	for i, ac := range m.cards {
 		mid, err := s.botPostKeyed(ctx, "", ac.card, ac.fallback, m.key+strconv.Itoa(i))
