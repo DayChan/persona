@@ -25,8 +25,11 @@ export class BrowserVoiceAudio implements VoiceAudio {
   private source: MediaStreamAudioSourceNode | null = null;
   private stopped = false;
   private ownSuspend = false;
+  /** Muted now: a mute tapped while the microphone's permission is being asked must reach the worklet made after it. */
+  private muted = false;
+  /** The input rate asked for last (`ready` may name another one while the microphone is still being opened). */
+  private rate = 0;
   private inputLevel = 0;
-  private rate = 16000;
   private onEvent: (e: VoiceAudioEvent) => void = () => {};
   /** Bumped by `clear`: a chunk scheduled before it, and its timers, belong to speech that was dropped. */
   private generation = 0;
@@ -54,6 +57,7 @@ export class BrowserVoiceAudio implements VoiceAudio {
 
   async start(o: { inputRate: number; muted: boolean; onFrame: (frame: Int16Array, rate: number) => void; onEvent: (e: VoiceAudioEvent) => void }): Promise<void> {
     this.onEvent = o.onEvent;
+    this.muted = o.muted;
     this.rate = o.inputRate;
     let stream: MediaStream;
     try {
@@ -77,12 +81,13 @@ export class BrowserVoiceAudio implements VoiceAudio {
     }
     if (this.stopped) return;
     const node = new AudioWorkletNode(this.capture, "persona-voice-capture", {
-      numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { rate: o.inputRate, muted: o.muted },
+      numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { rate: this.rate, muted: this.muted },
     });
     node.port.onmessage = (e: MessageEvent<CaptureFrame>) => {
       if (this.stopped) return;
-      this.inputLevel = e.data.level;
-      o.onFrame(new Int16Array(e.data.pcm), this.rate);
+      this.inputLevel = this.muted ? 0 : e.data.level;
+      // the rate the worklet made it at: a frame already on its way when a new rate was asked for is still the old one
+      o.onFrame(new Int16Array(e.data.pcm), e.data.rate);
     };
     const source = this.capture.createMediaStreamSource(stream);
     source.connect(node);
@@ -113,6 +118,7 @@ export class BrowserVoiceAudio implements VoiceAudio {
   }
 
   setMuted(on: boolean): void {
+    this.muted = on;
     this.node?.port.postMessage({ type: "mute", on } satisfies CaptureCommand);
     if (on) this.inputLevel = 0;
   }

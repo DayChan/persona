@@ -189,14 +189,16 @@ class VoiceMockTests(unittest.TestCase):
             ws.until(lambda f: f["type"] == "ready")
             before = self.get("/mock/voice2")
             for _ in range(3):
-                ws.send_bytes(bytes(640))  # 20 ms of 16 kHz PCM16
+                ws.send_bytes(bytes(640))  # 20 ms of 16 kHz PCM16, all zero (muted)
+            ws.send_bytes(b"\x01\x00" * 320)  # one that is not
             ws.until(lambda f: f["type"] == "run" and f["state"] == "working")
             # the hub's own row changed, so its sessions list (and push) says so
             self.assertEqual(state(), "working")
             log = self.get("/mock/voice2")
-            self.assertEqual(log["audio"] - before["audio"], 3)
-            self.assertEqual(log["audio_bytes"] - before["audio_bytes"], 1920)
-            self.assertGreaterEqual(log["audio_sizes"].get("640", 0), 3)
+            self.assertEqual(log["audio"] - before["audio"], 4)
+            self.assertEqual(log["audio_bytes"] - before["audio_bytes"], 2560)
+            self.assertGreaterEqual(log["audio_sizes"].get("640", 0), 4)
+            self.assertEqual(log["audio_silent"] - before["audio_silent"], 3)
         finally:
             ws.close()
 

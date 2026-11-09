@@ -17,7 +17,8 @@
 // paused / live → the question card marked "Asking by voice" → the late caption put before the answer → the second
 // instruction refused for the computer's unsent line, Clear and send (the mock gets clear_draft) → the result read
 // out → the browser suspends the audio (Voice ended · Continue) → Continue (history and resume in the new start) → End.
-// It checks that 20 ms PCM16 frames of 640 bytes reached the mock, and shoots each state, plus the explanation an
+// It checks that 20 ms PCM16 frames of 640 bytes reached the mock, that they keep coming as silence while muted and
+// carry sound again after Unmute, and shoots each state, plus the explanation an
 // insecure page (plain HTTP) gets. `--quick`: one run (agent, en, light). Exits nonzero on failure or its timeout and
 // prints a one-line verdict.
 import assert from "node:assert/strict";
@@ -345,6 +346,27 @@ try {
       assert.deepEqual(Object.keys(sent.audio_sizes), ["640"], `${name}: every frame is 640 bytes`);
       run.frames = frames;
       run.checks.push(`${frames} PCM frames of 640 bytes`);
+
+      // Mute: the frames go on every 20 ms (the extension's clock), all of them silence; Unmute: the microphone again
+      assert.ok(sent.audio - sent.audio_silent > 0, `${name}: the microphone sent something other than silence`);
+      const mute = page.getByTestId("voice-mute");
+      await mute.click();
+      await page.locator('[data-testid="voice-mute"][aria-pressed="true"]').waitFor();
+      await page.waitForTimeout(400); // frames already on their way when it was clicked
+      const muteFrom = await mockLog();
+      await page.waitForTimeout(1200);
+      const muteTo = await mockLog();
+      const muted = muteTo.audio - muteFrom.audio;
+      assert.ok(muted >= 30, `${name}: frames kept coming while muted (${muted})`);
+      assert.equal(muteTo.audio_silent - muteFrom.audio_silent, muted, `${name}: every frame while muted is silence`);
+      await shot("muted");
+      await mute.click();
+      await page.locator('[data-testid="voice-mute"][aria-pressed="false"]').waitFor();
+      await until(async () => {
+        const now = await mockLog();
+        return now.audio - now.audio_silent > muteTo.audio - muteTo.audio_silent;
+      }, 10_000, "the microphone again after Unmute");
+      run.checks.push(`muted: ${muted} frames, all silence; unmuted: sound again`);
 
       // the browser suspends the audio: the call ends by itself and leaves Continue
       await page.evaluate(() => Promise.all(window.__voiceE2E.contexts.filter((c) => c.state === "running").map((c) => c.suspend())));

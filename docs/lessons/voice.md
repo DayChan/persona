@@ -398,6 +398,11 @@ Other values: allowing 450 tokens per append (500-token limit, rejection observe
 - **Asserting that `clear` stops playback**: the mock streams 20 ms chunks in real time, so at any moment there is about one chunk queued,
   sometimes none. Reading the queue from the test runner and then clicking raced it; the test reads the queue and clicks the orb in the
   same task in the page, then checks that every queued chunk was stopped and nothing started after.
+- **Mute before the worklet exists**: the bar (and its Mute) shows as soon as the call starts, while the browser is still asking for
+  the microphone. A mute posted to a worklet node that is not there yet was lost, and the node made after it started unmuted: the
+  audio object keeps the mute itself and hands it to the worklet it makes. Likewise each frame carries the rate the worklet made it
+  at (a frame already posted when `ready` named another rate is still the old one). The e2e checks that muted frames keep coming
+  and are all zero (the mock counts all-zero frames, `audio_silent`).
 - **The mock wrote state changes into a copy**: `voice_mock.py` took its session from `all_sessions()`, which decorates copies, so "the
   conversation turns working" never reached a sessions push. It takes the hub's own row now; a client that reads the session's state (the
   web's Stop <agent>, iOS's working line) sees the script.

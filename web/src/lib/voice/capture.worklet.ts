@@ -7,9 +7,11 @@ import { meterLevel, Resampler, rms } from "./resample";
 
 /** Messages the page sends: mute, or a new input rate (`ready` named another one). */
 export type CaptureCommand = { type: "mute"; on: boolean } | { type: "rate"; rate: number };
-/** What it posts: one frame (PCM16, the machine's byte order: the page writes it little-endian) and its level 0…1. */
+/** What it posts: one frame (PCM16, the machine's byte order: the page writes it little-endian), the rate it was made at
+ *  (a frame posted before a `rate` command arrived is still at the old one) and its level 0…1. */
 export interface CaptureFrame {
   pcm: ArrayBuffer;
+  rate: number;
   level: number;
 }
 
@@ -45,7 +47,7 @@ class VoiceCapture extends scope.AudioWorkletProcessor {
       input = this.silence;
     }
     for (const frame of this.resampler.push(input)) {
-      const out: CaptureFrame = { pcm: frame.buffer as ArrayBuffer, level: this.muted ? 0 : meterLevel(rms(frame)) };
+      const out: CaptureFrame = { pcm: frame.buffer as ArrayBuffer, rate: this.resampler.to, level: this.muted ? 0 : meterLevel(rms(frame)) };
       this.port.postMessage(out, [out.pcm]);
     }
     return true;
