@@ -1,4 +1,4 @@
-"""MOCK_VOICE for iOS's voice mode (docs/assistant/voice.md 6.8): the voice extension at protocol 2, beside the protocol 1 script
+"""MOCK_VOICE for the iOS and web voice modes (docs/assistant/voice.md 6.8, 6.11; web/e2e/voice.mjs): the voice extension at protocol 2, beside the protocol 1 script
 that mock_hub.py keeps for Android (docs/android/android.md"Voice conversations"). mock_hub.py loads it when MOCK_VOICE is set and hands
 it its own module (`install`); everything here is made up.
 
@@ -8,8 +8,9 @@ What it adds, under /api/v1/extensions and the old /api/v1/plugins alike:
   GET  …/voice/models, …/voice/voices          as the protocol 1 mock has them
   GET  …/voice/ws                              a start with protocol 2 and a target gets the script below; any other
                                                start is handed to mock_hub.py's protocol 1 script unchanged
-  GET  /mock/voice2                            what the app sent (starts, texts, interrupts, resends), the script's steps
-                                               and how many protocol 2 sockets closed
+  GET  /mock/voice2                            what the app sent (starts, texts, interrupts, resends, the PCM frames: how
+                                               many, their bytes and sizes), the script's steps and how many protocol 2
+                                               sockets closed
 The model configuration's use plugin.voice comes from mock_hub.py's own MOCK_VOICE code.
 
 The script (seconds after ready): the user's words come in as captions (partial, then final) and the voice hands them
@@ -33,7 +34,7 @@ EXTENSION = "voice"
 # MOCK_VOICE_PACE=0.1: the script ten times as fast (test_voice_mock.py); 1 for the app, at a pace a screen can follow.
 PACE = float(os.environ.get("MOCK_VOICE_PACE") or "1")
 FEATURES = ["target", "runs", "asks", "resume", "suspend"]
-LOG = {"starts": [], "texts": [], "interrupts": 0, "resends": [], "audio": 0, "steps": [], "closes": 0}
+LOG = {"starts": [], "texts": [], "interrupts": 0, "resends": [], "audio": 0, "audio_bytes": 0, "audio_sizes": {}, "steps": [], "closes": 0}
 PREFIXES = ("/api/v1/extensions", "/api/v1/plugins")
 
 # The script's steps, as (seconds after ready, name); the names are what /mock/voice2 lists as they happen.
@@ -208,7 +209,8 @@ class Call:
         self.cut = threading.Event()
         target = start.get("target") or {}
         self.mid, self.sid = target.get("machine_id", ""), target.get("session_id", "")
-        self.session = next((s for s in hub.all_sessions() if s["machine_id"] == self.mid and s["session_id"] == self.sid), None)
+        # the hub's own row, not all_sessions()'s copy: the state changes below are what its sessions push sends
+        self.session = next((s for s in hub.SESSIONS + hub.ASSISTANT if s["machine_id"] == self.mid and s["session_id"] == self.sid), None)
         self.label = "Persona" if (self.session or {}).get("assistant") else "Claude"
         self.runs = {}
         self.ask = None
@@ -407,6 +409,9 @@ class Call:
                 op, payload = frame
                 if op == 2:
                     LOG["audio"] += 1
+                    LOG["audio_bytes"] += len(payload)
+                    size = str(len(payload))
+                    LOG["audio_sizes"][size] = LOG["audio_sizes"].get(size, 0) + 1
                     continue
                 if op == 8:
                     break

@@ -366,6 +366,31 @@ Other values: allowing 450 tokens per append (500-token limit, rejection observe
   page (a plan card in BeautifulUI at the standard size): another loop. Now it uses only values the cards do not move: the page height, the open
   header, the bar's own measured height (`VoiceBarRoom`) and the count's. The rule: what sizes an area must not take inputs the area itself moves.
 
+## The web voice mode (#2273, 2026-11-09)
+
+- **Chrome's fake microphone still waits on macOS's permission**: with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`
+  (Playwright's headless shell or the installed Chrome, permission granted to the context or not), `getUserMedia` never settles on a Mac
+  where the browser has no system microphone permission: the request goes to the system, and in a headless run nobody can answer it.
+  Worse, a browser left with that request pending stops answering everything afterwards (the next page's click hangs in "performing click
+  action"). `web/e2e/voice.mjs` asks once in a browser of its own, closes it, and where the fake device does not answer plays the same
+  16 kHz WAV (made with `say` + `afconvert`) through WebAudio into the stream it hands back as `getUserMedia`; everything after the stream
+  (the worklet, resampling, frames, the socket) stays real. Where the fake device answers, it is used as is (`results.json` says which).
+- **A browser hides a refused WebSocket handshake's status**: 401, 403 and 404 all look like a close with 1006 before `open`. The call asks
+  `GET …/info` with the same credential when a socket closes without having opened, and treats that status as the handshake's.
+- **Loading the AudioWorklet with Vite**: `new URL("./capture.worklet.ts", import.meta.url)` copies the raw TypeScript into the build;
+  `import url from "./capture.worklet.ts?worker&url"` bundles it into one self-contained file (an IIFE: valid as the module a worklet loads)
+  and serves an ES module in development (worklets accept imports, `/@vite/env` included). The hub serves `/web` with no
+  Content-Security-Policy; the worklet is a same-origin script either way, so no `blob:` URL is needed.
+- **Two AudioContexts**: the capture context runs at the device's rate (Firefox refuses a `MediaStreamAudioSourceNode` in a context at another
+  rate), the worklet resamples to `input_rate`; the playback context runs at `output_rate`. Both are made inside the click that starts the
+  call, before anything is awaited: once the permission prompt has been answered, the gesture's activation may be gone.
+- **Asserting that `clear` stops playback**: the mock streams 20 ms chunks in real time, so at any moment there is about one chunk queued,
+  sometimes none. Reading the queue from the test runner and then clicking raced it; the test reads the queue and clicks the orb in the
+  same task in the page, then checks that every queued chunk was stopped and nothing started after.
+- **The mock wrote state changes into a copy**: `voice_mock.py` took its session from `all_sessions()`, which decorates copies, so "the
+  conversation turns working" never reached a sessions push. It takes the hub's own row now; a client that reads the session's state (the
+  web's Stop <agent>, iOS's working line) sees the script.
+
 ## An address that accepts TCP but never answers TLS
 
 #1350, 2026-11-08.

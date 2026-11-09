@@ -31,6 +31,7 @@ import { useSendHistory } from "./useSendHistory";
 import { isModelCommand, requestModelPicker } from "../../lib/model-switch";
 import { MAX_IMAGES } from "../../lib/composer-commands";
 import { t } from "../../i18n";
+import type { VoiceOffer } from "./voice/VoiceParts";
 
 // Drawn only while an attached image is edited: its own chunk, fetched by the idle preload or the first edit (lib/lazy-page.ts).
 const ImageEditor = lazyPage(() => import("./ImageEditor").then((m) => m.ImageEditor));
@@ -95,6 +96,7 @@ export const Composer = memo(function Composer({
   mention,
   onFocusChange,
   blocked,
+  voice,
 }: {
   draftKey: string;
   placeholder: string;
@@ -120,6 +122,9 @@ export const Composer = memo(function Composer({
   /** The main conversation cannot answer yet (docs/assistant/onboarding.md 4.4): the send button says what to do first and opens
    *  it; the box still takes typing and keeps the draft, nothing is sent or queued. */
   blocked?: { label: string; onClick?: () => void; onNudge?: () => void };
+  /** Voice chat (docs/web/web.md "Voice"): with an empty box and an idle agent it takes the send button's place, round;
+   *  otherwise it is a plain icon before send / stop. "explain": its click says why a call cannot start here. */
+  voice?: VoiceOffer;
 }) {
   const [draft, setDraft] = useState(() => storedValue(`draft:${draftKey}`) ?? "");
   const [atts, setAtts] = useState<Attachment[]>([]);
@@ -494,6 +499,8 @@ export const Composer = memo(function Composer({
     });
   };
   const showStop = working && !sending && !draft.trim() && !atts.length && !contexts.length && !quote && onStop;
+  // an empty box and an idle agent: voice takes the send button's place (it would be off anyway), as on iOS
+  const roundVoice = voice?.mode === "start" && !canSend && !showStop && !blocked && !sending && !disabled;
 
   const submit = async (text = draft) => {
     const refs = getContexts(draftKey);
@@ -790,7 +797,33 @@ export const Composer = memo(function Composer({
           )}
           {/* not overflow-hidden: the chips' tap areas reach past this row (touch-hit); the footer truncates its own text */}
           <div className="min-w-0 flex-1 px-1 text-[11.5px] whitespace-nowrap text-ink-3">{footer}</div>
-          {showStop ? (
+          {voice && !roundVoice && (
+            <button
+              type="button"
+              data-testid="composer-voice"
+              data-voice-mode={voice.mode}
+              aria-label={t("voice.voice_chat")}
+              title={voice.label}
+              onClick={voice.onClick}
+              className={cx("touch-hit flex size-7 shrink-0 items-center justify-center rounded-[8px] transition-colors hover:bg-hover hover:text-ink", voice.mode === "start" ? "text-ink-2" : "text-ink-3")}
+            >
+              <Icon name="voice" size={15} stroke={2} />
+            </button>
+          )}
+          {roundVoice ? (
+            <button
+              type="button"
+              data-testid="composer-voice"
+              data-voice-mode="start"
+              aria-label={t("voice.voice_chat")}
+              title={voice!.label}
+              onClick={voice!.onClick}
+              className="touch-hit flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-ink text-surface transition-[opacity,transform] duration-200 hover:opacity-90 active:scale-[0.94]"
+              style={{ animation: `pop-in 200ms ${EASE} both` }}
+            >
+              <Icon name="voice" size={15} stroke={2.2} />
+            </button>
+          ) : showStop ? (
             <button
               type="button"
               aria-label={t("chat-composer.interrupt")}
