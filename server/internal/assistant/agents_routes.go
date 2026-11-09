@@ -16,7 +16,7 @@ import (
 )
 
 // The Agents business's routes (assistantwire's agentRoutes, relayed by the hub): the triage's switches, its numbers,
-// and renaming the tabs nobody named.
+// renaming the tabs nobody named, and the independent reviews (agents_review.go's agentReviewRoutes).
 
 func (s *Service) agentRoutes() {
 	s.handle("GET /api/v1/agents/triage", func(w http.ResponseWriter, r *http.Request) {

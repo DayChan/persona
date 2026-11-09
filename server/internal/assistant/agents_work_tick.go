@@ -22,6 +22,7 @@ func (s *Service) workLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
+			s.reviewTick(now) // the reviews' deadline sweep (agents_review.go): the user's asks, not the switches'
 			if s.workOn(ctx) {
 				s.workTick(ctx, now)
 			}

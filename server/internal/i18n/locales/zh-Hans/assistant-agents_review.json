@@ -1,0 +1,11 @@
+{
+  "no_session": "这台电脑上没有这个会话",
+  "session_busy": "这个会话正在运行或等待处理，停下来后再评审",
+  "no_change": "没有可评审的改动",
+  "no_change_not_git": "这个目录不是 Git 仓库，没有可评审的改动",
+  "review_running": "这个会话已经有一场评审在进行",
+  "read_only_unavailable": "{agent} 无法以只读模式启动评审，暂不支持对它独立评审",
+  "not_supported": "评审 Agent 没能启动：{error}",
+  "card_title": "评审完成：{n} 条发现",
+  "card_title_no_count": "评审完成"
+}

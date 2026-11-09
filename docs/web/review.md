@@ -147,6 +147,29 @@ Tests: `web/src/lib/session-review.test.ts` (the items, a comment's rows, drafts
 reading it back); `scripts/test/web_review_e2e.py` against the mock hub's `MOCK_FILES=1 MOCK_REVIEW=1`
 (`scripts/mock/mock_review.py`).
 
+## Agent review (independent reviewer, #1808)
+
+Beside reading the change yourself, the session menu can ask the hub for an **independent review** of it (feature
+`agent_review`, server side in `server/internal/assistant/agents_review.go`,
+[agent-work.md](../assistant/agent-work.md) "Independent review"). The manager starts a fresh read-only reviewer
+agent on the same machine and directory, seeded only with the user's own asks from that session and the git review
+scope above (branch, falling back to uncommitted) — never the agent under review's reasoning.
+
+- `POST /api/v1/machines/{mid}/sessions/{sid}/review` (empty body, `full` only) starts one →
+  `{"running":true,"reviewer_session_id","started_at"}`. Refusals are 404 `no_session`, 409 `session_busy`
+  (starting / working / blocked), 409 `no_change` (not a repository, or both scopes empty), 409 `review_running`,
+  409 `read_only_unavailable` (Codex / runtime agents cannot start read-only), 409 `not_supported` (the node refused
+  the reviewer's start).
+- `GET /api/v1/machines/{mid}/sessions/{sid}/review` is the menu's light state:
+  `{"running":bool,"started_at","pending"}`, `pending` being the session's unanswered review card or null.
+- When the reviewer finishes, the **source session** gets one pending interaction of kind `review`
+  (`tool_name: "persona_review"`, 7-day expiry) with `findings` (the report), `findings_count` (absent when the
+  reviewer said none; `summary` then has no count) and `review_session`. It is answered through the usual card
+  answer path as `manager.action`: `{action:"send"}` forwards the findings to the session's agent as one message and
+  closes the card (a failed send keeps it — answer again), `{dismiss:true}` closes it. A newer review of the same
+  session replaces a pending card; the reviewer itself never appears in the session lists.
+- The web entry is the session menu (this panel's sibling); its UI details are the web lane's.
+
 ## iOS / Mac (follow-up)
 
 The same review on Apple (UI version 5's code review there is #3280): a panel over `git/review` and the same message

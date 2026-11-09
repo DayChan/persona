@@ -87,6 +87,7 @@ var Features = []string{
 	"upload_dir",               // POST /api/v1/machines/{mid}/files?dest=dir&dir=&conflict=: into a folder of the home (docs/protocol/protocol.md "Changing files")
 	"file_edit",                // POST /api/v1/machines/{mid}/files/{rename,move,trash,restore} (docs/protocol/protocol.md "Changing files")
 	"task_push",                // Task.push on /api/v1/assistant/tasks: "Push when done", every run or only what a run sends (docs/assistant/assistant.md "Push when done")
+	"agent_review",             // POST/GET /api/v1/machines/{mid}/sessions/{sid}/review: an independent read-only reviewer of a session's change (#1808)
 }
 
 // Codes of a failed credential.gh_token (hub → node, node/credential.go).

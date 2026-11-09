@@ -107,6 +107,10 @@ const CodeGone = "gone"
 // like its other questions with manager.action): the lists put an agent's own question before one of these.
 const WorkCardTool = "persona_triage"
 
+// ReviewCardTool is the tool_name of the manager's cards with an independent reviewer's findings about a session's
+// change (#1808, kind "review"): answered with manager.action {action:"send"} or {dismiss:true}.
+const ReviewCardTool = "persona_review"
+
 const (
 	// MethodAgentStartParams: AgentStartParams → {params}: an Agent the app starts (POST /api/v1/sessions), with what
 	// it runs on filled in and its tab named. An error with CodeBadRequest is the app's to see (400); while the manager
@@ -147,12 +151,14 @@ type SessionSeen struct {
 }
 
 // agentRoutes are the Agents business's routes the manager answers (agents_routes.go there): its switches, its
-// numbers, renaming the tabs nobody named.
+// numbers, renaming the tabs nobody named, an independent review of a session's change.
 var agentRoutes = []string{
 	"GET /api/v1/agents/triage",
 	"PUT /api/v1/agents/triage",
 	"GET /api/v1/agents/work/stats",
 	"POST /api/v1/tabs/autoname",
+	"POST /api/v1/machines/{mid}/sessions/{sid}/review",
+	"GET /api/v1/machines/{mid}/sessions/{sid}/review",
 }
 
 func init() { Routes = append(Routes, agentRoutes...) }

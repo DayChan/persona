@@ -203,6 +203,7 @@ machines.read        GET /api/v1/machines/{id}/usage
 -                    GET /api/v1/machines/{mid}/ports/{port}/connect
 -                    GET /api/v1/machines/{mid}/preview/connect
 -                    GET /api/v1/machines/{mid}/preview/servers
+-                    GET /api/v1/machines/{mid}/sessions/{sid}/review
 machines.read        GET /api/v1/machines/{mid}/stat
 -                    GET /api/v1/managers
 -                    GET /api/v1/messaging
@@ -378,6 +379,7 @@ agents.control       POST /api/v1/interactions/{id}/resolve
 -                    POST /api/v1/machines/{mid}/ports/{port}/open
 -                    POST /api/v1/machines/{mid}/preview/start
 -                    POST /api/v1/machines/{mid}/reconnect
+-                    POST /api/v1/machines/{mid}/sessions/{sid}/review
 -                    POST /api/v1/machines/{mid}/spaces/{wid}/rename
 -                    POST /api/v1/machines/{mid}/tabs/close
 -                    POST /api/v1/machines/{mid}/tabs/rename

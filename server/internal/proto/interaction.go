@@ -14,6 +14,9 @@ const (
 	IxPermission  = "permission"
 	IxScreen      = "screen"
 	IxElicitation = "elicitation"
+	// IxReview is the manager's card with an independent reviewer's findings about a session's change (#1808,
+	// docs/assistant/agent-work.md "Independent review"): answered with manager.action {action:"send"} or {dismiss:true}.
+	IxReview = "review"
 )
 
 // AnsweredByAssistant marks a resolution the assistant gave for the user (Resolution.AnsweredBy).
@@ -110,6 +113,12 @@ type Interaction struct {
 	// /api/v1/interactions so an answer-only device (the watch) can hide the card and not buzz for it; the phone
 	// keeps its own mutes. Absent on older hubs' lists and on the manager's bus copy.
 	Muted bool `json:"muted,omitempty"`
+	// Findings is the reviewer's report (markdown, the count marker stripped); FindingsCount its finding count when
+	// the reviewer's last line said one (nil when it did not); ReviewSession the reviewer's session id. Only on the
+	// manager's review cards (kind review, #1808).
+	Findings      string `json:"findings,omitempty"`
+	FindingsCount *int   `json:"findings_count,omitempty"`
+	ReviewSession string `json:"review_session,omitempty"`
 }
 
 // Delegate is the assistant's context on a question it left to the user (Interaction.Delegate): it is a red line or

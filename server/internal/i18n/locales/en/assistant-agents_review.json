@@ -1,0 +1,11 @@
+{
+  "no_session": "No such session on this computer",
+  "session_busy": "This session is running or waiting to be handled; review it once it has stopped",
+  "no_change": "No change to review",
+  "no_change_not_git": "This directory is not a Git repository, so there is no change to review",
+  "review_running": "A review of this session is already running",
+  "read_only_unavailable": "{agent} cannot start a read-only session, so an independent review of it is not supported yet",
+  "not_supported": "The review agent could not be started: {error}",
+  "card_title": "Review finished: {n} findings",
+  "card_title_no_count": "Review finished"
+}
