@@ -13,6 +13,7 @@ import (
 const (
 	scheduleKey     = "assistant.tasks"
 	scheduleRunsKey = "assistant.runs"
+	originsKey      = "assistant.origins"
 )
 
 // scheduleOwnerLock is the session advisory lock key for the schedule retry owner.
@@ -73,6 +74,47 @@ func (d *DB) compareScheduleList(ctx context.Context, key string, revision int64
 		sql = `UPDATE ` + d.settingsTable() + ` SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND xmin::text::bigint = $3`
 	}
 	args := []any{key, []byte(tasks)}
+	if revision != 0 {
+		args = append(args, revision)
+	}
+	tag, err := d.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReadOrigins reads the legacy origin map and its row version without changing the JSON format.
+func (d *DB) ReadOrigins(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	var raw json.RawMessage
+	var revision int64
+	err := d.pool.QueryRow(ctx, `SELECT value, xmin::text::bigint FROM `+d.settingsTable()+` WHERE key = $1`, originsKey).Scan(&raw, &revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if !json.Valid(trimmed) || (!bytes.Equal(trimmed, []byte("null")) && (len(trimmed) == 0 || trimmed[0] != '{')) || revision == 0 {
+		return nil, 0, false, errors.New("invalid stored origins")
+	}
+	return raw, revision, true, nil
+}
+
+// CompareOrigins replaces the origin map only if its original row version still matches.
+func (d *DB) CompareOrigins(ctx context.Context, revision int64, raw json.RawMessage) (bool, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if revision < 0 || !json.Valid(trimmed) || len(trimmed) == 0 || trimmed[0] != '{' {
+		return false, errors.New("invalid origins revision or map")
+	}
+	var sql string
+	if revision == 0 {
+		sql = `INSERT INTO ` + d.settingsTable() + ` (key, value, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (key) DO NOTHING`
+	} else {
+		sql = `UPDATE ` + d.settingsTable() + ` SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND xmin::text::bigint = $3`
+	}
+	args := []any{originsKey, []byte(raw)}
 	if revision != 0 {
 		args = append(args, revision)
 	}

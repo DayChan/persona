@@ -1674,6 +1674,20 @@ var errTaskBusy = i18n.Err("assistant-schedule.busy_skipped")
 func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (proto.Session, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	if t.limitRetry || t.manualLimitRetry {
+		go func() {
+			select {
+			case <-t.limitOwnerDone:
+				cancel()
+			case <-t.limitWorkerStop:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		if err := limitSendReady(ctx, t.limitOwnerDone, t.limitWorkerStop); err != nil {
+			return proto.Session{}, err
+		}
+	}
 	loc, kb := s.location(ctx), s.kbReady(ctx)
 	run := ScheduleRun{Kind: t.kind(), RefID: t.ID, Title: t.label(), Due: due.UTC(), At: time.Now().UTC(), Manual: manual, Status: runOK,
 		Retried: retried, RetryOf: t.limitRetryRunID, of: now.UTC()}
@@ -1716,6 +1730,11 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 				}
 			}
 			if err == nil {
+				if t.limitRetry || t.manualLimitRetry {
+					if err := limitSendReady(ctx, t.limitOwnerDone, t.limitWorkerStop); err != nil {
+						return proto.Session{}, err
+					}
+				}
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
 			}
 			if err == nil {
@@ -1775,6 +1794,11 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 				}
 			}
 			if err == nil {
+				if t.limitRetry || t.manualLimitRetry {
+					if err := limitSendReady(ctx, t.limitOwnerDone, t.limitWorkerStop); err != nil {
+						return proto.Session{}, err
+					}
+				}
 				err = s.call(ctx, m.ID, DeviceAssistantSend, params, nil)
 			}
 			if err == nil {
@@ -1791,7 +1815,7 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 	}
 	startCtx := ctx
 	if t.manualLimitRetry {
-		startCtx = context.WithValue(ctx, limitStartKey{}, true)
+		startCtx = context.WithValue(ctx, limitStartKey{}, limitStartSignals{ownerDone: t.limitOwnerDone, workerStop: t.limitWorkerStop})
 		t.limitBeforeID, t.limitBeforeKnown = "", true // a new conversation has no earlier item
 	}
 	sess, err := s.startConversation(startCtx, startParams{Text: taskPrompt(t, due, now, loc, manual, kb, false), PermissionMode: t.PermissionMode,
@@ -1987,7 +2011,15 @@ func (s *Service) startScheduledRun(run ScheduleRun, t Task, m *Device) {
 }
 
 func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
-	ctx, cancel := context.WithTimeout(context.Background(), runWatchTimeout)
+	parent := context.Background()
+	if t.limitRetry || t.manualLimitRetry {
+		s.sched.mu.Lock()
+		if s.sched.limitArmCtx != nil {
+			parent = s.sched.limitArmCtx
+		}
+		s.sched.mu.Unlock()
+	}
+	ctx, cancel := context.WithTimeout(parent, runWatchTimeout)
 	defer cancel()
 	var ended, ran bool
 	if t.limitBeforeKnown {
@@ -1996,11 +2028,19 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		ended, ran = s.waitTurnEnd(ctx, m.ID, run.SessionID)
 	}
 	if !ended {
+		if parent.Err() == nil && (t.limitRetry || t.manualLimitRetry) {
+			s.reportUnconfirmedRetry(run, t, m)
+		}
 		return
 	}
 	text := s.lastTurnAPIError(ctx, m.ID, run.SessionID)
 	if text == "" {
 		if c, ok := s.session(ctx, m.ID, run.SessionID); ok {
+			if (t.limitRetry || t.manualLimitRetry) && strings.TrimSpace(c.TurnError) != "" {
+				// The session error has no stable link to this send, even after activity was observed.
+				s.reportUnconfirmedRetry(run, t, m)
+				return
+			}
 			text = c.TurnError
 		}
 	}
@@ -2015,6 +2055,11 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		}
 	}
 	if text == "" {
+		return
+	}
+	if t.limitRetry || t.manualLimitRetry {
+		// A matching prompt can also belong to a later turn; without a receiver turn ID, report uncertainty.
+		s.reportUnconfirmedRetry(run, t, m)
 		return
 	}
 	full := text
@@ -2079,6 +2124,24 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	if _, err := s.runTask(cur, time.Now(), time.Now(), false, true); err != nil {
 		s.logf("task %s retry: %v", t.ID, err)
 	}
+}
+
+// reportUnconfirmedRetry leaves a still-running turn alone; an idle or unreadable one is reported as uncertain.
+func (s *Service) reportUnconfirmedRetry(run ScheduleRun, t Task, m Device) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if current, ok := s.session(ctx, m.ID, run.SessionID); ok && (current.Starting || current.Status == proto.StatusWorking || current.State == proto.StateWorking || current.State == proto.StateNeedsYou) {
+		return
+	}
+	l := s.lang(ctx)
+	message := i18n.T(l, "assistant-schedule.retry_delivery_unknown")
+	s.updateRun(run, runFailed, message)
+	name := t.labelIn(l)
+	if t.Space == SpaceHealth {
+		name, _ = healthNotice(l)
+	}
+	s.push(ctx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID,
+		Title: i18n.T(l, "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: message})
 }
 
 // runLimit: the run's conversation (sid on machine) stopped on a subscription's usage limit whose reset is known
@@ -2258,16 +2321,9 @@ func (s *Service) waitTurnEndFrom(ctx context.Context, machine, sid, before stri
 						text := strings.TrimSpace(it.Text)
 						return it.TurnDuration != nil || it.Kind == "turn_duration" || (it.Role == "assistant" && (apiErrorText(text) || cutOff(text)))
 					})
-					// Some runtimes report their latest turn's error only in the session, not as a transcript item.
-					// Require the new prompt to still be the latest idle turn before using that signal.
+					// Session-only TurnError has no stable turn identity; it can still refer to a previous turn.
 					if !ended {
-						if strings.TrimSpace(c.TurnError) == "" || !s.stillEnded(ctx, machine, sid, items) {
-							continue
-						}
-						latest, ok := s.session(ctx, machine, sid)
-						if !ok || latest.TurnError != c.TurnError || !latest.UpdatedAt.Equal(c.UpdatedAt) || latest.Starting || latest.Status == proto.StatusWorking || latest.State == proto.StateWorking {
-							continue
-						}
+						continue
 					}
 				}
 				return true, false

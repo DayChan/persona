@@ -3,15 +3,142 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 )
+
+type originReadBarrierStore struct {
+	*db.DB
+	once          sync.Once
+	read, proceed chan struct{}
+}
+
+func (st *originReadBarrierStore) ReadOrigins(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	raw, rev, found, err := st.DB.ReadOrigins(ctx)
+	st.once.Do(func() { close(st.read); <-st.proceed })
+	return raw, rev, found, err
+}
+
+func TestOriginsPostgresInterleavedWriters(t *testing.T) {
+	st := scheduleStore(t)
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	barrier := &originReadBarrierStore{DB: st, read: make(chan struct{}), proceed: make(chan struct{})}
+	first, second := newServiceOn(t, f, barrier), newServiceOn(t, f, st)
+	result := make(chan error, 1)
+	go func() {
+		result <- first.recordRetryOrigin(t.Context(), "server", "first-session", OriginTask, "first-task")
+	}()
+	awaitBusSignal(t, barrier.read)
+	second.originSet(t.Context(), "server", "second-session", OriginInbox, "second-item")
+	close(barrier.proceed)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["first-session"] == nil || got["second-session"] == nil {
+		t.Fatalf("interleaved writes lost an origin: %+v", got)
+	}
+}
+
+func TestOriginsPostgresBackfillCannotOverwriteStart(t *testing.T) {
+	st := scheduleStore(t)
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	barrier := &originReadBarrierStore{DB: st, read: make(chan struct{}), proceed: make(chan struct{})}
+	first, second := newServiceOn(t, f, barrier), newServiceOn(t, f, st)
+	result := make(chan error, 1)
+	go func() {
+		_, err := first.backfillOrigins(t.Context(), "server", []proto.Session{{SessionID: "same-session", MachineID: "server", Assistant: true, Title: "⏰ example"}}, false)
+		result <- err
+	}()
+	awaitBusSignal(t, barrier.read)
+	second.originSet(t.Context(), "server", "same-session", OriginUser, "")
+	close(barrier.proceed)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &got); err != nil {
+		t.Fatal(err)
+	}
+	if o := got["same-session"]; o == nil || o.By != originByStart || o.Origin != OriginUser {
+		t.Fatalf("backfill overwrote authoritative start: %+v", o)
+	}
+}
+
+type originFailCASStore struct{ *db.DB }
+
+func (st *originFailCASStore) CompareOrigins(context.Context, int64, json.RawMessage) (bool, error) {
+	return false, errors.New("origin CAS unavailable")
+}
+
+func TestOriginsPostgresCASFailureDoesNotGrant(t *testing.T) {
+	st := scheduleStore(t)
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	f.hello.Assistant.Machines = []string{"server", "other"}
+	s := newServiceOn(t, f, &originFailCASStore{DB: st})
+	setSettings(t, s, func(v *Settings) { v.MachineID = "other" })
+	if err := s.recordRetryOrigin(t.Context(), "server", "retry-session", OriginTask, "task"); err == nil {
+		t.Fatal("CAS failure was ignored")
+	}
+	if s.assistantCaller(t.Context(), "server", "retry-session") {
+		t.Fatal("failed CAS granted authorization")
+	}
+	var got map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["retry-session"] != nil {
+		t.Fatal("failed CAS changed durable origins")
+	}
+}
+
+// TestOriginsPostgresManagersMerge uses two independently cached managers on one disposable database.
+func TestOriginsPostgresManagersMerge(t *testing.T) {
+	st := scheduleStore(t)
+	if err := st.PutSetting(t.Context(), originsKey, map[string]*convOrigin{}); err != nil {
+		t.Fatal(err)
+	}
+	f := readyHub()
+	first, second := newServiceOn(t, f, st), newServiceOn(t, f, st)
+	for _, s := range []*Service{first, second} {
+		s.origins.mu.Lock()
+		ok := s.originsLocked(t.Context())
+		s.origins.mu.Unlock()
+		if !ok {
+			t.Fatal("load origins")
+		}
+	}
+	first.originSet(t.Context(), "server", "first-session", OriginTask, "first-task")
+	second.originSet(t.Context(), "server", "second-session", OriginInbox, "second-item")
+	var got map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["first-session"] == nil || got["second-session"] == nil {
+		t.Fatalf("a manager overwrote the other's origin: %+v", got)
+	}
+}
 
 // originOf is a conversation's origin and ref in the last snapshot the hub got.
 func originOf(f *fakeHub, id string) (string, string) {
