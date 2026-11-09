@@ -1167,18 +1167,19 @@ func weekdayText(ds []int) string {
 // Run runs what the assistant does on its own until ctx ends: the scheduled tasks, closing finished tasks' agents, the
 // knowledge base.
 func (s *Service) Run(ctx context.Context) {
-	go s.taskCloseLoop(ctx)    // the agents of finished tasks (tasks_close.go)
-	go s.superviseLoop(ctx)    // the tasks the main conversation follows up (supervise_signals.go)
-	go s.workLoop(ctx)         // due wakes and retries, cards past their day, missed turns (agents_work_tick.go)
-	go s.replyLoop(ctx)        // questions the user looked at and left unanswered (agents_reply.go)
-	go s.nudgeLoop(ctx)        // the Lark bot's cards left unanswered (feishu_nudge.go)
-	go s.sourceReportLoop(ctx) // the reports back to where a todo was asked (todo_source.go)
-	go s.remindLoop(ctx)       // the todos' reminders (todo_plan.go)
-	go s.channelLoop(ctx)      // the channels' runs that lost their watcher (channels.go)
-	go s.kbLoop(ctx)           // the knowledge base (kb.go)
-	go s.viewActionLoop(ctx)   // durable card reply outbox
-	go s.acceptLoop(ctx)       // "Please verify" cards that did not go out, and reminders each morning (acceptance.go)
-	go s.healthLoop(ctx)       // each machine's launchers (launcher_health.go)
+	go s.restoreTaskReceiptLooks(ctx) // pending task receipt checks (tasks_follow.go)
+	go s.taskCloseLoop(ctx)           // the agents of finished tasks (tasks_close.go)
+	go s.superviseLoop(ctx)           // the tasks the main conversation follows up (supervise_signals.go)
+	go s.workLoop(ctx)                // due wakes and retries, cards past their day, missed turns (agents_work_tick.go)
+	go s.replyLoop(ctx)               // questions the user looked at and left unanswered (agents_reply.go)
+	go s.nudgeLoop(ctx)               // the Lark bot's cards left unanswered (feishu_nudge.go)
+	go s.sourceReportLoop(ctx)        // the reports back to where a todo was asked (todo_source.go)
+	go s.remindLoop(ctx)              // the todos' reminders (todo_plan.go)
+	go s.channelLoop(ctx)             // the channels' runs that lost their watcher (channels.go)
+	go s.kbLoop(ctx)                  // the knowledge base (kb.go)
+	go s.viewActionLoop(ctx)          // durable card reply outbox
+	go s.acceptLoop(ctx)              // "Please verify" cards that did not go out, and reminders each morning (acceptance.go)
+	go s.healthLoop(ctx)              // each machine's launchers (launcher_health.go)
 	s.scheduleLoop(ctx)
 }
 
@@ -1564,18 +1565,11 @@ func (s *Service) runTask(t Task, due, now time.Time, manual, retried bool) (pro
 			}
 			if t.limitRetry {
 				// The node may have accepted the message even when its reply was lost.
-				run.Status, run.Error = runFailed, err.Error()
-				s.recordRun(run)
-				s.oneOffNotStarted(ctx, t, run)
 				return proto.Session{}, err
 			}
 			s.logf("task %s into %s: %v; starting a new conversation", t.ID, t.SessionID, err)
 		} else if t.limitRetry {
-			err := errors.New("retry conversation's machine is unavailable")
-			run.Status, run.Error = runFailed, err.Error()
-			s.recordRun(run)
-			s.oneOffNotStarted(ctx, t, run)
-			return proto.Session{}, err
+			return proto.Session{}, errors.New("retry conversation's machine is unavailable")
 		}
 	}
 	here := s.settings(ctx).MachineID

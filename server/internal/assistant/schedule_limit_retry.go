@@ -145,7 +145,7 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 		}
 		w := item.wait
 		if w.Claimed {
-			s.recoverLimitClaim(ctx, item.id, w, now)
+			s.recoverLimitClaim(ctx, item.id, w, now, "assistant-schedule.retry_restart_unknown")
 			continue
 		}
 		// An unavailable node tells us nothing about whether the user continued the conversation.
@@ -182,6 +182,18 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 	}
 	if _, err := s.runTask(cur, now, now, false, true); err != nil {
 		s.logf("task %s retry: %v", cur.ID, err)
+		s.sched.mu.Lock()
+		delete(s.sched.limitActive, w.Failed.ID)
+		s.sched.mu.Unlock()
+		select {
+		case <-ownerDone:
+			return
+		default:
+		}
+		reportCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		s.recoverLimitClaim(reportCtx, cur.ID, w, now, "assistant-schedule.retry_delivery_unknown")
+		cancel()
+		return
 	}
 	for !s.finishLimitClaim(cur.ID, w) {
 		select {
@@ -287,9 +299,9 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 
 // recoverLimitClaim persists an unknown result before attempting the normal failure notification. The claim
 // remains until after the push attempt, so a crash can repeat a notification but cannot silently skip it.
-func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLimitRetry, now time.Time) {
+func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLimitRetry, now time.Time, messageKey string) {
 	l := s.lang(ctx)
-	message := i18n.T(l, "assistant-schedule.retry_restart_unknown")
+	message := i18n.T(l, messageKey)
 	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
 		return
@@ -313,6 +325,9 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	if err != nil {
 		sc.mu.Unlock()
 		return
+	}
+	if j := slices.IndexFunc(sc.runs, func(r ScheduleRun) bool { return r.ID == runID }); j >= 0 {
+		message = sc.runs[j].Error // retries use the message saved with the unknown outcome
 	}
 	// Mark this recovery active while the notification is sent, to serialize overlapping scans.
 	if sc.limitActive == nil {

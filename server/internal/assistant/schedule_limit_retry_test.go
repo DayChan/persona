@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -227,6 +228,35 @@ func TestLimitRetryCrashAfterClaimReportsUnknownOnce(t *testing.T) {
 	}
 }
 
+func TestLimitRetryCrashAfterSendBeforeResultReportsUnknown(t *testing.T) {
+	s, f, st, now := limitRetryFixture(t)
+	task, _ := taskByID(s, "limit")
+	w := *task.LimitRetry
+	c := proto.Session{SessionID: "s1", Status: proto.StatusDone, State: proto.StateIdle, UpdatedAt: now}
+	if _, ok := s.consumeLimitRetry(t.Context(), task.ID, w, c, now.Add(2*time.Hour)); !ok {
+		t.Fatal("claim failed")
+	}
+	if err := s.call(t.Context(), "server", DeviceAssistantSend, map[string]any{"session_id": "s1", "text": "Example"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The node accepted the send, but the manager stopped before recording its result.
+	restarted := newServiceOn(t, f, st)
+	restarted.runLimitRetries(t.Context(), now.Add(3*time.Hour))
+	if got := scheduleSendCount(f); got != 1 {
+		t.Fatalf("accepted send repeated: %d", got)
+	}
+	runs := scheduleRuns(restarted)
+	if len(runs) == 0 || runs[len(runs)-1].ID != "retry_unknown_failed" {
+		t.Fatal("missing unknown result after the send")
+	}
+	f.mu.Lock()
+	pushes := len(f.pushes)
+	f.mu.Unlock()
+	if pushes != 1 {
+		t.Fatalf("got %d unknown notifications", pushes)
+	}
+}
+
 func TestLimitRetryOwnerLostAfterClaimDoesNotSend(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	task, _ := taskByID(s, "limit")
@@ -273,6 +303,15 @@ func TestLimitRetryPostgresManagersClaimOnce(t *testing.T) {
 	_, b := second.consumeLimitRetry(t.Context(), task.ID, *task.LimitRetry, c, now)
 	if !a || b {
 		t.Fatalf("Postgres claim results: first=%v second=%v", a, b)
+	}
+	restarted := newServiceOn(t, f, st)
+	restarted.runLimitRetries(t.Context(), now.Add(time.Minute))
+	var runs []ScheduleRun
+	if _, err := st.Setting(t.Context(), runsKey, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == "retry_unknown_pg-failed" }) {
+		t.Fatalf("Postgres recovery did not store the unknown outcome: %+v", runs)
 	}
 }
 
@@ -676,6 +715,16 @@ func TestLimitRetryDoesNotSendAgainAfterAmbiguousFailure(t *testing.T) {
 	s.sched.inflight.Wait()
 	if got := scheduleSendCount(f); got != 1 {
 		t.Fatalf("ambiguous failure caused %d sends", got)
+	}
+	runs := scheduleRuns(s)
+	if len(runs) == 0 || runs[len(runs)-1].ID != "retry_unknown_failed" || !strings.Contains(runs[len(runs)-1].Error, "可能") {
+		t.Fatalf("ambiguous delivery was not recorded as unknown: %+v", runs)
+	}
+	f.mu.Lock()
+	pushes := append([]Notification(nil), f.pushes...)
+	f.mu.Unlock()
+	if len(pushes) != 1 || !strings.Contains(pushes[0].Body, "可能") {
+		t.Fatalf("ambiguous delivery was not reported: %+v", pushes)
 	}
 }
 
