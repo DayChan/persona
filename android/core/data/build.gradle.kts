@@ -24,6 +24,8 @@ dependencies {
     ksp(libs.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    // The items cache against a real Room database on the JVM (SessionItemsCacheTest).
+    testImplementation("org.robolectric:robolectric:4.17")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

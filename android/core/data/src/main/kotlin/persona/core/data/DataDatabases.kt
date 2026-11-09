@@ -199,6 +199,11 @@ interface ItemsDao {
         "WHERE i.scope = :scope GROUP BY i.machine, i.session ORDER BY accessed, i.machine, i.session")
     suspend fun sizes(scope: String): List<SessionCacheSize>
 
+    /** One session's share of [sizes], read along the primary key's prefix. */
+    @Query("SELECT COALESCE(SUM(length(CAST(json AS BLOB))), 0) FROM items " +
+        "WHERE scope = :scope AND machine = :machine AND session = :session")
+    suspend fun size(scope: String, machine: String, session: String): Long
+
     @Query("UPDATE cursors SET accessed_at = :accessed WHERE scope = :scope AND machine = :machine AND session = :session")
     suspend fun touch(scope: String, machine: String, session: String, accessed: Long)
 
