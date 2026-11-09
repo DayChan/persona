@@ -5,8 +5,8 @@ import XCTest
 /// - `ask`: photo access never asked (`simctl privacy <udid> reset photos <bundle id>`): the menu has the row that asks;
 ///   tapping it shows the system's prompt; refused there, the row is gone and the menu is as it was.
 /// - `settings`: access refused (`simctl privacy … revoke photos …`): the row sends to Settings.
-/// - `offer`: full access (`simctl privacy … grant photos …`) and a screenshot added within the last two minutes
-///   (`simctl addmedia`): it is first in the menu; one tap attaches it, and it is not offered again.
+/// - `offer`: never asked, and a screenshot added within the last two minutes (`simctl addmedia`): the row asks, full
+///   access is given in the prompt, then the screenshot is first in the menu; one tap attaches it, and it is not offered again.
 /// `TEST_RUNNER_PERSONA_SHOTS=<dir>` keeps the screenshots, named by `TEST_RUNNER_PERSONA_RECENT_SHOT_APPEARANCE` (light / dark).
 final class RecentScreenshotUITests: XCTestCase {
     private var env: [String: String] { ProcessInfo.processInfo.environment }
@@ -54,6 +54,17 @@ final class RecentScreenshotUITests: XCTestCase {
         openPlus(app)
         switch expect {
         case "offer":
+            // Never asked: the row asks, Allow Full Access, and the screenshot added before the run takes the row's place
+            // (`simctl privacy grant` is not seen by Photos on the iOS 26 simulator, so access is given as a user gives it).
+            if guide.waitForExistence(timeout: 5) {
+                shot(app, "offer-before-access")
+                guide.tap()
+                let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+                let allow = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["允许完全访问", "Allow Full Access"])).firstMatch
+                XCTAssertTrue(allow.waitForExistence(timeout: 10), "no system prompt:\n\(springboard.debugDescription)")
+                allow.tap()
+                openPlus(app)
+            }
             let found = offer.waitForExistence(timeout: 5)
             shot(app, "offer-menu")
             XCTAssertTrue(found, "no recent screenshot in the menu:\n\(app.debugDescription)")
