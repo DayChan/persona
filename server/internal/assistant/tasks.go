@@ -118,19 +118,23 @@ type tasksState struct {
 	feed  map[string][]FeedItem
 	// working: when one of a task's agents last started a turn; receipted: when its last receipt went out. A
 	// receipt is due when the task settles after working since the last one.
-	working   map[string]time.Time
-	receipted map[string]time.Time
+	working            map[string]time.Time
+	workIDs            map[string]string
+	workInitialUnknown map[string]bool
+	receipted          map[string]time.Time
+	receiptWorkIDs     map[string]string
 	// awaitingAnswer remembers a stopped status whose transcript still ends in a tool.
 	awaitingAnswer map[SessionRef]bool
 	// limitLooks: when a task agent's usage-limit wait is looked at again (taskTurnEndedAfter), one look per agent
 	// however many turns the wait's wakes end.
 	limitLooks      map[SessionRef]time.Time
-	limitLookTokens map[SessionRef]string
+	limitLookTokens map[receiptKey]string
+	receiptTimers   map[receiptKey]time.Time
 	// receiptMu serializes loading and writing the durable receipt rechecks.
 	receiptMu     sync.Mutex
 	receiptLoaded bool
-	receiptLooks  map[SessionRef]receiptLook
-	receiptBase   map[SessionRef]receiptLook
+	receiptLooks  map[receiptKey]receiptLook
+	receiptBase   map[receiptKey]receiptLook
 	receiptCtx    context.Context
 	// retrying: the tasks whose agent is starting again after a failed start (one start at a time, #1396).
 	retrying map[string]bool
@@ -145,7 +149,7 @@ type tasksState struct {
 
 func newTasksState() tasksState {
 	return tasksState{plans: map[string]*TaskPlan{}, feed: map[string][]FeedItem{},
-		working: map[string]time.Time{}, receipted: map[string]time.Time{}, retrying: map[string]bool{},
+		working: map[string]time.Time{}, workIDs: map[string]string{}, receipted: map[string]time.Time{}, receiptWorkIDs: map[string]string{}, retrying: map[string]bool{},
 		outcomes: map[string]time.Time{}, reusing: map[string]bool{}}
 }
 
