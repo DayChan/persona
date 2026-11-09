@@ -13463,6 +13463,7 @@ class H(BaseHTTPRequestHandler):
             INTERACTIONS[:] = [x for x in INTERACTIONS if x["id"] not in codex] + copy.deepcopy(CODEX_INTERACTIONS)
             RESOLVED[:] = [r for r in RESOLVED if r["id"] not in codex]
             INTERACTION_HISTORY[:] = [x for x in INTERACTION_HISTORY if x["id"] not in codex]
+            if _navigation: _navigation.install(globals())
             return self.send_json({"ok": True})
         if p == "/mock/session_close":
             if "fail" in q: SESSION_CLOSE["fail"] = q["fail"][0] == "1"

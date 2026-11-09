@@ -52,6 +52,17 @@ class NavigationFixtureTests(unittest.TestCase):
         self.assertTrue(any(item["id"] == "navigation-user-40#0" for item in around["items"]))
         self.assertLess(around["to_seq"], latest["to_seq"])
 
+    def test_reset_restores_the_navigation_fixture_and_clears_requests(self):
+        self.get(self.prefix + "/navigation")
+        self.namespace["PAGING"]["on"] = False
+        self.namespace["HISTORY_NOW"]["token"] = "ordinary-mock-history"
+        fixture.install(self.namespace)
+        self.assertTrue(self.namespace["PAGING"]["on"])
+        self.assertEqual(self.namespace["HISTORY_NOW"]["token"], fixture.HISTORY)
+        self.assertEqual(len(fixture.MESSAGES), 80)
+        log, _ = self.get("/mock/navigation")
+        self.assertEqual(log["requests"], [])
+
     def test_history_guard_and_observable_requests(self):
         _, status = self.get(self.prefix + "/items", {"around_seq": ["400"], "history": ["stale"]})
         self.assertEqual(status, 409)
