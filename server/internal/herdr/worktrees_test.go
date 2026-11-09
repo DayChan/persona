@@ -25,7 +25,27 @@ func TestWorktreesDirIn(t *testing.T) {
 	}
 }
 
+// noHerdrConfigEnv keeps the machine's own herdr config out of a test: no $HERDR_CONFIG_PATH, $XDG_CONFIG_HOME or
+// %APPDATA%, so herdr's config file is the one under the home the test passes.
+func noHerdrConfigEnv(t *testing.T) {
+	t.Setenv("HERDR_CONFIG_PATH", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("APPDATA", "")
+}
+
+// writeWorktreesConfig writes a herdr config file at path that puts worktrees under dir.
+func writeWorktreesConfig(t *testing.T, path, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[worktrees]\ndirectory = '"+dir+"'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorktreesDirDefaultsAndExpands(t *testing.T) {
+	noHerdrConfigEnv(t)
 	home := t.TempDir()
 	if got, want := WorktreesDir(home), filepath.Join(home, ".herdr", "worktrees"); got != want {
 		t.Errorf("default: %q, want %q", got, want)
@@ -38,6 +58,34 @@ func TestWorktreesDirDefaultsAndExpands(t *testing.T) {
 	}
 	if got := expandHome(home, "/srv/../srv/wt"); got != "/srv/wt" {
 		t.Errorf("absolute: %q", got)
+	}
+}
+
+// The worktrees directory comes from the config file herdr itself reads: $HERDR_CONFIG_PATH, else
+// $XDG_CONFIG_HOME/herdr/config.toml, else the one in the home's .config/herdr.
+func TestWorktreesDirReadsHerdrsConfigFile(t *testing.T) {
+	noHerdrConfigEnv(t)
+	home, xdg := t.TempDir(), t.TempDir()
+	explicit := filepath.Join(t.TempDir(), "custom.toml")
+	writeWorktreesConfig(t, filepath.Join(home, ".config", "herdr", "config.toml"), "~/home-wt")
+	writeWorktreesConfig(t, filepath.Join(xdg, "herdr", "config.toml"), "~/xdg-wt")
+	writeWorktreesConfig(t, explicit, "~/explicit-wt")
+
+	if got, want := WorktreesDir(home), filepath.Join(home, "home-wt"); got != want {
+		t.Errorf("no XDG_CONFIG_HOME: %q, want %q", got, want)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if got, want := WorktreesDir(home), filepath.Join(home, "xdg-wt"); got != want {
+		t.Errorf("with XDG_CONFIG_HOME: %q, want %q", got, want)
+	}
+	t.Setenv("HERDR_CONFIG_PATH", explicit)
+	if got, want := WorktreesDir(home), filepath.Join(home, "explicit-wt"); got != want {
+		t.Errorf("with HERDR_CONFIG_PATH: %q, want %q", got, want)
+	}
+	// herdr does not fall back to another file when the one it is pointed at is missing: it runs on its defaults
+	t.Setenv("HERDR_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.toml"))
+	if got, want := WorktreesDir(home), filepath.Join(home, ".herdr", "worktrees"); got != want {
+		t.Errorf("with a missing HERDR_CONFIG_PATH: %q, want %q", got, want)
 	}
 }
 

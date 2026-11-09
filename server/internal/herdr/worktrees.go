@@ -11,8 +11,8 @@ import (
 )
 
 // WorktreesDir is the directory herdr puts Git worktree checkouts under (`<dir>/<repo>/<branch-slug>`): the
-// `[worktrees] directory` of its config file, else ~/.herdr/worktrees. A relative value is taken from home. home is
-// the user's home directory.
+// `[worktrees] directory` of the config file herdr reads (configPath), else ~/.herdr/worktrees. A relative value is
+// taken from home. home is the user's home directory.
 func WorktreesDir(home string) string {
 	dir := ""
 	if b, err := os.ReadFile(configPath(home)); err == nil {
@@ -24,8 +24,16 @@ func WorktreesDir(home string) string {
 	return expandHome(home, dir)
 }
 
-// configPath is herdr's config file: ~/.config/herdr/config.toml, %APPDATA%\herdr\config.toml on Windows.
+// configPath is the config file herdr reads (its config_path): $HERDR_CONFIG_PATH, else config.toml in its config
+// directory, $XDG_CONFIG_HOME/herdr as for SocketPath, else %APPDATA%\herdr on Windows and home's .config/herdr
+// otherwise.
 func configPath(home string) string {
+	if p := os.Getenv("HERDR_CONFIG_PATH"); p != "" {
+		return p
+	}
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "herdr", "config.toml")
+	}
 	if runtime.GOOS == "windows" {
 		if app := os.Getenv("APPDATA"); app != "" {
 			return filepath.Join(app, "herdr", "config.toml")
