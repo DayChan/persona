@@ -159,7 +159,7 @@ func readCompletions(body io.Reader) (Reply, error) {
 		return Reply{}, err
 	}
 	if !done && !finished {
-		return Reply{}, errors.New("ai: stream ended without a completed reply")
+		return Reply{}, fmt.Errorf("ai: stream ended without a completed reply: %w", io.ErrUnexpectedEOF)
 	}
 	if refusal != "" {
 		return reply, &RefusalError{StopReason: refusal}
