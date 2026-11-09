@@ -79,5 +79,7 @@
   "refresh_failed": "更新できませんでした",
   "preview": "プレビュー",
   "archived_notice": "このエージェントはアーカイブ済みです。復元するとエージェント一覧に戻ります。新しいメッセージを送っても戻ります。",
-  "restore": "復元"
+  "restore": "復元",
+  "connecting": "接続中…",
+  "connecting_placeholder": "接続中…先に入力できます"
 }

@@ -79,5 +79,7 @@
   "refresh_failed": "刷新失败",
   "preview": "预览",
   "archived_notice": "这个 Agent 已归档。恢复后会回到 Agent 列表；发一条新消息也会让它回来。",
-  "restore": "恢复"
+  "restore": "恢复",
+  "connecting": "连接中…",
+  "connecting_placeholder": "连接中… 可以先打字"
 }

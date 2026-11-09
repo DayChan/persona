@@ -240,6 +240,8 @@ let inflight: Promise<void> | null = null;
 // must not be overwritten by one sent before it).
 let asked = 0;
 let answered = 0;
+// true until this tick ends after a request is made: what a forced ask may still share
+let issuing = false;
 
 function set(patch: Partial<ReadinessState>) {
   rs = { ...rs, ...patch };
@@ -248,16 +250,23 @@ function set(patch: Partial<ReadinessState>) {
 
 /** How long a fetched answer is good for before a visit asks again. */
 const FRESH_MS = 5_000;
+const BLOCKED_RETRY_MS = 2_000;
+const BLOCKED_RETRY_MAX_MS = 60_000;
 
 /**
  * Asks the hub again (a visit, a machine coming or going, after a failure, "Try it"'s probe). `force` asks even with a
- * fresh answer; `changed` also asks with an answer in flight: that one may have been worked out before the change made
- * here. The rest share the one in flight (each can hold a node self-check for seconds).
+ * fresh answer and shares only a request made in this same tick (every gate on the page asking at once); `changed` always
+ * asks anew. An answer already in flight may have been worked out before the change, so neither takes it. The rest share
+ * the one in flight (each can hold a node self-check for seconds).
  */
 export function refreshReadiness(o: { force?: boolean; probe?: boolean; changed?: boolean } = {}): Promise<void> {
   if (!o.probe && !o.force && !o.changed && Date.now() - rs.at < FRESH_MS) return Promise.resolve();
-  if (inflight && !o.probe && !o.changed) return inflight;
+  if (inflight && !o.probe && !o.changed && (!o.force || issuing)) return inflight;
   if (o.probe) set({ probing: true });
+  if (!o.probe) {
+    issuing = true;
+    queueMicrotask(() => (issuing = false));
+  }
   const mine = ++asked;
   // a probe always lands: it is the only answer that carries "Try it"'s result, however long it took
   const lands = () => (o.probe || mine > answered) && ((answered = Math.max(answered, mine)), true);
@@ -276,6 +285,29 @@ export function refreshReadiness(o: { force?: boolean; probe?: boolean; changed?
     });
   if (!o.probe) inflight = p;
   return p;
+}
+
+/** The send button stands in for a missing step: asks the hub again at growing intervals (2 s up to a minute), so an old
+ *  answer does not hold it after the step is done; an unanswered ask keeps the last value and is tried again. Hidden
+ *  pages skip the ask. Returns the stop. */
+export function retryWhileBlocked(): () => void {
+  let n = 0;
+  let timer: ReturnType<typeof setTimeout>;
+  let stopped = false;
+  const schedule = () => {
+    timer = setTimeout(() => {
+      n++;
+      const ask = document.visibilityState === "hidden" ? Promise.resolve() : refreshReadiness();
+      void ask.finally(() => {
+        if (!stopped) schedule();
+      });
+    }, Math.min(BLOCKED_RETRY_MAX_MS, BLOCKED_RETRY_MS * 2 ** n));
+  };
+  schedule();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 }
 
 function subscribe(l: () => void) {

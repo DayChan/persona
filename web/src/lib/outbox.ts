@@ -7,6 +7,7 @@ import { t } from "../i18n";
 import { api, ApiError, errorText, sessionPath } from "./api";
 import { pickedLauncher, pickedModel, conversationKey } from "./assistant-chat";
 import { startConversation } from "./assistant-start";
+import { removeStoredValue, storedValue, storeValue } from "./compatibility";
 import { uuid } from "./format";
 import { navigate } from "./router";
 import { getState, refreshAssistant, setOutbox } from "./store";
@@ -36,6 +37,8 @@ export interface OutboxEntry {
   clearable?: string;
   /** The hub could not tell whether it went in: a retry is a new message. */
   newId?: boolean;
+  /** Brought back from this browser after a reload: its first try's outcome is unknown, so the transcript's copy (by words too) settles it. */
+  restored?: boolean;
   launcher?: string;
   model?: string;
 }
@@ -70,7 +73,7 @@ export function arrived(e: Described, users: Seen[]): boolean {
  *  `users`: the latest user messages and the items the hub tied to a message (taggedSeen). `claimed`: the ones that
  *  already answered one, kept across calls. */
 export function settle(list: OutboxEntry[], users: Seen[], now: number, claimed = new Set<string>()): OutboxEntry[] {
-  const shown = echoed(list.filter((e) => e.state !== "failed"), users, seenAs, claimed);
+  const shown = echoed(list.filter((e) => e.state !== "failed" || e.restored), users, seenAs, claimed);
   const tied = new Set(users.flatMap((u) => u.client_msg_id ?? []));
   return list.filter((e) => !shown.has(e) && !(e.state === "failed" && !e.wordsOnly && tied.has(e.id)) && (e.state !== "sent" || now - e.at < SENT_GRACE_MS));
 }
@@ -131,8 +134,19 @@ function list(key: string): OutboxEntry[] {
   return getState().outbox[key] ?? [];
 }
 
+/** Every change to a conversation's outbox: the entries that are sending or failed stay in this browser, the rest leave it. */
+function write(key: string, next: OutboxEntry[]) {
+  const before = list(key);
+  setOutbox(key, next);
+  for (const e of before) if (!next.some((x) => x.id === e.id)) forgetOutgoing(key, e.id);
+  for (const e of next) {
+    if (e.state === "sent") forgetOutgoing(key, e.id);
+    else keepOutgoing(key, e);
+  }
+}
+
 function update(key: string, id: string, patch: Partial<OutboxEntry>) {
-  setOutbox(key, list(key).map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  write(key, list(key).map((e) => (e.id === id ? { ...e, ...patch } : e)));
 }
 
 const claimedBy = new Map<string, Set<string>>();
@@ -151,7 +165,7 @@ export function settleOutbox(mid: string, sid: string, users: Seen[]) {
   const claimed = claimedBy.get(key) ?? new Set<string>();
   claimedBy.set(key, claimed);
   const after = settle(before, users, Date.now(), claimed);
-  if (after.length !== before.length) setOutbox(key, after);
+  if (after.length !== before.length) write(key, after);
 }
 
 /** A failed entry's fields for the error its send ended with. */
@@ -170,18 +184,98 @@ function failedWith(err: unknown): Pick<OutboxEntry, "state" | "error" | "cleara
  *  why, "Retry" and "Delete", where it was sent; the box stays empty (#1122). */
 export function keepFailed(mid: string, sid: string, sent: Pick<OutboxEntry, "id" | "text" | "images" | "at" | "launcher" | "model">, err: unknown) {
   const key = outboxKey(mid, sid);
-  setOutbox(key, [...list(key).filter((e) => e.id !== sent.id), { ...sent, ...failedWith(err) }]);
+  write(key, [...list(key).filter((e) => e.id !== sent.id), { ...sent, ...failedWith(err) }]);
+}
+
+// ── one conversation's sends, in order ──────────────────
+
+const sendTurns = new Map<string, Promise<void>>();
+
+/** Runs `post` once the conversation's earlier sends have settled, however they ended: two POSTs in flight can reach the
+ *  hub in either order. With none before it, it starts at once.
+ *  ponytail: a POST that never settles holds the later ones until the page reloads (a send has no fetch timeout); add a
+ *  ceiling here if one is ever seen hanging. */
+export function inSendOrder<T>(key: string, post: () => Promise<T>): Promise<T> {
+  const before = sendTurns.get(key);
+  const turn = before ? before.then(post) : post();
+  const settled = turn.then(() => {}, () => {});
+  sendTurns.set(key, settled);
+  void settled.then(() => {
+    if (sendTurns.get(key) === settled) sendTurns.delete(key);
+  });
+  return turn;
+}
+
+// ── kept across reloads ─────────────────────────────────
+
+const KEPT_PREFIX = "outbox-msg:";
+const keptKey = (key: string, id: string) => `${KEPT_PREFIX}${key}/${id}`;
+type Outgoing = Pick<OutboxEntry, "id" | "text" | "images" | "at" | "launcher" | "model"> & Partial<Pick<OutboxEntry, "newId">>;
+
+/** Keeps one message's words in this browser while it is on its way or failed (pictures are not kept: they would fill the
+ *  storage). Storage can be full or refused; the message then lasts only as long as the page. */
+export function keepOutgoing(key: string, e: Outgoing) {
+  if (!e.text.trim()) return;
+  try {
+    storeValue(keptKey(key, e.id), JSON.stringify({ id: e.id, text: e.text, at: e.at, launcher: e.launcher, model: e.model, newId: e.newId, images: e.images.length }));
+  } catch {
+    // only this page's copy then
+  }
+}
+
+export function forgetOutgoing(key: string, id: string) {
+  try {
+    removeStoredValue(keptKey(key, id));
+  } catch {
+    // nothing to clear
+  }
+}
+
+function keptEntries(key: string): (Omit<Outgoing, "images"> & { lostImages: boolean })[] {
+  const out: (Omit<Outgoing, "images"> & { lostImages: boolean })[] = [];
+  try {
+    const prefix = keptKey(key, "");
+    for (let i = 0; i < localStorage.length; i++) {
+      const name = localStorage.key(i);
+      if (!name?.startsWith(prefix)) continue;
+      const { images, ...k } = JSON.parse(storedValue(name) ?? "null") as Omit<Outgoing, "images"> & { images?: number };
+      if (k.id && typeof k.text === "string") out.push({ ...k, lostImages: Boolean(images) });
+    }
+  } catch {
+    // storage unavailable or an unreadable entry: nothing to bring back
+  }
+  return out;
+}
+
+const restored = new Set<string>();
+
+/** After a reload: this conversation's messages still kept here come back as failed bubbles with Retry and Delete, once
+ *  per page. Called once the transcript is in, so a message that did reach the hub is settled (settle) before it shows.
+ *  `inFlight`: ids this page is sending right now, which already have their bubble. */
+export function restoreOutbox(mid: string, sid: string, inFlight: string[] = []) {
+  const key = outboxKey(mid, sid);
+  if (restored.has(key)) return;
+  restored.add(key);
+  const back = keptEntries(key).filter((k) => !inFlight.includes(k.id) && !list(key).some((e) => e.id === k.id));
+  if (!back.length) return;
+  const entries = back.map(({ lostImages, ...k }): OutboxEntry => ({ ...k, images: [], state: "failed", restored: true, error: t(lostImages ? "lib-outbox.not_confirmed_images" : "lib-outbox.not_confirmed") }));
+  setOutbox(key, [...list(key), ...entries]);
+}
+
+/** A fresh page for the tests: every conversation can be restored again. */
+export function resetRestoredForTests() {
+  restored.clear();
 }
 
 async function deliver(mid: string, sid: string, e: OutboxEntry, clearDraft?: string): Promise<boolean> {
   const key = outboxKey(mid, sid);
   try {
     // stays sending through a gap (a hub restart); the client_msg_id is the op id
-    await apiOp(`${sessionPath(mid, sid)}/messages`, {
+    await inSendOrder(key, () => apiOp(`${sessionPath(mid, sid)}/messages`, {
       method: "POST",
       opId: e.id,
       json: { text: e.text, images: e.images.length ? e.images : undefined, client_msg_id: e.id, launcher: e.launcher || undefined, model: e.model || undefined, clear_draft: clearDraft },
-    });
+    }));
     update(key, e.id, { state: "sent", at: Date.now(), error: undefined, clearable: undefined });
     return true;
   } catch (err) {
@@ -200,7 +294,7 @@ export function queueToSession(mid: string, sid: string, out: { text: string; im
   const key = outboxKey(mid, sid);
   const e: OutboxEntry = { id: uuid(), text: out.text, images: out.images ?? [], at: Date.now(), state: "sending", launcher: opts.launcher, model: opts.model };
   noteWritten(e.id, e.at);
-  setOutbox(key, [...list(key), e]);
+  write(key, [...list(key), e]);
   return { id: e.id, sent: deliver(mid, sid, e) };
 }
 
@@ -212,7 +306,7 @@ export function outboxEntry(mid: string, sid: string, id: string): OutboxEntry |
 /** A message that already went in another way (the prompt that started a conversation): its bubble until the transcript has it. */
 export function noteSent(mid: string, sid: string, out: { text: string; images?: OutboxImage[] }) {
   const key = outboxKey(mid, sid);
-  setOutbox(key, [...list(key), { id: uuid(), wordsOnly: true, text: out.text, images: out.images ?? [], at: Date.now(), state: "sent" }]);
+  write(key, [...list(key), { id: uuid(), wordsOnly: true, text: out.text, images: out.images ?? [], at: Date.now(), state: "sent" }]);
 }
 
 export function retryOutbox(mid: string, sid: string, id: string, clearDraft?: string): Promise<boolean> {
@@ -227,13 +321,13 @@ export function retryOutboxEntry(mid: string, sid: string, id: string, clearDraf
   // the hub said it may have gone in: the user looked and wants it sent again, as a new message
   const next: OutboxEntry = { ...e, id: e.newId ? uuid() : e.id, newId: false, state: "sending", error: undefined, at: Date.now() };
   noteWritten(next.id, next.at);
-  setOutbox(key, list(key).map((x) => (x.id === id ? next : x)));
+  write(key, list(key).map((x) => (x.id === id ? next : x)));
   return { id: next.id, sent: deliver(mid, sid, next, clearDraft) };
 }
 
 export function discardOutbox(mid: string, sid: string, id: string) {
   const key = outboxKey(mid, sid);
-  setOutbox(key, list(key).filter((e) => e.id !== id));
+  write(key, list(key).filter((e) => e.id !== id));
 }
 
 /**

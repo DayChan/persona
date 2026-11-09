@@ -17,13 +17,15 @@ vi.hoisted(() => {
 
 const captured = vi.hoisted(() => ({
   onSend: undefined as ((out: Outgoing) => Promise<boolean>) | undefined,
-  session: { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "idle" } as Session,
+  session: { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "idle" } as Session | undefined,
+  composer: undefined as { placeholder?: string; disabled?: boolean; blocked?: { label: string } } | undefined,
 }));
 
 vi.mock("./Composer", async (importOriginal) => ({
   ...await importOriginal<typeof import("./Composer")>(),
-  Composer: ({ onSend }: { onSend: (out: Outgoing) => Promise<boolean> }) => {
+  Composer: ({ onSend, ...props }: { onSend: (out: Outgoing) => Promise<boolean>; placeholder?: string; disabled?: boolean; blocked?: { label: string } }) => {
     captured.onSend = onSend;
+    captured.composer = props;
     return null;
   },
 }));
@@ -39,7 +41,7 @@ vi.mock("../../lib/store", async (importOriginal) => {
     useStore: <T,>(select: (s: ReturnType<typeof store.getState>) => T) => {
       const [, changed] = useReducer((n: number) => n + 1, 0);
       useEffect(() => store.subscribe(changed), []);
-      return select({ ...store.getState(), sessions: { hub: [captured.session] } });
+      return select({ ...store.getState(), sessions: { hub: captured.session ? [captured.session] : [] } });
     },
   };
 });
@@ -75,6 +77,7 @@ vi.mock("../../lib/ultracode", async (importOriginal) => ({
 }));
 
 const { ChatView } = await import("./ChatView");
+const { t } = await import("../../i18n");
 const { getState, setOutbox } = await import("../../lib/store");
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -230,5 +233,65 @@ describe("a message the node held back for an ultracode change (#3428)", () => {
     expect(localStorage.getItem("draft:hub/c1")).toBeNull();
     expect(host.querySelector('[data-user-bubble][data-send-state="failed"]')?.textContent).toContain("再看看测试");
     expect(host.querySelector("[data-outbox] [role=alert]")?.textContent).toContain("ultracode 等这一轮结束后生效");
+  });
+});
+
+describe("sending in order, and with no row yet", () => {
+  const known = captured.session;
+  afterEach(() => void (captured.session = known));
+  let bodies: { text: string }[];
+  let release: (() => void)[];
+  beforeEach(() => {
+    bodies = [];
+    release = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).endsWith("/messages")) return Promise.resolve(json({}));
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Promise<Response>((resolve) => release.push(() => resolve(json({}))));
+    }));
+  });
+
+  it("posts one message at a time, in the order they were sent", async () => {
+    act(() => root.render(<ChatView mid="hub" sid="c1" />));
+    await flush();
+    let first!: Promise<boolean>, second!: Promise<boolean>;
+    act(() => {
+      first = captured.onSend!({ text: "one", images: [] });
+      second = captured.onSend!({ text: "two", images: [] });
+    });
+    await flush();
+    expect(bodies.map((b) => b.text)).toEqual(["one"]);
+    release[0]();
+    await flush();
+    expect(bodies.map((b) => b.text)).toEqual(["one", "two"]);
+    release[1]();
+    await act(async () => void (await Promise.all([first, second])));
+  });
+
+  it("keeps an agent's box open but does not send before its row is here", async () => {
+    captured.session = undefined;
+    act(() => root.render(<ChatView mid="hub" sid="c1" />));
+    await flush();
+    expect(captured.composer).toMatchObject({ disabled: false, blocked: { label: expect.any(String) } });
+    expect(captured.composer?.placeholder).toBe(t("chat-chatview.connecting_placeholder"));
+    let sent: boolean | undefined;
+    await act(async () => void (sent = await captured.onSend!({ text: "too early", images: [] })));
+    expect(sent).toBe(false);
+    expect(bodies).toEqual([]);
+  });
+
+  it("lets the assistant's own conversation send before its row is here", async () => {
+    captured.session = undefined;
+    act(() => root.render(<ChatView mid="hub" sid="c1" assistant />));
+    await flush();
+    expect(captured.composer?.blocked).toBeUndefined();
+    let sending!: Promise<boolean>;
+    act(() => {
+      sending = captured.onSend!({ text: "already here", images: [] });
+    });
+    await flush();
+    expect(bodies.map((b) => b.text)).toEqual(["already here"]);
+    release[0]();
+    await act(async () => void (await sending));
   });
 });

@@ -1,5 +1,7 @@
 {
   "input_draft": "There's unsent text in the input box on the computer",
   "dialog_open": "A dialog is open on the computer. Deal with it, then send",
-  "delivery_unknown": "Not sure it arrived. Check the chat before sending again"
+  "delivery_unknown": "Not sure it arrived. Check the chat before sending again",
+  "not_confirmed": "Not confirmed before the page closed. Retry won't send it twice",
+  "not_confirmed_images": "Not confirmed before the page closed, and its pictures weren't kept"
 }

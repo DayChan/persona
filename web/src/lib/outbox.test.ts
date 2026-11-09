@@ -17,7 +17,7 @@ vi.mock("./store", () => {
 });
 vi.mock("./router", () => ({ navigate: vi.fn() }));
 
-import { arrived, askPersona, discardOutbox, keepFailed, noteSent, noteWritten, outboxMessage, placeFailed, retryOutbox, sendToSession, settle, settleOutbox, SENT_GRACE_MS, type OutboxEntry } from "./outbox";
+import { arrived, askPersona, discardOutbox, inSendOrder, keepFailed, keepOutgoing, noteSent, noteWritten, outboxMessage, placeFailed, resetRestoredForTests, restoreOutbox, retryOutbox, sendToSession, settle, settleOutbox, SENT_GRACE_MS, type OutboxEntry } from "./outbox";
 import type { ChatLine } from "./turns";
 import { pickLauncher } from "./assistant-chat";
 import { navigate } from "./router";
@@ -198,5 +198,77 @@ describe("where a failed message goes (#1122)", () => {
   it("keepFailed puts the composer's message in the outbox as failed, with why", () => {
     keepFailed("m", "s", { id: "k1", text: "你好", images: [], at: 1000 }, new Error("断了"));
     expect(outbox()["m/s"]).toEqual([expect.objectContaining({ id: "k1", state: "failed", error: "断了", text: "你好" })]);
+  });
+});
+
+describe("messages kept across a reload", () => {
+  const store = new Map<string, string>();
+  const fakeStorage = {
+    get length() { return store.size; },
+    key: (i: number) => [...store.keys()][i] ?? null,
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  const reload = () => {
+    delete outbox()["m/s"];
+    resetRestoredForTests();
+  };
+  beforeEach(() => {
+    store.clear();
+    delete outbox()["m/s"];
+    resetRestoredForTests();
+    vi.stubGlobal("localStorage", fakeStorage);
+  });
+
+  it("comes back as a failed bubble, and Retry sends the same id", async () => {
+    keepFailed("m", "s", { id: "a1", text: "还在吗", images: [], at: 1000 }, new TypeError("network"));
+    expect(store.size).toBe(1);
+    reload();
+    restoreOutbox("m", "s");
+    expect(outbox()["m/s"]).toMatchObject([{ id: "a1", text: "还在吗", state: "failed", restored: true }]);
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await retryOutbox("m", "s", "a1")).toBe(true);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).client_msg_id).toBe("a1");
+    expect(store.size).toBe(0);
+  });
+
+  it("a message still sending when the page closed comes back too", () => {
+    keepOutgoing("m/s", { id: "a2", text: "发出去了吗", images: [], at: 2000 });
+    restoreOutbox("m", "s");
+    expect(outbox()["m/s"]).toMatchObject([{ id: "a2", state: "failed", restored: true }]);
+  });
+
+  it("does not show twice when the transcript has it, by its id or by its words", () => {
+    keepOutgoing("m/s", { id: "a3", text: "第一条消息内容", images: [], at: 2000 });
+    keepOutgoing("m/s", { id: "a4", text: "第二条消息内容", images: [], at: 2000 });
+    restoreOutbox("m", "s");
+    settleOutbox("m", "s", [
+      { id: "u1", client_msg_id: "a3", text: "第一条消息内容", images: [] },
+      { id: "u2", text: "第二条消息内容", images: [], ts: new Date(3000).toISOString() },
+    ]);
+    expect(outbox()["m/s"]).toBeUndefined();
+    expect(store.size).toBe(0);
+  });
+
+  it("forgets a deleted message", () => {
+    keepFailed("m", "s", { id: "a5", text: "别发了", images: [], at: 1000 }, new TypeError("network"));
+    discardOutbox("m", "s", "a5");
+    expect(store.size).toBe(0);
+  });
+});
+
+describe("inSendOrder", () => {
+  it("runs a conversation's sends one at a time, past a failure", async () => {
+    let fail!: (e: Error) => void;
+    const first = inSendOrder("k", () => new Promise((_, reject) => (fail = reject)));
+    const second = vi.fn(async () => "two");
+    const after = inSendOrder("k", second);
+    await Promise.resolve();
+    expect(second).not.toHaveBeenCalled();
+    fail(new Error("no"));
+    await expect(first).rejects.toThrow("no");
+    await expect(after).resolves.toBe("two");
   });
 });

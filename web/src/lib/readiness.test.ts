@@ -7,7 +7,7 @@ import { ApiError } from "./api";
 import { parseAPIError } from "./api-errors";
 import { providerName } from "./model-config";
 import {
-  blockingStep, claudeMissing, readinessChanged, refreshReadiness, resetReadiness, claudeWorks, codedFailure, helpTopic, knownAction, passesBySelf, providersPath, runAction, sendLabel, turnErrorFix, type Readiness,
+  blockingStep, claudeMissing, readinessChanged, refreshReadiness, resetReadiness, retryWhileBlocked, claudeWorks, codedFailure, helpTopic, knownAction, passesBySelf, providersPath, runAction, sendLabel, turnErrorFix, type Readiness,
   type ReadinessStep,
 } from "./readiness";
 
@@ -164,5 +164,43 @@ describe("asking again", () => {
     release();
     await Promise.all([a, b, c]);
     expect(n).toBe(2);
+  });
+
+  it("does not let a forced ask share a request made earlier", async () => {
+    Object.assign(getState(), { features: ["assistant_readiness"] });
+    let n = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", vi.fn(() => (n++, gate.then(() => new Response(JSON.stringify(ready("full", [step("computer", "ok")])), { status: 200, headers: { "Content-Type": "application/json" } })))));
+    resetReadiness();
+    const a = refreshReadiness({ force: true });
+    await Promise.resolve();
+    const b = refreshReadiness({ force: true });
+    expect(b).not.toBe(a);
+    release();
+    await Promise.all([a, b]);
+    expect(n).toBe(2);
+  });
+
+  it("keeps asking at growing intervals while the button is held, and stops when told", async () => {
+    vi.useFakeTimers();
+    try {
+      Object.assign(getState(), { features: ["assistant_readiness"] });
+      const fetcher = vi.fn(() => Promise.reject(new TypeError("down")));
+      vi.stubGlobal("fetch", fetcher);
+      resetReadiness();
+      const stop = retryWhileBlocked();
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(fetcher).toHaveBeenCalledTimes(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      stop();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
