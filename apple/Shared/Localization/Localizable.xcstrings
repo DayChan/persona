@@ -133190,6 +133190,29 @@
       },
       "extractionState" : "manual"
     },
+    "· Deleted on the remote" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· Deleted on the remote"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· リモートで削除済み"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· 远端已删除"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "· Up to date" : {
       "localizations" : {
         "en" : {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { chatLines } from "./turns";
 import type { Item } from "./types";
-import { NAV_RAIL_PREVIEW_MAX, activeNavRailOffset, navRailExcerpt, navRailPreview, navRailTicks, pickActiveTick, planNavRailTicks } from "./nav-rail";
+import { NAV_RAIL_PREVIEW_MAX, activeNavRailOffset, navRailExcerpt, navRailMark, navRailPreview, navRailTicks, pickActiveTick, planNavRailTicks } from "./nav-rail";
+import { NAV_RAIL_METRICS as M } from "../ui/nav-rail-metrics";
 
 const u = (seq: number, text: string, extra: Partial<Item> = {}): Item => ({ id: `u${seq}#0`, seq, role: "user", kind: "text", text, ...extra });
 const a = (seq: number, text: string): Item => ({ id: `a${seq}#0`, seq, role: "assistant", kind: "text", text });
@@ -48,6 +49,25 @@ describe("navRailTicks", () => {
     expect(ticks[0]).toMatchObject({ preview: "", attachmentsOnly: 1, answerExcerpt: "看到了" });
   });
 
+  it("falls back to visible follow-up text in the same exchange, without tool or injected payloads", () => {
+    const lines = chatLines([u(1, "Explain the result")]);
+    const line = lines[0];
+    if (line.kind !== "segment") throw new Error("Expected an exchange");
+    line.seg.steps = [
+      { kind: "thinking", id: "private", item: { id: "private", seq: 2, role: "assistant", kind: "thinking", text: "Private reasoning" } },
+      { kind: "notice", id: "wake", item: { id: "wake", seq: 3, role: "assistant", kind: "notice", text: "Wake text", wake: true } },
+      { kind: "text", id: "relay", item: { id: "relay", seq: 4, role: "assistant", kind: "text", text: "Other exchange", from: "other-session" } },
+      { kind: "text", id: "empty", item: { id: "empty", seq: 5, role: "assistant", kind: "text", text: "<!-- hidden -->" } },
+      { kind: "notice", id: "progress", item: { id: "progress", seq: 6, role: "assistant", kind: "notice", text: "**Preparing the comparison.**" } },
+    ];
+    expect(navRailTicks(lines)[0].answerExcerpt).toBe("Preparing the comparison.");
+    line.seg.answer = a(7, "The final answer wins.");
+    expect(navRailTicks(lines)[0].answerExcerpt).toBe("The final answer wins.");
+    line.seg.answer = undefined;
+    line.seg.steps = line.seg.steps.slice(0, 4);
+    expect(navRailTicks(lines)[0].answerExcerpt).toBeUndefined();
+  });
+
   it("drops a question with no words and nothing attached", () => {
     const lines = chatLines([...ask(1, "第一个问题"), { id: "u3#0", seq: 3, role: "user", kind: "text", text: "" } as Item, ...ask(2, "第二个问题"), ...ask(3, "第三个问题")]);
     expect(navRailTicks(lines).map((x) => x.preview)).toEqual(["第一个问题", "第二个问题", "第三个问题"]);
@@ -84,10 +104,42 @@ describe("navRailExcerpt", () => {
   });
 });
 
+describe("navRailMark", () => {
+  it("forms symmetric, smoothly shortening and fading shoulders around the current input", () => {
+    let previous = navRailMark(12, 25, 12, null);
+    expect(previous.width).toBe(M.currentWidth);
+    expect(previous.height).toBe(M.currentHeight);
+    for (let distance = 1; distance <= 12; distance++) {
+      const left = navRailMark(12 - distance, 25, 12, null);
+      const right = navRailMark(12 + distance, 25, 12, null);
+      expect(left).toEqual(right);
+      expect(left.width).toBeLessThanOrEqual(previous.width);
+      expect(left.opacity).toBeLessThanOrEqual(previous.opacity);
+      previous = left;
+    }
+    expect(previous.width).toBeLessThan(7);
+    expect(previous.opacity).toBeLessThan(0.42);
+  });
+
+  it("moves the bell with hover while preserving the viewport owner's marker", () => {
+    const hover = navRailMark(8, 25, 12, 8);
+    expect(hover.state).toBe("hover");
+    expect(hover.width).toBe(M.hoverWidth);
+    expect(navRailMark(12, 25, 12, 8).width).toBeGreaterThanOrEqual(M.currentWidth);
+    expect(navRailMark(12, 25, 12, 12).width).toBe(M.currentHoverWidth);
+    expect(navRailMark(12, 25, 12, 12).height).toBeGreaterThan(M.currentHeight);
+  });
+
+  it("keeps the other mark short in a two-input conversation", () => {
+    expect(navRailMark(1, 2, 0, null).width).toBeLessThan(10);
+    expect(navRailMark(0, 1, 0, null).width).toBe(M.currentWidth);
+  });
+});
+
 describe("planNavRailTicks", () => {
   it("keeps the normal pitch while the ticks fit", () => {
-    expect(planNavRailTicks(10, 200)).toEqual({ start: 0, pitch: 9, hidden: 0, count: 10 });
-    expect(planNavRailTicks(0, 0)).toEqual({ start: 0, pitch: 9, hidden: 0, count: 0 });
+    expect(planNavRailTicks(10, 200)).toEqual({ start: 0, pitch: 10, hidden: 0, count: 10 });
+    expect(planNavRailTicks(0, 0)).toEqual({ start: 0, pitch: 10, hidden: 0, count: 0 });
   });
 
   it("compresses the pitch before windowing ticks", () => {

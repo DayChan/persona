@@ -71,6 +71,12 @@ class GitModelsTest {
         val synced = status.copy(upstream = "origin/master")
         assertEquals("已同步", gitSync(res, synced))
         assertEquals("↑1  ↓3", gitSync(res, synced.copy(ahead = 1, behind = 3)))
+        // a deleted upstream (#1884) is not "up to date"
+        val gone = JsonCodec.decodeFromString<SessionGitStatus>(
+            """{"is_repo":true,"branch":"feature","upstream":"origin/feature","gone":true,"ahead":0,"behind":0,"files":[],"stashes":0,"commits":[]}""",
+        )
+        assertEquals("远端已删除", gitSync(res, gone))
+        assertFalse(status.gone)
     }
 
     @Test fun refNamesDropABareHead() {

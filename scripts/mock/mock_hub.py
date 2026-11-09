@@ -3145,6 +3145,15 @@ if MOCK_TASKS:
                           "done_when": ["List this week's merged changes"], "reviews": [], "updated_at": ago(minutes=20)})
         next(i for i in TASK_FEED[ASK1] if i["kind"] == "today")["body"]["pending_review"] = [
             {"id": "todo_task_release", "title": "整理发布说明"}]
+    # MOCK_TASKS_AUTO_REVIEW=1 (with MOCK_TASKS_PENDING_REVIEW=1): the independent reviewer looked at the release notes
+    # task's change first (#2173): nothing blocking, one finding, its report under the criteria.
+    if os.environ.get("MOCK_TASKS_AUTO_REVIEW") == "1":
+        for _t in TODOS_INIT + TODOS:
+            if _t["id"] == "todo_task_release" and _t.get("supervision"):
+                _t["supervision"]["auto_review"] = {
+                    "id": "rv_mock", "state": "clean", "round": 0, "count": 1, "blocking": 0,
+                    "findings": "1. P2 docs/release-notes.md:12 the fixes section lists #41 twice: drop the second line",
+                    "started_at": ago(minutes=24), "ended_at": ago(minutes=20)}
     # MOCK_TASKS_NOTICE=1: the line the hub writes when a routine runs again once the computer and model are ready
     # (#4253, kind notice, drawn by the clients since #4305), last in the conversation.
     if os.environ.get("MOCK_TASKS_NOTICE") == "1":
@@ -3798,11 +3807,22 @@ if os.environ.get("MOCK_CODEX"):
 
 # MOCK_ASSISTANT_CARDS=1: Persona's main conversation waits on a tool approval (a hook's card) and a connector's send
 # the hub asks about itself (Hub.approve, connectors.go), both of its session as a hub serves them since #2558.
+# `long`: the same, but the approval's command is a long curl call, so the card opened on its raw parameters is taller
+# than the space above the input (the answer buttons must stay in view, #2017).
 if os.environ.get("MOCK_ASSISTANT_CARDS"):
+    _bash_command = "ls ~/notes"
+    if os.environ["MOCK_ASSISTANT_CARDS"] == "long":
+        _bash_command = "curl -X POST https://api.example.com/v1/reports/export -H 'Content-Type: application/json' -d '" + json.dumps(
+            {"format": "csv", "range": {"from": "2026-01-01", "to": "2026-12-31"},
+             "columns": ["id", "created_at", "owner", "status", "total", "currency", "region", "channel", "notes"],
+             "filters": [{"field": "status", "op": "in", "values": ["open", "paid", "refunded", "disputed"]},
+                         {"field": "region", "op": "in", "values": ["emea", "apac", "amer", "latam"]},
+                         {"field": "total", "op": "gte", "values": [100]}],
+             "sort": [{"field": "created_at", "dir": "desc"}], "deliver": {"mode": "email", "to": ["me@example.com"]}}) + "'"
     INTERACTIONS.append(
         {"id": "ix_assistant_bash", "machine_id": "server", "session_id": ASK1, "session_title": "今天要处理的事",
          "cwd": "/home/me/.persona/assistant", "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=29),
-         "tool_name": "Bash", "tool_input": {"command": "ls ~/notes"}, "summary": "ls ~/notes", "resumable": True})
+         "tool_name": "Bash", "tool_input": {"command": _bash_command}, "summary": _bash_command, "resumable": True})
     INTERACTIONS.append(
         {"id": "ix_assistant_send", "machine_id": "server", "session_id": ASK1, "session_title": "Persona",
          "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=14),
@@ -9724,10 +9744,10 @@ def personal_listed(hidden):
     return [r for r in personal_rows() if (r["id"] in PERSONAL_HIDDEN) == hidden] if PERSONAL_AGENTS else []
 # MOCK_GIT_WRITE=1 (#6121): the Git panel's writes on a made-up repository that changes as they are made. GET
 # /mock/git-write?fail=<code>[&files=a,b] makes the next write refuse with that code (git_conflict lists the files);
-# ?reset=1 starts over. The branch's pull request: ?pr=none|review|ready|auto sets it, ?pr_fail=no_gh|not_signed_in makes
+# ?reset=1 starts over; ?gone=1 puts the branch on an upstream deleted on the remote (#1884). The branch's pull request: ?pr=none|review|ready|auto sets it, ?pr_fail=no_gh|not_signed_in makes
 # reading it refuse; POST git/pr opens one, git/pr/merge merges it or sets it to merge when ready.
 def git_write_fresh():
-    return {"branch": "widget-hourly", "upstream": "", "ahead": 2, "fail": None, "files": [
+    return {"branch": "widget-hourly", "upstream": "", "ahead": 2, "gone": False, "fail": None, "files": [
         {"path": "WeatherWidget/Provider.swift", "index": ".", "worktree": "M", "added": 12, "deleted": 3, "binary": False},
         {"path": "WeatherWidget/WidgetView.swift", "index": "A", "worktree": ".", "added": 18, "deleted": 0, "binary": False},
         {"path": "Sources/App/main.swift", "index": "M", "worktree": "M", "added": 2, "deleted": 1, "binary": False},
@@ -9793,7 +9813,7 @@ def git_write_status(root):
     head = MOCK_COMMITS[0] if w["ahead"] <= 2 else dict(MOCK_COMMITS[0], hash="e" * 40, short="eeeeeee", subject=w.get("last", MOCK_COMMITS[0]["subject"]))
     return {"is_repo": True, "root": root, "branch": w["branch"], "head": head, "upstream": w["upstream"], "ahead": w["ahead"],
             "behind": 0, "stashes": len(w["stashes"]), "commits": ([head] if head is not MOCK_COMMITS[0] else []) + MOCK_COMMITS[:29],
-            "files": [dict(f) for f in w["files"]]}
+            "files": [dict(f) for f in w["files"]], **({"gone": True} if w["gone"] else {})}
 
 
 def git_branches():
@@ -9838,7 +9858,7 @@ def git_write(h, p, body):
             if not body.get("set_upstream"): return h.send_json({"error": "no upstream", "code": "git_no_upstream"}, 409)
             w["upstream"] = "origin/" + w["branch"]
             w["branches"].append(("origin/" + w["branch"], True))
-        w["ahead"] = 0
+        w["ahead"], w["gone"] = 0, False
         out["output"] = "To github.com:example/weather.git\n*\trefs/heads/%s:refs/heads/%s\t[new branch]" % (w["branch"], w["branch"])
     elif op == "switch":
         name = body.get("branch", "")
@@ -9850,7 +9870,7 @@ def git_write(h, p, body):
             w["upstream"], w["ahead"] = "origin/" + name, 0
         else:
             w["upstream"], w["ahead"] = ("origin/" + name if ("origin/" + name, True) in w["branches"] else ""), 0
-        w["branch"] = name
+        w["branch"], w["gone"] = name, False
     elif op == "stash":
         o = body.get("op")
         if o == "push":
@@ -11192,6 +11212,70 @@ def agent_live(step, n):
     else:
         return {"error": "step is prompt, lines, land, late, second, done or reset"}
     return {"ok": True, "step": step}
+
+
+NARRATED = {}  # session id → machine id of the conversations /mock/narrate?step=start streamed in
+NARRATED_WORDS = {}  # session id → the words streamed there, which step=finish writes as the thinking line
+LIVE_TEXT = {}  # session id → the text being generated, sent again after a subscription's backlog as the hub does
+
+
+def narrate(step, words, answer, steps=8, ms=250, line=True, ask="帮我把网络层单元测试的事交给负责的 Agent。"):
+    """/mock/narrate: what the Persona assistant's turn with a tool call looks like on the wire (#1966). Claude Code
+    streams the words it writes before a tool call as text deltas; its transcript records them as a thinking block,
+    written with the tool call once the tool is done.
+    step=start: in every open conversation, the user's message `ask` that starts the turn, then `words` stream as deltas
+    (`steps` × `ms`). step=finish: the thinking line (`line=0`: none, a turn cut off), the tool call and its result, the
+    answer `answer`, then the clearing delta. With no app connected (GET /mock/restart?gap_ms=… between the two), the
+    lines wait for the resumed subscription and the clear is lost, as on the hub: deltas are not replayed. A text still
+    being generated is sent again after a backlog."""
+    import time
+    if step == "start":
+        NARRATED.clear(); NARRATED_WORDS.clear()
+        followers = {}  # each open conversation, once, and every socket that follows it (a closed one is skipped)
+        for send, subscribed in list(LIVE):
+            for sid in list(subscribed):
+                if ITEMS.get(sid): followers.setdefault(sid, []).append(send)
+        for sid in followers:
+            NARRATED[sid] = next((x["machine_id"] for x in all_sessions() if x["session_id"] == sid), "macbook")
+            NARRATED_WORDS[sid] = words
+            CHURN_ITEMS.setdefault(sid, list(ITEMS[sid]))  # /mock/reset takes them away again
+        for sid, sends in followers.items():
+            mid = NARRATED[sid]
+            if ask:
+                before = ITEMS[sid][-1]["seq"]
+                asked = [it("user", "text", 0, text=ask)]
+                ITEMS[sid] = ITEMS[sid] + asked
+                for send in sends:
+                    try: send({"type": "items", "machine_id": mid, "session_id": sid, "items": asked, **span(asked, before)})
+                    except Exception: pass
+            for k in range(1, steps + 1):
+                time.sleep(ms / 1000)
+                text = words[:len(words) * k // steps]
+                LIVE_TEXT[sid] = text
+                for send in sends:
+                    try: send({"type": "delta", "machine_id": mid, "session_id": sid, "text": text})
+                    except Exception: pass
+        return {"ok": True, "streamed": len(NARRATED)}
+    if step == "finish":
+        def send_all(sid, msg):  # whoever follows the conversation now (nobody during a restart's gap); how many got it
+            sent = 0
+            for out, subs in list(LIVE):
+                if sid in subs:
+                    try: out(msg); sent += 1
+                    except Exception: pass
+            return sent
+
+        cleared = 0  # sockets the clear reached
+        for sid, mid in list(NARRATED.items()):
+            before = ITEMS[sid][-1]["seq"]
+            new = ([it("assistant", "thinking", 0, text=NARRATED_WORDS.get(sid, words))] if line else []) \
+                + tool("Bash", {"command": "ls agents", "description": "找负责的 Agent"}, "找到了", 0) + [it("assistant", "text", 0, text=answer)]
+            ITEMS[sid] = ITEMS[sid] + new
+            LIVE_TEXT.pop(sid, None)
+            send_all(sid, {"type": "items", "machine_id": mid, "session_id": sid, "items": new, **span(new, before)})
+            cleared += send_all(sid, {"type": "delta", "machine_id": mid, "session_id": sid, "text": ""})
+        return {"ok": True, "finished": len(NARRATED), "cleared": cleared}
+    return {"error": "step is start or finish"}
 
 
 def say(text, user=None, stream=False, steps=10, ms=300, late=0, drop=False):
@@ -13251,6 +13335,7 @@ class H(BaseHTTPRequestHandler):
                 if kind != "none": GIT_W.update(upstream="origin/" + GIT_W["branch"], ahead=0)
                 GIT_W["pr"] = None if kind == "none" else git_pr_make(kind, GIT_W["branch"])
             if "pr_fail" in q: GIT_W["pr_fail"] = q["pr_fail"][0] or None
+            if q.get("gone"): GIT_W.update(upstream="origin/" + GIT_W["branch"], ahead=0, gone=True)
             return self.send_json({"branch": GIT_W["branch"], "ahead": GIT_W["ahead"], "files": len(GIT_W["files"])})
         if p == "/mock/git-pull" and os.environ.get("MOCK_GIT_PULL"):
             if "mode" in q:
@@ -13310,6 +13395,13 @@ class H(BaseHTTPRequestHandler):
         if p == "/mock/lark_send_delay": return self.send_json(set_lark_send_delay(q.get("s", [""])[0]))  # LarkSendTests
         if p == "/mock/agent_live" and AGENT_LIVE:  # an agent's reply streaming as Claude shows it (MOCK_AGENT_LIVE above)
             return self.send_json(agent_live(q.get("step", [""])[0], int(q.get("n", ["0"])[0])))
+        if p == "/mock/narrate":  # #1966: words streamed before a tool call, recorded as thinking; ?step=start|finish
+            args = (q.get("step", [""])[0], q.get("words", ["我先找一下负责的 Agent，再把任务交给它。"])[0], q.get("answer", ["已交给负责的 Agent。"])[0],
+                    int(q.get("steps", ["8"])[0]), int(q.get("ms", ["250"])[0]), q.get("line", ["1"])[0] != "0")
+            if args[0] == "start":  # streams for a few seconds: the test looks for the words meanwhile
+                threading.Thread(target=narrate, args=args, daemon=True).start()
+                return self.send_json({"ok": True})
+            return self.send_json(narrate(*args))
         if p == "/mock/say":  # ChatFollowTests: a reply arrives in every open conversation (?text=…, ?user=… a message before it)
             # &steps=50&ms=80: the hub's own pace (a delta every 80 ms, node/assistant.go).
             # &history=mock-1.r1: the transcript's history token from now on, on pushes and pages alike (a branch was abandoned,
@@ -13490,6 +13582,7 @@ class H(BaseHTTPRequestHandler):
             reset_agent_archives()  # MOCK_AGENT_ARCHIVES: the two archived agents again, the rest back in the list as they were
             PINS.update(spaces=["macbook/weather"], sessions=[])
             for sid, items in CHURN_ITEMS.items(): ITEMS[sid] = list(items)  # LiveUpdateTests, ChatFollowTests: what churn / say added goes
+            NARRATED.clear(); NARRATED_WORDS.clear(); LIVE_TEXT.clear()  # an AssistantLiveTextTests turn that died mid-stream
             for row in SESSIONS + ASSISTANT:
                 if row["session_id"] in DROPPED_AT: row["updated_at"] = DROPPED_AT[row["session_id"]]
             DROPPED_AT.clear()
@@ -15780,6 +15873,9 @@ class H(BaseHTTPRequestHandler):
                                "items": lazy_images(fold_work(page) if msg.get("fold_work") else page)}
                         served(sid, "backlog", out)
                         send(out)
+                    # What is being generated, right after the backlog, as the hub's sendLiveText does (#1966).
+                    if LIVE_TEXT.get(sid):
+                        send({"type": "delta", "machine_id": mid, "session_id": sid, "text": LIVE_TEXT[sid]})
         except Exception as e:
             LOG.write("  WS closed %r\n" % e); LOG.flush()
         SOCKETS.discard(self.connection)

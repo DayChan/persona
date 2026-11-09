@@ -160,10 +160,55 @@ async function preview(page, index) {
   assert.ok(data.text.length < 420, "The answer preview is an excerpt, not the complete response");
   assert.ok(data.left >= 0 && data.right <= data.viewportWidth + 1 && data.top >= 0 && data.bottom <= data.viewportHeight + 1, "The hover preview stays inside the viewport");
 }
+async function previewStyle(page, index) {
+  await page.waitForFunction(([rail, index]) => {
+    const mark = document.querySelector(`${rail} button[data-tick="${index}"] [data-nav-mark]`);
+    return mark && Math.abs(mark.getBoundingClientRect().width - parseFloat(mark.style.width)) < 0.1;
+  }, [RAIL, index]);
+  const style = await page.locator(PREVIEW).evaluate((card) => {
+    const surface = card.querySelector("[data-nav-preview-surface]");
+    const title = card.querySelector("[data-nav-preview-title]");
+    const excerpt = card.querySelector("[data-nav-preview-excerpt]");
+    const s = getComputedStyle(surface), h = getComputedStyle(title), p = getComputedStyle(excerpt);
+    return { radius: s.borderRadius, padding: s.paddingTop, border: s.borderTopWidth, shadow: s.boxShadow,
+      surface: s.backgroundColor, title: h.color, body: p.color, weight: h.fontWeight,
+      titleWhitespace: h.whiteSpace, lines: p.webkitLineClamp };
+  });
+  assert.equal(style.radius, "16px");
+  assert.equal(style.padding, "20px");
+  assert.equal(style.border, "1px");
+  assert.notEqual(style.shadow, "none");
+  assert.ok(Number(style.weight) >= 600);
+  assert.equal(style.titleWhitespace, "nowrap");
+  assert.equal(style.lines, "2");
+  const box = await page.locator(PREVIEW).boundingBox(), mark = await tick(page, index).boundingBox();
+  assert.ok(box.x + box.width <= mark.x + 1, "The card is left of the right-edge rail");
+  assert.ok(Math.abs(box.y + box.height / 2 - mark.y - mark.height / 2) < 2, "The card aligns vertically with its input");
+  const profile = await page.locator(`${RAIL} [data-nav-mark]`).evaluateAll((marks) => marks.map((mark) => ({ width: parseFloat(mark.style.width), opacity: parseFloat(mark.style.opacity) })));
+  assert.ok(profile[index - 1].width > profile[index - 2].width && profile[index - 2].width > profile[index - 3].width, "Marks shorten smoothly away from hover");
+  assert.ok(profile[index - 3].width < 10 && profile[index - 3].opacity < profile[index - 1].opacity, "Far marks are shorter and lighter");
+  return style;
+}
+
+async function armExitProbe(page) {
+  await page.evaluate(([rail, preview]) => {
+    const nav = document.querySelector(rail);
+    const sample = { leftAt: null, hiddenAt: null };
+    window.__navExitSample = sample;
+    const left = (event) => { if (!nav.contains(event.relatedTarget)) sample.leftAt = performance.now(); };
+    const observer = new MutationObserver(() => {
+      if (sample.leftAt !== null && !document.querySelector(preview)) sample.hiddenAt ??= performance.now();
+    });
+    nav.addEventListener("mouseout", left);
+    observer.observe(nav, { childList: true, subtree: true });
+    window.__navExitCleanup = () => { nav.removeEventListener("mouseout", left); observer.disconnect(); };
+  }, [RAIL, PREVIEW]);
+}
+
 async function bodyWheel(page, delta) {
   const box = await page.locator(CHAT).boundingBox();
   assert.ok(box, "The chat is visible");
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.mouse.move(box.x + Math.min(32, box.width / 4), box.y + box.height * 0.5);
   const before = await page.locator(CHAT).evaluate((el) => el.scrollTop);
   await page.mouse.wheel(0, delta);
   await page.waitForFunction(([chat, top]) => Math.abs((document.querySelector(chat)?.scrollTop ?? top) - top) > 5, [CHAT, before]);
@@ -195,7 +240,7 @@ async function quietAndWake(page, run) {
   const box = await geometry(page);
   await page.mouse.move(box.rail.right - Math.min(4, box.rail.width / 2), (box.rail.top + box.rail.bottom) / 2);
   await page.waitForFunction((rail) => Number(getComputedStyle(document.querySelector(rail)).opacity) > 0.95, RAIL);
-  await page.mouse.move((box.chat.left + box.chat.right) / 2, (box.chat.top + box.chat.bottom) / 2);
+  await page.mouse.move(box.chat.left + 32, (box.chat.top + box.chat.bottom) / 2);
   await page.waitForFunction((rail) => Number(getComputedStyle(document.querySelector(rail)).opacity) <= 0.01, RAIL, { timeout: 2800 });
   // Use actual Tab traversal, not focus() on a possibly negative-tabindex element.
   await page.evaluate(() => document.activeElement?.blur());
@@ -329,7 +374,27 @@ async function standard(browser, theme, size) {
       await preview(page, 3);
       await page.waitForTimeout(2200);
       assert.ok(await page.locator(RAIL).evaluate((el) => Number(getComputedStyle(el).opacity) > 0.95), "Hover keeps the navigation visible");
+      const style = await previewStyle(page, 3);
       await screenshot(page, run, "preview");
+      return style;
+    });
+    await check(`${name}: rail/card hover ownership and immediate outside dismissal`, async () => {
+      const card = await page.locator(PREVIEW).boundingBox();
+      await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2, { steps: 40 });
+      await preview(page, 3);
+      await page.waitForTimeout(2200);
+      await preview(page, 3);
+      await screenshot(page, run, "hover-card");
+      await armExitProbe(page);
+      const chat = await page.locator(CHAT).boundingBox();
+      await page.mouse.move(chat.x + 32, chat.y + chat.height / 2);
+      await page.waitForFunction((selector) => !document.querySelector(selector), PREVIEW, { timeout: 350, polling: "raf" });
+      const sample = await page.evaluate(() => { window.__navExitCleanup(); return window.__navExitSample; });
+      const elapsedMs = sample.hiddenAt - sample.leftAt;
+      assert.ok(sample.leftAt !== null && sample.hiddenAt !== null && elapsedMs >= 0 && elapsedMs < 100, "No grace-period timer may delay the card's removal");
+      assert.equal(await page.locator(RAIL).getAttribute("data-visible"), "true", "Immediate card removal does not prematurely hide the rail");
+      await screenshot(page, run, "after-exit");
+      return { elapsedMs, previewPresentAfterExit: false, railRetained: true };
     });
     await check(`${name}: clicking lands on the actual input`, async () => {
       await tick(page, 5).click();

@@ -438,7 +438,8 @@ func TestSupervisedTaskNewMainConversationCanReview(t *testing.T) {
 func TestGoldenSupervise(t *testing.T) {
 	golden(t, "supervise.digest", prompts.RenderSupervise(prompts.Supervise{Entries: sortEntries([]prompts.SuperviseEntry{
 		{ID: "todo_1", Title: "修登录崩溃", Kind: sigReview, Detail: "PR 已合并", DoneWhen: []string{"PR 合并到 master", "浅色 / 深色截图贴进 PR"},
-			Machine: "box", Session: "a1b2c3d4", Last: "修好了，PR https://github.com/o/r/pull/901 已合并", Link: "https://hub.example.com/todos?id=todo_1"},
+			Machine: "box", Session: "a1b2c3d4", Last: "修好了，PR https://github.com/o/r/pull/901 已合并", Link: "https://hub.example.com/todos?id=todo_1",
+			Review: &prompts.SuperviseReviewed{State: autoClean, Count: 1, Findings: "1. P2 login/view.swift:12 变量名可以更清楚"}},
 		{ID: "todo_2", Title: "部署 hub", Kind: sigIdle, Detail: "要用户决定：两种走法选一个", Machine: "box", Round: 1, Last: "A 先灰度，B 直接全量。选哪个？"},
 		{ID: "todo_3", Title: "整理材料", Kind: sigNeedsYou, Minutes: 4, Quiet: true, Ask: "- 用哪个分支？（选项：main / dev）"},
 		{ID: "todo_4", Title: "跑 UI 测试", Kind: sigStalled, Minutes: 35, Detail: "在等编译"},

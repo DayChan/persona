@@ -139,6 +139,7 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 				m.turnErr.set(&s)
 				s.Activity, s.ActivityAt = m.activityOf()
 				setContext(&s, m)
+				s.ModelFallback = m.modelFallback
 				if a.Agent != "codex" && a.Agent != traexAgent {
 					s.PermissionMode, s.Effort = n.currentModes(id, m)
 				}
@@ -242,6 +243,9 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 		}
 		if s.Cwd != "" && n.cwdBlocked(s.Cwd) && !n.isAssistantSession(s.SessionID) && !n.keptSessions()[s.SessionID] {
 			continue
+		}
+		if s.Status == proto.StatusWorking && (s.Agent == "" || s.Agent == "claude" || s.Agent == "codex") {
+			s.ToolLoop = n.toolLoopOf(s.SessionID)
 		}
 		s.WorkspaceCwd = n.sessionWorkspaceCwd(s.Cwd)
 		s.CanFork = n.forkable(s) // "Branch to New Chat" (fork.go)

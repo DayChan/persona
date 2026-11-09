@@ -4,7 +4,7 @@ import { managedProvider } from "../lib/compatibility";
 import { BASE, stripBase } from "../lib/base";
 import { href } from "../lib/router";
 import { useScrollMemory } from "../lib/scroll-memory";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, enc, errorText } from "../lib/api";
 import { splitDevices } from "../lib/devices";
 import { ago } from "../lib/format";
@@ -119,8 +119,7 @@ export function tokens(n: number): string {
 
 export function Settings({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const phone = useMedia(SHEET_QUERY);
-  // the category bar can wrap, so the header can be taller than the usual 56px: tell <main> its height, which the
-  // connection pill (App.tsx) sits under instead of over the second row (#3594)
+  // Keep the connection pill (App.tsx) below the page header, including at larger text sizes.
   const header = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = header.current;
@@ -156,6 +155,12 @@ export function Settings({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const hasChannels = useStore((s) => s.features.includes("channels"));
   const shown = (k: Tab) => (k !== "extensions" || hasExtensions || tab === "extensions") && (k !== "channels" || hasChannels || tab === "channels");
   const tabs = TABS.filter(shown).map((k) => ({ k, ...TAB_INFO[k] }));
+  const contentId = useId();
+  const categories = useRef<HTMLElement>(null);
+  // A deep link or a width change can select a category below the sidebar's fold.
+  useEffect(() => {
+    categories.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [tab, phone, hasExtensions, hasChannels]);
   const configurationOwner = useRef<string | null>(new URLSearchParams(location.search).get("manager"));
   const pick = (k: Tab, id: string | null = null) => {
     configurationOwner.current = new URLSearchParams(location.search).get("manager") ?? configurationOwner.current;
@@ -172,7 +177,7 @@ export function Settings({ onToggleSidebar }: { onToggleSidebar: () => void }) {
     setAt({ tab: null, sub: null });
   };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <header ref={header} className="flex min-h-14 shrink-0 items-center gap-2 border-b border-line px-3 py-2 sm:px-4">
         {phone && at.tab ? (
           <>
@@ -185,59 +190,60 @@ export function Settings({ onToggleSidebar }: { onToggleSidebar: () => void }) {
             <h1 className="shrink-0 whitespace-nowrap text-[14px] font-semibold text-ink">{t("settings.title")}</h1>
           </>
         )}
+      </header>
+      <div className="flex min-h-0 min-w-0 flex-1">
         {!phone && (
-          // when the labels don't fit (narrow desktop, English, Japanese) the bar wraps instead of hiding categories past the
-          // right edge: scrollbars are hidden and a mouse wheel cannot scroll it sideways (#3594)
-          <nav className="ml-1 flex min-w-0 flex-wrap items-center gap-0.5 rounded-control bg-inset p-0.5 shadow-hairline sm:ml-3" aria-label={t("settings.categories")}>
+          <nav ref={categories} className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto overscroll-contain border-r border-line bg-inset p-3" aria-label={t("settings.categories")}>
             {tabs.map((it) => (
               <button
                 key={it.k}
                 type="button"
                 onClick={() => pick(it.k)}
                 aria-current={tab === it.k ? "page" : undefined}
+                aria-controls={contentId}
                 className={cx(
-                  "flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[7px] px-2.5 text-[12.5px] transition-[background-color,color] duration-150",
-                  tab === it.k ? "bg-surface font-medium text-ink shadow-btn" : "text-ink-3 hover:text-ink-2",
+                  "flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-control px-3 text-left text-sm transition-colors duration-150 motion-reduce:transition-none",
+                  tab === it.k ? "bg-hover-2 font-medium text-ink" : "text-ink-2 hover:bg-hover hover:text-ink",
                 )}
               >
-                <Icon name={it.icon} size={13} />
-                {it.label}
+                <Icon name={it.icon} />
+                <span className="truncate" title={it.label}>{it.label}</span>
               </button>
             ))}
           </nav>
         )}
-      </header>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        {listed ? (
-          <div className="px-4 py-5" style={{ animation: `fade-up 320ms ${EASE} both` }}>
-            <SettingsList shown={shown} onPick={pick} />
-          </div>
-        ) : (
-          <div key={tab} className="mx-auto max-w-[760px] px-5 py-6 sm:px-8" style={{ animation: `fade-up 320ms ${EASE} both` }}>
-            {tab === "general" && <General onTriageModel={() => pick("model-config", "agent.triage")} onExtensions={() => pick("extensions")} />}
-            {tab === "notifications" && <NotificationSettings />}
-            {tab === "models" && <Models />}
-            {tab === "model-config" && <ModelConfiguration open={sub} onOpen={(id) => pick("model-config", id)} onProviders={() => pick("models")} />}
-            {tab === "assistant" && <AssistantSettings />}
-            {(tab === "claude" || tab === "codex" || tab === "agy" || tab === "omp") && <AgentSettings key={tab} agent={tab} />}
-            {tab === "channels" && (sub ? (
-              <ChannelPage key={sub} {...parseOwnedSub(sub)} onBack={() => pick("channels")} onSettings={(url) => {
-                const target = settingsTarget(url);
-                if (target && TABS.includes(target.tab as Tab)) pick(target.tab as Tab, target.sub);
-              }} />
-            ) : (
-              <ChannelList onOpen={(id) => pick("channels", id)} onMarketItem={(market, id) => pick("extensions", routeSub({ kind: "item", market, id }))} />
-            ))}
-            {tab === "connectors" && <Connectors open={sub} onOpen={(id) => pick("connectors", id)} onChannel={(id, manager) => pick("channels", ownedSub(id, manager))} />}
-            {tab === "sent" && <SentSettings />}
-            {tab === "extensions" && <Extensions open={sub} onOpen={(id) => pick("extensions", id)} onChannel={(id, manager) => pick("channels", ownedSub(id, manager))} onConnector={(id, manager) => pick("connectors", ownedSub(id, manager))} />}
-            {tab === "translate" && <TranslationSettings onConfigure={() => pick("model-config", "translate")} />}
-            {tab === "shortcuts" && <ShortcutSettings />}
-            {tab === "devices" && <Devices />}
-            {tab === "hub" && <HubSettings />}
-            {tab === "managers" && <ManagersSettings />}
-          </div>
-        )}
+        <div ref={scroller} id={contentId} role={listed ? undefined : "region"} aria-label={listed ? undefined : TAB_INFO[tab].label} tabIndex={0} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent">
+          {listed ? (
+            <div className="px-4 py-5" style={{ animation: `fade-up 320ms ${EASE} both` }}>
+              <SettingsList shown={shown} onPick={pick} />
+            </div>
+          ) : (
+            <div key={tab} className="mx-auto max-w-[760px] px-5 py-6 sm:px-8" style={{ animation: `fade-up 320ms ${EASE} both` }}>
+              {tab === "general" && <General onTriageModel={() => pick("model-config", "agent.triage")} onExtensions={() => pick("extensions")} />}
+              {tab === "notifications" && <NotificationSettings />}
+              {tab === "models" && <Models />}
+              {tab === "model-config" && <ModelConfiguration open={sub} onOpen={(id) => pick("model-config", id)} onProviders={() => pick("models")} />}
+              {tab === "assistant" && <AssistantSettings />}
+              {(tab === "claude" || tab === "codex" || tab === "agy" || tab === "omp") && <AgentSettings key={tab} agent={tab} />}
+              {tab === "channels" && (sub ? (
+                <ChannelPage key={sub} {...parseOwnedSub(sub)} onBack={() => pick("channels")} onSettings={(url) => {
+                  const target = settingsTarget(url);
+                  if (target && TABS.includes(target.tab as Tab)) pick(target.tab as Tab, target.sub);
+                }} />
+              ) : (
+                <ChannelList onOpen={(id) => pick("channels", id)} onMarketItem={(market, id) => pick("extensions", routeSub({ kind: "item", market, id }))} />
+              ))}
+              {tab === "connectors" && <Connectors open={sub} onOpen={(id) => pick("connectors", id)} onChannel={(id, manager) => pick("channels", ownedSub(id, manager))} />}
+              {tab === "sent" && <SentSettings />}
+              {tab === "extensions" && <Extensions open={sub} onOpen={(id) => pick("extensions", id)} onChannel={(id, manager) => pick("channels", ownedSub(id, manager))} onConnector={(id, manager) => pick("connectors", ownedSub(id, manager))} />}
+              {tab === "translate" && <TranslationSettings onConfigure={() => pick("model-config", "translate")} />}
+              {tab === "shortcuts" && <ShortcutSettings />}
+              {tab === "devices" && <Devices />}
+              {tab === "hub" && <HubSettings />}
+              {tab === "managers" && <ManagersSettings />}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

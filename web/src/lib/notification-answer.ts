@@ -2,6 +2,7 @@
 // hands the click to an open page of the app (lib/sw-click.ts clickNotification), which answers the card as the card's
 // own buttons do (lib/card-answer.ts), with its own token, and stays where it is. The worker never sees the token.
 import { t } from "../i18n";
+import { requestRoute } from "./card-focus";
 import { toast } from "../ui/atoms";
 import { stripBase } from "./base";
 import { answerCard } from "./card-answer";
@@ -70,7 +71,7 @@ async function answer(ix: Interaction, allow: boolean, body: Resolution) {
     const r = await answerCard(ix, body);
     if (r.ok) return;
     // nobody is looking at the page: the failure is a notification of its own, a click opens the conversation
-    const route = { name: "session", mid: ix.machine_id, sid: ix.session_id } as const;
+    const route = requestRoute(ix);
     if (document.visibilityState === "visible" && document.hasFocus()) toast(r.error, "error");
     else {
       postNotification({ title: allow ? t("notify.allow_failed") : t("notify.deny_failed"), body: r.error, tag: failedTag(ix.id), url: href(route) }, () => navigate(route));

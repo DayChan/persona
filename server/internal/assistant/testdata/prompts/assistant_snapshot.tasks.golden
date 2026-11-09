@@ -2,7 +2,7 @@
 - 模型档位：未设置（model_profiles_list 查看，model_profile_switch 切换）
 - 在线的电脑：
 - Agents：需要你 0 个，完成未看 0 个，工作中 0 个（详情用 agents_list）
-- 从对话开的任务（task_plan；用 agent_send 对它的 Agent 说话）：
+- 从对话开的任务（task_plan；问已有结果看这里，不够用 agent_read 读它的对话；要它新查、新做或改方向才用 agent_send）：
   - 只跑工具（todo_2）：在做，mac-a session_id=c1：现在在读 tasks.go（3 分钟了）
   - hub 重启无感（todo_1）：在做，mac-a session_id=b00502b8：已建 issue 并认领， 两个只读子任务在调查；现在在跑测试（3 分钟了）；子 Agent 在跑：Hub children lifecycle survey、Client reconnect survey
 - iPhone：App 不在前台，phone_* 工具会先尝试在后台唤醒 App，失败就请他打开 App

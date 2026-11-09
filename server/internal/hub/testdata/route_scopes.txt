@@ -139,6 +139,7 @@ assistant.ask        GET /api/v1/assistant/reporters
 -                    GET /api/v1/extensions/-/widgets
 -                    GET /api/v1/extensions/{id}/-/auth
 -                    GET /api/v1/extensions/{id}/-/dev/logs
+-                    GET /api/v1/extensions/{id}/-/storage/retained
 -                    GET /api/v1/extensions/{id}/-/{$}
 -                    GET /api/v1/fleet
 -                    GET /api/v1/health
@@ -329,6 +330,7 @@ assistant.ask        POST /api/v1/assistant/conversations/{id}/stop
 -                    POST /api/v1/extensions/{id}/-/dev/restart
 -                    POST /api/v1/extensions/{id}/-/rollback
 -                    POST /api/v1/extensions/{id}/-/shortcut/{sid}
+-                    POST /api/v1/extensions/{id}/-/storage/restore
 -                    POST /api/v1/extensions/{id}/-/ui/{ui}
 -                    POST /api/v1/extensions/{id}/-/upgrade
 -                    POST /api/v1/extensions/{id}/-/widget/{ui}

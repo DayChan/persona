@@ -1698,6 +1698,12 @@ final class AppModel {
             if !store.liveIsAgents, store.landed(items, pending: deltas.pendingText(key)) {
                 deltas.drop(key)
                 ChatTrace.shared.note(key, "landed live=\(store.liveText.count)")
+            } else if backlog, !store.liveIsAgents, !store.liveText.isEmpty {
+                // A page of the subscription's catch-up is in: the assistant's live text the hub does not send again
+                // after the last one is stale (#1966). Every page: a capped catch-up says more_after and the rest comes
+                // another way, and the re-send or any delta cancels the fallback.
+                ChatTrace.shared.note(key, "backlog live=\(store.liveText.count)")
+                store.backlogArrived()
             }
         case .screen(let key, let text, let status):
             let c = chat(key)

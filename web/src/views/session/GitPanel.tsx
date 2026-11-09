@@ -271,7 +271,8 @@ function Summary({ s, writer, onBranches, onStashes }: { s: GitStatus; writer?: 
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">
         <span className="truncate">{s.upstream ? s.upstream : t("session-gitpanel.no_upstream")}</span>
-        {s.upstream && !ahead && !behind && <span>· {t("session-gitpanel.in_sync")}</span>}
+        {s.upstream && s.gone && <span title={t("session-gitpanel.upstream_gone_hint")}>· {t("session-gitpanel.upstream_gone")}</span>}
+        {s.upstream && !s.gone && !ahead && !behind && <span>· {t("session-gitpanel.in_sync")}</span>}
         {writer ? (
           <button type="button" onClick={onStashes} className="whitespace-nowrap hover:text-ink hover:underline" title={t("session-gitpanel.stashes_hint")}>
             · {(s.stashes ?? 0) > 0 ? t("session-gitpanel.stashes", { count: s.stashes ?? 0 }) : t("session-gitwrite.stashes")}

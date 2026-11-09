@@ -342,8 +342,9 @@ When LAN clients need access, you can bind `PERSONA_PORT` to an explicit LAN add
 
 ## Verification
 
-`.github/workflows/hub-image.yml` builds the image on every PR that touches the server (including `sdk/go`), the web app, or the image, and runs it once with compose: health check, pairing,
-tailcat key, web app, owner of `hub.json`. The workflow passes no `UPDATE_URL`, so the image carries personad for every platform (for a PR, `linux/amd64` only); one built with `UPDATE_URL` carries its own platform's and fetches the others ("Node builds").
+`.github/workflows/hub-image.yml` builds and smoke-tests the image on explicit workflow dispatch: health check, pairing,
+tailcat key, web app, owner of `hub.json`. The workflow passes no `UPDATE_URL`, so the image carries personad for every platform (for the smoke test, `linux/amd64` only); one built with `UPDATE_URL` carries its own platform's and fetches the others ("Node builds").
+The only automatic trigger is a `v*` release tag, which publishes the version image and, for stable releases, `latest`. Docker installations use those images, so this release publication exception is retained. PRs and branch pushes do not start the workflow.
 You can do the same locally (OrbStack / Docker Desktop):
 
 ```sh

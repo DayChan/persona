@@ -27,6 +27,7 @@ Use synthetic conversations for screenshots, not the user's real main conversati
   A rename is the same: the Feishu /agent names its conversation right after starting it, and the custom-title line had nowhere to go, so the node
   answered "transcript … not found" and the manager kept no title. The node now keeps the title of a running assistant conversation and writes it once the
   transcript appears; if renamed again meanwhile, the newest title wins; if the process ends first, the title is dropped (`retitle`, #5866).
+- A two-turn page or cache must count user questions, not every `role=user` text item (#2011, 2026-11-09). Automatic supervision is model input too; counting it can leave only the latest real question in both Apple and web. The node pages before the hub attaches `injected`, so its page predicate must recognize the same exact templates, with user provenance taking precedence. Apply the same predicate to `PageTurns`, its window-loading boundary, and client cache tails; retain the automatic messages as rows. Test several real questions, repeated compactions, and supervision interleaved, including older-page recovery. Invalidate old shallow Apple caches, whose `covered` cursor otherwise only catches up forward.
 - Only a response paginated from the newest end knows "whether there are earlier messages" (`has_more`). Subscription catch-up with since_seq used to send `has_more: false`;
   if it arrived before the first HTTP page, the App assumed it had reached the start of history and stopped upward scrolling at the earliest loaded message (2026-10-26). The hub now omits this field in catch-up,
   and the App treats its absence as unknown. A batch that does not cover the earliest local message must not set it to false either. Reproduce with `-showScrollToOldest YES`, scrolling all the way up while logging.
@@ -58,6 +59,16 @@ Use synthetic conversations for screenshots, not the user's real main conversati
 - Backward pagination has a parsing budget, but must not return an empty page while earlier content remains. An empty page + `has_more: true` leaves the App with no seq to fetch next, making earlier history permanently inaccessible (large Codex rollouts can have tens of MB of lines that produce no entries between two turns).
 - Parsing `<persona-context>` must not assume all attributes are present or in a fixed order (2026-11-03, #876). iOS once recognized it only when all three of `kind`, `title`, and `url` were present. Lark /agent contexts had no `url`, so the tag went unrecognized, leaving the whole prompt and large blank areas in the bubble.
   Truncating user messages for pagination must also avoid cutting through tags: a cut in the middle leaves an unclosed `<persona-context`, which every client displays as body text (`lightContexts` in `transcript/contexts.go` trims only the body of each block).
+
+## Refusal fallback is session state, not a model setting (#2203)
+
+A `system/model_refusal_fallback` row with session scope can explain a model-route 404 several turns later. Preserve
+its original models, category, scope and raw record; do not infer a configuration mistake from the synthetic error's
+`<synthetic>` model. Quick metadata tails can lose the fallback row, so reconstruct active state through the existing
+incremental scan and clear it on evidence of a model change. A non-session fallback must not leak into the next turn.
+Tests need the system row followed by a real-shaped synthetic assistant error, plus a later turn, a model change and
+an out-of-window record. A new error code alone does not change old clients' error buttons: document that client work
+and the item-cache version bump separately.
 
 ## A tail window may contain no words at all (2026-11-04, #1163)
 

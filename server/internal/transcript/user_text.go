@@ -118,6 +118,9 @@ func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []p
 		}
 		meta.claudeGoalOutput(it.Text, meta.Updated)
 		if strings.HasPrefix(trimmed, "<local-command-stdout>") && !meta.tree.sidechain {
+			if strings.HasPrefix(it.Text, "Set model to ") {
+				meta.clearModelFallback()
+			}
 			if items, ok := meta.claudeUltracodeOutput(it.Text, it.TS, it); ok {
 				return items
 			}

@@ -668,12 +668,13 @@ nonisolated struct ExtensionPermissions: Codable, Hashable, Sendable {
     /// It receives the error and crash reports of the hub and the user's devices, scrubbed (no message text, tokens,
     /// user names, machine names or IP addresses). Needed by contributes.error_reports.
     var errorReports: Bool?
+    var storage: ExtensionStoragePermission?
     /// It is handed the authorization links the user's Agents stop at (only links its contributes.auth_relay names,
     /// printed by the Agent's own command) to complete them with the account it is signed in with. Needed by
     /// contributes.auth_relay.
     var authRelay: Bool?
 
-    init(network: [String]? = nil, hubApi: Bool? = nil, hub: [String]? = nil, launcherKeys: Bool? = nil, ghLogin: Bool? = nil, usageGateways: Bool? = nil, agentRuntimes: Bool? = nil, errorReports: Bool? = nil, authRelay: Bool? = nil) {
+    init(network: [String]? = nil, hubApi: Bool? = nil, hub: [String]? = nil, launcherKeys: Bool? = nil, ghLogin: Bool? = nil, usageGateways: Bool? = nil, agentRuntimes: Bool? = nil, errorReports: Bool? = nil, storage: ExtensionStoragePermission? = nil, authRelay: Bool? = nil) {
         self.network = network
         self.hubApi = hubApi
         self.hub = hub
@@ -682,6 +683,7 @@ nonisolated struct ExtensionPermissions: Codable, Hashable, Sendable {
         self.usageGateways = usageGateways
         self.agentRuntimes = agentRuntimes
         self.errorReports = errorReports
+        self.storage = storage
         self.authRelay = authRelay
     }
 
@@ -694,6 +696,7 @@ nonisolated struct ExtensionPermissions: Codable, Hashable, Sendable {
         case usageGateways = "usage_gateways"
         case agentRuntimes = "agent_runtimes"
         case errorReports = "error_reports"
+        case storage
         case authRelay = "auth_relay"
     }
 
@@ -707,7 +710,40 @@ nonisolated struct ExtensionPermissions: Codable, Hashable, Sendable {
         self.usageGateways = try? c.decodeIfPresent(Bool.self, forKey: .usageGateways)
         self.agentRuntimes = try? c.decodeIfPresent(Bool.self, forKey: .agentRuntimes)
         self.errorReports = try? c.decodeIfPresent(Bool.self, forKey: .errorReports)
+        self.storage = try? c.decodeIfPresent(ExtensionStoragePermission.self, forKey: .storage)
         self.authRelay = try? c.decodeIfPresent(Bool.self, forKey: .authRelay)
+    }
+}
+
+/// Default-deny installation-scoped business data, separate from credentials. Only declared logical keys or literal
+/// prefixes ending in *; no filesystem, SQL, hub or network access. CAS and transactions use existing RPC limits and
+/// host quotas. Queue and blob methods additionally require their flags.
+nonisolated struct ExtensionStoragePermission: Codable, Hashable, Sendable {
+    var keys: [String]?
+    var patterns: [String]?
+    var queues: Bool?
+    var blobs: Bool?
+
+    init(keys: [String]? = nil, patterns: [String]? = nil, queues: Bool? = nil, blobs: Bool? = nil) {
+        self.keys = keys
+        self.patterns = patterns
+        self.queues = queues
+        self.blobs = blobs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case keys
+        case patterns
+        case queues
+        case blobs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.keys = try? c.decodeIfPresent([String].self, forKey: .keys)
+        self.patterns = try? c.decodeIfPresent([String].self, forKey: .patterns)
+        self.queues = try? c.decodeIfPresent(Bool.self, forKey: .queues)
+        self.blobs = try? c.decodeIfPresent(Bool.self, forKey: .blobs)
     }
 }
 

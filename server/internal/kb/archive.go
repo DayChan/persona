@@ -169,14 +169,15 @@ func (e *Engine) AttachmentDaysFor(source string) int {
 }
 
 // Prune deletes message days past TextDays and attachment days past each chat's AttachmentDaysFor: the same days
-// textCutoff and line stop writing. With a selection, each line's days are its deciding rule's (PruneSelected); a
-// selection that cannot be read now (Selection.Stopgap) prunes nothing: the next round tries again.
+// textCutoff and line stop writing. With a selection, each line's days are its deciding rule's (PruneSelected), and
+// documents past the days the user set for them go too (pruneDocs); a selection that cannot be read now
+// (Selection.Stopgap) prunes nothing: the next round tries again. The count is of day files, attachment days and documents.
 func (e *Engine) Prune(now time.Time) int {
 	if sel := e.selection(); sel != nil {
 		if sel.Stopgap() {
 			return 0
 		}
-		return e.Store.PruneSelected(now, sel, e.Retention())
+		return e.Store.PruneSelected(now, sel, e.Retention()) + e.pruneDocs(now, sel)
 	}
 	return e.Store.PruneBySource(now, or(e.TextDays, 365), e.AttachmentDaysFor)
 }
@@ -543,11 +544,23 @@ func (e *Engine) notePerson(c *Chat, source string, m SourceMessage) {
 	}
 }
 
-// noteDoc remembers a document link seen in a chat.
+// noteDoc remembers a document link seen in a chat. Under a selection it writes no stub for a document the user keeps
+// from being read (a per-item read false) nor one already past its days (Selection.DocDays: a per-item days, as a stub
+// has no signals), so neither an excluded nor a pruned document comes back through an old message that links it.
 func (e *Engine) noteDoc(u string, chat *Chat, at time.Time) {
 	id := SafeID(u[strings.LastIndex(u, "/")+1:])
 	if _, ok := e.Store.Item(KindDoc, id); ok {
 		return
 	}
-	_ = e.Store.PutItem(&Item{Kind: KindDoc, ID: id, URL: u, At: at, Where: chat.ID, Source: chat.Connector, Seen: time.Now().UTC()})
+	now := time.Now().UTC()
+	it := &Item{Kind: KindDoc, ID: id, URL: u, At: at, Where: chat.ID, Source: chat.Connector, Seen: now}
+	if sel := e.selection(); sel != nil {
+		if x := sel.Item(chat.Connector, ItemDoc, id); x != nil && !x.Read {
+			return
+		}
+		if days, ok := sel.DocDays(DocFacts{Source: chat.Connector, ID: id}); ok && docExpired(it, now, days) {
+			return
+		}
+	}
+	_ = e.Store.PutItem(it)
 }

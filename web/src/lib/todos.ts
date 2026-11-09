@@ -1,4 +1,5 @@
 import { formatDate, t } from "../i18n";
+import { noteItemManager } from "./manager-choice";
 import { reviewState, type Supervision } from "./supervision";
 import { api, ApiError, enc } from "./api";
 import { contextBody } from "./context-body";
@@ -36,6 +37,8 @@ export interface Todo {
   id: string;
   title: string;
   notes?: string;
+  /** The manager that owns this to-do on a multi-manager hub. */
+  manager?: string;
   /** When it is due (#1683, docs/assistant/todos.md "Due date, reminder, priority"): a moment, or a day ("YYYY-MM-DD",
    * due by its end in the user's time zone); at most one. Unset from hubs without them. */
   due_at?: string | null;
@@ -589,6 +592,7 @@ export async function updateTodo(id: string, patch: TodoPatch): Promise<Todo> {
 
 export async function deleteTodo(id: string): Promise<void> {
   await api(`/todos/${enc(id)}`, { method: "DELETE" });
+  noteItemManager(`/todos/${encodeURIComponent(id)}`, undefined);
 }
 
 export async function linkAgentToTodo(todoId: string, mid: string, sid: string): Promise<void> {

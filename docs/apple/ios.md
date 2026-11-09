@@ -338,7 +338,7 @@ Chat page:
     Dictation uses system keyboard microphone, no App voice input. Key names follow herdr `send-keys`,
     order ctrl+alt+shift+key, herdr encodes (ctrl+shift+a CSI u), unknown names reject entire chord (`invalid_key`); serial sends preserve press order.
     Live-status terminal icon opens full-screen version of same panel.
-  - Git (`GitPane`): branch, upstream ↑↓, staged count; changes (status letter, +/− lines, staged/partially staged), diff with old/new numbers and red/green, no wrap, horizontal scroll,
+  - Git (`GitPane`): branch, upstream ↑↓ (an upstream deleted on the remote, `gone`, says so and has no Pull), staged count; changes (status letter, +/− lines, staged/partially staged), diff with old/new numbers and red/green, no wrap, horizontal scroll,
     staged/unstaged switch when both; paged history, commit message and per-file diffs.
     Branch-card Pull N fetches latest upstream in one tap, retained as Pull when synced for active remote checks; disable repeat taps while running, refresh status/files/history and show result.
     Clean-worktree fast-forward only, no auto stash/merge/rebase; existing stashes unchanged; explain no upstream/detached HEAD/uncommitted changes/divergence. Other Git views stay read-only.

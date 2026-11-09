@@ -149,6 +149,13 @@ func TestTitle(t *testing.T) {
 		// The title in the screenshot: the first message clipped at 40 characters inside the opening tag.
 		{`<persona-context kind="context" title="接上…`, ""},
 		{"<persona-context>\n快照\n</persona-context>", ""},
+		// Another tool's block in front of the first message: the words after it, else no title (the project stands in).
+		{`<memory-index file="MEMORY.md">` + "\n- [Notes](notes.md)\n</memory-index>\nTidy up the notes", "Tidy up the notes"},
+		{`<memory-index file="MEMORY.md">` + "\n- [Notes](notes.md) — what to keep…", ""},
+		{`<memory-index file="MEMO…`, ""},
+		{`<a href="x">link</a> and more`, `<a href="x">link</a> and more`},
+		{"<b>bold</b> stays", "<b>bold</b> stays"},
+		{"a <tag k=\"v\"> later", "a <tag k=\"v\"> later"},
 	} {
 		if got := Title(c.in); got != c.want {
 			t.Errorf("Title(%q) = %q, want %q", c.in, got, c.want)

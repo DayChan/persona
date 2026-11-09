@@ -292,6 +292,7 @@ func (s *Service) superviseLoop(ctx context.Context) {
 // superviseWatch records what the supervised tasks' agents show now (watchSignals), and lets go of a hold on the
 // main conversation's pushes that outlived superviseHoldMax.
 func (s *Service) superviseWatch(ctx context.Context, now time.Time) {
+	s.autoReviewTick(ctx, now)
 	for _, t := range s.todosOf(ctx, "*") {
 		if t.Supervision == nil || t.DoneAt != nil {
 			continue

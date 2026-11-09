@@ -346,3 +346,19 @@ func TestExtensionConnectorUnknownCapability(t *testing.T) {
 		t.Fatalf("not through a plugin: %v", err)
 	}
 }
+
+// The additive catalog capability does not replace the connector's ordinary
+// tools. Older hubs use the same unknown-capability filter for catalog (verified
+// against the pre-catalog base); current hubs retain both declarations.
+func TestExtensionConnectorCatalogRegistration(t *testing.T) {
+	ps := newExtensions(t.TempDir(), nil, func(string, ...any) {})
+	declared := connector.Manifest{Capabilities: []connector.Capability{connector.CapTools, connector.CapCatalog}}
+	kept := ps.knownOnly("example-catalog", declared)
+	if !slices.Equal(kept.Capabilities, declared.Capabilities) {
+		t.Fatalf("capabilities %v", kept.Capabilities)
+	}
+	reg := connector.NewRegistry(nil)
+	if err := reg.Add(proc.New(proc.Config{ID: "examplecatalog", Name: "Example Catalog", Manifest: kept})); err != nil {
+		t.Fatal(err)
+	}
+}

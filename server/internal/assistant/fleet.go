@@ -309,11 +309,33 @@ func turnErrorCode(text string) string {
 	return ""
 }
 
+var fallbackModelMissing = lazyre.New(`(?i)\b404\b|\bmodel_not_found\b`)
+
+// sessionTurnErrorCode uses the active refusal fallback only for a model-route failure. A notice in another
+// session, or a fallback the runtime has since cleared, cannot change the meaning of an ordinary model error.
+func sessionTurnErrorCode(c proto.Session) string {
+	if c.TurnError == "" {
+		return ""
+	}
+	code := turnErrorCode(c.TurnError)
+	if c.TurnErrorKind == proto.TurnErrorUsageLimit {
+		return proto.TurnErrorRateLimited
+	}
+	if f := c.ModelFallback; f != nil && f.Subtype == "model_refusal_fallback" && f.FallbackModel != "" {
+		if c.TurnErrorCode == proto.TurnErrorModelFallbackUnavailable ||
+			c.TurnErrorKind != proto.TurnErrorTransient && fallbackModelMissing.MatchString(c.TurnError) &&
+				(code == proto.TurnErrorModelRoute || strings.Contains(strings.ToLower(c.TurnError), "model_not_found")) {
+			return proto.TurnErrorModelFallbackUnavailable
+		}
+	}
+	return code
+}
+
 // userTurnError: a turn error with code is the user's to fix; a rate limit passes (or is the user's when the
 // agent's record says so).
 func userTurnError(code string) bool {
 	switch code {
-	case proto.TurnErrorNotLoggedIn, proto.TurnErrorAuthFailed, proto.TurnErrorModelRoute:
+	case proto.TurnErrorNotLoggedIn, proto.TurnErrorAuthFailed, proto.TurnErrorModelRoute, proto.TurnErrorModelFallbackUnavailable:
 		return true
 	}
 	return false

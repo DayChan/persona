@@ -60,6 +60,14 @@ type PlanTask struct {
 	ErrorArgs map[string]string `json:"error_args,omitempty"`
 }
 
+// Readonly is a launch constraint, including for older saved plans and card edits.
+// Never let an omitted mode inherit a writable launcher default.
+func (t *PlanTask) normalizeReadonlyPermission() {
+	if t.Readonly {
+		t.Permission = "plan"
+	}
+}
+
 // TaskPlan is a plan the assistant handed the user.
 type TaskPlan struct {
 	ID           string     `json:"id"`

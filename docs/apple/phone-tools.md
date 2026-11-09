@@ -95,6 +95,8 @@ if Claude calls again, it asks again.
   has less of its 30 minutes left when its turn comes, and the hub may have stopped waiting already. An approval after that is still carried out on the phone,
   and the agent was told to check before calling again. Claude Code's own limit for a silent MCP call is also 30 minutes; `personad mcp` sends progress
   while the call waits, so the hub's reply is the one the agent gets (#1498, `docs/protocol/protocol.md` "MCP tools").
+- **Android** (#1875, `docs/android/android.md`): the phone takes a confirmation back after 90 seconds and answers that nobody approved or declined it
+  (nothing saved, not a refusal), or that it couldn't be shown (Persona in the background with notifications off). Only Deny returns the decline sentence.
 - **A result while the socket is down** (#4456, `ToolResultOutbox`): Allow tapped just as the app comes back from the background can land before the socket
   has reconnected. The result is kept (only tool results, at most 16 per hub group) and sent once that group connects again; the hub matches it to the call
   by `call_id` whatever connection it comes on. One older than 30 minutes is dropped: the hub no longer waits for it.

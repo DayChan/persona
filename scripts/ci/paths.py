@@ -70,16 +70,6 @@ def select_lanes(paths, lanes="auto", all_platforms=False):
     return {name: name in requested for name in FILTERS}
 
 
-def apply_event_policy(selected, event_name):
-    selected = dict(selected)
-    if event_name in ("pull_request", "merge_group"):
-        # Repeated hosted queues defeated the budget even for documentation PRs.
-        # Web/runtime checks share the PR's one runner; full heavy lanes are manual.
-        for lane in ("server", "android", "apple", "scripts", "image"):
-            selected[lane] = False
-    return selected
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base")
@@ -107,7 +97,6 @@ def main():
         selected = select_lanes(paths, args.lanes, args.all)
     except ValueError as error:
         parser.error(str(error))
-    selected = apply_event_policy(selected, os.environ.get("GITHUB_EVENT_NAME", ""))
     print(json.dumps(selected, sort_keys=True))
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:

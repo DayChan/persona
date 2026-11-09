@@ -1,0 +1,96 @@
+{
+  "items": [
+    {
+      "id": "synthetic-user#0",
+      "seq": 1,
+      "ts": "2026-01-01T00:00:00Z",
+      "role": "user",
+      "kind": "text",
+      "text": "Inspect the sample."
+    },
+    {
+      "id": "synthetic-answer#0",
+      "seq": 2,
+      "ts": "2026-01-01T00:00:01Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "Checking the sample."
+    },
+    {
+      "id": "synthetic-fallback#0",
+      "seq": 3,
+      "ts": "2026-01-01T00:00:02Z",
+      "role": "system",
+      "kind": "notice",
+      "text": "{\"type\":\"system\",\"subtype\":\"model_refusal_fallback\",\"uuid\":\"synthetic-fallback\",\"parentUuid\":\"synthetic-answer\",\"timestamp\":\"2026-01-01T00:00:02Z\",\"trigger\":\"refusal\",\"direction\":\"retry\",\"scope\":\"session\",\"originalModel\":\"primary-model\",\"fallbackModel\":\"fallback-model\",\"requestId\":\"synthetic-request\",\"apiRefusalCategory\":\"synthetic-policy\",\"apiRefusalExplanation\":\"Upstream refused the request\",\"refusedUserMessageUuid\":\"synthetic-user\",\"retractedMessageUuids\":[]}",
+      "model_refusal": {
+        "subtype": "model_refusal_fallback",
+        "original_model": "primary-model",
+        "fallback_model": "fallback-model",
+        "category": "synthetic-policy",
+        "scope": "session",
+        "explanation": "Upstream refused the request",
+        "raw": "{\"type\":\"system\",\"subtype\":\"model_refusal_fallback\",\"uuid\":\"synthetic-fallback\",\"parentUuid\":\"synthetic-answer\",\"timestamp\":\"2026-01-01T00:00:02Z\",\"trigger\":\"refusal\",\"direction\":\"retry\",\"scope\":\"session\",\"originalModel\":\"primary-model\",\"fallbackModel\":\"fallback-model\",\"requestId\":\"synthetic-request\",\"apiRefusalCategory\":\"synthetic-policy\",\"apiRefusalExplanation\":\"Upstream refused the request\",\"refusedUserMessageUuid\":\"synthetic-user\",\"retractedMessageUuids\":[]}"
+      }
+    },
+    {
+      "id": "synthetic-error#0",
+      "seq": 4,
+      "ts": "2026-01-01T00:00:03Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "API Error: 404 fallback-model is not available"
+    },
+    {
+      "id": "synthetic-duration#0",
+      "seq": 5,
+      "ts": "2026-01-01T00:00:04Z",
+      "role": "system",
+      "kind": "turn_duration",
+      "turn_duration": {
+        "duration_ms": 4000,
+        "source": "claude_turn_duration",
+        "parent_uuid": "synthetic-error"
+      }
+    },
+    {
+      "id": "synthetic-user-later#0",
+      "seq": 6,
+      "ts": "2026-01-01T00:00:05Z",
+      "role": "user",
+      "kind": "text",
+      "text": "Inspect another sample."
+    },
+    {
+      "id": "synthetic-error-later#0",
+      "seq": 7,
+      "ts": "2026-01-01T00:00:06Z",
+      "role": "assistant",
+      "kind": "text",
+      "text": "API Error: 404 fallback-model is not available"
+    }
+  ],
+  "meta": {
+    "first_user": "Inspect the sample.",
+    "last_text": "API Error: 404 fallback-model is not available",
+    "model": "primary-model",
+    "turns": 2,
+    "compactions": 0,
+    "context_tokens": 0,
+    "output_tokens": 0,
+    "turn_open": true,
+    "turn_error": "API Error: 404 fallback-model is not available",
+    "turn_error_kind": "user",
+    "turn_error_code": "model_fallback_unavailable",
+    "model_fallback": {
+      "subtype": "model_refusal_fallback",
+      "original_model": "primary-model",
+      "fallback_model": "fallback-model",
+      "category": "synthetic-policy",
+      "scope": "session",
+      "explanation": "Upstream refused the request",
+      "raw": "{\"type\":\"system\",\"subtype\":\"model_refusal_fallback\",\"uuid\":\"synthetic-fallback\",\"parentUuid\":\"synthetic-answer\",\"timestamp\":\"2026-01-01T00:00:02Z\",\"trigger\":\"refusal\",\"direction\":\"retry\",\"scope\":\"session\",\"originalModel\":\"primary-model\",\"fallbackModel\":\"fallback-model\",\"requestId\":\"synthetic-request\",\"apiRefusalCategory\":\"synthetic-policy\",\"apiRefusalExplanation\":\"Upstream refused the request\",\"refusedUserMessageUuid\":\"synthetic-user\",\"retractedMessageUuids\":[]}"
+    },
+    "last_activity": "2026-01-01T00:00:06Z"
+  }
+}

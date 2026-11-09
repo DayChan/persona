@@ -139,6 +139,8 @@ export interface TriageSwitches {
   auto_continue: boolean;
   wake: boolean;
   decide: boolean;
+  /** Detect repeated tool calls during a turn (off when absent). */
+  tool_loop?: boolean;
   /** Remind When Seen, Unanswered (#5096): remind once when an agent asked the user something and it stays unanswered after they saw
    *  it. Rule-based, no tokens, so it is on when absent and does not depend on `enabled`. */
   reply_reminder?: boolean;
@@ -595,6 +597,8 @@ export interface Interaction {
   dialog?: ScreenDialog;
   /** Who asks when it is not Claude Code: "codex", "traex", or an agent runtime's agent ("dsh"; docs/integrations/runtimes.md). */
   agent?: string;
+  /** Display label supplied by the source (for example a script request). */
+  agent_label?: string;
   /** What "always allow" allows here; another agent's card offers it only with this. */
   always_label?: string;
   /** Permission scopes remembered by the hub for this conversation. */

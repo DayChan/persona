@@ -71,12 +71,16 @@ struct GitPane: View {
                 Text(s.branch ?? String(localized: "Detached HEAD")).font(Theme.Font.heading).lineLimit(1)
                 Spacer(minLength: Theme.Space.xs)
                 if s.ahead > 0 { sync(Theme.Icon.send, s.ahead, .secondary) }
-                if s.upstream != nil { pullButton(s) }
+                if s.upstream != nil && s.gone != true { pullButton(s) } // nothing to pull from a deleted upstream
             }
             HStack(spacing: Theme.Space.sm) {
                 if let up = s.upstream {
                     Label(up, systemImage: Theme.Icon.gitUpstream).lineLimit(1)
-                    if s.ahead == 0 && s.behind == 0 { Text("· Up to date") }
+                    if s.gone == true {
+                        Text("· Deleted on the remote")
+                    } else if s.ahead == 0 && s.behind == 0 {
+                        Text("· Up to date")
+                    }
                 } else {
                     Label("No upstream branch", systemImage: Theme.Icon.gitNoUpstream).lineLimit(1)
                 }

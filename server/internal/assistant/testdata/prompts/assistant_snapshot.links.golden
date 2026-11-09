@@ -3,7 +3,7 @@
 - 在线的电脑：
 - Agents：需要你 1 个，完成未看 0 个，工作中 0 个（详情用 agents_list）
   - 需要你：修 CI（mac-a，session_id=b00502b8，链接 https://hub.example.com/s/mac-a/b00502b8-82a3）：要你批准推送
-- 从对话开的任务（task_plan；用 agent_send 对它的 Agent 说话）：
+- 从对话开的任务（task_plan；问已有结果看这里，不够用 agent_read 读它的对话；要它新查、新做或改方向才用 agent_send）：
   - hub 重启无感（todo_1，链接 https://hub.example.com/todos?id=todo_1）：在做，mac-a session_id=b00502b8：已建 issue 并认领， 两个只读子任务在调查；现在在跑测试（3 分钟了）；子 Agent 在跑：Hub children lifecycle survey、Client reconnect survey
 - 等用户验收的（已部署的请验收，或任务的结论卡，用户还没回「通过」「OK」）：「飞书机器人任务进展」：✅ 做完了：已部署，按下面验收；多了任务进展开关（https://hub.example.com/settings?tab=feishu），11-03 起；「调研能不能直连」：⛔ 做不了：对方接口不对外开放（https://hub.example.com/s/box/s1），11-04 起 等 3 个
 - iPhone：App 不在前台，phone_* 工具会先尝试在后台唤醒 App，失败就请他打开 App

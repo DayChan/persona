@@ -14,5 +14,7 @@
   "name_minimax": "MiniMax (China)",
   "desc_minimax": "minimax.cn, needs a mainland China account",
   "name_minimax_intl": "MiniMax",
-  "desc_minimax_intl": "MiniMax's international platform, pay as you go"
+  "desc_minimax_intl": "MiniMax's international platform, pay as you go",
+  "name_grok": "Grok",
+  "desc_grok": "xAI, pay as you go; can't run the main chat or Agents"
 }

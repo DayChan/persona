@@ -16,6 +16,35 @@ To-dos belong to the assistant (`todos.go`, `todo_decisions.go`, `todo_sessions.
   `POST /api/v1/sessions` and `POST /api/v1/sessions/{mid}/{sid}/messages` with `todo_id` first ask the assistant (`assistant.todo_handoff`): does the to-do exist, is it done (if handoff is disallowed, it supplies 404/409 and the message, echoed by hub), prepend decisions to the Agent's message and project context for new Agents, all in one call. After handoff, ask assistant to link it (`assistant.todo_link`; assistant determines both linked title and to-do title); workspace renames through hub notify assistant (`todos.space_renamed`). Protocol in `docs/protocol/protocol.md`, "Bus".
 - **When assistant is disconnected** (hub just started, assistant process restarting): to-do APIs return `503 assistant_offline`, "The assistant is temporarily unavailable. Try again later"; create/send with `todo_id` also return 503 (to-do existence unknown). Session-list to-do/quiet markers keep hub's last report (absent in the first second or two after hub starts before assistant reports). Hub emits no events during this period, so automatic linking, marker reconciliation and decision records wait for the next session list or answer after reconnection; workspaces renamed through hub are not migrated.
 
+## Read-only planned tasks
+
+`task_plan` treats `readonly: true` as a launch constraint. The assistant saves `permission: plan`, overriding an
+omitted mode, `default`, or an explicit writable mode. It reapplies this constraint after plan-card edits and at
+dispatch, including old saved plans and retries. Tasks without `readonly` keep their requested permissions.
+This preserves automatic dispatch for read-only work without inheriting a writable launcher default; waiting for
+Start alone would not make an unsafe permission mode read-only.
+
+The node must honor `plan` or refuse the start. Claude Code terminal starts through herdr or Orca pass
+`--permission-mode plan`. Codex terminal starts and supported terminal resumes use `--sandbox read-only
+--ask-for-approval never`: no approval can escalate past the sandbox. The node retains that constraint for later
+resumes, including a message that reopens the session. The terminal policy uses `never` because Codex 0.167 no
+longer accepts `untrusted` on its CLI; the separate thread API policy is unchanged.
+
+A Codex launcher with its own `-s` / `--sandbox`, `-a` / `--ask-for-approval`, `--full-auto`, dangerous bypass
+(including `--yolo`), or `--approve-for-me` is refused with `readonly_unsupported` and `delivered: none` instead
+of guessing which permission wins. Managed launcher arguments are checked too. A launcher argument separator
+that would turn the added flags into prompt text is also refused. Non-plan launches retain their original arguments.
+An already running Codex cannot receive new CLI flags, so it cannot be adopted by a read-only start.
+External runtime starts (including Paseo) still fail closed: their start protocol does not guarantee enforcement,
+and a runtime may ignore the mode or fall back to a different provider at dispatch.
+Update both the assistant and nodes for this behavior. This is the runtime's plan restriction on task work, not a
+promise that the runtime writes no session metadata or plan files, and it does not prevent a later explicit mode
+change by the user.
+
+Health-space plans and mixed plans still wait for Start. Existing clients show the Read-only label on a waiting
+plan, and collapse a started plan to "Started N tasks"; the saved task's `permission` is `plan`. Displaying both
+labels on the clients is separate client work.
+
 ## Data model
 
 Server state is stored in the hub's Postgres database (read/written by the assistant, above):

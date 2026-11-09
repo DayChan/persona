@@ -18,6 +18,7 @@
   "push_confirm_one": "{count} commit goes to {upstream}.",
   "push_confirm_other": "{count} commits go to {upstream}.",
   "push_new": "{branch} is not on the remote yet: it is created on origin under the same name and tracked from now on.",
+  "push_gone": "{upstream} was deleted on the remote: pushing creates it again from {branch}.",
   "push_never_force": "Never forced: if the remote has newer commits, the push stops and says so.",
   "branches": "Branches",
   "branch_search": "Find or name a branch",

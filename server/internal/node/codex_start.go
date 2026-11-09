@@ -112,7 +112,7 @@ func codexOwnProcess(argv []string) string {
 
 // startCodex starts a Codex launcher in a new tab with the first message and returns its session once the thread is
 // known.
-func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launcher string, argv []string, prompt, ws, tabName string) (*proto.Session, error) {
+func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launcher string, argv []string, prompt, ws, tabName, mode string) (*proto.Session, error) {
 	if strings.TrimSpace(prompt) == "" {
 		return nil, refusal("codex_needs_prompt", "新建 Codex 会话要连第一条消息一起发：Codex 收到第一条消息才建会话。", nil)
 	}
@@ -163,7 +163,11 @@ func (n *Node) startCodex(ctx context.Context, launch host.Launcher, cwd, launch
 		return nil, fmt.Errorf("%v\n%s", err, lastLines(screen, 12))
 	}
 	n.bindPane(pane, id)
-	n.state.put(id, sessionState{Pane: pane, Launcher: launcher, Cwd: cwd, StartedAt: began.UTC()})
+	st := sessionState{Pane: pane, Launcher: launcher, Cwd: cwd, StartedAt: began.UTC()}
+	if mode == "plan" { // Other modes still come from the launcher's arguments, not this request.
+		st.AppMode = mode
+	}
+	n.state.put(id, st)
 	_ = n.refreshHosts(ctx)
 	a, ok := n.agent(id)
 	if !ok {

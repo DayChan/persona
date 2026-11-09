@@ -39,7 +39,7 @@ const (
 // is there, which CheckProgram never calls (a recall deletes a message).
 var programCaps = []connector.Capability{connector.CapStatus, connector.CapTools, connector.CapActions, connector.CapEvents,
 	connector.CapInbox, connector.CapArchive, connector.CapItems, connector.CapLogin, connector.CapThreads, connector.CapFallback,
-	connector.CapRecall, connector.CapHistory, connector.CapHistoryAnchors}
+	connector.CapRecall, connector.CapHistory, connector.CapHistoryAnchors, connector.CapCatalog}
 
 // ProgramOption tunes CheckProgram.
 type ProgramOption func(*programOptions)
@@ -339,6 +339,9 @@ func (p *probe) checkConnector(it extension.ConnectorItem) {
 		if p.login() && p.has(connector.CapStatus) {
 			p.waitOK()
 		}
+	}
+	if p.has(connector.CapCatalog) {
+		ask(p, serve.MCatalog, struct{}{}, checkCatalog)
 	}
 	var tools []proto.Tool
 	if p.has(connector.CapTools) {

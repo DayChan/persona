@@ -2,6 +2,8 @@ package persona.android.di
 
 import persona.core.contracts.*
 import persona.core.contracts.api.*
+import persona.core.hub.HubError
+import persona.core.hub.HubFailure
 import persona.feature.agents.AgentsDraftSource
 import persona.feature.agents.AgentsOperationsBindings
 import persona.feature.agents.AgentsWiringState
@@ -259,14 +261,14 @@ class GroupRoutingTest {
         assertSame(plain, plain.inGroup(primary))
     }
 
-    @Test fun selfCheckAndBrowserReachTheMachinesGroupAndUsageTheSelectedHub() = runBlocking<Unit> {
+    @Test fun selfCheckAndBrowserReachTheMachinesGroupAndUsageEveryGroupsHub() = runBlocking<Unit> {
         val home = FakeMachines("home")
         val work = FakeMachines("work")
         val routes = object : MachineRoutes {
             override suspend fun <T> on(machineId: String, call: suspend (MachineManagement) -> T): T =
                 if (other.owns(machineId)) call(work.inGroup(other)) else call(home.inGroup(primary))
         }
-        val managed = mergedMachineManagement(routes, selected = { work.inGroup(other) })
+        val managed = mergedMachineManagement(routes, usage = { listOf(GroupUsageRead("g0a1b2c3d", work.inGroup(other)::usageWindows)) })
         assertEquals("work", managed.doctor("macbook~g0a1b2c3d").dir)
         assertEquals(listOf("work"), managed.fixDoctor("macbook~g0a1b2c3d").fixed)
         assertEquals("work", managed.browser("macbook~g0a1b2c3d").note)
@@ -279,9 +281,35 @@ class GroupRoutingTest {
         assertEquals("home", managed.doctor("macbook").dir)
         assertEquals("home", managed.browser("macbook").note)
         assertEquals(listOf("doctor macbook", "browser macbook"), home.calls)
-        // usage limits belong to a hub: without a selected group there are none, and no machine's hub is asked
+        // usage limits belong to a hub: without an open group there are none, and no machine's hub is asked
         assertEquals(emptyList<persona.core.contracts.api.UsageAccount>(), mergedMachineManagement(routes).usageWindows())
         assertEquals(listOf("doctor macbook", "browser macbook"), home.calls)
+    }
+
+    @Test fun subscriptionLimitsListEveryGroupsAccountsEachFromItsOwnHub() = runBlocking<Unit> {
+        // #1845: only the selected group's hub was asked, so the other group's computers looked as if they had no usage
+        val routes = object : MachineRoutes {
+            override suspend fun <T> on(machineId: String, call: suspend (MachineManagement) -> T): T = error("no machine call")
+        }
+        val shared = UsageAccount("claude:team", name = "team")
+        var work: suspend () -> List<UsageAccount> = { listOf(UsageAccount("codex:work"), shared) }
+        var home: suspend () -> List<UsageAccount> = { listOf(UsageAccount("claude:home"), shared) }
+        val managed = mergedMachineManagement(routes, usage = {
+            listOf(GroupUsageRead("", { home() }), GroupUsageRead("g0a1b2c3d", { work() }))
+        })
+        // In the groups' order; an account both hubs report shows once in each, with no merging across groups.
+        assertEquals(listOf("claude:home", "claude:team", "codex:work", "claude:team"), managed.usageWindows().map { it.id })
+
+        // A hub that can't be read just now keeps its last answer while the other shows its new one.
+        work = { throw HubFailure(HubError.Unreachable, status = 503) }
+        home = { listOf(UsageAccount("claude:home", name = "renewed")) }
+        assertEquals(listOf("renewed", "", "team"), managed.usageWindows().map { it.name })
+        // An old hub without the route has none; a group that went away under the read has none either.
+        work = { throw HubFailure(HubError.Server, status = 404) }
+        assertEquals(listOf("claude:home"), managed.usageWindows().map { it.id })
+        home = { throw kotlinx.coroutines.CancellationException("Pairing changed") }
+        work = { listOf(UsageAccount("codex:work")) }
+        assertEquals(listOf("codex:work"), managed.usageWindows().map { it.id })
     }
 
     @Test fun anotherGroupsTerminalSendsPlainIdsAndHearsMergedOnes() = runBlocking {

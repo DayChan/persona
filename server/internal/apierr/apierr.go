@@ -210,6 +210,7 @@ var rpcFailureKeys = map[string]string{
 	"attach_busy":              "rpc-errors.attach_busy",
 	proto.CodeTerminalNotReady: "rpc-errors.terminal_not_ready",
 	"node_outdated":            "rpc-errors.node_outdated",
+	"readonly_unsupported":     "rpc-errors.readonly_unsupported",
 	"assistant_in_doubt":       "rpc-errors.in_doubt",
 	// queued messages sent now (#6088)
 	"nothing_queued":       "rpc-errors.nothing_queued",
@@ -332,6 +333,9 @@ func explain(body map[string]any, code, message string, l i18n.Lang) {
 // (where "terminal", node/shellmiss.go) what it could not run (missing, kind), that shell (pane_shell) and the shell
 // and rc file the launchers are listed in (launcher_shell, rc_file). What a 409 says, and a session's start_error.
 func Sentence(l i18n.Lang, code string, data map[string]any) string {
+	if code == "readonly_unsupported" {
+		return i18n.T(l, "rpc-errors.readonly_unsupported")
+	}
 	if _, ok := codeActions[code]; !ok {
 		return ""
 	}

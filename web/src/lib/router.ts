@@ -13,6 +13,7 @@ export type SessionView = "chat" | "term";
 
 export type Route =
   | { name: "home" }
+  | { name: "request"; id: string }
   | { name: "workspace-board" }
   | { name: "persona-new" }
   // `view` is the page's `?view=chat|term`; without it the page shows what it showed last (lib/session-view.ts)
@@ -62,6 +63,7 @@ export function parse(path: string, search = ""): Route {
   if (!p.length) return { name: "persona" };
   if (assistantPath(p[0])) return p[1] === "new" && !p[2] ? { name: "persona-new" } : { name: "persona", sid: p[1] };
   if (p[0] === "workspace-board") return { name: "workspace-board" };
+  if (p[0] === "requests" && p[1]) return { name: "request", id: p[1] };
   if (p[0] === "overview") return { name: "home" };
   if (p[0] === "history") return p[1] ? { name: "history", origin: p[1] } : { name: "history" };
   if (p[0] === "health") return { name: "health", sid: p[1] || undefined };
@@ -96,6 +98,8 @@ export function href(r: Route, base = BASE): string {
 /** A route's path in the app, without the sub-path (what parse reads). */
 export function routePath(r: Route): string {
   switch (r.name) {
+    case "request":
+      return `/requests/${encodeURIComponent(r.id)}`;
     case "session":
       return `/s/${encodeURIComponent(r.mid)}/${encodeURIComponent(r.sid)}${viewQuery(r.view)}`;
     case "tab":

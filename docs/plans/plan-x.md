@@ -1,6 +1,6 @@
 # Plan: X (Twitter) extension
 
-Status: design settled; X1 is open for review as nwverse/persona-extensions#179 (2026-11-09, #816). X is a **connector** (a data source: Inbox, assistant tools, an organized-feed page), not a channel (`docs/extensions/channels.md`).
+Status: X1 merged as nwverse/persona-extensions#179 (`x` 0.1.0, 2026-11-09, #816); X2 to X4 are later steps ("Steps" below). X is a **connector** (a data source: Inbox, assistant tools, an organized-feed page), not a channel (`docs/extensions/channels.md`).
 Two optional sources (the user's decision): the **X API** (pay-per-use, the user's own developer app, complete feed and mentions) and **Grok** (the xAI CLI `grok` on the hub machine with the user's subscription, no X account sign-in and no X keys; see "Grok source").
 The first version is **read-only** and keeps X posts **out of the knowledge base** (see "X's rules"). The framework is in `docs/extensions/connectors.md` and `docs/protocol/connector-protocol.md`;
 manifest, permissions and sandbox are in `docs/extensions/extensions.md`. This doc only covers what is specific to X. The code lives in the public extension repository `nwverse/persona-extensions` (`extensions/x/`, copied from `extensions/github`);
@@ -169,7 +169,7 @@ From the Developer Agreement, Developer Policy and restricted-use cases:
 | X3 | OAuth 1.0a PIN sign-in, after the apps draw a link on fields steps (web, iOS, Android) |
 | X4 | X brand mark in the web and Apple apps' per-connector brand tables (without it X gets the generic mark), display-rule details (avatars, Web Intents) |
 
-This repository: this plan (the first PR); one row in `docs/extensions/connectors.md` after X1 merges.
+This repository: this plan and the `x` row in `docs/extensions/connectors.md`.
 
 ## Not doing / later
 
