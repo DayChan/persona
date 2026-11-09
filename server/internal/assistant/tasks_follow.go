@@ -74,21 +74,40 @@ func (s *Service) sessionsReached(ctx context.Context, machine string) ([]proto.
 // within one agentReachMax deadline so retries across machines cannot stack; reached is false when one stayed
 // unreachable, so callers keep "still waits" rather than read an unreachable node as an answer (ErrNoDevice: none).
 func (s *Service) taskAgentsReached(ctx context.Context, t Todo) (agents []proto.Session, reached bool) {
+	return s.taskAgentsReachedFirst(ctx, t, "")
+}
+
+// taskAgentsReachedFirst gives the event's machine the shared deadline first, so
+// a stalled earlier agent cannot hide the turn that triggered this check.
+func (s *Service) taskAgentsReachedFirst(ctx context.Context, t Todo, first string) (agents []proto.Session, reached bool) {
 	ctx, cancel := context.WithTimeout(ctx, agentReachMax)
 	defer cancel()
 	reached = true
 	lists, asked := map[string][]proto.Session{}, map[string]bool{}
-	for _, a := range t.Agents {
-		if a.ReleasedAt != nil || a.DismissedAt != nil || asked[a.MachineID] {
-			continue
+	ask := func(machine string) {
+		if asked[machine] {
+			return
 		}
-		asked[a.MachineID] = true
-		list, ok := s.sessionsReached(ctx, a.MachineID)
+		asked[machine] = true
+		list, ok := s.sessionsReached(ctx, machine)
 		if !ok {
 			reached = false
-			continue
+			return
 		}
-		lists[a.MachineID] = list
+		lists[machine] = list
+	}
+	if first != "" {
+		for _, a := range t.Agents {
+			if a.MachineID == first && a.ReleasedAt == nil && a.DismissedAt == nil {
+				ask(first)
+				break
+			}
+		}
+	}
+	for _, a := range t.Agents {
+		if a.ReleasedAt == nil && a.DismissedAt == nil {
+			ask(a.MachineID)
+		}
 	}
 	for _, a := range t.Agents {
 		if a.ReleasedAt != nil || a.DismissedAt != nil {
@@ -378,7 +397,7 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 	} else if handled {
 		return
 	}
-	agents, reached := s.taskAgentsReached(ctx, t)
+	agents, reached := s.taskAgentsReachedFirst(ctx, t, machine)
 	waitingForLimit := false
 	for _, c := range agents {
 		if c.Status != proto.StatusDone && c.Status != proto.StatusIdle || c.State == proto.StateWorking ||
