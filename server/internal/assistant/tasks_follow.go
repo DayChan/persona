@@ -117,12 +117,29 @@ func (s *Service) taskAgentsReachedFirst(ctx context.Context, t Todo, first stri
 	}
 	reached = true
 	lists := make(map[string][]proto.Session, len(machines))
-	for range machines {
-		r := <-results
+	collect := func(r result) {
 		if !r.ok {
 			reached = false
 		} else {
 			lists[r.machine] = r.list
+		}
+	}
+collecting:
+	for range machines {
+		select {
+		case r := <-results:
+			collect(r)
+		case <-ctx.Done():
+			reached = false
+			// Keep answers already delivered even if the deadline raced them.
+			for {
+				select {
+				case r := <-results:
+					collect(r)
+				default:
+					break collecting
+				}
+			}
 		}
 	}
 	for _, a := range t.Agents {
