@@ -307,7 +307,7 @@ struct HubSettingsPage: View {
         } header: {
             SettingsHeading(String(localized: "personad on Your Computers"))
         } footer: {
-            Text("After the hub updates, it moves personad on your computers to the same version. For any that didn't update, tap it and choose Redeploy.")
+            Text("After the hub updates, your computers keep their personad version unless auto_update_nodes is on in hub.json. To update one, tap it and choose Redeploy.")
         }
     }
 

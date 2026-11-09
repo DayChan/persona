@@ -271,7 +271,7 @@ function DockerRows({ s }: { s: HubUpdateStatus }) {
   );
 }
 
-/** Each computer's personad: the hub puts its own version on them after an update. */
+/** Each computer's personad: it keeps its version after the hub updates unless auto_update_nodes is on; Redeploy updates one. */
 function Nodes() {
   const machines = useStore((s) => s.machines);
   if (!machines.length) return null;

@@ -188,7 +188,7 @@
     <string name="settings_hub_update_footer">更新はアシスタントとすべてのエージェントがアイドルになってからハブを再起動します。新しいバージョンが起動しない場合は自動で前のバージョンに戻ります。再起動中は接続がしばらく切れます。</string>
     <string name="settings_hub_update_auto_notice">ハブはアイドル時に自動で更新されます。</string>
     <string name="settings_hub_update_auto_footer">オンにすると、新しいバージョンがあればアシスタントとすべてのエージェントがアイドルのときに自動でインストールし、完了後に通知します。</string>
-    <string name="settings_hub_update_nodes_footer">ハブの更新後、各コンピューターのpersonadも同じバージョンに切り替わります。切り替わらなかったものは開いて「再デプロイ」してください。</string>
+    <string name="settings_hub_update_nodes_footer">ハブを更新しても、各コンピューターのpersonadは元のバージョンのままです（hub.jsonでauto_update_nodesがオンの場合を除く）。更新するには、開いて「再デプロイ」してください。</string>
     <string name="settings_hub_update_now_warning">終了を待たずに更新します。ハブを待っている操作（アシスタントの応答、アップロード中のファイル、ターミナル接続）は中断されます。herdrのエージェントには影響せず、ハブが起動すると自動で再接続します。</string>
     <string name="settings_hub_update_unsupported">このハブのバージョンは古いため、アプリでバージョンの確認や更新ができません。ハブのマシンでinstall.shを使って一度更新すると使えるようになります。</string>
 

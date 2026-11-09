@@ -30,7 +30,7 @@
   "copy": "Copy",
   "copied": "Copied",
   "nodes": "personad on your computers",
-  "nodes_footer": "After an update, the hub moves personad on your computers to the same version. For any that didn't update, open it and choose Redeploy.",
+  "nodes_footer": "After the hub updates, your computers keep their personad version unless auto_update_nodes is on in hub.json. To update one, open it and choose Redeploy.",
   "version_differs": "Version differs",
   "unknown": "Unknown",
   "offline": "Offline",

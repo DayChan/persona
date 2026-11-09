@@ -14955,29 +14955,6 @@
       },
       "extractionState" : "manual"
     },
-    "After the hub updates, it moves personad on your computers to the same version. For any that didn't update, tap it and choose Redeploy." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "After the hub updates, it moves personad on your computers to the same version. For any that didn't update, tap it and choose Redeploy."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ハブの更新後、各コンピューターのpersonadも同じバージョンに更新されます。更新されなかったものは、タップして「再デプロイ」を選んでください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "hub 更新后会把各台电脑上的 personad 也换成同一个版本；没换上的可以点进去「重新部署」。"
-          }
-        }
-      },
-      "extractionState" : "manual"
-    },
     "After the hub updates, this Mac switches to its own credentials automatically." : {
       "localizations" : {
         "en" : {
@@ -15019,6 +14996,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "hub 更新后，这台 iPhone 会自动换成自己的凭据。"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "After the hub updates, your computers keep their personad version unless auto_update_nodes is on in hub.json. To update one, tap it and choose Redeploy." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After the hub updates, your computers keep their personad version unless auto_update_nodes is on in hub.json. To update one, tap it and choose Redeploy."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハブを更新しても、各コンピューターのpersonadは元のバージョンのままです（hub.jsonでauto_update_nodesがオンの場合を除く）。更新するには、そのコンピューターをタップして「再デプロイ」を選んでください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hub 更新后，各台电脑上的 personad 保持原来的版本，除非 hub.json 里开了 auto_update_nodes；要更新哪台，点进去选「重新部署」。"
           }
         }
       },

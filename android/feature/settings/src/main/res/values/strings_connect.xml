@@ -192,7 +192,7 @@
     <string name="settings_hub_update_footer">Updates wait until the assistant and all agents are idle before restarting the hub. If the new version doesn\'t start, it goes back to the previous one. The connection drops briefly while restarting.</string>
     <string name="settings_hub_update_auto_notice">The hub updates itself when idle.</string>
     <string name="settings_hub_update_auto_footer">When on, new versions install themselves once the assistant and all agents are idle, and you get a notification afterwards.</string>
-    <string name="settings_hub_update_nodes_footer">After the hub updates, personad on your computers moves to the same version. For any that didn\'t, open it and choose Redeploy.</string>
+    <string name="settings_hub_update_nodes_footer">After the hub updates, your computers keep their personad version unless auto_update_nodes is on in hub.json. To update one, open it and choose Redeploy.</string>
     <string name="settings_hub_update_now_warning">Doesn\'t wait for them to finish: anything waiting on the hub is interrupted (the assistant\'s turn, uploads, terminal connections). Agents in herdr aren\'t affected and reconnect once the hub is back.</string>
     <string name="settings_hub_update_unsupported">This hub is too old to check or update its version from the app. Update it once with install.sh on the hub machine, and then you can.</string>
 

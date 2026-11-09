@@ -188,7 +188,7 @@
     <string name="settings_hub_update_footer">更新会等助手和所有 Agent 都空闲时再重启 hub；新版本起不来会自动回到上一版。重启期间连接会断开一会儿。</string>
     <string name="settings_hub_update_auto_notice">hub 会在空闲时自动更新。</string>
     <string name="settings_hub_update_auto_footer">开着时，有新版本就在助手和所有 Agent 都空闲时自己装上，装完推一条通知。</string>
-    <string name="settings_hub_update_nodes_footer">hub 更新后会把各台电脑上的 personad 也换成同一个版本；没换上的可以点进去「重新部署」。</string>
+    <string name="settings_hub_update_nodes_footer">hub 更新后，各台电脑上的 personad 保持原来的版本，除非 hub.json 里开了 auto_update_nodes；要更新哪台，点进去选「重新部署」。</string>
     <string name="settings_hub_update_now_warning">不再等它们结束：会中断正在等 hub 的操作（助手这一轮、正在上传的文件、终端连接）。herdr 里的 Agent 不受影响，hub 起来后会自己连回来。</string>
     <string name="settings_hub_update_unsupported">这个 hub 的版本太旧，不支持在 App 里查看和更新版本。在 hub 所在的机器上用 install.sh 更新一次以后就可以了。</string>
 

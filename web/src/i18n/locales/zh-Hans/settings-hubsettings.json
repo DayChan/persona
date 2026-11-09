@@ -30,7 +30,7 @@
   "copy": "复制",
   "copied": "已复制",
   "nodes": "各台电脑上的 personad",
-  "nodes_footer": "hub 更新后会把各台电脑上的 personad 也换成同一个版本；没换上的可以点进去「重新部署」。",
+  "nodes_footer": "hub 更新后，各台电脑上的 personad 保持原来的版本，除非 hub.json 里开了 auto_update_nodes；要更新哪台，点进去选「重新部署」。",
   "version_differs": "版本不同",
   "unknown": "未知",
   "offline": "离线",
