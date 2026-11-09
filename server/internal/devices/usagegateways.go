@@ -293,7 +293,7 @@ func (g *usageGateways) accounts(now time.Time) []proto.UsageAccount {
 				a.Ref = s.ID + ":" + a.Ref
 			}
 			if st.errCode != "" {
-				a.Problem, a.Stale = "unreachable", true
+				a.Problem, a.Stale = usageReadProblem(st.errCode), true
 			}
 			if now.Sub(a.SampledAt) > usageGatewayStaleAfter {
 				a.Stale = true
@@ -302,6 +302,21 @@ func (g *usageGateways) accounts(now time.Time) []proto.UsageAccount {
 		}
 	}
 	return out
+}
+
+// usageReadProblem is what the usage bars say about a source whose last read failed, from its error code (#1902): the
+// gateway turned the key away (the fix is a new key under Admin → Usage sources), could not be reached (the network),
+// or answered with something else that went wrong. The words for each code stay on the admin page; the bars only need
+// to point the right way. It replaces a relay's own "error" on an account: the source failing is the newer news.
+func usageReadProblem(code string) string {
+	switch code {
+	case usagesource.CodeUnauthorized, usagesource.CodeForbidden:
+		return "rejected"
+	case usagesource.CodeUnreachable, usagesource.CodeTimeout:
+		return "unreachable"
+	default:
+		return "failed"
+	}
 }
 
 // gatewayAccounts is usage.gateway_accounts (#4576, docs/server/usage-windows.md "The gateway's account list"): every account the

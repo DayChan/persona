@@ -51,7 +51,8 @@ nonisolated struct UsageAccount: Decodable, Hashable, Sendable, Identifiable {
     /// Where the numbers came from (#2595): an agent's files on one of the computers, and/or gateways by name.
     var local: Bool
     var sources: [String]
-    /// "unreachable" | "error": the gateway could not read the account just now and the numbers are its last.
+    /// Why a gateway's numbers are old: "error" (it could not read this account just now) or, when its own last read
+    /// failed, "rejected" (the key was turned away), "unreachable" or "failed" (docs/server/usage-windows.md).
     var problem: String?
 
     enum CodingKeys: String, CodingKey {
@@ -200,10 +201,13 @@ nonisolated enum UsageWindows {
         return !plan.isEmpty && !a.name.lowercased().contains(plan.lowercased()) ? plan : ""
     }
 
-    /// What the gateway could not do, in words; "" when nothing went wrong.
+    /// What the gateway could not do, in words; "" when nothing went wrong or the hub sends a reason this build doesn't
+    /// know. A key the gateway turned away says where to fix it: it is not a network problem (#1902).
     static func problemText(_ a: UsageAccount) -> String {
         switch a.problem {
+        case "rejected": String(localized: "The gateway turned the key away; update it in Admin → Usage sources. Showing the last numbers")
         case "unreachable": String(localized: "Can't reach the gateway right now; showing the last numbers")
+        case "failed": String(localized: "Couldn't read the gateway; showing the last numbers")
         case "error": String(localized: "The gateway couldn't read this account; showing the numbers it saved")
         default: ""
         }

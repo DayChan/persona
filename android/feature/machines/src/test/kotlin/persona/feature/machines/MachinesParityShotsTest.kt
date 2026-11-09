@@ -69,7 +69,7 @@ class MachinesParityShotsTest {
     private val accounts = listOf(
         UsageAccount("a", "claude", "Claude Max", plan = "max", sampledAt = at(-40), local = true, sources = listOf("gateway"),
             windows = listOf(UsageWindow("5h", 300, 86.0, at(3600)), UsageWindow("7d", 10080, 41.0, at(3 * 86400 + 7200)))),
-        UsageAccount("b", "codex", "Codex Pro", plan = "pro", sampledAt = at(-600), stale = true, problem = "unreachable",
+        UsageAccount("b", "codex", "Codex Pro", plan = "pro", sampledAt = at(-600), stale = true, problem = "rejected", sources = listOf("Relay"),
             windows = listOf(UsageWindow("5h", 300, 12.0, at(1800)))),
     )
     private val api = object : MachineMetricsApi {
@@ -127,7 +127,7 @@ class MachinesParityShotsTest {
             rule.runOnIdle { detailPage = d; style = s; dark = dk }
             rule.waitForIdle()
             val expected = if (d) listOf("这台电脑能做什么", "1 项功能需要处理", "修复", "没有设置：运行时接入", "浏览器", "打开 ego lite")
-                else listOf("订阅额度", "Claude Max", "86%", "用得偏快", "已过期")
+                else listOf("订阅额度", "Claude Max", "86%", "用得偏快", "已过期", "网关不认这把 Key")
             val bitmap = rule.onNodeWithTag("shot").captureToImage().asAndroidBitmap()
             File(out(), "machines-${if (d) "detail" else "list"}-${s.name.lowercase()}-${if (dk) "dark" else "light"}.png").outputStream()
                 .use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

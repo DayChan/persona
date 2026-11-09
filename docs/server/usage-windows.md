@@ -144,7 +144,12 @@ A few additions:
 
 - Two accounts in the same gateway (different `id`) are **never merged**, even if their reset times happen to match; the same upstream account seen by two gateways (or a gateway and a computer) is merged.
 - A merged account takes the newest sample's numbers and lists its sources: `This computer` (read on a computer) and the gateway's name; the line under the popover title reads "This computer · Relay"; with only one source, just that one.
-- When a gateway **cannot be reached, its last answer is kept and marked out of date** (`problem: "unreachable"`, the popover says "The gateway can't be reached; these are its last numbers"), so accounts do not disappear; dropped after 3 days.
+- When a gateway's **read fails, its last answer is kept and marked out of date**, so accounts do not disappear; dropped after 3 days. `problem` says why, from the source's error code, and the popover words it (the admin page's "Usage sources" gives the exact reason):
+  - `rejected` (`unauthorized`, `forbidden`: the gateway turned the key away): "The gateway turned the key away; update it in Admin → Usage sources. These are its last numbers";
+  - `unreachable` (`unreachable`, `timeout`): "The gateway can't be reached; these are its last numbers";
+  - `failed` (any other code: `not_found`, `server_error`, `bad_response`, `too_large`, `redirect`, `bad_config`): "Couldn't read the gateway; these are its last numbers".
+
+  The source failing replaces a relay's own per-account `error` (it is the newer news). Clients show no text for a value they don't know, but still fade the account.
 - Sorting is unchanged: by the fullest of the account's plan windows, highest first, out-of-date ones last. With no data at all (and no sources), the whole block is not drawn.
 
 ### The gateway's account list (#4576)

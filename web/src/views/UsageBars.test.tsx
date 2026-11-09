@@ -89,6 +89,15 @@ describe("where the numbers came from (#2595)", () => {
     expect(html).toContain("网关暂时读不到，显示的是上次的数字");
     expect(html.match(/网关暂时读不到/g)).toHaveLength(1);
   });
+  it("says why a gateway's numbers are old: a refused key is not a network problem (#1902)", () => {
+    const one = (problem: string) => renderToStaticMarkup(<UsagePopover accounts={[account("r", 1, 2, { name: "seat", sources: ["Relay"], stale: true, problem })]} now={NOW} />);
+    expect(one("rejected")).toContain("网关不认这把 Key，请到管理界面 → 用量来源更新");
+    expect(one("rejected")).not.toContain("网关暂时读不到");
+    expect(one("failed")).toContain("读网关出错，显示的是上次的数字");
+    expect(one("error")).toContain("网关读这个账号失败");
+    expect(one("something-newer")).not.toContain("text-orange"); // a reason this build doesn't know: no words, still faded
+    expect(one("something-newer")).toContain("opacity-70");
+  });
   it("labels a per-model window by its model, and keeps it apart from the plan's own", () => {
     const a = account("m", 10, 20, { name: "claude-seat", sources: ["Relay"] });
     a.windows.push({ label: "7d", window_minutes: 10080, used_percent: 100, resets_at: iso(2 * 24 * H + 3 * H), model: "Fable" });

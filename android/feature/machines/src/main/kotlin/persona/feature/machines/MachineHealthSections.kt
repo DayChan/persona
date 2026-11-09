@@ -316,10 +316,7 @@ private fun UsageAccountCard(a: UsageAccount, now: Instant) {
         }
         val line = listOfNotNull(plan.takeIf { it.isNotEmpty() }, sources.takeIf { it.isNotEmpty() }?.joinToString(" · ")).joinToString(" · ")
         if (line.isNotEmpty()) Text(line, style = PersonaTheme.type.caption, color = palette.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        when (a.problem) {
-            "unreachable" -> Text(stringResource(R.string.machines_usage_problem_unreachable), style = PersonaTheme.type.caption, color = palette.cautionText)
-            "error" -> Text(stringResource(R.string.machines_usage_problem_error), style = PersonaTheme.type.caption, color = palette.cautionText)
-        }
+        problemText(a.problem)?.let { Text(stringResource(it), style = PersonaTheme.type.caption, color = palette.cautionText) }
         a.windows.forEach { WindowRow(it, now) }
     }
 }

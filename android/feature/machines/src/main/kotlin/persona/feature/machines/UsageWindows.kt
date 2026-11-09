@@ -96,4 +96,16 @@ internal fun planNote(a: UsageAccount): String {
     return if (plan.isNotEmpty() && !a.name.lowercase().contains(plan.lowercase())) plan else ""
 }
 
+/**
+ * What the gateway could not do (docs/server/usage-windows.md): a key it turned away says where to fix it, since that is not a network
+ * problem (#1902). Null when nothing went wrong or the hub sends a reason this build doesn't know.
+ */
+internal fun problemText(problem: String?): Int? = when (problem) {
+    "rejected" -> R.string.machines_usage_problem_rejected
+    "unreachable" -> R.string.machines_usage_problem_unreachable
+    "failed" -> R.string.machines_usage_problem_failed
+    "error" -> R.string.machines_usage_problem_error
+    else -> null
+}
+
 internal fun isWarn(percent: Double) = percent >= WARN_PERCENT

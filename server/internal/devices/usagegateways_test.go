@@ -168,6 +168,48 @@ func TestGatewaysPollKeepLastAnswerWhenUnreachableAndMarkItStale(t *testing.T) {
 	}
 }
 
+// A failed read says why the numbers are old (#1902): a key the gateway turned away is not a network problem, and the
+// admin page's reason and the bars' agree. The source failing outranks a relay's own per-account "error".
+func TestGatewaysFailedReadSaysWhy(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	for code, want := range map[string]string{
+		usagesource.CodeUnauthorized: "rejected",
+		usagesource.CodeForbidden:    "rejected",
+		usagesource.CodeUnreachable:  "unreachable",
+		usagesource.CodeTimeout:      "unreachable",
+		usagesource.CodeNotFound:     "failed",
+		usagesource.CodeServer:       "failed",
+		usagesource.CodeBadResponse:  "failed",
+		usagesource.CodeTooLarge:     "failed",
+		usagesource.CodeRedirect:     "failed",
+		usagesource.CodeBadConfig:    "failed",
+	} {
+		var fail atomic.Bool
+		var g usageGateways
+		g.fetch = func(_ context.Context, _ usagesource.Config, at time.Time) (usagesource.Result, error) {
+			if fail.Load() {
+				return usagesource.Result{}, &usagesource.Error{Code: code, Status: 401}
+			}
+			a := proto.UsageAccount{Provider: "codex", Name: "seat", SampledAt: at, Ref: "c1", Problem: "error", Windows: []proto.UsageWindow{uw("7d", 10080, 9, at.Add(time.Hour))}}
+			return usagesource.Result{Accounts: []proto.UsageAccount{a}}, nil
+		}
+		g.init(UsageConfig{Sources: []UsageSourceConfig{{ID: "s1", Name: "Relay", Type: "relay", URL: "https://gw.example.com", Key: "k"}}}, func() {}, func(string, ...any) {})
+		g.pollDue(context.Background(), now)
+		if got := g.accounts(now); len(got) != 1 || got[0].Problem != "error" {
+			t.Fatalf("%s: before the failure %+v", code, got)
+		}
+		fail.Store(true)
+		g.pollDue(context.Background(), now.Add(6*time.Minute))
+		got := g.accounts(now.Add(6 * time.Minute))
+		if len(got) != 1 || !got[0].Stale || got[0].Problem != want {
+			t.Errorf("%s: want %q, got %+v", code, want, got)
+		}
+		if st := g.status("s1"); st.Error != code {
+			t.Errorf("%s: status %+v", code, st)
+		}
+	}
+}
+
 func TestGatewaysOffSwitchesAndEdits(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	var calls atomic.Int32

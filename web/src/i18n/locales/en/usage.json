@@ -16,6 +16,8 @@
   "source_local": "This computer",
   "sources_title": "From: {sources}",
   "problem_unreachable": "The gateway can't be reached; these are its last numbers",
+  "problem_rejected": "The gateway turned the key away; update it in Admin → Usage sources. These are its last numbers",
+  "problem_failed": "Couldn't read the gateway; these are its last numbers",
   "problem_error": "The gateway couldn't read this account just now; these are the numbers it had stored",
   "window_model_label": "{name} {window} ({model}): {percent} used"
 }

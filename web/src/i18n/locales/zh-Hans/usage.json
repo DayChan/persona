@@ -16,6 +16,8 @@
   "source_local": "本机",
   "sources_title": "来源：{sources}",
   "problem_unreachable": "网关暂时读不到，显示的是上次的数字",
+  "problem_rejected": "网关不认这把 Key，请到管理界面 → 用量来源更新。显示的是上次的数字",
+  "problem_failed": "读网关出错，显示的是上次的数字",
   "problem_error": "网关读这个账号失败，显示的是它存着的数字",
   "window_model_label": "{name} {window}（{model}）：{percent}已用"
 }

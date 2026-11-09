@@ -43,8 +43,10 @@ type UsageAccount struct {
 	// (docs/server/usage-windows.md "Account pool gateways"). An account both saw lists both.
 	Local   bool     `json:"local,omitempty"`
 	Sources []string `json:"sources,omitempty"`
-	// Problem: "error" when the gateway could not read the account's numbers just now (it kept the stored ones),
-	// "unreachable" when the gateway itself could not be asked and this is its last answer. Never carries the text.
+	// Problem: "error" when the gateway could not read the account's numbers just now (it kept the stored ones). When
+	// the gateway's own last read failed and this is its last answer, why: "rejected" (it turned the key away, 401 /
+	// 403), "unreachable" (it could not be asked: no connection, a timeout) or "failed" (it answered, but not with
+	// usage: 404, 5xx, a bad answer). Never carries the text; clients show nothing for a value they don't know.
 	Problem string `json:"problem,omitempty"`
 	// Ref is the account's identity at its gateway ("<source id>:<account id>"), when the source has one. Hub-internal:
 	// it is never sent out. Two samples with refs from one source but different accounts are never merged.

@@ -11320,6 +11320,8 @@ def mock_usage_windows():
              "windows": [win("5h", 300, 8, 2 * 3600), win("7d", 10080, 31, 4 * 24 * 3600)]},
             {"id": "codex-4", "provider": "codex", "name": "team-seat-3", "plan": "ChatGPT Plus", "sampled_at": iso(now - 9 * 3600), "stale": True,
              "sources": ["Relay"], "problem": "unreachable", "windows": [win("7d", 10080, 54, 3 * 24 * 3600)]},
+            {"id": "codex-5", "provider": "codex", "name": "team-seat-4", "plan": "ChatGPT Plus", "sampled_at": iso(now - 2 * 3600), "stale": True,
+             "sources": ["Team pool"], "problem": "rejected", "windows": [win("7d", 10080, 18, 5 * 24 * 3600)]},  # #1902: the key was turned away
             {"id": "kimi-1", "provider": "kimi", "name": "kimi-spare", "sampled_at": iso(now - 20 * 60), "sources": ["Relay", "Team pool"],
              "windows": [win("7d", 10080, 5, 6 * 24 * 3600)]},
         ], "checked_at": iso(now)}

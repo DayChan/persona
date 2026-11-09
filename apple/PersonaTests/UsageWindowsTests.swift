@@ -105,6 +105,12 @@ struct UsageWindowsTests {
         #expect(UsageWindows.problemText(a) == "")
         a.problem = "unreachable"
         #expect(UsageWindows.problemText(a).contains("上次"))
+        a.problem = "rejected" // the key was turned away: says where to fix it, not that the network is down (#1902)
+        #expect(UsageWindows.problemText(a).contains("用量来源") && !UsageWindows.problemText(a).contains("暂时读不到"))
+        a.problem = "failed"
+        #expect(UsageWindows.problemText(a) == "读网关出错，显示的是上次的数字")
+        a.problem = "something-newer"
+        #expect(UsageWindows.problemText(a) == "")
         #expect(UsageWindows.isWarn(80) && !UsageWindows.isWarn(79.9))
         #expect(UsageWindows.percentText(85.6) == "86%")
         #expect(UsageWindows.fraction(140) == 1 && UsageWindows.fraction(-3) == 0)

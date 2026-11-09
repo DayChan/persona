@@ -3,7 +3,7 @@
 // behind an even pace. Hidden entirely while the hub has no data.
 import { useEffect, useRef, useState } from "react";
 import { t as tr } from "../i18n";
-import { fullest, isWarn, liveAccounts, pace, PACE_LABEL, planNote, resetLabel, sampleAge, sourceNames, topAccounts, useUsageWindows, windowKey, type PaceState, type UsageAccount, type UsageWindow } from "../lib/usage-windows";
+import { fullest, isWarn, liveAccounts, pace, PACE_LABEL, planNote, problemText, resetLabel, sampleAge, sourceNames, topAccounts, useUsageWindows, windowKey, type PaceState, type UsageAccount, type UsageWindow } from "../lib/usage-windows";
 import { cx, EASE } from "../ui/atoms";
 
 const percent = (p: number) => Math.min(100, Math.max(0, p));
@@ -96,7 +96,7 @@ export function UsagePopover({ accounts, now: fixed }: { accounts: UsageAccount[
 function AccountSection({ a, now }: { a: UsageAccount; now: number }) {
   const from = sourceNames(a);
   const plan = planNote(a);
-  const problem = a.problem === "unreachable" ? tr("usage.problem_unreachable") : a.problem === "error" ? tr("usage.problem_error") : "";
+  const problem = problemText(a);
   return (
     <section aria-label={a.name} className={cx("flex flex-col gap-2", a.stale && "opacity-70")}>
       <header className="flex flex-col gap-0.5">
