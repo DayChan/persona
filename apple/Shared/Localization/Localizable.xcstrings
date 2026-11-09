@@ -36890,6 +36890,28 @@
       },
       "extractionState" : "manual"
     },
+    "Couldn't refresh, so this is the status from the last read: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't refresh, so this is the status from the last read: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新できなかったため、前回読み込んだ状態を表示しています：%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法刷新，下面是上次读到的状态：%@"
+          }
+        }
+      }
+    },
     "Couldn't remove from the list: %@" : {
       "localizations" : {
         "en" : {

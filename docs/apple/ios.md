@@ -339,7 +339,10 @@ Chat page:
     order ctrl+alt+shift+key, herdr encodes (ctrl+shift+a CSI u), unknown names reject entire chord (`invalid_key`); serial sends preserve press order.
     Live-status terminal icon opens full-screen version of same panel.
   - Git (`GitPane`): branch, upstream ↑↓, staged count; changes (status letter, +/− lines, staged/partially staged), diff with old/new numbers and red/green, no wrap, horizontal scroll,
-    staged/unstaged switch when both; paged history, commit message and per-file diffs.
+    staged/unstaged switch when both; paged history, commit message and per-file diffs. A refresh the user asked for (pull to refresh, the Mac's
+    Refresh / ⌘R) that fails over a status already shown says so in a notice above it with Retry, and a failed Load Earlier Commits turns the button
+    into "Couldn't load. Try again." (#1889, `GitReadFailure`); only the automatic live refresh stays quiet. Screenshots: mock hub `MOCK_GIT_READ_FAIL=1`
+    with `-showGitReload YES`.
     Branch-card Pull N fetches latest upstream in one tap, retained as Pull when synced for active remote checks; disable repeat taps while running, refresh status/files/history and show result.
     Clean-worktree fast-forward only, no auto stash/merge/rebase; existing stashes unchanged; explain no upstream/detached HEAD/uncommitted changes/divergence. Other Git views stay read-only.
   - Files (`FilesPane`): descend from session cwd, breadcrumbs jump levels, directories first, size/modification/Git flags (dot for changes within directory),
