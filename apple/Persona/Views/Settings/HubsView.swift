@@ -28,12 +28,14 @@ struct HubsView: View {
                 HStack {
                     Spacer(minLength: 0)
                     Button("Add Hub…") { showPair = true }.lineLimit(1).formButton().accessibilityIdentifier("hubs.add")
+                        .disabled(model.hubSignOut != nil) // a hub paired now could go with the disconnect
                 }
                 #else
                 Button { showPair = true } label: {
                     SettingsRow(title: String(localized: "Add Hub"), symbol: Theme.Icon.add, tint: Theme.accent)
                 }
                 .modifier(SettingsButtonLook())
+                .disabled(model.hubSignOut != nil) // a hub paired now could go with the disconnect
                 .accessibilityIdentifier("hubs.add")
                 .bareListRow()
                 #endif
@@ -51,31 +53,47 @@ struct HubsView: View {
         } message: {
             Text("Only changes the name on this device. Leave empty to use the hub's own name.")
         }
-        .confirmationDialog(removingGroup.map { String(localized: "Disconnect “\(model.groupName($0))”?") } ?? "", isPresented: Binding(
-            get: { removingGroup != nil }, set: { if !$0 { removingGroup = nil } }
-        ), titleVisibility: .visible, presenting: removingGroup) { g in
-            Button("Disconnect This Group", role: .destructive) { model.removeGroup(g); removingGroup = nil }
+        .confirmationDialog(removingGroupTitle, isPresented: removingGroupShown, titleVisibility: .visible, presenting: removingGroup) { g in
+            Button("Disconnect This Group", role: .destructive) { removingGroup = nil; Task { await model.disconnectGroup(g) } }
         } message: { g in
             Text(model.groupIDs.count > 1 ? String(localized: "This group's machines, agents, and cached chats are removed from this device; other groups aren't affected. To use it again, pair again.")
                                          : String(localized: "After disconnecting, you'll need to scan the code to pair again."))
         }
-        .confirmationDialog(removingHub.map { String(localized: "Disconnect “\($0.displayName)”?") } ?? "", isPresented: Binding(
-            get: { removingHub != nil }, set: { if !$0 { removingHub = nil } }
-        ), titleVisibility: .visible, presenting: removingHub) { h in
-            Button("Disconnect This Hub", role: .destructive) { model.removeHub(h.id); removingHub = nil }
+        .confirmationDialog(removingHubTitle, isPresented: removingHubShown, titleVisibility: .visible, presenting: removingHub) { h in
+            Button("Disconnect This Hub", role: .destructive) { removingHub = nil; Task { await model.disconnectHub(h.id) } }
         } message: { _ in
             Text("Only this hub is disconnected; the group stays connected through its other hubs.")
         }
+    }
+
+    // The disconnect dialogs' titles and bindings stay out of `body`, which is near the type checker's time limit.
+    private var removingGroupTitle: String {
+        guard let g = removingGroup else { return "" }
+        return String(localized: "Disconnect “\(model.groupName(g))”?")
+    }
+
+    private var removingGroupShown: Binding<Bool> {
+        Binding(get: { removingGroup != nil }, set: { if !$0 { removingGroup = nil } })
+    }
+
+    private var removingHubTitle: String {
+        guard let h = removingHub else { return "" }
+        return String(localized: "Disconnect “\(h.displayName)”?")
+    }
+
+    private var removingHubShown: Binding<Bool> {
+        Binding(get: { removingHub != nil }, set: { if !$0 { removingHub = nil } })
     }
 
     @ViewBuilder private func groupRows(_ g: String) -> some View {
         let members = model.registry.members(g)
         let on = model.socket(g)?.currentConfig
         ForEach(members) { h in
-            hubRow(h, inUse: h.config == on && model.isLive(g))
+            hubRow(h, inUse: h.config == on && model.isLive(g), signingOut: model.hubSignOut == .hub(h.id))
                 .contextMenu {
                     if members.count > 1 {
                         Button(role: .destructive) { removingHub = h } label: { Label("Disconnect This Hub", systemImage: Theme.Icon.end) }
+                            .disabled(model.hubSignOut != nil)
                     }
                 }
         }
@@ -123,8 +141,10 @@ struct HubsView: View {
                 Button("Rename… [Hubs View 5f6ecf]") { newName = model.registry.groupNames[g] ?? ""; renaming = g }
                     .lineLimit(1).formButton()
                     .accessibilityIdentifier("hubs.rename.\(g)")
+                if model.hubSignOut == .group(g) { RowProgress() }
                 Button(model.groupIDs.count > 1 ? String(localized: "Disconnect This Group…") : String(localized: "Disconnect and Forget Server…"), role: .destructive) { removingGroup = g }
                     .lineLimit(1).formButton()
+                    .disabled(model.hubSignOut != nil)
                     .accessibilityIdentifier("hubs.remove.\(g)")
             }
             #else
@@ -141,8 +161,10 @@ struct HubsView: View {
             .accessibilityIdentifier("hubs.rename.\(g)")
             Button(role: .destructive) { removingGroup = g } label: {
                 SettingsRow(title: model.groupIDs.count > 1 ? String(localized: "Disconnect This Group") : String(localized: "Disconnect and Forget Server"), symbol: Theme.Icon.end, tint: Theme.danger)
+                    .trailingProgress(model.hubSignOut == .group(g))
             }
             .modifier(SettingsButtonLook())
+            .disabled(model.hubSignOut != nil)
             .accessibilityIdentifier("hubs.remove.\(g)")
             #endif
         }
@@ -211,7 +233,7 @@ struct HubsView: View {
         return out
     }
 
-    private func hubRow(_ h: PairedHub, inUse: Bool) -> some View {
+    private func hubRow(_ h: PairedHub, inUse: Bool, signingOut: Bool) -> some View {
         HStack(spacing: Theme.Space.m) {
             ThemedIcon(Theme.Icon.server)
                 .scaledFrame(width: Theme.Size.icon)
@@ -227,6 +249,7 @@ struct HubsView: View {
                 Text(h.config.url.absoluteString).font(Theme.Font.label).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            if signingOut { RowProgress() } // Disconnect This Hub
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("hubs.hub.\(h.id)")

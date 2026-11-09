@@ -14,7 +14,7 @@ struct DocStatusMenu: View {
     private var store: InboxStore { .shared }
 
     var body: some View {
-        let moving = store.moving.contains(item.id + "|" + row.ref + "|" + status.field)
+        let moving = store.moving.contains(item.key + "|" + row.ref + "|" + status.field)
         Menu {
             Section(status.name) {
                 ForEach(status.options, id: \.name) { o in

@@ -92,7 +92,7 @@ import Testing
         #expect(hub.sent("GET", "/api/v1/extensions/-/ui").count == 1)
         #expect(hub.sent("GET", "/api/v1/plugins/-/ui").isEmpty)
         let data = Data(#"{"type":"extension_ui","extension":"example-gateway","id":"usage","badge":{"text":"4","tone":"positive"}}"#.utf8)
-        guard case .pluginBadge(let owner, let id, let badge)? = ServerEvent.decode(data) else {
+        guard case .pluginBadge(let owner, let id, let badge, _)? = ServerEvent.decode(data) else {
             Issue.record("The extension badge event was not decoded"); return
         }
         s.received(plugin: owner, id: id, badge: badge)
@@ -207,10 +207,10 @@ import Testing
 
     @Test func theExtensionUIEvent() throws {
         let set = ServerEvent.decode(Data(#"{"type":"plugin_ui","plugin":"example-gateway","id":"usage","badge":{"text":"3","tone":"danger"}}"#.utf8))
-        guard case .pluginBadge(let plugin, let id, let badge)? = set else { Issue.record("not decoded"); return }
+        guard case .pluginBadge(let plugin, let id, let badge, _)? = set else { Issue.record("not decoded"); return }
         #expect(plugin == "example-gateway" && id == "usage" && badge == ExtensionBadge(text: "3", tone: "danger"))
         let cleared = ServerEvent.decode(Data(#"{"type":"plugin_ui","plugin":"example-gateway","id":"usage","badge":null}"#.utf8))
-        guard case .pluginBadge(_, _, let none)? = cleared else { Issue.record("not decoded"); return }
+        guard case .pluginBadge(_, _, let none, _)? = cleared else { Issue.record("not decoded"); return }
         #expect(none == nil)
     }
 

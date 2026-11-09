@@ -5,6 +5,8 @@ package netaddr
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -47,6 +49,25 @@ func TestRouteSocketTruncatedDump(t *testing.T) {
 	}
 	if _, err := socket.receive(make([]byte, 1)); err != errDumpInterrupted {
 		t.Fatalf("truncated datagram: %v", err)
+	}
+}
+
+// A dump datagram larger than the buffer truncates, and List's retry receives into the larger buffer: a 1-byte first
+// buffer still lists the addresses a 64 KiB one does.
+func TestListRetriesATruncatedDumpWithALargerBuffer(t *testing.T) {
+	if _, err := listLinux(1); !errors.Is(err, errDumpInterrupted) {
+		t.Fatalf("a 1-byte buffer: %v, want an interrupted dump", err)
+	}
+	got, err := list(1)
+	if err != nil {
+		t.Fatalf("retry after a truncated dump: %v", err)
+	}
+	want, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.EqualFunc(got, want, func(a, b Addr) bool { return compareIdentity(a, b) == 0 }) {
+		t.Fatalf("after a truncated dump: %v, want %v", got, want)
 	}
 }
 

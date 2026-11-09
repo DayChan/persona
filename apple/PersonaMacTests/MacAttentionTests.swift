@@ -67,6 +67,33 @@ struct MacAttentionTests {
         #expect(ping([session("a", .working)], [session("a", .needsYou)], muted: ["a"]).isEmpty)
     }
 
+    @Test func aManagerSwitchedOffHereRingsNoBanner() throws {
+        // #1863 (the prefs' muted_managers): a session or card without `manager` is the hub's own assistant's.
+        var prefs = NotifyPrefs(done: .always)
+        var theirs = session("b", .needsYou)
+        theirs.manager = "m-2"
+        var card = try interaction("x", session: "c")
+        card.manager = "m-2"
+        let key = { SessionKey(machineID: "m", sessionID: $0) }
+        #expect(!MacAttention.managerMuted(prefs, group: "", sessions: [theirs], interactions: [card])(theirs.key), "none switched off")
+        prefs.mutedManagers = ["m-2"]
+        let muted = MacAttention.managerMuted(prefs, group: "", sessions: [session("a", .needsYou), theirs], interactions: [card])
+        #expect(muted(theirs.key) && muted(key("c")) && !muted(key("a")))
+        // The banners: the switched-off manager's agent and card ring none, the other's do.
+        let rang = MacAttention.transitions(old: [session("a", .working), session("b", .working)], new: [session("a", .needsYou), theirs],
+                                            open: nil, appActive: false, prefs: prefs, now: now, muted: muted)
+        #expect(rang.map { $0.0.sessionID } == ["a"])
+        let other = try interaction("y", session: "a")
+        #expect(MacAttention.newInteractions(old: [], new: [card, other], transitionedKeys: [], open: nil, appActive: false,
+                                             prefs: prefs, muted: muted).map(\.id) == ["y"])
+        // Another group's hub keeps its own prefs: these leave its agents alone.
+        var elsewhere = theirs
+        elsewhere.group = "g2"
+        #expect(!MacAttention.managerMuted(prefs, group: "", sessions: [elsewhere], interactions: [])(elsewhere.key))
+        prefs.mutedManagers = ["assistant"]
+        #expect(MacAttention.managerMuted(prefs, group: "", sessions: [session("a", .needsYou)], interactions: [])(key("a")), "no stamp: the hub's own assistant")
+    }
+
     @Test func personaAsksButItsRepliesDoNotPing() {
         let old = [session("j", .working, assistant: true), session("k", .working, assistant: true)]
         let new = [session("j", .needsYou, assistant: true), session("k", .unread, assistant: true)]

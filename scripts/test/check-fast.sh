@@ -14,7 +14,8 @@
 # Path mapping (diff mode):
 #   web/**                     npm ci (only with no node_modules or a changed package.json/package-lock.json),
 #                              typecheck, vitest run
-#   schema/extension/**, spec/fixtures/injected/**, spec/fixtures/sync/**, scripts/mock/inbox_events.json
+#   schema/extension/**, spec/fixtures/injected/**, spec/fixtures/sync/**, spec/fixtures/attention/**,
+#   scripts/mock/inbox_events.json
 #                              also the web check: web/src and its vitest suite read these files. They are the inputs
 #                              outside web/ of the web lane in scripts/ci/paths.py; test_check_fast.py keeps the two in sync
 #   integrations/<pkg>/**      node --test test/*.test.{js,mjs} (packages without tests are skipped)
@@ -599,7 +600,7 @@ else
     # Repository files outside web/ that web/src and its vitest suite read: a change to one also runs the web check,
     # on top of its own mapping below. The same list is the web lane's filter in scripts/ci/paths.py.
     case "$f" in
-      schema/extension/*|spec/fixtures/injected/*|spec/fixtures/sync/*|scripts/mock/inbox_events.json) WEB=1 ;;
+      schema/extension/*|spec/fixtures/injected/*|spec/fixtures/sync/*|spec/fixtures/attention/*|scripts/mock/inbox_events.json) WEB=1 ;;
     esac
     case "$f" in server/*|sdk/go/*) GO_GUARDS=1 ;; esac  # on top of the mapping below (job_go_guards)
     case "$f" in

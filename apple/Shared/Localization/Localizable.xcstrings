@@ -12927,6 +12927,29 @@
         }
       }
     },
+    "A hub is being disconnected. Pair again when it's done." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A hub is being disconnected. Pair again when it's done."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハブを切断しています。完了してから再ペアリングしてください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在断开 hub，完成后再重新配对。"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "A hub you add joins an existing group automatically when it's linked with a hub in it; otherwise it forms its own group. Everything shows in one list, labeled with the group it comes from." : {
       "localizations" : {
         "en" : {
@@ -37755,6 +37778,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没登录上：%1$@"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Couldn't sign out of %@. Revoke this device in Settings › Devices on another device." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't sign out of %1$@. Revoke this device in Settings › Devices on another device."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ のサインアウトに失敗しました。別のデバイスの「設定 › デバイス」で取り消してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没能退出 %1$@。请在另一台设备的「设置 › 设备」里撤销本机。"
           }
         }
       },
@@ -137262,6 +137308,271 @@
           "stringUnit": {
             "state": "translated",
             "value": "最新バージョンです"
+          }
+        }
+      }
+    },
+    "Its manager “%@” is offline. It comes back online once the manager is back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its manager “%@” is offline. It comes back online once the manager is back."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它的管理者「%@」离线，管理者回来后这台电脑会恢复在线。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マネージャー「%@」がオフラインです。マネージャーが戻ると、このコンピューターもオンラインに戻ります。"
+          }
+        }
+      }
+    },
+    "Notifications [Manager Push Views 4c1e7a]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送通知"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知"
+          }
+        }
+      }
+    },
+    "When off, this device gets no notifications from this manager": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, this device gets no notifications from this manager"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关掉后，这台设备不再收到这个管理者的推送"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、このデバイスはこのマネージャーからの通知を受け取りません"
+          }
+        }
+      }
+    },
+    "Couldn't change notifications: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't change notifications: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送通知没改成：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知を変更できませんでした：%@"
+          }
+        }
+      }
+    },
+    "Quiet Hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet Hours"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免打扰时段"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "おやすみ時間"
+          }
+        }
+      }
+    },
+    "During these hours you're not told when an agent finishes (the morning's Today card sums it up), and things that need you arrive without a sound. Reminders you asked the assistant for still come as usual. They're in %@, where they were set; changing them here puts them in this device's time zone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "During these hours you're not told when an agent finishes (the morning's Today card sums it up), and things that need you arrive without a sound. Reminders you asked the assistant for still come as usual. They're in %@, where they were set; changing them here puts them in this device's time zone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段时间里，Agent 做完不再通知（早上的「今天要知道的」卡片会汇总），需要你的事照常送达但不响铃。你让助手设的提醒照常提醒。目前按设置时所在的 %@ 计算，在这里改动后改按这台设备的时区计算。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この時間帯は、エージェントの完了は通知しません（朝の「今日の確認事項」カードにまとまります）。対応が必要なものは音を鳴らさずに届きます。アシスタントに頼んだリマインダーはいつもどおり届きます。現在は設定した場所の %@ で判断します。ここで変更すると、このデバイスのタイムゾーンで判断します。"
+          }
+        }
+      }
+    },
+    "Off: notifications come at any time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: notifications come at any time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：任何时间都会通知"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：いつでも通知します"
+          }
+        }
+      }
+    },
+    "From [Notification Settings View 5d2f81]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        }
+      }
+    },
+    "Until [Notification Settings View 9a07c3]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        }
+      }
+    },
+    "During these hours you're not told when an agent finishes (the morning's Today card sums it up), and things that need you arrive without a sound. Reminders you asked the assistant for still come as usual. In this device's time zone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "During these hours you're not told when an agent finishes (the morning's Today card sums it up), and things that need you arrive without a sound. Reminders you asked the assistant for still come as usual. In this device's time zone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段时间里，Agent 做完不再通知（早上的「今天要知道的」卡片会汇总），需要你的事照常送达但不响铃。你让助手设的提醒照常提醒。按这台设备的时区计算。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この時間帯は、エージェントの完了は通知しません（朝の「今日の確認事項」カードにまとまります）。対応が必要なものは音を鳴らさずに届きます。アシスタントに頼んだリマインダーはいつもどおり届きます。このデバイスのタイムゾーンで判断します。"
+          }
+        }
+      }
+    },
+    "%@. %lld items weren't changed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$@. %2$lld item wasn't changed: %3$@"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$@. %2$lld items weren't changed: %3$@"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@；%2$lld 件没改成：%3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@。%2$lld件は変更できませんでした：%3$@"
           }
         }
       }

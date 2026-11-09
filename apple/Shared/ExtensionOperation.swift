@@ -155,6 +155,9 @@ nonisolated struct ExtensionOperation: Codable, Hashable, Sendable, Identifiable
     var startedAt: Date?
     var updatedAt: Date?
     var endedAt: Date?
+    /// Whose operation it is when another manager's than the default (its push says so, docs/assistant/managers.md
+    /// "Clients"); nil: the default's, as everything this app starts is. Set by the app, never decoded or sent.
+    var manager: String?
 
     /// Going on: running, or waiting for the user's yes.
     var isActive: Bool { state == .running || state == .needsConsent }

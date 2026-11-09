@@ -74,6 +74,21 @@ enum MacAttention {
         }
     }
 
+    /// This device's push switch per manager (#1863, the prefs' `muted_managers`): a switched-off manager's agents ping
+    /// no banner here either. The Dock still counts their cards: the switch is about being told, not about what waits.
+    /// The prefs are those of `group`'s hub (the hub-level one): another group's hub keeps its own, so its agents are
+    /// left alone. A session or card without `manager` is the hub's own assistant's.
+    static func managerMuted(_ prefs: NotifyPrefs, group: String, sessions: [Session], interactions: [Interaction]) -> (SessionKey) -> Bool {
+        guard prefs.mutedManagers?.isEmpty == false else { return { _ in false } }
+        var manager: [SessionKey: String?] = [:]
+        for s in sessions where s.key.group == group { manager[s.key] = s.manager }
+        for ix in interactions where ix.sessionKey.group == group && manager[ix.sessionKey] == nil { manager[ix.sessionKey] = ix.manager }
+        return { key in
+            guard key.group == group, let m = manager[key] else { return false }
+            return prefs.mutes(manager: m)
+        }
+    }
+
     /// The sessions whose every pending card is a question the assistant is still looking at (#544, the web's
     /// `lookingOnly`).
     static func lookingOnly(_ interactions: [Interaction]) -> Set<SessionKey> {
@@ -216,8 +231,10 @@ extension MacAttention {
         // Demo Mode's agents are made up.
         guard !model.isDemo, MacAttention.armed(connectedAt: connectedAt, now: now), !last.isEmpty else { return }
         let prefs = LiveActivityController.shared.prefs ?? NotifyPrefs()
+        let managerMuted = MacAttention.managerMuted(prefs, group: model.hub?.group ?? "", sessions: sessions, interactions: interactions)
+        let bannerMuted: (SessionKey) -> Bool = { mutedKey($0) || managerMuted($0) }
         let ping = MacAttention.transitions(old: last, new: sessions, open: model.visibleSession, appActive: NSApp.isActive,
-                                            prefs: prefs, now: now, looking: MacAttention.lookingOnly(interactions), muted: mutedKey)
+                                            prefs: prefs, now: now, looking: MacAttention.lookingOnly(interactions), muted: bannerMuted)
         // The flip banner of a Needs You turn already carries that session's oldest card: remember the flip for this
         // turn (cards in the same list) and for one settle-length grace in case the card event lands a turn later.
         for (s, state) in ping where state == .needsYou { flippedAt[s.key] = now }
@@ -225,7 +242,7 @@ extension MacAttention {
         let cards = MacAttention.newInteractions(old: lastInteractions, new: interactions,
                                                  transitionedKeys: Set(flippedAt.keys),
                                                  open: model.visibleSession, appActive: NSApp.isActive,
-                                                 prefs: prefs, muted: mutedKey)
+                                                 prefs: prefs, muted: bannerMuted)
         // The flip has met its card once a card for that session is present now: the flip banner covered it, and the
         // next card of this stop must ping even if it still lands inside the grace.
         let metKeys = flippedAt.keys.filter { key in interactions.contains { $0.sessionKey == key } }

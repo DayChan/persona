@@ -326,6 +326,11 @@ struct MachineCard: View {
                 // Sized before the stretching part above: second in line, the values (which may shrink to fit) came
                 // out smaller than in a card of their own.
                 .layoutPriority(1)
+            } else if let manager = model.offlineManager(of: machine, group: machine.group) {
+                // Offline with its manager on a hub with several (#1919): the hub's words would blame the computer.
+                Text("Its manager “\(manager.name)” is offline. It comes back online once the manager is back.")
+                    .font(Theme.Font.label).foregroundStyle(Color.secondary).lineLimit(3)
+                    .accessibilityIdentifier("machine.managerOffline")
             } else if let lines = AddComputerText.machineLines(machine) {
                 // A known error_code in words (docs/assistant/onboarding.md 5.3), or the hub's error read in plain words with
                 // the raw one under it; the whole of it is on its page (Details).

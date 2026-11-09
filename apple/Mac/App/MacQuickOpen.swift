@@ -6,6 +6,7 @@ enum MacQuickOpen {
     enum Target: Hashable {
         case agent(SessionKey)
         case conversation(SessionKey)
+        /// An inbox item, by its `InboxItem.key`.
         case inbox(String)
         /// A file under the open conversation's directory, relative to it.
         case file(String)
@@ -81,8 +82,8 @@ enum MacQuickOpen {
         let mail = inbox.compactMap { it -> Hit? in
             let sc = score(title: it.title, hay: [it.sender, it.preview, it.accountName], query: q)
             guard sc > 0 else { return nil }
-            return Hit(id: "i:\(it.id)", title: it.title, subtitle: [it.sender, it.preview].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: String(localized: ": ", comment: "Separator between two parts of a one-line summary, e.g. a tool name and what it does")),
-                       icon: Theme.Icon.inbox, target: .inbox(it.id), score: sc, date: it.updatedAt)
+            return Hit(id: "i:\(it.key)", title: it.title, subtitle: [it.sender, it.preview].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: String(localized: ": ", comment: "Separator between two parts of a one-line summary, e.g. a tool name and what it does")),
+                       icon: Theme.Icon.inbox, target: .inbox(it.key), score: sc, date: it.updatedAt)
         }
         let fileHits = q.isEmpty ? [] : files.map { f -> Hit in
             let cut = f.path.lastIndex(of: "/")

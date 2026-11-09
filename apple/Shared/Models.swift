@@ -50,9 +50,12 @@ nonisolated struct Machine: Codable, Identifiable, Hashable, Sendable {
     /// What kind of trouble `error` is (node_service_down, link_offline, never_connected, node_outdated, or a word this
     /// app does not know, which shows `error`); `error` keeps the hub's own words.
     var errorCode: String? = nil
+    /// The manager it belongs to (docs/protocol/protocol.md "Per-manager routing"); nil from a hub before managers. While
+    /// that manager is offline the computer is too, and only comes back with it (`ManagerRoster.offlineManager`).
+    var manager: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, icon, online, error, hostname, os, arch, home, system, engine, engines, computer, browser, route, trust
+        case id, name, kind, icon, online, error, hostname, os, arch, home, system, engine, engines, computer, browser, route, trust, manager
         case errorCode = "error_code"
         case sshHost = "ssh_host", herdrVersion = "herdr_version", claudeVersion = "claude_version", lastSeen = "last_seen"
         case nodeMismatch = "node_mismatch", nodeVersion = "node_version", deploying, deployError = "deploy_error"
@@ -104,6 +107,7 @@ extension Machine {
         groupLabel = try? c.decodeIfPresent(String.self, forKey: .groupLabel)
         trust = try? c.decodeIfPresent(String.self, forKey: .trust)
         errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
+        manager = try? c.decodeIfPresent(String.self, forKey: .manager)
     }
 }
 
@@ -2045,6 +2049,66 @@ nonisolated struct FleetLookPut: Encodable, Sendable {
     var look: FleetLook
 }
 
+/// The managers whose pushes this device doesn't want, alone (APIClient.setMutedManagers): a write of the whole prefs
+/// never carries them, so a page that saved other choices can't bring back one muted elsewhere.
+nonisolated struct MutedManagersPut: Encodable, Sendable {
+    var ids: [String]
+    enum CodingKeys: String, CodingKey { case ids = "muted_managers" }
+}
+
+/// Quiet hours alone (APIClient.setQuietHours).
+nonisolated struct QuietHoursPut: Encodable, Sendable {
+    var quiet: QuietHours
+}
+
+/// This device's quiet hours (the prefs' `quiet`, docs/protocol/protocol.md): no "Agent finished" inside the window, and
+/// "Needs you" without a sound. Times are "HH:MM" in `tz` (an IANA zone; empty: the user's zone the hub knows); the
+/// window may cross midnight, and start = end is no window.
+nonisolated struct QuietHours: Codable, Equatable, Sendable {
+    var enabled = false
+    var start = "23:00"
+    var end = "07:00"
+    var tz: String?
+
+    enum CodingKeys: String, CodingKey { case enabled, start, end, tz }
+
+    init(enabled: Bool = false, start: String = "23:00", end: String = "07:00", tz: String? = nil) {
+        self.enabled = enabled
+        self.start = start
+        self.end = end
+        self.tz = tz
+    }
+
+    /// Empty times (never set) take the web's defaults, 23:00 to 07:00.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        start = (try c.decodeIfPresent(String.self, forKey: .start)).flatMap { $0.isEmpty ? nil : $0 } ?? "23:00"
+        end = (try c.decodeIfPresent(String.self, forKey: .end)).flatMap { $0.isEmpty ? nil : $0 } ?? "07:00"
+        tz = try c.decodeIfPresent(String.self, forKey: .tz)
+    }
+
+    /// "HH:MM" as minutes after midnight (nil: not a time).
+    static func minutes(_ hhmm: String) -> Int? {
+        let parts = hhmm.split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]), (0..<24).contains(h), (0..<60).contains(m) else { return nil }
+        return h * 60 + m
+    }
+
+    /// Minutes after midnight as "HH:MM".
+    static func clock(_ minutes: Int) -> String {
+        let m = ((minutes % 1440) + 1440) % 1440
+        return String(format: "%02d:%02d", m / 60, m % 60)
+    }
+
+    /// The name of the zone the times are in when it isn't `here` (they were set somewhere else); nil when it is, or
+    /// when they have none.
+    func elsewhere(here: TimeZone = .current, locale: Locale = .current) -> String? {
+        guard let tz, !tz.isEmpty, let zone = TimeZone(identifier: tz), zone.identifier != here.identifier else { return nil }
+        return zone.localizedName(for: .generic, locale: locale) ?? zone.identifier
+    }
+}
+
 nonisolated struct NotifyPrefs: Codable, Equatable, Sendable {
     enum Done: String, Codable, CaseIterable, Sendable { case off, long, always }
     var input: Bool = true
@@ -2061,9 +2125,15 @@ nonisolated struct NotifyPrefs: Codable, Equatable, Sendable {
     var translate: TranslatePrefsBody?
     var longTurnSeconds: Int?
     var doneDelaySeconds: Int?
+    /// The managers whose pushes this device doesn't get (docs/assistant/managers.md "Clients"); nil from a hub before
+    /// per-manager switches, which then shows none. Written alone (`MutedManagersPut`), never with the rest.
+    var mutedManagers: [String]?
+    /// Quiet hours; nil from a hub without them, which then shows none. Written alone (`QuietHoursPut`).
+    var quiet: QuietHours?
 
     enum CodingKeys: String, CodingKey {
-        case input, done
+        case input, done, quiet
+        case mutedManagers = "muted_managers"
         case liveActivity = "live_activity", lockDetails = "lock_details", island, translate
         case muteWhileDesktop = "mute_while_desktop"
         case longTurnSeconds = "long_turn_seconds", doneDelaySeconds = "done_delay_seconds"
@@ -2087,6 +2157,8 @@ nonisolated struct NotifyPrefs: Codable, Equatable, Sendable {
         longTurnSeconds = try c.decodeIfPresent(Int.self, forKey: .longTurnSeconds)
         doneDelaySeconds = try c.decodeIfPresent(Int.self, forKey: .doneDelaySeconds)
         muteWhileDesktop = try c.decodeIfPresent(Bool.self, forKey: .muteWhileDesktop) ?? false
+        mutedManagers = try? c.decodeIfPresent([String].self, forKey: .mutedManagers)
+        quiet = try? c.decodeIfPresent(QuietHours.self, forKey: .quiet)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -2096,7 +2168,15 @@ nonisolated struct NotifyPrefs: Codable, Equatable, Sendable {
         try c.encode(liveActivity, forKey: .liveActivity)
         try c.encode(lockDetails, forKey: .lockDetails)
         try c.encode(island, forKey: .island)
-        // muteWhileDesktop is not sent back: the banner writes it alone (MuteWhileDesktopPut).
+        // muteWhileDesktop, mutedManagers and quiet are not sent back: each is written alone (MuteWhileDesktopPut,
+        // MutedManagersPut, QuietHoursPut).
+    }
+
+    /// Whether this device turned off the pushes of manager `id`; nil is the hub's own assistant (`assistant`), whose things
+    /// the hub leaves unstamped.
+    func mutes(manager id: String?) -> Bool {
+        guard let muted = mutedManagers, !muted.isEmpty else { return false }
+        return muted.contains(id ?? "assistant")
     }
 
     /// "1 min" / "90 s": how the page words a duration from the hub.

@@ -30,6 +30,8 @@ extension Theme {
         static let byState = "circle.grid.2x1"
         static let muted = "bell.slash.fill"
         static let notifications = "bell.badge"
+        /// The hours this device's notifications keep quiet (Settings › Notifications).
+        static let quietHours = "moon.zzz.fill"
         /// An Agent at work (the fleet's working count).
         static let working = "gearshape.fill"
         /// Calls moved to the background.

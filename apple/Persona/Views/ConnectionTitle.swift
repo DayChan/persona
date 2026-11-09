@@ -112,6 +112,7 @@ struct ConnectionDetails: View {
                         Text("Pair Again").lineLimit(1).frame(maxWidth: .infinity)
                     }
                     .themedButton(prominent: true)
+                    .disabled(model.hubSignOut != nil) // AppModel.pair would refuse it
                     .padding(.top, Theme.Space.xxs)
                     .accessibilityIdentifier("connection.repair")
                 }

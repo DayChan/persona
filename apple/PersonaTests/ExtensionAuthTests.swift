@@ -33,13 +33,20 @@ struct ExtensionAuthTests {
 
     @Test func thePushDecodes() {
         let event = #"{"type":"extension_auth","extension":"lookup","auth":{"title":"登录","state":"pending"}}"#
-        guard case .extensionAuth(let id, let auth)? = ServerEvent.decode(Data(event.utf8)) else {
+        guard case .extensionAuth(let id, let auth, _)? = ServerEvent.decode(Data(event.utf8)) else {
             Issue.record("not an extension_auth")
             return
         }
         #expect(id == "lookup" && auth?.state == .pending)
+        // Another manager's says whose it is (none: the hub's own assistant's).
+        let theirs = #"{"type":"extension_auth","manager":"m2","extension":"lookup","auth":{"title":"x","state":"signed_in"}}"#
+        guard case .extensionAuth(_, _, let manager)? = ServerEvent.decode(Data(theirs.utf8)) else {
+            Issue.record("not an extension_auth")
+            return
+        }
+        #expect(manager == "m2")
         // Something else under `auth` does not lose the event.
-        guard case .extensionAuth(_, let none)? = ServerEvent.decode(Data(#"{"type":"extension_auth","extension":"x","auth":"?"}"#.utf8)) else {
+        guard case .extensionAuth(_, let none, _)? = ServerEvent.decode(Data(#"{"type":"extension_auth","extension":"x","auth":"?"}"#.utf8)) else {
             Issue.record("lost the event")
             return
         }

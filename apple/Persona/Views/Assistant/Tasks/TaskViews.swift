@@ -941,14 +941,35 @@ struct TaskDock: View {
                                     .frame(width: Theme.Size.macRowFade)
                             }
                     }
+                    #else
+                    // A pill cut by the screen's edge mid-word reads as broken: the pills fade out at an end with more.
+                    .edgeFade()
                     #endif
                     .animation(Theme.Motion.layout, value: dock.map(\.id) + agents.map(\.key.path))
                 }
             }
             .padding(.horizontal, Theme.Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
+            #if !os(macOS)
+            .padding(.top, Theme.Space.s)
+            .background(alignment: .top) { chatFade }
+            // Drawn under the question and the @ list over it in the footer, so the fade reaches only the chat.
+            .zIndex(-1)
+            #endif
             .confirmTaskRemoval($removing)
         }
+    }
+
+    /// Over the end of the chat, right above the dock (the footer adds no margin there): the page fades in, instead of
+    /// the list's edge cutting a message in two. As tall as the room the newest message keeps from that edge
+    /// (`ChatView.newestGap`), so at rest nothing is under it; out to the footer's side margins, where the chat shows too.
+    private var chatFade: some View {
+        LinearGradient(colors: [Theme.pageBackground.opacity(0), Theme.pageBackground], startPoint: .top, endPoint: .bottom)
+            .frame(height: ChatView.newestGap)
+            .padding(.horizontal, -Theme.Space.m)
+            .offset(y: -ChatView.newestGap)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func board(_ count: Int) -> some View {

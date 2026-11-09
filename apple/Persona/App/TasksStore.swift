@@ -239,7 +239,7 @@ final class TasksStore {
     func sendMessage(_ card: FeedItem, itemID: String, text: String) async {
         guard messageState(card, itemID: itemID) == .open else { return }
         let inbox = InboxStore.shared
-        if let item = inbox.items.first(where: { $0.id == itemID }) {
+        if let item = Self.cardItem(itemID) {
             // A refusal comes back as the hub's words; the reload brings the item as the hub has it (handled elsewhere).
             if await inbox.send(item, text: text, card: card.id) { sentMessages.insert(itemID) } else { inbox.reload() }
             return
@@ -262,8 +262,14 @@ final class TasksStore {
 
     enum MessageState { case open, sent, filed }
 
+    /// A message card's inbox item: the default manager's, as the feed and the reply without the item go to it (each
+    /// manager numbers its own items).
+    private static func cardItem(_ itemID: String) -> InboxItem? {
+        InboxStore.shared.items.first { $0.id == itemID && AppModel.shared.pushedBy($0.manager) == nil }
+    }
+
     func messageState(_ card: FeedItem, itemID: String) -> MessageState {
-        Self.messageState(card, inbox: InboxStore.shared.items.first { $0.id == itemID },
+        Self.messageState(card, inbox: Self.cardItem(itemID),
                           sentHere: sentMessages.contains(itemID), refused: filedMessages.contains(itemID))
     }
 

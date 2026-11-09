@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -111,6 +112,55 @@ func TestTemplateIndexFindsTheSameTemplate(t *testing.T) {
 				t.Errorf("%s tries %d of its %d templates on %q", name, n, all, text)
 			}
 		}
+	}
+}
+
+// Each template compiles its regexp the first time a text fits it, so a broken source would fail only then: compile
+// every catalog's sources here, each with a group for each placeholder.
+func TestEveryTemplateCompiles(t *testing.T) {
+	sets := map[string][]deploymentTemplate{"extension-status": extensionStatusTemplates()}
+	for name, x := range catalogIndexes() {
+		sets[name] = x.forms
+	}
+	for name, forms := range sets {
+		for _, f := range forms {
+			rx, err := regexp.Compile(f.pattern.src)
+			if err != nil {
+				t.Errorf("%s %s: %v", name, f.key, err)
+			} else if rx.NumSubexp() != len(f.names) {
+				t.Errorf("%s %s: %d groups for %d placeholders in %q", name, f.key, rx.NumSubexp(), len(f.names), f.pattern.src)
+			}
+		}
+	}
+}
+
+// Building an index compiles no regexp; a text compiles only those of the templates it fits, up to the one it matches
+// (#2475).
+func TestTemplatesCompileOnFirstFit(t *testing.T) {
+	x := indexTemplates(makeDeploymentTemplates())
+	compiled := func() (n int) {
+		for i := range x.forms {
+			if x.forms[i].pattern.rx != nil {
+				n++
+			}
+		}
+		return n
+	}
+	if n := compiled(); n != 0 {
+		t.Fatalf("building the index compiled %d regexps", n)
+	}
+	text := T(ZhHans, "devices-deploy.install_failed", Args{"err": "disk full"})
+	fits := 0
+	for _, n := range x.candidates(text) {
+		if x.forms[n].fits(text) {
+			fits++
+		}
+		if x.forms[n].match(text) != nil {
+			break
+		}
+	}
+	if n := compiled(); n == 0 || n > fits {
+		t.Fatalf("matching one text compiled %d regexps, for %d templates it fits", n, fits)
 	}
 }
 

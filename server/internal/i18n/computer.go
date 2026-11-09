@@ -1,7 +1,6 @@
 package i18n
 
 import (
-	"regexp"
 	"strings"
 	"sync"
 
@@ -39,7 +38,7 @@ func makeComputerTemplates() []deploymentTemplate {
 	})
 	for n := range forms {
 		// A failed pbcopy/open/installer may emit no diagnostic output. Empty details are still recognized copy.
-		forms[n].pattern = regexp.MustCompile(strings.ReplaceAll(forms[n].pattern.String(), "(.+?)", "(.*?)"))
+		forms[n].pattern.src = strings.ReplaceAll(forms[n].pattern.src, "(.+?)", "(.*?)")
 	}
 	return forms
 }

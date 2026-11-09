@@ -37,7 +37,7 @@ struct MacInboxActions: View {
         self.handOff = handOff
         self.openItem = openItem
         self.openSource = openSource
-        _suggestion = State(initialValue: InboxSuggestionModel.live(item.id))
+        _suggestion = State(initialValue: InboxSuggestionModel.live(item.id, manager: item.manager))
     }
 
     var body: some View {
@@ -137,7 +137,7 @@ struct MacInboxActions: View {
             action(String(localized: "Move Back"), Theme.Icon.undo, iconsOnly: iconsOnly, help: String(localized: "Move Back to Inbox")) { InboxStore.shared.setDone(item, false) }
         } else {
             action(String(localized: "Done [Inbox View 59f6c8]"), Theme.Icon.done, iconsOnly: iconsOnly, help: String(localized: "Mark as done (press E in the list)")) {
-                MacInboxState.shared.toggleDone([.item(item.id)], model: model)
+                MacInboxState.shared.toggleDone([.item(item.key)], model: model)
             }
         }
     }

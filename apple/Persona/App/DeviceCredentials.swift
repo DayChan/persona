@@ -234,10 +234,15 @@ struct DevicesView: View {
         }
     }
 
-    private func revokeButton(_ t: APIClient.DeviceToken) -> some View {
-        Button(String(localized: "action.revoke", defaultValue: "Revoke"), role: .destructive) { revoking = t }
-            .buttonStyle(.borderless)
-            .lineLimit(1)
+    @ViewBuilder private func revokeButton(_ t: APIClient.DeviceToken) -> some View {
+        if t.id == current, model.hubSignOut == .group(model.hub?.group ?? "") {
+            RowProgress() // Revoke and Unpair signing this device out of the group's hubs
+        } else {
+            Button(String(localized: "action.revoke", defaultValue: "Revoke"), role: .destructive) { revoking = t }
+                .buttonStyle(.borderless)
+                .lineLimit(1)
+                .disabled(model.hubSignOut != nil)
+        }
     }
 
     private func detail(_ t: APIClient.DeviceToken) -> String {
@@ -258,12 +263,13 @@ struct DevicesView: View {
     }
 
     private func revoke(_ t: APIClient.DeviceToken) async {
+        // This device's own credential at the hub-level group's hub: the group's hubs sign it out (its watch's
+        // credential first, which needs this one) and the group goes; the others stay.
+        if t.id == current { await model.disconnectGroup(model.hub?.group ?? ""); return }
         guard let api = model.api else { return }
         do {
             try await api.revokeToken(t.id)
             Haptics.success()
-            // This device's own credential at the hub-level group's hub: that group goes (the others stay).
-            if t.id == current { model.removeGroup(model.hub?.group ?? ""); return }
             await load()
         } catch {
             model.show(error)

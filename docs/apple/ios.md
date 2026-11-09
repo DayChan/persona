@@ -1423,12 +1423,47 @@ roster, none of this draws and the pages are as before.
   Extension pages get the manager too (`ExtensionPageView(manager:)`, `?manager=` on their actions). Another manager's extension or
   connector page adds that manager's name to its status line (`ManagerRoster.name`); the default's pages are as before.
 - **Kept apart**: sign-in states (`ExtensionAuthStore`) and unsaved settings drafts (`ExtensionDrafts.Key`) are kept by id and manager.
-  The market (installs, upgrades, uninstall) and `extension_auth` / `extension_operation` pushes are still the default manager's.
+  The market (installs, upgrades, uninstall) is still the default manager's; its pushes are matched by manager (below).
 - **Tests**: `ManagerGroupsTests` (decoding, roster order and ownership, grouping, one manager, a hub without a roster, the header on
   every request of another manager's extension, sign-in, connector and Messages pages and none on the default's). UI test
   `ManagerGroupsUITests` against the mock hub's three managers (`MOCK_EXTENSIONS=1`, `TEST_RUNNER_PERSONA_MANAGERS_HUB`, shots with
   `TEST_RUNNER_PERSONA_SHOTS`; with `MOCK_MANAGERS=1` add `TEST_RUNNER_PERSONA_MANAGERS_ONE=1`). By hand: `-tab settings -openExtensions
   YES`, or `-openExtension <id> -openExtensionManager m-3fa21c` for 工作's copy.
+
+## The inbox, notifications and computers of several managers (#1850, #1863, #1919, #1834)
+
+The rest of [managers.md](../assistant/managers.md) "Clients" on iOS and the Mac. `AppModel.managerRosters` keeps each group's roster
+(`AppModel+Managers.swift`), read on its hub's hello, on each `{"type":"managers"}` and on a refresh; `managerRoster` is the hub-level
+group's. With one installed manager, or a hub without a roster, nothing below shows.
+
+- **Inbox items are their id and their manager** (`InboxItem.key`): the store, the bulk arithmetic (`InboxBulk`), the reply and status
+  spinners, the Mac's selection, item windows and Quick Open use it. An answer about one item is put back with the manager asked
+  (`InboxStore.put(_:manager:)`), and a bulk answer is stamped with it (`InboxBulkResult.stamped`), skipped ids too. An item's
+  rule sheet reads and saves its manager's rules and moves only that manager's items (`InboxPolicyTarget.manager`); the Rules
+  list is still the default manager's.
+- **Bulk actions per manager**: Done on several, a section's Clear all and Clean up all send one request per manager
+  (`InboxBulk.byManager`). One that fails puts back only its own items and the toast says how many weren't changed and why
+  (`InboxBulk.partly`); only when every one fails is it the old error. Undo after one manager's clean-up sends that manager's `undo`;
+  after several managers' it brings back what moved with the Done request.
+- **Grouped inbox**: with several managers the list (iPhone `InboxPage`, Mac `MacInboxState.sections`) is one group per manager
+  (`InboxShare`: a `ManagerHeading`, then its Needs You with its waiting agents first, In Progress, FYI, Collapsed and its own Done).
+  Agents go by their card's `manager`. Each group folds its sections apart (`InboxFolds`, starting as before).
+- **Push switch per manager**: a manager's page (`ManagerDetailView`) has this device's Notifications switch
+  (`ManagerPushViews.swift`): `muted_managers` sent alone (`APIClient.setMutedManagers`), shown only when the prefs answer has the
+  field, put back if the hub says no. The Mac's own banners (`MacAttention.managerMuted`) skip a muted manager's agents and cards
+  of the hub-level group (another group's hub keeps its own prefs); its Dock badge still counts them. A prefs read already on its
+  way when a page saves doesn't put the old prefs back (`AppModel.savedNotifyPrefs`).
+- **Quiet hours**: Settings › Notifications has this device's quiet hours (a switch, then From / Until), only when the prefs answer
+  has `quiet`; each change sends `quiet` alone with this device's time zone (`APIClient.setQuietHours`), as the web does. Hours set
+  in another zone: the section's footer names that zone instead of this device's (`QuietHours.elsewhere`) until they are changed here.
+- **Computers of an offline manager**: `Machine.manager` decodes; an offline computer whose manager the roster has offline
+  (`ManagerRoster.offlineManager`) says so on its card and has no Reconnect on its page.
+- **Extension pushes**: `extension_operation`, `extension_auth` and `plugin_ui` badges carry their event's `manager`
+  (`ServerEvent`); none is the hub's own assistant. An operation is kept by its manager and id (`ExtensionOperation.storeKey`; the
+  market pages show the default's), a sign-in by id and manager, and another manager's badge is left out of the default's places.
+- **Tests**: `InboxManagersTests`, `ManagerPushTests`, `ManagerGroupsTests.aComputerIsOfflineWithItsManager` and
+  `.aPushIsThePagesOwnUnlessAnotherManagerSentIt`,
+  `ExtensionOperationsTests.anotherManagersOperationIsKeptApart`, `MacAttentionTests.aManagerSwitchedOffHereRingsNoBanner`.
 
 ## DEBUG launch arguments (Debug only; Release checks exclude these strings)
 

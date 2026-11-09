@@ -433,7 +433,7 @@ struct InboxChainSection: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("inbox.chain.session")
         case .item(let id):
-            if let it = InboxStore.shared.items.first(where: { $0.id == id }) {
+            if let it = InboxStore.shared.items.first(where: { $0.key == InboxItem.key(id: id, manager: item.manager) }) {
                 if let openItem {
                     Button { openItem(it) } label: { label() }.buttonStyle(.plain)
                 } else {
@@ -504,7 +504,7 @@ struct InboxRelatedSection: View {
                     }
                     .padding(.vertical, Theme.Space.xs)
                     .contentShape(.rect)
-                    if let it = InboxStore.shared.items.first(where: { $0.id == r.id }) {
+                    if let it = InboxStore.shared.items.first(where: { $0.key == InboxItem.key(id: r.id, manager: item.manager) }) {
                         if let openItem {
                             Button { openItem(it) } label: { label }.buttonStyle(.plain)
                         } else {
@@ -608,7 +608,7 @@ struct InboxEventPage: View {
         self.item = item
         self.accounts = accounts
         self.draft = draft
-        _suggestion = State(initialValue: InboxSuggestionModel.live(item.id))
+        _suggestion = State(initialValue: InboxSuggestionModel.live(item.id, manager: item.manager))
     }
 
     var body: some View {

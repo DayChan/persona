@@ -17,19 +17,24 @@ import (
 // RTM_GETADDR, including full IFA_FLAGS, scope and available lifetimes. It keeps
 // down, virtual and non-public addresses for diagnostics and caller LAN policy.
 // Interrupted dumps are retried; failures never return a partial snapshot.
-func List() ([]Addr, error) {
+func List() ([]Addr, error) { return list(receiveBuffer) }
+
+// list makes up to 3 attempts, the first receiving into a buffer of size bytes and each retry into
+// retryReceiveBuffer, so a datagram truncated by the first fits the next.
+func list(size int) ([]Addr, error) {
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		var out []Addr
-		out, err = listLinux()
+		out, err = listLinux(size)
 		if !errors.Is(err, errDumpInterrupted) && !errors.Is(err, syscall.ENOBUFS) {
 			return out, err
 		}
+		size = retryReceiveBuffer
 	}
 	return nil, err
 }
 
-func listLinux() ([]Addr, error) {
+func listLinux(size int) ([]Addr, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("netaddr: interfaces: %w", err)
@@ -58,7 +63,7 @@ func listLinux() ([]Addr, error) {
 		return nil, fmt.Errorf("netaddr: request addresses: %w", err)
 	}
 	var out []Addr
-	buf := make([]byte, 1<<20)
+	buf := make([]byte, size)
 	for {
 		data, err := socket.receive(buf)
 		if err != nil {

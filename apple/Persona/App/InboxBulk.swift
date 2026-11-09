@@ -20,11 +20,20 @@ nonisolated enum InboxBulk {
 
     static func needsConfirm(_ count: Int) -> Bool { count >= confirmFrom }
 
-    /// What Undo sends after a clean-up: the hub's `undo` (only what that request changed), or — on a hub from before
-    /// `/bulk` — the Done request bringing back what moved.
+    /// What Undo sends after a clean-up: the hub's `undo` (only what that request changed) to the manager that answered
+    /// it, or — on a hub from before `/bulk`, or after several managers' — the Done request bringing back what moved.
     enum Undo: Sendable, Equatable {
-        case bulk(InboxBulkReply.Undo)
+        case bulk(InboxBulkReply.Undo, manager: String?)
         case legacy([InboxItem])
+    }
+
+    /// What a filing came back with: the answers together, its Undo, and — when some managers failed and others did
+    /// not (#1850) — the failed ones' items, put back, and the first failure in words, which the toast says.
+    struct Sent: Sendable {
+        var result: InboxBulkResult
+        var undo: Undo?
+        var lost: [InboxItem] = []
+        var failure: String?
     }
 
     /// The bulk request's answer as the arithmetic below reads it.
@@ -32,37 +41,61 @@ nonisolated enum InboxBulk {
         InboxBulkResult(changed: reply.changed, unchanged: reply.unchanged, skipped: reply.skipped)
     }
 
-    /// Sends a clean-up: the bulk request, or on a hub from before it (404 / 405) the Done one. That request cannot
-    /// say dismissed, so an old hub records Clear All as `done_by=user` — acceptable there, better than refusing it.
-    /// The requests come in so it can be tested without a hub.
-    static func perform(_ action: Action, _ targets: [InboxItem],
+    /// Sends a clean-up to one manager (`manager`: the one asked, nil on a hub before managers): the bulk request, or on
+    /// a hub from before it (404 / 405) the Done one. That request cannot say dismissed, so an old hub records Clear All
+    /// as `done_by=user` — acceptable there, better than refusing it. The requests come in so it can be tested without a
+    /// hub.
+    static func perform(_ action: Action, _ targets: [InboxItem], manager: String? = nil,
                         bulk: (Action, [InboxItem]) async throws -> InboxBulkReply,
                         legacy: ([InboxItem]) async throws -> InboxBulkResult) async throws -> (result: InboxBulkResult, undo: Undo?) {
         do {
             let reply = try await bulk(action, targets)
-            let r = result(reply)
-            return (r, reply.undo.map(Undo.bulk) ?? (r.changed.isEmpty ? nil : .legacy(r.changed)))
+            let r = result(reply).stamped(manager)
+            return (r, reply.undo.map { .bulk($0, manager: manager) } ?? (r.changed.isEmpty ? nil : .legacy(r.changed)))
         } catch let e as APIError where e.status == 404 || e.status == 405 {
-            let r = try await legacy(targets)
+            let r = try await legacy(targets).stamped(manager)
             return (r, r.changed.isEmpty ? nil : .legacy(r.changed))
         }
     }
 
-    /// The list with what a failed request had moved put back as it was.
+    /// `each` for every manager's share of `targets` (`InboxStore.managers`), the answers together and stamped with the
+    /// manager asked. A manager that fails keeps its items and the others' answers still count; only when every one
+    /// fails does this throw (the first failure).
+    static func byManager(_ groups: [(key: String?, items: [InboxItem])],
+                          _ each: (String?, [InboxItem]) async throws -> InboxBulkResult) async throws -> Sent {
+        var sent = Sent(result: .none)
+        var first: (any Error)?
+        for g in groups {
+            do {
+                sent.result.add(try await each(g.key, g.items).stamped(g.key))
+            } catch {
+                sent.lost += g.items
+                if first == nil {
+                    first = error
+                    sent.failure = error.shown ?? error.localizedDescription
+                }
+            }
+        }
+        if let first, sent.lost.count == groups.reduce(0, { $0 + $1.items.count }) { throw first }
+        return sent
+    }
+
+    /// The list with what a failed request had moved put back as it was (`before`: by `InboxItem.key`).
     static func rollback(_ items: [InboxItem], before: [String: InboxItem]) -> [InboxItem] {
-        items.map { before[$0.id] ?? $0 }
+        items.map { before[$0.key] ?? $0 }
     }
 
     /// What a bulk request moves: the items not in that state yet.
     static func targets(_ list: [InboxItem], done: Bool) -> [InboxItem] {
         var seen = Set<String>()
-        return list.filter { $0.isDone != done && seen.insert($0.id).inserted }
+        return list.filter { $0.isDone != done && seen.insert($0.key).inserted }
     }
 
-    /// The list with `ids` filed (or brought back) at `now`, as it shows before the hub answers.
-    static func marking(_ items: [InboxItem], ids: Set<String>, done: Bool, now: Date, by action: Action = .done) -> [InboxItem] {
+    /// The list with the items of `keys` (`InboxItem.key`) filed (or brought back) at `now`, as it shows before the hub
+    /// answers.
+    static func marking(_ items: [InboxItem], keys: Set<String>, done: Bool, now: Date, by action: Action = .done) -> [InboxItem] {
         items.map { it in
-            guard ids.contains(it.id) else { return it }
+            guard keys.contains(it.key) else { return it }
             var it = it
             it.doneAt = done ? now : nil
             it.doneBy = done ? action.doneBy : nil
@@ -73,11 +106,11 @@ nonisolated enum InboxBulk {
     /// The list after the hub answered: what it moved as it has them now; what it left (new messages since the list,
     /// gone from the hub) as it was before; what was already so as shown.
     static func settle(_ items: [InboxItem], before: [String: InboxItem], result: InboxBulkResult) -> [InboxItem] {
-        let fresh = Dictionary(result.changed.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let left = Set(result.skipped.map(\.id))
+        let fresh = Dictionary(result.changed.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+        let left = Set(result.skipped.map(\.key))
         return items.map { it in
-            if let f = fresh[it.id] { return f }
-            if left.contains(it.id), let b = before[it.id] { return b }
+            if let f = fresh[it.key] { return f }
+            if left.contains(it.key), let b = before[it.key] { return b }
             return it
         }
     }
@@ -96,6 +129,12 @@ nonisolated enum InboxBulk {
         case (false, _): head = moved > 0 ? String(localized: "Moved back \(moved) items") : String(localized: "Nothing to move back")
         }
         return fresh > 0 ? head + String(localized: ". \(fresh) with new messages stayed in the Inbox.") : head
+    }
+
+    /// The toast when some managers' share failed (#1850): what the others did, then how many stayed as they were and why.
+    static func partly(_ head: String, lost: Int, error: String) -> String {
+        let head = head.hasSuffix(".") || head.hasSuffix("。") ? String(head.dropLast()) : head
+        return String(localized: "\(head). \(lost) items weren't changed: \(error)")
     }
 
     /// The question before a large Clear All (the web's and Android's words).

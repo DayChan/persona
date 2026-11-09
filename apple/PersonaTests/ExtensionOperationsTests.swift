@@ -45,7 +45,7 @@ struct ExtensionOperationsTests {
 
     @Test func thePushDecodes() throws {
         let event = #"{"type":"extension_operation","operation":"# + Self.op("running", step: "download") + "}"
-        guard case .extensionOperation(let op)? = ServerEvent.decode(Data(event.utf8)) else {
+        guard case .extensionOperation(let op, _)? = ServerEvent.decode(Data(event.utf8)) else {
             Issue.record("not an extension_operation")
             return
         }
@@ -63,6 +63,26 @@ struct ExtensionOperationsTests {
         #expect(ExtensionOperationText.detail(nodes) == "1 / 2 台电脑")
         let cached = try JSON.decoder.decode(ExtensionOperationStep.self, from: Data(#"{"id":"download","state":"done","cached":true}"#.utf8))
         #expect(ExtensionOperationText.detail(cached) == "用了 hub 上缓存的包")
+    }
+
+    @Test func anotherManagersOperationIsKeptApart() throws {
+        // Each manager numbers its own operations and has its own copy of an extension (docs/assistant/managers.md
+        // "Clients"): the push says whose, and the market pages show only the default manager's.
+        let event = #"{"type":"extension_operation","manager":"m2","operation":"# + Self.op("running") + "}"
+        guard case .extensionOperation(var theirs, let manager)? = ServerEvent.decode(Data(event.utf8)) else {
+            Issue.record("not an extension_operation")
+            return
+        }
+        #expect(manager == "m2")
+        theirs.manager = manager
+        let ops = store(FakeHub(), stepped: true)
+        ops.received(theirs)
+        #expect(ops.operation(for: "example-calendar") == nil, "another manager's install is not the default's")
+        #expect(ops.operation(for: "example-calendar", manager: "m2")?.state == .running)
+        ops.received(try decode(Self.op("succeeded")))
+        #expect(ops.operations.count == 2, "the same id from the default manager is another operation")
+        #expect(ops.operation(for: "example-calendar")?.state == .succeeded)
+        #expect(ops.operation(for: "example-calendar", manager: "m2")?.state == .running)
     }
 
     @Test func aSteppedInstallPreviewsWaitsForConsentAndGoesOn() async throws {

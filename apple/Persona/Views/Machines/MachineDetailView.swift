@@ -73,7 +73,11 @@ struct MachineDetailView: View {
                         if AddComputerText.machineProblem(machine.errorCode) != nil, let raw = machine.error, !raw.isEmpty {
                             problemDetails(raw)
                         }
-                        if !online, !machine.isPending { connection(machine) }
+                        // Offline with its manager (the card says so): it comes back with that manager, and Reconnect
+                        // goes through it.
+                        if !online, !machine.isPending, model.offlineManager(of: machine, group: ref.group) == nil {
+                            connection(machine)
+                        }
                     }
                     agentsSection(machine)
                     filesRow(online: online)

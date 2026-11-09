@@ -122,14 +122,16 @@ struct ManagerDetailView: View {
     let id: String
     @Environment(AppModel.self) private var app
     @State private var page: ManagersModel
+    @State private var push: ManagerPushModel
     @State private var renaming = false
     @State private var newName = ""
     @State private var confirmMove = false
     @State private var confirmDelete = false
 
-    init(id: String, model: ManagersModel = ManagersModel()) {
+    init(id: String, model: ManagersModel = ManagersModel(), push: ManagerPushModel? = nil) {
         self.id = id
         _page = State(initialValue: model)
+        _push = State(initialValue: push ?? ManagerPushModel(id: id))
     }
 
     var body: some View {
@@ -139,6 +141,8 @@ struct ManagerDetailView: View {
                 Section { Text("This hub's version doesn't support managers yet. Update the hub and come back.").foregroundStyle(.secondary) }
             } else if let m {
                 facts(m)
+                // This device's pushes from it (#1863); one still installing sends none yet.
+                if m.installing == nil { ManagerPushSection(push: push) }
                 actions(m)
             } else if page.managers != nil {
                 Section { Text("This manager is no longer there").foregroundStyle(.secondary) }
@@ -151,7 +155,11 @@ struct ManagerDetailView: View {
         .themedPage()
         .detailTitle(m?.name ?? String(localized: "Managers"))
         .task { await page.load() }
-        .refreshable { await page.load() }
+        .task { await push.load() }
+        .refreshable {
+            await page.load()
+            await push.load()
+        }
         .onChange(of: app.managersRevision) { Task { await page.load() } }
         .task {
             while !Task.isCancelled {

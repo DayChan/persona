@@ -138,7 +138,7 @@ struct InboxConnectorTextView: View {
 
     private func load() async {
         do {
-            context = try await model.api?.inboxItem(item.id).context ?? ""
+            context = try await model.api?.manager(item.manager).inboxItem(item.id).context ?? ""
             failure = nil
         } catch {
             if error.isCancellation { return }

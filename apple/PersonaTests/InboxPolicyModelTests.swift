@@ -38,8 +38,8 @@ struct InboxPolicyModelTests {
 
     private func deps(_ hub: FakeHub, _ inbox: Inbox) -> InboxPolicyModel.Deps {
         .init(api: { hub.client }, items: { inbox.items }, show: { changed in
-            let byID = Dictionary(changed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            inbox.items = inbox.items.map { byID[$0.id] ?? $0 }
+            let byKey = Dictionary(changed.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            inbox.items = inbox.items.map { byKey[$0.key] ?? $0 }
         }, toast: { inbox.toasts.append($0) })
     }
 
@@ -141,6 +141,31 @@ struct InboxPolicyModelTests {
         #expect(m.canSave) // an existing rule set to neither: Save removes it
         #expect(await m.save())
         #expect(hub.sent("PATCH", "/api/v1/inbox/policies/p2").count == 1)
+    }
+
+    @Test func anotherManagersItemGetsThatManagersRule() async throws {
+        // #1850: the sheet of another manager's item reads and saves that manager's rules and moves only its items, even
+        // where both managers have an item with that id.
+        let hub = FakeHub()
+        var named: [String?] = []
+        hub.on("GET", "/api/v1/inbox/policies") { req in
+            named.append(req.headers["X-Persona-Manager"])
+            return Data(#"{"policies":[]}"#.utf8)
+        }
+        hub.on("POST", "/api/v1/inbox/policies") { req in
+            named.append(req.headers["X-Persona-Manager"])
+            return Data(#"{"applied":1}"#.utf8)
+        }
+        let mine = try Self.item("a", source: "mail")
+        var theirs = mine
+        theirs.manager = "m-2"
+        let inbox = Inbox([mine, theirs])
+        let m = InboxPolicyModel(target: InboxPolicyTarget(item: theirs, option: try #require(theirs.mutes?.first)), deps: deps(hub, inbox))
+        await m.load()
+        m.tier = .noise
+        #expect(await m.save())
+        #expect(named == ["m-2", "m-2"])
+        #expect(inbox.items.map(\.tier) == ["fyi", "noise"] && inbox.items[0] == mine)
     }
 
     @Test func aFailedSavePutsTheItemsBack() async throws {

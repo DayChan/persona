@@ -106,18 +106,19 @@ final class InboxHandOffModel {
         self.deps = deps
     }
 
-    /// The app's own: the hub of the moment, its Persona and the inbox store.
+    /// The app's own: the hub of the moment, its Persona and the inbox store. The item and its hand-off are its
+    /// manager's (its list's stamp), and so is a new conversation it starts.
     static func live(_ item: InboxItem, model: AppModel) -> InboxHandOffModel {
         // Without a hub nothing happens and nothing is said.
         func api() throws -> APIClient {
-            guard let api = model.api else { throw CancellationError() }
+            guard let api = model.api?.manager(item.manager) else { throw CancellationError() }
             return api
         }
         return InboxHandOffModel(itemID: item.id, deps: Deps(
             load: { try await api().inboxItem($0) },
             handOff: { id, text, clientID in
                 let answer = try await api().inboxHandoff(id, text: text, clientID: clientID)
-                if let it = answer.item { InboxStore.shared.put(it) }
+                if let it = answer.item { InboxStore.shared.put(it, manager: item.manager) }
                 return answer.session
             },
             showMain: { key, text, clientID in

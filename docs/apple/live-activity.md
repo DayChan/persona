@@ -316,7 +316,7 @@ Each received push redraws both the Dynamic Island and the Lock Screen, so the h
 - Show Details on Lock Screen (`prefs.lock_details`, off by default): changing it immediately changes the current activity, and the hub's next push fills `details` using the new value.
 - Both are stored on the hub per device (`PUT /api/v1/devices/{id}/prefs`), with a copy in the App's UserDefaults (`LiveActivityController.settings`),
   synced from the hub on every return to the foreground. If Persona's Live Activities are disabled in system settings, this section says so and offers Open Settings.
-- Disconnecting the hub (forgetting the server) ends the activity: its buttons point to the old hub.
+- Disconnecting the hub (forgetting the server) ends the activity: its buttons point to the old hub. Before that the App revokes its credential there, and the hub drops its activity and push-to-start tokens with it, so no new activity is started remotely (`docs/protocol/multi-hub.md` "Push and notifications"). A hub the App couldn't reach keeps them until this device is revoked in Settings › Devices on another device.
 - No separate "watch one Agent" activity: Fleet already includes every running Agent, and a second activity would stack two on the Lock Screen; add `kind: agent` if needed later.
 
 ## Verification

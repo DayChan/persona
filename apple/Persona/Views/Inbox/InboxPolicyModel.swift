@@ -9,7 +9,9 @@ struct InboxPolicyTarget: Identifiable, Hashable, Sendable {
     var source: String
     var policy: InboxPolicy?
 
-    var id: String { "\(source):\(option.tag):\(option.value)" }
+    var id: String { (manager.map { "\($0):" } ?? "") + "\(source):\(option.tag):\(option.value)" }
+    /// Whose rule it is (#1850): the item's manager; the Rules list is the default manager's.
+    var manager: String? { item?.manager }
 
     init(item: InboxItem, option: InboxItem.MuteOption) {
         self.item = item
@@ -105,7 +107,7 @@ extension InboxPolicy {
     func load() async {
         guard !loaded else { return }
         defer { loaded = true }
-        guard let list = try? await deps.api()?.inboxPolicies() else { return }
+        guard let list = try? await deps.api()?.manager(target.manager).inboxPolicies() else { return }
         let same = list.first { $0.source == target.source && $0.tag == target.option.tag && $0.value == target.option.value }
         policy = same
         tier = same?.tier ?? .unset
@@ -114,13 +116,14 @@ extension InboxPolicy {
 
     /// Saves the parts chosen, or neither (`remove`), which removes the rule. True when the hub took it.
     func save(remove: Bool = false) async -> Bool {
-        guard let api = deps.api(), !busy else { return false }
+        guard let api = deps.api()?.manager(target.manager), !busy else { return false }
         let (tier, twin) = remove ? (InboxPolicy.Tier.unset, InboxPolicy.Twin.unset) : (self.tier, self.twin)
         guard policy != nil || target.item != nil else { return false }
         busy = true
         defer { busy = false }
-        let items = deps.items()
-        let before = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let owner = AppModel.shared.pushedBy(target.manager)
+        let items = deps.items().filter { AppModel.shared.pushedBy($0.manager) == owner } // the hub applies it to its manager's
+        let before = Dictionary(items.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let moved = InboxPolicy.moved(by: tier, of: target.option, in: target.source, among: items)
         deps.show(moved)
         let name = target.option.name
@@ -134,7 +137,7 @@ extension InboxPolicy {
             deps.toast(Toast(removed ? String(localized: "Rule removed for “\(name)”.") : String(localized: "Rule saved for “\(name)”."), style: .success))
             return true
         } catch {
-            deps.show(moved.compactMap { before[$0.id] })
+            deps.show(moved.compactMap { before[$0.key] })
             if !error.isCancellation {
                 deps.toast(Toast(String(localized: "Couldn't save the rule: \(InboxPolicy.said(error))"), style: .error))
             }

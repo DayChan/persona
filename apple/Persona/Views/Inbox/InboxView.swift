@@ -49,8 +49,8 @@ struct InboxPage: View {
         get { accountState.accounts }
         nonmutating set { accountState.accounts = newValue }
     }
-    /// Sections shown open: tiers (action, working, fyi, noise) and "done". Collapsed and Done start closed.
-    @State private var expanded: Set<String> = ["action", "working", "fyi"]
+    /// Sections shown open: tiers (action, working, fyi, noise) and "done", in each manager's group. Collapsed and Done start closed.
+    @State private var folds = InboxFolds()
     @State private var composing: ComposeDraft?
     @State private var editingDraft: InboxItem? // Edit on the AI Twin's draft
     @State private var answering: Interaction? // a card on no session, open by itself (#4059)
@@ -213,10 +213,11 @@ struct InboxPage: View {
     private var list: some View {
         let projection = itemProjection
         let openItems = projection.openItems
-        let byTier = projection.byTier
-        let doneItems = projection.doneItems
-        let shownDone = expanded.contains("done") ? projection.sortedDoneItems : []
         let waitingAgents = waitingAgents
+        let roster = model.managerRoster
+        // Under each manager's name when the hub has several (#1850); one group with no name otherwise.
+        let shares = InboxShare.make(byTier: kind == "agent" ? [:] : projection.byTier, done: projection.doneItems,
+                                     agents: waitingAgents, roster: roster)
         return List {
             filters
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
@@ -239,27 +240,40 @@ struct InboxPage: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
-            // The AI's triage: Needs You (and what it has not looked at yet), FYI, Collapsed (noise).
-            ForEach(InboxItem.Tier.allCases, id: \.self) { tier in
-                let items = kind == "agent" ? [] : byTier[tier] ?? []
-                let agents = tier == .action ? waitingAgents : []
-                if !items.isEmpty || !agents.isEmpty {
+            ForEach(shares) { share in
+                let manager = share.manager?.id
+                if let m = share.manager {
                     Section {
-                        if expanded.contains(tier.rawValue) || !tier.folds {
-                            ForEach(agents) { agentRow($0) }
-                            ForEach(items) { row($0) }
-                        }
-                    } header: {
-                        sectionHeader(tier.title, count: items.count + agents.count, key: tier.rawValue,
-                                      clear: InboxPage.clearTitle(tier).map { ($0, { store.setDone(items, true) }) })
+                        ManagerHeading(manager: m, count: share.openCount)
+                            .listRowInsets(EdgeInsets(top: Theme.Space.l, leading: Theme.Space.page, bottom: Theme.Space.xs, trailing: Theme.Space.page))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
-            }
-            if !doneItems.isEmpty {
-                Section {
-                    if expanded.contains("done") { ForEach(shownDone) { row($0) } }
-                } header: {
-                    sectionHeader(String(localized: "Done [Inbox View 59f6c8]"), count: doneItems.count, key: "done", clear: nil)
+                // The AI's triage: Needs You (and what it has not looked at yet), FYI, Collapsed (noise).
+                ForEach(InboxItem.Tier.allCases, id: \.self) { tier in
+                    let items = share.byTier[tier] ?? []
+                    let agents = tier == .action ? share.agents : []
+                    if !items.isEmpty || !agents.isEmpty {
+                        Section {
+                            if folds.isOpen(tier.rawValue, manager: manager) {
+                                ForEach(agents) { agentRow($0) }
+                                ForEach(items, id: \.key) { row($0) }
+                            }
+                        } header: {
+                            sectionHeader(tier.title, count: items.count + agents.count, key: tier.rawValue, manager: manager,
+                                          clear: InboxPage.clearTitle(tier).map { ($0, { store.setDone(items, true) }) })
+                        }
+                    }
+                }
+                if !share.done.isEmpty {
+                    Section {
+                        if folds.isOpen("done", manager: manager) {
+                            ForEach(share.mine(projection.sortedDoneItems, roster), id: \.key) { row($0) }
+                        }
+                    } header: {
+                        sectionHeader(String(localized: "Done [Inbox View 59f6c8]"), count: share.done.count, key: "done", manager: manager, clear: nil)
+                    }
                 }
             }
         }
@@ -271,7 +285,7 @@ struct InboxPage: View {
 
     /// A section title that opens / closes the section, with an optional action on the right (List headers take no
     /// context menu, so it is a visible button).
-    private func sectionHeader(_ title: String, count: Int, key: String, clear: (String, () -> Void)?) -> some View {
+    private func sectionHeader(_ title: String, count: Int, key: String, manager: String?, clear: (String, () -> Void)?) -> some View {
         HStack(spacing: Theme.Space.sm) {
             if InboxItem.Tier(rawValue: key)?.folds == false {
                 // In Progress: always open, a plain title (inbox phase 1).
@@ -279,12 +293,12 @@ struct InboxPage: View {
                 Spacer(minLength: 0)
             } else {
             Button {
-                withAnimation(Theme.Motion.standard) { if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) } }
+                withAnimation(Theme.Motion.standard) { folds.toggle(key, manager: manager) }
             } label: {
                 HStack(spacing: Theme.Space.sm) {
                     Text("\(title) · \(count)").font(Theme.Font.sectionHeader).foregroundStyle(key == "action" ? Color.primary : .secondary)
                     ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(expanded.contains(key) ? 90 : 0))
+                        .rotationEffect(.degrees(folds.isOpen(key, manager: manager) ? 90 : 0))
                     Spacer(minLength: 0)
                 }
                 .lineLimit(1)
@@ -320,7 +334,7 @@ struct InboxPage: View {
     }
 
     private func row(_ it: InboxItem) -> some View {
-        InboxRow(item: it, showAccount: accounts.count > 1, sending: store.sending.contains(it.id),
+        InboxRow(item: it, showAccount: accounts.count > 1, sending: store.sending.contains(it.key),
                  send: { text in Task { await store.send(it, text: text, changes: it.agent?.changes ?? []) } }, edit: { editingDraft = it })
             .background { NavigationLink(value: it) { EmptyView() }.opacity(0) }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -734,7 +748,7 @@ struct InboxDetailView: View {
         _slot = State(initialValue: InboxItemSlotModel(item: item))
     }
 
-    private var current: InboxItem { InboxStore.shared.items.first { $0.id == item.id } ?? item }
+    private var current: InboxItem { InboxStore.shared.items.first { $0.key == item.key } ?? item }
 
     var body: some View {
         page

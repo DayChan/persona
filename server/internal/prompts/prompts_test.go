@@ -4,8 +4,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,6 +54,84 @@ func TestEveryTemplateIsUsed(t *testing.T) {
 			t.Errorf("template %s is never rendered or included", n)
 		}
 	}
+}
+
+// A template is parsed the first time it is rendered, with the templates it includes. On a fresh set, rendering any
+// one of them parses every template it may run, read here from the printed trees of the fully parsed set, so no data
+// and no branch reaches "no such template"; and only those, so a process holds only the prompts it writes (#2475).
+func TestEachTemplateParsesItsIncludes(t *testing.T) {
+	names := Names()
+	included := map[string][]string{}
+	for _, name := range names {
+		for _, m := range templateNode.FindAllStringSubmatch(templates.root.Lookup(name).Root.String(), -1) {
+			included[name] = append(included[name], m[1])
+		}
+	}
+	if len(included) == 0 {
+		t.Fatal("no template includes another")
+	}
+	for _, name := range names {
+		fresh := newTemplateSet()
+		if _, err := fresh.lookup(name); err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		seen := map[string]bool{}
+		for todo := []string{name}; len(todo) > 0; {
+			n := todo[len(todo)-1]
+			if todo = todo[:len(todo)-1]; seen[n] {
+				continue
+			}
+			seen[n] = true
+			if fresh.root.Lookup(n) == nil {
+				t.Errorf("rendering %s did not parse %s, which it may run", name, n)
+			}
+			todo = append(todo, included[n]...)
+		}
+		parsed := 0
+		for _, p := range fresh.root.Templates() {
+			if p.Name() != "" {
+				parsed++
+			}
+		}
+		if parsed != len(seen) {
+			t.Errorf("rendering %s parsed %d templates, not only the %d it may run", name, parsed, len(seen))
+		}
+	}
+}
+
+var templateNode = regexp.MustCompile(`\{\{template "([^"]+)"`)
+
+// Templates are parsed while others render: on a fresh set, goroutines render templates that share includes, each
+// the same as on the fully parsed set (run it with -race).
+func TestFirstRendersRunConcurrently(t *testing.T) {
+	now := time.Date(2026, 11, 6, 21, 30, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		data any
+	}{
+		{"tools/translate_texts", "English"},
+		{"tools/translate_mail", "English"},
+		{"voice/instructions", VoiceInstructions{}},
+		{"voice/report", VoiceReport{}},
+		{"assistant/snapshot", Snapshot{Now: now, Zone: "UTC", Calendar: &SnapshotCalendar{}}},
+		{"kb/compress_input", KBCompressInput{}},
+		{"kb/items_input", KBItemsInput{}},
+	}
+	Names() // the package's set, every template parsed
+	fresh := newTemplateSet()
+	var wg sync.WaitGroup
+	for g := range 4 {
+		for i := range cases {
+			c := cases[(i+g)%len(cases)]
+			wg.Go(func() {
+				if got, want := fresh.render(c.name, c.data), templates.render(c.name, c.data); got != want {
+					t.Errorf("%s: a first render on a fresh set gives %q, the parsed set %q", c.name, got, want)
+				}
+			})
+		}
+	}
+	wg.Wait()
 }
 
 // A field the data lacks is an error, not an empty string in a prompt.

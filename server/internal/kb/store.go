@@ -228,7 +228,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := s.recoverIngests(); err != nil {
 		return nil, err
 	}
-	_ = writeIfMissing(filepath.Join(dir, "README.md"), prompts.RenderKBReadme())
+	_ = writeIfMissing(filepath.Join(dir, "README.md"), prompts.RenderKBReadme)
 	return s, nil
 }
 
@@ -283,11 +283,13 @@ func writeFile(p string, data []byte) error {
 	return os.Rename(tmp, p)
 }
 
-func writeIfMissing(p, content string) error {
+// writeIfMissing writes what content returns to p unless p exists. content runs only then: the README renders a prompt
+// template, which a store opened on an existing directory (every manager start) need not parse (#2475).
+func writeIfMissing(p string, content func() string) error {
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
-	return writeFile(p, []byte(content))
+	return writeFile(p, []byte(content()))
 }
 
 func (s *Store) Chat(id string) (*Chat, bool) {

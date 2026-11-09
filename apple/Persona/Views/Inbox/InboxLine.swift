@@ -157,7 +157,7 @@ private struct InboxLineLoader: ViewModifier {
 
     func body(content: Content) -> some View {
         content.task(id: item.id + "|" + (item.parent.map { $0.kind + ":" + $0.id } ?? "")) {
-            guard let api = model.api, let t = try? await api.inboxTree("inbox", item.id) else { return }
+            guard let api = model.api?.manager(item.manager), let t = try? await api.inboxTree("inbox", item.id) else { return }
             withAnimation(Theme.Motion.layout) { tree = t }
         }
     }

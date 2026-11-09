@@ -206,7 +206,7 @@ struct ShellNeedsYou: View {
         var id: String {
             switch self {
             case .agent(let ix): "ix-" + ix.id
-            case .inbox(let it): "in-" + it.id
+            case .inbox(let it): "in-" + it.key
             }
         }
     }

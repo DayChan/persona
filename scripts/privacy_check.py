@@ -313,6 +313,58 @@ def term_sources():
     return {v: sorted(found[v]) for v in sorted(found, key=len, reverse=True)}, public, waivable
 
 
+# Exact governance references, not a global waiver for an administrator's coincident private first name (#2568).
+# A changed line cannot approve itself: both the owner and each rendered line must already exist on origin/main.
+PUBLIC_ADMIN_LINES = {
+    ".github/CODEOWNERS": ("/docs/SUPER_RULES.md @{login}",),
+    "CLAUDE.md": ("GitHub issue and explicit approval from administrator `{login}` in that issue before editing or opening a PR.",),
+    "docs/README.md": ("file require explicit approval from administrator `{login}` in a GitHub issue before editing or opening a linked PR.",),
+    "docs/SUPER_RULES.md": (
+        "   Wait for administrator `{login}` to explicitly approve the proposed change in that issue. Only after that approval",
+        "   open the issue and wait for `{login}`'s explicit approval before proceeding.",
+    ),
+}
+PUBLIC_ADMIN_SOURCES = frozenset({"config app_store.external.review.first_name", "config app_store.testers.first_name"})
+
+
+def regular_governance_files(head=None):
+    """A symlink's target is not governance prose, even if its text equals an approved reference."""
+    args = ["ls-tree", "-z", head] if head else ["ls-files", "--stage", "-z"]
+    records = subprocess.run(["git", "-C", ROOT, *args, "--", *PUBLIC_ADMIN_LINES],
+                             capture_output=True, check=True, timeout=10).stdout.split(b"\0")
+    return {record.split(b"\t", 1)[1].decode("utf-8") for record in records
+            if b"\t" in record and record.split(b" ", 1)[0] in (b"100644", b"100755")}
+
+
+def public_admin_lines():
+    """Exact published references by path; missing/unreadable evidence grants no exception."""
+    try:
+        base = subprocess.run(["git", "-C", ROOT, "rev-parse", "--verify", "origin/main^{commit}"],
+                              capture_output=True, check=True, text=True, timeout=10).stdout.strip()
+        regular = regular_governance_files(base)
+        published = git_file_data(list(regular), base + ":")
+        owner = re.fullmatch(r"/docs/SUPER_RULES\.md @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)",
+                             published.get(".github/CODEOWNERS", b"").decode("utf-8").strip())
+        if not owner:
+            return {}
+        login = owner.group(1)
+        return {path: {line: login for template in templates
+                       for line in (template.format(login=login),)
+                       if line in published.get(path, b"").decode("utf-8").splitlines()}
+                for path, templates in PUBLIC_ADMIN_LINES.items()}
+    except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return {}
+
+
+def governance_words(path, line, words, sources, published):
+    """Only the exact published login loses its first-name sources on an exact authorized line."""
+    login = published.get(path, {}).get(line)
+    if login is None:
+        return words
+    return [w for w in words if not (w == login and sources.get(w)
+                                    and set(sources[w]) <= PUBLIC_ADMIN_SOURCES)]
+
+
 def terms():
     """Words to look for, longest first, and those of them allowed in PUBLIC_DIRS."""
     found, public, _ = term_sources()
@@ -638,6 +690,13 @@ def main():
     span = commit_range(option("--range")) if "--range" in sys.argv else None
     sources, public_words, waivable = term_sources()
     words = list(sources)
+    governance = public_admin_lines() if any(set(where) <= PUBLIC_ADMIN_SOURCES for where in sources.values()) else {}
+    if governance:
+        try:
+            regular = regular_governance_files(span[1] if span and not staged else None)
+            governance = {path: lines for path, lines in governance.items() if path in regular}
+        except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            governance = {}
     modules = module_paths()
     if staged:
         files = git("diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z").decode().split("\0")
@@ -696,8 +755,10 @@ def main():
                 bad.extend((f, n, kind) for n, kind in npm_lock_problems(lock_text))
         if modules:
             text = modules.sub("", text)
+        published_lines = governance if f in from_git or not os.path.islink(path) else {}
         for n, line in enumerate(text.splitlines(), 1):
-            for w in problems(line, allowed, emails=not public):
+            line_words = governance_words(f, line, allowed, sources, published_lines)
+            for w in problems(line, line_words, emails=not public):
                 report(f, n, w)
     if span:
         try:

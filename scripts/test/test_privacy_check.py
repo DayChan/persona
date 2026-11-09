@@ -856,6 +856,192 @@ class PrivacyCheckIntegrationTests(unittest.TestCase):
         self.assert_blocked(result)
 
 
+class PublicAdministratorTests(unittest.TestCase):
+    # Synthetic public login; no private configuration values belong in fixtures.
+    LOGIN = "public-admin"
+    REFERENCES = {
+        ".github/CODEOWNERS": "/docs/SUPER_RULES.md @public-admin\n",
+        "CLAUDE.md": "GitHub issue and explicit approval from administrator `public-admin` in that issue before editing or opening a PR.\n",
+        "docs/README.md": "file require explicit approval from administrator `public-admin` in a GitHub issue before editing or opening a linked PR.\n",
+        "docs/SUPER_RULES.md": (
+            "   Wait for administrator `public-admin` to explicitly approve the proposed change in that issue. Only after that approval\n"
+            "   open the issue and wait for `public-admin`'s explicit approval before proceeding.\n"
+        ),
+    }
+
+    def setUp(self):
+        PrivacyCheckIntegrationTests.setUp(self)
+        for path, text in self.REFERENCES.items():
+            target = self.repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        self.git("add", *self.REFERENCES)
+        self.git("commit", "-qm", "Publish governance references")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.config = self.home / ".config/persona/config.json"
+        self.config.parent.mkdir(parents=True)
+        self.write_config()
+
+    def write_config(self, first_name=LOGIN, extra=None):
+        config = {"app_store": {"external": {"review": {"first_name": first_name}},
+                                "testers": [{"first_name": first_name}]}}
+        if extra:
+            config.update(extra)
+        self.config.write_text(json.dumps(config))
+
+    run_command = PrivacyCheckIntegrationTests.run_command
+    git = PrivacyCheckIntegrationTests.git
+    scan = PrivacyCheckIntegrationTests.scan
+
+    def assert_private(self, result, path=None):
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("private value", result.stdout)
+        if path:
+            self.assertIn(path + ":", result.stdout)
+        self.assertNotIn(self.LOGIN, result.stdout + result.stderr)
+
+    def test_exact_published_references_allow_full_staged_range_and_commit(self):
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for path, text in self.REFERENCES.items():
+            # Line numbers are not authority; exact governance text and path are.
+            (self.repo / path).write_text("\n" + text)
+        self.git("add", *self.REFERENCES)
+        result = self.scan("--staged")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.git("commit", "-qm", "Add governance spacing")  # Real pre-commit and commit-msg hooks.
+        result = self.scan("--range", "origin/main..HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_missing_published_evidence_reproduces_all_five_hits(self):
+        self.git("update-ref", "-d", "refs/remotes/origin/main")
+        result = self.scan()
+        self.assert_private(result)
+        self.assertIn("5 hit(s)", result.stderr)
+        for path in self.REFERENCES:
+            self.assertIn(path + ":", result.stdout)
+
+    def test_worktree_and_index_cannot_publish_their_own_new_login(self):
+        new_login = "new-admin"
+        self.write_config(new_login)
+        for path, text in self.REFERENCES.items():
+            (self.repo / path).write_text(text.replace(self.LOGIN, new_login))
+        self.git("add", *self.REFERENCES)
+        for args in ((), ("--staged",)):
+            with self.subTest(args=args):
+                result = self.scan(*args)
+                self.assert_private(result)
+                self.assertIn("5 hit(s)", result.stderr)
+                self.assertNotIn(new_login, result.stdout + result.stderr)
+
+    def test_true_private_first_name_remains_blocked_in_every_governance_path(self):
+        private_name = "PrivatePerson"
+        self.write_config(private_name)
+        for path, text in self.REFERENCES.items():
+            (self.repo / path).write_text(text.replace(self.LOGIN, private_name))
+        result = self.scan()
+        self.assert_private(result)
+        self.assertIn("5 hit(s)", result.stderr)
+        self.assertNotIn(private_name, result.stdout + result.stderr)
+
+    def test_same_login_leaks_outside_exact_published_lines_are_blocked(self):
+        for path, text in self.REFERENCES.items():
+            with self.subTest(path=path):
+                target = self.repo / path
+                for changed in (text + "Private contact: " + self.LOGIN + "\n",
+                                text.splitlines()[0] + " " + self.LOGIN + "\n",
+                                text.upper()):
+                    target.write_text(changed)
+                    self.assert_private(self.scan(), path)
+                target.write_text(text)
+        # Even an exact approved line does not gain authority in an unrelated file.
+        (self.repo / "notes.txt").write_text(self.REFERENCES["CLAUDE.md"])
+        self.git("add", "notes.txt")
+        self.assert_private(self.scan(), "notes.txt")
+
+    def test_other_config_and_explicit_word_sources_override_public_first_name(self):
+        for extra in ({"machines": [{"id": self.LOGIN}]}, {"last_name": self.LOGIN}):
+            with self.subTest(extra=extra):
+                self.write_config(extra=extra)
+                self.assert_private(self.scan())
+        self.write_config()
+        listed = self.home / ".config/persona/private-words.txt"
+        for value in (self.LOGIN, self.LOGIN.upper()):
+            with self.subTest(value=value):
+                listed.write_text(value + "\n")
+                self.assert_private(self.scan())
+
+    def test_other_private_words_on_an_authorized_line_are_not_hidden(self):
+        self.write_config(extra={"last_name": "administrator"})
+        result = self.scan()
+        self.assert_private(result, "CLAUDE.md")
+        self.assertIn("config last_name", result.stdout)
+        self.assertNotIn("first_name", result.stdout)
+
+    def test_only_published_template_lines_are_authorized(self):
+        (self.repo / "CLAUDE.md").write_text("Unrelated published text.\n")
+        self.git("-c", "core.hooksPath=", "commit", "-qam", "Remove one reference")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        (self.repo / "CLAUDE.md").write_text(self.REFERENCES["CLAUDE.md"])
+        self.assert_private(self.scan(), "CLAUDE.md")
+
+    def test_messages_paths_and_range_snapshots_remain_private(self):
+        message = self.repo / ".git/test-message"
+        message.write_text(self.REFERENCES["CLAUDE.md"])
+        self.assert_private(self.scan("--message", str(message)), "commit message")
+        target = self.repo / (self.LOGIN + ".txt")
+        target.write_text("No personal content.\n")
+        self.git("add", target.name)
+        result = self.scan("--staged")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(":path: private value", result.stdout)
+        self.git("-c", "core.hooksPath=", "commit", "-qm", "Test " + self.LOGIN)
+        target.unlink()  # Range mode must read the committed path, not this safe worktree.
+        result = self.scan("--range", "origin/main..HEAD")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(":path: private value", result.stdout)
+        self.assertIn(" message:", result.stdout)
+
+    def test_staged_and_range_content_cannot_use_safe_worktree_as_authority(self):
+        target = self.repo / "CLAUDE.md"
+        target.write_text(self.REFERENCES["CLAUDE.md"] + "Private contact: " + self.LOGIN + "\n")
+        self.git("add", "CLAUDE.md")
+        target.write_text(self.REFERENCES["CLAUDE.md"])
+        self.assert_private(self.scan("--staged"), "CLAUDE.md")
+        self.git("-c", "core.hooksPath=", "commit", "-qm", "Test private reference")
+        self.assert_private(self.scan("--range", "origin/main..HEAD"), "CLAUDE.md")
+        self.assertEqual(self.scan().returncode, 0)
+
+    def test_symlink_text_cannot_become_an_authorized_governance_reference(self):
+        target = self.repo / "CLAUDE.md"
+        target.unlink()
+        target.symlink_to(self.REFERENCES["CLAUDE.md"].rstrip("\n"))
+        self.assert_private(self.scan(), "CLAUDE.md")
+        self.git("add", "CLAUDE.md")
+        self.assert_private(self.scan("--staged"), "CLAUDE.md")
+        self.git("-c", "core.hooksPath=", "commit", "-qm", "Test reference symlink")
+        target.unlink()
+        target.write_text(self.REFERENCES["CLAUDE.md"])
+        self.assert_private(self.scan("--range", "origin/main..HEAD"), "CLAUDE.md")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        # Even a published symlink is not prose authority for the regular worktree file.
+        self.assert_private(self.scan(), "CLAUDE.md")
+
+    def test_ambiguous_published_owner_does_not_authorize_any_reference(self):
+        target = self.repo / ".github/CODEOWNERS"
+        target.write_text(self.REFERENCES[".github/CODEOWNERS"].rstrip("\n") + " @another-admin\n")
+        self.git("-c", "core.hooksPath=", "commit", "-qam", "Test multiple owners")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assert_private(self.scan())
+
+    def test_unreadable_published_evidence_fails_closed(self):
+        errors = (OSError("unavailable"), subprocess.CalledProcessError(1, "git"),
+                  subprocess.TimeoutExpired("git", 10))
+        for error in errors:
+            with self.subTest(error=type(error).__name__), patch.object(pc.subprocess, "run", side_effect=error):
+                self.assertEqual(pc.public_admin_lines(), {})
+
+
 class WhatGitRecordsTests(unittest.TestCase):
     """Every mode reads what git records: a symlink's link text (never the file it points to), a type change, and a
     tracked file missing from the worktree (sparse checkout, deleted but not staged)."""

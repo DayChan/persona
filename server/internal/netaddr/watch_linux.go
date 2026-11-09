@@ -22,7 +22,7 @@ func watchEvents(ctx context.Context) <-chan struct{} {
 		defer socket.file.Close()
 		stop := context.AfterFunc(ctx, func() { socket.file.Close() })
 		defer stop()
-		buf := make([]byte, 1<<20)
+		buf := make([]byte, receiveBuffer)
 		for ctx.Err() == nil {
 			data, err := socket.receive(buf)
 			if err != nil {

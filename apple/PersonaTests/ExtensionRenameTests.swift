@@ -85,7 +85,7 @@ struct ExtensionRenameTests {
 
     @Test func theNewEvent() {
         let set = ServerEvent.decode(Data(#"{"type":"extension_ui","extension":"gw","id":"usage","badge":{"text":"3"}}"#.utf8))
-        guard case .pluginBadge(let ext, let id, let badge)? = set else { Issue.record("not decoded"); return }
+        guard case .pluginBadge(let ext, let id, let badge, _)? = set else { Issue.record("not decoded"); return }
         #expect(ext == "gw" && id == "usage" && badge?.text == "3")
     }
 

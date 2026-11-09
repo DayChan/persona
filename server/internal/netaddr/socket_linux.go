@@ -8,6 +8,15 @@ import (
 	"syscall"
 )
 
+// Receive buffer sizes. The kernel builds a dump datagram of at most 32 KiB (netlink's max_recvmsg_len), and address
+// and link notifications are smaller, so receiveBuffer holds any of them; the watch keeps its buffer for the life of
+// the process (#2475). A datagram that still does not fit comes back as an interrupted dump (MSG_TRUNC in receive):
+// List retries with retryReceiveBuffer, the size it used to start with, and the watch reports a change.
+const (
+	receiveBuffer      = 64 << 10
+	retryReceiveBuffer = 1 << 20
+)
+
 // The nonblocking file uses Go's poller, so Close interrupts an idle receive.
 type routeSocket struct {
 	file *os.File

@@ -5,7 +5,8 @@ import SwiftUI
 // `MacInboxDetail`). The filters are the iPhone's (same `inbox.source` / `inbox.kind` defaults), picked from the
 // sidebar instead of a row of chips.
 
-/// A row in the list: an inbox item, or an agent waiting on the user (heads Needs You, as on the iPhone).
+/// A row in the list: an inbox item (its `InboxItem.key`), or an agent waiting on the user (heads Needs You, as on the
+/// iPhone).
 enum MacInboxSelection: Hashable {
     case item(String)
     case agent(String)
@@ -134,8 +135,9 @@ final class MacInboxState {
     }
     var query = ""
     var selection: Set<MacInboxSelection> = []
-    /// Sections shown open: tiers (action, working, fyi, noise) and "done". Collapsed and Done start closed, as on the iPhone.
-    var expanded: Set<String> = ["action", "working", "fyi"]
+    /// Sections shown open: tiers (action, working, fyi, noise) and "done", in each manager's group. Collapsed and Done
+    /// start closed, as on the iPhone.
+    var folds = InboxFolds()
     var accounts: [MailAccount] = StateCache.load("mail-accounts", as: [MailAccount].self) ?? []
     /// The sheets the list opens: New Email, Manage Accounts, Edit on the AI Twin's draft, Hand to AI.
     var composing: ComposeDraft?
@@ -207,23 +209,32 @@ final class MacInboxState {
 
     // MARK: Sections
 
+    /// The list's groups: one per manager on a hub with several (#1850, `InboxShare`), else one with no manager.
     struct Sections {
-        var tiers: [(tier: InboxItem.Tier, items: [InboxItem], agents: [Interaction])]
-        var done: [InboxItem]
-        var isEmpty: Bool { tiers.isEmpty && done.isEmpty }
+        struct Group: Identifiable {
+            var manager: HubManager?
+            var tiers: [(tier: InboxItem.Tier, items: [InboxItem], agents: [Interaction])]
+            var done: [InboxItem]
+            var id: String { manager?.id ?? "" }
+            var openCount: Int { tiers.reduce(0) { $0 + $1.items.count + $1.agents.count } }
+        }
+        var groups: [Group]
+        var isEmpty: Bool { groups.allSatisfy { $0.tiers.isEmpty && $0.done.isEmpty } }
     }
 
     func sections(_ model: AppModel) -> Sections {
         let partition = Dictionary(grouping: store.items.filter { matches($0) }, by: \.isDone)
-        let byTier = Dictionary(grouping: partition[false] ?? [], by: \.triage)
-        let agents = waitingAgents(model)
-        let tiers = InboxItem.Tier.allCases.compactMap { tier -> (InboxItem.Tier, [InboxItem], [Interaction])? in
-            let items = kind == "agent" ? [] : byTier[tier] ?? []
-            let a = tier == .action ? agents : []
-            return items.isEmpty && a.isEmpty ? nil : (tier, items, a)
-        }
+        let byTier: [InboxItem.Tier: [InboxItem]] = kind == "agent" ? [:] : Dictionary(grouping: partition[false] ?? [], by: \.triage)
         let done = (partition[true] ?? []).sorted { ($0.doneAt ?? .distantPast) > ($1.doneAt ?? .distantPast) }
-        return Sections(tiers: tiers, done: done)
+        let shares = InboxShare.make(byTier: byTier, done: done, agents: waitingAgents(model), roster: model.managerRoster)
+        return Sections(groups: shares.map { share in
+            let tiers = InboxItem.Tier.allCases.compactMap { tier -> (InboxItem.Tier, [InboxItem], [Interaction])? in
+                let items = share.byTier[tier] ?? []
+                let a = tier == .action ? share.agents : []
+                return items.isEmpty && a.isEmpty ? nil : (tier, items, a)
+            }
+            return Sections.Group(manager: share.manager, tiers: tiers, done: share.done)
+        })
     }
 
     /// Clear All: the open items the list shows (its filter and search); the agents waiting are not items.
@@ -250,23 +261,25 @@ final class MacInboxState {
 
     /// The rows in the order the list shows them (closed sections left out): for moving the selection on.
     func visibleOrder(_ model: AppModel) -> [MacInboxSelection] {
-        let s = sections(model)
         var out: [MacInboxSelection] = []
-        for t in s.tiers where expanded.contains(t.tier.rawValue) || !t.tier.folds {
-            out += t.agents.map { .agent($0.id) } + t.items.map { .item($0.id) }
+        for g in sections(model).groups {
+            let manager = g.manager?.id
+            for t in g.tiers where folds.isOpen(t.tier.rawValue, manager: manager) {
+                out += t.agents.map { .agent($0.id) } + t.items.map { .item($0.key) }
+            }
+            if folds.isOpen("done", manager: manager) { out += g.done.map { .item($0.key) } }
         }
-        if expanded.contains("done") { out += s.done.map { .item($0.id) } }
         return out
     }
 
-    func toggle(_ section: String) {
-        guard InboxItem.Tier(rawValue: section)?.folds != false else { return } // In Progress stays open
-        if expanded.contains(section) { expanded.remove(section) } else { expanded.insert(section) }
+    func toggle(_ section: String, manager: String? = nil) {
+        folds.toggle(section, manager: manager)
     }
 
     // MARK: Actions
 
-    func item(_ id: String) -> InboxItem? { store.items.first { $0.id == id } }
+    /// The item of a row (`InboxItem.key`).
+    func item(_ key: String) -> InboxItem? { store.items.first { $0.key == key } }
 
     /// The selected rows still present in the list: an `.item` the store no longer returns (it expired or was handled
     /// elsewhere) or an `.agent` interaction that vanished is dropped, so the detail's Selected count and the multi-select
@@ -277,11 +290,11 @@ final class MacInboxState {
 
     /// Same check against an explicit list (a store refresh pruning the selection, and tests).
     func liveSelection(items: [InboxItem], interactions: [Interaction]) -> Set<MacInboxSelection> {
-        let itemIDs = Set(items.map(\.id))
+        let itemKeys = Set(items.map(\.key))
         let agentIDs = Set(interactions.map(\.id))
         return selection.filter {
             switch $0 {
-            case .item(let id): itemIDs.contains(id)
+            case .item(let key): itemKeys.contains(key)
             case .agent(let id): agentIDs.contains(id)
             }
         }

@@ -86,6 +86,18 @@ struct ManagerGroupsTests {
         #expect(!one.isMulti && one.groups(["a"]) { _ in "assistant" } == nil && one.named("assistant") == nil)
     }
 
+    @Test func aComputerIsOfflineWithItsManager() throws {
+        // #1919: an offline manager's computers are offline with it; the pages name it and offer no Reconnect.
+        let m = try JSON.decoder.decode(Machine.self, from: Data(#"{"id":"box","name":"Box","kind":"ssh","online":false,"manager":"m-2"}"#.utf8))
+        #expect(m.manager == "m-2")
+        let roster = ManagerRoster(try JSON.decoder.decode(APIClient.ManagerList.self, from: Data(Self.roster.utf8)))
+        #expect(roster.offlineManager(of: m.manager)?.name == "家里")
+        #expect(roster.offlineManager(of: "m-1") == nil && roster.offlineManager(of: nil) == nil, "its manager is online")
+        #expect(roster.offlineManager(of: "m-3") == nil, "an installing manager's stamp is the default's, which is online")
+        let alone = ManagerRoster(managers: [HubManager(id: "assistant", name: "A", online: false, isDefault: true)])
+        #expect(alone.offlineManager(of: nil) == nil, "one manager: nothing to name")
+    }
+
     // MARK: Settings › Extensions
 
     @Test func theListGroupsUnderEachManager() async throws {
@@ -281,6 +293,16 @@ struct ManagerGroupsTests {
         let thread = MessagesThreadModel(chatID: "c1", manager: "m-2", deps: .init(api: { hub.client }))
         await thread.load()
         #expect(named(hub.requests) == ["m-2", "m-2"])
+    }
+
+    @Test func aPushIsThePagesOwnUnlessAnotherManagerSentIt() {
+        // The extension pushes (#1834): nil is the default manager's copy, as the pages name it.
+        #expect(ManagerRoster.pushed(by: nil, defaultID: nil) == nil)
+        #expect(ManagerRoster.pushed(by: "assistant", defaultID: nil) == nil)
+        #expect(ManagerRoster.pushed(by: "m-2", defaultID: nil) == "m-2")
+        // The default moved to m-2: its pushes are the pages' own, the hub's assistant's name it.
+        #expect(ManagerRoster.pushed(by: "m-2", defaultID: "m-2") == nil)
+        #expect(ManagerRoster.pushed(by: nil, defaultID: "m-2") == "assistant")
     }
 
     @Test func aClientNamesOnlyAManager() {

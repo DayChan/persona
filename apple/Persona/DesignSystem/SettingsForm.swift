@@ -39,6 +39,32 @@ extension View {
         frame(maxWidth: .infinity)
         #endif
     }
+
+    /// A settings row with a progress indicator at its trailing edge while `active` (an action it started still runs,
+    /// such as a disconnect signing this device out); laid out as before otherwise.
+    @ViewBuilder func trailingProgress(_ active: Bool) -> some View {
+        if active {
+            HStack(spacing: Theme.Space.m) {
+                self
+                Spacer(minLength: 0)
+                RowProgress()
+            }
+        } else {
+            self
+        }
+    }
+}
+
+/// The progress indicator a settings row shows while an action it started runs: on the Mac the small one, the height of
+/// the form's buttons and text.
+struct RowProgress: View {
+    var body: some View {
+        #if os(macOS)
+        ProgressView().controlSize(.small)
+        #else
+        ProgressView()
+        #endif
+    }
 }
 
 /// Why a settings page has nothing to show. In Demo Mode on the Mac a page whose data the demo does not make up (Lark Bot,

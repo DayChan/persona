@@ -22,7 +22,7 @@ final class InboxBulkTests: XCTestCase {
     func testMarkingThenSettling() throws {
         let a = try item("a"), b = try item("b"), c = try item("c"), d = try item("d")
         let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let shown = InboxBulk.marking([a, b, c, d], ids: ["a", "b", "c"], done: true, now: now)
+        let shown = InboxBulk.marking([a, b, c, d], keys: ["a", "b", "c"], done: true, now: now)
         XCTAssertEqual(shown.filter(\.isDone).map(\.id), ["a", "b", "c"])
         XCTAssertEqual(shown.first?.doneBy, "user")
         XCTAssertFalse(shown[3].isDone, "an item outside the scope was filed")
@@ -59,11 +59,11 @@ final class InboxBulkTests: XCTestCase {
 
     func testDismissShowsAsDismissed() throws {
         let a = try item("a"), b = try item("b")
-        let shown = InboxBulk.marking([a, b], ids: ["a"], done: true, now: .now, by: .dismiss)
+        let shown = InboxBulk.marking([a, b], keys: ["a"], done: true, now: .now, by: .dismiss)
         XCTAssertTrue(shown[0].isDone)
         XCTAssertEqual(shown[0].doneBy, "dismissed")
         XCTAssertFalse(shown[1].isDone)
-        XCTAssertNil(InboxBulk.marking(shown, ids: ["a"], done: false, now: .now)[0].doneBy, "brought back has no done_by")
+        XCTAssertNil(InboxBulk.marking(shown, keys: ["a"], done: false, now: .now)[0].doneBy, "brought back has no done_by")
     }
 
     func testReplyDecodes() throws {
@@ -104,7 +104,7 @@ final class InboxBulkTests: XCTestCase {
         XCTAssertEqual(sent.first?.1, ["a", "b"])
         XCTAssertEqual(legacyCalls, 0)
         XCTAssertEqual(result.changed.map(\.id), ["a"])
-        XCTAssertEqual(undo, .bulk(.init(action: "reopen", ids: ["a"])), "撤销 sends the hub's undo")
+        XCTAssertEqual(undo, .bulk(.init(action: "reopen", ids: ["a"]), manager: nil), "撤销 sends the hub's undo")
     }
 
     func testOlderHub() async throws {
@@ -132,7 +132,7 @@ final class InboxBulkTests: XCTestCase {
     func testPerformFailureRollsBack() async throws {
         let a = try item("a"), b = try item("b")
         let before = ["a": a]
-        let shown = InboxBulk.marking([a, b], ids: ["a"], done: true, now: .now, by: .dismiss)
+        let shown = InboxBulk.marking([a, b], keys: ["a"], done: true, now: .now, by: .dismiss)
         do {
             _ = try await InboxBulk.perform(.dismiss, [a],
                 bulk: { _, _ in throw APIError(status: 500, message: "boom") },

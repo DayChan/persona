@@ -95,7 +95,7 @@ extension APIClient {
         }
     }
 
-    /// By operation id.
+    /// By operation id (another manager's: `ExtensionOperation.storeKey`).
     private(set) var operations: [String: ExtensionOperation] = [:]
     @ObservationIgnored private var lastHub: String?
     @ObservationIgnored private let deps: Deps
@@ -105,10 +105,11 @@ extension APIClient {
     /// The hub runs them in steps and pushes them.
     var stepped: Bool { deps.features().hasExtensionFeature("operations") }
 
-    /// The one to show for an extension (of a market, when given): one going on, else the latest.
-    func operation(for extensionID: String, market: String? = nil) -> ExtensionOperation? {
+    /// The one to show for an extension (of a market, when given) of `manager` (nil: the default's, whose catalog the
+    /// market pages show): one going on, else the latest. Another manager's copy of the same extension is not this one.
+    func operation(for extensionID: String, market: String? = nil, manager: String? = nil) -> ExtensionOperation? {
         let mine = operations.values.filter {
-            $0.extensionID == extensionID && (market == nil || $0.market == nil || $0.market == market)
+            $0.extensionID == extensionID && (market == nil || $0.market == nil || $0.market == market) && $0.manager == manager
         }
         return mine.first(where: \.isActive) ?? mine.max { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
     }
@@ -116,8 +117,9 @@ extension APIClient {
     /// From an `extension_operation` event or a list: a newer state of the same operation replaces the one kept.
     func received(_ op: ExtensionOperation) {
         resetIfAnotherHub()
-        if let old = operations[op.id], let was = old.updatedAt, let now = op.updatedAt, now < was { return }
-        if operations[op.id] != op { operations[op.id] = op }
+        let key = op.storeKey
+        if let old = operations[key], let was = old.updatedAt, let now = op.updatedAt, now < was { return }
+        if operations[key] != op { operations[key] = op }
     }
 
     /// Reads what the hub has going on (a page opening, the connection back: events missed are not sent again).
@@ -264,6 +266,10 @@ extension APIClient {
 extension ExtensionOperation {
     /// Kept by this app for a hub that does not run operations.
     var isLocal: Bool { id.hasPrefix("local-") }
+
+    /// Its place in `ExtensionOperations`: the id for the default manager's, the id under its manager for another's
+    /// (each manager numbers its own).
+    var storeKey: String { manager.map { "\($0)\u{0}\(id)" } ?? id }
 }
 
 /// The words for an operation and its steps (the hub sends ids; the words are the app's, docs/protocol/protocol.md).

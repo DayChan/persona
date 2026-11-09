@@ -341,7 +341,10 @@ extension AppModel {
         registry = r
         saveRegistry(r)
         buildLinks()
-        if let link = link(hub.group), link.live.currentConfig == hub.config {
+        // A socket on that hub's credential moves to the group's other hubs: at its address, or at an address only the
+        // mesh listed (those go with the first hub's credential). Disconnect This Hub has revoked it (HubSignOut.swift).
+        if let link = link(hub.group), let on = link.live.currentConfig,
+           DeviceCredentialTrade.current(on, traded: tradedTokens).token == DeviceCredentialTrade.current(hub.config, traded: tradedTokens).token {
             link.live.disconnect()
             link.live.connect(link.fallback)
         }

@@ -18,7 +18,7 @@ type MCPTool struct {
 }
 
 // mcp/<scene>/<tool>.md: the description (one paragraph), an empty line, then the input schema in a ```json block.
-// Not templates: read as they are, on first use (as tmpl).
+// Not templates: read as they are, on first use (as the templates are).
 var mcpTools = sync.OnceValue(loadMCP)
 
 const schemaFence = "\n\n```json\n"

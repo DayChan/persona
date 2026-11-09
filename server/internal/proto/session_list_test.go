@@ -47,7 +47,7 @@ func TestScanSessionListMatchesUnmarshal(t *testing.T) {
 		{`{"sessions":[]}`, true},
 		{`{"Machine_ID":"m","sessions":[` + one + `]}`, true},
 		{`{"sessions":[` + one + `,` + one + `]}`, true}, // the same session twice
-		{`{"sessions":[{"session_id":"a","session_id":"b","started_by_jarvis":true}]}`, true},
+		{`{"sessions":[{"session_id":"a","session_id":"b",` + legacyStartedMember + `true}]}`, true},
 		{"{\"sessions\":[{\"title\":\"bad \xff utf-8\"}]}", true},
 		{`{"sessions":[{"title":5}]}`, true},
 		{`{"sessions":[1]}`, true},

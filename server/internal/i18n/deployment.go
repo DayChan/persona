@@ -17,7 +17,7 @@ func DeploymentText(l Lang, text string) string { return deploymentText(l, text,
 
 type deploymentTemplate struct {
 	key     string
-	pattern *regexp.Regexp
+	pattern *templatePattern
 	names   []string
 	fixed   int
 	// literals are the template's text around its placeholders, one more than names ("" where two placeholders meet
@@ -40,8 +40,23 @@ func (t *deploymentTemplate) fits(text string) bool {
 	return true
 }
 
+// templatePattern is a template's regexp, anchored at both ends, compiled from its source the first time it runs: a
+// catalog has hundreds of templates in each language, a process meets the texts of few of them, and each compiled
+// regexp costs a few kilobytes (#2475). TestEveryTemplateCompiles compiles them all. Safe for concurrent use.
+type templatePattern struct {
+	src  string
+	once sync.Once
+	rx   *regexp.Regexp
+}
+
+func (p *templatePattern) FindStringSubmatch(text string) []string {
+	p.once.Do(func() { p.rx = regexp.MustCompile(p.src) })
+	return p.rx.FindStringSubmatch(text)
+}
+
 // match is the pattern's submatches in text, nil when it does not match. A text is tried against a catalog's hundreds
-// of templates in turn, and nearly all of them do not fit it: those cost a few string comparisons, not a regexp run.
+// of templates in turn, and nearly all of them do not fit it: those cost a few string comparisons, not a regexp run,
+// and a template no text has fitted yet has not compiled its regexp.
 func (t *deploymentTemplate) match(text string) []string {
 	if !t.fits(text) {
 		return nil
@@ -134,7 +149,7 @@ func makeCatalogTemplates(eligible func(string) bool) []deploymentTemplate {
 			fixed += len(text[at:])
 			pattern.WriteString("$")
 			literals = append(literals, text[at:])
-			out = append(out, deploymentTemplate{base, regexp.MustCompile(pattern.String()), names, fixed, literals})
+			out = append(out, deploymentTemplate{base, &templatePattern{src: pattern.String()}, names, fixed, literals})
 		}
 	}
 	// A more specific template (e.g. not_back_why) must precede its shorter, open-ended counterpart.
@@ -145,7 +160,7 @@ func makeCatalogTemplates(eligible func(string) bool) []deploymentTemplate {
 		if n := strings.Compare(a.key, b.key); n != 0 {
 			return n
 		}
-		return strings.Compare(a.pattern.String(), b.pattern.String())
+		return strings.Compare(a.pattern.src, b.pattern.src)
 	})
 	return out
 }

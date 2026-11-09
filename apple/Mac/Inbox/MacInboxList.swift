@@ -59,22 +59,33 @@ struct MacInboxList: View {
             if let error = store.error, store.items.isEmpty {
                 Label(error, systemImage: Theme.Icon.error).font(Theme.Font.caption).foregroundStyle(Theme.danger)
             }
-            ForEach(sections.tiers, id: \.tier) { t in
-                Section {
-                    if state.expanded.contains(t.tier.rawValue) || !t.tier.folds {
-                        ForEach(t.agents) { agentRow($0) }
-                        ForEach(t.items) { row($0) }
-                    }
-                } header: {
-                    header(t.tier.title, count: t.items.count + t.agents.count, key: t.tier.rawValue,
-                           clear: InboxPage.clearTitle(t.tier).map { ($0, { store.setDone(t.items, true) }) })
+            // Under each manager's name when the hub has several (#1850); one group with no name otherwise.
+            ForEach(sections.groups) { g in
+                let manager = g.manager?.id
+                if let m = g.manager {
+                    ManagerHeading(manager: m, count: g.openCount)
+                        .font(Theme.Font.heading)
+                        .padding(.top, Theme.Space.m)
+                        .listRowSeparator(.hidden)
+                        .selectionDisabled()
                 }
-            }
-            if !sections.done.isEmpty {
-                Section {
-                    if state.expanded.contains("done") { ForEach(sections.done) { row($0) } }
-                } header: {
-                    header(String(localized: "Done [Inbox View 59f6c8]"), count: sections.done.count, key: "done", clear: nil)
+                ForEach(g.tiers, id: \.tier) { t in
+                    Section {
+                        if state.folds.isOpen(t.tier.rawValue, manager: manager) {
+                            ForEach(t.agents) { agentRow($0) }
+                            ForEach(t.items, id: \.key) { row($0) }
+                        }
+                    } header: {
+                        header(t.tier.title, count: t.items.count + t.agents.count, key: t.tier.rawValue, manager: manager,
+                               clear: InboxPage.clearTitle(t.tier).map { ($0, { store.setDone(t.items, true) }) })
+                    }
+                }
+                if !g.done.isEmpty {
+                    Section {
+                        if state.folds.isOpen("done", manager: manager) { ForEach(g.done, id: \.key) { row($0) } }
+                    } header: {
+                        header(String(localized: "Done [Inbox View 59f6c8]"), count: g.done.count, key: "done", manager: manager, clear: nil)
+                    }
                 }
             }
         }
@@ -153,7 +164,7 @@ struct MacInboxList: View {
             if UserDefaults.standard.bool(forKey: "openInboxFirst") || match != nil {
                 for _ in 0..<20 where store.open.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
                 if let first = store.items.first(where: { match == nil ? !$0.isDone : $0.title.contains(match!) }) {
-                    state.selection = [.item(first.id)]
+                    state.selection = [.item(first.key)]
                 }
             }
             #endif
@@ -188,7 +199,7 @@ struct MacInboxList: View {
     }
 
     /// A section title that opens / closes the section, with its count, and an optional action on the right.
-    private func header(_ title: String, count: Int, key: String, clear: (String, () -> Void)?) -> some View {
+    private func header(_ title: String, count: Int, key: String, manager: String?, clear: (String, () -> Void)?) -> some View {
         HStack(spacing: Theme.Space.sm) {
             if InboxItem.Tier(rawValue: key)?.folds == false {
                 // In Progress: always open, a plain title (inbox phase 1).
@@ -201,11 +212,11 @@ struct MacInboxList: View {
                 .lineLimit(1)
             } else {
             Button {
-                withAnimation(Theme.Motion.standard) { state.toggle(key) }
+                withAnimation(Theme.Motion.standard) { state.toggle(key, manager: manager) }
             } label: {
                 HStack(spacing: Theme.Space.xs) {
                     Image(systemName: Theme.Icon.disclosure).font(Theme.Font.labelHeavy).foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(state.expanded.contains(key) ? 90 : 0))
+                        .rotationEffect(.degrees(state.folds.isOpen(key, manager: manager) ? 90 : 0))
                     Text(title).foregroundStyle(key == "action" ? Color.primary : .secondary)
                     Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
                     Spacer(minLength: 0)
@@ -215,7 +226,7 @@ struct MacInboxList: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(state.expanded.contains(key) ? String(localized: "Collapse") : String(localized: "Expand"))
+            .help(state.folds.isOpen(key, manager: manager) ? String(localized: "Collapse") : String(localized: "Expand"))
             }
             if let clear {
                 Button(clear.0) { withAnimation(Theme.Motion.standard) { clear.1() } }
@@ -238,17 +249,17 @@ struct MacInboxList: View {
     }
 
     private func row(_ it: InboxItem) -> some View {
-        InboxRow(item: it, showAccount: state.accounts.count > 1, sending: store.sending.contains(it.id),
+        InboxRow(item: it, showAccount: state.accounts.count > 1, sending: store.sending.contains(it.key),
                  send: { text in Task { await store.send(it, text: text, changes: it.agent?.changes ?? []) } },
                  edit: { state.editingDraft = it })
-            .macOptionClick { openWindow(id: MacInboxItemWindow.id, value: it.id) } // ⌥-click: as ⏎ / a double click
-            .tag(MacInboxSelection.item(it.id))
-            .macHoverRow(.item(it.id))
+            .macOptionClick { openWindow(id: MacInboxItemWindow.id, value: it.key) } // ⌥-click: as ⏎ / a double click
+            .tag(MacInboxSelection.item(it.key))
+            .macHoverRow(.item(it.key))
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 if it.isDone {
                     Button { store.setDone(it, false) } label: { Label("Move Back", systemImage: Theme.Icon.undo) }.tint(Theme.accent)
                 } else {
-                    Button { state.toggleDone([.item(it.id)], model: model) } label: { Label("Done [Inbox View 59f6c8]", systemImage: Theme.Icon.done) }.tint(Theme.positive)
+                    Button { state.toggleDone([.item(it.key)], model: model) } label: { Label("Done [Inbox View 59f6c8]", systemImage: Theme.Icon.done) }.tint(Theme.positive)
                 }
             }
     }
@@ -261,19 +272,19 @@ struct MacInboxList: View {
             if case .agent(let id) = s { return model.pendingInteractions.first { $0.id == id } } else { return nil }
         }
         if items.count == 1, let it = items.first {
-            Button { openWindow(id: MacInboxItemWindow.id, value: it.id) } label: { Label("Open in New Window", systemImage: Theme.Icon.newWindow) }
+            Button { openWindow(id: MacInboxItemWindow.id, value: it.key) } label: { Label("Open in New Window", systemImage: Theme.Icon.newWindow) }
             Divider()
             if !it.isDone {
-                Button { state.drafting = it; state.selection = [.item(it.id)] } label: {
+                Button { state.drafting = it; state.selection = [.item(it.key)] } label: {
                     Label(it.agentDraft == nil ? String(localized: "AI Draft Reply") : String(localized: "View Draft"), systemImage: Theme.Icon.draftReply)
                 }
-                Button { state.handingOff = it; state.selection = [.item(it.id)] } label: { Label("Hand to AI", systemImage: Theme.Icon.handToAI) }
+                Button { state.handingOff = it; state.selection = [.item(it.key)] } label: { Label("Hand to AI", systemImage: Theme.Icon.handToAI) }
                 Divider()
             }
         }
         if !items.isEmpty {
             let allDone = items.allSatisfy(\.isDone)
-            Button { state.toggleDone(Set(items.map { .item($0.id) }), model: model) } label: {
+            Button { state.toggleDone(Set(items.map { .item($0.key) }), model: model) } label: {
                 Label(allDone ? String(localized: "Move Back to Inbox") : items.count > 1 ? String(localized: "Mark All \(items.count) as Done") : String(localized: "Done [Inbox View 59f6c8]"),
                       systemImage: allDone ? Theme.Icon.undo : Theme.Icon.done)
             }

@@ -154,7 +154,7 @@ struct InboxDraftSheet: View {
             }
             .task {
                 guard text.isEmpty else { return }
-                if let u = InboxStore.shared.unsentReplies[item.id] { text = u } else if let d = item.agentDraft { text = d } else { await load() }
+                if let u = InboxStore.shared.unsentReplies[item.key] { text = u } else if let d = item.agentDraft { text = d } else { await load() }
             }
         }
         .presentationDetents([.medium, .large])
@@ -221,7 +221,7 @@ struct InboxDraftSheet: View {
     }
 
     private func load() async {
-        guard let api = model.api else { return }
+        guard let api = model.api?.manager(item.manager) else { return }
         loading = true
         defer { loading = false }
         do {

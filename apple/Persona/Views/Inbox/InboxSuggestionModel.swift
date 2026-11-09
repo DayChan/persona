@@ -25,11 +25,12 @@ final class InboxSuggestionModel {
     }
 
     /// The app's own: the hub of the moment and the inbox store.
-    static func live(_ itemID: String) -> InboxSuggestionModel {
+    /// `manager`: the item's (its list's stamp), whose suggestion it is.
+    static func live(_ itemID: String, manager: String? = nil) -> InboxSuggestionModel {
         InboxSuggestionModel(itemID: itemID, send: { id, body in
-            guard let api = AppModel.shared.api else { throw APIError(status: 0, message: String(localized: "Not connected to the hub [Inbox Suggestion Model e21521]")) }
+            guard let api = AppModel.shared.api?.manager(manager) else { throw APIError(status: 0, message: String(localized: "Not connected to the hub [Inbox Suggestion Model e21521]")) }
             return try await api.inboxSuggestion(id, body)
-        }, apply: { InboxStore.shared.put($0) })
+        }, apply: { InboxStore.shared.put($0, manager: manager) })
     }
 
     /// send / start / got it / confirm, with `text` when the user changed the words (edit).
