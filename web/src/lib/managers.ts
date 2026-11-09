@@ -203,6 +203,11 @@ function rosterFailed(e: unknown) {
   }, ROSTER_RETRY_MS);
 }
 
+/** The roster as last read, or null until (and unless) the hub has one; for code outside React (useRoster in a view). */
+export function currentRoster(): ManagerList | null {
+  return roster;
+}
+
 /** Forgets the roster and any read waiting to be tried again (tests). */
 export function resetRoster() {
   if (rosterRetry) clearTimeout(rosterRetry);
