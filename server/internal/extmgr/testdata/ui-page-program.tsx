@@ -91,7 +91,7 @@ const service = setInterval(() => serviceTicks++, 10);
 function start(inputStream: NodeJS.ReadableStream, outputStream: NodeJS.WritableStream) {
 let heldMethod = "";
 const methods = new Map<string, string>(), held: string[] = [];
-const protocol = connect({ id:"example-page",version:"1.0.0",ui:{home:componentPage(async request => { if (rootGate) await rootGate; mountUIVersion = request.ui_version; snapshotTransport = request.transport === "snapshot" ? 1 : 0; return loadingEnabled ? <LoadingPage key="page" /> : navigationEnabled ? <Navigation key="page" uiVersion={request.ui_version} /> : <Page key="page" />; }, pageOptions)},
+const protocol = connect({ id:"example-page",version:"1.0.0",manifest:{manifest_version:1,id:"example-page",name:"Synthetic page",version:"1.0.0",engines:{extension_protocol:1},runtime:{mode:"process",command:"program",rpc:"stdio"},activation_events:["on_call"],contributes:{ui:[{id:"home",title:"Synthetic page",placement:"extension_page"}]}},ui:{home:componentPage(async request => { if (rootGate) await rootGate; mountUIVersion = request.ui_version; snapshotTransport = request.transport === "snapshot" ? 1 : 0; return loadingEnabled ? <LoadingPage key="page" /> : navigationEnabled ? <Navigation key="page" uiVersion={request.ui_version} /> : <Page key="page" />; }, pageOptions)},
  namespaces:{ test: async (method, params) => {
   if(method==="delay") { heldMethod=params.method; return {}; }
   if(method==="release") { heldMethod=""; for (const line of held.splice(0)) outputStream.write(line+"\n"); return {}; }

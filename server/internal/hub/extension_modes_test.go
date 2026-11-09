@@ -185,6 +185,7 @@ func TestAnExtensionChangesThePermissionModeOfItsOwnConversationsOnly(t *testing
 		{"a dialog's field typed after its pre-keys", scoped, "/api/v1/interactions/" + scrUser + "/resolve", `{"pre_keys":["3"],"text":"go on"}`, "not_opened", ""},
 		{"text typed into a dialog", scoped, "/api/v1/interactions/" + scrUser + "/resolve", `{"text":"1"}`, "not_opened", ""},
 		{"a dismiss carrying keys", scoped, "/api/v1/interactions/" + scrUser + "/resolve", `{"dismiss":true,"keys":["1"]}`, "not_opened", ""},
+		{"a dismiss carrying cancel", unscoped, "/api/v1/interactions/" + scrUser + "/resolve", `{"dismiss":true,"cancel":true}`, "scope", ""},
 		{"an empty answer to a dialog", scoped, "/api/v1/interactions/" + scrUser + "/resolve", `{}`, "not_opened", ""},
 		{"its own dialog without the scope", unscoped, "/api/v1/interactions/" + scrOwn + "/resolve", `{"option":"1"}`, "scope", ""},
 		{"a dialog the hub does not hold", scoped, "/api/v1/interactions/scr_mb_b3_gone/resolve", `{"keys":["1"]}`, "not_opened", ""},

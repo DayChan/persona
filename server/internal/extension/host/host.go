@@ -928,20 +928,21 @@ func (p *Proc) sameProgram(ctx context.Context, s *session) error {
 	mctx, cancel := context.WithTimeout(ctx, ReadyWithin)
 	defer cancel()
 	var m extension.Manifest
-	if err := s.peer.Call(mctx, extension.MManifest, struct{}{}, &m); err != nil {
+	err := s.peer.Call(mctx, extension.MManifest, struct{}{}, &m)
+	said := ""
+	if err == nil && m.ID == p.spec.ID {
+		said = m.Version // another program's version (or the one before this, when it will not say) says nothing
+	}
+	p.mu.Lock()
+	p.said = said
+	p.mu.Unlock()
+	if err != nil {
 		var re *rpc.Error
 		if errors.As(err, &re) { // it is there and answered
 			return refused{i18n.Err("extension-status.not_ready", i18n.Args{"err": "manifest: " + re.Message})}
 		}
 		return i18n.Err("extension-status.not_ready", i18n.Args{"err": err.Error()})
 	}
-	said := ""
-	if m.ID == p.spec.ID {
-		said = m.Version // another program's version says nothing about this one
-	}
-	p.mu.Lock()
-	p.said = said
-	p.mu.Unlock()
 	if m.ID != p.spec.ID {
 		return refused{i18n.ErrEnglish("extension-status.wrong_id", i18n.Args{"current": m.ID, "required": p.spec.ID})}
 	}

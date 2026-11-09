@@ -60,6 +60,9 @@ func TestExtensionDependencyExporterInitializationAndEvents(t *testing.T) {
 								initialized <- params.ContributionsToMe
 								return extension.InitializeResult{Protocol: extension.Protocol, ID: "search", Version: "1.0.0"}, nil
 							}
+							if method == extension.MManifest {
+								return map[string]any{"id": "search", "version": "1.0.0"}, nil
+							}
 							return map[string]any{}, nil
 						}
 						peer.OnEvent = func(event string, raw json.RawMessage) {

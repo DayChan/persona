@@ -277,7 +277,8 @@ func TestAttachedPackageAtAnotherVersion(t *testing.T) {
 }
 
 // A program on an attached package's sockets that says it is another version (the owner replaced it there) is refused
-// before initialize: it gets no token, settings or secrets, and the token of the program before it goes.
+// before initialize: it gets no token, settings or secrets, and the token of the program before it goes. So is one that
+// does not answer manifest, whatever initialize would say.
 func TestAttachedPackageReplacedByAnotherVersionGetsNothing(t *testing.T) {
 	shortHostTimings(t)
 	h, _ := extensionTestHub(t)
@@ -296,7 +297,7 @@ func TestAttachedPackageReplacedByAnotherVersionGetsNothing(t *testing.T) {
 	waitLong(t, "the attached program initialized", func() bool { ip = init(); return ip != nil })
 	stop()
 	newer := []byte(strings.Replace(string(manifest), `"version": "1.0.0"`, `"version": "1.1.0"`, 1))
-	_, _, initNewer, _ := startAttached(t, dir, newer, "1.1.0")
+	_, _, initNewer, stopNewer := startAttached(t, dir, newer, "1.1.0")
 	var v ExtensionView
 	waitLong(t, "the other version refused", func() bool {
 		v = h.extensions.view(t.Context(), h.extensions.reg.Get("scoped"))
@@ -309,6 +310,15 @@ func TestAttachedPackageReplacedByAnotherVersionGetsNothing(t *testing.T) {
 		holds, opens := liveToken(h, "scoped", ip.Hub.Token)
 		return !holds && !opens
 	})
+	stopNewer()
+	_, _, initSilent, _ := startAttached(t, dir, nil, "1.0.0")
+	waitLong(t, "a program that does not answer manifest refused", func() bool {
+		v = h.extensions.view(t.Context(), h.extensions.reg.Get("scoped"))
+		return strings.Contains(v.Error, "no manifest here")
+	})
+	if got := initSilent(); got != nil {
+		t.Fatalf("a program that does not answer manifest was initialized: token %q, %d secrets", got.Hub.Token, len(got.Secrets))
+	}
 }
 
 // The every-scope token is an attached package's only: a package installed from remote: and granted hub_api gets no
