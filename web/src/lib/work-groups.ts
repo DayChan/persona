@@ -450,6 +450,44 @@ export function groupOpens(g: WorkGroupNode): boolean {
   return beyond || previewSteps(g, LIVE_PREVIEW + 1).length > LIVE_PREVIEW;
 }
 
+/** How a chat opens its work lines (#1614). "agents" (a coding agent's chat): folded until the reader opens one, as they
+ *  left it. "assistant" (a Persona conversation): while the exchange runs its lines are open and list each step as it
+ *  comes, unless the reader folded one during the run; once it ends they fold back to their summary, whatever the
+ *  reader did during the run, and from then on a tap opens and closes them as in "agents". */
+export type WorkLineStyle = "agents" | "assistant";
+
+/** A chat's work line style: "assistant" on the assistant's page, or for a Persona conversation opened anywhere else
+ *  (the Agents page's link to it); "agents" for a coding agent's chat. */
+export const workLineStyle = (assistantView?: boolean, assistantSession?: boolean): WorkLineStyle => (assistantView || assistantSession ? "assistant" : "agents");
+
+export interface WorkLineState {
+  style: WorkLineStyle;
+  /** The exchange this line is of is still running. */
+  turnLive: boolean;
+  /** What the reader left it at outside a run (expanded.ts), or its default. */
+  remembered: boolean;
+  /** What the reader set it to during this run, if anything (assistant style only; dropped when the run ends). */
+  liveOverride?: boolean;
+}
+
+/** Whether a work line is open (before groupOpens: a line with nothing to open stays shut either way). */
+export function workLineOpen(s: WorkLineState): boolean {
+  if (s.style === "assistant" && s.turnLive) return s.liveOverride ?? true;
+  return s.remembered;
+}
+
+/** Whether the toggle of a line goes to the run's override (kept only while the exchange runs) or to what is remembered. */
+export const togglesLiveOverride = (style: WorkLineStyle, turnLive: boolean): boolean => style === "assistant" && turnLive;
+
+/** Whether a line can be opened or folded: groupOpens, and in a running assistant exchange any line with steps (its
+ *  steps are listed open, so the reader can fold it). */
+export function workLineOpens(g: WorkGroupNode, style: WorkLineStyle, turnLive: boolean): boolean {
+  return groupOpens(g) || (togglesLiveOverride(style, turnLive) && g.children.length > 0);
+}
+
+/** A finished timeline's inner lines: folded in "agents"; open in "assistant", so opening the summary lists every call. */
+export const nestedLineDefault = (style: WorkLineStyle): boolean => style === "assistant";
+
 /** How long each thought took: from the step before it (or the exchange's start) to when it was written. */
 export function thinkingDurations(steps: Step[], turnStart?: string): Map<string, number> {
   const out = new Map<string, number>();

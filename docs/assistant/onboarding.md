@@ -300,7 +300,7 @@ Extend Android's readiness checklist (`ReadinessScreen` / `ReadinessRecords.kt`,
 1. **Computer**: ✓ for a confirmed online computer; automatically ✓ if hub itself is a computer. If none, show "Add computer"; if pending, "Confirm this is my computer."
 2. **Claude Code**: installed or not.
 3. **Model**: logged in / key works (detection and three routes in 4.3).
-4. **Try a message**: run a real main-chat turn (send "Hello" through normal main-chat creation), and display its reply; on failure, show the reason and fix.
+4. **Try a message**: run a check (`?probe=1`) or a main-chat turn; on success, `first_message` is marked ok and recorded in `AnsweredAt`; on failure, show the reason and fix.
 5. Phone-side items (notifications, background activity, local network, cellular-network test…; already exist).
 
 The checklist does not block entry: users can enter the main UI at any time, and the main-chat guidance card is a compact version of it. "Later" persists in Postgres (dismiss in 5.1); the full-page checklist then stops appearing, but the card still returns if readiness worsens.
@@ -437,7 +437,7 @@ Evaluation order and data sources (all existing, plus one new node RPC):
 1. `computer`: device list, online status, trust state (5.3). Later steps are `unknown` until the computer is `ok`.
 2. `claude`: `claude-version` from node self-check (`node/doctor.go:454`), cached by the assistant service for 10 minutes.
 3. `model`: new node RPC `claude.auth_status` (4.3, runs `claude auth status --json` in the launcher's actual environment, cached 10 minutes; a signed-out answer is asked again after a minute and waited for, an answer that said nothing — timeout, unreadable output — is asked again after a minute in the background while the last one is used); the most recent `?probe=1` or "Try a message" result; `turn_error_kind` of main chat's last turn. **No proactive token spending** by default. If never verified, use `unknown` + `model_unverified`, not `problem`; `mode` can still be `full`.
-4. `first_message`: whether main chat has ever had a successful reply. `todo` does not affect `mode`.
+4. `first_message`: whether main chat has ever had a successful reply or a successful probe check (`?probe=1`). `todo` does not affect `mode`.
 
 Storage: the latest check result and `dismissed` live in Postgres settings (one key, `assistant.readiness`), not files.
 

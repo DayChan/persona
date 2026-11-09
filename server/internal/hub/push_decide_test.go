@@ -132,7 +132,7 @@ func TestDecisionPushTakesTheInputSwitch(t *testing.T) {
 	if err := h.deliverPush(decideNotification(t)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond) // sleep-ok: proving that no push goes out needs a quiet period; nothing can be polled for
 	if n := len(f.calls(t, 0)); n != 0 {
 		t.Fatalf("%d APNs pushes with needs-you off", n)
 	}
