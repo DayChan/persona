@@ -33,6 +33,7 @@ func (h *Hub) devicesConfigFor(id string) devicewire.Config {
 	if h.cfg != nil {
 		out.AutoUpdateNodes = h.cfg.AutoUpdateNodes
 		out.TailcatDERPMapURL = h.cfg.Tailcat.DERPMapURL
+		out.WebURL = h.webURL()
 	}
 	out.NodePackagesURL, out.NodePackagesProxy = h.nodePackages()
 	if every, timeout, set := h.linkPingTimes(); set {
@@ -65,6 +66,16 @@ func (h *Hub) devicesConfigFor(id string) devicewire.Config {
 		}
 	}
 	return out
+}
+
+// webURL is public_url as the web app's address for Persona Link (devicewire.Config.WebURL), as addressOf reads it: an
+// https one only, its sub-path kept, without a trailing slash; "" otherwise (a plain http one is how the apps reach
+// the hub on the LAN).
+func (h *Hub) webURL() string {
+	if base, _, ok := h.addressOf(h.cfg.PublicURL); ok && strings.HasPrefix(base, "https://") {
+		return base
+	}
+	return ""
 }
 
 // nodePackages is where the manager fetches node builds (hub.json's node_packages): its url, else this build's update

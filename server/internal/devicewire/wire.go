@@ -168,6 +168,9 @@ type Config struct {
 	// Endpoints are the hub's https addresses and MeshHubs how many hubs its mesh has: what Persona Link is told.
 	Endpoints []LinkEndpoint `json:"endpoints,omitempty"`
 	MeshHubs  int            `json:"mesh_hubs,omitempty"`
+	// WebURL is where people open the web app: hub.json's public_url when it is https, its sub-path included (no
+	// trailing slash); "" without one. Persona Link's "Needs you" summary carries it (link.Attention.WebURL).
+	WebURL string `json:"web_url,omitempty"`
 	// TailcatDERPMapURL is hub.json's tailcat.derp_map_url.
 	TailcatDERPMapURL string `json:"tailcat_derp_map_url,omitempty"`
 	// NodePackagesURL is where the manager fetches the node builds the hub has none of (docs/operations/node-update.md "Node

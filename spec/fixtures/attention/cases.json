@@ -1,0 +1,506 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "badge_rules",
+      "description": "The web badge's agents as they are, one item each, newest waiting first: quiet tasks and the assistant are left out; muted agents and agents waiting only on the assistant's decision stay. An item notifies as the push would: not when muted, nor while every card is a question the assistant is still deciding on; a deciding question stands for its agent only when no other card does.",
+      "source": [
+        "web/src/lib/sessions.ts stateCounts (badge)",
+        "web/src/lib/attention.ts lookingOnly",
+        "web/src/lib/session-actions.ts isMuted",
+        "server/internal/assistant/fleet_attention.go linkAttention"
+      ],
+      "derived": true,
+      "input": {
+        "sessions": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-perm",
+            "state": "needs_you",
+            "title": "Fix the login redirect",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-quiet",
+            "state": "needs_you",
+            "title": "s-quiet",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "quiet": true
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-assistant",
+            "state": "needs_you",
+            "title": "s-assistant",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "assistant": true
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "state": "needs_you",
+            "title": "s-looking",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-mixed",
+            "state": "needs_you",
+            "title": "s-mixed",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-muted",
+            "state": "needs_you",
+            "title": "s-muted",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-allowed",
+            "state": "needs_you",
+            "title": "s-allowed",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "space_name": "side"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-space-muted",
+            "state": "needs_you",
+            "title": "s-space-muted",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "space_name": "side"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-dialog",
+            "state": "needs_you",
+            "title": "s-dialog",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "state_since": "2026-11-09T07:30:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-elicitation",
+            "state": "needs_you",
+            "title": "s-elicitation",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-working",
+            "state": "working",
+            "title": "s-working",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-unread",
+            "state": "unread",
+            "title": "s-unread",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-idle",
+            "state": "idle",
+            "title": "s-idle",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          }
+        ],
+        "interactions": [
+          {
+            "id": "ix-perm",
+            "machine_id": "mac",
+            "session_id": "s-perm",
+            "kind": "permission",
+            "created_at": "2026-11-09T07:00:00Z",
+            "tool_name": "Bash",
+            "summary": "npm test"
+          },
+          {
+            "id": "ix-quiet",
+            "machine_id": "mac",
+            "session_id": "s-quiet",
+            "kind": "question",
+            "created_at": "2026-11-09T07:01:00Z"
+          },
+          {
+            "id": "ix-assistant",
+            "machine_id": "mac",
+            "session_id": "s-assistant",
+            "kind": "question",
+            "created_at": "2026-11-09T07:02:00Z"
+          },
+          {
+            "id": "ix-looking",
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "kind": "question",
+            "created_at": "2026-11-09T07:03:00Z",
+            "delegating": true
+          },
+          {
+            "id": "ix-mixed-looking",
+            "machine_id": "mac",
+            "session_id": "s-mixed",
+            "kind": "question",
+            "created_at": "2026-11-09T07:04:00Z",
+            "delegating": true
+          },
+          {
+            "id": "ix-perm-later",
+            "machine_id": "mac",
+            "session_id": "s-perm",
+            "kind": "question",
+            "created_at": "2026-11-09T07:05:00Z"
+          },
+          {
+            "id": "ix-mixed-plan",
+            "machine_id": "mac",
+            "session_id": "s-mixed",
+            "kind": "plan",
+            "created_at": "2026-11-09T07:06:00Z"
+          },
+          {
+            "id": "ix-muted",
+            "machine_id": "mac",
+            "session_id": "s-muted",
+            "kind": "permission",
+            "created_at": "2026-11-09T07:07:00Z",
+            "tool_name": "Edit"
+          },
+          {
+            "id": "ix-allowed",
+            "machine_id": "mac",
+            "session_id": "s-allowed",
+            "kind": "question",
+            "created_at": "2026-11-09T07:08:00Z"
+          },
+          {
+            "id": "ix-elicitation",
+            "machine_id": "mac",
+            "session_id": "s-elicitation",
+            "kind": "elicitation",
+            "created_at": "2026-11-09T07:09:00Z"
+          }
+        ],
+        "mutes": {
+          "spaces": [
+            "mac/side"
+          ],
+          "sessions": [
+            "mac/s-muted"
+          ],
+          "allowed": [
+            "mac/s-allowed"
+          ]
+        }
+      },
+      "expected": {
+        "needs_you": 8,
+        "more": 0,
+        "items": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-dialog",
+            "kind": "screen",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-dialog"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-allowed",
+            "kind": "question",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-allowed",
+            "interaction_id": "ix-allowed"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-muted",
+            "kind": "permission",
+            "muted": true,
+            "notify": false,
+            "route": "/s/mac/s-muted",
+            "interaction_id": "ix-muted"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-mixed",
+            "kind": "plan",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-mixed",
+            "interaction_id": "ix-mixed-plan"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "kind": "question",
+            "muted": false,
+            "notify": false,
+            "route": "/s/mac/s-looking",
+            "interaction_id": "ix-looking"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-perm",
+            "kind": "permission",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-perm",
+            "interaction_id": "ix-perm"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-space-muted",
+            "kind": "screen",
+            "muted": true,
+            "notify": false,
+            "route": "/s/mac/s-space-muted"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-elicitation",
+            "kind": "screen",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-elicitation"
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex_subagent_counts",
+      "description": "A Codex sub-agent waiting for the user is its own row in the web app and counts there, so it is listed (the Live Activity leaves it out).",
+      "source": [
+        "web/src/lib/sessions.ts stateCounts (badge)",
+        "web/src/lib/attention.ts lookingOnly",
+        "web/src/lib/session-actions.ts isMuted",
+        "server/internal/assistant/fleet_attention.go linkAttention"
+      ],
+      "derived": true,
+      "input": {
+        "sessions": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-child",
+            "state": "needs_you",
+            "title": "s-child",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "agent": "codex",
+            "is_subagent": true,
+            "parent_session_id": "s-parent"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-parent",
+            "state": "working",
+            "title": "s-parent",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z",
+            "agent": "codex"
+          }
+        ],
+        "interactions": [
+          {
+            "id": "ix-child",
+            "machine_id": "mac",
+            "session_id": "s-child",
+            "kind": "permission",
+            "created_at": "2026-11-09T07:00:00Z"
+          }
+        ],
+        "mutes": {
+          "spaces": [],
+          "sessions": []
+        }
+      },
+      "expected": {
+        "needs_you": 1,
+        "more": 0,
+        "items": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-child",
+            "kind": "permission",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-child",
+            "interaction_id": "ix-child"
+          }
+        ]
+      }
+    },
+    {
+      "name": "deciding_only",
+      "description": "An agent waiting only on a question the assistant is still deciding on is counted and listed by that question, and does not notify.",
+      "source": [
+        "web/src/lib/sessions.ts stateCounts (badge)",
+        "web/src/lib/attention.ts lookingOnly",
+        "web/src/lib/session-actions.ts isMuted",
+        "server/internal/assistant/fleet_attention.go linkAttention"
+      ],
+      "derived": true,
+      "input": {
+        "sessions": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-working",
+            "state": "working",
+            "title": "s-working",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          },
+          {
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "state": "needs_you",
+            "title": "s-looking",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          }
+        ],
+        "interactions": [
+          {
+            "id": "ix-looking",
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "kind": "question",
+            "created_at": "2026-11-09T07:00:00Z",
+            "delegating": true
+          }
+        ],
+        "mutes": {
+          "spaces": [],
+          "sessions": []
+        }
+      },
+      "expected": {
+        "needs_you": 1,
+        "more": 0,
+        "items": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-looking",
+            "kind": "question",
+            "muted": false,
+            "notify": false,
+            "route": "/s/mac/s-looking",
+            "interaction_id": "ix-looking"
+          }
+        ]
+      }
+    },
+    {
+      "name": "deciding_beside_elicitation",
+      "description": "A question the assistant is still deciding on does not stand for an agent that has another card pending, even one that cannot stand for it (an elicitation): the agent is a screen item, and it notifies, as the elicitation was pushed.",
+      "source": [
+        "web/src/lib/sessions.ts stateCounts (badge)",
+        "web/src/lib/attention.ts lookingOnly",
+        "web/src/lib/session-actions.ts isMuted",
+        "server/internal/assistant/fleet_attention.go linkAttention"
+      ],
+      "derived": true,
+      "input": {
+        "sessions": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-both",
+            "state": "needs_you",
+            "title": "s-both",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          }
+        ],
+        "interactions": [
+          {
+            "id": "ix-both-elicitation",
+            "machine_id": "mac",
+            "session_id": "s-both",
+            "kind": "elicitation",
+            "created_at": "2026-11-09T07:00:00Z"
+          },
+          {
+            "id": "ix-both-looking",
+            "machine_id": "mac",
+            "session_id": "s-both",
+            "kind": "question",
+            "created_at": "2026-11-09T07:01:00Z",
+            "delegating": true
+          }
+        ],
+        "mutes": {
+          "spaces": [],
+          "sessions": []
+        }
+      },
+      "expected": {
+        "needs_you": 1,
+        "more": 0,
+        "items": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-both",
+            "kind": "screen",
+            "muted": false,
+            "notify": true,
+            "route": "/s/mac/s-both"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing_needs_you",
+      "description": "Nothing needs the user: the count is 0 and the list is empty, not missing.",
+      "source": [
+        "web/src/lib/sessions.ts stateCounts (badge)",
+        "web/src/lib/attention.ts lookingOnly",
+        "web/src/lib/session-actions.ts isMuted",
+        "server/internal/assistant/fleet_attention.go linkAttention"
+      ],
+      "derived": true,
+      "input": {
+        "sessions": [
+          {
+            "machine_id": "mac",
+            "session_id": "s-working",
+            "state": "working",
+            "title": "s-working",
+            "cwd": "/home/user/project",
+            "updated_at": "2026-11-09T06:50:00Z"
+          }
+        ],
+        "interactions": [],
+        "mutes": {
+          "spaces": [],
+          "sessions": []
+        }
+      },
+      "expected": {
+        "needs_you": 0,
+        "more": 0,
+        "items": []
+      }
+    }
+  ]
+}

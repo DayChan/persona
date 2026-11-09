@@ -79,6 +79,26 @@ func TestLinkHeartbeatFromHubJSON(t *testing.T) {
 	}
 }
 
+// The web app's address Persona Link opens: public_url when it is https, its sub-path kept (a query dropped); nothing for
+// a plain http one (the LAN address the apps reach the hub at) or none.
+func TestDevicesConfigWebURL(t *testing.T) {
+	for public, want := range map[string]string{
+		"https://hub.example.com":            "https://hub.example.com",
+		" https://hub.example.com/persona/ ": "https://hub.example.com/persona",
+		"https://hub.example.com:8443/a%2Fb": "https://hub.example.com:8443/a%2Fb",
+		"http://192.0.2.10:18660":            "",
+		"https://user@hub.example.com":       "",
+		"https://hub.example.com/?x=1":       "https://hub.example.com",
+		"":                                   "",
+	} {
+		h := newTestHub(t)
+		h.cfg.PublicURL = public
+		if got := h.devicesConfig().WebURL; got != want {
+			t.Errorf("public_url %q: web_url %q, want %q", public, got, want)
+		}
+	}
+}
+
 // hub.json's heartbeat end to end: the manager tells Persona Link (endpoints, right after the hello), and the hub keeps
 // it on the link itself, so a link that stops answering is dropped after it.
 func TestLinkHeartbeatReachesPersonaLink(t *testing.T) {

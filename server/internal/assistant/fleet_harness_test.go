@@ -14,6 +14,7 @@ import (
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/devices"
+	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -190,6 +191,8 @@ func (d *fleetDevs) Usage() assistantwire.UsageSummary {
 	defer d.mu.Unlock()
 	return d.usage
 }
+
+func (d *fleetDevs) SetAttention(link.Attention) {}
 
 // fleetMem is the in-memory store of the fleet's tests: the assistant's settings, the interactions table, "Always Allow in Session",
 // the seen times.

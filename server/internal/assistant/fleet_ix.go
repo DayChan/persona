@@ -578,6 +578,7 @@ func (s *Service) tell(ix proto.Interaction) {
 	ix = s.withTask(ix)
 	s.hub.Tell(assistantwire.EventFleetInteraction, assistantwire.FleetInteraction{Interaction: ix})
 	s.publishSessions(ix.MachineID)
+	s.liveChanged(false) // the card's own fields (delegating) count for Persona Link's summary, not for the list
 	if s.quietSession(ix.MachineID, ix.SessionID) {
 		// A quiet task's question is no push, bot card or channel message: the main conversation is told (#1731).
 		go s.InteractionRaised(context.Background(), InteractionRaised{Interaction: ix})
@@ -594,6 +595,7 @@ func (s *Service) tell(ix proto.Interaction) {
 func (s *Service) show(ix proto.Interaction) {
 	s.hub.Tell(assistantwire.EventFleetInteraction, assistantwire.FleetInteraction{Interaction: s.withTask(ix)})
 	s.publishSessions(ix.MachineID)
+	s.liveChanged(false) // the card's own fields (delegating) count for Persona Link's summary, not for the list
 }
 
 // ---- waiting ----

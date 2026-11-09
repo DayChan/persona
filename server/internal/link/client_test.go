@@ -192,6 +192,11 @@ func TestPinnedRefusesAnotherHub(t *testing.T) {
 
 // fakeHub accepts links; serve runs each one after its hello.
 func fakeHub(t *testing.T, serve func(*websocket.Conn)) (*httptest.Server, *atomic.Int32) {
+	return fakeHubHello(t, func(c *websocket.Conn, _ Message) { serve(c) })
+}
+
+// fakeHubHello is fakeHub whose serve gets the hello too.
+func fakeHubHello(t *testing.T, serve func(*websocket.Conn, Message)) (*httptest.Server, *atomic.Int32) {
 	var n atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != Path || r.Header.Get("Authorization") != "Bearer jd_x" {
@@ -208,7 +213,7 @@ func fakeHub(t *testing.T, serve func(*websocket.Conn)) (*httptest.Server, *atom
 			return
 		}
 		n.Add(1)
-		serve(c)
+		serve(c, hello)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &n
@@ -444,7 +449,7 @@ func TestLinkWithAHubThatSaysNothingAboutItself(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "link.json")
 	ch := runAgainst(t, srv, "jd_x", Options{Path: path})
 	s := waitFor(t, ch, func(s Status) bool { return s.State == "connected" && s.Node == "online" && len(s.Endpoints) == 1 })
-	if s.HubName != "" || s.MeshHubs != 0 || s.Endpoints[0].URL != "https://hub.example.com:18662" {
+	if s.HubName != "" || s.MeshHubs != 0 || s.Endpoints[0].URL != "https://hub.example.com:18662" || s.Attention != nil {
 		t.Fatalf("status %+v", s)
 	}
 	if c, err := Load(path); err != nil || c.HubName != "" {

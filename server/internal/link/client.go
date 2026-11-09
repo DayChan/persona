@@ -92,6 +92,9 @@ type Status struct {
 	Retry *time.Time `json:"retry,omitempty"`
 	// The candidates, best first; never the credential.
 	Endpoints []Endpoint `json:"endpoints,omitempty"`
+	// Attention is the hub's latest "Needs you" summary (attention.go), as it sent it: active mode while this link is
+	// up, passive mode while the paired hub keeps coming in. Missing before the first one, and with older hubs.
+	Attention *Attention `json:"attention,omitempty"`
 	// Passive mode: where it listens; this computer's addresses the hub may use (best first, host:port); when the hub
 	// last came in and from where; until when a pairing code from `pair --listen` is good. Connected: Address is the
 	// hub's address and Since when its stream opened.

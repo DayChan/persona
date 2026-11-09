@@ -11,6 +11,7 @@ import (
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/devices"
 	"github.com/nwverse/persona/server/internal/i18n"
+	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -114,6 +115,8 @@ func (d *mirrorDevices) ConnectedAt(id string) time.Time {
 func (d *mirrorDevices) Usage() assistantwire.UsageSummary {
 	return assistantwire.UsageSummary{Machines: []assistantwire.MachineUsage{}}
 }
+
+func (d *mirrorDevices) SetAttention(link.Attention) {}
 
 // mirrors are the tests' hubs' mirror devices.
 var mirrors sync.Map // *Hub → *mirrorDevices

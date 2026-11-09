@@ -48,11 +48,17 @@ func newSlowConnector(t *testing.T, status int) *slowConnector {
 // serviceMachine is a service computer reached at sc, paired (pairing gen 1) with token.
 func serviceMachine(t *testing.T, sc *slowConnector, token string) *Machine {
 	t.Helper()
+	return serviceMachineAt(t, sc.srv, sc.fp, token)
+}
+
+// serviceMachineAt is a service computer whose connector is srv, pinned to fp, paired (pairing gen 1) with token.
+func serviceMachineAt(t *testing.T, srv *httptest.Server, fp, token string) *Machine {
+	t.Helper()
 	d := newTestDevices(t)
 	m := newMachine(d, MachineConfig{ID: "example-service", Name: "Example service", Kind: kindService,
-		Address: strings.TrimPrefix(sc.srv.URL, "https://")})
+		Address: strings.TrimPrefix(srv.URL, "https://")})
 	d.addEntry(m)
-	m.svc = serviceState{pairGen: 1, cred: &connectorCred{fp: sc.fp, token: token}}
+	m.svc = serviceState{pairGen: 1, cred: &connectorCred{fp: fp, token: token}}
 	return m
 }
 

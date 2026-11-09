@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +66,10 @@ type serviceState struct {
 	wait    time.Time // rate limited (429): not before this
 	version string    // the connector's build
 	pairGen int       // bumped when it is paired again
+	// attention: its last info said it takes the "Needs you" summary; attRev: the Rev of the summary it holds, as that
+	// info said or a post since made it (attention.go).
+	attention bool
+	attRev    string
 	// cred is the pin and credential as the hub last handed them over (devices.connector_cred), kept so the secret
 	// crosses the bus once, not on every probe; forgotten when the connector refuses it or it is paired again.
 	cred *connectorCred
@@ -164,6 +169,12 @@ func connectorTransport(fp, proxyURL string) (*http.Transport, error) {
 		MaxIdleConns:          1,
 		IdleConnTimeout:       time.Minute,
 	}, nil
+}
+
+// connectorClient makes requests to a connector over tr: within a time limit, never following a redirect.
+func connectorClient(tr *http.Transport) *http.Client {
+	return &http.Client{Transport: tr, Timeout: 2 * connectorDialTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 var errConnectorPin = errors.New("TLS 公钥指纹和配对时的不一样：那里不是这台电脑的连接器")
@@ -453,8 +464,7 @@ func (m *Machine) probeService(ctx context.Context) {
 		return
 	}
 	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: 2 * connectorDialTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := connectorClient(tr)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+m.cfg.Address+connectorInfoPath, nil)
 	if err != nil {
 		set(false, 0, "连接器的地址不对："+err.Error(), "")
@@ -476,10 +486,7 @@ func (m *Machine) probeService(ctx context.Context) {
 		set(false, 0, herr.Error(), "")
 		return
 	}
-	var info struct {
-		Machine string `json:"machine"`
-		Version string `json:"version"`
-	}
+	var info link.ConnectorInfo
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&info); err != nil {
 		set(false, 0, "连接器的回答看不懂："+err.Error(), "")
 		return
@@ -489,6 +496,15 @@ func (m *Machine) probeService(ctx context.Context) {
 		return
 	}
 	set(true, rtt, "", info.Version)
+	m.mu.Lock()
+	if !m.svcMovedOnLocked(gen) {
+		m.svc.attention, m.svc.attRev = slices.Contains(info.Features, link.FeatureAttention), info.AttentionRev
+	}
+	m.mu.Unlock()
+	if m.attPost.TryLock() { // a post under way says itself how it went: the probe does not wait for it
+		defer m.attPost.Unlock()
+		m.postAttentionLocked(ctx)
+	}
 }
 
 // probeServices reads every service machine's connector info now and then, whatever this hub's role (a member says
@@ -541,8 +557,7 @@ func (d *Devices) PairConnector(ctx context.Context, p devicewire.PairConnector)
 		return "", "", err
 	}
 	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: 2 * connectorDialTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := connectorClient(tr)
 	cfg := d.config()
 	token := "jc_" + randomHex(32)
 	body, _ := json.Marshal(map[string]string{"code": code, "token": token, "machine": p.MachineID, "hub_id": cfg.HubID, "hub_name": cfg.HubName,

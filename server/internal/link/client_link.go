@@ -61,7 +61,8 @@ func (l *link) serve(ctx context.Context, c *Config, o Options, rep *reporter) e
 	defer cancel(nil)
 	defer l.conn.CloseNow()
 	defer l.streams.CloseIdleConnections()
-	if err := l.send(ctx, Message{Type: "hello", Machine: c.Machine, Version: o.Version, Address: l.ep.URL}); err != nil {
+	hello := Message{Type: "hello", Machine: c.Machine, Version: o.Version, Address: l.ep.URL, Features: []string{FeatureAttention}}
+	if err := l.send(ctx, hello); err != nil {
 		return err
 	}
 	since := time.Now()
@@ -166,6 +167,10 @@ func (l *link) serve(ctx context.Context, c *Config, o Options, rep *reporter) e
 			beat <- o.heartbeatOf(m)
 		case "renamed":
 			l.renamed(m, c, o, rep)
+		case "attention":
+			if m.Attention != nil { // the status is reset on every connect: a summary never outlives its link
+				rep.set(func(s *Status) { s.Attention = m.Attention })
+			}
 		case "node":
 			rep.set(func(s *Status) {
 				s.Node, s.NodeError = "offline", m.Error

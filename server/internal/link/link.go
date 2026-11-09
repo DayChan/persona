@@ -73,11 +73,16 @@ func PingTimesMS(every, timeout int64) (time.Duration, time.Duration, bool) {
 
 // Message is one JSON message on the link.
 type Message struct {
-	Type string `json:"type"` // hello | endpoints | node | open | open_failed | rename | renamed
+	Type string `json:"type"` // hello | endpoints | node | open | open_failed | rename | renamed | attention
 	// hello (persona-link → hub, the first message): which machine, which build, and the hub URL it went to.
 	Machine string `json:"machine,omitempty"`
 	Version string `json:"version,omitempty"`
 	Address string `json:"address,omitempty"`
+	// hello: what this persona-link takes besides the node's streams (FeatureAttention). Older ones send none, and
+	// older managers ignore it.
+	Features []string `json:"features,omitempty"`
+	// attention (hub → persona-link): the "Needs you" summary, to links whose hello listed FeatureAttention.
+	Attention *Attention `json:"attention,omitempty"`
 	// endpoints (hub → persona-link): where else to look for the hub; and, from hubs that know (hub mesh, #293),
 	// what the hub is called and how many hubs its mesh has, itself included. Older hubs send neither.
 	Endpoints []Endpoint `json:"endpoints,omitempty"`

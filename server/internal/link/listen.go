@@ -24,9 +24,9 @@ import (
 	"github.com/coder/websocket"
 )
 
-// The passive listener (docs/operations/link.md "Passive mode"): TLS with the connector's own identity, three endpoints and nothing
-// else. Pairing trades a one-time code for the hub's credential (its hash is kept); info and stream need that
-// credential; a stream is joined to the resident node's socket byte for byte, as active mode's streams are.
+// The passive listener (docs/operations/link.md "Passive mode"): TLS with the connector's own identity, four endpoints and nothing
+// else. Pairing trades a one-time code for the hub's credential (its hash is kept); info, attention and stream need
+// that credential; a stream is joined to the resident node's socket byte for byte, as active mode's streams are.
 
 // errBadCode: the pairing code is wrong, ran out or was used.
 var errBadCode = errors.New("bad pairing code")
@@ -69,6 +69,9 @@ type passive struct {
 	seenSaid time.Time
 	// node: whether the last stream got through to the resident node (online | offline), and why not.
 	node, nodeErr string
+	// attention: the paired hub's latest "Needs you" summary (POST ConnectorAttentionPath), dropped with its
+	// credential or once the hub stopped coming in (attentionStale).
+	attention *Attention
 	// logged, suppressed: refusals are logged at most every refusalLog.
 	logged     time.Time
 	suppressed int
@@ -211,6 +214,7 @@ func (s *passive) serve(ctx context.Context, ln net.Listener) {
 			s.mu.Unlock()
 			s.report()
 		case <-tick.C:
+			s.dropStaleAttention(time.Now())
 			now := stamp()
 			if now.Equal(was) {
 				continue
@@ -262,6 +266,9 @@ func (s *passive) config() Passive {
 // longer the one end.
 func (s *passive) setConfig(p Passive) {
 	s.mu.Lock()
+	if !p.Paired() || p.TokenSHA256 != s.cfg.TokenSHA256 {
+		s.attention = nil // another hub's, or none's
+	}
 	s.cfg = p
 	for st := range s.streams {
 		if !p.Paired() || st.token != p.TokenSHA256 {
@@ -282,7 +289,7 @@ func (s *passive) report() {
 func (s *passive) reportLocked() {
 	now := time.Now()
 	st := Status{Listen: s.listen, Machine: s.cfg.Machine, HubName: s.cfg.HubName, MachineName: s.cfg.MachineName, Addrs: s.addrs,
-		Node: s.node, NodeError: s.nodeErr}
+		Node: s.node, NodeError: s.nodeErr, Attention: s.attention}
 	if !s.lastSeen.IsZero() {
 		seen := s.lastSeen
 		st.LastSeen, st.From = &seen, s.from
@@ -328,6 +335,8 @@ func (s *passive) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.pair(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == ConnectorInfoPath:
 		s.info(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == ConnectorAttentionPath:
+		s.takeAttention(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == ConnectorStreamPath:
 		s.stream(w, r)
 	default: // nothing else is here: no shell, no files, no forwarding
@@ -396,6 +405,22 @@ func maskSource(ip netip.Addr) string {
 		bits = 24
 	}
 	return netip.PrefixFrom(ip, bits).Masked().String()
+}
+
+// wrongCredential answers a request without the paired hub's credential.
+const wrongCredential = "凭据不对：这台电脑只认配对它的那台 hub"
+
+// authorized admits r when it carries the paired hub's credential, and answers it otherwise (429 blocked, 401 refused).
+func (s *passive) authorized(w http.ResponseWriter, r *http.Request) (Passive, bool) {
+	key, ok := s.admit(w, r)
+	if !ok {
+		return Passive{}, false
+	}
+	p, ok := s.credential(r)
+	if !ok {
+		s.refuse(w, r, key, "unauthorized", wrongCredential)
+	}
+	return p, ok
 }
 
 // credential is the paired hub's part of link.json when r carries its credential.
@@ -498,18 +523,72 @@ func clipText(s string, n int) string {
 }
 
 func (s *passive) info(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.admit(w, r)
+	p, ok := s.authorized(w, r)
 	if !ok {
-		return
-	}
-	p, ok := s.credential(r)
-	if !ok {
-		s.refuse(w, r, key, "unauthorized", "凭据不对：这台电脑只认配对它的那台 hub")
 		return
 	}
 	s.seen(r)
 	s.keepMachineName(p, r.Header.Get(MachineNameHeader))
-	writeJSON(w, http.StatusOK, map[string]string{"machine": p.Machine, "version": s.o.Version})
+	info := ConnectorInfo{Machine: p.Machine, Version: s.o.Version, Features: []string{FeatureAttention}}
+	s.mu.Lock()
+	if s.attention != nil {
+		info.AttentionRev = s.attention.Rev
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, info)
+}
+
+// ConnectorInfo is GET ConnectorInfoPath's answer: which computer pairing named and which build, what this connector
+// takes besides streams (FeatureAttention), and the Rev of the summary it holds, so the hub posts one again whenever
+// they differ (a post that failed, a connector that restarted). Older connectors answer only machine and version, and
+// older managers read only those.
+type ConnectorInfo struct {
+	Machine      string   `json:"machine"`
+	Version      string   `json:"version"`
+	Features     []string `json:"features,omitempty"`
+	AttentionRev string   `json:"attention_rev,omitempty"`
+}
+
+// attentionStale is how long a summary is kept after the paired hub last came in: four of its 30 s info reads (a
+// setting). A hub that stopped coming in may have answered the cards meanwhile; it posts the summary again when it
+// comes back. A variable so that tests can shrink it.
+var attentionStale = 2 * time.Minute
+
+// takeAttention is POST ConnectorAttentionPath: the paired hub's "Needs you" summary, kept for the status.
+func (s *passive) takeAttention(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authorized(w, r)
+	if !ok {
+		return
+	}
+	var a Attention
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, AttentionBodyMax)).Decode(&a); err != nil || a.Rev == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "want an attention object with its rev")
+		return
+	}
+	s.seen(r)
+	s.mu.Lock()
+	if !s.cfg.Paired() || s.cfg.TokenSHA256 != p.TokenSHA256 {
+		// Another hub paired while the body came in: this summary went with the old credential (setConfig).
+		s.mu.Unlock()
+		writeError(w, http.StatusUnauthorized, "unauthorized", wrongCredential)
+		return
+	}
+	if s.attention == nil || s.attention.Rev != a.Rev {
+		s.attention = &a
+		s.reportLocked()
+	}
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// dropStaleAttention forgets the summary once the paired hub has not come in for attentionStale.
+func (s *passive) dropStaleAttention(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.attention != nil && now.Sub(s.lastSeen) > attentionStale {
+		s.attention = nil
+		s.reportLocked()
+	}
 }
 
 // keepMachineName keeps what the paired hub calls this computer (MachineNameHeader, escaped) in link.json, when it
@@ -555,13 +634,8 @@ func isUpgrade(r *http.Request) bool {
 // stream joins a WebSocket from the hub to the resident node: the node's socket first, so that a node that is not
 // running is a 503 with the reason rather than a stream that ends at once.
 func (s *passive) stream(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.admit(w, r)
+	p, ok := s.authorized(w, r)
 	if !ok {
-		return
-	}
-	p, ok := s.credential(r)
-	if !ok {
-		s.refuse(w, r, key, "unauthorized", "凭据不对：这台电脑只认配对它的那台 hub")
 		return
 	}
 	if !isUpgrade(r) {

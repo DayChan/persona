@@ -11,6 +11,7 @@ import (
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/bus"
 	"github.com/nwverse/persona/server/internal/devices"
+	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -68,3 +69,4 @@ func (f *fakeDevices) ConnectedAt(string) time.Time                 { return tim
 func (f *fakeDevices) Usage() assistantwire.UsageSummary            { return assistantwire.UsageSummary{} }
 
 func (f *fakeDevices) Follow(context.Context, string, string, bool) error { return nil }
+func (f *fakeDevices) SetAttention(link.Attention)                        {}

@@ -151,6 +151,10 @@ type Machine struct {
 	next      *nodeConn
 	parked    string
 	svc       serviceState
+	// attPost keeps the posts of the "Needs you" summary to a service machine's connector one at a time; attQueued: a
+	// post waits for it, so another need not (attention.go).
+	attPost   sync.Mutex
+	attQueued atomic.Bool
 }
 
 func newMachine(d *Devices, cfg MachineConfig) *Machine {

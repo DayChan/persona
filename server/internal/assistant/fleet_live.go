@@ -35,8 +35,13 @@ type (
 
 const fleetMaxItems = 3
 
-// fleetDetailMax is how long an item's line gets, in runes, before it is clipped (with an ellipsis after).
-const fleetDetailMax = 60
+// fleetDetailMax is how long an item's line gets, in runes, before it is clipped (with an ellipsis after);
+// fleetTitleMax and fleetPlaceMax its title and place, as the lock screen has room for them.
+const (
+	fleetDetailMax = 60
+	fleetTitleMax  = 24
+	fleetPlaceMax  = 32
+)
 
 // liveState is what was told the hub last.
 type liveState struct {
@@ -71,7 +76,8 @@ func (s *Service) liveChanged(force bool) {
 	}
 }
 
-// liveLoop tells the hub the fleet when it changed, at most every 100 ms, and looks at the numbers every 15 s.
+// liveLoop tells the hub the fleet when it changed, at most every 100 ms, and looks at the numbers every 15 s; the
+// devices get Persona Link's summary of the same agents.
 func (s *Service) liveLoop(ctx context.Context) {
 	tick := time.NewTicker(15 * time.Second)
 	defer tick.Stop()
@@ -84,12 +90,15 @@ func (s *Service) liveLoop(ctx context.Context) {
 			time.Sleep(100 * time.Millisecond)
 		case <-tick.C:
 		}
-		s.tellLive()
+		l := s.lang(context.Background())
+		agents, ixs := s.fleetInputs()
+		s.tellLive(buildFleetIn(l, agents, ixs))
+		s.devs.SetAttention(linkAttention(l, agents, ixs)) // sent on only when it changed
 	}
 }
 
-func (s *Service) tellLive() {
-	msg := assistantwire.FleetLive{State: s.fleetSnapshot(), Stats: s.fleetStats()}
+func (s *Service) tellLive(st FleetState) {
+	msg := assistantwire.FleetLive{State: st, Stats: s.fleetStats()}
 	b, _ := json.Marshal(msg)
 	l := &s.fleet.live
 	l.mu.Lock()
@@ -107,6 +116,12 @@ func (s *Service) tellLive() {
 
 // fleetSnapshot computes the fleet from every machine's sessions and the pending interactions.
 func (s *Service) fleetSnapshot() FleetState {
+	agents, ixs := s.fleetInputs()
+	return buildFleetIn(s.lang(context.Background()), agents, ixs)
+}
+
+// fleetInputs is every machine's agents as the fleet sees them, and the pending interactions (oldest first).
+func (s *Service) fleetInputs() ([]fleetInput, []proto.Interaction) {
 	var agents []fleetInput
 	for _, m := range s.fleetMachines() {
 		for _, sess := range s.decorated(m.ID) {
@@ -120,7 +135,7 @@ func (s *Service) fleetSnapshot() FleetState {
 			})
 		}
 	}
-	return buildFleetIn(s.lang(context.Background()), agents, s.pendingInteractions())
+	return agents, s.pendingInteractions()
 }
 
 // round2 keeps two significant digits: 12345 → 12000, 987 → 990. The island shows "12k", so finer changes would
@@ -164,50 +179,80 @@ func buildFleet(agents []fleetInput, ixs []proto.Interaction) FleetState {
 	return buildFleetIn(i18n.Default, agents, ixs)
 }
 
-// buildFleetIn is buildFleet with the texts for people in l (the user's language).
-func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) FleetState {
+// needer is an agent that needs the user, and the card that stands for it: its oldest (nil: it waits in a terminal
+// dialog without one).
+type needer struct {
+	agent fleetInput
+	card  *proto.Interaction
+}
+
+// needsYou is the agents that need the user, one each, as the Agents list has them (#3571): those with a card by their
+// oldest card that stands (ixs come oldest first), then those in a terminal dialog without one, in agents' order.
+// counts says which agents count at all, stands which cards may stand for one; the assistant's own dialog never
+// counts. The Live Activity and Persona Link's summary (fleet_attention.go) differ in those, not in this.
+func needsYou(agents []fleetInput, ixs []proto.Interaction, counts func(fleetInput) bool, stands func(proto.Interaction) bool) []needer {
 	byKey := map[string]fleetInput{}
 	for _, a := range agents {
-		if a.Session.IsCodexSubagent() {
-			continue
+		if counts(a) {
+			byKey[a.Session.MachineID+"/"+a.Session.SessionID] = a
 		}
-		byKey[a.Session.MachineID+"/"+a.Session.SessionID] = a
 	}
+	var out []needer
+	asked, carded := map[string]bool{}, map[string]bool{}
+	for _, ix := range ixs {
+		key := ix.MachineID + "/" + ix.SessionID
+		carded[key] = true
+		if a, ok := byKey[key]; ok && !asked[key] && stands(ix) {
+			asked[key] = true
+			out = append(out, needer{agent: a, card: &ix})
+		}
+	}
+	for _, a := range agents {
+		key := a.Session.MachineID + "/" + a.Session.SessionID
+		// Pending cards in its row but none in ixs: they were answered between the two reads (fleetInputs), so it is
+		// not one waiting in a terminal dialog.
+		answered := a.Session.PendingInteractions > 0 && !carded[key]
+		if counts(a) && !asked[key] && a.Session.State == proto.StateNeedsYou && !a.Session.Assistant && !answered {
+			out = append(out, needer{agent: a})
+		}
+	}
+	return out
+}
+
+// liveCounts: the agent is on the Live Activity at all (muted agents and Codex sub-agents are not).
+func liveCounts(a fleetInput) bool { return !a.Session.IsCodexSubagent() && !a.Muted }
+
+// cardStands: the card may stand for its agent (on the Live Activity and in Persona Link's summary). An elicitation
+// does not: the Fleet is shared with legacy clients, whose terminal fallback stays (the agent shows as in a dialog).
+func cardStands(ix proto.Interaction) bool { return ix.Kind != proto.IxElicitation }
+
+// buildFleetIn is buildFleet with the texts for people in l (the user's language).
+func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) FleetState {
 	var st FleetState
 	var needs, working, unread []FleetItem
 	asked := map[string]bool{}
-	for _, ix := range ixs { // already oldest first
-		// Fleet is shared with legacy clients; its existing terminal fallback stays available.
-		if ix.Kind == proto.IxElicitation {
-			continue
-		}
-		key := ix.MachineID + "/" + ix.SessionID
-		a, ok := byKey[key]
-		if !ok || a.Muted || asked[key] {
-			continue // one item per agent: its oldest card stands for it, as in the Agents list (#3571)
-		}
+	for _, n := range needsYou(agents, ixs, liveCounts, cardStands) {
+		sess := n.agent.Session
+		key := sess.MachineID + "/" + sess.SessionID
 		asked[key] = true
-		item := FleetItem{
-			ID: key, Title: agentTitle(a.Session), Place: agentPlace(a.Machine, a.Session), Kind: ix.Kind,
-			Detail: clip(oneLine(interactionDetail(l, ix)), fleetDetailMax), Interaction: ix.ID, Since: unixSeconds(ix.CreatedAt),
-		}
-		if len(ix.Fields) > 0 {
-			item.Interaction = "" // what it asks for (a password) is filled in in the app: no Allow / Deny on the activity
+		item := FleetItem{ID: key, Title: agentTitle(sess, fleetTitleMax), Place: agentPlace(n.agent.Machine, sess, fleetPlaceMax),
+			Kind: proto.IxScreen, Detail: i18n.T(l, "hub-liveactivity.screen")}
+		if ix := n.card; ix != nil {
+			item.Kind, item.Detail = ix.Kind, clip(oneLine(interactionDetail(l, *ix)), fleetDetailMax)
+			item.Interaction, item.Since = ix.ID, unixSeconds(ix.CreatedAt)
+			if len(ix.Fields) > 0 {
+				item.Interaction = "" // what it asks for (a password) is filled in in the app: no Allow / Deny on the activity
+			}
 		}
 		needs = append(needs, item)
 	}
 	for _, a := range agents {
 		sess := a.Session
 		key := sess.MachineID + "/" + sess.SessionID
-		if sess.IsCodexSubagent() || a.Muted || asked[key] {
+		if !liveCounts(a) || asked[key] {
 			continue
 		}
 		switch sess.State {
-		case proto.StateNeedsYou: // a TUI dialog with no interaction yet
-			if sess.Assistant {
-				continue
-			}
-			needs = append(needs, FleetItem{ID: key, Title: agentTitle(sess), Place: agentPlace(a.Machine, sess), Kind: proto.IxScreen, Detail: i18n.T(l, "hub-liveactivity.screen")})
 		case proto.StateWorking:
 			if sess.Assistant {
 				st.Assistant = true
@@ -228,7 +273,8 @@ func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) Fle
 			if since.IsZero() {
 				since = sess.UpdatedAt
 			}
-			it := FleetItem{ID: key, Title: agentTitle(sess), Place: agentPlace(a.Machine, sess), Kind: "working", Since: unixSeconds(since)}
+			it := FleetItem{ID: key, Title: agentTitle(sess, fleetTitleMax), Place: agentPlace(a.Machine, sess, fleetPlaceMax), Kind: "working",
+				Since: unixSeconds(since)}
 			if sess.BackgroundWorking {
 				it.Background, it.Detail = true, backgroundDetail(l, sess)
 				it.Progress = backgroundProgress(sess)
@@ -238,7 +284,7 @@ func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) Fle
 			if sess.Assistant || sess.Loop != nil {
 				continue
 			}
-			unread = append(unread, FleetItem{ID: key, Title: agentTitle(sess), Place: agentPlace(a.Machine, sess), Kind: "unread",
+			unread = append(unread, FleetItem{ID: key, Title: agentTitle(sess, fleetTitleMax), Place: agentPlace(a.Machine, sess, fleetPlaceMax), Kind: "unread",
 				Detail: clip(oneLine(firstLine(sess.LastText)), fleetDetailMax), Since: unixSeconds(sess.UpdatedAt)})
 		}
 	}
@@ -263,16 +309,17 @@ func buildFleetIn(l i18n.Lang, agents []fleetInput, ixs []proto.Interaction) Fle
 	return st
 }
 
-func agentTitle(sess proto.Session) string {
+// agentTitle is the agent's title in one line of at most n runes: its project's folder when it has none.
+func agentTitle(sess proto.Session, n int) string {
 	t := transcript.Title(sess.Title)
 	if t == "" || t == "Claude Code" {
 		t = path.Base(sess.Cwd)
 	}
-	return clip(oneLine(t), 24)
+	return clip(oneLine(t), n)
 }
 
-// agentPlace is "machine · space › tab", the subtitle pushes use too.
-func agentPlace(machine string, sess proto.Session) string {
+// agentPlace is "machine · space › tab", the subtitle pushes use too, in at most n runes.
+func agentPlace(machine string, sess proto.Session, n int) string {
 	place := machine
 	if sess.SpaceName != "" {
 		place += " · " + sess.SpaceName
@@ -280,7 +327,7 @@ func agentPlace(machine string, sess proto.Session) string {
 			place += " › " + sess.SlotName
 		}
 	}
-	return clip(oneLine(place), 32)
+	return clip(oneLine(place), n)
 }
 
 func interactionDetail(l i18n.Lang, ix proto.Interaction) string {

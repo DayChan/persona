@@ -16,7 +16,7 @@ SERVER_CLIENT_INPUTS = [
 
 FILTERS = {
     "server": ["server/**", "sdk/go/**", "schema/**", "spec/**", "integrations/**", "docs/assistant/prompts.md", "docs/protocol/**", "scripts/test/server_test_env.py", "scripts/ci/*server*", "scripts/ci/postgres.py", "scripts/ci/gofmt.py", ".github/workflows/server-test.yml"] + SERVER_CLIENT_INPUTS,
-    "web": ["web/**", "schema/extension/**", "spec/fixtures/injected/**", "spec/fixtures/sync/**", "scripts/mock/inbox_events.json", "scripts/ci/web.sh", ".github/workflows/web-test.yml"],
+    "web": ["web/**", "schema/extension/**", "spec/fixtures/injected/**", "spec/fixtures/sync/**", "spec/fixtures/attention/**", "scripts/mock/inbox_events.json", "scripts/ci/web.sh", ".github/workflows/web-test.yml"],
     "android": ["android/**", "schema/**", "spec/**", "scripts/app/*android*", "scripts/ci/*android*", ".github/workflows/android-test.yml"],
     "apple": ["apple/**", "schema/**", "spec/**", "scripts/app/sim-boot.sh", "scripts/i18n/**", "scripts/ci/apple*", ".github/workflows/apple-test.yml"],
     "runtimes": ["integrations/**", "sdk/ts/**", "schema/**", "spec/**", "scripts/ci/runtimes.sh", ".github/workflows/runtimes-test.yml"],

@@ -24,6 +24,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/devicewire"
+	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -127,6 +128,9 @@ type Devices struct {
 	links    linkSet
 	stopping atomic.Bool
 	workers  sync.WaitGroup
+
+	// attention: the assistant's latest "Needs you" summary for Persona Link (attention.go); nil before the first.
+	attention atomic.Pointer[link.Attention]
 
 	cfgChanged chan struct{} // closed when the hub's handover changes (meshWait)
 
@@ -261,6 +265,9 @@ func (d *Devices) Configure(cfg devicewire.Config) {
 	if was := linkSays(old); was != linkSays(cfg) {
 		d.links.sendEndpoints(d.linkEndpoints)
 	}
+	// The summary carries the web address, and a computer gets it only once confirmed and not a work computer
+	// (attentionWithheld: pending, machines[].trust, a member's records). A computer that has the latest gets nothing.
+	d.spreadAttention()
 	if member := cfg.Mesh != nil && cfg.Mesh.Member; member != wasMember {
 		// The hub joined a group (its computers are the center's to connect now: let them go at once) or became its
 		// center (connect them again, its own and the members').

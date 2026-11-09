@@ -53,6 +53,13 @@ func (c *testLinkClient) next(t *testing.T, typ string) link.Message {
 // dialTestLink connects a Persona Link of machine id to d and waits until d has it as the machine's link.
 func dialTestLink(t *testing.T, d *Devices, id string) (*testLinkClient, *mgrLink) {
 	t.Helper()
+	return dialTestLinkHello(t, d, link.Message{Type: "hello", Machine: id, Version: "test"})
+}
+
+// dialTestLinkHello is dialTestLink with this hello.
+func dialTestLinkHello(t *testing.T, d *Devices, hello link.Message) (*testLinkClient, *mgrLink) {
+	t.Helper()
+	id := hello.Machine
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -68,8 +75,8 @@ func dialTestLink(t *testing.T, d *Devices, id string) (*testLinkClient, *mgrLin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
-	hello, _ := json.Marshal(link.Message{Type: "hello", Machine: id, Version: "test"})
-	if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
+	b, _ := json.Marshal(hello)
+	if err := conn.Write(ctx, websocket.MessageText, b); err != nil {
 		t.Fatal(err)
 	}
 	c := &testLinkClient{closed: make(chan websocket.CloseError, 1), msgs: make(chan link.Message, 64), conn: conn}

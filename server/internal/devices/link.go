@@ -43,6 +43,12 @@ type mgrLink struct {
 	version string          // Persona Link's build
 	address string          // the hub URL it went to
 	since   time.Time
+	// attention: its hello listed link.FeatureAttention. attMu keeps the summary's sends one at a time; attReady: the
+	// endpoints went out (the summary follows them); attSent: the Rev it was sent last (attention.go).
+	attention bool
+	attMu     sync.Mutex
+	attReady  bool
+	attSent   string
 	// ctx ends with the link, and every stream on it with it; its cause says why.
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -126,7 +132,7 @@ func (d *Devices) acceptLink(conn *websocket.Conn, a devicewire.Accept) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	l := &mgrLink{m: m, conn: conn, relayID: a.ID, tokenID: a.TokenID, version: textfmt.Clip(strings.TrimSpace(hello.Version), 80),
 		address: textfmt.Clip(strings.TrimSpace(hello.Address), 200), since: time.Now().UTC(), ctx: ctx, cancel: cancel,
-		pending: map[string]chan linkStream{}}
+		pending: map[string]chan linkStream{}, attention: slices.Contains(hello.Features, link.FeatureAttention)}
 	if d.stopping.Load() {
 		cancel(errors.New("manager stopping"))
 		_ = conn.Close(websocket.StatusGoingAway, "manager stopping")
@@ -139,6 +145,7 @@ func (d *Devices) acceptLink(conn *websocket.Conn, a devicewire.Accept) {
 	}
 	d.logf("[%s] link up: Persona Link %s via %s from %s", m.cfg.ID, l.version, l.address, a.Source)
 	_ = l.send(d.linkEndpoints(m.cfg.ID))
+	l.readyForAttention()
 	// The read loop is not bound to l.ctx: a link closed with a reason (replaced) still sends its close frame.
 	for {
 		_, data, err := conn.Read(context.Background())

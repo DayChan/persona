@@ -813,16 +813,21 @@ func (s *Service) webBase(ctx context.Context) string {
 	return strings.TrimRight(st.PublicURL, "/")
 }
 
-// sessionLink is a conversation's page in the web app at web (web/src/lib/router.ts): a Persona conversation is
-// /persona/<id>, an agent /s/<machine>/<id>; "" when web is.
+// sessionLink is a conversation's page in the web app at web; "" when web is.
 func sessionLink(web, machine, session string, assistant bool) string {
 	if web == "" {
 		return ""
 	}
+	return web + sessionPath(machine, session, assistant)
+}
+
+// sessionPath is a conversation's path in the web app (web/src/lib/router.ts): a Persona conversation is
+// /persona/<id>, an agent /s/<machine>/<id>.
+func sessionPath(machine, session string, assistant bool) string {
 	if assistant {
-		return web + "/persona/" + url.PathEscape(session)
+		return "/persona/" + url.PathEscape(session)
 	}
-	return web + "/s/" + url.PathEscape(machine) + "/" + url.PathEscape(session)
+	return "/s/" + url.PathEscape(machine) + "/" + url.PathEscape(session)
 }
 
 // todoLink is a todo's page in the web app at web, "" when web is.
