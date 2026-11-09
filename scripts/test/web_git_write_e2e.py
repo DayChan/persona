@@ -119,7 +119,7 @@ def flow(browser, base, hubu, token, shots):
     page.locator("aside[aria-label=Git] header").get_by_role("button", name="返回").click()
     panel.get_by_role("button", name="· 贮藏 1").click()
     view = page.locator("aside[aria-label=Git]")
-    expect(view.get_by_text("试过的另一种配色")).to_be_visible()
+    expect(view.get_by_text("alternate palette", exact=False)).to_be_visible()
     view.get_by_role("textbox", name="这些改动是什么（可不填）").fill("降雨条的另一种画法")
     shot(page, shots, "stashes-wide-light.png")
     view.get_by_role("button", name="收起改动").click()
@@ -130,7 +130,7 @@ def flow(browser, base, hubu, token, shots):
     expect(dialog).to_contain_text("会被删除")
     shot(page, shots, "drop-confirm-wide-light.png")
     dialog.get_by_role("button", name="丢弃", exact=True).click()
-    expect(view.get_by_text("试过的另一种配色")).to_have_count(0)
+    expect(view.get_by_text("alternate palette", exact=False)).to_have_count(0)
     ok("stash puts the changes away with a message; dropping one asks first")
     ctx.close()
 

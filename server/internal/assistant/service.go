@@ -198,6 +198,13 @@ func fullRole(r *http.Request) bool {
 	return role == "" || role == roleFull
 }
 
+// todoWriter says whether r may change todos: a full device, or an extension token. The hub relays an extension's
+// request only to the routes its granted scopes open (extwire.RouteScopes: todos.write), so reaching a todo write
+// here already means the extension holds todos.write.
+func todoWriter(r *http.Request) bool {
+	return fullRole(r) || r.Header.Get(RoleHeader) == roleExtension
+}
+
 // owner is how the assistant calls the user: manager.json's assistant.owner, else the Chinese word for "user".
 func (s *Service) owner(ctx context.Context) string {
 	if o := strings.TrimSpace(s.hello(ctx).Owner); o != "" {

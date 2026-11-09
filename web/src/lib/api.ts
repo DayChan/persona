@@ -97,9 +97,11 @@ export class HubTimeoutError extends Error {
   }
 }
 
+type ApiOptions = RequestInit & { json?: unknown; token?: string; tokenOwner?: string; onResponse?: (headers: Headers) => void };
+
 /** `tokenOwner`: explicit credentials opt into 401 recovery only while both the token and credential generation are current.
  *  `timeout`: ms before a read gives up with HubTimeoutError (default READ_TIMEOUT_MS for GET, none otherwise; 0: none). */
-export async function api<T>(path: string, init: RequestInit & { json?: unknown; token?: string; tokenOwner?: string; timeout?: number } = {}): Promise<T> {
+export async function api<T>(path: string, init: ApiOptions & { timeout?: number } = {}): Promise<T> {
   const { timeout, ...rest } = init;
   const limit = timeout ?? ((init.method ?? "GET").toUpperCase() === "GET" ? READ_TIMEOUT_MS : 0);
   if (!limit) return request<T>(path, rest);
@@ -124,7 +126,8 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown;
   }
 }
 
-async function request<T>(path: string, init: RequestInit & { json?: unknown; token?: string; tokenOwner?: string }): Promise<T> {
+async function request<T>(path: string, init: ApiOptions): Promise<T> {
+  const { onResponse, ...fetchOptions } = init;
   const owner = init.token === undefined ? credentialOwner() : init.tokenOwner;
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${init.token ?? getToken()}`);
@@ -144,7 +147,7 @@ async function request<T>(path: string, init: RequestInit & { json?: unknown; to
   const method = init.method ?? "GET";
   let res: Response;
   try {
-    res = await fetch(`${BASE}/api/v1${path}`, { ...init, headers, body });
+    res = await fetch(`${BASE}/api/v1${path}`, { ...fetchOptions, headers, body });
   } catch (e) {
     // a breadcrumb for an error report: the method, the path's pattern (no ids, no query) and that it did not get there
     if (!isAbort(e)) requestCrumb(method, path, 0);
@@ -166,6 +169,7 @@ async function request<T>(path: string, init: RequestInit & { json?: unknown; to
     const msg = typeof data.error === "string" && data.error ? data.error : `HTTP ${res.status}`;
     throw new ApiError(res.status, msg, data, isJson, res.headers?.get("X-Request-Id") ?? undefined);
   }
+  onResponse?.(res.headers);
   return compatibleEnvelope(data) as T;
 }
 

@@ -22,6 +22,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/extension"
 	progconf "github.com/nwverse/persona/server/internal/extension/conformance"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -88,6 +89,20 @@ func TestExampleChatWireFixtures(t *testing.T) {
 		"archive.changes.json": ignore(func(raw json.RawMessage) (serve.ChangesResult, error) {
 			return checkChanges("", programArchiveMost, raw)
 		}),
+		"history.chats.json": ignore(checkHistoryChats),
+		"archive.history.json": ignore(func(raw json.RawMessage) (connectorwire.HistoryPage, error) {
+			return checkHistoryPage(connectorwire.HistoryQuery{Chat: "primary.user_example_a"}, raw)
+		}),
+		"archive.history.start.json": ignore(func(raw json.RawMessage) (connectorwire.HistoryPage, error) {
+			return checkHistoryPage(connectorwire.HistoryQuery{Chat: "primary.user_example_a", Before: "3"}, raw)
+		}),
+		"archive.history.unreadable.json": ignore(func(raw json.RawMessage) (connectorwire.HistoryPage, error) {
+			return checkHistoryPage(connectorwire.HistoryQuery{Chat: "primary.group_example_gone"}, raw)
+		}),
+		"archive.history.paced.json": ignore(func(raw json.RawMessage) (connectorwire.HistoryPage, error) {
+			return checkHistoryPage(connectorwire.HistoryQuery{Chat: "primary.group_example_team"}, raw)
+		}),
+		"history.anchors.json":    ignore(checkHistoryAnchors),
 		"login.step.json":         ignore(checkPrompt),
 		"login.step.refused.json": ignore(checkPrompt),
 		"login.step.done.json":    ignore(checkPrompt),
@@ -116,13 +131,15 @@ func TestExampleChatWireFixtures(t *testing.T) {
 // A program that answers from the fixtures. edit changes the JSON of a fixture before it is sent (to see what
 // CheckProgram says of a program that drifted); redeliver has the archive give the same again from a later cursor.
 type fixtureProgram struct {
-	edit       map[string]func(map[string]any)
-	redeliver  bool
-	wrote      atomic.Bool         // the program was asked to write: actions.do, inbox.reply or recall
-	manifest   *extension.Manifest // what CheckProgram is given, when it is not the fixture's
-	signedIn   atomic.Bool
-	announced  sync.Once
-	peerCaller *rpc.Peer
+	edit      map[string]func(map[string]any)
+	redeliver bool
+	wrote     atomic.Bool // the program was asked to write: actions.do, inbox.reply or recall
+	// historyAsked counts the history calls (history.chats, archive.history, history.anchors) it answered.
+	historyAsked atomic.Int32
+	manifest     *extension.Manifest // what CheckProgram is given, when it is not the fixture's
+	signedIn     atomic.Bool
+	announced    sync.Once
+	peerCaller   *rpc.Peer
 }
 
 const goodKey = "example-key"
@@ -149,8 +166,8 @@ func (f *fixtureProgram) secrets(ctx context.Context, method string, data []byte
 func (f *fixtureProgram) handle(t testing.TB) rpc.Handler {
 	return func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 		var args struct {
-			Step, Cursor, Before string
-			Values               map[string]string
+			Step, Cursor, Before, Chat, Around string
+			Values                             map[string]string
 		}
 		_ = json.Unmarshal(params, &args)
 		switch method {
@@ -183,6 +200,23 @@ func (f *fixtureProgram) handle(t testing.TB) rpc.Handler {
 			}
 			next, _ := json.Marshal(args.Cursor)
 			return json.RawMessage(`{"next":` + string(next) + `}`), nil
+		case "connector.history.chats":
+			f.historyAsked.Add(1)
+			return f.answer(t, "history.chats.json"), nil
+		case "connector.archive.history":
+			f.historyAsked.Add(1)
+			switch {
+			case args.Chat == "primary.group_example_gone":
+				return f.answer(t, "archive.history.unreadable.json"), nil
+			case args.Chat == "primary.group_example_team":
+				return f.answer(t, "archive.history.paced.json"), nil
+			case args.Before == "3":
+				return f.answer(t, "archive.history.start.json"), nil
+			}
+			return f.answer(t, "archive.history.json"), nil
+		case "connector.history.anchors":
+			f.historyAsked.Add(1)
+			return f.answer(t, "history.anchors.json"), nil
 		case "connector.login.step":
 			switch {
 			case args.Step == "":
@@ -318,6 +352,118 @@ func TestCheckProgramAcceptsADeclaredRecallAndNeverAsksIt(t *testing.T) {
 	}
 	if f.wrote.Load() {
 		t.Fatal("CheckProgram asked the program to write (actions.do, inbox.reply or recall): a check never sends")
+	}
+}
+
+// declaring is the fixture program with the example connector declaring caps besides its own, in its manifest and in
+// what it answers to initialize.
+func declaring(t *testing.T, caps ...string) *fixtureProgram {
+	t.Helper()
+	add := func(v map[string]any) {
+		c := v["contributes"].(map[string]any)["connectors"].([]any)[0].(map[string]any)
+		for _, cp := range caps {
+			c["capabilities"] = append(c["capabilities"].([]any), cp)
+		}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(fixture(t, "persona-plugin.json"), &m); err != nil {
+		t.Fatal(err)
+	}
+	add(m)
+	raw, _ := json.Marshal(m)
+	declared, err := extension.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fixtureProgram{manifest: declared, edit: map[string]func(map[string]any){"initialize.json": add}}
+}
+
+// A program that declares history and history_anchors is asked for its conversations and reads back a few of them
+// (one to its start, one unreadable, one that asks to slow down), and for the owner's messages and the page around one.
+func TestCheckProgramReadsHistory(t *testing.T) {
+	f := declaring(t, "history", "history_anchors")
+	if got := f.check(t); got != "" {
+		t.Fatalf("CheckProgram failed a program with history that says what the fixtures say:\n%s", got)
+	}
+	// history.chats, the dm's two pages, the unreadable group, the paced group, history.anchors and the page around it.
+	if n := f.historyAsked.Load(); n != 7 {
+		t.Fatalf("%d history calls, want 7", n)
+	}
+	if f.wrote.Load() {
+		t.Fatal("CheckProgram asked the program to write while reading history")
+	}
+}
+
+// A program that does not declare history is never asked for it.
+func TestCheckProgramLeavesHistoryUndeclared(t *testing.T) {
+	f := &fixtureProgram{}
+	if got := f.check(t); got != "" {
+		t.Fatal(got)
+	}
+	if n := f.historyAsked.Load(); n != 0 {
+		t.Fatalf("%d history calls to a program that does not declare history", n)
+	}
+}
+
+// What the history import relies on, one program at a time that does not keep to it.
+func TestCheckProgramCatchesHistoryDrift(t *testing.T) {
+	cases := []struct {
+		name, file, want string
+		edit             func(map[string]any)
+	}{
+		{"more without a cursor", "archive.history.json", "more without an older cursor", func(v map[string]any) { delete(v, "older") }},
+		{"a page newest first", "archive.history.json", "oldest first", func(v map[string]any) { slices.Reverse(v["messages"].([]any)) }},
+		{"an unreadable chat with messages", "archive.history.unreadable.json", "unreadable, with", func(v map[string]any) {
+			v["messages"] = []any{map[string]any{"id": "1", "text": "x", "at": "2026-11-04T08:00:00Z"}}
+		}},
+		{"a kind the hub does not know", "history.chats.json", `kind "channel"`, func(v map[string]any) {
+			v["chats"].([]any)[0].(map[string]any)["kind"] = "channel"
+		}},
+		{"an anchor without a reason", "history.anchors.json", "neither mine nor mention", func(v map[string]any) {
+			delete(v["anchors"].([]any)[0].(map[string]any), "mine")
+		}},
+		{"a stop without a reason", "archive.history.paced.json", "without a reason", func(v map[string]any) {
+			v["pace"] = map[string]any{"stop": true}
+		}},
+		{"an empty page with more", "archive.history.json", "more on a page with no messages", func(v map[string]any) {
+			v["messages"] = []any{}
+		}},
+		{"an older cursor at the start", "archive.history.start.json", "an older cursor without more", func(v map[string]any) {
+			v["older"] = "1"
+		}},
+		{"an unreadable chat with more", "archive.history.unreadable.json", "unreadable, with more or a cursor", func(v map[string]any) {
+			v["more"], v["older"] = true, "5"
+		}},
+		{"a chat flag the protocol does not have", "history.chats.json", `unknown field "starred"`, func(v map[string]any) {
+			v["chats"].([]any)[0].(map[string]any)["starred"] = true
+		}},
+		{"one id under two sources", "history.chats.json", "listed twice", func(v map[string]any) {
+			c := v["chats"].([]any)
+			c[1].(map[string]any)["id"] = c[0].(map[string]any)["id"]
+			c[1].(map[string]any)["source"] = "examplefeed"
+		}},
+		{"going forward instead of back", "archive.history.start.json", "after the newer page", func(v map[string]any) {
+			for _, m := range v["messages"].([]any) {
+				m.(map[string]any)["at"] = "2026-11-05T08:00:00Z"
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := declaring(t, "history", "history_anchors")
+			f.edit[c.file] = c.edit
+			if got := f.check(t); !strings.Contains(got, c.want) {
+				t.Fatalf("CheckProgram should have failed with %q, said:\n%s", c.want, got)
+			}
+		})
+	}
+}
+
+// A declaration the hub would refuse: history without an archive, history_anchors without history.
+func TestCheckProgramRefusesHistoryWithoutItsBase(t *testing.T) {
+	f := declaring(t, "history_anchors")
+	if got := f.check(t); !strings.Contains(got, "declares history_anchors without history") {
+		t.Fatalf("history_anchors without history passed:\n%s", got)
 	}
 }
 

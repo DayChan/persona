@@ -131,7 +131,18 @@ func (e *Engine) Get(kind, id string, recentChars int) (*Detail, error) {
 	default:
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
-	raw, err := os.ReadFile(meta)
+	var recording map[string][]byte
+	var raw []byte
+	var err error
+	if kind == KindRecording {
+		recording, err = e.Store.recordingSnapshot(id)
+		raw = recording["meta.json"]
+		if err == nil && raw == nil {
+			err = ErrNotFound
+		}
+	} else {
+		raw, err = os.ReadFile(meta)
+	}
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -148,9 +159,11 @@ func (e *Engine) Get(kind, id string, recentChars int) (*Detail, error) {
 		}
 	}
 	if kind == KindRecording {
-		d.Segments = nonNilSegments(e.Store.RecordingSegments(id))
+		var segs []RecordingSegment
+		_ = json.Unmarshal(recording["segments.json"], &segs)
+		d.Segments = nonNilSegments(segs)
 		if recentChars > 0 {
-			raw, _ := os.ReadFile(e.Store.path(kind, id, "transcript.md"))
+			raw := recording["transcript.md"]
 			d.Recent = clip(string(raw), recentChars)
 		}
 	}

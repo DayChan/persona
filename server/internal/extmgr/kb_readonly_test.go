@@ -14,7 +14,8 @@ func TestKBReadOnlyBlocksExternalSourcesAndPluginWork(t *testing.T) {
 	h.hello.Store(&assistantwire.Hello{KB: &assistantwire.KBSettings{ReadOnly: true}})
 	ctx := context.Background()
 	for _, method := range []string{assistantwire.ConnectorsArchives, assistantwire.ConnectorsChanges,
-		assistantwire.ConnectorsArchiveMedia, assistantwire.ConnectorsItems, assistantwire.ConnectorsDocTitle, assistantwire.ConnectorsOwner} {
+		assistantwire.ConnectorsArchiveMedia, assistantwire.ConnectorsItems, assistantwire.ConnectorsDocTitle, assistantwire.ConnectorsOwner,
+		assistantwire.ConnectorsHistoryChats, assistantwire.ConnectorsHistory, assistantwire.ConnectorsHistoryAnchors} {
 		_, handled, err := h.kbSourcesCall(ctx, assistantwire.AppCall{AppID: assistantwire.AppConnectors, Method: method})
 		if !handled || !errors.Is(err, kb.ErrReadOnly) {
 			t.Fatalf("%s: handled=%v err=%v", method, handled, err)

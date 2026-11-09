@@ -6,5 +6,7 @@
   "ask_run": "让助手在「{machine}」上运行它的操作",
   "ask_unknown": "{summary}（认不全它会碰哪些 App，所以这次要问）",
   "always": "以后操作{apps}不再问",
-  "err_no_database": "没有数据库"
+  "err_no_database": "没有数据库",
+  "owner_changed": "这台电脑的管理器已更改。请刷新电脑详情页后重试。",
+  "owner_required": "请重新加载电脑详情页后再撤销此保存的授权。"
 }

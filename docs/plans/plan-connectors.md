@@ -339,7 +339,8 @@ Descriptions in `prompts/mcp/github/`; add a "with GitHub" tool-list golden.
 The hub has no public entry point, so cannot receive webhooks. `GET /notifications` sends the previous `Last-Modified` verbatim as `If-Modified-Since`;
 304s do not count against rate limits. Request intervals follow `X-Poll-Interval` (usually 60 seconds, longer when GitHub is busy; mandatory), updating `Poller.NextPoll` each time.
 Fetch corresponding PRs / issues / check runs only for new notifications (at most 30 `threads` per round, rest next round). Below 10% `X-RateLimit-Remaining`, status becomes `rate_limited`
-and only notification polling remains.
+and only notification polling remains. That is the hour's core quota (`X-RateLimit-Resource: core`, or no such header); the search API's
+per-minute quota is kept apart and below 10% only pauses the knowledge-base archive (`Changes`) until it resets.
 
 ### Conversation page (#1055)
 

@@ -190,7 +190,11 @@ func TestReviewAcceptedRecordsOutcome(t *testing.T) {
 				if _, err := s.runTool(ctx, "server", "conv1", "task_review", raw); err != nil {
 					t.Fatalf("%s: %v", c.verdict, err)
 				}
-				if done := todoNow(s, todo.ID); done.DoneAt == nil || done.DoneBy != db.DoneByReview {
+				doneBy := db.DoneByReview
+				if c.verdict == reviewCancelled {
+					doneBy = db.DoneByCancelled
+				}
+				if done := todoNow(s, todo.ID); done.DoneAt == nil || done.DoneBy != doneBy {
 					t.Fatalf("%s: not closed by the review: %+v", c.verdict, done)
 				}
 				s.waitTaskOutcomes() // an outcome being recorded (accepted, or wrongly for cancelled) is done by now

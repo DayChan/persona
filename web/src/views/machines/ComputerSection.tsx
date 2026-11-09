@@ -11,8 +11,9 @@ import { Button, cx, Dialog, EASE, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { Switch } from "../settings/SettingsParts";
 import { t } from "../../i18n";
+import { AllowedComputerApps } from "./AllowedComputerApps";
 
-export function ComputerSection({ mid, computer, online }: { mid: string; computer: MachineComputer; online: boolean }) {
+export function ComputerSection({ mid, computer, online, manager }: { mid: string; computer: MachineComputer; online: boolean; manager?: string }) {
   // What the hub said since the page opened (newer than the machine list's).
   const [fresh, setFresh] = useState<MachineComputer | null>(null);
   const [saving, setSaving] = useState(false);
@@ -173,6 +174,7 @@ export function ComputerSection({ mid, computer, online }: { mid: string; comput
             {v.kind === "unknown" && <Line text={v.text} />}
           </div>
         )}
+        <AllowedComputerApps mid={mid} manager={manager} />
       </div>
       <Dialog
         open={confirmInstall}

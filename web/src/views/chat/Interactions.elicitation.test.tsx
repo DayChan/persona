@@ -164,3 +164,68 @@ describe("MCP 表单卡片", () => {
     expect(host.textContent).toContain("终端");
   });
 });
+
+function expectSecretInput(el: HTMLInputElement) {
+  expect(el.type).toBe("password");
+  expect(el.autocomplete).toBe("one-time-code");
+  expect(el.getAttribute("autocapitalize")).toBe("off");
+  expect(el.getAttribute("autocorrect")).toBe("off");
+  expect(el.getAttribute("spellcheck")).toBe("false");
+  expect(el.getAttribute("data-1p-ignore")).toBe("true");
+  expect(el.getAttribute("data-lpignore")).toBe("true");
+  expect(el.getAttribute("data-bwignore")).toBe("true");
+}
+
+function expectOrdinaryInput(el: HTMLInputElement) {
+  expect(el.type).toBe("text");
+  expect(el.autocomplete).toBe("off");
+  for (const attr of ["autocapitalize", "autocorrect", "spellcheck", "data-1p-ignore", "data-lpignore", "data-bwignore"]) {
+    expect(el.hasAttribute(attr), attr).toBe(false);
+  }
+}
+
+describe("secret input browser hints and removal", () => {
+  it("clears the terminal password DOM value before removal without changing ordinary inputs", () => {
+    const ix: Interaction = { id: "ix_screen", machine_id: "m", session_id: "s", kind: "screen", secret: true };
+    render(ix);
+    const secret = host.querySelector("input")!;
+    expectSecretInput(secret);
+    type(secret, "synthetic-terminal-secret");
+    expect(secret.value).toBe("synthetic-terminal-secret");
+    act(() => root.render(null));
+    expect(secret.value).toBe("");
+    expect(secret.isConnected).toBe(false);
+
+    render({ ...ix, secret: false });
+    const ordinary = host.querySelector("input")!;
+    expectOrdinaryInput(ordinary);
+    type(ordinary, "public text");
+    act(() => root.render(null));
+    expect(ordinary.value).toBe("public text");
+  });
+
+  it("clears MCP secret fields on removal while leaving non-secret field behavior unchanged", () => {
+    render(formIx({
+      type: "object",
+      properties: {
+        code: { type: "string", title: "Code", format: "password" },
+        hidden: { type: "string", title: "Hidden", writeOnly: true },
+        name: { type: "string", title: "Name" },
+      },
+    }));
+    const secrets = [input("Code"), input("Hidden")];
+    for (const el of secrets) {
+      expectSecretInput(el);
+      type(el, "synthetic-mcp-secret");
+    }
+    const ordinary = input("Name");
+    expectOrdinaryInput(ordinary);
+    type(ordinary, "public name");
+    act(() => root.render(null));
+    for (const el of secrets) {
+      expect(el.value).toBe("");
+      expect(el.isConnected).toBe(false);
+    }
+    expect(ordinary.value).toBe("public name");
+  });
+});

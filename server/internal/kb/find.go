@@ -1,6 +1,8 @@
 package kb
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -83,11 +85,13 @@ func matcher(query string) func(string) bool {
 // searchable reports whether a file of the data dir (path relative to it) holds text a search may return. Bookkeeping
 // is not: a person's hashed identity hints (handles.json, handles.go), a connector's cursor (cursors/<source>.json),
 // history imports' progress (history/, history.go) and the Moments verdicts of a project (moments-judged.json,
-// moments_link.go) mean nothing to a model, and the hints are kept out of every tool and prompt.
+// moments_link.go), and recording undo snapshots mean nothing to a model, and the hints are kept out of every tool and prompt.
 func searchable(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch {
 	case parts[0] == "cursors" || parts[0] == "history":
+		return false
+	case len(parts) == 3 && parts[0] == KindRecording && parts[2] == recordingJournal:
 		return false
 	case len(parts) == 3 && parts[0] == KindPerson && parts[2] == "handles.json":
 		return false
@@ -146,6 +150,7 @@ func (e *Engine) Find(query string, limit int) []Result {
 	if match == nil || limit <= 0 {
 		return nil
 	}
+	recording := e.Store.recordingSearchView()
 	ws := words(query)
 	// A file whose text folds to itself (nearly every one) has lines that do too, so they are matched as written
 	// instead of folded one by one: lowercasing works rune by rune, and NFC neither composes nor reorders across a
@@ -181,7 +186,7 @@ func (e *Engine) Find(query string, limit int) []Result {
 					continue
 				}
 				fh := fileHits{key: kind + "/" + id}
-				c, st, ok := e.find.text(p, gen)
+				c, st, ok := e.searchText(p, gen, recording)
 				fh.stat = st
 				if ok && hasAll(c.lower, ws) {
 					m := match
@@ -205,9 +210,15 @@ func (e *Engine) Find(query string, limit int) []Result {
 	}
 	known := e.find.entries(metas, func() map[string]Entry {
 		known := map[string]Entry{}
-		for _, k := range []string{KindProject, KindChat, KindPerson, KindDoc, KindMeeting, KindEvent, KindRecording} {
+		for _, k := range []string{KindProject, KindChat, KindPerson, KindDoc, KindMeeting, KindEvent} {
 			for _, en := range e.List(k, "") {
 				known[k+"/"+en.ID] = en
+			}
+		}
+		for id, files := range recording {
+			var r Recording
+			if raw := files["meta.json"]; raw != nil && json.Unmarshal(raw, &r) == nil {
+				known[KindRecording+"/"+id] = recordingEntry(&r)
 			}
 		}
 		return known
@@ -438,6 +449,10 @@ func (e *Engine) Matches(kind, id, query string, limit int) []Match {
 	if kind == KindRecording {
 		id, _ = RecordingID(id)
 	}
+	var recording map[string][]byte
+	if kind == KindRecording {
+		recording, _ = e.Store.recordingSnapshot(id)
+	}
 	match := matcher(query)
 	if match == nil {
 		return nil
@@ -445,7 +460,13 @@ func (e *Engine) Matches(kind, id, query string, limit int) []Match {
 	var out []Match
 	ws := words(query)
 	look := func(p string, msgs bool) {
-		raw, err := os.ReadFile(p)
+		var raw []byte
+		var err error
+		if kind == KindRecording && filepath.Base(p) != "summary.md" {
+			raw = recording[filepath.Base(p)]
+		} else {
+			raw, err = os.ReadFile(p)
+		}
 		if err != nil || !hasAll(fold(string(raw)), ws) {
 			return
 		}
@@ -580,9 +601,10 @@ const findSettle = 2 * time.Second
 
 // fileStat is what tells a file changed.
 type fileStat struct {
-	path string
-	mod  int64 // UnixNano
-	size int64
+	path    string
+	content [32]byte // accepted recording bytes can differ from physical files under a journal
+	mod     int64    // UnixNano
+	size    int64
 }
 
 func settling(st fileStat) bool { return time.Since(time.Unix(0, st.mod)) < findSettle }
@@ -701,6 +723,27 @@ func (c *findCache) begin() uint64 {
 	defer c.mu.Unlock()
 	c.gen++
 	return c.gen
+}
+
+// Recording text bypasses the disk cache: a journal may mask a newer physical
+// file without changing that file's stat. Other archive files keep their cache.
+func (e *Engine) searchText(p string, gen uint64, recording map[string]map[string][]byte) (*findText, fileStat, bool) {
+	rel, err := filepath.Rel(e.Store.Dir, p)
+	if err == nil {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) == 3 && parts[0] == KindRecording && (parts[2] == "meta.json" || parts[2] == "transcript.md") {
+			raw := recording[parts[1]][parts[2]]
+			if raw == nil {
+				return nil, fileStat{}, false
+			}
+			st := fileStat{path: p, size: int64(len(raw)), content: sha256.Sum256(raw)}
+			text := string(raw)
+			t := &findText{stat: st, raw: text, lower: fold(text)}
+			t.same = t.lower == t.raw
+			return t, st, true
+		}
+	}
+	return e.find.text(p, gen)
 }
 
 // text returns a file's text and its stat, from the cache while the file is unchanged.

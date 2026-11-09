@@ -7,6 +7,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/connector/imessage"
 	"github.com/nwverse/persona/server/internal/extension"
+	"github.com/nwverse/persona/server/internal/extension/host"
 	"github.com/nwverse/persona/server/internal/i18n"
 )
 
@@ -37,9 +38,11 @@ const imessageConfig = `{
 }`
 
 func imessageManifest(h *Manager) *extension.Manifest {
+	connector, _ := json.Marshal([]extension.ConnectorItem{{ID: imessage.ID, Name: imessage.NewRemote(imessage.Config{}, "", nil).Name(),
+		Capabilities: []string{"status", "tools", "events", "inbox", "archive", "machines"}}})
 	return &extension.Manifest{ManifestVersion: extension.ManifestVersion, ID: imessageExtensionID, Name: "信息（iMessage）", Version: h.version,
 		Description: "读你一台 Mac 上「信息」App 的短信和 iMessage（只读，不发送），交给收件箱、知识库和助手。读哪台在这里选；「交给 Persona」和删除已存的数据在 设置 › 连接器 › 信息。",
-		Contributes: map[string]json.RawMessage{}, Configuration: json.RawMessage(imessageConfig), Node: builtinNode("machines")}
+		Contributes: map[string]json.RawMessage{"connectors": connector}, Configuration: json.RawMessage(imessageConfig), Node: builtinNode("machines")}
 }
 
 // imessageExtensionMachines is the Macs picked in the extension's settings, and whether it is on.
@@ -123,6 +126,18 @@ func (h *Manager) applyIMessage() {
 	if err := h.addIMessage(imessage.Config{Machine: want}); err != nil {
 		h.logf("imessage connector: %v", err)
 	}
+}
+
+// An enabled extension without a Mac is not running yet: its form is the next step, and the connector appears once
+// one is picked. Do not turn hub.json's configured fallback into a setup failure.
+func (ps *extensions) imessageView(ctx context.Context, p *extension.Extension, v *ExtensionView) {
+	if p.Record.ID != imessageExtensionID || !p.Record.Enabled || v.Status == extensionIncompatible || v.Status == host.StateError {
+		return
+	}
+	if machines, _ := ps.h.imessageExtensionMachines(); len(machines) > 0 || ps.h.cfg.IMessage.Configured() {
+		return
+	}
+	v.Status, v.NeedsSetup = extensionNeedsSetup, append(v.NeedsSetup, i18n.T(ps.h.contextLang(ctx), "hub-imessage_extension.no_mac"))
 }
 
 // imessageOneMac refuses a second Mac for Messages with the one already on named: one Mac only (the same Apple ID's Macs

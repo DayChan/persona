@@ -159,7 +159,16 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 		if over && a.Reason == "" { // the note is the rework asked for, written to the agent: not the owner's question
 			conclusion.Reason, conclusion.Note = i18n.T(s.botLang(ctx), "assistant-reports.verdict_over", i18n.Args{"rounds": maxReworkRounds}), ""
 		}
-		if s.askConclusion(ctx, t, conclusion) {
+		carded := s.askConclusion(ctx, t, conclusion)
+		// A recommendation is also pushed to their phone, whose OK takes it (todo_ask.go), with the bot on or off. The hub
+		// taking the push does not say a device got it, nor that the app shows its OK: without a card the supervisor still
+		// asks, and is told OK may come first.
+		pushed := ""
+		if s.pushDecision(ctx, t.ID) {
+			pushed = " A push with your recommendation also went to their phone; its \"OK\" takes the recommendation and sends it " +
+				"to the task's agent, which ends the decision too (drop a question of yours about it then)."
+		}
+		if carded {
 			said := "a card with what they are to decide went to them in Lark, and their answer goes to the task's agent"
 			if conclusion.Recommend != "" {
 				said = "a card with what they are to decide and your recommendation went to them in Lark; \"OK\" takes the " +
@@ -167,17 +176,17 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 			}
 			if over {
 				return fmt.Sprintf("Task %s was sent back %d times already: it now waits for the user (needs_user): %s. Don't ask them "+
-					"again; review it once the agent stops.", t.ID, maxReworkRounds, said), nil
+					"again; review it once the agent stops.%s", t.ID, maxReworkRounds, said, pushed), nil
 			}
-			return fmt.Sprintf("Task %s waits for the user: %s. Don't ask them again; review it once the agent stops.", t.ID, said), nil
+			return fmt.Sprintf("Task %s waits for the user: %s. Don't ask them again; review it once the agent stops.%s", t.ID, said, pushed), nil
 		}
 		if over {
 			return fmt.Sprintf("Task %s was sent back %d times already: it now waits for the user (needs_user). Tell the user what is "+
 				"still missing and ask how to go on (ask_user or in your answer); review it again once they decide (that also ends the decision "+
-				"the briefing lists for it).", t.ID, maxReworkRounds), nil
+				"the briefing lists for it).%s", t.ID, maxReworkRounds, pushed), nil
 		}
 		return fmt.Sprintf("Task %s waits for the user. Ask them (ask_user, or in your answer, pushed with notify_user if they are away); "+
-			"review it again once they decide (that also ends the decision the briefing lists for it).", t.ID), nil
+			"review it again once they decide (that also ends the decision the briefing lists for it).%s", t.ID, pushed), nil
 	}
 	text := prompts.RenderSuperviseRework(prompts.SuperviseRework{Round: v.Round, Max: maxReworkRounds, Checks: reworkChecks(checks), Note: note})
 	sent, err := s.sendToTask(ctx, t, text)
@@ -207,7 +216,7 @@ type reviewFeedBody struct {
 	Checks  []ReviewCheck `json:"checks,omitempty"`
 }
 
-// reviewDoneTodo closes todo id after its review (done_by review, with reason); false when it was done already. An
+// reviewDoneTodo closes todo id after its review (done_by review or cancelled, with reason); false when it was done already. An
 // accepted task's outcome is recorded, as when it closes by itself or the user closes it (todo_outcome.go, #2820); a
 // cancelled one came to nothing and records none.
 func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepted bool) (bool, error) {
@@ -215,7 +224,7 @@ func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepte
 	now := time.Now().UTC()
 	var row db.TodoRow
 	if st := s.supervisionDB(); st != nil && s.todoDB() != nil {
-		r, ok, err := st.ReviewDoneTodo(ctx, id, reason, now)
+		r, ok, err := st.ReviewDoneTodo(ctx, id, reason, accepted, now)
 		if err != nil || !ok {
 			s.todos.writing.Unlock()
 			return false, err
@@ -230,6 +239,9 @@ func (s *Service) reviewDoneTodo(ctx context.Context, id, reason string, accepte
 		row = db.TodoRow{ID: t.ID, Title: t.Title, Notes: t.Notes, CreatedAt: t.CreatedAt, Origin: t.Origin, PlanID: t.PlanID,
 			ReopenedAt: t.ReopenedAt, Quiet: t.Quiet}
 		row.DoneAt, row.DoneBy, row.DoneReason, row.UpdatedAt = &now, db.DoneByReview, reason, now
+		if !accepted {
+			row.DoneBy = db.DoneByCancelled
+		}
 		t.keepPlan(&row)
 	}
 	var before Todo

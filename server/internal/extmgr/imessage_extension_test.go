@@ -117,8 +117,17 @@ func TestIMessageExtensionPicksTheMac(t *testing.T) {
 	if code, _ := call(t, mux, "PUT", "/api/v1/extensions/imessage/-/enabled", h.cfg.Token, `{"enabled":true}`); code != 200 {
 		t.Fatalf("on: %d", code)
 	}
+	if v := viewOf(h, imessageExtensionID); v.Status != extensionNeedsSetup || len(v.NeedsSetup) != 1 || !strings.Contains(v.NeedsSetup[0], "选一台 Mac") {
+		t.Fatalf("enabled without a Mac: %+v", v)
+	}
+	if got := h.extensions.reg.Get(imessageExtensionID).Full.Contributions()["connectors"]; len(got) != 1 || got[0] != imessage.ID {
+		t.Fatalf("the settings page must link its connector: %v", got)
+	}
 	if code, _ := put(`{"machines":["mac"]}`); code != 200 || imessageMacOf(h) != "mac" {
 		t.Fatalf("mac: %d %q", code, imessageMacOf(h))
+	}
+	if v := viewOf(h, imessageExtensionID); v.Status != "running" || len(v.NeedsSetup) != 0 {
+		t.Fatalf("a Mac picked: %+v", v)
 	}
 	code, out := put(`{"machines":["mac","mac2"]}`)
 	if code != 400 || out["code"] != "invalid_config" || out["field"] != "machines" || out["message"] != "只能读一台 Mac，先关掉「示例 Mac」" ||

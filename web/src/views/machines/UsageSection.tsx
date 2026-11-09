@@ -24,7 +24,7 @@ import {
   type UsagePoint,
   type UsageRange,
 } from "../../lib/tokens";
-import { cx, Loading } from "../../ui/atoms";
+import { Button, cx, Loading } from "../../ui/atoms";
 import { t } from "../../i18n";
 
 const H = 150;
@@ -66,14 +66,24 @@ function dayLabel(tSec: number, tz: number): string {
 }
 
 export function UsageSection({ mid, heading }: { mid: string; heading: (right: React.ReactNode) => React.ReactNode }) {
+  // A different computer starts with its own controls, catalogs and request lifetime.
+  return <UsageReport key={mid} mid={mid} heading={heading} />;
+}
+
+function UsageReport({ mid, heading }: { mid: string; heading: (right: React.ReactNode) => React.ReactNode }) {
   const [range, setRange] = useState<UsageRange>("24h");
   const [model, setModel] = useState<string | null>(null);
   const [launcher, setLauncher] = useState<string | null>(null);
   const [stacked, setStacked] = useState(true);
   const [hidden, setHidden] = useState<Set<UsageKind>>(new Set());
-  const [data, setData] = useState<MachineUsage | null>(null);
-  const [unsupported, setUnsupported] = useState(false);
-  const [failure, setFailure] = useState("");
+  const scope = JSON.stringify([mid, range, model, launcher]);
+  const [accepted, setAccepted] = useState<{ scope: string; data: MachineUsage } | null>(null);
+  // Menus are a catalog, not report totals: keep them usable while another scope is being read.
+  const [catalog, setCatalog] = useState<Pick<MachineUsage, "models" | "launchers" | "launchers_known"> | null>(null);
+  const [status, setStatus] = useState({ scope, pending: true, failure: "", unsupported: false });
+  const [retry, setRetry] = useState(0);
+  const current = status.scope === scope ? status : { pending: true, failure: "", unsupported: false };
+  const data = accepted?.scope === scope && !current.unsupported ? accepted.data : null;
   const [hover, setHover] = useState<number | null>(null);
   const tz = -new Date().getTimezoneOffset() * 60;
 
@@ -83,20 +93,26 @@ export function UsageSection({ mid, heading }: { mid: string; heading: (right: R
     const load = async () => {
       if (document.visibilityState !== "visible") return;
       ctrl?.abort();
-      ctrl = new AbortController();
+      const request = new AbortController();
+      ctrl = request;
+      const active = () => !dead && ctrl === request && !request.signal.aborted;
+      setStatus((old) => ({ scope, pending: true, failure: old.scope === scope ? old.failure : "", unsupported: old.scope === scope && old.unsupported }));
       const q = new URLSearchParams({ range });
       if (model !== null) q.set("model", model);
       if (launcher !== null) q.set("launcher", launcher === "" ? UNKNOWN_LAUNCHER : launcher);
       try {
-        const r = await api<{ usage: MachineUsage }>(`/machines/${enc(mid)}/usage?${q}`, { signal: ctrl.signal });
-        if (dead) return;
-        setData({ ...r.usage, points: r.usage.points ?? [], models: r.usage.models ?? [], launchers: r.usage.launchers ?? [] });
-        setFailure("");
-        setUnsupported(false);
+        const r = await api<{ usage: MachineUsage }>(`/machines/${enc(mid)}/usage?${q}`, { signal: request.signal });
+        if (!active()) return;
+        const report = { ...r.usage, points: r.usage.points ?? [], models: r.usage.models ?? [], launchers: r.usage.launchers ?? [] };
+        setAccepted({ scope, data: report });
+        setCatalog(report);
+        setStatus({ scope, pending: false, failure: "", unsupported: false });
       } catch (e) {
-        if (dead || isAbort(e)) return;
-        if (e instanceof ApiError && e.status === 404) setUnsupported(true);
-        else setFailure(errorText(e));
+        if (!active() || isAbort(e)) return;
+        const unsupported = e instanceof ApiError && e.status === 404;
+        setStatus({ scope, pending: false, unsupported, failure: unsupported ? "" : errorText(e) });
+      } finally {
+        if (active()) setStatus((old) => ({ ...old, pending: false }));
       }
     };
     void load();
@@ -109,7 +125,7 @@ export function UsageSection({ mid, heading }: { mid: string; heading: (right: R
       clearInterval(timer);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [mid, range, model, launcher]);
+  }, [mid, range, model, launcher, scope, retry]);
 
   const kinds = stacked ? USAGE_KINDS.filter((k) => !hidden.has(k)) : [];
   const picked = data && hover !== null ? nearestStep(data, hover) : undefined;
@@ -141,84 +157,85 @@ export function UsageSection({ mid, heading }: { mid: string; heading: (right: R
     </div>
   );
 
-  if (unsupported) {
-    return (
-      <section data-testid="machine-usage">
-        {heading(null)}
-        <div className="rounded-card bg-surface px-4 py-5 text-[12.5px] text-ink-3 shadow-card">{t("machines-usage.old_hub")}</div>
-      </section>
-    );
-  }
-
   return (
-    <section data-testid="machine-usage">
+    <section data-testid="machine-usage" aria-busy={current.pending}>
       {heading(rangeControl)}
-      {!data ? (
-        <div className="flex h-40 items-center justify-center rounded-card bg-surface text-[12.5px] text-ink-3 shadow-card">{failure || <Loading />}</div>
-      ) : (
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="rounded-card bg-surface px-4 pt-3 pb-3 shadow-card">
-            <div className="flex flex-wrap items-center gap-2">
-              <Filter
-                label={t("machines-usage.model")}
-                all={t("machines-usage.all_models")}
-                value={model}
-                options={data.models.map((m) => ({ value: m.name, label: m.name }))}
-                onChange={setModel}
-              />
-              <Filter
-                label={t("machines-usage.launcher")}
-                all={t("machines-usage.all_launchers")}
-                value={launcher}
-                options={data.launchers.map((l) => ({ value: l.name, label: launcherName(l.name) }))}
-                onChange={setLauncher}
-                disabled={!data.launchers_known}
-              />
-              <span className="flex-1" />
-              <div className="flex items-center gap-0.5 rounded-control bg-inset p-0.5 shadow-hairline" role="radiogroup" aria-label={t("machines-usage.chart")}>
-                {[false, true].map((s) => (
-                  <button
-                    key={String(s)}
-                    type="button"
-                    role="radio"
-                    aria-checked={stacked === s}
-                    onClick={() => setStacked(s)}
-                    className={cx("flex h-6 items-center whitespace-nowrap rounded-[6px] px-2 text-[11.5px]", stacked === s ? "bg-surface font-medium text-ink shadow-btn" : "text-ink-3 hover:text-ink-2")}
-                  >
-                    {s ? t("machines-usage.by_kind") : t("machines-usage.total")}
-                  </button>
-                ))}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0 rounded-card bg-surface px-4 pt-3 pb-3 shadow-card">
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter
+              label={t("machines-usage.model")}
+              all={t("machines-usage.all_models")}
+              value={model}
+              options={(catalog?.models ?? []).map((m) => ({ value: m.name, label: m.name }))}
+              onChange={setModel}
+            />
+            <Filter
+              label={t("machines-usage.launcher")}
+              all={t("machines-usage.all_launchers")}
+              value={launcher}
+              options={(catalog?.launchers ?? []).map((l) => ({ value: l.name, label: launcherName(l.name) }))}
+              onChange={setLauncher}
+              disabled={catalog?.launchers_known === false}
+            />
+            <span className="flex-1" />
+            <div className="flex items-center gap-0.5 rounded-control bg-inset p-0.5 shadow-hairline" role="radiogroup" aria-label={t("machines-usage.chart")}>
+              {[false, true].map((s) => (
+                <button
+                  key={String(s)}
+                  type="button"
+                  role="radio"
+                  aria-checked={stacked === s}
+                  onClick={() => setStacked(s)}
+                  className={cx("flex h-6 items-center whitespace-nowrap rounded-[6px] px-2 text-[11.5px]", stacked === s ? "bg-surface font-medium text-ink shadow-btn" : "text-ink-3 hover:text-ink-2")}
+                >
+                  {s ? t("machines-usage.by_kind") : t("machines-usage.total")}
+                </button>
+              ))}
+            </div>
+          </div>
+          {catalog?.launchers_known === false && <p className="mt-1.5 text-[11.5px] text-ink-3">{t("machines-usage.old_node")}</p>}
+          {(current.failure || current.unsupported) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1 break-words text-[12.5px]" role={current.failure ? "alert" : "status"}>
+                <p className={current.failure ? "text-red" : "text-ink-3"}>{current.unsupported ? t("machines-usage.old_hub") : current.failure}</p>
+                {data && <p className="mt-1 text-ink-3">{t("machines-usage.stale_report")}</p>}
               </div>
+              <Button tone="secondary" icon="retry" busy={current.pending} onClick={() => setRetry((n) => n + 1)}>{t("machines-usage.retry")}</Button>
             </div>
-            {!data.launchers_known && <p className="mt-1.5 text-[11.5px] text-ink-3">{t("machines-usage.old_node")}</p>}
-            <Totals data={data} />
-            <div className="mt-3 flex items-baseline gap-2">
-              <h3 className="text-[12.5px] font-medium text-ink-2">{t("machines-usage.throughput")}</h3>
-              <span className="flex-1" />
-              <span className="font-mono text-[11px] text-ink-3 tabular-nums">{picked ? stamp(picked.t, data.range, tz) : t("machines-usage.per_minute")}</span>
-              <span className="text-[14px] font-medium text-ink tabular-nums">
-                {t("machines-usage.per_minute_value", { n: formatTokens(shownNow(data, picked, stacked ? kinds : USAGE_KINDS)) })}
-              </span>
-            </div>
-            <Throughput data={data} kinds={kinds} hover={hover} onHover={setHover} tz={tz} model={model} launcher={launcher} onClear={() => (setModel(null), setLauncher(null))} />
-            {stacked && <Legend data={data} picked={picked} hidden={hidden} onToggle={toggle} />}
-            {data.points.some((p) => p.gap) && <p className="mt-1.5 text-[11.5px] text-ink-3">{t("machines-usage.offline_note")}</p>}
-            <div className="mt-3 flex items-baseline gap-2">
-              <h3 className="text-[12.5px] font-medium text-ink-2">{t("machines-usage.hit_rate_title")}</h3>
-              <span className="flex-1" />
-              <span className="text-[14px] font-medium text-ink tabular-nums">{percentText(picked ? hitRate(picked) : hitRate(data.total))}</span>
-            </div>
-            <HitRate data={data} hover={hover} onHover={setHover} tz={tz} />
-            <p className="mt-1 text-[11.5px] text-ink-3">{t("machines-usage.hit_rate_note")}</p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <Shares title={t("machines-usage.by_model")} shares={data.models.map((m) => ({ key: m.name, label: m.name, tokens: m }))} selected={model} onPick={(k) => setModel(model === k ? null : k)} />
-            {data.launchers_known && (
-              <Shares title={t("machines-usage.by_launcher")} shares={data.launchers.map((l) => ({ key: l.name, label: launcherName(l.name), tokens: l }))} selected={launcher} onPick={(k) => setLauncher(launcher === k ? null : k)} />
-            )}
-          </div>
+          )}
+          {!data && current.pending && <div className="flex h-40 items-center justify-center"><Loading /></div>}
+          {data && (
+            <>
+              <Totals data={data} />
+              <div className="mt-3 flex items-baseline gap-2">
+                <h3 className="text-[12.5px] font-medium text-ink-2">{t("machines-usage.throughput")}</h3>
+                <span className="flex-1" />
+                <span className="font-mono text-[11px] text-ink-3 tabular-nums">{picked ? stamp(picked.t, data.range, tz) : t("machines-usage.per_minute")}</span>
+                <span className="text-[14px] font-medium text-ink tabular-nums">
+                  {t("machines-usage.per_minute_value", { n: formatTokens(shownNow(data, picked, stacked ? kinds : USAGE_KINDS)) })}
+                </span>
+              </div>
+              <Throughput data={data} kinds={kinds} hover={hover} onHover={setHover} tz={tz} model={model} launcher={launcher} onClear={() => (setModel(null), setLauncher(null))} />
+              {stacked && <Legend data={data} picked={picked} hidden={hidden} onToggle={toggle} />}
+              {data.points.some((p) => p.gap) && <p className="mt-1.5 text-[11.5px] text-ink-3">{t("machines-usage.offline_note")}</p>}
+              <div className="mt-3 flex items-baseline gap-2">
+                <h3 className="text-[12.5px] font-medium text-ink-2">{t("machines-usage.hit_rate_title")}</h3>
+                <span className="flex-1" />
+                <span className="text-[14px] font-medium text-ink tabular-nums">{percentText(picked ? hitRate(picked) : hitRate(data.total))}</span>
+              </div>
+              <HitRate data={data} hover={hover} onHover={setHover} tz={tz} />
+              <p className="mt-1 text-[11.5px] text-ink-3">{t("machines-usage.hit_rate_note")}</p>
+            </>
+          )}
         </div>
-      )}
+        {data && <div className="flex flex-col gap-3">
+          <Shares title={t("machines-usage.by_model")} shares={data.models.map((m) => ({ key: m.name, label: m.name, tokens: m }))} selected={model} onPick={(k) => setModel(model === k ? null : k)} />
+          {data.launchers_known && (
+            <Shares title={t("machines-usage.by_launcher")} shares={data.launchers.map((l) => ({ key: l.name, label: launcherName(l.name), tokens: l }))} selected={launcher} onPick={(k) => setLauncher(launcher === k ? null : k)} />
+          )}
+        </div>}
+      </div>
     </section>
   );
 }
@@ -270,6 +287,7 @@ function Filter({ label, all, value, options, onChange, disabled }: {
         onChange={(e) => onChange(e.target.value === "\u0000all" ? null : e.target.value)}
       >
         <option value={"\u0000all"}>{all}</option>
+        {value !== null && !options.some((o) => o.value === value) && <option value={value}>{value === "" ? launcherName(value) : value}</option>}
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

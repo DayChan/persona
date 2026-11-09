@@ -5855,6 +5855,27 @@ IMESSAGE_CONNECTOR = {"id": "imessage", "name": "信息", "status": IMESSAGE_STA
                       "via": "MacBook 上的「信息」", "error": IMESSAGE_STATUS.get("error"), "capabilities": ["status"]}
 
 
+def _imessage_connector():
+    """The built-in Messages extension's connector, or the legacy mock's when extensions are not being tested."""
+    base = {**IMESSAGE_CONNECTOR, "guide": IMESSAGE_STATUS.get("guide"), "inbox": True, "archive": True}
+    pl = PLUGINS.get("imessage") if PLUGINS_MODE else None
+    if pl is None:
+        return base
+    machines = pl.get("config", {}).get("machines") or []
+    if not pl.get("enabled") or not machines:
+        return {**base, "status": "not_configured", "account": None, "via": None, "enabled": False,
+                "error": "没有设置「信息」：在 设置 › 扩展 › 信息 选一台 Mac", "guide": ["在 设置 › 扩展 › 信息 选一台 Mac"]}
+    name = next((m["name"] for m in MACHINES if m["id"] == machines[0]), machines[0])
+    return {**base, "account": name, "via": name + " 上的「信息」", "enabled": True}
+
+
+def _imessage_status():
+    if PLUGINS_MODE and not _imessage_connector().get("enabled"):
+        return None
+    name = _imessage_connector().get("account")
+    return {**IMESSAGE_STATUS, "machine": name} if name else IMESSAGE_STATUS
+
+
 def _im_person(handle, name=None):
     return {"handle": handle, "name": name} if name else {"handle": handle}
 
@@ -9711,7 +9732,7 @@ def git_write_fresh():
         {"path": "WeatherWidget/WidgetView.swift", "index": "A", "worktree": ".", "added": 18, "deleted": 0, "binary": False},
         {"path": "Sources/App/main.swift", "index": "M", "worktree": "M", "added": 2, "deleted": 1, "binary": False},
         {"path": "docs/hourly.md", "index": "?", "worktree": "?", "added": 0, "deleted": 0, "binary": False}],
-        "stashes": [{"index": 0, "message": "On main: 试过的另一种配色", "date": ago(days=2)}],
+        "stashes": [{"index": 0, "oid": "a" * 40, "message": "On main: alternate palette", "date": ago(days=2)}],
         "branches": [("widget-hourly", False), ("main", False), ("origin/main", True), ("origin/release-2.4", True)],
         "pr": None, "pr_fail": None}
 GIT_W = git_write_fresh()
@@ -9835,11 +9856,12 @@ def git_write(h, p, body):
         if o == "push":
             if not w["files"]: return h.send_json({"error": "no local changes to save", "code": "git_no_stash"}, 409)
             msg = body.get("message") or ("WIP on %s" % w["branch"])
-            w["stashes"] = [{"index": 0, "message": "On %s: %s" % (w["branch"], msg), "date": ago(minutes=0)}] + [dict(s, index=s["index"] + 1) for s in w["stashes"]]
+            w["stashes"] = [{"index": 0, "oid": hashlib.sha1((msg + str(time.time_ns())).encode()).hexdigest(), "message": "On %s: %s" % (w["branch"], msg), "date": ago(minutes=0)}] + [dict(s, index=s["index"] + 1) for s in w["stashes"]]
             w["files"] = [] if body.get("untracked") else [f for f in w["files"] if f["index"] == "?"]
         elif o in ("pop", "drop", "apply"):
-            i = body.get("index", 0)
-            if i >= len(w["stashes"]): return h.send_json({"error": "no stash", "code": "git_no_stash"}, 409)
+            i = body.get("index", -1)
+            if not isinstance(i, int) or i < 0 or i >= len(w["stashes"]) or body.get("oid") != w["stashes"][i]["oid"]:
+                return h.send_json({"error": "Refresh and reselect the stash", "code": "git_stash_stale"}, 409)
             if o == "apply" or o == "pop":
                 w["files"].append({"path": "Sources/App/Theme.swift", "index": ".", "worktree": "M", "added": 6, "deleted": 2, "binary": False})
             if o != "apply":
@@ -11731,7 +11753,8 @@ if MOCK_BROWSER:
 if PLUGINS_MODE:
     _im_off = os.environ.get("MOCK_IMESSAGE_EXT") == "off"
     PLUGINS["imessage"] = {"id": "imessage", "name": "信息（iMessage）", "kind": "", "status": "disabled" if _im_off else "running",
-                           "version": "202611051200", "source": "builtin", "enabled": not _im_off, "contributes": {},
+                           "version": "202611051200", "source": "builtin", "enabled": not _im_off,
+                           "contributes": {"connectors": ["imessage"]},
                            "description": "读你一台 Mac 上「信息」App 的短信和 iMessage（只读，不发送），交给收件箱、知识库和助手。读哪台在这里选；「交给 Persona」和删除已存的数据在 设置 › 连接器 › 信息。",
                            "form": {"fields": [
                                {"name": "machines", "type": "array", "title": "读哪台 Mac", "unique_items": True, "max_items": 1,
@@ -12716,7 +12739,10 @@ def _plugin_needs(pl):
     missing = ["密钥「%s」" % s["title"] for s in pl.get("secrets", []) if s.get("required") and not s.get("set")]
     if pl["enabled"] and pl["status"] in ("needs_setup", "running") and pl["source"] == "installed":
         pl["status"] = "needs_setup" if missing else "running"
-    pl["needs_setup"] = missing or None
+    pl["needs_setup"] = missing or (["没有设置「信息」：在 设置 › 扩展 › 信息 选一台 Mac"]
+                                      if pl["id"] == "imessage" and pl["enabled"] and not pl["config"].get("machines") else None)
+    if pl["id"] == "imessage" and pl["enabled"]:
+        pl["status"] = "needs_setup" if pl["needs_setup"] else "running"
     return pl
 
 
@@ -13705,12 +13731,13 @@ class H(BaseHTTPRequestHandler):
         if github_thread_area(self, "GET", p, b""): return
         if github_area(self, "GET", p, b""): return
         if p == "/api/v1/connectors":  # Settings › Connectors › GitHub; MOCK_GITHUB=signed_out: its gh login has expired
-            listed = [GITHUB_CONNECTOR, {k: v for k, v in IMESSAGE_CONNECTOR.items() if v is not None}] + ([telegram_connector()] if TELEGRAM_MODE else [])
+            listed = [GITHUB_CONNECTOR, {k: v for k, v in _imessage_connector().items() if v is not None}] + ([telegram_connector()] if TELEGRAM_MODE else [])
             listed += [PLUGIN_CONNECTOR] if PLUGIN_CONNECTOR else []
             listed += [wechat_connector()] if WECHAT_MODE else []
             return self.send_json({"connectors": (LEGACY_CONNECTORS if q.get("all") == ["1"] else []) + listed})
         if p == "/api/v1/imessage":  # Settings › Connectors › Messages; MOCK_IMESSAGE=denied: no Full Disk Access on the Mac
-            return self.send_json(IMESSAGE_STATUS)
+            status = _imessage_status()
+            return self.send_json(status) if status else self.send_json({"error": "没有设置「信息」：在 设置 › 扩展 › 信息 选一台 Mac", "code": "not_configured"}, 404)
         if p == "/api/v1/imessage/chats" or p.startswith("/api/v1/imessage/chats/") and p.endswith("/messages"):
             if IMESSAGE_DENIED:
                 return self.send_json({"error": IMESSAGE_STATUS["error"], "code": "no_permission"}, 403)

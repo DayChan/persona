@@ -1,0 +1,22 @@
+[
+  {"name":"legacy Herdr pane", "want":"terminal", "session":{"pane_id":"w1:p2"}},
+  {"name":"bare Herdr pane", "want":"terminal", "session":{"pane_id":"p7", "source_kind":"runtime"}},
+  {"name":"Orca terminal", "want":"terminal", "session":{"pane_id":"orca:tab:leaf", "source_kind":"runtime", "source_instance_id":"pi"}},
+  {"name":"Herdr App terminal", "want":"terminal", "session":{"pane_id":"herdr-core:tab", "source_kind":"runtime"}},
+  {"name":"unrecognized prefix is legacy Herdr", "want":"terminal", "session":{"pane_id":"custom:pane"}},
+  {"name":"explicit Herdr spelling remains legacy", "want":"terminal", "session":{"pane_id":"herdr:w1:p2"}},
+  {"name":"Codex App overrides botmux", "want":"desktop", "session":{"space_kind":"codex_app", "pane_id":"botmux:topic", "source_kind":"codex_app_server"}},
+  {"name":"Paseo overrides terminal", "want":"desktop", "session":{"host":"paseo", "pane_id":"orca:tab:leaf", "source_kind":"runtime"}},
+  {"name":"native Orca overrides botmux", "want":"desktop", "session":{"source_kind":"runtime", "source_instance_id":"orca", "pane_id":"botmux:topic"}},
+  {"name":"Codex App without pane", "want":"desktop", "session":{"space_kind":"codex_app", "source_kind":"codex_history"}},
+  {"name":"native Orca without pane", "want":"desktop", "session":{"source_kind":"runtime", "source_instance_id":"orca"}},
+  {"name":"Paseo without pane", "want":"desktop", "session":{"host":"paseo"}},
+  {"name":"unhosted runtime", "want":"unknown", "session":{"source_kind":"runtime", "source_instance_id":"example"}},
+  {"name":"unmarked history", "want":"unknown", "session":{"source_kind":"codex_history"}},
+  {"name":"transport alone is not an origin", "want":"unknown", "session":{"source_kind":"codex_app_server"}},
+  {"name":"Orca identity requires runtime transport", "want":"unknown", "session":{"source_instance_id":"orca"}},
+  {"name":"host name alone is not a pane", "want":"unknown", "session":{"host":"herdr"}},
+  {"name":"no metadata", "want":"unknown", "session":{}},
+  {"name":"Feishu topic", "want":"feishu", "session":{"pane_id":"botmux:topic", "source_kind":"runtime"}},
+  {"name":"Feishu legacy transport", "want":"feishu", "session":{"pane_id":"botmux:other"}}
+]

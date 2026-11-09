@@ -71,12 +71,16 @@ func (d *DB) PutTodoSupervision(ctx context.Context, r TodoSupervisionRow) error
 	return nil
 }
 
-// ReviewDoneTodo marks todo id done by its supervisor's review (DoneByReview) with reason while it is open; false when
-// it was done already. ErrTodoNotFound when it is gone.
-func (d *DB) ReviewDoneTodo(ctx context.Context, id, reason string, at time.Time) (*TodoRow, bool, error) {
+// ReviewDoneTodo closes todo id after an accepted review (DoneByReview) or cancellation (DoneByCancelled), with
+// reason while it is open; false when it was done already. ErrTodoNotFound when it is gone.
+func (d *DB) ReviewDoneTodo(ctx context.Context, id, reason string, accepted bool, at time.Time) (*TodoRow, bool, error) {
+	doneBy := DoneByCancelled
+	if accepted {
+		doneBy = DoneByReview
+	}
 	var r TodoRow
 	err := d.pool.QueryRow(ctx, `UPDATE todos SET done_at = $2, done_by = $3, done_reason = $4, updated_at = $2
-		WHERE id = $1 AND done_at IS NULL RETURNING `+todoColumns, id, at, DoneByReview, reason).
+		WHERE id = $1 AND done_at IS NULL RETURNING `+todoColumns, id, at, doneBy, reason).
 		Scan(todoDest(&r)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if _, gerr := d.GetTodo(ctx, id); gerr != nil {

@@ -153,7 +153,9 @@ def readiness(sc, machine, lang, launcher="claude", dismissed=False, probe=None)
         if model_code == "ok":
             model = {"id": "model", "state": "ok", "machine": mid, "launcher": launcher}
         elif model_code:
-            action, alt = {"not_logged_in": ("connect_model", "login_claude"), "auth_failed": ("edit_provider", "")}.get(
+            action, alt = {"not_logged_in": ("connect_model", "login_claude"),
+                           "auth_failed": ("edit_provider", "test_assistant"),
+                           "model_route": ("connect_model", "test_assistant")}.get(
                 model_code, ("connect_model", ""))
             model = with_machine(step(lang, "model", "problem", model_code, name, launcher, action), mid)
             if alt:

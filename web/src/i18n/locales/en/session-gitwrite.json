@@ -69,5 +69,9 @@
   "refused_not_signed_in": "GitHub CLI (gh) is not signed in on that computer: run gh auth login there",
   "refused_git_not_pushed": "Push the branch first: a pull request needs every commit on GitHub",
   "refused_git_no_pr": "This branch has no pull request",
-  "refused_git_not_github": "This repository has no GitHub remote"
+  "refused_git_not_github": "This repository has no GitHub remote",
+  "stash_refresh": "Refresh",
+  "stash_old_node": "Update Persona on this computer to apply, pop or drop stashes safely.",
+  "refused_git_stash_stale": "The stash list changed. Refresh and select the stash again.",
+  "refused_git_stash_unsupported": "Safe stash removal is unavailable for this repository."
 }
