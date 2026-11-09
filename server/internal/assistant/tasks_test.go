@@ -979,7 +979,7 @@ func (st *gatedPlanStore) TaskPlan(ctx context.Context, id string) (*db.TaskPlan
 	if !held {
 		return row, nil
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) { // sleep-ok: polls the plan lock's waiter count, which nothing signals, until the deadline
 		st.mu.Lock()
 		left, late := st.n-st.released, time.Now().After(deadline)
 		if st.reading >= left || st.s.tasks.planEdits.waiting(id) >= left || late {
