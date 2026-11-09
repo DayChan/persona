@@ -22,6 +22,12 @@ export function validUserInputIndex(value: unknown): value is UserInputIndex {
 
 const entry = (id: string) => id.split("#")[0];
 
+/** Refresh on raw user-entry arrivals, including queued inputs merged into an existing bubble.
+ * The server owns provenance filtering; tool-result frames never trigger a full-history scan. */
+export function userInputRevision(items: Item[]): string | undefined {
+  return items.findLast((item) => item.role === "user" && (item.kind === "text" || item.kind === "image") && !item.tool_use_id)?.id;
+}
+
 /** Exactly one tick per server position, even when the transcript has loaded only its newest two inputs.
  * Unloaded inputs use an ordinal label; previewing never downloads transcript bodies. */
 export function indexedNavTicks(index: UserInputIndex, lines: ChatLine[], items: Item[]): NavRailTick[] {

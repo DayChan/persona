@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chatLines } from "./turns";
 import type { Item } from "./types";
-import { containsInput, indexedNavTicks, validUserInputIndex, type UserInputIndex } from "./user-input-index";
+import { containsInput, indexedNavTicks, userInputRevision, validUserInputIndex, type UserInputIndex } from "./user-input-index";
 import { navRailMark } from "./nav-rail";
 
 const index: UserInputIndex = { total: 36, history: "fixture", inputs: Array.from({ length: 36 }, (_, i) => ({ id: `input-${i}#0`, seq: i * 2 + 1 })) };
@@ -14,12 +14,19 @@ describe("full user-input positions", () => {
   it("draws the server total with only the newest two input bodies loaded", () => {
     const ticks = indexedNavTicks(index, chatLines(items), items);
     expect(ticks).toHaveLength(index.total);
-    expect(ticks[0]).toMatchObject({ id: "seg:input-0#0", seq: 1 });
+    expect(ticks[0]).toMatchObject({ id: "seg:input-0#0", seq: 1, ordinal: 1, preview: "" });
     expect(ticks[0].lineId).toBeUndefined();
     expect(ticks[35].lineId).toBeDefined();
     expect(ticks[35].preview).toBe("A synthetic input");
     expect(ticks.every((_, i) => navRailMark(i, ticks.length, 35, null).width === 6)).toBe(true);
   });
+  it("refreshes from raw queued entries without rescanning for tool frames", () => {
+    const queued: Item = { id: "queued#0", seq: 80, role: "user", kind: "text", queued: true, text: "Another synthetic input" };
+    expect(userInputRevision(items)).toBe("input-35#0");
+    expect(userInputRevision([...items, queued])).toBe(queued.id);
+    expect(userInputRevision([...items, queued, { id: "tool-image", seq: 81, role: "user", kind: "image", tool_use_id: "tool" }])).toBe(queued.id);
+  });
+
   it("preserves the loaded attachment-only preview while the server sends positions only", () => {
     const image: Item = { id: "picture#0", seq: 1, role: "user", kind: "image", image: { mime: "image/png", lazy: true } };
     const imageIndex: UserInputIndex = { total: 1, history: "fixture", inputs: [{ id: image.id, seq: 1 }] };

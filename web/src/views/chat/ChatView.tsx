@@ -61,7 +61,7 @@ import { ChatContext, FreshWords, LiveClockContext, type ChatContextValue } from
 import { backgroundLine, backgroundWaitLine, waitingOnWorkflow, workflowCalls, workflowCallsKey } from "../../lib/workflows";
 import { seekCall } from "./jump";
 import { navRailTicks, type NavRailSource } from "../../lib/nav-rail";
-import { containsInput, indexedNavTicks } from "../../lib/user-input-index";
+import { containsInput, indexedNavTicks, userInputRevision } from "../../lib/user-input-index";
 import { useUserInputs } from "./useUserInputs";
 import { NavRail } from "./NavRail";
 import { ChatLineView, closedRecap, closeRecap, OpenRecapLine } from "./Lines";
@@ -219,6 +219,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const railChat = useRef(`${mid}/${sid}`);
   railChat.current = `${mid}/${sid}`;
   const railRun = useRef(0);
+  useEffect(() => () => { railRun.current++; }, [mid, sid]);
   const fine = useFinePointer();
   // a Persona conversation's send the hub refused: a card above the composer, not a toast (docs/assistant/onboarding.md 4.4),
   // while its failed bubble (`entry`) is there
@@ -712,7 +713,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   lastTasks.current = tasks;
   // Only lightweight positions are fetched for navigation; older transcript bodies wait for a selection.
   const loadedRailTicks = useMemo(() => navRailTicks(lines), [lines]);
-  const inputIndex = useUserInputs(mid, sid, tr.history, loadedRailTicks.at(-1)?.id, fine && !tr.loading, tr.reload);
+  const inputRevision = useMemo(() => userInputRevision(tr.items), [tr.items]);
+  const inputIndex = useUserInputs(mid, sid, tr.history, inputRevision, fine && !tr.loading, tr.reload);
   const railTicks = useMemo(() => inputIndex ? indexedNavTicks(inputIndex, lines, tr.items) : loadedRailTicks, [inputIndex, lines, tr.items, loadedRailTicks]);
   /** Brings a row into view in the chat's own scroller (scrollIntoView would also scroll an opening group's clipped
    *  box): following the end stops, and the jump's first frames do not pick it up again (`jumping`). */

@@ -12,7 +12,7 @@ vi.mock("../../lib/api", () => ({
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let destroy: (() => void) | undefined;
-afterEach(() => { destroy?.(); destroy = undefined; pending.length = 0; });
+afterEach(() => { destroy?.(); destroy = undefined; pending.length = 0; vi.useRealTimers(); });
 const answer = (history: string, total = 2): UserInputIndex => ({ total, history, inputs: Array.from({ length: total }, (_, i) => ({ id: `input-${i}#0`, seq: i + 1 })) });
 
 describe("independent user-input metadata", () => {
@@ -44,6 +44,21 @@ describe("independent user-input metadata", () => {
     act(() => root.render(<Probe />)); destroy = () => act(() => root.unmount());
     await act(async () => pending[0].resolve(answer("complete-history")));
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries unsupported or incomplete indexes instead of permanently freezing the tail count", async () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div"); const root = createRoot(host);
+    let got: UserInputIndex | null = null;
+    const read = (): UserInputIndex | null => got;
+    function Probe() { got = useUserInputs("example", "synthetic", "fixture", "last", true); return null; }
+    act(() => root.render(<Probe />)); destroy = () => act(() => root.unmount());
+    await act(async () => pending[0].resolve({ items: [], has_more: false }));
+    expect(got).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[1].resolve(answer("fixture", 8)));
+    expect(read()?.total).toBe(8);
   });
 
   it("does not read indexes on touch-only or unmounted chats", async () => {
