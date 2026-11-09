@@ -131,6 +131,56 @@ func (d *DB) AppendFeedOnce(ctx context.Context, f FeedRow) (bool, error) {
 	return tag.RowsAffected() == 1, nil
 }
 
+// AppendTaskReceiptOnce checks the task and agent association under the same
+// membership lock used by link, unlink and task completion before inserting.
+func (d *DB) AppendTaskReceiptOnce(ctx context.Context, f FeedRow, machine, session string, linked time.Time) (inserted, valid bool, err error) {
+	conn, err := d.pool.Acquire(ctx)
+	if err != nil {
+		return false, false, err
+	}
+	defer conn.Release()
+	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		var e error
+		inserted, valid, e = appendTaskReceiptOnceTx(ctx, tx, f, machine, session, linked)
+		return e
+	})
+	return inserted, valid, err
+}
+
+func appendTaskReceiptOnceTx(ctx context.Context, tx pgx.Tx, f FeedRow, machine, session string, linked time.Time) (inserted, valid bool, err error) {
+	done, err := lockTodoAgentMembership(ctx, tx, f.Ref, machine, session)
+	if errors.Is(err, ErrTodoNotFound) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	if done != nil {
+		return false, false, nil
+	}
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM todos t JOIN todo_agents a ON a.todo_id = t.id
+		WHERE t.id = $1 AND t.origin = $2 AND t.done_at IS NULL
+		AND a.machine_id = $3 AND a.session_id = $4 AND a.linked_at = $5
+		AND a.released_at IS NULL AND a.dismissed_at IS NULL)`, f.Ref, f.Conversation, machine, session, linked).Scan(&valid); err != nil {
+		return false, false, err
+	}
+	if !valid {
+		return false, false, nil
+	}
+	body := []byte(f.Body)
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO assistant_feed (id, conversation, at, kind, ref, body, sent_at)
+		VALUES ($1, $2, $3, $4, $5, $6, ($6::jsonb->>'sent_at')::timestamptz)
+		ON CONFLICT (id) DO NOTHING`, f.ID, f.Conversation, f.At, f.Kind, f.Ref, body)
+	if err != nil {
+		return false, false, err
+	}
+	return tag.RowsAffected() == 1, true, nil
+}
+
 // Feed lists a conversation's items after since (zero: from the start), oldest first, at most limit, and the
 // message cards put in before since but sent after it (their body changed, not their time). Each half reads its own
 // index (assistant_feed_conversation, assistant_feed_sent): one OR over both read every row of the conversation.

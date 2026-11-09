@@ -224,7 +224,7 @@ func silentTurnErrorIn(l i18n.Lang) string { return i18n.T(l, "assistant-tasks.s
 var prLink = lazyre.New(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 
 func (s *Service) receiptTurnMatches(t Todo, machine, sid string, expected *receiptLook) bool {
-	if expected == nil {
+	if expected == nil || expected.Todo == "" {
 		return true
 	}
 	current, found := s.taskOf(context.Background(), machine, sid)
@@ -255,9 +255,17 @@ func (s *Service) retryTaskTurnEnded(ctx context.Context, machine, sid string, e
 	if lifetime == nil {
 		lifetime = context.WithoutCancel(ctx)
 	}
-	time.AfterFunc(time.Minute, func() {
+	retry := receiptLook{Machine: machine, Session: sid}
+	if expected != nil {
+		retry = *expected
+	}
+	if retry.Attempts < 6 {
+		retry.Attempts++
+	}
+	delay := time.Minute * time.Duration(1<<(retry.Attempts-1))
+	time.AfterFunc(delay, func() {
 		if lifetime.Err() == nil {
-			s.taskTurnEndedForLook(lifetime, machine, sid, expected)
+			s.taskTurnEndedForLook(lifetime, machine, sid, &retry)
 		}
 	})
 }
@@ -292,10 +300,20 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 		return
 	}
 	agents, reached := s.taskAgentsReached(ctx, t)
-	if !reached || !taskAgentsSettled(t, agents) || !s.receiptTurnMatches(t, machine, sid, expected) {
+	if !reached {
+		if expected == nil || expected.ID == "" {
+			s.retryTaskTurnEnded(ctx, machine, sid, expected)
+		}
 		return
 	}
+	if !taskAgentsSettled(t, agents) || !s.receiptTurnMatches(t, machine, sid, expected) {
+		return
+	}
+	if expected != nil && expected.Todo == "" {
+		expected = nil
+	}
 	var last, cut proto.Session
+	waitingForLimit := false
 	for _, c := range agents {
 		if c.State == proto.StateWorking || c.State == proto.StateNeedsYou || c.PendingInteractions > 0 {
 			return
@@ -312,7 +330,8 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 			} else {
 				s.taskTurnEndedForTaskAfter(ctx, &t, c.MachineID, c.SessionID, limitLookAgain(c, now))
 			}
-			return
+			waitingForLimit = true
+			continue
 		}
 		if c.UpdatedAt.After(last.UpdatedAt) {
 			last = c
@@ -328,6 +347,9 @@ func (s *Service) taskTurnEndedForLook(ctx context.Context, machine, sid string,
 			cut = c
 			cut.TurnError, cut.TurnErrorKind = text, kind
 		}
+	}
+	if waitingForLimit {
+		return
 	}
 	s.tasks.mu.Lock()
 	since, worked := s.tasks.working[t.ID]
@@ -534,7 +556,21 @@ func (s *Service) appendTaskReceiptForLook(ctx context.Context, t Todo, ref Sess
 		return "", err
 	}
 	item := FeedItem{ID: look.ID, Conversation: t.Origin, At: time.Now().UTC(), Kind: feedReceipt, Ref: t.ID, Body: raw}
-	inserted, err := st.AppendFeedOnce(ctx, db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body})
+	row := db.FeedRow{ID: item.ID, Conversation: item.Conversation, At: item.At, Kind: item.Kind, Ref: item.Ref, Body: item.Body}
+	var inserted bool
+	if atomicStore, ok := s.store().(interface {
+		AppendTaskReceiptOnce(context.Context, db.FeedRow, string, string, time.Time) (bool, bool, error)
+	}); ok {
+		var valid bool
+		inserted, valid, err = atomicStore.AppendTaskReceiptOnce(ctx, row, ref.MachineID, ref.SessionID, oldLink)
+		if err == nil && !valid {
+			return "", errors.New("receipt task association changed")
+		}
+	} else if s.todoDB() != nil {
+		return "", errors.New("receipt storage cannot atomically validate task association")
+	} else {
+		inserted, err = st.AppendFeedOnce(ctx, row)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -871,7 +907,17 @@ func (s *Service) registerTaskReceiptLook(ctx context.Context, expected *Todo, m
 		}
 		waiting := false
 		for _, c := range sessions {
-			if c.SessionID == sid && limitTakenUp(c, time.Now()) {
+			if c.SessionID != sid {
+				continue
+			}
+			now := time.Now()
+			if limitTakenUp(c, now) {
+				waiting = true
+				break
+			}
+			// The same limit can still be the latest turn after its deadline passed
+			// while storage was unavailable. Persist it due now, so it is checked.
+			if reset, ok := usageLimitReset(c); ok && !now.Before(at) && reset.Add(limitResumeGrace).Equal(at) {
 				waiting = true
 				break
 			}

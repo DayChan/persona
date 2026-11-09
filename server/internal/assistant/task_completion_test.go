@@ -38,6 +38,18 @@ func (st *receiptSettingFailureStore) AppendFeed(_ context.Context, row db.FeedR
 	return nil
 }
 
+func (st *receiptSettingFailureStore) AppendFeedOnce(_ context.Context, row db.FeedRow) (bool, error) {
+	st.faultMu.Lock()
+	defer st.faultMu.Unlock()
+	for _, item := range st.feed {
+		if item.ID == row.ID {
+			return false, nil
+		}
+	}
+	st.feed = append(st.feed, row)
+	return true, nil
+}
+
 func (st *receiptSettingFailureStore) CompareSetting(ctx context.Context, key string, revision int64, value any) (bool, error) {
 	st.faultMu.Lock()
 	fail := key == receiptLooksSetting && st.failWrite
@@ -509,13 +521,52 @@ func TestTaskReceiptRetriesSettingReadFailure(t *testing.T) {
 		if n != 0 {
 			t.Fatal("receipt emitted while setting read failed")
 		}
-		<-time.After(time.Minute)
+		f.mu.Lock()
+		f.offline["box"] = true
+		f.mu.Unlock()
+		<-time.After(time.Minute + 3*time.Second)
+		synctest.Wait()
+		f.mu.Lock()
+		f.offline["box"] = false
+		f.mu.Unlock()
+		<-time.After(3 * time.Minute)
 		synctest.Wait()
 		st.faultMu.Lock()
 		n = len(st.feed)
 		st.faultMu.Unlock()
 		if n != 1 {
 			t.Fatalf("receipts after recovery = %d", n)
+		}
+	})
+}
+
+func TestReceiptRegistrationRetryAfterLimitDeadline(t *testing.T) {
+	st := &receiptSettingFailureStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s.restoreTaskReceiptLooks(ctx)
+		reset := time.Now().Add(-limitResumeGrace + 30*time.Second)
+		limited := limitTurn("s1", reset, true)
+		limited.MachineID = "box"
+		f.setSessions("box", limited)
+		todo := todoNow(s, "task")
+		st.faultMu.Lock()
+		st.failWrite = true
+		st.faultMu.Unlock()
+		s.taskTurnEndedForTaskAfter(ctx, &todo, "box", "s1", reset.Add(limitResumeGrace))
+		st.faultMu.Lock()
+		st.failWrite = false
+		st.faultMu.Unlock()
+		<-time.After(time.Minute)
+		synctest.Wait()
+		st.faultMu.Lock()
+		n := len(st.feed)
+		st.faultMu.Unlock()
+		if n != 1 {
+			t.Fatalf("expired limit receipt count = %d", n)
 		}
 	})
 }
@@ -661,6 +712,34 @@ func TestReceiptLookFollowsTheLimitedAgent(t *testing.T) {
 	s.pruneReceiptLooks(context.Background())
 	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].Session != "s2" {
 		t.Fatalf("removing other agent cleared limit wait: %+v %v", state, err)
+	}
+}
+
+func TestReceiptLookKeepsEachLimitedAgent(t *testing.T) {
+	st := &memStore{}
+	f := newFakeHub()
+	s := receiptTestService(t, f, st, time.Now().Add(-time.Hour))
+	s.todos.mu.Lock()
+	s.todos.todos["task"].Agents = append(s.todos.todos["task"].Agents, TodoAgent{MachineID: "box", SessionID: "s2", LinkedAt: time.Now()})
+	s.todos.activeBySession[[2]string{"box", "s2"}] = "task"
+	s.todos.mu.Unlock()
+	a := limitTurn("s1", time.Now().Add(time.Hour), true)
+	b := limitTurn("s2", time.Now().Add(time.Hour), true)
+	a.MachineID, b.MachineID = "box", "box"
+	f.setSessions("box", a, b)
+	s.taskTurnEnded(context.Background(), "box", "s1")
+	var state receiptLookState
+	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 2 {
+		t.Fatalf("both limits: %+v %v", state, err)
+	}
+	s.todos.mu.Lock()
+	now := time.Now()
+	s.todos.todos["task"].Agents[0].ReleasedAt = &now
+	delete(s.todos.activeBySession, [2]string{"box", "s1"})
+	s.todos.mu.Unlock()
+	s.pruneReceiptLooks(context.Background())
+	if _, err := st.Setting(context.Background(), receiptLooksSetting, &state); err != nil || len(state.Looks) != 1 || state.Looks[0].Session != "s2" {
+		t.Fatalf("other agent's wait lost: %+v %v", state, err)
 	}
 }
 
