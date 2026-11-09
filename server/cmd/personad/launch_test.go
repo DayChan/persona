@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/nodecmd"
 )
 
@@ -68,11 +69,11 @@ func shortHome(t *testing.T) string {
 	return home
 }
 
-// launchEnv is the environment for a child personad with home as its home and no Persona / Persona overrides.
+// launchEnv is the environment for a child personad with home as its home and no runtime overrides.
 func launchEnv(home string) []string {
 	env := []string{}
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "PERSONA_") && !strings.HasPrefix(kv, "JARVIS_") && !strings.HasPrefix(kv, "HOME=") {
+		if !compat.ReservedEnv(kv) && !strings.HasPrefix(kv, "HOME=") {
 			env = append(env, kv)
 		}
 	}

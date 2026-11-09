@@ -757,3 +757,5 @@ To check that a failure is this, move `dev.json` aside in the app's data contain
 - `?token=mock` pairs asynchronously: wait for something only a paired page has (`main textarea`) before setting `localStorage` and reloading, or the reload lands on the sign-in page.
 
 - Real WebSocket nudge tests need observable ordering (#2297): wait until all input audio frames arrive and the answer reaches the app before sending a late caption. Answer text/result frames on receipt rather than after an arbitrary delay. A negative nudge assertion still needs its full observation window; watch incoming frames and fail immediately on an unexpected count, then check the count at the deadline. Do not replace a sleep with an unconditional timer wait or use `synctest.Wait` around real sockets.
+
+- Tests that isolate the runtime home must clear both supported environment names through `compat.EnvNames`; child environments use `compat.ReservedEnv` to filter the reserved prefixes. Reuse the compatibility boundary rather than copying legacy literals into new test carriers (#2347).

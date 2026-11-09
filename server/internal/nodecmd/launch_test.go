@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/compat"
 )
 
 // silentNode listens on the node socket under home like a node that is stuck: it takes connections and reads the
@@ -61,8 +63,9 @@ func shortHome(t *testing.T) string {
 	t.Cleanup(func() { os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PERSONA_HOME", "")
-	t.Setenv("JARVIS_HOME", "")
+	current, legacy := compat.EnvNames("PERSONA_HOME")
+	t.Setenv(current, "")
+	t.Setenv(legacy, "")
 	return home
 }
 
