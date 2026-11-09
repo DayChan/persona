@@ -1855,7 +1855,7 @@ struct ChatView: View {
             ChatRegion(name: "ChatTranscript.body") {
                 chatScroll()
                     .overlay { if layout.on { SessionNavigationOverlay(navigation: navigation, scrub: scrub, viewport: scratch.edgeViewport) } }
-                    .modifier(EdgeScrubbing(on: layout.on, band: scrubBand, changed: scrubbed))
+                    .modifier(EdgeScrubbing(on: layout.on, band: scrubBand, state: scrub, changed: scrubbed))
                     .overlay(alignment: .bottomTrailing) { jumpArrow }
                     #if DEBUG
                     .overlay(alignment: .topLeading) { if Self.scrollProbe { scrollState } }
@@ -1937,6 +1937,9 @@ struct ChatView: View {
     #if os(iOS)
     /// The right-edge navigator's finger: previews and prefetches indexes during the gesture; loads bodies on release.
     private func scrubbed(_ p: CGPoint, _ phase: UIGestureRecognizer.State) {
+        #if DEBUG
+        scrub.gestureTrace.record("callback-\(phase.rawValue)", point: p, band: scrubBand(), frame: scratch.listFrame)
+        #endif
         let y = p.y - scratch.listFrame.minY
         switch phase {
         case .began:
@@ -2510,7 +2513,12 @@ struct ChatView: View {
         // iOS 26's soft edge blur works out its region on the unflipped view and fogged the whole list.
         .scrollEdgeEffectHidden(true, for: .all)
         .scrollPosition($position)
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { scratch.listFrame = $0 }
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) {
+            scratch.listFrame = $0
+            #if DEBUG && os(iOS)
+            scrub.gestureTrace.record("list-frame", band: scrubBand(), frame: $0)
+            #endif
+        }
         .scrollDismissesKeyboard(.interactively)
         .simultaneousGesture(TapGesture().onEnded { menu.dismiss(); Keyboard.dismiss() })
         // Only the user's own scrolling closes the bar; content streaming in also moves the offset (.animating).
@@ -2540,6 +2548,9 @@ struct ChatView: View {
             scrolled(by: new.offset - old.offset)
         }
         .onScrollPhaseChange { old, phase in
+            #if DEBUG && os(iOS)
+            scrub.gestureTrace.record("scroll-\(String(describing: phase))", band: scrubBand(), frame: scratch.listFrame)
+            #endif
             // The user's own scrolling: a drag, and the glide after a flick. Deceleration alone is not proof — landing
             // on the entry line produced it with no finger down and folded the chrome on open.
             if phase != .idle { scratch.lastActivity = .now }

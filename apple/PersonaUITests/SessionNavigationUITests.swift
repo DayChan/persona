@@ -107,6 +107,14 @@ final class SessionNavigationUITests: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.985, dy: 0.18))
         // The one-second hold is for real gesture video capture, before release starts the bounded body request.
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1)
+        // Preserve the recognizer facts even when the original around-window assertion fails below.
+        if let trace = app.probeEnvelope("session-navigation-gesture", page: "assistant") {
+            let data = try JSONSerialization.data(withJSONObject: trace, options: [.prettyPrinted, .sortedKeys])
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            attachment.name = "session-navigation-real-edge-gesture-trace"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         eventually("Release loads a separate around window", within: 15) {
             app.probe("session-navigation", as: NavigationShown.self, page: "assistant")?.window == true ? [] : ["No isolated reading window"]
         }

@@ -89,6 +89,9 @@ nonisolated struct EdgeScrubColumn: Equatable, Sendable {
     @ObservationIgnored private var fadeRevision = UUID()
     #if DEBUG
     @ObservationIgnored private(set) var lastGestureMark: EdgeMark?
+    #if os(iOS)
+    @ObservationIgnored let gestureTrace = EdgeGestureTrace()
+    #endif
     #endif
     private(set) var tickIndices: [Int] = []
     var drawnIndices: [Int] {
@@ -360,6 +363,9 @@ struct SessionNavigationOverlay: View {
             EdgeScrubOverlay(state: scrub)
             #if DEBUG
             EdgeNavigationProbe(navigation: navigation, scrub: scrub)
+            #if os(iOS)
+            EdgeGestureProbe(trace: scrub.gestureTrace)
+            #endif
             #endif
         }
             .allowsHitTesting(false)
@@ -406,6 +412,91 @@ private struct EdgeNavigationProbe: View {
                                   pickedSeq: scrub.pickedMark?.seq, marks: scrub.marks.count, fetched: navigation.marks.count,
                                   lastPickedSeq: scrub.lastGestureMark?.seq, lastText: scrub.lastGestureMark?.text,
                                   lastAnswer: scrub.lastGestureMark?.answer, window: navigation.window != nil))
+    }
+}
+#endif
+
+#if DEBUG && os(iOS)
+/// Bounded gesture facts, observed only by the transparent diagnostic overlay when existing probes are enabled.
+/// Keep the first events and the latest events so a long slow drag cannot erase its initial hit-test decision.
+@MainActor @Observable final class EdgeGestureTrace {
+    struct Event: Encodable, Equatable {
+        var name: String
+        var phase: String?
+        var point: [Double]?
+        var windowPoint: [Double]?
+        var band: [Double]?
+        var inside: Bool?
+        var attachedView: String?
+        var attachedFrame: [Double]?
+        var hitView: String?
+        var hitFrame: [Double]?
+        var otherRecognizer: String?
+        var otherView: String?
+        var otherPhase: String?
+        var requiresFailure: Bool?
+    }
+    struct Snapshot: Encodable, Equatable {
+        var recorded = 0
+        var events: [Event] = []
+    }
+    private(set) var snapshot = Snapshot()
+    private static let eventLimit = 96
+
+    private static func point(_ point: CGPoint?) -> [Double]? {
+        point.flatMap {
+            let values = [Double($0.x), Double($0.y)]
+            return values.allSatisfy { $0.isFinite } ? values : nil
+        }
+    }
+    private static func rect(_ rect: CGRect?) -> [Double]? {
+        rect.flatMap {
+            let values = [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)]
+            return values.allSatisfy { $0.isFinite } ? values : nil
+        }
+    }
+    private static func phase(_ state: UIGestureRecognizer.State?) -> String? {
+        guard let state else { return nil }
+        switch state {
+        case .possible: return "possible"
+        case .began: return "began"
+        case .changed: return "changed"
+        case .ended: return "ended"
+        case .cancelled: return "cancelled"
+        case .failed: return "failed"
+        @unknown default: return "unknown"
+        }
+    }
+
+    func record(_ name: String, recognizer: UIGestureRecognizer? = nil, point: CGPoint? = nil,
+                windowPoint: CGPoint? = nil, band: CGRect? = nil, touch: UITouch? = nil,
+                other: UIGestureRecognizer? = nil, requiresFailure: Bool? = nil, frame: CGRect? = nil) {
+        guard ScreenProbe.enabled else { return }
+        let view = recognizer?.view
+        let event = Event(name: name, phase: Self.phase(recognizer?.state), point: Self.point(point),
+                          windowPoint: Self.point(windowPoint), band: Self.rect(band),
+                          inside: point.flatMap { p in band.map { $0.contains(p) } },
+                          attachedView: view.map { String(describing: type(of: $0)) },
+                          attachedFrame: Self.rect(frame ?? view.map { $0.convert($0.bounds, to: nil) }),
+                          hitView: touch?.view.map { String(describing: type(of: $0)) },
+                          hitFrame: Self.rect(touch?.view.map { $0.convert($0.bounds, to: nil) }),
+                          otherRecognizer: other.map { String(describing: type(of: $0)) },
+                          otherView: other?.view.map { String(describing: type(of: $0)) },
+                          otherPhase: Self.phase(other?.state), requiresFailure: requiresFailure)
+        if snapshot.events.last == event { return }
+        var next = snapshot
+        next.recorded += 1
+        if next.events.count == Self.eventLimit { next.events.remove(at: Self.eventLimit / 2) }
+        next.events.append(event)
+        snapshot = next
+    }
+}
+
+private struct EdgeGestureProbe: View {
+    let trace: EdgeGestureTrace
+    var body: some View {
+        Color.clear.frame(width: Theme.Size.line, height: Theme.Size.line)
+            .screenProbe("session-navigation-gesture", page: "assistant", trace.snapshot)
     }
 }
 #endif
@@ -493,16 +584,28 @@ struct EdgeScrubOverlay: View {
 /// more up-and-down than sideways; the list's scrolling waits for it to fail.
 struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
     var band: () -> CGRect
+    var state: EdgeScrubState
     /// Where the finger is (window coordinates) as the gesture begins, moves and ends.
     var changed: (CGPoint, UIGestureRecognizer.State) -> Void
 
     final class Recognizer: UIGestureRecognizer {
         var band: () -> CGRect = { .zero }
+        #if DEBUG
+        var trace: EdgeGestureTrace?
+        private func record(_ event: String, touch: UITouch? = nil) {
+            trace?.record(event, recognizer: self, point: touch?.location(in: nil),
+                          windowPoint: touch?.location(in: view?.window), band: band(), touch: touch)
+        }
+        #endif
         private var start: CGPoint?
         /// How far the finger goes before its direction counts.
         private let slop = Theme.Space.s
 
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            #if DEBUG
+            record("touchesBegan", touch: touches.first)
+            defer { record("touchesBegan-result", touch: touches.first) }
+            #endif
             guard start == nil, touches.count == 1, let p = touches.first?.location(in: nil), band().contains(p) else {
                 if state == .possible { state = .failed }
                 return
@@ -511,6 +614,10 @@ struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
         }
 
         override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+            #if DEBUG
+            record("touchesMoved", touch: touches.first)
+            defer { record("touchesMoved-result", touch: touches.first) }
+            #endif
             guard let start, let p = touches.first?.location(in: nil) else { return }
             guard state == .possible else {
                 state = .changed
@@ -525,14 +632,25 @@ struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
         }
 
         override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            #if DEBUG
+            record("touchesEnded", touch: touches.first)
+            defer { record("touchesEnded-result", touch: touches.first) }
+            #endif
             state = state == .possible ? .failed : .ended
         }
 
         override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+            #if DEBUG
+            record("touchesCancelled", touch: touches.first)
+            defer { record("touchesCancelled-result", touch: touches.first) }
+            #endif
             state = state == .possible ? .failed : .cancelled
         }
 
         override func reset() {
+            #if DEBUG
+            record("reset")
+            #endif
             super.reset()
             start = nil
         }
@@ -542,8 +660,24 @@ struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
         /// A scroll view's pan (the list's) waits until the navigator gives up: a slide that starts in the band and
         /// goes up or down is the navigator's, not the list's.
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-            other.view is UIScrollView && other is UIPanGestureRecognizer
+            let required = other.view is UIScrollView && other is UIPanGestureRecognizer
+            #if DEBUG
+            if let r = g as? Recognizer {
+                r.trace?.record("failure-dependency", recognizer: g, band: r.band(), other: other, requiresFailure: required)
+            }
+            #endif
+            return required
         }
+
+        #if DEBUG
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let r = g as? Recognizer {
+                r.trace?.record("shouldReceive", recognizer: g, point: touch.location(in: nil),
+                                windowPoint: touch.location(in: g.view?.window), band: r.band(), touch: touch)
+            }
+            return true // observational only: exactly the delegate's default admission
+        }
+        #endif
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
@@ -552,15 +686,28 @@ struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
         let r = Recognizer()
         r.delegate = context.coordinator
         r.band = band
+        #if DEBUG
+        r.trace = state.gestureTrace
+        r.trace?.record("make", recognizer: r, band: r.band())
+        #endif
         return r
     }
 
     func updateUIGestureRecognizer(_ recognizer: Recognizer, context: Context) {
         recognizer.band = band
+        #if DEBUG
+        recognizer.trace = state.gestureTrace
+        recognizer.trace?.record("update", recognizer: recognizer, band: recognizer.band())
+        #endif
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: Recognizer, context: Context) {
-        changed(recognizer.location(in: nil), recognizer.state)
+        let point = recognizer.location(in: nil)
+        #if DEBUG
+        recognizer.trace?.record("action", recognizer: recognizer, point: point,
+                                 windowPoint: recognizer.location(in: recognizer.view?.window), band: recognizer.band())
+        #endif
+        changed(point, recognizer.state)
     }
 }
 #endif
@@ -570,16 +717,18 @@ struct EdgeScrubGesture: UIGestureRecognizerRepresentable {
 struct EdgeScrubbing: ViewModifier {
     var on: Bool
     var band: () -> CGRect
+    var state: EdgeScrubState
     var changed: (CGPoint, UIGestureRecognizer.State) -> Void
 
     func body(content: Content) -> some View {
-        if on { content.gesture(EdgeScrubGesture(band: band, changed: changed)) } else { content }
+        if on { content.gesture(EdgeScrubGesture(band: band, state: state, changed: changed)) } else { content }
     }
 }
 #else
 struct EdgeScrubbing: ViewModifier {
     var on: Bool
     var band: () -> CGRect
+    var state: EdgeScrubState
     var changed: (CGPoint, Int) -> Void
 
     func body(content: Content) -> some View { content }
