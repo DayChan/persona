@@ -15,11 +15,11 @@ const scheduleKey = "assistant.tasks"
 // scheduleOwnerLock is the session advisory lock key for the schedule retry owner.
 const scheduleOwnerLock int64 = 0x706d7363686564
 
-// ReadSchedule reads the manager's task list and its row version. A legacy null
-// value is returned unchanged: it means the list has not yet been migrated.
-// Revision zero is reserved for a missing row.
+// ReadSchedule reads the task list and its row version from the same settings
+// table as Setting. A legacy null value is returned unchanged: it means the list
+// has not yet been migrated. Revision zero is reserved for a missing row.
 func (d *DB) ReadSchedule(ctx context.Context) (tasks json.RawMessage, revision int64, found bool, err error) {
-	err = d.pool.QueryRow(ctx, `SELECT value, xmin::text::bigint FROM settings WHERE key = $1`, scheduleKey).Scan(&tasks, &revision)
+	err = d.pool.QueryRow(ctx, `SELECT value, xmin::text::bigint FROM `+d.settingsTable()+` WHERE key = $1`, scheduleKey).Scan(&tasks, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, 0, false, nil
 	}
@@ -45,9 +45,9 @@ func (d *DB) CompareSchedule(ctx context.Context, revision int64, tasks json.Raw
 	}
 	var sql string
 	if revision == 0 {
-		sql = `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (key) DO NOTHING`
+		sql = `INSERT INTO ` + d.settingsTable() + ` (key, value, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (key) DO NOTHING`
 	} else {
-		sql = `UPDATE settings SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND xmin::text::bigint = $3`
+		sql = `UPDATE ` + d.settingsTable() + ` SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND xmin::text::bigint = $3`
 	}
 	args := []any{scheduleKey, []byte(tasks)}
 	if revision != 0 {
@@ -61,9 +61,12 @@ func (d *DB) CompareSchedule(ctx context.Context, revision int64, tasks json.Raw
 }
 
 // TryScheduleOwner tries to hold the exclusive session lock on a dedicated
-// pool connection. done closes after loss, cancellation, or release; it does
-// not imply the caller's workers have stopped. Stop and join those workers
-// before release, and stop them when done closes. A lost lock is never retaken.
+// pool connection. ctx governs the entire ownership lifetime, not just the
+// acquisition: cancellation releases the lock. For an orderly shutdown, use
+// an ownership context that stays live until all workers have stopped and been
+// joined, then release or cancel it. done closes after loss, cancellation, or
+// release; it does not imply the caller's workers have stopped. On unexpected
+// loss, stop the workers when done closes. A lost lock is never retaken.
 func (d *DB) TryScheduleOwner(ctx context.Context) (done <-chan struct{}, release func(), acquired bool, err error) {
 	c, err := d.pool.Acquire(ctx)
 	if err != nil {

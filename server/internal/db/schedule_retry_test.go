@@ -113,6 +113,53 @@ func TestScheduleCompare(t *testing.T) {
 	}
 }
 
+func TestScheduleSettingsTable(t *testing.T) {
+	manager, _ := scheduleDBs(t)
+	ctx := context.Background()
+	hub, err := Attach(ctx, os.Getenv("PERSONA_TEST_DATABASE_URL"), HubSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	if _, err := hub.pool.Exec(ctx, `DELETE FROM hub_settings WHERE key = $1`, scheduleKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.PutSetting(ctx, scheduleKey, []map[string]string{{"id": "hub"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, found, err := manager.ReadSchedule(ctx); err != nil || found {
+		t.Fatalf("hub leaked into manager: found=%v err=%v", found, err)
+	}
+	if ok, err := manager.CompareSchedule(ctx, 0, json.RawMessage(`[]`)); err != nil || !ok {
+		t.Fatalf("manager insert: %v %v", ok, err)
+	}
+	raw, rev, found, err := hub.ReadSchedule(ctx)
+	if err != nil || !found || !strings.Contains(string(raw), `"hub"`) {
+		t.Fatalf("hub read: %s %d %v %v", raw, rev, found, err)
+	}
+	if ok, err := hub.CompareSchedule(ctx, rev, json.RawMessage(`[{"id":"updated"}]`)); err != nil || !ok {
+		t.Fatalf("hub update: %v %v", ok, err)
+	}
+	var stored []map[string]string
+	if found, err := hub.Setting(ctx, scheduleKey, &stored); err != nil || !found || len(stored) != 1 || stored[0]["id"] != "updated" {
+		t.Fatalf("hub Setting: %v %v %v", stored, found, err)
+	}
+	_, rev, _, err = hub.ReadSchedule(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.PutSetting(ctx, scheduleKey, []any{}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := hub.CompareSchedule(ctx, rev, json.RawMessage(`[]`)); err != nil || ok {
+		t.Fatalf("hub ordinary write was missed: %v %v", ok, err)
+	}
+	raw, _, found, err = manager.ReadSchedule(ctx)
+	if err != nil || !found || string(raw) != `[]` {
+		t.Fatalf("manager changed: %s %v %v", raw, found, err)
+	}
+}
+
 func awaitScheduleDone(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
@@ -162,6 +209,61 @@ func TestScheduleOwner(t *testing.T) {
 	if _, _, got, err := d.TryScheduleOwner(ownerCtx); err == nil || got {
 		t.Fatalf("cancelled acquisition: %v %v", got, err)
 	}
+}
+
+func TestScheduleOwnerContextLifetime(t *testing.T) {
+	d, other := scheduleDBs(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done, release, got, err := d.TryScheduleOwner(ctx)
+	if err != nil || !got {
+		t.Fatalf("owner: %v %v", got, err)
+	}
+	defer release()
+	stopWorker := make(chan struct{})
+	workerDone := make(chan struct{})
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(func() { close(stopWorker) }) }
+	defer stop()
+	go func() {
+		defer close(workerDone)
+		<-stopWorker
+	}()
+
+	// Unexpected cancellation releases the session but does not join workers.
+	cancel()
+	awaitScheduleDone(t, done)
+	select {
+	case <-workerDone:
+		t.Fatal("owner cancellation unexpectedly joined the worker")
+	default:
+	}
+	done2, release2, got, err := other.TryScheduleOwner(context.Background())
+	if err != nil || !got {
+		t.Fatalf("cancelled owner kept the lock: %v %v", got, err)
+	}
+	defer release2()
+	stop()
+	awaitScheduleDone(t, workerDone)
+	release2()
+	awaitScheduleDone(t, done2)
+
+	// An orderly shutdown can stop and join workers while the lock remains held.
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	done, release, got, err = d.TryScheduleOwner(ctx)
+	if err != nil || !got {
+		t.Fatalf("new owner: %v %v", got, err)
+	}
+	defer release()
+	workerDone = make(chan struct{})
+	go func(done chan struct{}) { close(done) }(workerDone)
+	awaitScheduleDone(t, workerDone)
+	if _, _, got, err := other.TryScheduleOwner(context.Background()); err != nil || got {
+		t.Fatalf("lock lost before shutdown: %v %v", got, err)
+	}
+	cancel()
+	awaitScheduleDone(t, done)
 }
 
 func TestScheduleOwnerConnectionLoss(t *testing.T) {
