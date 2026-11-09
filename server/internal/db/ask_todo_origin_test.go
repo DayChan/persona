@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// 0443 takes the origin off the to-dos questions nobody answered became (#1852, #1909): they are no tasks. A task of a
+// 0451 takes the origin off the to-dos questions nobody answered became (#1852, #1909): they are no tasks. A task of a
 // conversation keeps its origin, and so does a to-do whose id only looks alike. Applied again on top of a migrated
 // database, as it would meet stored to-dos.
 func TestAskTodoOriginCleared(t *testing.T) {
@@ -28,7 +28,7 @@ func TestAskTodoOriginCleared(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sql, err := fs.ReadFile(migrations, "migrations/manager/0443_ask_todo_no_origin.sql")
+	sql, err := fs.ReadFile(migrations, "migrations/manager/0451_ask_todo_no_origin.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
