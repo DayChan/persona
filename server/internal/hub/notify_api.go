@@ -196,8 +196,9 @@ func (h *Hub) machineNameFor(in notifyRequest) string {
 	return h.machineName(in.MachineID)
 }
 
-// deliverNotify sends a validated notification to the devices that take them: the reply is {"sent":true}, or
-// {"sent":false,"reason":"muted"}. An error is the caller's (a payload too large for APNs). machine is the subtitle:
+// deliverNotify sends a validated notification to the devices that take them: the reply is {"sent":true} when a
+// recipient is selected, or {"sent":false,"reason":"muted"|"no_device"|"filtered"}. An error is the caller's
+// (a payload too large for APNs). machine is the subtitle:
 // the machine's name, "" for none. manager is whose it is (an extension's manager, a computer's for its
 // `personad notify` or for a request naming that computer): devices that turned that manager's pushes off skip it;
 // "" (no extension and no computer of this hub named) is the hub's own, which no device mutes.
@@ -216,7 +217,7 @@ func (h *Hub) deliverNotify(in notifyRequest, machine, extID, manager string) (m
 	// Something that needs you: devices that turned off "Needs you" (prefs.input) get none of these either.
 	wants := pushWants{Kind: "input"}.fn()
 	build := func(i18n.Lang) map[string]any { return payload }
-	h.push.sendFrom(manager, build, collapse, wants, quietNone, nil)
+	pushSelected, pushReachable := h.push.sendFrom(manager, build, collapse, wants, quietNone, nil)
 	ws := build
 	if in.ID != "" {
 		// The WebSocket event carries the id itself (not the push), so an Android phone replaces the earlier alert too.
@@ -224,7 +225,14 @@ func (h *Hub) deliverNotify(in notifyRequest, machine, extID, manager string) (m
 		withID["id"] = in.ID
 		ws = func(i18n.Lang) map[string]any { return withID }
 	}
-	h.notifyWSFrom(manager, kindAlert, ws, wants, quietNone)
+	wsSelected, wsReachable := h.notifyWSFrom(manager, kindAlert, ws, wants, quietNone)
+	if pushSelected+wsSelected == 0 {
+		reason := "no_device"
+		if pushReachable+wsReachable > 0 {
+			reason = "filtered"
+		}
+		return map[string]any{"sent": false, "reason": reason}, nil
+	}
 	return map[string]any{"sent": true}, nil
 }
 

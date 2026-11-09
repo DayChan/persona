@@ -287,6 +287,8 @@ The sections that are a manager's (whose assistant it is, `ai`, `agents`, `inbox
   Each device's push preferences are set separately in the App (**Settings › Notifications**, stored in hub `devices.prefs`), not here.
   This section stays in hub.json: push delivery is the hub's, and it hands the timings to the managers in its hello.
 - `shutdown_timeout_seconds` (default 8): total hub shutdown budget, including closing the database connection pool; external `docker stop -t` must be longer (`docs/server/server.md` ("Shutdown")).
+- `auto_update_nodes` (default `false`): lets the managers update the computers' nodes by themselves, after a confirmed hub update and when a node on another build reconnects (the hub hands it over in `devices.config`).
+  Off, a node changes only when someone picks **Redeploy** for its computer ([hub-update.md](hub-update.md) ("Node upgrade policy")).
 
 ## manager.json
 

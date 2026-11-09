@@ -22,6 +22,7 @@
   "upgrade_available": "後で自動で更新します",
   "upgrade_off": "自動更新はオフです",
   "upgrade_skipped": "前回の更新後に起動しなかったため{from}に戻しました。このバージョンには自動更新しません",
+  "upgrade_skipped_user": "このバージョンから{from}にロールバックしたため、このバージョンには自動更新しません",
   "upgrade_failed": "インストールできませんでした",
   "upgrade_failed_detail": "インストールできませんでした：{detail}",
   "upgrade_incompatible": "このハブにはインストールできません",

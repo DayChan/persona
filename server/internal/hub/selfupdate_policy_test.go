@@ -37,13 +37,61 @@ func TestHubOnlyUpdateNeverFetchesOrInstallsNodePackages(t *testing.T) {
 	if pending.Nodes != "" {
 		t.Fatalf("staged nodes: %s", pending.Nodes)
 	}
-	h.upd.updateNodes(context.Background(), t.TempDir())
+	h.upd.updateNodes(context.Background(), t.TempDir(), pending.FromVersion)
 	if _, err := os.Stat(nodes); !os.IsNotExist(err) {
 		t.Fatalf("node directory recreated: %v", err)
 	}
 	h.cfg.AutoUpdateNodes = true
 	if !h.devicesConfig().AutoUpdateNodes {
 		t.Fatal("explicit policy not handed to manager")
+	}
+}
+
+// A hub that updated itself alone sets aside the unlabelled node builds of its previous version: the manager would
+// hand them out as the hub's own version, and Redeploy would put the old node back (#1825).
+func TestHubOnlyUpdateSetsAsideOldNodeBuilds(t *testing.T) {
+	nodes := t.TempDir()
+	t.Setenv("PERSONA_NODE_BINARIES", nodes)
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(nodes, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("personad-linux-arm64", "v1 build")           // left by the last deploy: passes for the hub's version
+	write("personad-darwin-arm64", "a release's build") // labelled: says what it is, stays
+	write("personad-darwin-arm64.version", "v1-202611010000\n")
+	write("persona-node-linux-arm64", "persona-node") // only ever used with a matching version file
+	write("persona-node-linux-arm64.version", "v1\n")
+	write("personad-linux-arm64.gz", "an archive") // not a build
+	h := newTestHub(t)
+	h.version = "v2"
+
+	h.upd.updateNodes(context.Background(), "", "v2") // the same version again: still the hub's own
+	if _, err := os.Stat(filepath.Join(nodes, "personad-linux-arm64")); err != nil {
+		t.Fatalf("a reinstall of the same version moved the hub's own build: %v", err)
+	}
+
+	h.upd.updateNodes(context.Background(), "", "v1")
+	if _, err := os.Stat(filepath.Join(nodes, "personad-linux-arm64")); !os.IsNotExist(err) {
+		t.Fatalf("the v1 build still passes for v2: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(nodes, "personad-linux-arm64.prev")); err != nil || string(b) != "v1 build" {
+		t.Fatalf("set aside: %q %v", b, err)
+	}
+	for _, kept := range []string{"personad-darwin-arm64", "personad-darwin-arm64.version", "persona-node-linux-arm64",
+		"persona-node-linux-arm64.version", "personad-linux-arm64.gz"} {
+		if _, err := os.Stat(filepath.Join(nodes, kept)); err != nil {
+			t.Errorf("%s: %v", kept, err)
+		}
+	}
+
+	h.cfg.AutoUpdateNodes = true // node updates on: the release's builds replace them instead (TestUpdateNodesBinariesInPlace)
+	write("personad-linux-amd64", "v2 build")
+	h.version = "v3"
+	h.upd.updateNodes(context.Background(), "", "v2")
+	if _, err := os.Stat(filepath.Join(nodes, "personad-linux-amd64")); err != nil {
+		t.Fatalf("set aside with node updates on: %v", err)
 	}
 }
 

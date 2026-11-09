@@ -64,8 +64,9 @@ func (h *Hub) notifyInteraction(owner string, ix proto.Interaction, machine stri
 // (client.lang), by the authenticated device's preferences, even without an APNs token or key, and with what its quiet
 // hours do to it (quiethours.go): skipped, or marked "quiet" for the client to post without a sound. manager is the
 // one that asked for it: a device that turned that manager's pushes off (NotifyPrefs.MutedManagers) gets none, as with
-// its push (Pusher.sendFrom); "" is the hub's own, for every device wants takes.
-func (h *Hub) notifyWSFrom(manager, kind string, build localized, wants func(NotifyPrefs) bool, rule quietRule, required ...string) {
+// its push (Pusher.sendFrom); "" is the hub's own, for every device wants takes. Returns the selected count and the
+// count of capable connections before preferences are applied; neither is a client delivery receipt.
+func (h *Hub) notifyWSFrom(manager, kind string, build localized, wants func(NotifyPrefs) bool, rule quietRule, required ...string) (selected, reachable int) {
 	msgs := map[i18n.Lang]map[string]any{}
 	msgIn := func(l i18n.Lang) map[string]any {
 		if m, ok := msgs[l]; ok {
@@ -92,6 +93,7 @@ func (h *Hub) notifyWSFrom(manager, kind string, build localized, wants func(Not
 		if len(required) > 0 && !c.has(required[0]) {
 			continue
 		}
+		reachable++
 		prefs := defaultPrefs()
 		if h.push != nil {
 			prefs = h.push.prefs(c.device)
@@ -102,6 +104,7 @@ func (h *Hub) notifyWSFrom(manager, kind string, build localized, wants func(Not
 		quiet := rule != quietNone && prefs.Quiet.activeAt(now, loc)
 		switch {
 		case quiet && rule == quietSkip:
+			continue
 		case quiet:
 			msg := maps.Clone(msgIn(c.lang()))
 			msg["quiet"] = true
@@ -109,7 +112,9 @@ func (h *Hub) notifyWSFrom(manager, kind string, build localized, wants func(Not
 		default:
 			c.sendJSON(msgIn(c.lang()))
 		}
+		selected++
 	}
+	return selected, reachable
 }
 
 func notifyMessage(kind string, payload map[string]any) map[string]any {

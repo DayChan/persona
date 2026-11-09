@@ -485,7 +485,7 @@ func (h *Hub) revoked(id string) {
 		c.conn.CloseNow()
 	}
 	links := h.closeLinks(id) + h.closePeerLinksOf(id)
-	// What it has open through the manager: an extension's WebSocket (a voice call) among others (extension_calls.go).
+	// Its extension calls, port forwards, live screens and previews (extension_calls.go).
 	links += h.dropRelayed(id)
 	if hub := h.peerForCredential(id); hub != "" { // a peer's credential: that pairing ends
 		go func() {

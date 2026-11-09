@@ -22,6 +22,7 @@
   "upgrade_available": "Upgrades automatically later",
   "upgrade_off": "Auto-upgrade is off",
   "upgrade_skipped": "Didn't start after the last upgrade, so it's back on {from} and won't auto-upgrade to this version",
+  "upgrade_skipped_user": "You rolled back from this version to {from}, so it won't auto-upgrade to it",
   "upgrade_failed": "Didn't install",
   "upgrade_failed_detail": "Didn't install: {detail}",
   "upgrade_incompatible": "This hub can't install it",

@@ -29,6 +29,7 @@
   "done_user": "You marked it done",
   "done_dismissed": "You dismissed it",
   "done_read": "Read elsewhere, done",
+  "done_muted": "Muted, done",
   "done_manager": "Manager checked: nothing to do",
   "failed_timeout": "Handling timed out",
   "failed_stopped": "The handling conversation stopped without a suggestion",

@@ -27,8 +27,8 @@ var (
 	benchErr  error
 )
 
-func benchStore(b *testing.B) *Store {
-	b.Helper()
+func benchStore(tb testing.TB) *Store {
+	tb.Helper()
 	benchOnce.Do(func() {
 		benchDir, benchErr = os.MkdirTemp("", "kb-find-bench-")
 		if benchErr != nil {
@@ -37,11 +37,11 @@ func benchStore(b *testing.B) *Store {
 		benchErr = fillBenchStore(benchDir)
 	})
 	if benchErr != nil {
-		b.Fatal(benchErr)
+		tb.Fatal(benchErr)
 	}
 	st, err := NewStore(benchDir)
 	if err != nil {
-		b.Fatal(err)
+		tb.Fatal(err)
 	}
 	return st
 }
@@ -121,16 +121,29 @@ func TestMain(m *testing.M) {
 }
 
 // BenchmarkFind is search-as-you-type: the same engine answers one query after another (the app sends one per
-// keystroke), the archive unchanged in between.
+// keystroke), the archive unchanged in between. typing is the keystrokes of a rare word; the others repeat one query:
+// a rare word (about 1% of the days), a word on every message line (every chat far past foundCap) and a word no file
+// has (only the whole-file check runs).
 func BenchmarkFind(b *testing.B) {
 	e := &Engine{Store: benchStore(b)}
 	if res := e.Find("周报", 80); len(res) == 0 {
 		b.Fatal("the rare word is not found")
 	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; b.Loop(); i++ {
-		e.Find([]string{"周", "周报", "周报 draft"}[i%3], 80)
+	for _, c := range []struct {
+		name    string
+		queries []string
+	}{
+		{"typing", []string{"周", "周报", "周报 draft"}},
+		{"rare", []string{"周报 draft"}},
+		{"every", []string{"build"}},
+		{"none", []string{"nowhere"}},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				e.Find(c.queries[i%len(c.queries)], 80)
+			}
+		})
 	}
 }
 
@@ -144,18 +157,47 @@ func BenchmarkFindCold(b *testing.B) {
 	}
 }
 
-// BenchmarkSearch is kb_search over the same archive, messages included: a rare word (the days that have it are
-// spread over the year, so most files are read before the limit is reached) and a word no file has (every file read).
+// BenchmarkSearch is kb_search over the same archive, messages included, on a warm engine (every file kept from an
+// earlier search): a rare word (the days that have it are spread over the year, so most files are read before the
+// limit is reached), a common one (the limit is reached in the first days) and a word no file has (every file read).
 func BenchmarkSearch(b *testing.B) {
 	e := &Engine{Store: benchStore(b)}
 	if hits := e.Search("周报 draft", true, 40); len(hits) == 0 {
 		b.Fatal("the rare word is not found")
 	}
-	for _, q := range []string{"周报 draft", "nowhere"} {
+	e.Search("nowhere", true, 40)
+	for _, q := range []string{"周报 draft", "build", "nowhere"} {
 		b.Run(q, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				e.Search(q, true, 40)
+			}
+		})
+	}
+}
+
+// BenchmarkMatches is opening a chat found by a search (GET /api/v1/kb/chats/<id>?q=, limit 40) in a chat with a year
+// of day files: a rare word (4 of the 365 days have it, so every day is looked at) and a common one (on every line: the
+// first days fill the limit). Warm is right after a Find, whose cache holds every file; cold is a new engine each time.
+func BenchmarkMatches(b *testing.B) {
+	st := benchStore(b)
+	const chat = "lark-c000"
+	warm := &Engine{Store: st}
+	warm.Find("周报", 80)
+	for _, q := range []struct{ name, query string }{{"rare", "周报 draft"}, {"common", "review"}} {
+		if m := warm.Matches(KindChat, chat, q.query, 40); len(m) == 0 {
+			b.Fatalf("%q is not found", q.query)
+		}
+		b.Run(q.name+"/warm", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				warm.Matches(KindChat, chat, q.query, 40)
+			}
+		})
+		b.Run(q.name+"/cold", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				(&Engine{Store: st}).Matches(KindChat, chat, q.query, 40)
 			}
 		})
 	}

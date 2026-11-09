@@ -1,5 +1,29 @@
 # Lessons: hub / node and networking
 
+## Retained extension lists need installed managers (#1918)
+
+A relay can retain an offline manager's GET answer while the merged list drops it before the relay is called. For merged retained GET routes, enumerate installed bus identities as well as live managers; keep ordinary lists such as inbox and todos online-only. Never discover owners by scanning cache keys: a removed manager can still have cached answers. Fail closed when the installed roster cannot be read, and test the real relay warm-up followed by disconnect, missing cache, revocation, and an offline default. In external mode even the identity named `assistant` is removable: only seed it when `builtinManager` says it is built in, and return unavailable for an empty roster rather than reviving a cached default.
+
+## Update checks must preserve installation state (#1912)
+
+The hub's `running` flag belongs to the installing process; it is false in the new
+process while that process confirms the update. Guard check-driven state changes
+with both install and confirmation status, under the same mutex as the write.
+Check again after the manifest request: an install can start while it is in flight.
+Successful checks may refresh release metadata and failed checks may advance the
+last-check time, but neither may replace an active update's state, progress or error.
+Apply the guard in the shared check path used by manual, startup and hourly checks,
+and keep automatic installation and held-release recording out of confirmation.
+Regression tests must observe the state while the request is blocked as well as
+after success or failure; checking only the final state misses a transient
+`checking` event that already hid the progress in every client.
+
+In timer tests, wait on a request channel with a timeout and assert the request's
+timestamp, then use `synctest.Wait` before inspecting the completed result. This
+synchronizes the observation without fixed sleeps or a shared request counter.
+Even inside `synctest`, new `time.Sleep` calls fail the repository's sleep ratchet;
+run `scripts/ci/guards.sh` as well as the server build and race checks.
+
 ## Model connection tests must match the runtime (#1732)
 
 A successful connection probe can still hide a request the model server will reject: exercise the same output-token field and its narrowly scoped fallback as the runtime. Parse SSE events rather than individual `data:` lines, including multiline events and CRLF, and test empty, truncated, refused, and errored replies separately.
@@ -165,6 +189,7 @@ Revocation ended pairing codes with `expires_at = now()` (Postgres's clock) whil
 ## A settings read error is not an absent choice (#5827)
 
 - Return read errors separately from a missing setting before applying defaults or migrating a client's choice. A failed conditional write must neither overwrite the saved choice nor broadcast a replacement. Test a failed read followed by a successful retry, including zero writes and broadcasts during the failure.
+- A GET that returns an empty preference document on a failed read can erase saved data indirectly: clients accept the empty copy and send it back in their next full-document PUT (#1865). Check the read's success flag at the HTTP boundary, even when manager events already check it. Serve a successfully cached copy or return an error; test cold-read failure, recovery, all preference fields, and cache retention separately from a genuinely absent setting.
 
 ## Registration success requires persistence (#5827)
 
@@ -601,6 +626,7 @@ home volume (docs/operations/link.md "Without systemd").
 
 ## Knowledge base (docs/assistant/knowledge.md)
 
+- A connector's knowledge-base switch must gate every ingestion path (#1835): conversations, items (documents, meetings and events), document-title lookups and program-initiated posts. Filtering the source list alone leaves direct calls open after a switch changes. Check both the feed and the main switch at the call boundary too; a shared extension process may keep running after its connector is disabled. `Registry.Feeds` does not include `Registry.Enabled`. Test both switches independently, with a connector that still answers calls, and assert that neither source reads nor post forwarding occur while off.
 - An asynchronous dedupe answer must recheck a user's split, record its verdict and merge under the same project-mutation lock as unmerge. The verdict-file mutex prevents lost JSON updates but cannot stop an already queued merge from reversing a completed split. A verdict write failure must stop the merge.
 - A checkpoint after append is a replay window (#1343): connector pages can repeat after a cursor failure, a later batch failure or a process interruption.
   Preserve stable message IDs scoped by exact source and chat, including IDs such as `body` reused across threads. Formatted-text matching loses distinct messages;
@@ -627,6 +653,14 @@ home volume (docs/operations/link.md "Without systemd").
 
 ## Port forwarding (docs/operations/ports.md)
 
+- Credential revocation must cover auxiliary WebSockets too (#1823): closing `/api/v1/ws` leaves live screens, forwarded ports and previews usable.
+  Register them with `trackRelayed` before opening a stream, recheck revocation after registration, and defer unregistering on every exit.
+  Derive the connection context from that tracked request and close the connection when it ends; a context rooted at `context.Background()` outlives revocation.
+  Abort the mux stream explicitly too: a sender waiting for flow-control acknowledgements cannot observe a closed connection. Test both ends closing,
+  multiple connections per credential, other credentials staying usable, and revocation between authentication and registration.
+  Remote setup cancellation is a separate lifecycle problem: `stream.close` for an unknown id is ignored, so a node that completes `port.dial` or
+  `preview.open` after the caller canceled can still open a backend stream. Closing the client's WebSocket prevents further access, but does not prove
+  cleanup of that late backend; established-stream tests cannot establish that guarantee.
 - RPC `OnEvent` runs in the read loop: blocking there (e.g. writing received bytes directly to a slow WebSocket) stalls every RPC on that machine.
   Queue bytes per stream and write from a separate goroutine; bound queues through windows (sender waits for ack), not dropped data.
 - coder/websocket defaults to a 32 KB message read limit (`read limited at 32769 bytes`, peer gets `StatusMessageTooBig`). Forwarded connections need `SetReadLimit`,
@@ -1057,6 +1091,15 @@ The release manifest is read only during self-update, with no later fallback: `n
 Now download every platform in the release manifest (four, matching `deploy.sh` and images); the hub platform's node binary is the same as hub itself, so reuse that download.
 For any download/build list derived from current runtime state, consider objects appearing only after update.
 
+## A hub-only update left node builds that passed for the new version (2026-11-09, #1825)
+
+With `auto_update_nodes` off (the default), the hub's self-update replaced only its own binary. `bin/nodes/personad-<os>-<arch>` stayed the previous
+build, and the manager's package lookup takes an unlabelled personad there for a build of the hub's version, ahead of the release site: every
+Redeploy installed the old node (or failed its self-check), and the mismatch could not be fixed from the apps. Now a confirmed hub-only update to
+another version renames those unlabelled builds to `.prev`, so the lookup falls through to the release of the hub's version.
+Whenever a file's meaning is "the build of whatever version the hub runs now", whatever changes the hub's version without changing that file
+must relabel it or move it.
+
 ## Generic plans make "empty means no filter" lose indexes (2026-11-06, #4907)
 
 - pgx caches prepared statements by default; after five executions Postgres may choose a generic plan that can't see parameter values.
@@ -1125,6 +1168,10 @@ Query escaping turns spaces into plus signs, but URI userinfo decoding keeps a p
 ## Reading an answer a reverse proxy passes on (#5278)
 
 When a `httputil.ReverseProxy` has to read what it forwards (the sent-as-user ledger wants the id in a write's answer), copy the bytes as they go to the client, after each `Write`, and read the copy once the handler is done: buffering the answer first would delay a stream and change what the client gets. Which bytes the copy holds depends on the request: a client that sent `Accept-Encoding` itself gets the API's compressed answer verbatim (and the answer's `Content-Encoding` says so), while a client that sent none gets the plain body, because the transport asked for gzip on its own and unpacked it. Read `Content-Encoding` from the answer's headers when the copy starts, not from the request, and bound both the copy and what a gzip copy unpacks to. Test both clients, a chunked answer that is still being written, an answer over the limit and a body that cannot be read: the command must get the same bytes in every case, and an unreadable answer must still be reported.
+
+## Notification success needs a selected recipient (#1910)
+
+Calling both notification channels does not mean either selected a recipient: a saved device may have no usable APNs or relay route, and a connected client may not support `ws_notify`. Return selected and reachable counts from the same recipient walk, before and after its preference filters, so the API can distinguish `no_device` from `filtered` without a separate readiness check racing that selection. Preserve the earlier session-level `muted` result and count both channels: a WebSocket notification can still go out without any push credentials. These counts are not asynchronous APNs / relay acceptance or proof that a phone displayed anything.
 
 ## A push's nil "wants" means "asked for explicitly" (2026-11-06, per-manager push switches)
 
@@ -1195,3 +1242,11 @@ A connector that folds several notifications into one thread (GitHub CI failures
 
 - `json.Unmarshal` checks the whole input before it decodes it, only to report errors the way it always has; on transcript lines, whose message content is decoded again as a string and as blocks, that check was about a fifth of a cold read. Where only `err != nil` is read, decode with `jsonv2.JoinOptions(json.DefaultOptionsV1(), json.ReportErrorsWithLegacySemantics(false))` (`transcript.unmarshalLine`): the same values and the same failures (compare both on every fixture line, cut and wrong-typed ones included, `TestLineJSONMatchesUnmarshal`), but a value that fails is partly decoded, so the caller has to drop it.
 - An accessor that clones a whole list costs the whole list for a caller that keeps a few rows (the assistant's view keeps about 14 of 8,200 sessions): give the store an accessor that copies out only what a predicate keeps (`Devices.SessionsWhere`). A lookup that returns its range value (`for _, s := range list { if … { return s } }`) copies every session it passes (a `proto.Session` is about 1.4 KB): `Machine.session` took 91 µs to find the last of 2,000, 6 µs ranging by index. A loop that only reads a field of the value is not copied, and by index it measured slower (`portAllowed`, 1.6 to 2.2 µs), so measure before changing one. Stamp a field only on the row returned (`Hub.decoratedSession`).
+
+## Hot paths: a struct of mostly empty fields encoded by reflection, a lowered copy only to test a gate (2026-11-09, #1814)
+
+- The reflect encoder walks every field of a struct even when most are empty: a `proto.Session` has about 110 fields, and encoding a busy machine's 150 sessions took about 0.67 ms on every list and push the hub sends. `proto.appendSession` writes the same bytes field by field and leaves nested values and times it does not write (outside the years 0-9999) to `encoding/json`. Prove it byte for byte against the reflect encoder for each field and each kind of value (empty, nil, escapes, `<>&`, U+2028, invalid UTF-8, zones), in each shape (pointer, value, list, interface) and each encoder that calls it (`TestSessionWireMatchesReflect`). Its `MarshalJSONTo` writes those bytes only to an encoder that keeps them as they are (`writesRawAsIs`): a json/v2 encoder without `PreserveRawStrings` unescapes them, `ReorderRawObjects` sorts their keys, and a caller's `WithMarshalers` would have been called on the fields.
+- A hand-written encoder must not drop a field added later by a change merged without it. `appendSession` hashes Session's field names, types and tags (`sessionWireLayout`) and hands every session to the reflect encoder while they differ, so such a change only makes encoding slower; the golden test fails and prints the new hash. A field added to `proto.Session` needs its line in `session_wire.go` and that hash.
+- A scratch buffer for such bytes is a `sync.Pool` of the encoder's own, not `jsontext.Encoder.AvailableBuffer`: `encoding/json` resets its pooled encoder for each value, and the available buffer shrinks with it. A nested value is written with `jsonv2.MarshalWrite` into a `bytes.Buffer` set on the output slice, so it is not marshalled and then copied.
+- Lowering a text only to test a literal gate copies it every time (`transcript.AskOf`, three copies per list row): `lazyre.Regexp.MayMatchLowered` tests the gate on the text as `strings.ToLower` would have it, without copying an ASCII text, and the caller lowers only when it says true.
+- A catalog of anchored templates tried in turn (`i18n.DeploymentText`, `InboxText`, `ComputerText`) runs every regexp on a text that matches none: keep each template's literal pieces and run its regexp only on a text that starts with the first, ends with the last and holds the others.

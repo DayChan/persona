@@ -831,8 +831,17 @@ private struct AgentsList: View {
             if widthClass != .regular {
                 Section {
                     #if os(iOS) || os(visionOS)
-                    // The room for the shell's bar and the search field above the filters (`AgentsHeader`).
-                    AgentsHeaderRow(header: header, query: $query, begin: beginSearch) {
+                    if ownsTop {
+                        // The room for the shell's bar and the search field above the filters (`AgentsHeader`).
+                        AgentsHeaderRow(header: header, query: $query, begin: beginSearch) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                filterBar(base)
+                                machineFilterChip
+                            }
+                        }
+                    } else {
+                        // iPhone Duo open: the split's sidebar column reads compact, but the page is regular and its
+                        // search is the system's drawer (`AgentsSystemSearch`): the filters alone, no second field (#1971).
                         VStack(alignment: .leading, spacing: 0) {
                             filterBar(base)
                             machineFilterChip

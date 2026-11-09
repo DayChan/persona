@@ -161,12 +161,18 @@ nonisolated struct HubConnector: Codable, Hashable, Sendable, Identifiable {
     /// Save to Knowledge and Show in Inbox (nil: it has no archive, no inbox, or the hub is from before these switches).
     var archive: Bool?
     var inbox: Bool?
+    /// Whose it is (docs/protocol/protocol.md "Per-manager routing"): the hub stamps every item of its merged list, and
+    /// one id can be there once per manager. nil: a hub from before managers.
+    var manager: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, status, account, via, error, guide, capabilities, hosts, options, enabled, archive, inbox
+        case id, name, status, account, via, error, guide, capabilities, hosts, options, enabled, archive, inbox, manager
         case lastSync = "last_sync"
         case lastEvent = "last_event"
     }
+
+    /// Its identity in a merged list: the id and the manager.
+    var listKey: String { manager.map { "\($0)/\(id)" } ?? id }
 
     /// The user signs in to it here, a step at a time (Telegram), rather than on the hub's side.
     var signsInHere: Bool { capabilities?.contains("login") == true }
@@ -251,7 +257,7 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
         switch self {
         case .mail: "mail"
         case .lark: "lark"
-        case .hub(let c): c.id
+        case .hub(let c): c.listKey
         }
     }
 
@@ -267,7 +273,8 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
 
 /// An extension's page (Settings › Extensions › …) for the connectors it contributes (#3228, as the web's
 /// `ExtensionConnectorInbox`): each one's Show in Inbox switch, the hub's own (PUT /api/v1/connectors/{id}/settings, the same
-/// switch as on the connector's page, not a copy), and the way to that page for the rest.
+/// switch as on the connector's page, not a copy), and the way to that page for the rest. Another manager's extension
+/// contributes that manager's copies: every request names it.
 @Observable final class ExtensionConnectorsModel {
     struct Deps {
         var api: () -> APIClient?
@@ -283,9 +290,14 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
     private(set) var connectors: [HubConnector] = []
     /// The connector whose switch is being changed.
     private(set) var changing: String?
+    /// Whose extension's (nil: the default manager's).
+    let manager: String?
     @ObservationIgnored private let deps: Deps
 
-    init(deps: Deps = .live) { self.deps = deps }
+    init(manager: String? = nil, deps: Deps = .live) {
+        self.manager = manager
+        self.deps = deps
+    }
 
     /// The contributed connectors the hub lists with an inbox switch, in `ids`' order. A hub from before the switch
     /// (no `inbox`) and a connector it does not list draw nothing.
@@ -296,13 +308,13 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
     /// Unreadable (a hub without connectors answers 404), the sections stay away: the connector's page says what is
     /// wrong. Not gated on the hub's features: opened at launch, the page is there before they are.
     func load(ids: [String]) async {
-        guard !ids.isEmpty, let api = deps.api() else { connectors = []; return }
+        guard !ids.isEmpty, let api = deps.api()?.manager(manager) else { connectors = []; return }
         guard let all = try? await api.connectors() else { connectors = []; return }
         connectors = Self.shown(all, ids: ids)
     }
 
     func setInbox(_ id: String, on: Bool) async {
-        guard changing == nil, let api = deps.api() else { return }
+        guard changing == nil, let api = deps.api()?.manager(manager) else { return }
         changing = id
         defer { changing = nil }
         do {
@@ -317,15 +329,59 @@ nonisolated enum ConnectorRow: Hashable, Identifiable {
     }
 }
 
-/// The Connectors section of Settings: one row per connector with what it has now.
+/// Settings › Connectors' list of the hub's connectors (GET /api/v1/connectors?all=1) and, when the hub has several managers,
+/// each manager's under its name (docs/assistant/managers.md "Grouping"): one id can be there once per manager.
+@Observable final class ConnectorsListModel {
+    struct Deps {
+        var api: () -> APIClient?
+        static var live: Deps { .init(api: { AppModel.shared.api }) }
+    }
+
+    private(set) var connectors: [HubConnector] = []
+    /// The hub's managers, read with the list; nil from a hub without a roster.
+    private(set) var roster: ManagerRoster?
+    @ObservationIgnored private let deps: Deps
+
+    init(deps: Deps = .live) { self.deps = deps }
+
+    /// The hub's connectors under each manager's name (mail and Lark keep their own rows); nil with one manager.
+    var groups: [ManagerGroup<HubConnector>]? {
+        roster?.groups(connectors.filter { $0.id != "mail" && $0.id != "lark" }) { $0.manager }
+    }
+
+    /// The Connectors section's own rows: mail and Lark, and the hub's connectors too unless they are grouped.
+    func rows(lark: Bool) -> [ConnectorRow] {
+        let all = ConnectorRow.rows(connectors, lark: lark)
+        guard groups != nil else { return all }
+        return all.filter { if case .hub = $0 { false } else { true } }
+    }
+
+    /// The manager a connector's page and requests name: nil for the default's.
+    func manager(of c: HubConnector) -> String? { roster?.named(c.manager) }
+
+    /// An older hub has no connectors (feature "connectors", `listed` false): its list stays as it was. Unreadable, it
+    /// stays too.
+    func load(listed: Bool) async {
+        guard listed, let api = deps.api() else { return }
+        let last = roster
+        async let managers = ManagerRoster.read(api, keeping: last)
+        guard let list = try? await api.connectors(all: true) else { return }
+        roster = await managers
+        connectors = list
+    }
+}
+
+/// The Connectors section of Settings: one row per connector with what it has now; with several managers the hub's
+/// connectors follow in a section per manager, under its name.
 struct ConnectorsSection: View {
     @Environment(AppModel.self) private var model
     @State private var accounts: [MailAccount]?
     @State private var lark: LarkStatus?
-    @State private var hubConnectors: [HubConnector] = []
+    @State private var hub = ConnectorsListModel()
     @State private var bot: FeishuBotStatus?
 
     var body: some View {
+        let groups = hub.groups
         Section {
             Group {
                 #if os(iOS) || os(visionOS)
@@ -335,7 +391,7 @@ struct ConnectorsSection: View {
                 }
                 .settingsListRow(SettingsPage.phoneData)
                 #endif
-                ForEach(ConnectorRow.rows(hubConnectors, lark: model.larkFeatures.chats)) { row in
+                ForEach(hub.rows(lark: model.larkFeatures.chats)) { row in
                     switch row {
                     case .mail:
                         NavigationLink(value: SettingsPage.mail) {
@@ -348,10 +404,7 @@ struct ConnectorsSection: View {
                         }
                         .settingsListRow(SettingsPage.feishu)
                     case .hub(let c):
-                        NavigationLink(value: SettingsPage.connector(c.id)) {
-                            ConnectorRowLabel(title: c.name, symbol: ConnectorText.symbol(c.id), brand: ConnectorText.brand(c.id), value: ConnectorText.summary(c))
-                        }
-                        .settingsListRow(SettingsPage.connector(c.id))
+                        hubRow(c)
                     }
                 }
                 NavigationLink(value: SettingsPage.feishuBot) {
@@ -363,22 +416,49 @@ struct ConnectorsSection: View {
         } header: {
             SettingsHeading(String(localized: "Connectors"))
         } footer: {
-            Text("Data sources Persona can read and act on for you: the assistant, AI twin and agents use them to check your calendar, read messages and send email. Anything done on your behalf asks you first.")
+            if groups?.isEmpty ?? true { footer }
         }
         .task(id: model.settingsPath.count) { await load() } // again when a page closes: it may have changed them
+        if let groups {
+            ForEach(groups) { group in
+                Section {
+                    Group {
+                        ForEach(group.items, id: \.listKey) { c in hubRow(c) }
+                    }
+                    .bareListRow()
+                } header: {
+                    ManagerHeading(manager: group.manager, count: group.items.count)
+                } footer: {
+                    if group.id == groups.last?.id { footer }
+                }
+            }
+        }
+    }
+
+    /// A hub connector's row, opening its manager's copy.
+    private func hubRow(_ c: HubConnector) -> some View {
+        let page = SettingsPage.connector(c.id, manager: hub.manager(of: c))
+        return NavigationLink(value: page) {
+            ConnectorRowLabel(title: c.name, symbol: ConnectorText.symbol(c.id), brand: ConnectorText.brand(c.id), value: ConnectorText.summary(c))
+        }
+        .settingsListRow(page)
+    }
+
+    private var footer: some View {
+        Text("Data sources Persona can read and act on for you: the assistant, AI twin and agents use them to check your calendar, read messages and send email. Anything done on your behalf asks you first.")
     }
 
     private func load() async {
         guard let api = model.api else { return }
+        // An older hub has no connectors (feature "connectors"): its list stays as it was.
+        let listed = model.hubFeatures.contains("connectors")
         async let a = try? api.mailAccounts()
         async let l = model.larkFeatures.chats ? try? api.larkStatus() : nil
-        // An older hub has no connectors (feature "connectors"): its list stays as it was.
-        async let c = model.hubFeatures.contains("connectors") ? try? api.connectors(all: true) : nil
         async let b = try? api.feishuBot()
-        let (accs, st, list, bs) = await (a, l, c, b)
+        await hub.load(listed: listed)
+        let (accs, st, bs) = await (a, l, b)
         if let accs { accounts = accs }
         if let st { lark = st }
-        if let list { hubConnectors = list }
         if let bs { bot = bs }
     }
 }
@@ -573,10 +653,15 @@ struct FeishuConnectorView: View {
 /// (ConnectorSignInSections).
 struct HubConnectorView: View {
     var id: String
+    /// Another manager's copy (docs/assistant/managers.md "Grouping"): what the page reads and changes is that manager's,
+    /// every request naming it. nil: the default manager's.
+    var manager: String? = nil
     @Environment(AppModel.self) private var model
     @State private var connector: HubConnector?
     @State private var loading = true
     @State private var failure: String?
+    /// The manager's name on another manager's copy, for the page to say whose it is.
+    @State private var managerName: String?
 
     var body: some View {
         SettingsForm {
@@ -621,9 +706,9 @@ struct HubConnectorView: View {
             }
             // Telegram switched off lists nothing until it runs: its switch is here all the same.
             if id == "github", let connector, connector.signsInHere {
-                GitHubConnectorSections(connector: connector, reload: { await load() })
+                GitHubConnectorSections(connector: connector, manager: manager, reload: { await load() })
             } else if let connector, connector.signsInHere || connector.undescribed {
-                ConnectorSignInSections(connector: connector, reload: { await load() })
+                ConnectorSignInSections(connector: connector, manager: manager, reload: { await load() })
             }
             if connector?.status != "ok", let guide = connector?.guide, !guide.isEmpty {
                 Section {
@@ -642,7 +727,7 @@ struct HubConnectorView: View {
                 }
             }
             if id == "github", let connector, let options = GitHubInboxOptions(connector.options) {
-                GitHubInboxSettings(options: options) { connector in self.connector = connector }
+                GitHubInboxSettings(options: options, manager: manager) { connector in self.connector = connector }
             }
         }
         .themedPage()
@@ -678,19 +763,24 @@ struct HubConnectorView: View {
 
     private var stateText: String {
         guard let connector else { return loading ? String(localized: "Checking…") : String(localized: "Couldn't get status") }
-        return ConnectorText.state(connector)
+        // Another manager's copy says whose it is (the default's page is as before).
+        return [ConnectorText.state(connector), managerName].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// `quietly`: no spinner (asked again every second while the program starts).
     private func load(quietly: Bool = false) async {
-        guard let api = model.api else { return } // not paired yet: still Checking…
+        // Not paired yet: still Checking…. Another manager's: its own list, where the id is its copy.
+        guard let api = model.api?.manager(manager) else { return }
         if !quietly { loading = true }
         defer { loading = false }
+        let whose = managerName == nil ? manager : nil
+        async let name = ManagerRoster.name(of: whose, api)
         do {
             connector = try await api.connectors().first { $0.id == id }
             failure = connector == nil ? String(localized: "The hub doesn't have this connector") : nil
         } catch {
             failure = error.shown.map { String(localized: "Couldn't get the connector's status: \($0)") }
         }
+        if let name = await name { managerName = name }
     }
 }

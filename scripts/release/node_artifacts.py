@@ -233,5 +233,7 @@ def prune_nodes(root, keep=3):
                        and re.fullmatch(r'master-[0-9a-f]{12}-[0-9]{12}', p.name)
                        and (p / 'manifest.json').is_file()), key=lambda p: p.stat().st_mtime)
     for old in versions[:-keep]:
-        if old != active:
+        # active is resolved: compare the version resolved too, or a root reached through a linked ancestor (allowed by
+        # validate_release_paths; /var on macOS) never matches and the version in use is deleted.
+        if old.resolve() != active:
             shutil.rmtree(old)

@@ -1,0 +1,6 @@
+{
+  "no_device": "No device can receive notifications",
+  "filtered": "Notification settings or an active desktop prevented this notification on every available device",
+  "hub_not_sent": "The hub did not send it: {reason}",
+  "not_sent": "Not sent: {reason}"
+}

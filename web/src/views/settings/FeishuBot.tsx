@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { t } from "../../i18n";
 import { ago } from "../../lib/format";
+import { documentPage, visiblePoll } from "../../lib/visible-poll";
 import {
   botStateText, botStatus, botSummary, botTone, credentialsChanged, credentialsOf, credentialsUpdate, DEFAULT_FEATURES, DEFAULT_NUDGE_AFTER, livePairing, nudgeChoices, nudgeLabel, pairBot, pairingLeft,
   featureEdit, testBot, unpairBot, updateBot, type BotCredentials, type BotFeatures, type FeishuBotStatus,
@@ -106,12 +107,15 @@ function FeishuBotDialog({ bot, onClose }: { bot: ReturnType<typeof useBot>; onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.app_id, status?.domain]);
 
-  // Waiting for the code: tick the countdown and look again every 3 s until someone uses it.
+  // Waiting for the code: tick the countdown and look again every 3 s until someone uses it, while the tab is shown, and
+  // once right away on coming back. The status that carried the code is fresh, so visiblePoll's immediate first read is skipped.
   useEffect(() => {
     if (!pairing || status?.owner) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    const poll = setInterval(() => void botStatus().then((s) => adopt(s), () => {}), 3000);
-    return () => (clearInterval(tick), clearInterval(poll));
+    let started = false;
+    const stop = visiblePoll(() => { if (started) void botStatus().then((s) => adopt(s), () => {}); }, 3000, documentPage);
+    started = true;
+    return () => (clearInterval(tick), stop());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairing?.code, status?.owner]);
 

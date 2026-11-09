@@ -135,6 +135,12 @@ func (h *Hub) previewConnect(w http.ResponseWriter, r *http.Request, m *Machine)
 		writeErr(w, http.StatusTooManyRequests, errors.New("too many connections to this machine"))
 		return
 	}
+	r, untrack := h.trackRelayed(r)
+	defer untrack()
+	if err := r.Context().Err(); err != nil {
+		callErr(w, err)
+		return
+	}
 	num := func(k string) float64 { f, _ := strconv.ParseFloat(q.Get(k), 64); return f }
 	// Upgraded before the node is asked: a browser cannot read why a WebSocket was refused, and opening can fail
 	// for reasons the panel has to say (no browser on that computer, the server stopped). Those come as an error
@@ -144,6 +150,8 @@ func (h *Hub) previewConnect(w http.ResponseWriter, r *http.Request, m *Machine)
 		return
 	}
 	defer c.CloseNow()
+	stopClose := context.AfterFunc(r.Context(), func() { _ = c.CloseNow() })
+	defer stopClose()
 	id := "v" + strconv.FormatInt(streamSeq.Add(1), 10)
 	if err := mux.Open(id); err != nil {
 		previewRefuse(r.Context(), c, "offline", err)
@@ -209,6 +217,11 @@ func (h *Hub) previewConnect(w http.ResponseWriter, r *http.Request, m *Machine)
 		}
 	}()
 	<-ctx.Done()
+	if err := r.Context().Err(); err != nil {
+		_ = c.CloseNow()
+		mux.Abort(id, err)
+		return
+	}
 	_ = c.Close(websocket.StatusNormalClosure, "")
 }
 

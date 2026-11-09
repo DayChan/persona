@@ -149,14 +149,21 @@ nonisolated enum MessagesFailure: Equatable, Sendable {
     private(set) var loading = false
     private(set) var failure: MessagesFailure?
     private(set) var more = false
+    /// Whose Messages (another manager's connector: every request names it); nil: the default manager's.
+    let manager: String?
     @ObservationIgnored private var before: String?
     @ObservationIgnored private let deps: Deps
 
-    init(deps: Deps = .live) { self.deps = deps }
+    init(manager: String? = nil, deps: Deps = .live) {
+        self.manager = manager
+        self.deps = deps
+    }
+
+    private var api: APIClient? { deps.api()?.manager(manager) }
 
     /// The first page again (on open and on pull to refresh).
     func load() async {
-        guard let api = deps.api(), !loading else { return }
+        guard let api, !loading else { return }
         loading = true
         defer { loading = false }
         do {
@@ -173,7 +180,7 @@ nonisolated enum MessagesFailure: Equatable, Sendable {
 
     /// The next page, when the list reaches its end.
     func loadMore() async {
-        guard let api = deps.api(), more, !loading, let before else { return }
+        guard let api, more, !loading, let before else { return }
         loading = true
         defer { loading = false }
         do {
@@ -205,16 +212,21 @@ nonisolated enum MessagesFailure: Equatable, Sendable {
     private(set) var loading = false
     private(set) var failure: MessagesFailure?
     private(set) var more = false
+    /// Whose Messages (another manager's connector: every request names it); nil: the default manager's.
+    let manager: String?
     @ObservationIgnored private var before: String?
     @ObservationIgnored private let deps: MessagesChatsModel.Deps
 
-    init(chatID: String, deps: MessagesChatsModel.Deps = .live) {
+    init(chatID: String, manager: String? = nil, deps: MessagesChatsModel.Deps = .live) {
         self.chatID = chatID
+        self.manager = manager
         self.deps = deps
     }
 
+    private var api: APIClient? { deps.api()?.manager(manager) }
+
     func load() async {
-        guard let api = deps.api(), !loading else { return }
+        guard let api, !loading else { return }
         loading = true
         defer { loading = false }
         do {
@@ -231,7 +243,7 @@ nonisolated enum MessagesFailure: Equatable, Sendable {
     }
 
     func loadOlder() async {
-        guard let api = deps.api(), more, !loading, let before else { return }
+        guard let api, more, !loading, let before else { return }
         loading = true
         defer { loading = false }
         do {

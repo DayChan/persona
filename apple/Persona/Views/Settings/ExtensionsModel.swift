@@ -39,11 +39,17 @@ nonisolated struct HubExtension: Codable, Hashable, Sendable, Identifiable {
     var auth: ExtensionAuth?
     /// The command-line programs this version runs with.
     var tools: [ExtensionToolUse]?
+    /// Whose it is (docs/protocol/protocol.md "Per-manager routing"): the hub stamps every item of its merged list, and
+    /// every manager lists its own built-ins, so one id can be there once per manager. nil: a hub from before managers.
+    var manager: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, status, error, version, source, enabled, description, contributes, warnings, upgrade, nodes, auth, tools
+        case id, name, kind, status, error, version, source, enabled, description, contributes, warnings, upgrade, nodes, auth, tools, manager
         case needsSetup = "needs_setup", autoUpgrade = "auto_upgrade", autoUpgradePaused = "auto_upgrade_paused", upgradeNote = "upgrade_note"
     }
+
+    /// Its identity in a merged list: the id and the manager (the same built-in is listed under each).
+    var listKey: String { manager.map { "\($0)/\(id)" } ?? id }
 }
 
 /// An extension's program on one machine (docs/extensions/extensions.md「在电脑上运行的程序」).
@@ -93,10 +99,13 @@ nonisolated struct ExtensionUpgrade: Codable, Hashable, Sendable, Identifiable {
     var state: String
     var addedPermissions: [ExtensionPermission]?
     var detail: String?
+    /// "user" when a skipped version is one the user rolled back from (nil: it didn't start).
+    var skippedBy: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, market, from, to, state, detail
         case addedPermissions = "added_permissions"
+        case skippedBy = "skipped_by"
     }
 }
 
@@ -389,6 +398,8 @@ enum ExtensionText {
         case "waiting_idle": return String(localized: "Updates automatically when the extension is idle")
         case "available": return String(localized: "Updates automatically later")
         case "off": return String(localized: "Auto-update is off")
+        case "skipped" where u.skippedBy == "user":
+            return String(localized: "You rolled back from this version to \(u.from), so it won't auto-update to it")
         case "skipped": return String(localized: "It didn't start after the last update, so it went back to \(u.from) and won't auto-update to this version")
         case "failed": return why.map { String(localized: "Didn't install: \($0)") } ?? String(localized: "Didn't install")
         case "incompatible": return why.map { String(localized: "Can't install on this hub: \($0)") } ?? String(localized: "Can't install on this hub")
@@ -444,14 +455,17 @@ enum ExtensionText {
     }
 }
 
-/// Settings › Extensions: the list.
+/// Settings › Extensions: the list, under each manager's name when the hub has several (docs/assistant/managers.md "Grouping").
 @Observable final class ExtensionsModel {
     struct Deps {
         var api: () -> APIClient?
+        var auth: ExtensionAuthStore = .shared
         static var live: Deps { .init(api: { AppModel.shared.api }) }
     }
 
     private(set) var plugins: [HubExtension]?
+    /// The hub's managers, read with the list; nil from a hub without a roster.
+    private(set) var roster: ManagerRoster?
     /// The hub has plugin markets: the list shows Extension Market.
     private(set) var markets = false
     private(set) var loading = false
@@ -463,15 +477,24 @@ enum ExtensionText {
     /// The hub has no extensions to list (404: an older hub, or Demo Mode): the Mac says so instead of the error.
     private(set) var missing = false
 
+    /// The list under each manager's name; nil with one manager (or none known): one list, as before.
+    var groups: [ManagerGroup<HubExtension>]? { plugins.flatMap { list in roster?.groups(list) { $0.manager } } }
+
+    /// The manager an extension's page and requests name: nil for the default's.
+    func manager(of p: HubExtension) -> String? { roster?.named(p.manager) }
+
     func load() async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
         do {
             guard let api = deps.api() else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
+            let last = roster
+            async let managers = ManagerRoster.read(api, keeping: last)
             let list = try await api.pluginList()
+            roster = await managers
             plugins = list.plugins
-            ExtensionAuthStore.shared.received(list.plugins.filter { $0.auth != nil })
+            for p in list.plugins where p.auth != nil { deps.auth.received(p.id, p.auth, manager: manager(of: p)) }
             markets = list.markets
             error = nil
             missing = false
@@ -499,6 +522,10 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
     }
 
     let id: String
+    /// Whose copy this page is (another manager's: every request names it); nil: the default manager's.
+    let manager: String?
+    /// That manager's name, for the page to say whose copy it is (nil on the default's page).
+    private(set) var managerName: String?
     private(set) var detail: HubExtensionDetail?
     private(set) var loading = false
     private(set) var saving = false
@@ -517,10 +544,14 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
     @ObservationIgnored private let deps: Deps
     @ObservationIgnored private var draftKey: ExtensionDrafts.Key?
 
-    init(id: String, deps: Deps = .live) {
+    init(id: String, manager: String? = nil, deps: Deps = .live) {
         self.id = id
+        self.manager = manager
         self.deps = deps
     }
+
+    /// The client for this page's requests: its manager named on each.
+    private var api: APIClient? { deps.api()?.manager(manager) }
 
     var dirty: Bool { (detail.map { draft != $0.config } ?? false) || !numberProblems.isEmpty }
 
@@ -537,11 +568,14 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
         guard !loading else { return }
         loading = true
         defer { loading = false }
-        if let api = deps.api() {
+        if let api {
             let source = api.group.isEmpty ? "url:" + api.config.url.absoluteString : "group:" + api.group
-            draftKey = .init(source: source, id: id)
+            draftKey = .init(source: source, id: id, manager: manager)
         }
+        let (whose, base) = (managerName == nil ? manager : nil, deps.api())
+        async let name = ManagerRoster.name(of: whose, base)
         await run(preservingDraft: true) { api in try await api.plugin(self.id) }
+        if let name = await name { managerName = name }
     }
 
     func setEnabled(_ on: Bool, cascade: Bool = false) async {
@@ -549,7 +583,7 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
         changingEnabled = true
         defer { changingEnabled = false }
         do {
-            guard let api = deps.api() else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
+            guard let api else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
             detail = try await api.setExtension(id, enabled: on, cascade: cascade)
             error = nil
             disableConfirmation = nil
@@ -571,7 +605,7 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
         changingContribution = contribution.id
         defer { changingContribution = nil }
         do {
-            guard let api = deps.api() else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
+            guard let api else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
             detail = try await api.setExtensionContribution(id, point: contribution.point, id: contribution.contributionID, enabled: enabled)
             error = nil
         } catch {
@@ -634,7 +668,7 @@ nonisolated enum ExtensionSecretSave: Equatable, Sendable {
     @discardableResult private func run(preservingDraft: Bool = false, refused: ((String) -> Void)? = nil,
                                         _ call: @escaping (APIClient) async throws -> HubExtensionDetail) async -> Bool {
         do {
-            guard let api = deps.api() else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
+            guard let api else { throw APIError(status: 0, message: String(localized: "Not connected to the hub yet")) }
             let d = try await call(api)
             let editing = preservingDraft ? draftKey.flatMap { deps.drafts.values[$0] } : nil
             detail = d

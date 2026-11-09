@@ -1109,8 +1109,9 @@ func TestCICompletedTodoGuardsAfterRetirementWriteFailure(t *testing.T) {
 type restoredTodoCIStore struct {
 	failingDeferredWorkStore
 	todoStore
-	doneAt   time.Time
-	failTodo bool
+	doneAt     time.Time
+	reopenedAt *time.Time
+	failTodo   bool
 }
 
 func (s *restoredTodoCIStore) ListTodos(context.Context) ([]db.TodoRow, error) {
@@ -1120,7 +1121,11 @@ func (s *restoredTodoCIStore) ListTodos(context.Context) ([]db.TodoRow, error) {
 	if s.doneAt.IsZero() {
 		return nil, nil
 	}
-	return []db.TodoRow{{ID: "done", DoneAt: &s.doneAt}}, nil
+	row := db.TodoRow{ID: "done", DoneAt: &s.doneAt, ReopenedAt: s.reopenedAt}
+	if s.reopenedAt != nil {
+		row.DoneAt = nil
+	}
+	return []db.TodoRow{row}, nil
 }
 func (*restoredTodoCIStore) ListAllTodoSpaces(context.Context) ([]db.TodoSpaceRow, error) {
 	return nil, nil
@@ -1209,7 +1214,7 @@ func TestCIWatchClosedTodoStaysQuietAfterTriage(t *testing.T) {
 	s.waitWorkEvents()
 }
 
-func TestCIWatchNewTurnProofSurvivesTwoRestarts(t *testing.T) {
+func TestCIWatchReopenedTodoSurvivesTwoRestarts(t *testing.T) {
 	for _, observedStart := range []bool{false, true} {
 		name := "missed start"
 		if observedStart {
@@ -1232,8 +1237,10 @@ func TestCIWatchNewTurnProofSurvivesTwoRestarts(t *testing.T) {
 			if old.Work.RetiredTurnAt == nil {
 				t.Fatal("node turn not recorded")
 			}
-			// First restart: a genuinely new node turn ended while the manager
-			// was away, or its new start was observed locally.
+			// First restart: the todo was reopened before a new node turn ended
+			// while the manager was away, or its new start was observed locally.
+			reopened := st.doneAt.Add(time.Minute)
+			st.reopenedAt = &reopened
 			first := newServiceOn(t, f, st)
 			if !first.loadWork(ctx) {
 				t.Fatal("first restart failed")
@@ -1245,8 +1252,8 @@ func TestCIWatchNewTurnProofSurvivesTwoRestarts(t *testing.T) {
 			f.setSessions("box", c)
 			first.workTurnSettled(ctx, "box", "ci")
 			watched := entryOf(t, first, "ci")
-			if watched.Work.CI == nil || watched.Work.CI.TodoProof == "" || watched.WakeAt == nil {
-				t.Fatalf("new turn lacked durable proof: %+v", watched)
+			if watched.Work.CI == nil || watched.WakeAt == nil {
+				t.Fatalf("reopened todo did not start a watch: %+v", watched)
 			}
 			// Match the database's JSON round trip instead of sharing a pointer
 			// with the in-memory store across the simulated process restart.
@@ -1263,8 +1270,8 @@ func TestCIWatchNewTurnProofSurvivesTwoRestarts(t *testing.T) {
 			row.Work = persisted
 			st.rows[[2]string{"box", "ci"}] = row
 			st.wmu.Unlock()
-			// Second restart loses the in-memory started map, but the proof is
-			// bound to this watch and the same persisted todo version.
+			// Second restart loses the in-memory started map, but the persisted
+			// open todo still allows the watch to run.
 			second := newServiceOn(t, f, st)
 			if !second.loadWork(ctx) {
 				t.Fatal("second restart failed")
@@ -1279,27 +1286,16 @@ func TestCIWatchNewTurnProofSurvivesTwoRestarts(t *testing.T) {
 			if calls != 1 || got.Work.CI == nil || got.WakeAt == nil {
 				t.Fatalf("watch lost after second restart: calls %d, %+v", calls, got)
 			}
-			// A reopen invalidates the proof even if a completion has the same
-			// wall-clock timestamp, and a later completion invalidates it too.
-			reopened := st.doneAt.Add(time.Second)
-			second.todos.mu.Lock()
-			second.todos.todos["done"].ReopenedAt = &reopened
-			second.todos.mu.Unlock()
-			closed, _, err := second.ciClosedTodo(ctx, "box", "ci", got.Work.CI.TodoProof, proto.WorkState{}, time.Time{})
-			if err != nil || !closed {
-				t.Fatalf("old proof accepted after reopen: %v %v", closed, err)
-			}
-			second.todos.mu.Lock()
-			second.todos.todos["done"].ReopenedAt = nil
-			second.todos.mu.Unlock()
+			// Completing the reopened todo stops the persisted watch as well.
 			newer := st.doneAt.Add(10 * time.Minute)
 			second.todos.mu.Lock()
 			second.todos.todos["done"].DoneAt = &newer
+			delete(second.todos.activeBySession, [2]string{"box", "ci"})
 			second.todos.mu.Unlock()
 			second.workWake(ctx, second.newWorkView(ctx), [2]string{"box", "ci"}, time.Now())
 			got = entryOf(t, second, "ci")
 			if got.Work.CI != nil || got.WakeAt != nil {
-				t.Fatalf("older proof survived a new completion: %+v", got)
+				t.Fatalf("watch survived a new completion: %+v", got)
 			}
 			first.waitWorkEvents()
 			second.waitWorkEvents()

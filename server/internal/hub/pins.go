@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 // Pins are the spaces and agents the user keeps at the top of the "Develop" list (saved in Postgres, so a reinstall or
@@ -71,7 +72,12 @@ func (h *Hub) mutedAs(machineID, sessionID, space string) bool {
 
 func (h *Hub) pinRoutes(api *http.ServeMux) {
 	api.HandleFunc("GET /api/v1/mutes", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, h.loadMutes(r.Context()))
+		p, ok := h.readMutes(r.Context())
+		if !ok {
+			writeErr(w, http.StatusInternalServerError, i18n.Err("http-status.internal"))
+			return
+		}
+		writeJSON(w, p)
 	})
 	api.HandleFunc("PUT /api/v1/mutes", func(w http.ResponseWriter, r *http.Request) {
 		var p Pins

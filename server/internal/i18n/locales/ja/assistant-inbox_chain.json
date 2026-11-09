@@ -25,6 +25,7 @@
   "done_user": "処理済みにしました",
   "done_dismissed": "無視しました",
   "done_read": "ほかで既読、処理済み",
+  "done_muted": "ミュート済み、対応済み",
   "done_manager": "マネージャー確認済み：対応不要",
   "failed_timeout": "対応がタイムアウトしました",
   "failed_stopped": "対応の会話が提案なしで止まりました",

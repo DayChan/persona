@@ -52,6 +52,8 @@ The browser check opens Overview, permission/plan cards, green/orange/AI workflo
   Engine host sets (#2576: the machine page's checklist, Make default, none enabled, Revert, Save sending `{hosts, default}`, New Agent's "Open in",
   "Also open in …"): start the mock hub with `MOCK_ENGINE_SETS=1`, then run
   `python3 scripts/test/web_engine_hosts_e2e.py <web URL> --hub <mock hub URL> [--shots <dir>]` (wide / narrow × light / dark).
+  A to-do's due date, reminder and priority (#1683: the Tasks list's line, the detail's editor, changes reaching the hub): start the mock hub and `npx vite`, then run
+  `python3 scripts/test/web_todo_plan_e2e.py <web URL> --hub <mock hub URL> [--shots <dir>] [--channel chrome]` (wide / narrow × light / dark).
   Archiving agents (Archive, Archive and close, Undo, a refused close, Archived agents' list / search / restore, the archived chat's notice): start the mock hub with `MOCK_AGENT_ARCHIVES=1`, then run
   `python3 scripts/test/web_agent_archives_e2e.py <web URL> --hub <mock hub URL> [--shots <dir>]` (wide / narrow × light / dark; `GET /mock/agent_archives?close=refuse|offline` picks how the next close ends).
   The "herdr is not running" notice row in the Agents list (#1916): the mock hub's `GET /mock/herdr?stopped=&start=` picks which machine is stopped and how starting goes;

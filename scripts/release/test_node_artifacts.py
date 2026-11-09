@@ -159,7 +159,7 @@ class NodeArtifactTests(unittest.TestCase):
         self.assertEqual(self.pointer.resolve(), old)
         self.assertTrue((destination / 'manifest.json').exists())
         artifacts.activate_nodes(self.root, destination, self.manifest, health(self.manifest))
-        self.assertEqual(self.pointer.resolve(), destination)
+        self.assertEqual(self.pointer.resolve(), destination.resolve())
         self.assertTrue(artifacts.managed_nodes(self.root))
 
     def test_bad_package_never_replaces_existing_pointer_or_immutable_directory(self):
@@ -200,7 +200,7 @@ class NodeArtifactTests(unittest.TestCase):
                     sidecar.write_text('wrong\n')
                 with self.assertRaises((RuntimeError, ValueError)):
                     self.publish()
-                self.assertEqual(self.pointer.resolve(), destination)
+                self.assertEqual(self.pointer.resolve(), destination.resolve())  # macOS: /var is a link to /private/var
                 (destination / 'manifest.json').write_bytes(original_manifest)
                 binary.write_bytes(original_binary)
                 sidecar.write_bytes(original_sidecar)
@@ -222,7 +222,7 @@ class NodeArtifactTests(unittest.TestCase):
         self.assertFalse(artifacts.managed_nodes(self.root))
         with self.assertRaises(RuntimeError):
             self.publish()
-        self.assertEqual(self.pointer.resolve(), outside)
+        self.assertEqual(self.pointer.resolve(), outside.resolve())
 
     def test_activation_waits_for_exact_healthy_hub(self):
         old = self.old_publication()
@@ -285,8 +285,11 @@ class NodeRetentionTests(unittest.TestCase):
         import os
         from node_artifacts import prune_nodes
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'bin').mkdir()
+            # The root is reached through a linked ancestor, as validate_release_paths allows (and /var is on macOS).
+            (Path(directory) / 'real').mkdir()
+            (Path(directory) / 'linked').symlink_to(Path(directory) / 'real', target_is_directory=True)
+            root = Path(directory) / 'linked/runtime'
+            (root / 'bin').mkdir(parents=True)
             parent = root / 'releases/nodes'
             parent.mkdir(parents=True)
             versions = []

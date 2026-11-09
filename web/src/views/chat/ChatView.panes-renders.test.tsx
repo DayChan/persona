@@ -19,7 +19,7 @@ vi.mock("./useTranscript", () => ({ useTranscript: () => transcript }));
 vi.mock("../../lib/panel", async (importOriginal) => ({ ...await importOriginal<typeof import("../../lib/panel")>(), usePanel: () => null }));
 vi.mock("../assistant/Persona", () => ({ usePersona: () => ({ name: "Persona" }) }));
 
-import { applyCompleteSessions, getState, reset, upsertSession } from "../../lib/store";
+import { applyCompleteSessions, flushPushes, getState, reset, upsertSession } from "../../lib/store";
 const { ChatView } = await import("./ChatView");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,6 +28,7 @@ let host: HTMLDivElement;
 let root: Root;
 let commits = 0;
 beforeEach(() => {
+  vi.useFakeTimers();
   localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 200 }))));
   host = document.createElement("div");
@@ -39,6 +40,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   reset();
+  vi.clearAllTimers();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -47,8 +50,10 @@ const row = (id: string, extra: Partial<Session> = {}): Session => ({ machine_id
 const pane = (id: string, index: number, extra: Partial<Session> = {}) => row(id, { space_id: "w1", slot_id: "t1", pane_index: index, ...extra });
 const other = () => row("s3", { space_id: "w2", slot_id: "t9", pane_index: 0 });
 
+// Drain mount work before measuring. Keep unrelated live-status clocks fixed
+// during the push sequence, and flush any batched store notifications explicitly.
 const settle = async () => {
-  for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 };
 async function open(rows: Session[]) {
   act(() => applyCompleteSessions(rows));
@@ -57,11 +62,20 @@ async function open(rows: Session[]) {
 }
 async function push(sid: string, change: Partial<Session>) {
   act(() => upsertSession({ ...getState().sessions.mac!.find((s) => s.session_id === sid)!, ...change }));
-  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  act(() => flushPushes());
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 }
 const tabs = () => [...host.querySelectorAll('[role="tablist"] [role="tab"]')].map((b) => b.textContent);
 
 describe("ChatView pane tabs", () => {
+  it("redraws when the current chat's title changes", async () => {
+    await open([row("s1"), row("s2"), other()]);
+    const before = commits;
+    await push("s1", { title: "renamed current chat" });
+    expect(commits).toBeGreaterThan(before);
+    expect(host.textContent).toContain("renamed current chat");
+  });
+
   it("does not redraw the chat for another tab's agent on the same machine", async () => {
     await open([pane("s1", 0), pane("s2", 1), other()]);
     expect(tabs()).toHaveLength(2);

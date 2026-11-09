@@ -12,6 +12,7 @@ import {
   formatAgentSource,
   formatTodoContext,
   interruption,
+  isOverdue,
   isSpacesSupported,
   makeSessionLookup,
   mostUrgentAgent,
@@ -19,6 +20,7 @@ import {
   runningSubagents,
   sortTodos,
   taskNow,
+  todoDueBy,
   todoStatus,
   type Todo,
   type TodoAgent,
@@ -270,6 +272,30 @@ describe("待办列表排序 (sortTodos)", () => {
 
     const sorted = sortTodos([tOlder, tNewer]);
     expect(sorted.map((t) => t.id)).toEqual(["newer-subsecond", "older-subsecond"]);
+  });
+});
+
+describe("按截止时间排序（#1683）", () => {
+  it("等你的在最上，其余按截止从早到晚（过期的在前），没有截止的排后面，已完成的最后", () => {
+    const lookup = makeSessionLookup([mockSession("mac-1", "s-needs", "needs_you")]);
+    const todos: Todo[] = [
+      { id: "done", title: "done", created_at: "2026-11-02T10:00:00Z", updated_at: "", done_at: "2026-11-02T13:00:00Z", due_date: "2020-01-01" },
+      { id: "none", title: "none", created_at: "2026-11-02T10:00:00Z", updated_at: "" },
+      { id: "day", title: "day", created_at: "2026-11-02T10:00:00Z", updated_at: "", due_date: "2026-11-12" },
+      { id: "overdue", title: "overdue", created_at: "2026-11-02T10:00:00Z", updated_at: "", due_date: "2020-01-01" },
+      { id: "morning", title: "morning", created_at: "2026-11-02T10:00:00Z", updated_at: "", due_at: new Date(2026, 10, 12, 9).toISOString() },
+      { id: "needs", title: "needs", created_at: "2026-11-02T10:00:00Z", updated_at: "", agents: [{ machine_id: "mac-1", session_id: "s-needs", linked_at: "" }] },
+    ];
+    expect(sortTodos(todos, lookup).map((t) => t.id)).toEqual(["needs", "overdue", "morning", "day", "none", "done"]);
+  });
+
+  it("截止日期算到当天结束，过期只看未完成的", () => {
+    const day: Todo = { id: "d", title: "d", created_at: "", updated_at: "", due_date: "2026-11-12" };
+    expect(todoDueBy(day)).toBe(new Date(2026, 10, 13).getTime() - 1000);
+    expect(todoDueBy({ ...day, due_date: "soon" })).toBeUndefined();
+    expect(isOverdue(day, new Date(2026, 10, 12, 23).getTime())).toBe(false);
+    expect(isOverdue(day, new Date(2026, 10, 13, 0, 0, 1).getTime())).toBe(true);
+    expect(isOverdue({ ...day, done_at: "2026-11-13T00:00:00Z" }, new Date(2026, 10, 14).getTime())).toBe(false);
   });
 });
 

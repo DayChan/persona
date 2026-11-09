@@ -79,11 +79,12 @@ func TestCutListMarkMatchesRegexp(t *testing.T) {
 }
 
 // A reply without code blocks or markup is split into sentences without copying it, its lines or a list of all its
-// sentences: the only allocations left are strings.ToLower's, one for each of the 3 sentences in the tail (they start
-// with a capital). It was 16: two copies for each regexp and replacer pass, and the list's growth.
+// sentences, and its sentences, which start with a capital but hold none of the sayings' words, are not lowered to be
+// matched (MayMatchLowered): it allocates nothing. It was 16: two copies for each regexp and replacer pass, and the
+// list's growth; then 3, a strings.ToLower of each sentence in the tail.
 func TestAskOfAllocations(t *testing.T) {
 	text := strings.Repeat("The tests pass and the branch is pushed. ", 6)
-	if n := testing.AllocsPerRun(100, func() { AskOf(text) }); n > 3 {
+	if n := testing.AllocsPerRun(100, func() { AskOf(text) }); n > 0 {
 		t.Fatalf("AskOf allocates %v times for a reply that asks nothing", n)
 	}
 }

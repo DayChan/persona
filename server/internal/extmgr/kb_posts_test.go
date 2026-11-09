@@ -3,6 +3,7 @@ package extmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -126,5 +127,60 @@ func TestConnectorPostsWithTheKnowledgeBaseOff(t *testing.T) {
 	h.hello.Store(&assistantwire.Hello{KB: &assistantwire.KBSettings{Off: true}})
 	if _, err := progCall[serve.PostsPutResult](t, c, serve.MPostsPut, serve.PostsPutParams{}); err == nil || len(a.got(assistantwire.MethodKBPostsPut)) != 0 {
 		t.Fatalf("posts with the knowledge base off: %v", err)
+	}
+}
+
+// A running program cannot bypass either switch through any knowledge-base call.
+func TestConnectorPostsHonorBothSwitches(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		enabled, archive bool
+	}{
+		{"archive_off", true, false},
+		{"connector_off", false, true},
+		{"both_off", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, a, c := postsManager(t)
+			if err := h.connectors.SetEnabled("feed", tc.enabled); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.connectors.SetFeed("feed", connector.FeedArchive, tc.archive); err != nil {
+				t.Fatal(err)
+			}
+			calls := []struct {
+				method, forwarded string
+				params            any
+			}{
+				{serve.MPostsPut, assistantwire.MethodKBPostsPut, serve.PostsPutParams{
+					Posts: []connector.PostPut{{Post: connector.Post{ID: "p1", Text: "Example post"}}}}},
+				{serve.MPostsComments, assistantwire.MethodKBPostsComments, serve.PostsCommentsParams{
+					ID: "p1", CommentCount: 1, Comments: []connector.PostComment{{Author: "Example author", Text: "Example comment"}}}},
+				{serve.MPostsPending, assistantwire.MethodKBPostsPending, serve.PostsPendingParams{}},
+				{serve.MArchiveChats, assistantwire.MethodKBArchivedChats, serve.ArchiveChatsParams{Source: "posts"}},
+			}
+			for _, call := range calls {
+				if _, err := progCall[struct{}](t, c, call.method, call.params); !errors.Is(err, errArchiveOff) {
+					t.Fatalf("%s while switched off: %v", call.method, err)
+				}
+				if got := a.got(call.forwarded); len(got) != 0 {
+					t.Fatalf("%s forwarded while switched off: %s", call.method, got)
+				}
+			}
+			if err := h.connectors.SetEnabled("feed", true); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.connectors.SetFeed("feed", connector.FeedArchive, true); err != nil {
+				t.Fatal(err)
+			}
+			for _, call := range calls {
+				if _, err := progCall[struct{}](t, c, call.method, call.params); err != nil {
+					t.Fatalf("%s after re-enabling: %v", call.method, err)
+				}
+				if got := a.got(call.forwarded); len(got) != 1 {
+					t.Fatalf("%s not forwarded after re-enabling: %s", call.method, got)
+				}
+			}
+		})
 	}
 }

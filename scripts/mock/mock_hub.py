@@ -249,6 +249,11 @@ def later(minutes=0, hours=0):
     return (NOW + timedelta(minutes=minutes, hours=hours)).isoformat().replace("+00:00", "Z")
 
 
+def day_from_now(days):
+    """A to-do's due_date ("YYYY-MM-DD", #1683) this many days from now (negative: past)."""
+    return (NOW + timedelta(days=days)).date().isoformat()
+
+
 def _mock_qr(text, n=29):
     """A QR-looking grid of "0" / "1" rows for text: three finder squares and noise from its hash (not scannable)."""
     seed = hashlib.sha256(text.encode()).digest()
@@ -1676,6 +1681,8 @@ TODOS_INIT = [
         "id": "todo_weather",
         "title": "天气 App 发 1.3 版",
         "notes": "1.3 的内容：主屏幕小组件、网络层补测试、发布说明。周五前提交审核。",
+        # Due at a moment (#1683): the list shows it under the title, the detail page edits it.
+        "due_at": later(hours=50),
         # The stage bar on the todo detail (#2776): how far the work got, and the PR it is in.
         "stage": "develop",
         "pr_url": "https://example.com/pull/128",
@@ -1748,6 +1755,7 @@ TODOS_INIT = [
     {
         "id": "todo_photos",
         "title": "照片同步脚本支持 HEIC",
+        "due_date": day_from_now(-1),  # overdue (#1683)
         "notes": "计划写好了，等你批准后开始改。",
         "done_at": None,
         "created_at": ago(hours=3),
@@ -1844,6 +1852,10 @@ TODOS_INIT = [
         "id": "todo_nas",
         "title": "给 NAS 配自动备份",
         "notes": "配置 NAS 的定期备份任务。",
+        # The user's own to-do with a due day, a reminder still to push and high priority (#1683).
+        "due_date": day_from_now(2),
+        "remind_at": later(hours=18),
+        "priority": "high",
         "done_at": None,
         "created_at": ago(days=1),
         "updated_at": ago(days=1),
@@ -1951,6 +1963,25 @@ def format_todo(t):
     else:
         t_copy.setdefault("spaces", [])
     return t_copy
+
+
+def apply_todo_plan(t, body):
+    """A POST / PATCH body's due_at | due_date, remind_at and priority (#1683, server/internal/assistant/todo_plan.go):
+    null or "" clears; a new reminder time is pushed again. The error to answer with 400, else None."""
+    if "due_at" in body or "due_date" in body:
+        at, day = body.get("due_at") or None, body.get("due_date") or None
+        if at and day: return "give due_at or due_date, not both"
+        t["due_at"], t["due_date"] = at, day
+    if "remind_at" in body:
+        new = body.get("remind_at") or None
+        if new != t.get("remind_at"):
+            t["remind_at"], t["reminded_at"] = new, None
+    if "priority" in body:
+        pr = (body.get("priority") or "").strip().lower()
+        pr = "" if pr == "normal" else pr
+        if pr not in ("", "high", "low"): return "priority must be high, normal or low"
+        t["priority"] = pr
+    return None
 
 
 def sorted_todos():
@@ -11683,7 +11714,7 @@ _PLUGIN_VIEW = ["id", "name", "kind", "status", "error", "version", "source", "e
 # ---------- MOCK_EXTENSIONS: declarative UI (docs/extensions/extensions.md "Declarative UI") ----------
 # example-gateway draws a page (plugin_page "home") and a section on every launcher's page (launcher_section "panel"),
 # with every kind of item; its buttons answer (a toast, a new view, a link), the form's values come back.
-_UI_STATE = {"note": "", "auto": "true", "plan": "team", "refreshed": 0, "capsule_refreshed": 0}
+_UI_STATE = {"note": "", "auto": "true", "plan": "team", "refreshed": 0, "capsule_refreshed": 0, "test_key": True}
 
 
 _DAYS = ["10-29", "10-30", "10-31", "11-01", "11-02", "11-03", "11-04"]
@@ -11764,9 +11795,12 @@ def _ui_view(ui, launcher=""):
         {"title": "Key", "footer": "停用后，用这个 Key 的启动器会立刻失败。", "items": [
             {"type": "row", "title": "工作", "subtitle": "sk-…3fa9 · 今天 1.2 万 token", "value": "¥ 12.30", "badge": {"text": "有效", "tone": "positive"},
              "action": {"id": "key:work"}},
-            {"type": "row", "title": "测试", "subtitle": "sk-…77c0 · 7 天没用", "badge": {"text": "快过期", "tone": "caution"}},
+            {"type": "row", "title": "测试", "subtitle": "sk-…77c0 · 7 天没用", "badge": {"text": "快过期", "tone": "caution"}
+             if _UI_STATE["test_key"] else {"text": "停用", "tone": "neutral"}},
             {"type": "divider"},
-            {"type": "button", "title": "停用测试 Key", "role": "destructive", "action": {"id": "disable:test", "confirm": "停用后不能恢复，确定停用？"}}]},
+            # Disabling answers with the page where the button is another one (its own key): drawn new, usable at once (#1937).
+            {"type": "button", "key": "disable-test", "title": "停用测试 Key", "role": "destructive", "action": {"id": "disable:test", "confirm": "停用后不能恢复，确定停用？"}}
+            if _UI_STATE["test_key"] else {"type": "button", "key": "enable-test", "title": "启用测试 Key", "action": {"id": "enable:test"}}]},
         {"title": "设置", "items": [
             {"type": "field", "name": "note", "label": "备注", "kind": "text", "value": _UI_STATE["note"], "placeholder": "写点什么"},
             {"type": "field", "name": "token", "label": "管理 Token", "kind": "secret", "placeholder": "不回显"},
@@ -11892,7 +11926,11 @@ def _ui_action(ui, action, values):
     if action.startswith("key:"):
         return {"open_url": "https://example.com/console/keys"}
     if action.startswith("disable:"):
-        return {"toast": "已停用"}
+        _UI_STATE["test_key"] = False
+        return {"toast": "已停用", "view": _ui_view(ui)}
+    if action.startswith("enable:"):
+        _UI_STATE["test_key"] = True
+        return {"toast": "已启用", "view": _ui_view(ui)}
     return {}
 
 
@@ -11966,7 +12004,8 @@ def _catalog_item(c):
 
 # Auto-upgrade (docs/extensions/extensions.md "Automatic upgrades"): example-gateway, from a market at 1.0.0, has 1.1.0 there asking for one more
 # host. MOCK_PLUGIN_UPGRADE picks how it stands: needs_permission (default), waiting_idle, skipped, upgraded (the last
-# one went in by itself), disabled (switched off: auto-upgrade paused, its own switch kept), none.
+# one went in by itself), disabled (switched off: auto-upgrade paused, its own switch kept), rolled_back_by_user (the
+# user rolled back from 1.1.0 by hand: skipped as the user's, #1826), none.
 AUTO_UPGRADE = {"auto": True}
 # A market plugin's upgrade while it is on, put back when it is switched on again (_auto_upgrade_paused).
 _UPGRADE_WHILE_ON = {}
@@ -11999,7 +12038,10 @@ def _gateway_upgrade(state):
         up["detail"] = "插件正在用"
     elif state == "skipped":
         pl["upgrade_note"] = {"kind": "rolled_back", "from": "1.0.0", "to": "1.1.0", "detail": "exited with status 3", "at": at(5)}
-    if state in ("needs_permission", "waiting_idle", "skipped", "disabled"):
+    elif state == "rolled_back_by_user":  # no note: the version it was upgraded to is not installed any more
+        up["state"], up["skipped_by"] = "skipped", "user"
+        up["detail"] = "你从这个版本回滚过，所以不会自动装它；要装就手动更新"  # i18n-ignore: the hub's words
+    if state in ("needs_permission", "waiting_idle", "skipped", "disabled", "rolled_back_by_user"):
         pl["upgrade"] = up
     elif state == "upgraded":
         pl["upgrade_note"] = {"kind": "upgraded", "from": "0.9.0", "to": "1.0.0", "at": at(3)}
@@ -14139,6 +14181,8 @@ class H(BaseHTTPRequestHandler):
                 "updated_at": now_str,
                 "agents": [],
             }
+            err = apply_todo_plan(new_todo, body)
+            if err: return self.send_json({"error": err}, 400)
             TODOS.insert(0, new_todo)
             push_todos()
             return self.send_json({"todo": new_todo})
@@ -14291,6 +14335,8 @@ class H(BaseHTTPRequestHandler):
                     t["title"] = title
                 if "notes" in body:
                     t["notes"] = body["notes"] or ""
+                err = apply_todo_plan(t, body)
+                if err: return self.send_json({"error": err}, 400)
                 if "done" in body:
                     if body["done"]:
                         if not t.get("done_at"):

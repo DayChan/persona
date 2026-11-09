@@ -29,6 +29,9 @@ import {
   heldDelivery,
   TODO_TONE_CLASS,
   isAutoDone,
+  isOverdue,
+  todoDueDay,
+  todoDueText,
   todoStatusLabel,
   todoStatus,
   unlinkAgentFromTodo,
@@ -36,6 +39,7 @@ import {
   updateTodo,
   type Todo,
   type TodoAgent,
+  type TodoPatch,
   type TodoDecision,
   type TodoStatus,
   type SessionLookup,
@@ -46,7 +50,7 @@ import { Button, cx, Dialog, IconButton, Loading, Menu, toast, useMenu } from ".
 import { SearchField } from "../ui/SearchField";
 import { StatusMark } from "../ui/StatusMark";
 import { Icon } from "../ui/icons";
-import { t } from "../i18n";
+import { formatDate, t } from "../i18n";
 import { groupTodosByProject, treeStateLabel, type TodoProjectGroup, type TreeState } from "../lib/todo-tree";
 import { useFolded } from "../lib/use-folded";
 import { answeredLookup } from "./assistant/answered-lookup";
@@ -662,6 +666,9 @@ const TodoListItem = memo(function TodoListItem({
           {!todo.done_at && <ReviewBadge todo={todo} className="ml-auto" />}
         </div>
 
+        {/* Due date, a reminder still to push, high priority (#1683) */}
+        <TodoPlanLine todo={todo} />
+
         {/* Why the hub closed it */}
         {isAutoDone(todo) && todo.done_reason && (
           <div className="mt-1 truncate text-[11.5px] text-ink-3">{todo.done_reason}</div>
@@ -687,6 +694,125 @@ const TodoListItem = memo(function TodoListItem({
     </div>
   );
 });
+
+const PLAN_FIELD = "rounded-control border border-line bg-canvas px-2 py-1 text-[12.5px] text-ink outline-none focus:border-accent";
+
+/** "YYYY-MM-DD", "HH:MM" and "YYYY-MM-DDTHH:MM" of a moment in local time, as date / time inputs take them. */
+function localParts(ms: number): { day: string; time: string } {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return { day: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, time: `${p(d.getHours())}:${p(d.getMinutes())}` };
+}
+
+/** The detail's due date (a day, with a time when one is set), reminder and priority; each change is saved at once. */
+function TodoPlanEditor({ todo }: { todo: Todo }) {
+  const [busy, setBusy] = useState(false);
+  const save = async (patch: TodoPatch) => {
+    setBusy(true);
+    try {
+      await updateTodo(todo.id, patch);
+      await refreshTodos();
+    } catch (e) {
+      toast(t("todos.save_plan_failed", { error: errorText(e) }), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const at = todo.due_at ? Date.parse(todo.due_at) : NaN;
+  const due = Number.isNaN(at) ? { day: todoDueDay(todo) === undefined ? "" : (todo.due_date ?? ""), time: "" } : localParts(at);
+  const remindAt = todo.remind_at ? Date.parse(todo.remind_at) : NaN;
+  const remind = Number.isNaN(remindAt) ? "" : `${localParts(remindAt).day}T${localParts(remindAt).time}`;
+  const moment = (day: string, time: string) => new Date(`${day}T${time}`).toISOString();
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2.5 text-[12.5px] text-ink-2" data-testid="todo-plan">
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="calendar" size={13} stroke={2} />
+        <span className="whitespace-nowrap">{t("todos.due_label")}</span>
+        <input
+          type="date"
+          aria-label={t("todos.due_label")}
+          value={due.day}
+          disabled={busy}
+          onChange={(e) => {
+            const day = e.target.value;
+            void save(!day ? { due_at: null } : due.time ? { due_at: moment(day, due.time) } : { due_date: day });
+          }}
+          className={PLAN_FIELD}
+          data-testid="todo-plan-due"
+        />
+        {due.day && (
+          <input
+            type="time"
+            aria-label={t("todos.due_time")}
+            value={due.time}
+            disabled={busy}
+            onChange={(e) => void save(e.target.value ? { due_at: moment(due.day, e.target.value) } : { due_date: due.day })}
+            className={PLAN_FIELD}
+            data-testid="todo-plan-due-time"
+          />
+        )}
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="bell" size={13} stroke={2} />
+        <span className="whitespace-nowrap">{t("todos.remind_label")}</span>
+        <input
+          type="datetime-local"
+          aria-label={t("todos.remind_label")}
+          value={remind}
+          disabled={busy}
+          onChange={(e) => void save({ remind_at: e.target.value ? new Date(e.target.value).toISOString() : null })}
+          className={PLAN_FIELD}
+          data-testid="todo-plan-remind"
+        />
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="flag" size={13} stroke={2} />
+        <span className="whitespace-nowrap">{t("todos.priority_label")}</span>
+        <select
+          aria-label={t("todos.priority_label")}
+          value={todo.priority ?? ""}
+          disabled={busy}
+          onChange={(e) => void save({ priority: e.target.value })}
+          className={PLAN_FIELD}
+          data-testid="todo-plan-priority"
+        >
+          <option value="high">{t("todos.priority_option_high")}</option>
+          <option value="">{t("todos.priority_normal")}</option>
+          <option value="low">{t("todos.priority_low")}</option>
+        </select>
+      </span>
+    </div>
+  );
+}
+
+/** A to-do's due date, a reminder still to push and high priority under its status (#1683); nothing without them. */
+function TodoPlanLine({ todo }: { todo: Todo }) {
+  const due = todoDueText(todo);
+  const remind = Boolean(todo.remind_at && !todo.reminded_at && !todo.done_at);
+  const high = todo.priority === "high" && !todo.done_at;
+  if (!due && !remind && !high) return null;
+  const overdue = isOverdue(todo);
+  return (
+    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] text-ink-3" data-testid="todo-plan-line">
+      {high && (
+        <span role="img" aria-label={t("todos.priority_high")} title={t("todos.priority_high")} className="inline-flex text-orange">
+          <Icon name="flag" size={12} stroke={2} />
+        </span>
+      )}
+      {due && (
+        <span className={cx("inline-flex min-w-0 items-center gap-1", overdue && "text-red")}>
+          <Icon name="calendar" size={12} stroke={2} />
+          <span className="truncate">{t(overdue ? "todos.was_due" : "todos.due", { when: due })}</span>
+        </span>
+      )}
+      {remind && todo.remind_at && (
+        <span role="img" aria-label={t("todos.reminder_at", { when: formatDate(todo.remind_at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })} className="inline-flex">
+          <Icon name="bell" size={12} stroke={2} />
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** What a waiting agent's card asks, as one line of plain text; empty for a plan (its kicker says it) or no card. */
 function askText(ix: Interaction | undefined): string {
@@ -874,6 +1000,9 @@ function TodoDetail({
           {todo.done_reason ? t("todos.auto_done_reason", { reason: todo.done_reason }) : t("todos.auto_done")}
         </p>
       )}
+
+      {/* Due date, reminder, priority (#1683) */}
+      <TodoPlanEditor todo={todo} />
       <ReviewChecklist todo={todo} />
 
       {/* Stage Bar (#2776): progress from plan to verified, from the hub's todo; nothing on hubs that don't send it. */}

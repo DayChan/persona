@@ -127,9 +127,15 @@ func (d *boardDevs) Sessions(id string) ([]proto.Session, bool) {
 	return append([]proto.Session(nil), m.sessions...), true
 }
 
+// SessionsWhere reads the sessions in place, as the devices do: a measure of the board then counts no copy of the list.
 func (d *boardDevs) SessionsWhere(id string, keep func(*proto.Session) bool) ([]proto.Session, bool) {
-	list, ok := d.Sessions(id)
-	return keptWhere(list, keep), ok
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	m := d.machines[d.canon(id)]
+	if m == nil {
+		return nil, false
+	}
+	return keptWhere(m.sessions, keep), true
 }
 func (d *boardDevs) CallNode(ctx context.Context, id, method string, params json.RawMessage) (json.RawMessage, error) {
 	d.mu.Lock()

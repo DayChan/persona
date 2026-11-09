@@ -1,0 +1,334 @@
+package proto
+
+import (
+	"bytes"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"hash/fnv"
+	"reflect"
+	"strconv"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+// A session is encoded on every list and push the hub sends, and the reflect encoder spent most of that time walking
+// its hundred-odd fields, most of them empty. appendSession writes the same bytes field by field. sessionWire, with
+// encoding/json's options, stays the reference: TestSessionWireMatchesReflect compares the two for each field, each
+// kind of value and each way a session is encoded, so a field added to Session without a line here fails there.
+
+// sessionWireLayout is the hash (sessionLayout) of the Session fields appendSession is written for. While Session's
+// fields differ from them (a field added, renamed, retyped or retagged by a change that did not update this file),
+// appendSession leaves every session to the reflect encoder: the session is sent whole, only slower, until its line
+// here and this hash are brought up to date. TestSessionWireMatchesReflect fails meanwhile and prints the new hash.
+const sessionWireLayout = 0x9c8c4b012694edbc
+
+var sessionWireCurrent = sessionLayout() == sessionWireLayout
+
+// sessionLayout hashes the name, type and tag of each of Session's fields, in order.
+func sessionLayout() uint64 {
+	h := fnv.New64a()
+	t := reflect.TypeFor[Session]()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		h.Write([]byte(f.Name + " " + f.Type.String() + " " + string(f.Tag) + "\n"))
+	}
+	return h.Sum64()
+}
+
+// appendSession appends to b what encoding sessionWire for s with encoding/json's options gives; false when s holds a
+// value it leaves to that encoder (a time outside the years 0-9999, a nested value that does not encode), or when
+// Session's fields are not the ones it was written for (sessionWireLayout), which then encodes s itself (the same
+// bytes, or the same error).
+func appendSession(b []byte, s *Session) ([]byte, bool) {
+	if !sessionWireCurrent {
+		return b, false
+	}
+	w := wireWriter{b: append(b, '{'), first: true, ok: true}
+	w.str(`"manager":`, s.Manager, true)
+	w.str(`"machine_id":`, s.MachineID, false)
+	w.str(`"session_id":`, s.SessionID, false)
+	w.str(`"source_kind":`, s.SourceKind, true)
+	w.str(`"source_thread_id":`, s.SourceThreadID, true)
+	w.str(`"source_instance_id":`, s.SourceInstanceID, true)
+	w.str(`"parent_thread_id":`, s.ParentThreadID, true)
+	w.str(`"parent_session_id":`, s.ParentSessionID, true)
+	w.str(`"root_session_id":`, s.RootSessionID, true)
+	w.boolean(`"is_subagent":`, s.IsSubagent, true)
+	w.str(`"read_only_reason":`, s.ReadOnlyReason, true)
+	if s.Capabilities != nil {
+		w.value(`"capabilities":`, s.Capabilities)
+	}
+	w.boolean(`"attached":`, s.Attached, true)
+	w.boolean(`"can_fork":`, s.CanFork, true)
+	w.str(`"title":`, s.Title, false)
+	w.str(`"cwd":`, s.Cwd, false)
+	w.str(`"workspace_cwd":`, s.WorkspaceCwd, true)
+	w.str(`"repo_root":`, s.RepoRoot, true)
+	w.str(`"status":`, s.Status, false)
+	w.str(`"pane_id":`, s.PaneID, true)
+	w.str(`"tab_id":`, s.TabID, true)
+	w.str(`"workspace_id":`, s.WorkspaceID, true)
+	w.str(`"agent_name":`, s.AgentName, true)
+	w.str(`"codex_route":`, s.CodexRoute, true)
+	w.str(`"codex_route_note":`, s.CodexRouteNote, true)
+	w.str(`"agent":`, s.Agent, true)
+	w.str(`"agent_label":`, s.AgentLabel, true)
+	w.str(`"agent_surface":`, s.AgentSurface, true)
+	w.str(`"launcher":`, s.Launcher, true)
+	w.str(`"model":`, s.Model, true)
+	w.str(`"permission_mode":`, s.PermissionMode, true)
+	w.str(`"effort":`, s.Effort, true)
+	if s.Ultracode != nil {
+		w.boolean(`"ultracode":`, *s.Ultracode, false)
+	}
+	w.str(`"ultracode_note":`, s.UltracodeNote, true)
+	w.boolean(`"ultracode_pending":`, s.UltracodePending, true)
+	if s.UltracodeLostAt != nil {
+		w.time(`"ultracode_lost_at":`, *s.UltracodeLostAt)
+	}
+	w.integer(`"context_tokens":`, int64(s.ContextTokens), true)
+	w.integer(`"context_window":`, int64(s.ContextWindow), true)
+	w.strs(`"efforts":`, s.Efforts)
+	w.boolean(`"started_by_persona":`, s.StartedByPersona, false)
+	w.boolean(`"assistant":`, s.Assistant, false)
+	w.str(`"space":`, s.Space, true)
+	w.boolean(`"archived":`, s.Archived, true)
+	if !s.ArchiveChangedAt.IsZero() {
+		w.time(`"archive_changed_at":`, s.ArchiveChangedAt)
+	}
+	if s.NativeArchive != nil {
+		w.value(`"native_archive":`, s.NativeArchive)
+	}
+	w.str(`"origin":`, s.Origin, true)
+	w.str(`"origin_ref":`, s.OriginRef, true)
+	if s.Compaction != nil {
+		w.value(`"compaction":`, s.Compaction)
+	}
+	w.strs(`"channels":`, s.Channels)
+	w.str(`"space_kind":`, s.SpaceKind, true)
+	w.str(`"space_id":`, s.SpaceID, true)
+	w.str(`"space_name":`, s.SpaceName, true)
+	w.integer(`"space_index":`, int64(s.SpaceIndex), true)
+	w.str(`"parent_space_id":`, s.ParentSpaceID, true)
+	w.str(`"slot_id":`, s.SlotID, true)
+	w.str(`"slot_name":`, s.SlotName, true)
+	w.integer(`"slot_index":`, int64(s.SlotIndex), true)
+	if s.PaneIndex != nil {
+		w.integer(`"pane_index":`, int64(*s.PaneIndex), false)
+	}
+	w.str(`"state":`, s.State, false)
+	w.boolean(`"background_working":`, s.BackgroundWorking, true)
+	w.boolean(`"background_waiting":`, s.BackgroundWaiting, true)
+	w.time(`"seen_at":`, s.SeenAt) // time.Time is a struct, never empty, so omitempty keeps it
+	w.time(`"state_since":`, s.StateSince)
+	w.strs(`"queued":`, s.Queued)
+	if len(s.Background) > 0 {
+		w.value(`"background":`, &s.Background)
+	}
+	if len(s.Subagents) > 0 {
+		w.value(`"subagents":`, &s.Subagents)
+	}
+	if len(s.Workflows) > 0 {
+		w.value(`"workflows":`, &s.Workflows)
+	}
+	if s.Loop != nil {
+		w.value(`"loop":`, s.Loop)
+	}
+	if s.Goal != nil {
+		w.value(`"goal":`, s.Goal)
+	}
+	if s.Plan != nil {
+		w.value(`"plan":`, s.Plan)
+	}
+	if len(s.Ports) > 0 {
+		w.value(`"ports":`, &s.Ports)
+	}
+	w.time(`"updated_at":`, s.UpdatedAt)
+	w.str(`"last_text":`, s.LastText, true)
+	w.str(`"asks":`, s.Asks, true)
+	w.boolean(`"asks_read":`, s.AsksRead, true)
+	w.boolean(`"awaits_reply":`, s.AwaitsReply, true)
+	w.str(`"turn_error":`, s.TurnError, true)
+	w.str(`"turn_error_kind":`, s.TurnErrorKind, true)
+	if s.TurnErrorResetsAt != nil {
+		w.time(`"turn_error_resets_at":`, *s.TurnErrorResetsAt)
+	}
+	w.boolean(`"turn_error_resumes":`, s.TurnErrorResumes, true)
+	w.boolean(`"turn_error_after_work":`, s.TurnErrorAfterWork, true)
+	w.str(`"turn_error_code":`, s.TurnErrorCode, true)
+	if s.Work != nil {
+		w.value(`"work":`, s.Work)
+	}
+	w.str(`"activity":`, s.Activity, true)
+	if s.ActivityAt != nil {
+		w.time(`"activity_at":`, *s.ActivityAt)
+	}
+	w.integer(`"rev":`, s.Rev, true)
+	w.boolean(`"woke_by_task":`, s.WokeByTask, true)
+	w.integer(`"pending_interactions":`, int64(s.PendingInteractions), false)
+	w.str(`"suggestion":`, s.Suggestion, true)
+	w.boolean(`"starting":`, s.Starting, true)
+	w.str(`"start_error":`, s.StartError, true)
+	w.str(`"start_error_code":`, s.StartErrorCode, true)
+	if len(s.StartErrorArgs) > 0 {
+		w.value(`"start_error_args":`, &s.StartErrorArgs)
+	}
+	if s.Todo != nil {
+		w.value(`"todo":`, s.Todo)
+	}
+	w.boolean(`"quiet":`, s.Quiet, true)
+	w.str(`"spawn_from":`, s.SpawnFrom, true)
+	w.str(`"attention_reason":`, s.AttentionReason, true)
+	w.str(`"failure_reason":`, s.FailureReason, true)
+	w.str(`"external_url":`, s.ExternalURL, true)
+	w.str(`"runtime":`, s.Runtime, true)
+	w.str(`"runtime_fallback":`, s.RuntimeFallback, true)
+	w.str(`"chat":`, s.Chat, true)
+	w.str(`"topic":`, s.Topic, true)
+	w.strs(`"dispatched":`, s.Dispatched)
+	w.strs(`"also_open_in":`, s.AlsoOpenIn)
+	w.str(`"host":`, s.Host, true)
+	w.boolean(legacyStartedMember, s.StartedByPersona, false) // sessionWire's legacy key (compatibility.go)
+	return append(w.b, '}'), w.ok
+}
+
+// wireWriter writes an object's members, as the reflect encoder does with encoding/json's options; ok turns false on
+// a value it does not write.
+type wireWriter struct {
+	b         []byte
+	first, ok bool
+}
+
+// key starts a member; k is its quoted name and colon.
+func (w *wireWriter) key(k string) {
+	if !w.first {
+		w.b = append(w.b, ',')
+	}
+	w.first = false
+	w.b = append(w.b, k...)
+}
+
+func (w *wireWriter) str(k, v string, omitEmpty bool) {
+	if omitEmpty && v == "" {
+		return
+	}
+	w.key(k)
+	w.b = appendWireString(w.b, v)
+}
+
+func (w *wireWriter) boolean(k string, v, omitEmpty bool) {
+	if omitEmpty && !v {
+		return
+	}
+	w.key(k)
+	w.b = strconv.AppendBool(w.b, v)
+}
+
+func (w *wireWriter) integer(k string, v int64, omitEmpty bool) {
+	if omitEmpty && v == 0 {
+		return
+	}
+	w.key(k)
+	w.b = strconv.AppendInt(w.b, v, 10)
+}
+
+// strs writes a []string under omitempty: nothing for an empty one.
+func (w *wireWriter) strs(k string, v []string) {
+	if len(v) == 0 {
+		return
+	}
+	w.key(k)
+	w.b = append(w.b, '[')
+	for i, s := range v {
+		if i > 0 {
+			w.b = append(w.b, ',')
+		}
+		w.b = appendWireString(w.b, s)
+	}
+	w.b = append(w.b, ']')
+}
+
+// time writes t as time.Time's MarshalJSON does (RFC 3339 with nanoseconds); a year it refuses is left to it.
+func (w *wireWriter) time(k string, t time.Time) {
+	if y := t.Year(); y < 0 || y > 9999 {
+		w.ok = false
+		return
+	}
+	if _, off := t.Zone(); off <= -24*60*60 || off >= 24*60*60 {
+		w.ok = false
+		return
+	}
+	w.key(k)
+	w.b = append(t.AppendFormat(append(w.b, '"'), time.RFC3339Nano), '"')
+}
+
+// value writes a nested value (a struct, a list of them, a map) as encoding/json does, straight after the key: these
+// have many fields of their own and are set on fewer sessions, so they are not written out by hand. v is a pointer (to
+// the field, for a list or a map), so passing it allocates nothing.
+func (w *wireWriter) value(k string, v any) {
+	w.key(k)
+	buf := nestedBuffers.Get().(*bytes.Buffer)
+	*buf = *bytes.NewBuffer(w.b) // writes go on after w.b, into its room when there is some
+	if jsonv2.MarshalWrite(buf, v, json.DefaultOptionsV1()) != nil {
+		w.ok = false // json.Marshal's options, so the same bytes and the same failures
+	}
+	w.b = buf.Bytes()
+	*buf = bytes.Buffer{}
+	nestedBuffers.Put(buf)
+}
+
+// nestedBuffers are the bytes.Buffers value hands json/v2, which writes into one in place.
+var nestedBuffers = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+const wireHex = "0123456789abcdef"
+
+// appendWireString appends s quoted as encoding/json writes a string: '"', '\\' and the control characters escaped
+// (\b, \f, \n, \r, \t or \u00XX), '<', '>', '&', U+2028 and U+2029 as \uXXXX, and each byte that is not UTF-8 as
+// U+FFFD.
+func appendWireString(b []byte, s string) []byte {
+	b = append(b, '"')
+	start := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+				i++
+				continue
+			}
+			b = append(b, s[start:i]...)
+			switch c {
+			case '"', '\\':
+				b = append(b, '\\', c)
+			case '\b':
+				b = append(b, '\\', 'b')
+			case '\f':
+				b = append(b, '\\', 'f')
+			case '\n':
+				b = append(b, '\\', 'n')
+			case '\r':
+				b = append(b, '\\', 'r')
+			case '\t':
+				b = append(b, '\\', 't')
+			default:
+				b = append(b, '\\', 'u', '0', '0', wireHex[c>>4], wireHex[c&0xf])
+			}
+			i++
+			start = i
+			continue
+		}
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n == 1:
+			b = append(append(b, s[start:i]...), "\ufffd"...)
+		case r == '\u2028' || r == '\u2029':
+			b = append(append(b, s[start:i]...), '\\', 'u', '2', '0', '2', wireHex[r&0xf])
+		default:
+			i += n
+			continue
+		}
+		i += n
+		start = i
+	}
+	return append(append(b, s[start:]...), '"')
+}

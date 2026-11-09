@@ -37,12 +37,12 @@ func (u *updater) loop(ctx context.Context) {
 }
 
 // wantsAuto: on, newer, not a bad build, its code contains this one's (Build.Hold), it leaves no program a service
-// runs as it was (unreplaced), not already running.
+// runs as it was (unreplaced), not already installing or confirming.
 func (u *updater) wantsAuto() bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	r := u.release
-	return (u.loaded || u.h.store == nil) && u.settings.auto() && !u.running && r != nil && u.h.build.Newer(r.Manifest.Build) &&
+	return (u.loaded || u.h.store == nil) && u.settings.auto() && !u.updateActiveLocked() && r != nil && u.h.build.Newer(r.Manifest.Build) &&
 		!slices.Contains(u.settings.Bad, r.Manifest.Build) && u.h.build.Hold(r.Manifest) == "" && u.blocked == nil
 }
 
@@ -56,7 +56,7 @@ func (u *updater) noteHeld(ctx context.Context) {
 	}
 	u.mu.Lock()
 	r := u.release
-	if !u.settings.auto() || u.running || r == nil || !u.h.build.Newer(r.Manifest.Build) || slices.Contains(u.settings.Bad, r.Manifest.Build) {
+	if !u.settings.auto() || u.updateActiveLocked() || r == nil || !u.h.build.Newer(r.Manifest.Build) || slices.Contains(u.settings.Bad, r.Manifest.Build) {
 		u.mu.Unlock()
 		return
 	}
@@ -91,7 +91,7 @@ func (u *updater) check(ctx context.Context) (*update.Published, error) {
 	if u.h.build.UpdateURL == "" {
 		return nil, errNotRelease
 	}
-	u.setState("checking")
+	u.setCheckState("checking", "")
 	cctx, cancel := context.WithTimeout(ctx, updateRequestLimit)
 	defer cancel()
 	r, err := update.Check(cctx, u.client, u.h.build.UpdateURL)
@@ -106,15 +106,32 @@ func (u *updater) check(ctx context.Context) (*update.Published, error) {
 	}
 	u.mu.Unlock()
 	if err != nil {
-		u.set("idle", "", su(u.h.userLang(), "check_failed", i18n.Args{"error": i18n.Localize(err, u.h.userLang())}))
+		u.setCheckState("idle", su(u.h.userLang(), "check_failed", i18n.Args{"error": i18n.Localize(err, u.h.userLang())}))
 		return nil, err
 	}
 	if u.h.build.Newer(r.Manifest.Build) {
-		u.set("available", "", "")
+		u.setCheckState("available", "")
 	} else {
-		u.set("idle", "", "")
+		u.setCheckState("idle", "")
 	}
 	return r, nil
+}
+
+// updateActiveLocked includes the new process, where boot clears confirmed before confirm starts and running is false.
+// Called with u.mu held.
+func (u *updater) updateActiveLocked() bool {
+	return u.running || !u.confirmed || u.state == "confirming"
+}
+
+// setCheckState leaves an install's state, progress and error alone, but still broadcasts refreshed metadata.
+// Check under the same lock as the write, both before and after the request: an install can start while it is in flight.
+func (u *updater) setCheckState(state, errText string) {
+	u.mu.Lock()
+	if !u.updateActiveLocked() {
+		u.state, u.progress, u.errText = state, "", errText
+	}
+	u.mu.Unlock()
+	u.h.broadcast(map[string]any{"type": "hub_update", "update": u.view()})
 }
 
 // freshRelease reads latest.json again for an install script when the release the hub has is older than

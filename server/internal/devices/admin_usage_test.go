@@ -275,6 +275,72 @@ func TestAdminUsageSourceTestIsOneReadOnlyRead(t *testing.T) {
 	}
 }
 
+func TestAdminUsageSourceTestKeySelection(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fields  string
+		wantKey string
+	}{
+		{"saved key", `{}`, usageTestKey},
+		{"keep saved key", `{"clear_key":false,"key":""}`, usageTestKey},
+		{"clear saved key", `{"clear_key":true}`, ""},
+		{"clear overrides supplied key", `{"clear_key":true,"key":"new-key"}`, ""},
+		{"clear overrides invalid key", `{"clear_key":true,"key":"invalid key"}`, ""},
+		{"use supplied key", `{"clear_key":false,"key":" new-key "}`, "new-key"},
+		{"changed address", `{"url":"https://elsewhere.example.com"}`, ""},
+		{"changed type", `{"type":"relay"}`, ""},
+		{"unknown source", `{"id":"other"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			const saved = `{"token":"t","usage":{"sources":[{"id":"saved","name":"Saved","type":"generic","url":"https://gw.example.com","key":"` + usageTestKey + `"}]}}`
+			h, c := usageTestDevices(t, saved)
+			h.usageConfigNow()
+			before, err := os.Stat(h.opts.ConfigFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			h.usageGW.fetch = func(_ context.Context, cfg usagesource.Config, _ time.Time) (usagesource.Result, error) {
+				calls++
+				if cfg.Key != tc.wantKey {
+					t.Errorf("tested key = %q, want %q", cfg.Key, tc.wantKey)
+				}
+				return usagesource.Result{}, nil
+			}
+			body := map[string]any{"id": "saved", "type": "generic", "url": "https://gw.example.com/"}
+			if err := json.Unmarshal([]byte(tc.fields), &body); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, out, w := c.do("POST", "/api/v1/admin/usage-sources/test", string(data))
+			if status != http.StatusOK || out["ok"] != true || calls != 1 {
+				t.Errorf("test: status=%d result=%v calls=%d", status, out, calls)
+			}
+			if strings.Contains(w.Body.String(), usageTestKey) || strings.Contains(w.Body.String(), "new-key") {
+				t.Error("test returned a key")
+			}
+			contents, err := os.ReadFile(h.opts.ConfigFile)
+			if err != nil || string(contents) != saved {
+				t.Errorf("test changed manager.json: %s, %v", contents, err)
+			}
+			after, err := os.Stat(h.opts.ConfigFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+				t.Error("test rewrote manager.json")
+			}
+			if got := h.usageGW.config(); len(got.Sources) != 1 || got.Sources[0].Key != usageTestKey {
+				t.Errorf("test changed the saved key in memory: %+v", got)
+			}
+		})
+	}
+}
+
 func TestAdminUsageTakesUpAHandEditOnRead(t *testing.T) {
 	h, c := usageTestDevices(t, `{"token":"t","usage":{"poll_minutes":10,"sources":[{"id":"hand","name":"Hand","type":"generic","url":"https://gw.example.com/x","key":"`+usageTestKey+`"}]}}`)
 	_, out, w := c.do("GET", "/api/v1/admin/usage-sources", "")

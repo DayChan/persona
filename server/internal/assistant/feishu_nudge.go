@@ -195,8 +195,9 @@ func (s *Service) agentGone(ix proto.Interaction) bool {
 	if ix.SessionID == "" {
 		return false
 	}
-	list := s.nodeSessions(ix.MachineID)
-	return len(list) > 0 && !slices.ContainsFunc(list, func(c proto.Session) bool { return c.SessionID == ix.SessionID })
+	// Only whether it is listed: no copy of the list.
+	found, listed := s.nodeSessionsWhere(ix.MachineID, func(c *proto.Session) bool { return c.SessionID == ix.SessionID })
+	return listed > 0 && len(found) == 0
 }
 
 // botNudge replies under c with the nudge: in a topic group in the topic, @-mentioning the owner, which is what makes

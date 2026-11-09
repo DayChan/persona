@@ -141,5 +141,17 @@
   "thread_unbound": "Topic unbound",
   "thread_unbind_failed": "Couldn't unbind: {error}",
   "thread_empty": "No topic is bound to this to-do. Starting a topic in a group chat registered with /topics opens a new to-do and binds it; an Agent can also bind this to-do to a topic.",
-  "thread_mark": "Bound to a topic"
+  "thread_mark": "Bound to a topic",
+  "due": "Due {when}",
+  "was_due": "Was due {when}",
+  "reminder_at": "Reminder at {when}",
+  "priority_high": "High priority",
+  "priority_normal": "Normal",
+  "priority_low": "Low",
+  "priority_label": "Priority",
+  "due_label": "Due",
+  "due_time": "Due time",
+  "remind_label": "Remind me",
+  "save_plan_failed": "Couldn't save: {error}",
+  "priority_option_high": "High"
 }

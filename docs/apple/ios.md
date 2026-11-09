@@ -1338,6 +1338,35 @@ iPhone, iPad and Mac crashes go to the hub's `error_reports` (format and rules: 
 - **Queue and sending**: one JSON file a report in Application Support `error-reports/` (`<time ms>-<id>.json`), at most 50, at most 7 days old. A file, not UserDefaults: it is written right before the app dies. It is sent only to the hub of the group the hub-level pages show (the one picked, else the first), after each hello and each `machines` message; when its hello's `features` has no `error_reports`, the queue is deleted. Batches of ≤ 20 reports and ≤ 240 KB through `APIClient`; 2xx deletes the batch (and `{"enabled": false}` deletes the rest); 4xx drops it, except 408 / 429; 5xx or no answer keeps it for the next time. A retry sends the same `id`.
 - **Not yet** (#5621 phase 2): signal crashes, MetricKit crash and hang diagnostics, the Mac's main-thread exceptions (`NSApplicationCrashOnExceptions`, or reporting what AppKit catches), breadcrumbs, the watch (through the phone) and visionOS.
 
+## Extensions and connectors of several managers (#1827)
+
+[managers.md](../assistant/managers.md) ("Grouping"): with more than one installed manager, the hub's merged lists stamp each item with
+its `manager`, and every manager lists its own built-ins, so the same id comes once per manager. With one manager, or a hub without a
+roster, none of this draws and the pages are as before.
+
+- **Roster**: Settings › Extensions (`ExtensionsModel`) and the Connectors section (`ConnectorsListModel`) read `GET /api/v1/managers`
+  with their list, and again on `{"type":"managers"}` for Extensions. `ManagerRoster` (`Persona/Views/Settings/ManagerGroups.swift`)
+  has `installed` (the default first, then the roster's order, installing ones left out), `isMulti`, `owner` / `named` (no stamp, or a
+  manager the roster doesn't have installed, is the default's) and `groups(items)`. A roster that can't be read keeps the last one; a hub
+  without one (404) groups nothing.
+- **Grouping**: each manager's items are a section under `ManagerHeading` (dot, name, count, and "Offline · last synced …" while
+  offline), empty groups left out; the list's footer goes under the last group. In Connectors the device, mail, Lark and Lark Bot rows
+  stay in the Connectors section and the hub's other connectors follow, grouped. Rows are keyed by id and manager (`listKey`).
+- **Routing**: navigation carries the manager (`SettingsPage.plugin(id, manager:)`, `.connector(id, manager:)`,
+  `.pluginPage(…, manager:)`, `MessagesChatsRoute` / `MessagesThreadRoute`; nil for the default's). Each page's model keeps its
+  manager and makes every request through `APIClient.manager(_:)`, which adds `X-Persona-Manager` (nothing for the default): an
+  extension's details, switch, settings, secrets, auto-update, provided features, sign-in, its connectors' Show in Inbox; a connector's
+  status, sign-in and sign-out, switches, Delete Saved Data / Knowledge, GitHub's sign-in source and Inbox options, and Messages.
+  Extension pages get the manager too (`ExtensionPageView(manager:)`, `?manager=` on their actions). Another manager's extension or
+  connector page adds that manager's name to its status line (`ManagerRoster.name`); the default's pages are as before.
+- **Kept apart**: sign-in states (`ExtensionAuthStore`) and unsaved settings drafts (`ExtensionDrafts.Key`) are kept by id and manager.
+  The market (installs, upgrades, uninstall) and `extension_auth` / `extension_operation` pushes are still the default manager's.
+- **Tests**: `ManagerGroupsTests` (decoding, roster order and ownership, grouping, one manager, a hub without a roster, the header on
+  every request of another manager's extension, sign-in, connector and Messages pages and none on the default's). UI test
+  `ManagerGroupsUITests` against the mock hub's three managers (`MOCK_EXTENSIONS=1`, `TEST_RUNNER_PERSONA_MANAGERS_HUB`, shots with
+  `TEST_RUNNER_PERSONA_SHOTS`; with `MOCK_MANAGERS=1` add `TEST_RUNNER_PERSONA_MANAGERS_ONE=1`). By hand: `-tab settings -openExtensions
+  YES`, or `-openExtension <id> -openExtensionManager m-3fa21c` for 工作's copy.
+
 ## DEBUG launch arguments (Debug only; Release checks exclude these strings)
 
 `-pairURL persona://pair?...` (pair without scanning a QR code, no notification permission prompt), `-openSession <machine>/<session>`,

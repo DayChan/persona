@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nwverse/persona/server/internal/host"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -25,9 +26,10 @@ import (
 //
 // What the phone cannot do there: answer a question or a permission prompt (those are on the computer: no hooks of
 // Persona's run in such a claude, and its screen is not Persona's to read), stop a turn (nothing to send Esc to), or
-// open a terminal. A claude in a pane of Persona's engines lists there as before (its pane comes first: seen), and
-// one inside a pane the engine does not list (a nested tmux, a pane not reported yet) is left alone: its pane
-// variable says it belongs to a terminal Persona drives (claudeInPane).
+// open a terminal. A claude in a pane of Persona's engines lists there as before (its pane comes first: seen). One
+// whose pane variable names a pane no engine in use lists with a claude in it (Orca's terminals on a node without
+// Orca, a nested tmux, a claude the engine's process scan missed) lists here as running, after a short grace that
+// lets an engine report a claude just started in its pane first (claudeInPane).
 //
 // An interactive claude that sent its own session to the background keeps that session in its sessions/<pid>.json
 // with parkedJobId set, and shows Claude's agents view in its pane until it comes back. herdr still names the pane
@@ -120,7 +122,7 @@ func (n *Node) outsideSource(c claudeProc) string {
 		return ""
 	case desktopEntrypoint(c.Entrypoint):
 		return proto.SourceClaudeDesktop
-	case c.Entrypoint == "cli" && !n.claudeInPane(c.pid):
+	case c.Entrypoint == "cli" && !n.claudeInPane(c):
 		return proto.SourceClaudeTerminal
 	}
 	return ""
@@ -273,14 +275,76 @@ func unconfirmed() error {
 // asPeer: err is a refusal of the inbox's (*errPeer).
 func asPeer(err error, target **errPeer) bool { return errors.As(err, target) }
 
-// claudeInPane: the claude process runs in a terminal of one of Persona's engines (its environment names a pane), so
-// that engine lists it, not this.
-func (n *Node) claudeInPane(pid int) bool {
+// claudeInPane: the claude process runs in a pane that one of the engines in use lists with a claude in it, so that
+// engine lists it, not this. A pane variable alone is not enough: an engine the machine does not enable (Orca's
+// terminals while the node uses herdr alone), or one whose process scan missed the claude (a nested pty, a launcher
+// that renamed it), lists nothing there, and a running claude must not fall through to the offline list. A claude
+// the node first saw less than outsidePaneGrace ago still counts as its pane's: an engine reports a claude typed into
+// its pane a moment after it starts, and until then it should not flip to an outside row and back.
+func (n *Node) claudeInPane(c claudeProc) bool {
 	if paneEnvOfPID == nil {
 		return false
 	}
-	env := paneEnvOfPID(pid)
-	return slices.ContainsFunc(enginePaneEnvs, func(name string) bool { return env[name] != "" })
+	refs := enginePaneRefs(paneEnvOfPID(c.pid))
+	if len(refs) == 0 {
+		return false
+	}
+	now := time.Now()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, agents := range n.hostAgents {
+		for _, a := range agents {
+			if a.Agent == "claude" && slices.Contains(refs, a.PaneID) {
+				return true
+			}
+		}
+	}
+	if n.paneClaudes == nil {
+		n.paneClaudes = map[int]paneClaudeSeen{}
+	}
+	for pid, e := range n.paneClaudes { // gone (the list is rebuilt every second): forget it
+		if now.Sub(e.last) > paneClaudeForget {
+			delete(n.paneClaudes, pid)
+		}
+	}
+	e, ok := n.paneClaudes[c.pid]
+	if !ok || e.start != c.ProcStart { // first seen, or the pid now belongs to another process
+		e = paneClaudeSeen{start: c.ProcStart, first: now}
+	}
+	e.last = now
+	n.paneClaudes[c.pid] = e
+	return now.Sub(e.first) < outsidePaneGrace
+}
+
+// paneClaudeSeen is when claudeInPane first and last saw a claude process (start: its procStart, telling a reused pid
+// apart).
+type paneClaudeSeen struct {
+	start       string
+	first, last time.Time
+}
+
+// outsidePaneGrace: how long a claude in an engine pane that no engine lists yet is left to its engine (a var: tests
+// set it to 0). paneClaudeForget: an entry not looked at for this long is dropped.
+var outsidePaneGrace = 5 * time.Second
+
+const paneClaudeForget = time.Minute
+
+// enginePaneRefs are the panes a process's engine pane variables (enginePaneEnvs) name, as the hosts write PaneIDs.
+func enginePaneRefs(env map[string]string) []string {
+	var out []string
+	add := func(kind, id string) {
+		if id != "" {
+			out = append(out, host.PaneRef{Kind: kind, ID: id}.String())
+		}
+	}
+	if p := env[herdrPaneEnv]; p != "" {
+		out = append(out, p) // herdr's pane ids are stored as they are
+	}
+	add(host.HerdrCore, env[herdrCorePaneEnv])
+	add(host.Orca, env[orcaPaneEnv])
+	add(host.Orca, env[orcaLegacyPaneEnv])
+	add(host.Botmux, env[botmuxPaneEnv])
+	return out
 }
 
 // enginePaneEnvs are the variables Persona's engines set in their panes' processes.

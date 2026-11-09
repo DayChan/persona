@@ -2,8 +2,10 @@ import json
 import os
 import re
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -87,6 +89,91 @@ class PathTests(unittest.TestCase):
         self.assertTrue(paths.select(["apple/Old.swift", "docs/archive/new.md"])["apple"])
 
 
+class PullRequestBaseTests(unittest.TestCase):
+    """A PR is compared with the base branch as it is now, not where the PR was opened.
+
+    actions/checkout checks out refs/pull/<n>/merge (first parent the current base tip, second the PR head);
+    the event's pull_request.base.sha stays where the PR was opened. The cases build a throwaway repository.
+    """
+
+    def setUp(self):
+        scratch = Path(tempfile.mkdtemp(prefix="ci-pr-base-"))
+        self.addCleanup(shutil.rmtree, scratch, True)
+        self.repo, self.event_file, self.output_file = scratch / "repo", scratch / "event.json", scratch / "output"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.opened = self.commit("README.md", "start\n", "start")
+        self.git("checkout", "-q", "-b", "pr")
+        self.head = self.commit("docs/guide.md", "guide\n", "the PR's change")
+        self.git("checkout", "-q", "main")
+        self.tip = self.commit("web/src/App.tsx", "app\n", "landed on main after the PR was opened")
+        self.git("checkout", "-q", "--detach", self.tip)
+        self.git("merge", "-q", "--no-ff", "-m", "Merge the PR head into the base tip", self.head)
+        self.event = {"pull_request": {"base": {"sha": self.opened}, "head": {"sha": self.head}}}
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True,
+                              timeout=30).stdout.strip()
+
+    def commit(self, path, text, message):
+        file = self.repo / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def run_paths(self, *args, event=None):
+        self.event_file.write_text(json.dumps(self.event if event is None else event))
+        self.output_file.write_text("")
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+        environment.update(GITHUB_EVENT_PATH=str(self.event_file), GITHUB_OUTPUT=str(self.output_file),
+                           GITHUB_EVENT_NAME="pull_request")
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("paths.py")), *args], cwd=self.repo,
+                                env=environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip(), self.output_file.read_text()
+
+    def test_merge_checkout_compares_with_the_current_base_tip(self):
+        printed, output = self.run_paths("--print-base")
+        self.assertEqual(printed, self.tip)
+        self.assertIn("base=" + self.tip + "\n", output)
+        # The privacy range then holds the PR's commits and the checkout's merge, not what main gained meanwhile.
+        scanned = self.git("rev-list", printed + "..HEAD").split()
+        self.assertIn(self.head, scanned)
+        self.assertNotIn(self.tip, scanned)
+        self.assertEqual(self.git("diff", "--name-only", printed + "...HEAD"), "docs/guide.md")
+        lanes, _ = self.run_paths("--base", printed)
+        self.assertFalse(json.loads(lanes)["web"])
+        # The stale base would have counted main's Web change as the PR's.
+        stale, _ = self.run_paths("--base", self.opened)
+        self.assertTrue(json.loads(stale)["web"])
+        self.assertIn(self.tip, self.git("rev-list", self.opened + "..HEAD").split())
+
+    def test_event_base_sha_is_only_a_fallback(self):
+        parents = (self.tip, self.head)
+        self.assertEqual(paths.resolve_base(event=self.event, parents=parents), self.tip)
+        self.assertEqual(paths.resolve_base(event=self.event), self.opened)
+        self.assertEqual(paths.resolve_base(event=self.event, parents=(self.head,)), self.opened)
+        self.assertEqual(paths.resolve_base(event=self.event, parents=(self.tip, self.opened)), self.opened)
+        self.assertEqual(paths.resolve_base(event={"pull_request": {"base": {"sha": self.opened}}}, parents=parents), self.opened)
+        self.assertEqual(paths.resolve_base("override", self.event, parents), "override")
+        self.assertEqual(paths.resolve_base(event={"merge_group": {"base_sha": "queue-base"}}, parents=parents), "queue-base")
+        self.assertEqual(paths.resolve_base(parents=parents), "origin/main")
+
+    def test_head_checkout_and_newer_push_fall_back_to_the_event_base(self):
+        # The event's head is not HEAD's second parent (the checkout is of another push): keep the event's base.
+        newer = {"pull_request": {"base": {"sha": self.opened}, "head": {"sha": "0123456789abcdef0123456789abcdef01234567"}}}
+        self.assertEqual(self.run_paths("--print-base", event=newer)[0], self.opened)
+        # A checkout of the PR head itself is not a merge commit.
+        self.git("checkout", "-q", "--detach", self.head)
+        self.assertEqual(self.run_paths("--print-base")[0], self.opened)
+        # An explicit base wins over both.
+        self.assertEqual(self.run_paths("--print-base", "--base", self.tip)[0], self.tip)
+
+
 class AutomaticWorkflowTests(unittest.TestCase):
     def test_pr_checks_allocate_only_the_final_job(self):
         root = Path(__file__).resolve().parents[2]
@@ -101,6 +188,7 @@ class AutomaticWorkflowTests(unittest.TestCase):
         self.assertIn('if: always()', gate)
         for command in ('scripts/ci/guards.sh', 'scripts/ci/web.sh', 'scripts/ci/runtimes.sh',
                         'scripts/test/test_doc_paths.py', 'scripts/test/test_doc_go_paths.py',
+                        'scripts/test/test_doc_wire.py',
                         "python3 -m unittest discover -s scripts/ci -p 'test_*.py'"):
             self.assertIn(command, gate)
         dependencies = gate.index('run: python3 -m pip install -r scripts/ci/requirements.txt')

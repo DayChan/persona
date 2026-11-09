@@ -248,11 +248,12 @@ nonisolated enum TodosLogic {
 
     /**
      * Sorts the todo list:
-     * - open todos first, by status priority (needs you > unread > working > follow-up > not started)
-     * - same status: newer first, by creation time
+     * - open todos first; what needs the user (needs you, unread) on top
+     * - then by due date, earliest first (an overdue one before the rest), those without one after (#1683)
+     * - then by status priority (working > follow-up > not started), newer first, by creation time
      * - done todos at the bottom
      */
-    public static func sortTodos(_ todos: [TodoItem], lookup: SessionLookup? = nil) -> [TodoItem] {
+    public static func sortTodos(_ todos: [TodoItem], lookup: SessionLookup? = nil, calendar: Calendar = .current) -> [TodoItem] {
         todos.sorted { a, b in
             let aDone = a.isDone
             let bDone = b.isDone
@@ -260,6 +261,17 @@ nonisolated enum TodosLogic {
 
             let aStat = todoStatus(a, lookup: lookup)
             let bStat = todoStatus(b, lookup: lookup)
+            if (aStat.todoRank <= 1 || bStat.todoRank <= 1) && aStat.todoRank != bStat.todoRank {
+                return aStat.todoRank < bStat.todoRank
+            }
+            if !aDone {
+                switch (dueBy(a, calendar: calendar), dueBy(b, calendar: calendar)) {
+                case let (x?, y?) where x != y: return x < y
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: break
+                }
+            }
             if aStat.todoRank != bStat.todoRank { return aStat.todoRank < bStat.todoRank }
 
             let tA = a.createdAt?.timeIntervalSince1970 ?? 0
@@ -267,6 +279,28 @@ nonisolated enum TodosLogic {
             if tA != tB { return tA > tB }
             return a.id < b.id
         }
+    }
+
+    /// The day of a todo's `due_date` ("yyyy-MM-dd") at its start in `calendar`'s time zone; nil without a readable one.
+    public static func dueDay(_ todo: TodoItem, calendar: Calendar = .current) -> Date? {
+        guard let s = todo.dueDate else { return nil }
+        let parts = s.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    /// The moment a todo is due by: its `due_at`, or the end of its due day; nil without either.
+    public static func dueBy(_ todo: TodoItem, calendar: Calendar = .current) -> Date? {
+        if let at = todo.dueAt { return at }
+        guard let day = dueDay(todo, calendar: calendar),
+              let next = calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
+        return next.addingTimeInterval(-1)
+    }
+
+    /// An open todo whose due moment has passed.
+    public static func isOverdue(_ todo: TodoItem, now: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard !todo.isDone, let by = dueBy(todo, calendar: calendar) else { return false }
+        return by < now
     }
 
     /**
@@ -472,6 +506,54 @@ extension APIClient {
         let encId = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let body = UpdateTodoRequest(title: title, notes: notes, done: done)
         let data = try await request("PATCH", "/api/v1/todos/\(encId)", body: body)
+        return try JSON.decoder.decode(TodoResponse.self, from: data).todo
+    }
+
+    /// A change to a todo's due date, reminder or priority (#1683): nil leaves a field as it is; `.none` / a nil
+    /// reminder clear it (sent as JSON null).
+    nonisolated public struct TodoPlanChange: Encodable, Sendable, Equatable {
+        nonisolated public enum Due: Sendable, Equatable {
+            case none
+            /// Due at a moment.
+            case at(Date)
+            /// Due on a day, "yyyy-MM-dd" in the user's time zone.
+            case day(String)
+        }
+
+        public var due: Due?
+        public var remindAt: Date??
+        /// "" normal, "high", "low".
+        public var priority: String?
+
+        public init(due: Due? = nil, remindAt: Date?? = nil, priority: String? = nil) {
+            self.due = due
+            self.remindAt = remindAt
+            self.priority = priority
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case priority
+            case dueAt = "due_at", dueDate = "due_date", remindAt = "remind_at"
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            switch due {
+            case nil: break
+            case .some(.none): try c.encodeNil(forKey: .dueAt)
+            case .some(.at(let d)): try c.encode(d, forKey: .dueAt)
+            case .some(.day(let day)): try c.encode(day, forKey: .dueDate)
+            }
+            if let remindAt {
+                if let d = remindAt { try c.encode(d, forKey: .remindAt) } else { try c.encodeNil(forKey: .remindAt) }
+            }
+            if let priority { try c.encode(priority, forKey: .priority) }
+        }
+    }
+
+    public func updateTodoPlan(id: String, _ change: TodoPlanChange) async throws -> TodoItem {
+        let encId = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let data = try await request("PATCH", "/api/v1/todos/\(encId)", body: change)
         return try JSON.decoder.decode(TodoResponse.self, from: data).todo
     }
 

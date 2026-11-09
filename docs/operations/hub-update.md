@@ -87,6 +87,15 @@ continues to work; an interrupted queued transfer requires another explicit
 Redeploy while the policy is off. Already installed candidates still receive their
 confirmation, so disabling upgrades cannot strand them.
 
+With the policy off, a confirmed update to another version sets aside the node builds
+the Hub leaves in `bin/nodes/`: each `personad-<os>-<arch>` with no `.version` file
+beside it becomes `personad-<os>-<arch>.prev`. The manager takes an unlabelled
+personad there for a build of the Hub's own version, so left in place it would put
+the previous version back on every computer that Redeploy reaches (#1825). Set
+aside, Redeploy fetches the Hub's version from the release (`docs/operations/node-update.md`,
+"Node packages"). A build with a `.version` file says which one it is and stays; the
+directory is never created.
+
 The manager receives this policy in `devices.config`. An old external manager that
 does not understand it must be updated separately before relying on that gate;
 the built-in manager changes together with the Hub. Existing package containment
@@ -409,12 +418,13 @@ The programs (`update.ProgramNames`): `personad-wechat` (the WeChat bot), and `p
 - **Release build**:
   - The hub checks 1 minute after startup, then every hour (every 6 hours until 2026-11-07, when the user asked for hourly so a release reaches hubs sooner); the App can "Check now" (`POST /api/v1/hub/update/check`);
   - It only fetches the manifest (a few KB): there is an update only if the build number is larger than its own and not in the bad-version list; the result is broadcast to open Apps.
+  - While an install is running or the new process has not confirmed the update, checks refresh `latest` and `last_check` without changing `state`, `progress` or `error`. This applies to manual checks, the first check after startup and hourly checks, including responses to requests started before the install. A failed check advances `last_check` and keeps the previous `latest`; it still returns an error to the caller. Confirmation also prevents a check from starting another automatic install.
 - **Docker build**:
   - Every hour, query the image repository's tags (anonymous GHCR `tags/list`), take the highest stable semver, and show a notice if it is newer;
   - The hub installs nothing; Docker pulls the image and verifies by digest;
   - CI writes the image name into the binary at build time; it is not hard-coded in the source.
 - **dev**: no checks, only shows the version.
-- Network unavailable or bad manifest: log it and show the reason under **Check for Updates** in the App; do not hammer retries (keep the hourly interval).
+- Network unavailable or bad manifest: show the reason under **Check for Updates** in the App when no install or confirmation is in progress; otherwise keep the update's progress and error. Do not hammer retries (keep the hourly interval).
 
 ## 8. Updating (release build; automatic and manual use the same flow)
 
@@ -563,6 +573,7 @@ Download → Verify → Prepare → Wait for idle → Replace → Restart → Co
   - Retry after interrupted download; delete without replacing on a sha256 mismatch;
   - New version cannot start: compile a deliberately unstartable binary in the test; verify both the new process's self-check and the watchdog can roll back, record the bad version and do not retry it automatically;
   - Wait for idle: do not restart while the assistant or any Agent is busy (automatic and manual alike); `now` skips the wait;
+  - Checks during installation or confirmation preserve the update state, progress and error on success and failure, including when an install starts while the manifest request is in flight;
   - Skills: symlink creation and cleanup, automatic migration of old installs, user precedence on a name collision, gate command only present with its skill; built-in skill directory contains only redistributable skills;
   - dev / docker channels never install, however new the manifest is (API 409);
   - **No downgrade** (`TestNoDowngrade`): a directly deployed binary (build number = build time) does not install a manifest with a smaller or equal build number; only larger ones install;

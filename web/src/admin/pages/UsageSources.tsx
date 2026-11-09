@@ -2,7 +2,7 @@
 // (docs/server/usage-windows.md"Account-pool gateways", #2595). Add, edit, switch and remove them, try one with a single read-only read.
 // The hub keeps the keys in hub.json and never sends one back: a source only says whether it has one.
 import { t } from "../../i18n";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, toast } from "../../ui/atoms";
 import { Switch } from "../../views/settings/SettingsParts";
 import { addUsageSource, editUsageSource, errorText, getUsageSources, removeUsageSource, saveUsageSettings, testUsageSource } from "../api";
@@ -140,9 +140,16 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<UsageTestResult | null>(null);
+  const testSequence = useRef(0);
+  const clearTest = () => {
+    testSequence.current++;
+    setResult(null);
+    setError("");
+  };
 
   // a fresh form each time it opens
   useEffect(() => {
+    testSequence.current++;
     if (!target) return;
     setType(saved?.type ?? "relay");
     setName(saved?.name ?? "");
@@ -151,6 +158,7 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
     setClearKey(false);
     setError("");
     setResult(null);
+    return () => { testSequence.current++; };
   }, [target, saved]);
 
   const moved = saved ? needsKeyAgain(saved, { url, type }) : false;
@@ -159,13 +167,15 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
   const ok = urlOk && !keyNeeded && (type !== "generic" || name.trim() !== "");
 
   const test = async () => {
+    const sequence = ++testSequence.current;
     setTesting(true);
     setResult(null);
     setError("");
     try {
-      setResult(await testUsageSource({ id: saved?.id, type, url, key: key.trim() || undefined }));
+      const answer = await testUsageSource({ id: saved?.id, type, url, key: key.trim() || undefined, clear_key: clearKey || undefined });
+      if (sequence === testSequence.current) setResult(answer);
     } catch (e) {
-      setError(message(e));
+      if (sequence === testSequence.current) setError(message(e));
     } finally {
       setTesting(false);
     }
@@ -217,14 +227,14 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
               { value: "relay", label: typeLabel("relay") },
               { value: "generic", label: typeLabel("generic") },
             ]}
-            onChange={(v) => (setType(v), setResult(null))}
+            onChange={(v) => (setType(v), clearTest())}
           />
         </div>
         <Field label={t("admin-pages-usage.name")} value={name} onChange={setName} placeholder={typeLabel(type)} maxLength={40} hint={t("admin-pages-usage.name_hint")} />
         <Field
           label={t("admin-pages-usage.url")}
           value={url}
-          onChange={(v) => (setUrl(v), setResult(null))}
+          onChange={(v) => (setUrl(v), clearTest())}
           placeholder="https://gateway.example.com"
           mono
           autoCapitalize="none"
@@ -235,7 +245,7 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
           label={t("admin-pages-usage.key")}
           type="password"
           value={key}
-          onChange={(v) => (setKey(v), setResult(null))}
+          onChange={(v) => (setKey(v), clearTest())}
           placeholder={saved?.has_key && !moved && !clearKey ? t("admin-pages-usage.key_saved") : ""}
           mono
           autoComplete="off"
@@ -245,7 +255,7 @@ function SourceDialog({ target, onClose, onSaved }: { target: "add" | UsageSourc
         />
         {saved?.has_key && type === "generic" && (
           <label className="flex items-center gap-2 text-[12.5px] text-ink-2">
-            <input type="checkbox" checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} />
+            <input type="checkbox" checked={clearKey} onChange={(e) => (setClearKey(e.target.checked), clearTest())} />
             {t("admin-pages-usage.clear_key")}
           </label>
         )}

@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"slices"
+	"sync"
 )
 
 // Both keys carry the same value on all hub/node/manager boundaries. Old peers
@@ -18,7 +19,14 @@ type sessionWire struct {
 	LegacyStarted bool `json:"started_by_jarvis"`
 }
 
+// legacyStartedMember is sessionWire's legacy key as appendSession (session_wire.go) writes it: the literal stays in
+// this compatibility file.
+const legacyStartedMember = `"started_by_jarvis":`
+
 func (s Session) MarshalJSON() ([]byte, error) {
+	if b, ok := appendSession(make([]byte, 0, 1024), &s); ok {
+		return b, nil
+	}
 	return json.Marshal(&sessionWire{(*sessionJSON)(&s), s.StartedByPersona})
 }
 
@@ -26,9 +34,38 @@ func (s Session) MarshalJSON() ([]byte, error) {
 // list on each push, and MarshalJSON's bytes were then checked and copied again by that encoder. On a pointer, so the
 // session is not copied either; encoding/json calls it for an addressable session (a pointer, a slice element) and
 // MarshalJSON for the rest. Encoded with encoding/json's options, as MarshalJSON is, so an encoder that does not
-// escape HTML still gets it escaped; the caller's indentation applies, as it did to MarshalJSON's output.
+// escape HTML still gets it escaped; the caller's indentation applies, as it did to MarshalJSON's output. Its bytes are
+// appendSession's when the encoder writes them as they are (writesRawAsIs), as encoding/json's encoders do.
 func (s *Session) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if writesRawAsIs(enc.Options()) {
+		buf := sessionScratch.Get().(*[]byte)
+		defer sessionScratch.Put(buf)
+		if b, ok := appendSession((*buf)[:0], s); ok {
+			if cap(b) <= 64<<10 { // a rare huge session's buffer is not kept
+				*buf = b
+			}
+			return enc.WriteValue(b)
+		}
+	}
 	return jsonv2.MarshalEncode(enc, &sessionWire{(*sessionJSON)(s), s.StartedByPersona}, json.DefaultOptionsV1())
+}
+
+// sessionScratch holds the buffers MarshalJSONTo writes a session into before the encoder copies it. Not the encoder's
+// AvailableBuffer: that is sized by the values the encoder wrote since it was reset, and encoding/json resets its
+// pooled encoder for each value, so a session would often regrow it.
+var sessionScratch = sync.Pool{New: func() any { return new([]byte) }}
+
+// writesRawAsIs reports whether an encoder with these options writes appendSession's bytes as the reflect encoder
+// would have written the session: it keeps escapes as written (another one would turn them back into characters), keeps
+// keys in their order and numbers as they are, and has no marshalers of the caller's own (the reflect encoder would
+// call them on the session's fields). Its whitespace applies to both alike. encoding/json's encoders are such.
+func writesRawAsIs(o jsonv2.Options) bool {
+	raw, _ := jsonv2.GetOption(o, jsontext.PreserveRawStrings)
+	reorder, _ := jsonv2.GetOption(o, jsontext.ReorderRawObjects)
+	ints, _ := jsonv2.GetOption(o, jsontext.CanonicalizeRawInts)
+	floats, _ := jsonv2.GetOption(o, jsontext.CanonicalizeRawFloats)
+	marshalers, _ := jsonv2.GetOption(o, jsonv2.WithMarshalers)
+	return raw && !reorder && !ints && !floats && marshalers == nil
 }
 
 // sessionWireIn is a Session as received: its fields, with both started keys kept apart (the session is embedded by

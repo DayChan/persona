@@ -64,7 +64,7 @@ beforeEach(() => {
     if (path === "/usage-sources" && init.method === "GET") return reply(view);
     if (path === "/usage-sources" && init.method === "PUT") return reply({ ...view, ...body });
     if (path === "/usage-sources" && init.method === "POST") return reply({ source: { id: "s3", name: body.name || "Relay", type: body.type, url: body.url, has_key: Boolean(body.key), enabled: true, status: {} } });
-    if (path === "/usage-sources/test") return reply(testAnswer);
+    if (path === "/usage-sources/test") return reply(await testAnswer);
     if (path === "/usage-sources/s1" && init.method === "PUT" && body.url === "https://other.example.com" && !body.key) return reply({ error: "要填这个来源的 Key", code: "key_required" }, 400);
     if (path.startsWith("/usage-sources/")) return reply({ source: view.sources[0], ok: true });
     return reply({}, 404);
@@ -174,6 +174,103 @@ describe("the usage sources page", () => {
     await act(async () => (byText(dialog()!, "保存") as HTMLButtonElement).click());
     await flush();
     expect(calls.find((c) => c.method === "PUT" && c.path === "/usage-sources/s1")?.body).toMatchObject({ url: "https://other.example.com", key: SECRET });
+  });
+
+  it("tests the same clear-key choice that it saves", async () => {
+    view.sources[1].has_key = true;
+    await open();
+    await act(async () => rowActions(1).edit.click());
+    await flush();
+    await typeInto(input("Key"), SECRET);
+    await act(async () => dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    expect(input("Key").disabled).toBe(true);
+    await act(async () => byText(dialog()!, "测试连接")!.click());
+    await flush();
+    const tested = calls.find((c) => c.path === "/usage-sources/test")!.body;
+    expect(tested).toEqual({ id: "s2", type: "generic", url: "https://pool.example.com/usage", key: SECRET, clear_key: true });
+    expect(calls.some((c) => c.method === "PUT" || c.method === "POST" && c.path !== "/usage-sources/test")).toBe(false);
+    await act(async () => byText(dialog()!, "保存")!.click());
+    await flush();
+    expect(calls.find((c) => c.method === "PUT" && c.path === "/usage-sources/s2")!.body).toEqual({ name: "Team pool", type: tested.type, url: tested.url, key: tested.key, clear_key: tested.clear_key });
+  });
+
+  it.each([false, true])("clears the previous verdict when clear-key changes from %s", async (checked) => {
+    view.sources[1].has_key = true;
+    await open();
+    await act(async () => rowActions(1).edit.click());
+    await flush();
+    const checkbox = dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    if (checked) await act(async () => checkbox.click());
+    await act(async () => byText(dialog()!, "测试连接")!.click());
+    await flush();
+    expect(dialog()!.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => checkbox.click());
+    expect(checkbox.checked).toBe(!checked);
+    expect(dialog()!.querySelector('[role="status"]')).toBeNull();
+    await act(async () => byText(dialog()!, "测试连接")!.click());
+    await flush();
+    const tested = calls.filter((c) => c.path === "/usage-sources/test").at(-1)!.body;
+    expect(tested.clear_key).toBe(checked ? undefined : true);
+    expect(tested.key).toBeUndefined();
+    expect(dialog()!.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  it.each(["success", "failure"])("ignores a late test %s after clear-key changes", async (outcome) => {
+    view.sources[1].has_key = true;
+    let resolve!: (value: unknown) => void;
+    let reject!: (reason: Error) => void;
+    testAnswer = new Promise((done, fail) => { resolve = done; reject = fail; });
+    await open();
+    await act(async () => rowActions(1).edit.click());
+    await flush();
+    await act(async () => byText(dialog()!, "测试连接")!.click());
+    await flush();
+    expect(calls.some((c) => c.path === "/usage-sources/test")).toBe(true);
+    await act(async () => dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    await act(async () => {
+      if (outcome === "success") resolve({ ok: true, accounts: 12, windows: 31, listed: 14, providers: { codex: 12 } });
+      else reject(new Error("outdated test failed"));
+    });
+    await flush();
+    expect(dialog()!.querySelector('[role="status"]')).toBeNull();
+    expect(dialog()!.querySelector('[role="alert"]')).toBeNull();
+    expect((byText(dialog()!, "测试连接") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it.each(["toggle", "reopen"])("keeps testing occupied through %s until the pending request settles", async (change) => {
+    view.sources[1].has_key = true;
+    let resolve!: (value: unknown) => void;
+    testAnswer = new Promise((done) => { resolve = done; });
+    await open();
+    await act(async () => rowActions(1).edit.click());
+    await flush();
+    await act(async () => byText(dialog()!, "测试连接")!.click());
+    await flush();
+    expect((byText(dialog()!, "测试连接") as HTMLButtonElement).disabled).toBe(true);
+    if (change === "toggle") {
+      await act(async () => dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    } else {
+      await act(async () => byText(dialog()!, "取消")!.click());
+      await act(async () => rowActions(0).edit.click());
+      await flush();
+    }
+    const testButton = byText(dialog()!, "测试连接") as HTMLButtonElement;
+    expect(testButton.disabled).toBe(true);
+    await act(async () => testButton.click());
+    expect(calls.filter((c) => c.path === "/usage-sources/test")).toHaveLength(1);
+    await act(async () => resolve({ ok: true, accounts: 12, windows: 31, listed: 14, providers: { codex: 12 } }));
+    await flush();
+    expect(dialog()!.querySelector('[role="status"]')).toBeNull();
+    expect(dialog()!.querySelector('[role="alert"]')).toBeNull();
+    expect(testButton.disabled).toBe(false);
+    testAnswer = { ok: true, accounts: 12, windows: 31, listed: 14, providers: { codex: 12 } };
+    await act(async () => testButton.click());
+    await flush();
+    const tests = calls.filter((c) => c.path === "/usage-sources/test");
+    expect(tests).toHaveLength(2);
+    expect(tests[1].body.id).toBe(change === "toggle" ? "s2" : "s1");
+    expect(tests[1].body.clear_key).toBe(change === "toggle" ? true : undefined);
+    expect(dialog()!.querySelector('[role="status"]')).not.toBeNull();
   });
 
   it("removes a source after asking again in place", async () => {

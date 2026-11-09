@@ -410,3 +410,78 @@ func TestReplayable(t *testing.T) {
 		}
 	}
 }
+
+// A slot that answers early and half-closes (net/http after a 413, or a 401 on an upload whose body it did not read)
+// still gets what the client sends after the answer: the edge passes the half-close on and keeps the other way open.
+func TestRelayPassesTheSlotsHalfCloseOn(t *testing.T) {
+	client, edgeClient := tcpPair(t)
+	edgeUp, slot := tcpPair(t)
+	r := &relay{client: edgeClient, up: edgeUp}
+	go r.fromClient()
+	go r.toClient(func() net.Conn { return nil })
+
+	slotRead := make(chan string, 1)
+	go func() {
+		_, _ = slot.Write([]byte("answer"))
+		_ = slot.CloseWrite()
+		b, _ := io.ReadAll(slot)
+		slotRead <- string(b)
+	}()
+	_ = client.SetDeadline(time.Now().Add(10 * time.Second))
+	if b, err := io.ReadAll(client); err != nil || string(b) != "answer" {
+		t.Fatalf("the client read %q, %v; want the answer, then the slot's half-close", b, err)
+	}
+	if _, err := client.Write([]byte("tail")); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.CloseWrite()
+	select {
+	case got := <-slotRead:
+		if got != "tail" {
+			t.Errorf("after its half-close the slot read %q, want %q", got, "tail")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the slot never saw the client's half-close")
+	}
+}
+
+// A client that neither sends nor half-closes after the slot's half-close does not hold the relay open.
+func TestRelayHalfCloseLingerIsBounded(t *testing.T) {
+	_, edgeClient := tcpPair(t)
+	edgeUp, slot := tcpPair(t)
+	r := &relay{client: edgeClient, up: edgeUp, linger: 100 * time.Millisecond}
+	go r.fromClient()
+	go r.toClient(func() net.Conn { return nil })
+
+	_, _ = slot.Write([]byte("answer"))
+	_ = slot.CloseWrite()
+	_ = slot.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if _, err := io.ReadAll(slot); err != nil {
+		t.Fatalf("the slot's read ended with %v, want EOF once the linger is over", err)
+	}
+}
+
+// tcpPair is both ends of a loopback TCP connection.
+func tcpPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, _ := ln.Accept()
+		accepted <- c
+	}()
+	a, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := <-accepted
+	if b == nil {
+		t.Fatal("the loopback listener accepted nothing")
+	}
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	return a.(*net.TCPConn), b.(*net.TCPConn)
+}

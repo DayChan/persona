@@ -314,17 +314,28 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
     /// The main conversation supervises it (#3124, `Supervision.swift`): what done means, its reviews, its agent's
     /// latest report. Nil for a todo that is not supervised, from an older hub, or when it does not decode.
     var supervision: TaskSupervision?
+    /// When it is due (#1683, docs/assistant/todos.md "Due date, reminder, priority"): a moment, or a day ("yyyy-MM-dd",
+    /// due by its end in the user's time zone); at most one. Nil from a hub without them.
+    var dueAt: Date?
+    var dueDate: String?
+    /// When the phone is pushed about it, and when that was done (a new time is pushed again).
+    var remindAt: Date?
+    var remindedAt: Date?
+    /// "high" or "low"; nil is normal.
+    var priority: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, notes, origin, agents, spaces, quiet, stage, supervision
+        case id, title, notes, origin, agents, spaces, quiet, stage, supervision, priority
         case doneAt = "done_at", createdAt = "created_at", updatedAt = "updated_at", planID = "plan_id", startError = "start_error",
-             doneBy = "done_by", doneReason = "done_reason", prURL = "pr_url"
+             doneBy = "done_by", doneReason = "done_reason", prURL = "pr_url", dueAt = "due_at", dueDate = "due_date",
+             remindAt = "remind_at", remindedAt = "reminded_at"
     }
 
     init(id: String, title: String, notes: String? = nil, doneAt: Date? = nil, createdAt: Date? = nil, updatedAt: Date? = nil,
          origin: String? = nil, planID: String? = nil, startError: String? = nil, doneBy: String? = nil, doneReason: String? = nil,
          agents: [Agent] = [], spaces: [Space]? = nil, quiet: Bool = false, stage: String? = nil, prURL: String? = nil,
-         supervision: TaskSupervision? = nil) {
+         supervision: TaskSupervision? = nil, dueAt: Date? = nil, dueDate: String? = nil, remindAt: Date? = nil,
+         remindedAt: Date? = nil, priority: String? = nil) {
         self.id = id
         self.title = title
         self.notes = notes
@@ -342,6 +353,11 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
         self.stage = stage
         self.prURL = prURL
         self.supervision = supervision
+        self.dueAt = dueAt
+        self.dueDate = dueDate
+        self.remindAt = remindAt
+        self.remindedAt = remindedAt
+        self.priority = priority
     }
 
     init(from decoder: Decoder) throws {
@@ -365,6 +381,12 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
         prURL = try c.decodeIfPresent(String.self, forKey: .prURL)
         // Optional and new (#3124): one that does not decode is as if there were none, never the whole todo failing.
         supervision = (try? c.decodeIfPresent(TaskSupervision.self, forKey: .supervision)) ?? nil
+        // New (#1683): absent from older hubs; one that does not decode is as if there were none.
+        dueAt = (try? c.decodeIfPresent(Date.self, forKey: .dueAt)) ?? nil
+        dueDate = (try? c.decodeIfPresent(String.self, forKey: .dueDate)) ?? nil
+        remindAt = (try? c.decodeIfPresent(Date.self, forKey: .remindAt)) ?? nil
+        remindedAt = (try? c.decodeIfPresent(Date.self, forKey: .remindedAt)) ?? nil
+        priority = (try? c.decodeIfPresent(String.self, forKey: .priority)) ?? nil
     }
 
     var activeAgents: [Agent] { agents.filter(\.isActive) }

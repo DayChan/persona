@@ -5,12 +5,14 @@
 package kb
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -421,15 +423,27 @@ func (s *Store) Log(slug string, n int) []string {
 	_, _ = s.settleLogLocked(slug)
 	s.mu.Unlock()
 	raw, _ := os.ReadFile(s.path(KindProject, slug, "log.md"))
+	return lastLogLines(raw, n)
+}
+
+// lastLogLines are the last n "- " lines of a timeline, oldest first, taken from its end so that the lines before them
+// are never collected. nil when it has none; empty when n <= 0 and it has one.
+func lastLogLines(raw []byte, n int) []string {
 	var lines []string
-	for _, l := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(l, "- ") {
-			lines = append(lines, l)
+	for end := len(raw); end >= 0; {
+		start := bytes.LastIndexByte(raw[:end], '\n') + 1
+		if l := raw[start:end]; bytes.HasPrefix(l, []byte("- ")) {
+			if n <= 0 {
+				return []string{}
+			}
+			lines = append(lines, string(l))
+			if len(lines) == n {
+				break
+			}
 		}
+		end = start - 1
 	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
+	slices.Reverse(lines)
 	return lines
 }
 
@@ -522,31 +536,27 @@ func (s *Store) Since(chatID string, t time.Time, max int) string {
 			continue
 		}
 		raw, _ := os.ReadFile(s.path(KindChat, chatID, "messages", d+".md"))
+		// The kept messages' lines, joined once below: appending each continuation line to its message would copy
+		// the whole message again per line, quadratic in a long paste.
 		var keep []string
-		cur := ""
-		flush := func() {
-			if cur != "" {
-				keep = append(keep, cur)
-			}
-			cur = ""
-		}
+		open := false // the last "- " line was kept, so the indented lines that continue it are too
 		for _, l := range strings.Split(string(raw), "\n") {
 			switch {
 			case strings.HasPrefix(l, "- "):
-				flush()
+				open = false
 				if len(l) >= 7 {
 					if at, err := time.ParseInLocation("2006-01-02 15:04", d+" "+l[2:7], zone); err == nil && at.Before(t.Truncate(time.Minute)) {
 						continue
 					}
 				}
-				cur = l
-			case strings.HasPrefix(l, "  ") && cur != "":
-				cur += "\n" + l
+				keep = append(keep, l)
+				open = true
+			case strings.HasPrefix(l, "  ") && open:
+				keep = append(keep, l)
 			default:
-				flush()
+				open = false
 			}
 		}
-		flush()
 		if len(keep) > 0 {
 			fmt.Fprintf(&b, "## %s\n%s\n", d, strings.Join(keep, "\n"))
 		}

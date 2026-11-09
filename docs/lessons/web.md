@@ -1,5 +1,9 @@
 # Lessons: web UI and interactions
 
+## Render-count tests must separate store pushes from live clocks (#1989)
+
+A Profiler counts every commit beneath it, including status clocks and deferred mount work unrelated to the store update under test. Drain mount timers before taking the baseline, keep time fixed during the measured push sequence, and explicitly flush the real store's batched notifications inside `act`. Freezing timers without delivering those notifications can make a zero-redraw test pass vacuously: retain all negative assertions and add a positive control proving a current-conversation update still redraws and changes the DOM. Clear timers and restore real time after unmounting each test.
+
 ## Streamed stat grids need the same text bounds as snapshots (#1703)
 
 Fixed grid columns do not constrain a value's painted text. Give each cell `min-w-0` and its value `truncate`, retaining the full DOM text and title. The legacy renderer can already have these guards while a separate native stream renderer omits them. A six-column grid exposed overlapping values that looked fine with two columns. Regress the native snapshot/delta DOM contract, then check real wide/narrow light/dark browser geometry; jsdom cannot prove clipping.
@@ -134,6 +138,10 @@ Exercise the actual hook and upload helper together with a synthetic XHR transpo
 - After adding status labels, keep titles single-line with truncation, prevent labels from shrinking, and provide full-title tooltips. Constrain actual menu width to viewport minus side margins before positioning by that width, rather than merely moving the left edge; desktop fixed-width menus overflow narrow screens.
 - Browser tests closing a menu must wait for removal (`detached`), not just `hidden`; its hidden initial-positioning phase can satisfy `hidden` too early. Wait for specific rows and status text before assertions, avoiding false "missing state" reports before rendering finishes.
 - Cards use `overflow-hidden` for rounded corners (`Group` in Settings), clipping overlays opened from rows: the last row's "Confirm delete" / "Confirm revoke" shows only an edge; clicking the button center hits the description below the card (2026-11-04, #1504). `z-index` cannot defeat clipping. Confirm row actions inline (`RowConfirm`), or put real overlays outside the card (portal). Measure the last row; the first row cannot reveal this.
+
+## Modal focus and autoFocus (2026-11-09, #1822)
+
+- React focuses an `autoFocus` field (and runs a child's `useLayoutEffect` focus) while it commits, before any `useEffect`. A modal that reads `document.activeElement` in its effect to learn where focus goes back on close sees its own field, so a closed `Dialog` gave focus to that field during the exit and then to `<body>`. `useModalFocus` (`web/src/ui/overlay.ts`) notes the opener while rendering the first open frame. StrictMode then replays the effect of a dialog mounted open: its cleanup gives the focus to the opener and `autoFocus` does not run again, so the hook puts the focus back on what had it inside. A modal can open in the same render another closes (a Palette command such as Keyboard shortcuts, or a Dialog button that opens the next Dialog): the opener read while rendering is then inside the closing modal, which unmounts after its exit, so the closing modal's cleanup notes its own opener by element and the new one takes that over (every cleanup in a commit runs before any setup). A focus-return test needs a body with an `autoFocus` field (a plain button inside never takes the focus first), a case under `StrictMode` and a handoff case (`web/src/ui/dialog-focus.test.tsx`, `web/src/views/Palette.a11y.test.tsx`).
 
 ## New sessions and multimodal input
 
@@ -526,3 +534,7 @@ A narrow shell can unmount its sidebar list and mount the same list in the Agent
 
 - Check each known page revision before appending; retain known revisions across unversioned pages, but remove the aggregate revision when any accepted page lacks metadata. Legacy compatibility cannot prove a snapshot.
 - A complete-read helper must reject page failures, caps and retired owners instead of resolving the loaded prefix. Share the actual pending page result with concurrent readers, and scope callbacks to machine, path, working directory and reload so an old reader cannot borrow the new file. Keep an ordinary failed page retryable at its original offset; a known revision change requires a fresh read from the beginning. Explicit bounded previews need a separate completion flag, preserving a deliberate CSV/TSV cap without permitting partial exports. Go omits an empty text field: complete zero-byte text metadata is a valid empty file, while arbitrary missing content is not.
+
+## Connection tests must use the form's credential choice (#1903)
+
+A saved credential and an empty input are different from explicitly removing that credential. Send the removal flag through the test API and give it the same precedence as saving, including when a new key was typed before removal was selected. Changing the credential choice invalidates both the displayed test result and any pending result for the old form. Test against a synthetic source and assert that the saved configuration stays unchanged.

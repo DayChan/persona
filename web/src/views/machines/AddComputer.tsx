@@ -28,6 +28,7 @@ import { api, ApiError, enc, errorText } from "../../lib/api";
 import { readinessChanged } from "../../lib/readiness";
 import { clock, secondsLeft } from "../../lib/connect-device";
 import { useStore } from "../../lib/store";
+import { documentPage, visiblePoll } from "../../lib/visible-poll";
 import type { Machine } from "../../lib/types";
 import { Button, copyText, Dialog, Spinner } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -120,12 +121,17 @@ export function AddComputer({ open, onClose, again, confirm }: { open: boolean; 
   useEffect(() => {
     if (!waiting) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    const poll = setInterval(() => {
+    // Every 3 s while the tab is shown, and once on coming back, so a computer that came online meanwhile shows at once.
+    // The code was just made, so the first read still waits one period: visiblePoll's immediate one is skipped.
+    let started = false;
+    const stop = visiblePoll(() => {
+      if (!started) return;
       api<{ machines?: Machine[] }>("/machines")
         .then((r) => setPolled(r.machines ?? []))
         .catch(() => {});
-    }, POLL_MS);
-    return () => (clearInterval(tick), clearInterval(poll));
+    }, POLL_MS, documentPage);
+    started = true;
+    return () => (clearInterval(tick), stop());
   }, [waiting]);
 
   const answer = async (what: "confirm" | "reject") => {

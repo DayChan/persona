@@ -118,6 +118,8 @@ export interface ExtensionUpgrade {
   state: string;
   added_permissions?: ExtensionPermission[];
   detail?: string;
+  /** "user" when a skipped version is one the user rolled back from (absent: it didn't start). */
+  skipped_by?: string;
 }
 
 /** What happened last with an extension's upgrade. */
@@ -332,7 +334,10 @@ export function upgradeDetail(u: ExtensionUpgrade): string {
     case "waiting_idle": return t("lib-extensions.upgrade_waiting_idle");
     case "available": return t("lib-extensions.upgrade_available");
     case "off": return t("lib-extensions.upgrade_off");
-    case "skipped": return t("lib-extensions.upgrade_skipped", { from: u.from ?? "" });
+    case "skipped":
+      return u.skipped_by === "user"
+        ? t("lib-extensions.upgrade_skipped_user", { from: u.from ?? "" })
+        : t("lib-extensions.upgrade_skipped", { from: u.from ?? "" });
     case "failed": return u.detail ? t("lib-extensions.upgrade_failed_detail", { detail: u.detail }) : t("lib-extensions.upgrade_failed");
     case "incompatible": return u.detail ? t("lib-extensions.upgrade_incompatible_detail", { detail: u.detail }) : t("lib-extensions.upgrade_incompatible");
     default: return "";

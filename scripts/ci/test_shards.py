@@ -41,6 +41,14 @@ class ShardTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 python.select_suites(suites, index, count)
 
+    def test_only_unittest_suites_run(self):
+        # Verification scripts named test_*.py take arguments and have no tests: unittest exits 5 on them from Python 3.12.
+        found = [suite for suite in ROOT.joinpath("scripts").rglob("test_*.py") if "node_modules" not in suite.parts]
+        skipped = {suite.relative_to(ROOT).as_posix() for suite in found if not python.is_suite(suite)}
+        self.assertTrue({"scripts/test/test_rolling_compatibility.py", "scripts/test/test_source_development_resources.py"} <= skipped)
+        self.assertTrue(python.is_suite(Path(__file__)))
+        self.assertTrue(python.is_suite(ROOT / "scripts/test/test_doc_paths.py"))
+
     def test_source_server_shard_installs_the_pinned_bundler(self):
         workflow = (ROOT / ".github/workflows/server-test.yml").read_text()
         setup = """      - uses: oven-sh/setup-bun@v2

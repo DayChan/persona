@@ -55,6 +55,10 @@ final class ExtensionV3Tests: XCTestCase {
         let more = app.buttons["plugin-ui-more"]
         for _ in 0..<6 where !(more.exists && more.isHittable) { app.swipeUp() }
         XCTAssertTrue(app.staticTexts["季度目标"].waitForExistence(timeout: 10), "more loaded the next notes:\n\(app.debugDescription)")
+        // And again: the More row of the answer loads too, drawn after the first load finished (#1937).
+        let eleventh = app.staticTexts["体检报告"]
+        for _ in 0..<8 where !eleventh.exists { app.swipeUp() }
+        XCTAssertTrue(eleventh.waitForExistence(timeout: 10), "the second more:\n\(app.debugDescription)")
         let loading = app.descendants(matching: .any)["plugin-ui-loading"]
         for _ in 0..<4 where !loading.exists { app.swipeUp() }
         XCTAssertTrue(loading.exists, "the loading component at the end:\n\(app.debugDescription)")
@@ -80,7 +84,8 @@ final class ExtensionV3Tests: XCTestCase {
 
         // Edit pushes the editor; Save pops back to the note, drawn again with the new title.
         app.buttons["plugin-ui-action-edit"].tap()
-        let title = app.textFields.firstMatch
+        // The editor's own field: the first text field can be the app's composer.
+        let title = app.textFields["plugin-ui-field-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the editor:\n\(app.debugDescription)")
         title.tap()
         title.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 8) + "改过的纪要")

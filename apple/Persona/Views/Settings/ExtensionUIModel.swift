@@ -429,7 +429,7 @@ extension APIClient {
             let sent = (action.submit == true ? submitted : [:]).merging(chosen) { _, c in c }
                 .merging(action.values ?? [:]) { _, own in own }
             let r = try await call(action.id, values: sent.isEmpty ? nil : sent)
-            return await take(r)
+            return await take(r) { running = nil }
         } catch let e as APIError where Self.isUnsupported(e) {
             unsupported = true
             return Outcome()
@@ -440,11 +440,16 @@ extension APIClient {
 
     /// An answer to a control: its view, its page to push or the way back, its word and link.
     /// `searched`: the answer to the search, which need not say again what was searched for (its `q` is in its state).
-    private func take(_ r: ExtensionActionResult, searched: Bool = false) async -> Outcome {
-        if let v = r.view { show(v, keeping: [:], searched: searched) }
+    /// `done`: ends the control's busy state (`running`, `loadingMore`) just before the answer is drawn. A view drawn while
+    /// it is still busy keeps its new controls disabled after the state clears (#1937); an answer with nothing in it is
+    /// drawn again first, still busy, so nothing else starts meanwhile.
+    private func take(_ r: ExtensionActionResult, searched: Bool = false, done: () -> Void = {}) async -> Outcome {
+        let again = r.view == nil && r.toast == nil && r.openUrl == nil && r.push == nil && r.pop != true
+            ? try? await call(nil, values: nil) : nil
+        done()
+        if let v = r.view { show(v, keeping: [:], searched: searched) } else if let v = again?.view { show(v, keeping: values) }
         if let p = r.push, depth < Self.maxDepth { pushed = p }
         if r.pop == true { popped = true }
-        if r.view == nil && r.toast == nil && r.openUrl == nil && r.push == nil && r.pop != true { await redraw() }
         let url = r.openUrl.flatMap(URL.init(string:)).flatMap { Self.opens($0, item: context.item, owner: plugin) ? $0 : nil }
         return Outcome(toast: r.toast?.isEmpty == false ? r.toast : nil, url: url)
     }
@@ -533,7 +538,7 @@ extension APIClient {
             if view?.search != nil { sent["q"] = query }
             if let f = view?.filter { sent[f.name] = values[f.name] ?? f.value }
             let r = try await call(m.action.id, values: sent.isEmpty ? nil : sent)
-            return await take(r)
+            return await take(r) { loadingMore = nil }
         } catch {
             return Outcome(error: error.localizedDescription)
         }
@@ -551,10 +556,6 @@ extension APIClient {
     }
 
     private var components: [ExtensionComponent] { (view?.sections ?? []).flatMap(\.items) }
-
-    private func redraw() async {
-        if let r = try? await call(nil, values: nil), let v = r.view { show(v, keeping: values) }
-    }
 
     /// When the view asks to be drawn again (`refresh_after`), nil: it does not.
     var refreshDue: Date? {

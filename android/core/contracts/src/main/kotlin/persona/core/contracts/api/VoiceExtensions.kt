@@ -60,6 +60,8 @@ data class ExtensionUpgrade(
     val state: String = "",
     @SerialName("added_permissions") val addedPermissions: List<ExtensionPermission>? = null,
     val detail: String? = null,
+    /** `"user"` when a skipped version is one the user rolled back from (null: it didn't start). */
+    @SerialName("skipped_by") val skippedBy: String? = null,
 )
 
 /** What happened last with an extension's upgrade: `upgraded | rolled_back | needs_permission | failed`. */

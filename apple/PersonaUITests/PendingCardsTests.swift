@@ -95,12 +95,15 @@ final class PendingCardsTests: XCTestCase {
             XCTAssertLessThan(count.frame.minY - head, 80, "the cards scroll in a strip \(cards.frame.height) pt high, under \(count.frame.minY - head) pt of conversation")
         }
         XCTAssertLessThan(cards.frame.minY - head, 80, "the card is \(cards.frame.height) pt high under \(cards.frame.minY - head) pt of conversation")
-        // Down to the composer: in the shell the keyboard's button is in the composer's row, not a row of its own between.
-        if app.buttons["shell-composer-add"].exists {
-            XCTAssertLessThan(field.frame.minY - cards.frame.maxY, 40, "a gap between the card (\(cards.frame)) and the composer (\(field.frame))")
-            let dismiss = app.buttons["收起键盘"]
-            XCTAssertTrue(dismiss.exists && dismiss.isHittable && dismiss.frame.minY > field.frame.minY, "收起键盘 in the composer's row")
+        // Down to the composer: nothing between the card and the composer but the plan's pill, there while the chat's
+        // newest plan is out of view (#1092).
+        var above = (name: "the card", frame: cards.frame)
+        let pill = app.buttons["chat.plan-pill"]
+        if pill.exists && pill.frame.minY >= cards.frame.maxY - 1 && pill.frame.maxY <= field.frame.minY + 1 {
+            XCTAssertLessThan(pill.frame.minY - cards.frame.maxY, 40, "a gap between the card (\(cards.frame)) and the plan's pill (\(pill.frame))")
+            above = ("the plan's pill", pill.frame)
         }
+        XCTAssertLessThan(field.frame.minY - above.frame.maxY, 40, "a gap between \(above.name) (\(above.frame)) and the composer (\(field.frame))")
         // The first option shows at once (a small iPhone: before, the question alone; the card's header row steps aside).
         let first = cards.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "取最长的那段")).firstMatch
         XCTAssertTrue(first.exists && first.frame.minY < cards.frame.maxY - 16 * 3,

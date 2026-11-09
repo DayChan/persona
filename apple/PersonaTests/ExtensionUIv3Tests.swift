@@ -171,6 +171,56 @@ struct ExtensionUIv3Tests {
         #expect(!m.stale && m.view != nil)
     }
 
+    /// What an action or a `more` answers is drawn with it done: drawn while it still ran, the new view's controls stayed
+    /// disabled after it ended (#1937). An answer with nothing in it draws the page again, asked while it still runs.
+    @Test func anAnswerIsDrawnWithItsControlDone() async throws {
+        let hub = FakeHub()
+        let seen = DrawnWhile()
+        hub.on("POST", "/api/v1/plugins/notes/-/ui/list") { req in
+            let b = try JSON.decoder.decode(JSONValue.self, from: req.body ?? Data())
+            switch b["action"] {
+            case .string("install"):
+                return Data(#"{"toast":"Installed","view":{"sections":[{"items":[{"type":"button","key":"uninstall","title":"Uninstall","action":{"id":"uninstall","confirm":"Uninstall?"}}]}]}}"#.utf8)
+            case .string("touch"): return Data("{}".utf8)
+            case .string("more"): return Data(#"{"view":{"sections":[{"items":[{"type":"text","key":"n2","text":"2"}],"more":{"action":{"id":"more"}}}]}}"#.utf8)
+            default:
+                if seen.model?.running != nil { seen.askedWhileRunning = true }
+                return Data(#"{"view":{"sections":[{"items":[{"type":"text","key":"n1","text":"1"}],"more":{"action":{"id":"more"}}}]}}"#.utf8)
+            }
+        }
+        let m = page(hub)
+        seen.model = m
+        await m.load()
+
+        seen.watch(m)
+        let installed = await m.perform(ExtensionAction(id: "install"))
+        let uninstall = try #require(m.view?.sections.flatMap(\.items).compactMap { if case .button(let b) = $0 { b.action } else { nil } }.first)
+        #expect(installed.toast == "Installed" && seen.drawn == 1 && seen.busy == [nil])
+        #expect(m.isEnabled(uninstall), "the new view's button can be used")
+
+        seen.watch(m)
+        _ = await m.perform(ExtensionAction(id: "touch"))
+        #expect(seen.askedWhileRunning && seen.drawn == 2 && seen.busy == [nil, nil])
+
+        seen.watch(m)
+        _ = await m.more(try #require(m.view?.sections[0].more))
+        #expect(seen.drawn == 3 && seen.busy == [nil, nil, nil] && m.loadingMore == nil)
+    }
+
+    /// Whether a control was still busy each time the page's view was replaced.
+    @MainActor private final class DrawnWhile {
+        var busy: [String?] = []
+        var drawn: Int { busy.count }
+        var askedWhileRunning = false
+        weak var model: ExtensionViewModel?
+
+        func watch(_ m: ExtensionViewModel) {
+            withObservationTracking { _ = m.view } onChange: {
+                MainActor.assumeIsolated { self.busy.append(m.running ?? m.loadingMore) }
+            }
+        }
+    }
+
     @Test func invalidationWhileAnActionRunsRetriesWhenItFinishes() async throws {
         let gate = ResponseGate()
         var client = FakeHub().client

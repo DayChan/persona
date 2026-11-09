@@ -18,6 +18,7 @@ import (
 	"github.com/nwverse/persona/server/internal/bus"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/devicewire"
+	"github.com/nwverse/persona/server/internal/extwire"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -33,8 +34,19 @@ type fakeManager struct {
 func connectFakeManager(t *testing.T, h *Hub, srv *httptest.Server, id string) *fakeManager {
 	t.Helper()
 	f := &fakeManager{id: id, got: make(chan string, 64)}
-	f.bus = dialRawBusWith(t, srv, busToken(t, h, id, id), func(_ context.Context, method string, params json.RawMessage) (any, error) {
+	token := busToken(t, h, id, id)
+	x := &relayingExt{serve: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		item := []map[string]any{{"id": "extension-" + id}}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"who": id, "extensions": item})
+	}), dial: func(ctx context.Context, query string) (*websocket.Conn, error) {
+		return bus.DialAt(ctx, srv.URL, token, srv.Client(), devicewire.RelayPath, query)
+	}}
+	f.bus = dialRawBusWith(t, srv, token, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 		switch method {
+		case extwire.MethodAccept:
+			out, _, err := x.Request(ctx, method, params)
+			return out, err
 		case assistantwire.MethodHTTP:
 			var req assistantwire.HTTPRequest
 			if err := json.Unmarshal(params, &req); err != nil {
@@ -420,5 +432,122 @@ func TestReleaseKeepsMovesWhole(t *testing.T) {
 	}
 	if h.entryOwner("ma") != devicesOwner || h.entryOwner("mb") != "m-0b0b0b" {
 		t.Fatalf("owners now %s %s", h.entryOwner("ma"), h.entryOwner("mb"))
+	}
+}
+
+// Retained extension lists include installed managers while their bus is offline; ordinary lists still ask only
+// live managers. Warm the cache over the real relay before dropping the synthetic managers' bus connections.
+func TestMergedExtensionsKeepOfflineManagers(t *testing.T) {
+	h, srv, store := newBusHub(t)
+	t.Cleanup(func() {
+		if err := store.PutSetting(context.Background(), managerDefaultKey, ""); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := store.PutSetting(context.Background(), managerDefaultKey, assistantwire.AssistantID); err != nil {
+		t.Fatal(err)
+	}
+	reads := &rosterReads{DB: store}
+	h.bus.idents = reads
+	const a, b, c, missing = assistantwire.AssistantID, "m-0b0b0b", "m-0c0c0c", "m-0d0d0d"
+	connectFakeManager(t, h, srv, a)
+	cm := connectFakeManager(t, h, srv, c) // reverse connection order must not change list ordering
+	bm := connectFakeManager(t, h, srv, b)
+	busToken(t, h, missing, missing) // installed, but has never supplied a retained answer
+	check := func(path string, header map[string]string, want ...string) {
+		t.Helper()
+		code, out := ownershipGet(t, h, srv, http.MethodGet, path, header)
+		items, _ := out["extensions"].([]any)
+		if code != http.StatusOK || len(items) != len(want) || out["who"] != want[0] {
+			t.Fatalf("%s: %d %v, want managers %v", path, code, out, want)
+		}
+		for i, id := range want {
+			item := items[i].(map[string]any)
+			if item["manager"] != id || item["id"] != "extension-"+id {
+				t.Fatalf("%s item %d: %v, want %s", path, i, item, id)
+			}
+		}
+	}
+	check("/api/v1/extensions", nil, a, b, c)
+	check("/api/v1/extensions?manager="+b, nil, b)
+	for _, m := range []*fakeManager{bm, cm} {
+		_ = m.bus.ws.Close(websocket.StatusNormalClosure, "test")
+		eventually(t, 5*time.Second, "manager offline", func() bool { return h.busConnOf(m.id) == nil })
+	}
+	check("/api/v1/extensions", nil, a, b, c)
+	check("/api/v1/extensions", map[string]string{ManagerHeader: b}, b)
+	check("/api/v1/extensions?manager="+b, nil, b)
+	for path, key := range map[string]string{"/api/v1/inbox": "items", "/api/v1/todos": "todos"} {
+		code, out := ownershipGet(t, h, srv, http.MethodGet, path, nil)
+		items, _ := out[key].([]any)
+		if code != http.StatusOK || len(items) != 1 || items[0].(map[string]any)["manager"] != a {
+			t.Fatalf("online-only %s: %d %v", path, code, out)
+		}
+	}
+	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", map[string]string{ManagerHeader: missing}); code != http.StatusServiceUnavailable {
+		t.Fatalf("installed manager without cache: %d", code)
+	}
+	if err := store.PutSetting(context.Background(), managerDefaultKey, b); err != nil {
+		t.Fatal(err)
+	}
+	h.ownersChanged()
+	check("/api/v1/extensions", nil, b, a, c) // an offline default still comes first
+	if ok, err := h.revokeBusToken(context.Background(), b); err != nil || !ok {
+		t.Fatalf("revoke manager: %v %v", ok, err)
+	}
+	check("/api/v1/extensions", nil, a, c)
+	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", map[string]string{ManagerHeader: b}); code != http.StatusNotFound {
+		t.Fatalf("revoked manager with cached answer: %d", code)
+	}
+	reads.away.Store(true)
+	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil); code != http.StatusServiceUnavailable {
+		t.Fatalf("unreadable installed identities: %d", code)
+	}
+	reads.away.Store(false)
+	check("/api/v1/extensions", nil, a, c)
+}
+
+// In external mode even the identity named assistant can be removed. Its retained answer cannot put it back.
+func TestMergedExtensionsExcludeRemovedExternalAssistant(t *testing.T) {
+	h, srv, store := newBusHub(t)
+	t.Cleanup(func() {
+		if err := store.PutSetting(context.Background(), managerDefaultKey, ""); err != nil {
+			t.Error(err)
+		}
+	})
+	h.cfg.Assistant.External = true
+	settings := &slowSetting{managerStore: store}
+	h.bus.idents = settings
+	const a, b = assistantwire.AssistantID, "m-0b0b0b"
+	connectFakeManager(t, h, srv, a)
+	connectFakeManager(t, h, srv, b)
+	if err := store.PutSetting(context.Background(), managerDefaultKey, b); err != nil {
+		t.Fatal(err)
+	}
+	h.ownersChanged()
+	code, out := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil)
+	if code != http.StatusOK || len(out["extensions"].([]any)) != 2 || out["who"] != b {
+		t.Fatalf("warm external managers: %d %v", code, out)
+	}
+	if ok, err := h.revokeBusToken(context.Background(), a); err != nil || !ok {
+		t.Fatalf("revoke external assistant: %v %v", ok, err)
+	}
+	eventually(t, 5*time.Second, "external assistant disconnected", func() bool { return h.busConnOf(a) == nil })
+	code, out = ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil)
+	items, _ := out["extensions"].([]any)
+	if code != http.StatusOK || len(items) != 1 || items[0].(map[string]any)["manager"] != b {
+		t.Fatalf("removed external assistant still cached: %d %v", code, out)
+	}
+	settings.fail.Store(true)
+	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil); code != http.StatusServiceUnavailable {
+		t.Fatalf("unreadable default setting: %d", code)
+	}
+	settings.fail.Store(false)
+	if ok, err := h.revokeBusToken(context.Background(), b); err != nil || !ok {
+		t.Fatalf("revoke last external manager: %v %v", ok, err)
+	}
+	eventually(t, 5*time.Second, "last external manager disconnected", func() bool { return h.busConnOf(b) == nil })
+	if code, out := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil); code != http.StatusServiceUnavailable {
+		t.Fatalf("empty roster with cached answers: %d %v", code, out)
 	}
 }

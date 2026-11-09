@@ -294,11 +294,17 @@ func TestNotifyAPI(t *testing.T) {
 	if err := h.push.setPrefs("phone-1", NotifyPrefs{Input: false, Done: DoneLong}); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := post(h.cfg.Token, `{"title":"t"}`); code != 200 {
-		t.Fatalf("send: %d", code)
+	if code, out := post(h.cfg.Token, `{"title":"t"}`); code != 200 || out["sent"] != false || out["reason"] != "filtered" {
+		t.Fatalf("input off: %d %v", code, out)
 	}
 	if m := next(); m != nil {
 		t.Fatalf("input off but notified: %v", m)
+	}
+	h.mu.Lock()
+	delete(h.clients, c)
+	h.mu.Unlock()
+	if code, out := post(extTok, `{"title":"Build finished"}`); code != 200 || out["sent"] != false || out["reason"] != "no_device" {
+		t.Fatalf("extension without a recipient: %d %v", code, out)
 	}
 }
 
@@ -475,6 +481,22 @@ func TestNodeScriptNotify(t *testing.T) {
 	if _, err = call(`{"title":"t","level":"critical"}`); err == nil {
 		t.Fatal("critical is not offered")
 	}
+	if err := h.push.setPrefs(c.device, NotifyPrefs{Input: false}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = call(`{"title":"Build finished"}`); err != nil || out["sent"] != false || out["reason"] != "filtered" {
+		t.Fatalf("all recipients filtered: %v %v", out, err)
+	}
+	if msg = next(); msg != nil {
+		t.Fatalf("filtered notification sent: %v", msg)
+	}
+	delete(h.clients, c)
+	if out, err = call(`{"title":"Build finished"}`); err != nil || out["sent"] != false || out["reason"] != "no_device" {
+		t.Fatalf("no recipient: %v %v", out, err)
+	}
+	if out, err = call(`{"title":"Build finished","session_id":"muted"}`); err != nil || out["reason"] != "muted" {
+		t.Fatalf("muted session with no recipient: %v %v", out, err)
+	}
 }
 
 // A browser only ever writes its prefs (Settings › Notifications) and never registers a push token: the device row its prefs made
@@ -505,6 +527,8 @@ func TestPrefsOnlyDeviceGoesWithItsCredential(t *testing.T) {
 // refused), even when its bytes would not fit a push: 1000 emoji, or 1000 of < (six bytes each in JSON), #3798.
 func TestNodeScriptNotifyCutsToFit(t *testing.T) {
 	h := newTestHub(t)
+	c := &client{device: "phone-1", out: make(chan []byte, 8), meta: clientMeta{features: map[string]bool{"ws_notify": true}}}
+	h.clients[c] = struct{}{}
 	m := &Machine{hub: h, cfg: MachineConfig{ID: "box1", Name: "Studio"}}
 	for _, body := range []string{strings.Repeat("😀", notifyBodyMost), strings.Repeat("<", notifyBodyMost), strings.Repeat("a<b>", notifyBodyMost/4)} {
 		in := notifyRequest{Title: strings.Repeat("标", notifyTitleMost), Body: body, Level: levelActive} // as validate leaves it

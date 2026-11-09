@@ -143,13 +143,13 @@ struct ExtensionAuthTests {
         let model = ExtensionSignInModel(id: "lookup", deps: .init(api: { hub.client }, store: store))
         await model.start()
         #expect(model.prompt.map(ExtensionSignIn.isQR) == true && model.signingIn)
-        #expect(store.byID["lookup"]?.isSignedIn == true, "the status is asked once the sign-in starts")
+        #expect(store.auth("lookup", else: nil)?.isSignedIn == true, "the status is asked once the sign-in starts")
         let done = await model.waitForAuthorization()
         #expect(done && !model.signingIn && model.error == nil)
         #expect(hub.sent("POST", base + "/step").count == 4, "the first step, then asked again until the third poll says done")
         #expect(store.auth("lookup", else: nil)?.account == "me@example.com")
         await model.logout()
-        #expect(store.byID["lookup"]?.state == .signedOut)
+        #expect(store.auth("lookup", else: nil)?.state == .signedOut)
     }
 
     @Test func aFailedStepSaysWhy() async {
@@ -168,7 +168,7 @@ struct ExtensionAuthTests {
         hub = "b"
         #expect(store.auth("lookup", else: ExtensionAuth(title: "", state: .signedOut))?.state == .signedOut, "another hub's word is not this one's")
         store.received("other", nil)
-        #expect(store.byID["lookup"] == nil)
+        #expect(store.auth("lookup", else: nil) == nil)
     }
 }
 

@@ -35,12 +35,24 @@ def select(paths, all_platforms=False):
 LANES = tuple(name for name in FILTERS if name != "image")
 
 
-def resolve_base(base=None, event=None):
+def head_parents():
+    """HEAD's parents, first parent first."""
+    return subprocess.check_output(["git", "rev-parse", "HEAD^@"], timeout=30).decode().split()
+
+
+def resolve_base(base=None, event=None, parents=()):
     if base:
         return base
     event = event or {}
     if "pull_request" in event:
-        return event["pull_request"]["base"]["sha"]
+        pull = event["pull_request"]
+        # actions/checkout checks out refs/pull/<n>/merge: first parent the base branch as it is now, second the PR
+        # head. base.sha is where the PR was opened and does not move as the base branch advances; comparing with it
+        # would count every commit that landed since as the PR's.
+        head = pull.get("head", {}).get("sha")
+        if head and len(parents) == 2 and parents[1] == head:
+            return parents[0]
+        return pull["base"]["sha"]
     if "merge_group" in event:
         return event["merge_group"]["base_sha"]
     return "origin/main"
@@ -77,7 +89,8 @@ def main():
     args = parser.parse_args()
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.loads(Path(event_path).read_text()) if event_path else {}
-    base = resolve_base(args.base, event)
+    parents = head_parents() if not args.base and "pull_request" in event else ()
+    base = resolve_base(args.base, event, parents)
     if args.print_base:
         # Resolve to a commit before exposing it to guards or path selection.
         sha = subprocess.check_output(["git", "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}"], timeout=30).decode().strip()

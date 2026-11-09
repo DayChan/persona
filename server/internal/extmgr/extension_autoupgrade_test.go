@@ -452,6 +452,72 @@ func TestExtensionAutoUpgradeRollsBack(t *testing.T) {
 	}
 }
 
+// One the user rolls back from by hand is skipped too, said to be the user's doing, its old note gone and nothing pushed;
+// a newer version is offered again (#1826).
+func TestExtensionManualRollbackIsSkipped(t *testing.T) {
+	h, mux, phone, mk, dir, mid := upgradeHub(t)
+	ctx := context.Background()
+	u := h.extensionUpgrades()
+	running := func(v string) func() bool {
+		return func() bool {
+			p := h.extensions.reg.Get("example-ui")
+			return p.Record.Version == v && h.extensions.view(ctx, p).Status == "running"
+		}
+	}
+
+	setUIVersion(t, dir, "1.1.0")
+	mk.publish(dir)
+	if _, err := h.marketRead(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+	u.upgrade(ctx)
+	waitLong(t, "1.1.0 running", running("1.1.0"))
+	waitLong(t, "the upgraded note", func() bool {
+		_, d := call(t, mux, "GET", "/api/v1/plugins/example-ui/-/", phone, "")
+		n, _ := d["upgrade_note"].(map[string]any)
+		return n["kind"] == "upgraded" && n["to"] == "1.1.0"
+	})
+	auditLines := func() int {
+		st := h.store.(*extensionStore)
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return len(st.audit)
+	}
+
+	code, d := call(t, mux, "POST", "/api/v1/extensions/example-ui/-/rollback", phone, "")
+	if code != 200 || d["version"] != "1.0.0" {
+		t.Fatalf("rollback: %d %v", code, d)
+	}
+	if n := d["upgrade_note"]; n != nil {
+		t.Fatalf("a note of a version no longer installed: %v", n)
+	}
+	waitLong(t, "1.0.0 running", running("1.0.0"))
+	up := upgradeOf(t, mux, phone)
+	if up == nil || up["state"] != upgradeSkipped || up["skipped_by"] != skippedByUser || up["to"] != "1.1.0" || up["detail"] == "" {
+		t.Fatalf("after the rollback: %v", up)
+	}
+	audits := auditLines()
+	u.upgrade(ctx)
+	if v := installedVersion(h); v != "1.0.0" {
+		t.Fatalf("auto-upgrade put %s back", v)
+	}
+	if n := auditLines(); n != audits {
+		t.Fatalf("something was done after the rollback (%d audit lines, then %d)", audits, n)
+	}
+
+	// A newer version than the one left goes in as usual.
+	setUIVersion(t, dir, "1.2.0")
+	mk.publish(dir)
+	if _, err := h.marketRead(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+	if up := upgradeOf(t, mux, phone); up["state"] != upgradeAvailable || up["skipped_by"] != nil {
+		t.Fatalf("1.2.0: %v", up)
+	}
+	u.upgrade(ctx)
+	waitLong(t, "1.2.0 running", running("1.2.0"))
+}
+
 // Uninstalled, a plugin's upgrade state goes with it (its own switch stays): installed again, the version that rolled
 // back is not skipped, the user is told again of one asking for more, and its page shows no old note.
 func TestExtensionUpgradeForgetsRemoved(t *testing.T) {

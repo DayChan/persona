@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PASSING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n"
 FAILING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_broken(self):\n        self.fail('broken on purpose')\n"
 # The scripts/test suites that guard files outside scripts/; stubbed passing unless a test breaks one.
-GUARD_SUITES = ("test_doc_paths.py", "test_doc_go_paths.py", "test_apple_l10n.py", "test_docker_entrypoint.py")
+GUARD_SUITES = ("test_doc_paths.py", "test_doc_go_paths.py", "test_doc_wire.py", "test_apple_l10n.py",
+                "test_docker_entrypoint.py")
 
 
 @unittest.skipUnless(shutil.which("timeout") or shutil.which("gtimeout"), "check-fast.sh needs GNU timeout")
@@ -202,6 +203,7 @@ class CheckFastScriptsTests(unittest.TestCase):
         self.assertEqual(1, code, out)
         self.assertIn("FAIL     scripts/test/test_doc_paths.py", out)
         self.assertIn("PASS     scripts/test/test_doc_go_paths.py", out)
+        self.assertIn("PASS     scripts/test/test_doc_wire.py", out)
         self.assertNotIn("test_apple_l10n.py", out)
         self.assertNotIn("test_docker_entrypoint.py", out)
 
@@ -211,7 +213,21 @@ class CheckFastScriptsTests(unittest.TestCase):
         self.assertEqual(0, code, out)
         self.assertIn("PASS     scripts/test/test_doc_paths.py", out)
         self.assertIn("PASS     scripts/test/test_doc_go_paths.py", out)
+        self.assertIn("PASS     scripts/test/test_doc_wire.py", out)
         self.assertNotIn("no fast check maps to", out)
+
+    def test_a_change_to_the_wire_lists_runs_the_doc_wire_suite(self):
+        # test_doc_wire.py reads these sources: a new message type, flag, point or field breaks it from the code side.
+        self.break_suite("test_doc_wire.py")
+        for path in ("server/internal/proto/proto.go", "server/internal/hub/extensions_link.go",
+                     "server/internal/extension/points.go", "schema/extension/manifest.schema.json"):
+            with self.subTest(path=path):
+                self.write(path, "changed\n")
+                code, out = self.check_fast(path=self.toolchain_without_node_and_go())
+                self.git("clean", "-fdq", "--", path.split("/", 1)[0])
+                self.assertEqual(1, code, out)
+                self.assertIn("FAIL     scripts/test/test_doc_wire.py", out)
+                self.assertNotIn("test_doc_paths.py", out)
 
     def test_an_apple_change_runs_the_l10n_suite(self):
         self.break_suite("test_apple_l10n.py")
@@ -250,14 +266,14 @@ class CheckFastScriptsTests(unittest.TestCase):
     def test_all_runs_every_scripts_suite_in_one_job(self):
         # Mirror CI's Scripts tests job: --all runs every scripts/**/test_*.py, changed or not, except the ones a
         # dedicated job already runs. That stub fails under unittest, so the suite job must not pick it up. The count
-        # is 7: test_other, test_gone, test_deep and the four guard suites stubbed in setUp.
+        # is 8: test_other, test_gone, test_deep and the five guard suites stubbed in setUp.
         self.write("scripts/test/test_external_service_refs.py", FAILING)
         self.write("scripts/deep/nested/test_deep.py", PASSING)
         code, out = self.check_fast("--all", path=self.toolchain_without_node_and_go())
         self.assertEqual(1, code, out)  # missing node and go are core failures in --all mode
-        self.assertIn("queued: scripts unittest suites (7)", out)
+        self.assertIn("queued: scripts unittest suites (8)", out)
         self.assertIn("FAIL     scripts unittest suites", out)
-        self.assertIn("7 suite(s): 1 failed, 0 timed out", out)
+        self.assertIn("8 suite(s): 1 failed, 0 timed out", out)
         self.assertIn("failed: scripts/tools/test_other.py", out)
         self.assertNotIn("failed: scripts/test/test_external_service_refs.py", out)
         self.assertNotIn("queued: scripts/tools/test_gone.py", out)  # one job, not one per suite
@@ -303,7 +319,7 @@ class CheckFastScriptsTests(unittest.TestCase):
         code, out = self.check_fast("--all", path=self.toolchain_without_node_and_go())
         self.assertEqual(1, code, out)  # the stubbed scripts/tools/test_other.py fails, and node/go are missing
         self.assertIn("PASS     frozen migrations", out)
-        self.assertIn("queued: scripts unittest suites (6)", out)
+        self.assertIn("queued: scripts unittest suites (7)", out)
 
     def test_all_reports_a_slow_suite_as_timeout_and_runs_the_rest(self):
         self.write("scripts/tools/test_other.py", PASSING)
@@ -312,21 +328,23 @@ class CheckFastScriptsTests(unittest.TestCase):
         code, out = self.check_fast("--all", path=self.toolchain_without_node_and_go(),
                                     env={"CHECK_FAST_TIMEOUT_OTHER": "2"})
         self.assertEqual(1, code, out)
-        self.assertIn("8 suite(s): 1 failed, 1 timed out", out)
+        self.assertIn("9 suite(s): 1 failed, 1 timed out", out)
         self.assertIn("timed out: scripts/tools/test_slow.py", out)
         self.assertIn("failed: scripts/tools/test_z_after.py", out)
         self.write("scripts/tools/test_z_after.py", PASSING)
         code, out = self.check_fast("--all", path=self.toolchain_without_node_and_go(),
                                     env={"CHECK_FAST_TIMEOUT_OTHER": "2"})
-        self.assertIn("TIMEOUT  scripts unittest suites (8)", out)
+        self.assertIn("TIMEOUT  scripts unittest suites (9)", out)
         self.assertIn("1 suite(s) timed out: scripts/tools/test_slow.py", out)
 
     def toolchain_without_node_and_go(self):
-        # A PATH with only the tools check-fast.sh itself needs, so node and go are missing on any machine.
-        bin_dir = self.repo / ".bin"
-        if bin_dir.is_dir():
-            return str(bin_dir)
-        bin_dir.mkdir()
+        # A PATH with only the tools check-fast.sh itself needs, so node and go are missing on any machine. It lives
+        # outside the repository, so a diff-mode run does not count it as a change.
+        if getattr(self, "bin_dir", None):
+            return str(self.bin_dir)
+        self.bin_dir = Path(tempfile.mkdtemp(prefix="check-fast-bin-"))
+        self.addCleanup(shutil.rmtree, self.bin_dir)
+        bin_dir = self.bin_dir
         for tool in ("bash", "python3", "timeout", "gtimeout", "git", "mktemp", "rm", "dirname", "basename", "find",
                      "sort", "tee", "tail", "grep", "sed", "awk", "tr", "wc", "cut", "cat", "env"):
             found = shutil.which(tool)

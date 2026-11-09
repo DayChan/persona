@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,14 +77,17 @@ func TestSetupServiceRunsPersonaHub(t *testing.T) {
 		t.Fatalf("rerun: %v\n%s", cmds.calls, report)
 	}
 	// The service runs another program than its unit says (an owner's drop-in changed since it started): restarted.
-	cmds.calls = nil
-	mainPID := "systemctl --user show -p MainPID --value personad"
-	cmds.replies[mainPID] = fakeReply{out: strconv.Itoa(os.Getpid()) + "\n"}
-	report = serviceReport(t, e, &Config{Listen: ":18662"}, bin)
-	if !cmds.called("systemctl --user restart personad") || !strings.Contains(report, "常驻服务已经装好；服务改成运行 persona-hub，重启了 hub") {
-		t.Fatalf("runs another program: %v\n%s", cmds.calls, report)
+	// runningProgram reads the main process's program from /proc/<pid>/exe, which only Linux has.
+	if runtime.GOOS == "linux" {
+		cmds.calls = nil
+		mainPID := "systemctl --user show -p MainPID --value personad"
+		cmds.replies[mainPID] = fakeReply{out: strconv.Itoa(os.Getpid()) + "\n"}
+		report = serviceReport(t, e, &Config{Listen: ":18662"}, bin)
+		if !cmds.called("systemctl --user restart personad") || !strings.Contains(report, "常驻服务已经装好；服务改成运行 persona-hub，重启了 hub") {
+			t.Fatalf("runs another program: %v\n%s", cmds.calls, report)
+		}
+		delete(cmds.replies, mainPID)
 	}
-	delete(cmds.replies, mainPID)
 	// Opted out: back to personad, said the same way, and the unit keeps the opt-out; a manager of its own (service
 	// mode) is not the hub's child.
 	cmds.calls = nil

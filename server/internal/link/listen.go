@@ -34,6 +34,12 @@ var errBadCode = errors.New("bad pairing code")
 // pairBodyMax caps a pairing request (a settings value).
 const pairBodyMax = 16 << 10
 
+// passiveReadTimeout bounds how long one request may take to arrive, body included (a settings value). Pairing reads
+// its body before any code is checked, and net/http drains a small unread body before it answers, so without it a peer
+// that sends headers and then stalls the body holds a goroutine and a connection forever. Streams are not cut: net/http
+// clears the deadline when websocket.Accept hijacks the connection. A variable so that tests can shrink it.
+var passiveReadTimeout = 30 * time.Second
+
 // streamClose is why the listener ends a stream itself: the credential it came with is no longer the one (another
 // hub paired), or persona-link stops listening (it stops, or switched to active mode).
 const (
@@ -160,6 +166,7 @@ func (s *passive) serve(ctx context.Context, ln net.Listener) {
 	srv := &http.Server{
 		Handler:           s,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       passiveReadTimeout,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    16 << 10,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"},

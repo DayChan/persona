@@ -662,8 +662,7 @@ func (s *Service) putEvent(c assistantwire.InboxSource, thread string, e planned
 	}
 	b.offerParent(it, thingParent(thing))
 	if m := mutedBy(b.mutes, it); m != nil && it.open() {
-		b.file(it, time.Now(), "read")
-		it.Reason = b.mutedReason(m.Name)
+		b.fileMuted(it, time.Now(), m.Name)
 	}
 	b.items[it.ID] = it
 	return it

@@ -108,6 +108,8 @@ const P: Record<string, React.ReactNode> = {
   chart: <path d="M3 3v16a2 2 0 0 0 2 2h16M8 17v-4M13 17V8M18 17v-7" />,
   gauge: <g><path d="M12 14l4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></g>,
   calendar: <g><rect x="3" y="4" width="18" height="18" rx="2.5" /><path d="M16 2v4M8 2v4M3 10h18" /></g>,
+  // a to-do of high priority (#1683; Lucide's flag)
+  flag: <g><path d="M4 22V4" /><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1" /></g>,
   money: <g><rect x="2" y="6" width="20" height="12" rx="2.5" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></g>,
   // a row's icons in an extension's view (docs/extensions/extensions.md "Declarative UI" row icon; the rest reuse the above)
   person: <g><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></g>,

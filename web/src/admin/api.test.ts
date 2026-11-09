@@ -184,7 +184,7 @@ describe("usage sources (docs/server/usage-windows.md「账号池网关」)", ()
     await saveUsageSettings({ enabled: false, poll_minutes: 15 });
     await addUsageSource({ type: "relay", url: "https://gateway.example.com", key: "k" });
     await editUsageSource("a/b", { enabled: false });
-    await testUsageSource({ id: "s1", type: "generic", url: "https://gateway.example.com/u" });
+    await testUsageSource({ id: "s1", type: "generic", url: "https://gateway.example.com/u", clear_key: true });
     await removeUsageSource("s1");
     expect(calls.map((c) => `${c.init.method} ${c.url.replace("/api/v1/admin", "")}`)).toEqual([
       "GET /usage-sources",
@@ -195,7 +195,7 @@ describe("usage sources (docs/server/usage-windows.md「账号池网关」)", ()
       "DELETE /usage-sources/s1",
     ]);
     expect(JSON.parse(String(calls[1].init.body))).toEqual({ enabled: false, poll_minutes: 15 });
-    expect(JSON.parse(String(calls[4].init.body))).toEqual({ id: "s1", type: "generic", url: "https://gateway.example.com/u" });
+    expect(JSON.parse(String(calls[4].init.body))).toEqual({ id: "s1", type: "generic", url: "https://gateway.example.com/u", clear_key: true });
     for (const c of calls.slice(1)) expect((c.init.headers as Record<string, string>)["X-Persona-CSRF"]).toBe("tok");
   });
 });

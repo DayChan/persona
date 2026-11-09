@@ -14,8 +14,10 @@ func InboxText(l Lang, text string) string {
 	if l == "" || text == "" {
 		return text
 	}
-	for _, form := range inboxTemplates() {
-		match := form.pattern.FindStringSubmatch(text)
+	forms := inboxTemplates()
+	for i := range forms { // by index: a range value copies each template, for every text
+		form := &forms[i]
+		match := form.match(text)
 		if match == nil {
 			continue
 		}

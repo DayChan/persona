@@ -36,6 +36,8 @@ extension APIClient {
 struct GitHubInboxSettings: View {
     @Environment(AppModel.self) private var model
     @State var options: GitHubInboxOptions
+    /// Whose GitHub (another manager's: the change names it); nil: the default manager's.
+    var manager: String? = nil
     var saved: (HubConnector) -> Void
     @State private var newRepo = ""
     @State private var error: String?
@@ -98,7 +100,7 @@ struct GitHubInboxSettings: View {
         let o = options
         Task {
             do {
-                if let c = try await model.api?.setGitHubInboxOptions(o) {
+                if let c = try await model.api?.manager(manager).setGitHubInboxOptions(o) {
                     error = nil
                     saved(c)
                 }

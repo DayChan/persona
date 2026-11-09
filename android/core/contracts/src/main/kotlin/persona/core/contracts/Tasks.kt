@@ -1,6 +1,8 @@
 package persona.core.contracts
 
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.serialization.KeepGeneratedSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -157,6 +159,14 @@ data class Todo(
     val supervision: Supervision? = null,
     /** How far its finished work went out, and short of live where it is held (#3306); null from an older hub or before judged. */
     val delivery: TodoDelivery? = null,
+    /** When it is due (#1683): a moment, or a day ("yyyy-MM-dd", due by its end in the user's zone); at most one. */
+    @WireTime @SerialName("due_at") val dueAt: String? = null,
+    @SerialName("due_date") val dueDate: String? = null,
+    /** When the phone is pushed about it, and when that was done. */
+    @WireTime @SerialName("remind_at") val remindAt: String? = null,
+    @WireTime @SerialName("reminded_at") val remindedAt: String? = null,
+    /** "high" or "low"; null or "" is normal. */
+    val priority: String? = null,
 ) {
     val isDone: Boolean get() = doneAt != null
     val activeAgents get() = agents.filter { it.releasedAt == null }
@@ -165,6 +175,18 @@ data class Todo(
     val created: Instant? get() = parseTime(createdAt)
     val updated: Instant? get() = parseTime(updatedAt)
     val done: Instant? get() = parseTime(doneAt)
+    val remind: Instant? get() = parseTime(remindAt)
+
+    /** The day of [dueDate], or null without a readable one. */
+    val dueDay: LocalDate? get() = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+
+    /** The moment it is due by in [zone]: its [dueAt], or the end of its due day; null without either (#1683). */
+    fun dueBy(zone: ZoneId = ZoneId.systemDefault()): Instant? =
+        parseTime(dueAt) ?: dueDay?.plusDays(1)?.atStartOfDay(zone)?.toInstant()?.minusSeconds(1)
+
+    /** Open, and its due moment has passed. */
+    fun isOverdue(now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): Boolean =
+        !isDone && (dueBy(zone)?.isBefore(now) ?: false)
 }
 
 /**
@@ -249,14 +271,18 @@ fun Todo.state(sessionLookup: (SessionKey) -> Session?): TodoState {
 }
 
 /**
- * Sorts todos: uncompleted first (in TodoState rank order, then newest created first, then by id);
+ * Sorts todos: uncompleted first — what needs the user (needs you, unread) on top, then by due date, earliest (an
+ * overdue one) first, those without one after (#1683), then in TodoState rank order, newest created first, by id;
  * completed todos at the bottom (newest done/created first).
  */
-fun List<Todo>.ordered(sessionLookup: (SessionKey) -> Session?): List<Todo> {
+fun List<Todo>.ordered(sessionLookup: (SessionKey) -> Session?, zone: ZoneId = ZoneId.systemDefault()): List<Todo> {
     val uncompleted = filter { !it.isDone }
     val completed = filter { it.isDone }
+    val urgent = setOf(TodoState.NeedsYou, TodoState.Unread)
     val sortedUncompleted = uncompleted.sortedWith(
-        compareBy<Todo> { it.state(sessionLookup).rank }
+        compareBy<Todo> { it.state(sessionLookup).let { s -> if (s in urgent) s.rank else Int.MAX_VALUE } }
+            .thenBy { it.dueBy(zone) ?: Instant.MAX }
+            .thenBy { it.state(sessionLookup).rank }
             .thenByDescending { it.created ?: Instant.EPOCH }
             .thenBy { it.id }
     )

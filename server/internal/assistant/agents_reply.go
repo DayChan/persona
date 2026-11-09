@@ -2,7 +2,6 @@ package assistant
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"time"
 
@@ -131,15 +130,18 @@ func (s *Service) replyTick(now time.Time, after time.Duration) {
 	var looks []look
 	b := &s.reply
 	for _, m := range s.fleetMachines() {
-		raw := s.nodeSessions(m.ID)
-		if len(raw) == 0 {
+		asks := false // whether one may ask, read in place: the list is not copied
+		if _, listed := s.nodeSessionsWhere(m.ID, func(c *proto.Session) bool {
+			asks = asks || mayAsk(c, triage)
+			return false
+		}); listed == 0 {
 			continue // nothing listed yet (the node not back): its first look is still to come
 		}
 		b.mu.Lock()
 		first := !b.primed[m.ID]
 		b.mu.Unlock()
 		l := look{machine: m.ID, first: first}
-		if slices.ContainsFunc(raw, func(c proto.Session) bool { return mayAsk(c, triage) }) { // decorate only where one may ask
+		if asks { // decorate only where one may ask
 			for _, sess := range s.shownList(m.ID) {
 				if s.replyWaits(m.ID, sess, now) && now.Sub(s.replySince(m.ID, sess)) >= after {
 					l.due = append(l.due, sess)
@@ -187,7 +189,7 @@ func (s *Service) replyTick(now time.Time, after time.Duration) {
 
 // mayAsk: a node's session that may be awaiting a reply once decorated (stopped, and asking or not read by the node).
 // With the triage on, any stopped one may be waiting on the user by its verdict.
-func mayAsk(sess proto.Session, triage bool) bool {
+func mayAsk(sess *proto.Session, triage bool) bool {
 	if sess.Status != proto.StatusDone && sess.Status != proto.StatusIdle {
 		return false
 	}

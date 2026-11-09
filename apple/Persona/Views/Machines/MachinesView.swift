@@ -450,6 +450,7 @@ struct MachineCard: View {
 /// computer's share as a bar in shades of the text ink (the four kinds' colors are the charts').
 struct TodayTokensCard: View {
     var shares: [(name: String, usage: UsageCard)]
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let today = shares.reduce(UsageTokens()) { $0 + $1.usage.today }
@@ -457,10 +458,17 @@ struct TodayTokensCard: View {
         let ranked = shares.filter { $0.usage.today.total > 0 }.sorted { $0.usage.today.total > $1.usage.today.total }
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             Text("Today's Tokens").font(Theme.Font.heading)
-            HStack(alignment: .top, spacing: Theme.Space.m) {
+            // Side by side; at the accessibility text sizes one under another, where a third of the card each cut them
+            // to a character (#1929).
+            let cells = Group {
                 cell(String(localized: "Total [Token Usage]"), TokenFormat.count(today.total))
                 cell(String(localized: "Now [Token Usage]"), TokenFormat.perMinute(perMinute))
                 cell(String(localized: "Cache Hit Rate"), today.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? "—")
+            }
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: Theme.Space.s) { cells }
+            } else {
+                HStack(alignment: .top, spacing: Theme.Space.m) { cells }
             }
             if today.total > 0 {
                 GeometryReader { g in
@@ -509,12 +517,22 @@ struct TodayTokensCard: View {
 /// Needs You / Working / Idle side by side, a dot and a count each; a state with none stays gray.
 struct AgentCounts: View {
     var tally: AgentTally
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
+        // Side by side; at the accessibility text sizes one under another, where three in a row kept a character of
+        // each state's word (#1929).
+        let items = Group {
             item(tally.needsYou, StateName.needsYou.text, tone: StatusPalette.needsYou, ink: StatusPalette.needsYou.text)
             item(tally.working, StateName.working.text, tone: StatusPalette.working, ink: StatusPalette.working.text)
             item(tally.idle, String(localized: "Idle"), tone: StatusPalette.idle, ink: Color.primary)
+        }
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: Theme.Space.xs) { items }
+            } else {
+                HStack(spacing: Theme.Space.s) { items }
+            }
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, Theme.Space.s)

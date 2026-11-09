@@ -161,6 +161,12 @@ func TestAdminExtensionsInstallUpgradeRollbackUninstall(t *testing.T) {
 	if code, out, _ = c.do("POST", "/api/v1/admin/plugins/example-notes/rollback", `{}`); code != 200 || out["version"] != "1.0.0" || out["previous_version"] != nil {
 		t.Fatalf("rollback: %d %v", code, out)
 	}
+	// The version left is skipped by auto-upgrade, as the user's rollback (#1826).
+	var us extensionUpgradeSettings
+	if _, err := h.store.Setting(t.Context(), extensionUpgradesKey, &us); err != nil || us.Skipped["example-notes"] != "1.1.0" ||
+		us.SkippedBy["example-notes"] != skippedByUser {
+		t.Fatalf("not skipped after the rollback: %+v %v", us, err)
+	}
 	if code, out, _ = c.do("POST", "/api/v1/admin/plugins/example-notes/rollback", `{}`); code != 400 || out["code"] != "rollback_failed" {
 		t.Fatalf("rolled back twice: %d %v", code, out)
 	}
