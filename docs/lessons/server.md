@@ -1,5 +1,13 @@
 # Lessons: hub / node and networking
 
+## Replace watched test files atomically (2026-11-09, #2174)
+
+`os.WriteFile` truncates before writing: a fast watcher can report both the empty and completed file. A delayed
+truncate/write negative control reproduced an extra Git event three times without any watcher bug. Use `writeWhole`
+for fixture edits that should be one observed change, and stage outside the watched Git repository so temporary
+untracked files do not create their own events. Keep both edit assertions and the final quiet interval; do not mask
+valid intermediate changes by weakening the test, increasing its waits or suppressing production events.
+
 ## The first gh on PATH may not be the GitHub CLI (#2081)
 
 Some Linux hosts have an unrelated program named `gh` in `/usr/local/bin`, and `New` puts that directory ahead of
