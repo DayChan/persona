@@ -141,7 +141,9 @@ nonisolated struct AgentModelOption: Decodable, Identifiable, Hashable, Sendable
     var name: String?
     var resolved: String?
     var isDefault: Bool?
-    enum CodingKeys: String, CodingKey { case id, name, resolved, isDefault = "default" }
+    /// An ID typed before and remembered on the hub (#1644): listed after the agent's own, and it can be forgotten.
+    var custom: Bool?
+    enum CodingKeys: String, CodingKey { case id, name, resolved, custom, isDefault = "default" }
     var title: String { name ?? id }
 }
 

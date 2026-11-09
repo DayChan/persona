@@ -4,5 +4,5 @@
     <string name="inbox_conversations_read_pending">既読・対応待ち</string>
     <string name="inbox_conversations_read_failed">一部のメッセージを既読にできませんでした。再試行できます。</string>
     <string name="inbox_conversations_read_skipped">未読み込み、または更新された会話があります。開いて確認してください。新しいメッセージは未読のままです。</string>
-    <string name="inbox_conversations_read_success">これらのお知らせを既読にしました。</string>
+    <string name="inbox_conversations_read_success">これらのメッセージを既読にしました。</string>
 </resources>

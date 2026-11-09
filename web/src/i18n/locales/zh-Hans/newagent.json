@@ -34,5 +34,20 @@
   "worktree_hint": "给它单独开一个分支和检出：Agent 在那里改代码，这个文件夹不受影响。",
   "worktree_branch": "分支",
   "worktree_path": "检出到 {path}",
-  "worktree_failed": "没能建 worktree：{error}"
+  "worktree_failed": "没能建 worktree：{error}",
+  "how_to_fix": "怎么修好",
+  "how_to_fix_named": "怎么修好 {name}",
+  "runs_this_time": "本次使用",
+  "blocked_terminal_body": "Persona 是在这台电脑的登录 shell 里找到「{name}」的，但新开的终端标签页运行的 shell 里没有它：可能是另一种 shell、在容器里，或者启动文件提前返回了。新的 Agent 就是在这些标签页里启动的。",
+  "blocked_terminal_fix_rc": "在终端的 shell 会读到的启动文件里定义它（bash 是 ~/.bashrc），然后再启动一次。",
+  "blocked_terminal_fix_provider": "或者在 Persona 里把它添加为模型供应商：这样在任何终端里都能用。",
+  "blocked_terminal_clears": "用它成功启动一次，这条提示就会消失；否则 6 小时后自动消失。",
+  "blocked_other_body": "它在这台电脑上最近一次检查失败了，自动修复也没修好。",
+  "blocked_other_fix": "到那台电脑上修好它的 Key、网关或命令行工具，或者换一个启动器。",
+  "blocked_other_clears": "用它检查或启动成功一次，这条提示就会消失。",
+  "details": "详情",
+  "add_provider": "添加模型供应商",
+  "try_anyway": "仍然使用",
+  "close_help": "关闭",
+  "forget_failed": "没能忘记「{id}」：{error}"
 }

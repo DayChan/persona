@@ -9,6 +9,7 @@
   "session": "Session",
   "continue_text": "Continue",
   "start_failed": "Couldn't start: {error}",
+  "start_failed_title": "Couldn't start",
   "starting_agent": "Starting the agent",
   "loading_earlier": "Loading earlier messages",
   "started_in": "Started in {path}",

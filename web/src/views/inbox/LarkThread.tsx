@@ -8,6 +8,7 @@
 import { chooseManager, ItemManager, noteConversation, otherManager, ownerHeaders, useItemManager, withManager } from "../../lib/manager-choice";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, enc, errorText, getToken } from "../../lib/api";
+import { startConversation } from "../../lib/assistant-start";
 import { clock } from "../../lib/format";
 import {
   cardText, comparePosition, emojiLabel, isDone, mergeMessages, partRuns, withToken, type InboxItem, type LarkMessage,
@@ -30,7 +31,6 @@ import { isResumed } from "../../lib/reconnect";
 import { navigate } from "../../lib/router";
 import { getState, onHubEvent, useStore } from "../../lib/store";
 import { isForeignCached, requestTranslation, translatesChat, translationOf, useTranslatePrefs, useTranslations } from "../../lib/translate";
-import type { Session } from "../../lib/types";
 import { t } from "../../i18n";
 import { Button, cx, Dialog, Loading, Spinner, toast } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
@@ -444,11 +444,7 @@ function LarkThreadBody({ chat, pinsOpen = false, onPinsOpen }: LarkThreadProps)
     toast(t("inbox-larkthread.summarizing"), "ok");
     try {
       // the chat's manager's Persona (the item's; a direct chat opened from a profile in it is the same one's)
-      const r = await api<{ session: Session }>("/assistant/conversations", {
-        method: "POST",
-        json: { prompt },
-        headers: ownerHeaders(manager),
-      });
+      const r = await startConversation({ prompt }, ownerHeaders(manager));
       // its requests (feed, stop…) go to that manager whatever the page shows later
       noteConversation(r.session.session_id, otherManager(manager));
       if (manager) chooseManager(manager);

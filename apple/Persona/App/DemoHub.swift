@@ -200,6 +200,7 @@ final class DemoHub {
             return .object(a)
         case ["model-config"]: return DemoModelCatalog.configuration(tasks: tasks, overrides: modelBindings)
         case ["assistant", "tasks"]: return ["tasks": .array(tasks)]
+        case ["assistant", "places"]: return ["places": .array([])] // Saved Places, empty in the demo
         case ["assistant", "runs"]:
             let runs = data["runs"]?.array ?? []
             return ["runs": .array(q["ref"].map { ref in runs.filter { $0["ref_id"]?.string == ref } } ?? runs)]

@@ -2877,8 +2877,8 @@ struct ChatView: View {
     /// shows the space's tabs (the selected one is this agent's; 2026-11-01 user request: it said it twice). Short of
     /// room the machine goes; the place always stays (cut short if it must), so the line keeps one shape whatever the state.
     private func devSubtitle(_ s: Session) -> some View {
-        TimelineView(.periodic(from: .now, by: 30)) { ctx in
-            let words = stateWords(s, now: ctx.date)
+        VisibleTimelineView(interval: 30) { now in
+            let words = stateWords(s, now: now)
             // Hosted (one agent's page, #3255) the line is status · machine · project: the tab's name would crowd the machine out.
             let tabShown = host != nil || !model.siblings(of: key).isEmpty
             let place = [s.spaceName, tabShown ? nil : s.slotLabel].compactMap { $0 }.joined(separator: " › ")
@@ -3705,10 +3705,20 @@ struct ChatSkeleton: View {
 struct StartingNote: View {
     var error: String?
     var agent: String
+    /// The node refused the start with a code (`Session.startErrorCode`, #1642): `error` is the hub's whole sentence in
+    /// the user's language, its remedy last, shown in full under Didn't Start rather than cut after three lines.
+    var coded = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            if let error {
+            if let error, coded {
+                ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
+                VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                    Text("Didn't Start").font(Theme.Font.secondaryStrong).lineLimit(1)
+                    Text(error).font(Theme.Font.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            } else if let error {
                 ThemedIcon(Theme.Icon.errorFilled).font(Theme.Font.labelStrong).foregroundStyle(Theme.danger)
                 Text("Didn't start: \(error) [Chat View 38dec8]").font(Theme.Font.secondary).foregroundStyle(.secondary).lineLimit(3)
             } else {
@@ -3947,6 +3957,8 @@ struct Composer: View, Equatable {
     @FocusState private var focused: Bool
     /// The 「+」 menu's Voice Chat where the page offers no call: why (docs/assistant/voice.md 1.3).
     @State private var voiceNote: VoiceUnavailableNote?
+    /// The model menu's "Other Model…" (#1644): a model ID typed by hand, through POST …/modes.
+    @State private var typingModel = false
 
     /// The voice call bound to this conversation, live or ended (docs/assistant/voice.md 6.2): the bar takes the box's place while
     /// it is on, and 「语音已结束 · 继续」 sits over the box after it ended by itself.
@@ -4131,7 +4143,7 @@ struct Composer: View, Equatable {
         let inCall = call.map { !$0.isOver } ?? false
         return VStack(spacing: Theme.Space.s) {
             if let s = model.session(key), s.starting == true || s.startError != nil {
-                StartingNote(error: s.startError, agent: s.agentLabel)
+                StartingNote(error: s.startError, agent: s.agentLabel, coded: s.startErrorCode?.isEmpty == false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if let s = model.session(key), let reason = s.attentionReason, !reason.isEmpty, s.state == .needsYou {
                 AttentionNote(reason: reason, link: s.externalLink)
@@ -4226,7 +4238,7 @@ struct Composer: View, Equatable {
                     if !shellChat { quickCommands } // an agent's, as its composer offered them before the shell's
                 } modes: {
                     SessionModesMenu(key: key, session: model.session(key), picksModel: canPickModel, setsModes: setsModes,
-                                     setsEffortOnly: setsEffortOnly)
+                                     setsEffortOnly: setsEffortOnly, otherModel: canPickModel ? { typingModel = true } : nil)
                 }
             } else if AppStyle.current.usesBeautifulUI {
                 // The BeautifulUI style's prompt bar; every other style keeps the original input line.
@@ -4238,9 +4250,15 @@ struct Composer: View, Equatable {
                                    + (VoicePlatform.current == .phone ? [PromptItems.voice] : []),
                                mentions: mentions,
                                commands: promptCommands,
-                               models: canPickModel ? PromptItems.claudeModels : [],
-                               modelID: PromptItems.claudeModelID(model.session(key)?.model),
-                               pickModel: { id in model.sendNow(key, text: "/model \(id)", images: []) }, // photos and quotes stay for the message
+                               models: canPickModel ? PromptItems.composerModels(running: model.session(key)?.model) : [],
+                               modelID: PromptItems.runningModelID(model.session(key)?.model),
+                               pickModel: { id in
+                                   switch PromptItems.modelPick(id, running: model.session(key)?.model) {
+                                   case .typeID: typingModel = true // #1644: through …/modes
+                                   case .keep: break
+                                   case .send(let text): model.sendNow(key, text: text, images: []) // photos and quotes stay for the message
+                                   }
+                               },
                                onAttach: { source in
                                    // A PhotosPicker cannot present from inside the menu: these sheets hang off the composer.
                                    switch source.id {
@@ -4428,6 +4446,7 @@ struct Composer: View, Equatable {
             GlassesCaptureSheet { img in add(img) }
         }
         #endif
+        .sheet(isPresented: $typingModel) { SessionTypedModelSheet(key: key, session: model.session(key)) }
         .onChange(of: picks) { _, items in
             guard !items.isEmpty else { return }
             Task { await load(items) }
@@ -5578,7 +5597,7 @@ struct WorkLine: View, Equatable {
                 ToolRunTitle(isOpen: open, isRunning: live) {
                     // Whole words, never cut: the full summary, or a shorter one when the row is narrow.
                     if live {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in summary(now: ctx.date) }
+                        VisibleTimelineView(interval: 1) { now in summary(now: now) }
                     } else {
                         summary(now: end ?? .now)
                     }
@@ -5610,7 +5629,7 @@ struct WorkLine: View, Equatable {
                         if live { ProgressView().controlSize(.mini).tint(Theme.busy) }
                         // Whole words, never cut: the full summary, or a shorter one when the row is narrow.
                         if live {
-                            TimelineView(.periodic(from: .now, by: 1)) { ctx in summary(now: ctx.date) }
+                            VisibleTimelineView(interval: 1) { now in summary(now: now) }
                         } else {
                             summary(now: end ?? .now)
                         }

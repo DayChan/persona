@@ -34,5 +34,20 @@
   "worktree_hint": "専用のブランチとチェックアウトを作ります。エージェントはそこでコードを変え、このフォルダはそのままです。",
   "worktree_branch": "ブランチ",
   "worktree_path": "チェックアウト先：{path}",
-  "worktree_failed": "worktree を作れませんでした：{error}"
+  "worktree_failed": "worktree を作れませんでした：{error}",
+  "how_to_fix": "直し方",
+  "how_to_fix_named": "{name} の直し方",
+  "runs_this_time": "今回使用",
+  "blocked_terminal_body": "Persona はこのコンピューターのログインシェルで「{name}」を見つけましたが、新しいターミナルタブで動くシェルにはありません（別のシェル、コンテナ、途中で終わる起動ファイルなど）。新しい Agent はこれらのタブで起動します。",
+  "blocked_terminal_fix_rc": "ターミナルのシェルが読む起動ファイル（bash なら ~/.bashrc）で定義してから、もう一度起動してください。",
+  "blocked_terminal_fix_provider": "または Persona にモデルプロバイダーとして追加してください。どのターミナルでも使えます。",
+  "blocked_terminal_clears": "これで起動に一度成功すると、この表示は消えます。そうでなければ 6 時間後に自動で消えます。",
+  "blocked_other_body": "このコンピューターでの最新のチェックに失敗し、自動修復でも直りませんでした。",
+  "blocked_other_fix": "そのコンピューターでキー、ゲートウェイ、CLI を直すか、別のランチャーを選んでください。",
+  "blocked_other_clears": "チェックか起動に一度成功すると、この表示は消えます。",
+  "details": "詳細",
+  "add_provider": "モデルプロバイダーを追加",
+  "try_anyway": "それでも使う",
+  "close_help": "閉じる",
+  "forget_failed": "「{id}」を削除できませんでした：{error}"
 }

@@ -16,7 +16,7 @@ import (
 
 // ---- the nodes ----
 
-// managedForNodes: the launchers added in Persona with their keys and headers, for the nodes (not the Responses ones).
+// managedForNodes: the launchers added in Persona with their keys and headers, for the nodes (only Messages direct API connections).
 func (s *Service) managedForNodes(ctx context.Context) ([]proto.ManagedLauncher, error) {
 	s.models.mu.Lock()
 	defer s.models.mu.Unlock()
@@ -48,7 +48,7 @@ func (s *Service) managedNodeCalls(ctx context.Context, machine string) []device
 func (s *Service) nodeLaunchers(stored []storedLauncher) ([]proto.ManagedLauncher, error) {
 	out := []proto.ManagedLauncher{}
 	for _, l := range stored {
-		if l.Kind == "api" && l.API == "responses" {
+		if l.Kind == "api" && !messagesAPI(l.API) {
 			continue
 		}
 		m, err := s.openStoredLauncher(l)

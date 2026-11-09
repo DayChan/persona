@@ -265,6 +265,10 @@ extension Theme {
 
         // MARK: Things
 
+        /// A saved place (Settings › Assistant › Saved Places) and a place a reminder goes off at.
+        static let place = "mappin.and.ellipse"
+        /// The phone's current location (Use Current Location).
+        static let currentLocation = "location"
         /// The phone's own health trends (steps, sleep, weight drawn from Apple Health, #3272).
         static let healthTrends = "chart.line.uptrend.xyaxis"
         /// Persona itself (the brand's four-point star).

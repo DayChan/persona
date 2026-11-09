@@ -745,9 +745,9 @@ const (
 // assistant launcher counts as not Claude Code) and whether it is there.
 func (s *Service) readinessLauncher(ctx context.Context, machine, launcher string) (string, int) {
 	// A managed launcher runs Claude Code through personad launch, and so does a direct API provider speaking Messages
-	// (its gateway, #2455); a Responses one cannot start Claude.
+	// (its gateway, #2455); other direct API protocols cannot start Claude.
 	if slices.ContainsFunc(s.storedLaunchers(ctx), func(l storedLauncher) bool {
-		return l.Name == launcher && !(l.Kind == "api" && l.API == "responses")
+		return l.Name == launcher && !(l.Kind == "api" && !messagesAPI(l.API))
 	}) {
 		return "", launcherThere
 	}

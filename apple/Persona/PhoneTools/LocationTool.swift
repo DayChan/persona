@@ -70,24 +70,47 @@ enum LocationTool {
             throw ToolFailure(.invalidArgument, "query is required")
         }
         let limit = ToolArgs.int(args, "limit", fallback: 5, min: 1, max: 10)
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = query
-        let items: [MKMapItem]
+        let found: [Found]
         do {
-            items = try await MKLocalSearch(request: request).start().mapItems
+            found = try await find(query, limit: limit)
         } catch {
             throw ToolFailure(.invalidArgument, "no place found for \"\(query)\": \(error.localizedDescription)")
         }
-        let places = items.prefix(limit).map { item -> JSONValue in
-            let place = item.placemark
-            return Output.object([
-                ("name", Output.opt(item.name)),
-                ("address", Output.opt(formatted(place))),
-                ("latitude", .number(place.coordinate.latitude)),
-                ("longitude", .number(place.coordinate.longitude)),
+        let places = found.map { f -> JSONValue in
+            Output.object([
+                ("name", Output.opt(f.name)),
+                ("address", Output.opt(f.address)),
+                ("latitude", .number(f.latitude)),
+                ("longitude", .number(f.longitude)),
             ])
         }
-        return Output.json(Output.object([("count", .number(Double(places.count))), ("places", .array(Array(places)))]))
+        return Output.json(Output.object([("count", .number(Double(places.count))), ("places", .array(places))]))
+    }
+
+    /// A place found by name or address: `phone_location_search`'s candidates and Settings › Saved Places' results.
+    nonisolated struct Found: Hashable, Sendable {
+        var name: String?
+        var address: String?
+        var latitude: Double
+        var longitude: Double
+    }
+
+    /// The places MapKit finds for `query`, at most `limit`.
+    static func find(_ query: String, limit: Int) async throws -> [Found] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        let items = try await MKLocalSearch(request: request).start().mapItems
+        return items.prefix(limit).map { item in
+            let place = item.placemark
+            return Found(name: item.name, address: formatted(place),
+                         latitude: place.coordinate.latitude, longitude: place.coordinate.longitude)
+        }
+    }
+
+    /// The address of `location`, written like a search result's; nil when it can't be told (offline, nothing there).
+    static func address(of location: CLLocation) async -> String? {
+        guard let place = try? await CLGeocoder().reverseGeocodeLocation(location).first else { return nil }
+        return formatted(place)
     }
 
     private static func reverseGeocode(_ location: CLLocation) async -> JSONValue? {

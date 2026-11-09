@@ -42,7 +42,7 @@ export const unsupported = (why: string) => new ExtError(why, "unsupported");
 export type Handler = (method: string, params: any) => unknown | Promise<unknown>;
 
 /** Original request params, before Number rounding. Missing params and JSON null stay distinct.
- * This view covers inbound namespace RPC requests only, not replies, events or serialization. */
+ * This view covers opted-in namespace and initialization RPC requests, not replies, events or serialization. */
 export interface ExactCall {
   readonly rawParams: string | undefined;
   readonly params: ExactJSON | undefined;
@@ -106,6 +106,32 @@ export interface Program {
   shortcuts?: Record<string, (req: ShortcutRequest) => wire.ShortcutResult | void | Promise<wire.ShortcutResult | void>>;
   /** If set, served on the hub's socket (runtime.http in the manifest) by main(). */
   fetch?(req: Request): Response | Promise<Response>;
+}
+
+/** Initialization RPC metadata; direct initializer calls have no raw frame and receive undefined. */
+export type ExactInitializer = (this: Program, init: Init, hub: Hub, call: ExactCall | undefined) => ReturnType<NonNullable<Program["init"]>>;
+const EXACT_INIT_KEY = "@persona/extension.exactInitParams";
+
+/** Opt initialization into exact params without changing the parsed Init, Hub or receiver.
+ * The symbol is resolved only when used, so importing unrelated SDK APIs has no new side effect. */
+export function withExactInit(handler: ExactInitializer): NonNullable<Program["init"]> {
+  const wrapped = function(this: Program, init: Init, hub: Hub, call?: ExactCall) {
+    return Reflect.apply(handler, this, [init, hub, call]);
+  };
+  Object.defineProperty(wrapped, Symbol.for(EXACT_INIT_KEY), { value: true });
+  return wrapped;
+}
+
+function initializeProgram(prog: Program, init: Init, hub: Hub, rawFrame: string): ReturnType<NonNullable<Program["init"]>> {
+  const handler = prog.init;
+  if (handler == null) return;
+  if (typeof handler !== "function") throw new TypeError("prog.init is not a function");
+  // Only the wrapper's own inert data marker opts in; inherited/getter markers do not.
+  if (Object.getOwnPropertyDescriptor(handler, Symbol.for(EXACT_INIT_KEY))?.value === true) {
+    const exact = ExactJSON.parse(rawFrame).field("params");
+    return Reflect.apply(handler, prog, [init, hub, Object.freeze({ rawParams: exact?.raw, params: exact })]);
+  }
+  return Reflect.apply(handler, prog, [init, hub]);
 }
 
 const kindOf = (v: unknown) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
@@ -260,7 +286,7 @@ export function connect(prog: Program, write: Write) {
       }
       if (!initialized) {
         const init: Init = { ...params, info: params.extension ?? params.plugin ?? { id: "", version: "" } };
-        initializing ??= Promise.resolve(prog.init?.(init, hub)).then((c) => {
+        initializing ??= Promise.resolve(initializeProgram(prog, init, hub, rawFrame)).then((c) => {
           // An empty map says nothing, as in the Go SDK: the answer leaves contributes out (all of it).
           contributes = c && Object.keys(c).length > 0 ? c : undefined;
           initialized = true;

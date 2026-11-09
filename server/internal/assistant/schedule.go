@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"sort"
@@ -122,6 +123,9 @@ const (
 
 // minEvery: an interval task runs at most this often (each run is a whole claude turn).
 const minEvery = 5
+
+// maxEvery: the longest interval, 7 days in minutes (checkTask); anything rarer is a one-off or a daily task.
+const maxEvery = 7 * 24 * 60
 
 // doneKeep: a once task that ran stays this long (hidden in the app), so a run re-scheduling itself keeps its
 // settings (scheduleOwn).
@@ -445,11 +449,15 @@ func nextRun(t Task, after time.Time, loc *time.Location) time.Time {
 	return time.Time{}
 }
 
-// relative reads "30m" / "2h" / "1d".
+// relative reads "30m" / "2h" / "1d". A negative day count, or one too large for a time.Duration (it wrapped around:
+// 213504d came out as 25 minutes), is not one.
 func relative(s string) (time.Duration, bool) {
 	s = strings.TrimSpace(s)
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		if d, err := strconv.Atoi(n); err == nil {
+			if d < 0 || int64(d) > math.MaxInt64/int64(24*time.Hour) {
+				return 0, false
+			}
 			return time.Duration(d) * 24 * time.Hour, true
 		}
 	}
@@ -587,8 +595,9 @@ func (s *Service) toolScheduleFollowup(ctx context.Context, machine, sessionID s
 	every := 0
 	if a.Every != "" {
 		d, ok := relative(a.Every)
-		if !ok || d < minEvery*time.Minute {
-			return "", fmt.Errorf("every %q: use a duration of at least %dm, like 30m or 2h", a.Every, minEvery)
+		if !ok || d < minEvery*time.Minute || d > maxEvery*time.Minute {
+			// The app's range (checkTask): a longer interval saved here could not be saved again there, not even switched off.
+			return "", fmt.Errorf("every %q: use a duration from %dm to %dd, like 30m or 2h", a.Every, minEvery, maxEvery/(24*60))
 		}
 		every = int(d.Minutes())
 	}
@@ -713,7 +722,8 @@ func (s *Service) scheduleOwn(ctx context.Context, sessionID, title, rawPrompt, 
 		out = fmt.Sprintf("%s「%s」 already repeats (%s); next run %s (%s). Kept its prompt up to date. Don't schedule its next run yourself.",
 			t.ID, t.label(), ruleText(*t, loc), next.In(loc).Format("01-02 15:04 Mon"), until(next))
 	default:
-		if d, ok := relative(atArg); every == 0 && ok && d >= minEvery*time.Minute {
+		// Only within the app's range (checkTask); a longer one stays a one-off.
+		if d, ok := relative(atArg); every == 0 && ok && d >= minEvery*time.Minute && d <= maxEvery*time.Minute {
 			every = int(d.Minutes())
 		}
 		t.At, t.Enabled = at.UTC(), true
@@ -990,7 +1000,7 @@ func checkTask(t *Task, now time.Time) error {
 		}
 		t.Weekdays, t.At, t.EveryMinutes = days, time.Time{}, 0
 	case repeatInterval:
-		if t.EveryMinutes < minEvery || t.EveryMinutes > 7*24*60 {
+		if t.EveryMinutes < minEvery || t.EveryMinutes > maxEvery {
 			return i18n.Err("assistant-schedule.interval_range", i18n.Args{"min": minEvery})
 		}
 		if t.At.IsZero() {

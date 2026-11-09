@@ -25,9 +25,9 @@ final class TodoStore {
     private(set) var changingSpaces = false
     var error: String?
 
-    @ObservationIgnored private var reloading: Task<Void, Never>?
-    @ObservationIgnored private var reloadAgain = false
-    @ObservationIgnored private var reloadingGeneration = 0
+    @ObservationIgnored private let reads = CoalescedRefresh()
+    @ObservationIgnored private var mutationRevision = 0
+    @ObservationIgnored private var activeReadRevision: Int?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var lastPushed: [String: TodoItem]
     @ObservationIgnored private let cacheWriter: (@MainActor ([TodoItem]) -> Void)?
@@ -63,7 +63,10 @@ final class TodoStore {
 
     func forget() {
         generation += 1
+        reads.reset()
+        activeReadRevision = nil
         loading = false
+        changingSpaces = false
         todos = []
         error = nil
         isSupported = true
@@ -71,41 +74,39 @@ final class TodoStore {
         persist([])
     }
 
-    /// Requests arriving during a fetch share one follow-up fetch, so the latest event is not lost.
+    /// Automatic invalidations share in-flight reads, without adding delay to unclassified todo/feed hints.
+    /// The returned task covers this invalidation and at most one dirty follow-up, not an endless event pump.
     @discardableResult
     func reload(api: APIClient? = nil) -> Task<Void, Never> {
-        if let reloading, reloadingGeneration == generation {
-            reloadAgain = true
-            return reloading
-        }
-        let currentGeneration = generation
-        reloadingGeneration = currentGeneration
-        let task = Task {
-            repeat {
-                reloadAgain = false
-                await fetch(api: api)
-            } while reloadAgain && generation == currentGeneration
-            if generation == currentGeneration {
-                reloading = nil
-            }
-        }
-        reloading = task
-        return task
+        reads.invalidate { [self] in await fetch(api: api) }
     }
 
-    /// `api` is the client to read through (tests pass a fake hub's); the app reads the current hub connection.
+    /// Manual refresh shares an eligible read, without starting a parallel GET or adding delay.
     func refresh(api: APIClient? = nil) async {
-        await fetch(api: api)
+        let staleRead = activeReadRevision.map { $0 != mutationRevision } ?? false
+        await reads.refresh(afterCurrent: staleRead) { [self] in await fetch(api: api) }
+    }
+
+    private func confirmWrite(api: APIClient) async {
+        mutationRevision += 1
+        await reads.refresh(afterCurrent: true) { [self] in await fetch(api: api) }
     }
 
     private func fetch(api injected: APIClient? = nil) async {
         guard let api = injected ?? AppModel.shared.api else { return }
         let requestedGeneration = generation
+        let requestedRevision = mutationRevision
+        activeReadRevision = requestedRevision
         loading = true
-        defer { if generation == requestedGeneration { loading = false } }
+        defer {
+            if generation == requestedGeneration {
+                loading = false
+                activeReadRevision = nil
+            }
+        }
         do {
             let list = try await api.todos()
-            guard generation == requestedGeneration else { return }
+            guard generation == requestedGeneration, mutationRevision == requestedRevision, !Task.isCancelled else { return }
             isSupported = true
             spacesSupported = TodosLogic.supportsSpaces(list)
             apply(list)
@@ -115,13 +116,13 @@ final class TodoStore {
                 hubListChanged()
             }
         } catch let apiErr where TodosLogic.isOldHub(apiErr) {
-            guard generation == requestedGeneration else { return }
+            guard generation == requestedGeneration, mutationRevision == requestedRevision, !Task.isCancelled else { return }
             // Older hub without todos: hide entrance without error
             isSupported = false
             spacesSupported = false
             error = nil
         } catch {
-            guard generation == requestedGeneration else { return }
+            guard generation == requestedGeneration, mutationRevision == requestedRevision, !Task.isCancelled else { return }
             if let shown = error.shown { self.error = shown }
         }
     }
@@ -146,6 +147,7 @@ final class TodoStore {
         let targetGeneration = generation
         let created = try await api.createTodo(title: title, notes: notes)
         guard generation == targetGeneration else { return created }
+        mutationRevision += 1
         var updated = todos
         updated.insert(created, at: 0)
         apply(updated)
@@ -157,6 +159,7 @@ final class TodoStore {
         let targetGeneration = generation
         let res = try await api.updateTodo(id: id, title: title, notes: notes, done: done)
         guard generation == targetGeneration else { return res }
+        mutationRevision += 1
         var updated = todos
         if let idx = updated.firstIndex(where: { $0.id == id }) {
             updated[idx] = res
@@ -172,7 +175,8 @@ final class TodoStore {
         let targetGeneration = generation
         let newDone = !todo.isDone
         let original = todos
-        // Optimistic update
+        // Optimistic update; a read already in flight cannot replace it.
+        mutationRevision += 1
         var updated = todos
         if let idx = updated.firstIndex(where: { $0.id == todo.id }) {
             updated[idx].doneAt = newDone ? Date() : nil
@@ -184,6 +188,7 @@ final class TodoStore {
             } catch {
                 // Revert on failure: `todos` already holds the optimistic list, so put back the one saved before it.
                 guard generation == targetGeneration else { return }
+                mutationRevision += 1
                 apply(original)
                 AppModel.shared.show(error)
             }
@@ -195,6 +200,7 @@ final class TodoStore {
         let targetGeneration = generation
         try await api.deleteTodo(id: id)
         guard generation == targetGeneration else { return }
+        mutationRevision += 1
         var updated = todos
         updated.removeAll { $0.id == id }
         apply(updated)
@@ -207,12 +213,12 @@ final class TodoStore {
             try await api.linkTodoAgent(todoID: todoID, machineID: machineID, sessionID: sessionID)
         } catch {
             if generation == targetGeneration {
-                await fetch(api: injected)
+                await confirmWrite(api: api)
             }
             throw error
         }
         if generation == targetGeneration {
-            await fetch(api: injected)
+            await confirmWrite(api: api)
         }
     }
 
@@ -223,12 +229,12 @@ final class TodoStore {
             try await api.unlinkTodoAgent(todoID: todoID, machineID: machineID, sessionID: sessionID)
         } catch {
             if generation == targetGeneration {
-                await fetch(api: injected)
+                await confirmWrite(api: api)
             }
             throw error
         }
         if generation == targetGeneration {
-            await fetch(api: injected)
+            await confirmWrite(api: api)
         }
     }
 
@@ -239,7 +245,8 @@ final class TodoStore {
         guard let api = injected ?? AppModel.shared.api else { throw APIError(status: 0, message: String(localized: "Not connected to a hub [Todo Store 04f822]")) }
         let targetGeneration = generation
         changingSpaces = true
-        defer { changingSpaces = false }
+        defer { if generation == targetGeneration { changingSpaces = false } }
+        mutationRevision += 1
         let original = todos
         let via = "\(space.machineID)/\(space.space)"
         var optimistic = todos
@@ -261,10 +268,11 @@ final class TodoStore {
                 try await api.unlinkTodoSpace(todoID: todoID, machineID: space.machineID, space: space.space)
             }
             guard generation == targetGeneration else { return true }
-            await fetch(api: injected)
+            await confirmWrite(api: api)
             return true
         } catch {
             guard generation == targetGeneration else { throw error }
+            mutationRevision += 1
             apply(original)
             if TodosLogic.isLegacySpacesRoute(error) {
                 spacesSupported = false
@@ -274,7 +282,8 @@ final class TodoStore {
             }
             let message = error.shown
             self.error = message
-            await fetch(api: injected)
+            await confirmWrite(api: api)
+            guard generation == targetGeneration else { throw error }
             self.error = message
             throw error
         }

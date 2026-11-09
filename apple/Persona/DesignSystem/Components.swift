@@ -12,10 +12,14 @@ struct StatusDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The needs-you ring: one breath every `breath` seconds, out to `1 + breathScale` times the dot as it fades.
-    static let breath: TimeInterval = 1.0
-    static let breathScale: CGFloat = 1.2
+    static let breath = Theme.Motion.needsYouBreathDuration
+    static let breathScale = Theme.Motion.needsYouBreathScale
     static let ringWidth = Theme.Size.lineMedium
-    static let ringOpacity = 0.6
+    static let ringOpacity = Theme.Motion.needsYouRingOpacity
+
+    nonisolated static func showsBreathingRing(state: AgentState, reduceMotion: Bool) -> Bool {
+        state == .needsYou && !reduceMotion
+    }
 
     var body: some View {
         Group {
@@ -29,7 +33,7 @@ struct StatusDot: View {
                 StrokeShapeView(shape: Circle().scale(1.7), style: state.color.opacity(0.45),
                                 strokeStyle: StrokeStyle(lineWidth: 1.5 * 1.7), isAntialiased: true,
                                 background: Circle().fill(state.color))
-            } else if state == .needsYou, !reduceMotion {
+            } else if Self.showsBreathingRing(state: state, reduceMotion: reduceMotion) {
                 Circle().fill(state.color)
                     .overlay {
                         #if os(macOS)
@@ -38,16 +42,11 @@ struct StatusDot: View {
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                         #else
-                        // The clock drives the ring; a repeating state animation leaked into row layout changes.
-                        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-                            let p = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.breath) / Self.breath
-                            let eased = 1 - (1 - p) * (1 - p)
-                            Circle()
-                                .stroke(state.color.opacity(Self.ringOpacity), lineWidth: Self.ringWidth)
-                                .scaleEffect(1 + Self.breathScale * eased)
-                                .opacity(1 - eased)
+                        VisibleWork { eligible in
+                            BreathingRing(color: state.color.opacity(Self.ringOpacity), eligible: eligible)
                         }
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                         #endif
                     }
             } else {
@@ -121,6 +120,28 @@ struct AgentStateBadge: View {
             .overlay { BUIIcon(glyph, size: 13, lineWidth: 3.5).foregroundStyle(.white) }
             .frame(width: Theme.Size.badge, height: Theme.Size.badge)
             .accessibilityHidden(true)
+    }
+}
+
+/// A row's name and the chips that go with it: side by side; at the accessibility text sizes the chips on a line under
+/// the name. A `Chip` never gives up width, and beside one a narrow phone left the name a character or none (#1796).
+struct NameWithChips<Name: View, Chips: View>: View {
+    @ViewBuilder var name: Name
+    @ViewBuilder var chips: Chips
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                name
+                HStack(spacing: Theme.Space.sm) { chips }
+            }
+        } else {
+            HStack(spacing: Theme.Space.sm) {
+                name
+                chips
+            }
+        }
     }
 }
 

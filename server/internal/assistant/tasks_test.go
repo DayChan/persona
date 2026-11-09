@@ -24,10 +24,19 @@ import (
 // newTaskService is an assistant on a fake hub with machine box, whose task agents are followed at once.
 func newTaskService(t *testing.T) (*Service, *fakeHub) {
 	t.Helper()
+	return newTaskServiceOn(t, nil)
+}
+
+// newTaskServiceOn is newTaskService with st as its database (nil: none).
+func newTaskServiceOn(t *testing.T, st Store) (*Service, *fakeHub) {
+	t.Helper()
 	f := newFakeHub()
 	f.sessions["box"] = nil
 	f.settings = &Settings{Timezone: "Asia/Shanghai"}
-	return newStorelessService(t, f), f
+	if st == nil {
+		return newStorelessService(t, f), f
+	}
+	return newServiceOn(t, f, st), f
 }
 
 func planArgs(readonly bool) json.RawMessage {

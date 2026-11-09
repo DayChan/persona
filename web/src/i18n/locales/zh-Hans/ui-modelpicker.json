@@ -15,5 +15,11 @@
   "use_custom": "使用「{id}」",
   "use_custom_note": "列表里没有，按这个 ID 保存",
   "loading_slow": "正在向启动器读取模型列表，第一次要几秒…",
-  "no_match": "没有和「{query}」匹配的模型"
+  "no_match": "没有和「{query}」匹配的模型",
+  "typed": "手动输入的模型 ID",
+  "typed_before": "输入过的",
+  "forget": "忘记「{id}」",
+  "other": "其他模型…",
+  "enter_id": "输入模型 ID…",
+  "typed_note": "只用于这次新建；跑起来后会列在「输入过的」里。"
 }

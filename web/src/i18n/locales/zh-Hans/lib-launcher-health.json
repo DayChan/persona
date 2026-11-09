@@ -1,0 +1,10 @@
+{
+  "not_in_terminal": "这台电脑的终端里用不了",
+  "auth": "Key 或登录被拒绝了",
+  "model_route": "网关用不了这个模型",
+  "cli_outdated": "命令行工具版本太旧",
+  "timeout": "上次检查时没有响应",
+  "other": "在这台电脑上的上次检查没通过",
+  "title_terminal": "终端里用不了",
+  "title_failed": "这台电脑上用不了"
+}

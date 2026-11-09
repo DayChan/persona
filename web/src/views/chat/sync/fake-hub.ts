@@ -37,7 +37,7 @@ export interface Step {
   };
   frames?: Record<string, Record<string, unknown>[]>;
   socket?: { device: string; drop?: boolean; open?: { resumed: boolean } };
-  user?: { device: string; send?: { id: string; text: string }; answer?: { id: string; resolution: Record<string, unknown> }; retry?: string; discard?: string };
+  user?: { device: string; send?: { id: string; text: string }; start?: { id: string; text: string }; answer?: { id: string; resolution: Record<string, unknown> }; retry?: string; discard?: string };
   reply?: { device: string; write: string; status?: number; body?: unknown; cut?: boolean; done?: boolean; receipt?: { status: number; body: unknown } };
   wait?: number;
   hold?: { device: string; get: string };
@@ -64,7 +64,7 @@ export interface Request {
   after_seq?: number;
   ws?: string;
   since_seq?: number;
-  post?: "messages" | "resolve";
+  post?: "messages" | "resolve" | "conversations";
   id?: string;
   new_op?: boolean;
 }
@@ -75,8 +75,8 @@ export interface Seen {
   after_seq?: number;
   ws?: string;
   since_seq?: number;
-  post?: "messages" | "resolve";
-  key?: string; // the case's id for the write: a message's id, a card's id
+  post?: "messages" | "resolve" | "conversations";
+  key?: string; // the case's id for the write: a message's id, a card's id, a start's id
   op?: string;
 }
 
@@ -167,8 +167,10 @@ class Truth {
 
 type Deferred = { resolve: (r: Response) => void; reject: (e: unknown) => void };
 
+type WriteKind = "messages" | "resolve" | "conversations";
+
 interface HeldWrite extends Deferred {
-  kind: "messages" | "resolve";
+  kind: WriteKind;
   key: string;
   op: string;
 }
@@ -220,11 +222,25 @@ export class SyncHub {
   private lastCmid = new Map<string, string>(); // the case's message id → the client_msg_id its latest write had
   private texts = new Map<string, string>(); // the case's message id → its words
   private ops = new Map<string, Set<string>>(); // the case's id → the op ids its writes had
+  /** A `new` chat: whether the hub has carried out its start (until then it has no session, README "The story"). */
+  started: boolean;
+  private startId = ""; // the case's id for the start
 
   constructor(c: SyncCase, device: string) {
     this.c = c;
     this.device = device;
     this.truth = new Truth(c.start.hub);
+    this.started = !c.chat.new;
+  }
+
+  /** The session list: the chat's row once it exists. */
+  private rows() {
+    return this.started ? [this.truth.row(this.c.chat)] : [];
+  }
+
+  /** The start the case is about to make from the new-conversation page. */
+  expectStart(id: string) {
+    this.startId = id;
   }
 
   private get base() {
@@ -240,7 +256,7 @@ export class SyncHub {
     return this.ops.get(key) ?? new Set<string>();
   }
 
-  inFlight(kind: "messages" | "resolve", key: string) {
+  inFlight(kind: WriteKind, key: string) {
     return this.writes.some((w) => w.kind === kind && w.key === key);
   }
 
@@ -268,11 +284,11 @@ export class SyncHub {
     s.onopen?.();
     this.push({
       type: "hello", server_version: "test", client_id: "c-" + this.device, hub_id: "hub1", hub_name: "Hub",
-      features: ["client_msg_id", "client_ops", "send_refusals", "sessions_delta", "error_codes", "client_hello", "app_ping", "resumable_interactions"],
+      features: ["client_msg_id", "client_ops", "send_refusals", "sessions_delta", "error_codes", "client_hello", "app_ping", "resumable_interactions", "assistant_start_ops"],
       event_stream: this.truth.stream, event_seq: this.truth.seq, resumed,
     });
     this.push({ type: "machines", machines: [{ id: this.c.chat.machine_id, name: "Hub machine", online: true }] });
-    this.push({ type: "sessions", machine_id: this.c.chat.machine_id, sessions: [this.truth.row(this.c.chat)] });
+    this.push({ type: "sessions", machine_id: this.c.chat.machine_id, sessions: this.rows() });
     if (first) for (const ix of this.truth.pending) this.push({ type: "interaction", interaction: ix });
   }
 
@@ -326,7 +342,9 @@ export class SyncHub {
     const op = headers.get("X-Persona-Op-Id") ?? "";
     const q = url.searchParams;
     if (method === "GET") {
-      if (path === "/api/v1/sessions") return this.read("/sessions", () => ({ sessions: [this.truth.row(this.c.chat)] }));
+      if (path === "/api/v1/sessions") return this.read("/sessions", () => ({ sessions: this.rows() }));
+      // the assistant's page reads where its conversations run; a started chat is the one it opens
+      if (path === "/api/v1/assistant") return json({ machine_id: this.c.chat.machine_id, conversations: this.rows() });
       if (path === "/api/v1/interactions") return this.read("/interactions", () => ({ interactions: structuredClone(this.truth.pending) }));
       if (path === "/api/v1/machines") return json({ machines: [{ id: this.c.chat.machine_id, name: "Hub machine", online: true }] });
       if (path === `${this.base}/items`) {
@@ -363,6 +381,7 @@ export class SyncHub {
     }
     const resolve = path.match(/^\/api\/v1\/interactions\/([^/]+)\/resolve$/);
     if (method === "POST" && resolve) return this.write("resolve", decodeURIComponent(resolve[1]), op.toLowerCase());
+    if (method === "POST" && path === "/api/v1/assistant/conversations" && this.c.chat.new) return this.write("conversations", this.startId, op.toLowerCase());
     if (method === "POST" && path.endsWith("/seen")) return json({ ok: true });
     this.unknown.push(`${method} ${path}`);
     return json({});
@@ -379,7 +398,7 @@ export class SyncHub {
     return Promise.resolve(json(this.tie(answer())));
   }
 
-  private write(kind: "messages" | "resolve", key: string, op: string): Promise<Response> {
+  private write(kind: WriteKind, key: string, op: string): Promise<Response> {
     this.seen.push({ post: kind, key, op });
     const ops = this.ops.get(key) ?? new Set<string>();
     ops.add(op);
@@ -407,6 +426,11 @@ export class SyncHub {
     const done = r.done ?? (r.status !== undefined && r.status >= 200 && r.status < 300);
     if (done && r.receipt) for (const w of answering) this.receipts.set(w.op, r.receipt);
     else if (done && !r.cut && r.status) for (const w of answering) this.receipts.set(w.op, { status: r.status, body: r.body ?? {} });
+    // a start carried out: from now on the chat exists (one op id starts one conversation, README "Steps")
+    if (done && answering.some((w) => w.kind === "conversations")) {
+      this.started = true;
+      if (!this.truth.state) this.truth.state = "working";
+    }
     for (const w of answering) {
       if (r.cut) w.reject(new TypeError("Failed to fetch"));
       else w.resolve(json(r.body ?? {}, r.status ?? 200));

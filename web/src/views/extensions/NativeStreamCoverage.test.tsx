@@ -136,6 +136,25 @@ describe("independent native boundary regressions", () => {
     await replace("thumbnail", { type: "row", key: "thumbnail", title: "Synthetic thumbnail", thumbnail: { url: "https://example.com/ready.png" } });
     expect(node("thumbnail").querySelector<HTMLImageElement>("img")!.src).toBe("https://example.com/ready.png");
   });
+  it("constrains long streamed stat values without losing their full text", async () => {
+    const stats = (value: string): Component => ({ type: "stat_grid", key: "stats", stats: [
+      { label: "Open", value: "12.34" }, { label: "Previous", value: "12.00" },
+      { label: "Volume", value }, { label: "Range", value: "2.18%" },
+      { label: "Turnover", value: "0.31%" }, { label: "Ratio", value: "38.13" },
+    ] });
+    const value = "123456789.00 units";
+    await mount(tree([stats(value)]));
+    const displayed = [...node("stats").querySelectorAll<HTMLDivElement>("div")].find((el) => !el.children.length && el.textContent === value)!;
+    expect(displayed.parentElement!.classList.contains("min-w-0")).toBe(true);
+    expect(displayed.classList.contains("truncate")).toBe(true);
+    expect(displayed.title).toBe(value);
+    expect(node("stats").textContent).toContain("2.18%");
+    await replace("stats", stats(value + " updated"));
+    const updated = [...node("stats").querySelectorAll<HTMLDivElement>("div[title]")].find((el) => el.title === value + " updated")!;
+    expect(updated.textContent).toBe(value + " updated");
+    expect(updated.title).toBe(value + " updated");
+    expect(updated.classList.contains("truncate")).toBe(true);
+  });
   it("preserves native metric and stat tones", async () => {
     await mount(tree([{ type: "metric", key: "metric", label: "Warning", value: "0", tone: "danger" }, { type: "stat_grid", key: "stats", stats: [{ label: "Good", value: "0", tone: "positive" }, { label: "Watch", value: "0", tone: "caution" }] }]));
     expect(node("metric").querySelector(".text-red")).not.toBeNull();

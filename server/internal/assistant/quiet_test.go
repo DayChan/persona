@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,13 +17,19 @@ import (
 // delay and supervision messages (supervise_digest.go) that come at once and often.
 func newQuietService(t *testing.T) (*Service, *fakeHub) {
 	t.Helper()
+	return newQuietServiceOn(t, nil)
+}
+
+// newQuietServiceOn is newQuietService with st as its database (nil: none).
+func newQuietServiceOn(t *testing.T, st Store) (*Service, *fakeHub) {
+	t.Helper()
 	old := quietNoticeDelay
 	quietNoticeDelay = 30 * time.Millisecond
 	t.Cleanup(func() { quietNoticeDelay = old })
 	reachA, reachB, reachM := agentReachAttempts, agentReachBackoff, agentReachMax
 	agentReachAttempts, agentReachBackoff, agentReachMax = 2, time.Millisecond, 200*time.Millisecond
 	t.Cleanup(func() { agentReachAttempts, agentReachBackoff, agentReachMax = reachA, reachB, reachM })
-	s, f := newTaskService(t)
+	s, f := newTaskServiceOn(t, st)
 	shortSupervise(t, s)
 	f.hello.Assistant.MachineID = "server"
 	setSettings(t, s, func(v *Settings) { v.Main = "conv1" })
@@ -666,5 +673,73 @@ func TestReportingConversationTaskReviewMakesNoLedger(t *testing.T) {
 	now := todoNow(s, todo.ID)
 	if now.DoneAt == nil || now.DoneBy != db.DoneByReview || now.Supervision != nil {
 		t.Fatalf("after cancelled: %+v, supervision %+v", now, now.Supervision)
+	}
+}
+
+// A quiet task's notice for a busy main conversation whose relay queue can't be read is kept and tried again, not
+// dropped: it goes out once the queue reads again.
+func TestQuietNoticeKeptWhenRelayUnreadable(t *testing.T) {
+	st := &memStore{}
+	st.failKey(relayKey, errors.New("database hiccup"))
+	s, f := newQuietServiceOn(t, st)
+	busy := proto.Session{SessionID: "conv1", MachineID: "server", Assistant: true, Status: proto.StatusWorking}
+	f.setSessions("server", busy)
+	todo := Todo{ID: "t1", Title: "甲", Origin: "conv1", Quiet: true}
+	b := &s.quiet
+	b.mu.Lock()
+	b.pending = map[string]*quietNotice{todo.ID: {todo: todo, machine: "box", state: "done", text: "修好了"}}
+	b.mu.Unlock()
+
+	s.sendQuietNotice(todo.ID)
+	// It is tried again while the queue stays unreadable: between tries the notice waits.
+	waitFor(t, "the notice kept", func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return b.pending[todo.ID] != nil
+	})
+	if n := f.notices(); len(n) != 0 {
+		t.Fatalf("sent into a busy conversation: %q", n)
+	}
+
+	st.failKey(relayKey, nil)
+	waitFor(t, "the notice queued once the queue reads", func() bool { return s.queuedFor("conv1") == 1 })
+	idle := busy
+	idle.Status = proto.StatusIdle
+	f.setSessions("server", idle)
+	s.drainRelays("server", []proto.Session{idle})
+	waitFor(t, "the notice", func() bool { return len(f.notices()) == 1 })
+	if n := f.notices()[0]; !strings.Contains(n, "任务「甲」") || !strings.Contains(n, "修好了") {
+		t.Fatalf("notice:\n%s", n)
+	}
+	// Nothing is left to send it again: the notice no longer waits (a retry that fires finds nothing) and the queue
+	// is empty.
+	b.mu.Lock()
+	left := b.pending[todo.ID]
+	b.mu.Unlock()
+	if left != nil || s.queuedFor("conv1") != 0 {
+		t.Fatalf("after it went out: pending %+v, %d queued", left, s.queuedFor("conv1"))
+	}
+}
+
+// A notice that could not be queued while a newer change of its task waits folds into it: the newer one goes out and
+// says the earlier state.
+func TestQuietNoticeUnqueuedFoldsIntoANewerOne(t *testing.T) {
+	st := &memStore{}
+	st.failKey(relayKey, errors.New("database hiccup"))
+	s, _ := newQuietServiceOn(t, st)
+	todo := Todo{ID: "t1", Title: "甲", Origin: "conv1", Quiet: true}
+	newer := &quietNotice{todo: todo, state: "done"}
+	b := &s.quiet
+	b.mu.Lock()
+	b.pending = map[string]*quietNotice{todo.ID: newer}
+	b.mu.Unlock()
+	lost := &quietNotice{todo: todo, state: "needs", ask: "用哪个分支？"}
+	if s.queueNotice(todo.ID, lost, "conv1", relayMsg{From: todo.ID, Tool: noticeTool}) {
+		t.Fatal("queued with the relay queue unreadable")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n := b.pending[todo.ID]; n != newer || !slices.Equal(n.earlier, []string{noticeStates["needs"]}) {
+		t.Fatalf("pending = %+v; want the newer one, saying it waited", n)
 	}
 }

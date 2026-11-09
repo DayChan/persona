@@ -426,14 +426,49 @@ nonisolated struct Launcher: Codable, Identifiable, Hashable, Sendable {
     var agent: String? = nil
     /// An agent runtime's launcher that can run the Persona assistant (DSH's, docs/integrations/runtimes.md「助手」).
     var assistant: Bool? = nil
+    /// How its last check or start went on the computer the list is for (`GET …/machines/{id}/launchers`,
+    /// docs/server/launcher-health.md); nil: never checked, a failure too old to count, or an older hub.
+    var health: LauncherHealth? = nil
     var id: String { name }
     /// A Codex start sends its first message with it and waits for the thread Codex makes.
     var isCodex: Bool { agent == "codex" }
 
     enum CodingKeys: String, CodingKey {
-        case name, model, agent, assistant
+        case name, model, agent, assistant, health
         case baseURL = "base_url"
     }
+}
+
+nonisolated extension Launcher {
+    /// A health record this app cannot read is left out, never the launcher (the list is what New Agent starts from).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        agent = try c.decodeIfPresent(String.self, forKey: .agent)
+        assistant = try c.decodeIfPresent(Bool.self, forKey: .assistant)
+        health = (try? c.decodeIfPresent(LauncherHealth.self, forKey: .health)) ?? nil
+    }
+}
+
+/// A launcher's health on one computer (#1643): the hub's record of its latest check or Agent start there, within the
+/// hours a failure counts. `state` ok / failing / repairing / blocked; `kind` the failure's class (not_in_terminal,
+/// auth, model_route, cli_outdated, timeout, other); `error` the redacted raw text.
+nonisolated struct LauncherHealth: Codable, Hashable, Sendable {
+    var state: String
+    var kind: String? = nil
+    var error: String? = nil
+    var checkedAt: Date? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case state, kind, error
+        case checkedAt = "checked_at"
+    }
+
+    static let blockedState = "blocked"
+    /// A start's new terminal tab could not run the launcher or its claude, though the login shell can (#1642).
+    static let notInTerminalKind = "not_in_terminal"
 }
 
 extension Launcher {
@@ -456,6 +491,13 @@ nonisolated struct LauncherModels: Codable, Hashable, Sendable {
     var locked: String?
     /// Model Settings' list (#943): the machine whose CLI answered.
     var machine: String? = nil
+
+    /// The agent takes a model ID typed by hand (#1644): Claude Code's `--model` / `/model` and Codex's `--model` take any
+    /// string; the hub remembers typed IDs for these two only. Other agents' lists are empty (no model row).
+    static func takesTypedModel(agent: String) -> Bool { agent == "claude" || agent == "codex" }
+
+    /// A typed ID can reach the agent: one of those two, and the launcher does not pass its own --model.
+    var takesTypedModel: Bool { locked == nil && Self.takesTypedModel(agent: agent) }
 }
 
 nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
@@ -470,14 +512,17 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
     /// The thinking efforts it takes, weakest first; nil or empty: none.
     var efforts: [String]?
     var defaultEffort: String?
+    /// An ID the user typed before that ran, remembered on the hub for this computer and launcher (#1644); listed after
+    /// the agent's own, most recent first, with no efforts (not known). It can be forgotten.
+    var custom = false
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, resolved, efforts
+        case id, name, description, resolved, efforts, custom
         case isDefault = "default", defaultEffort = "default_effort"
     }
 
     init(id: String, name: String, description: String? = nil, resolved: String? = nil, isDefault: Bool = false,
-         efforts: [String]? = nil, defaultEffort: String? = nil) {
+         efforts: [String]? = nil, defaultEffort: String? = nil, custom: Bool = false) {
         self.id = id
         self.name = name
         self.description = description
@@ -485,6 +530,7 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
         self.isDefault = isDefault
         self.efforts = efforts
         self.defaultEffort = defaultEffort
+        self.custom = custom
     }
 
     init(from decoder: Decoder) throws {
@@ -496,6 +542,7 @@ nonisolated struct AgentModel: Codable, Hashable, Sendable, Identifiable {
         isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         efforts = try c.decodeIfPresent([String].self, forKey: .efforts)
         defaultEffort = try c.decodeIfPresent(String.self, forKey: .defaultEffort)
+        custom = try c.decodeIfPresent(Bool.self, forKey: .custom) ?? false
     }
 }
 
@@ -687,6 +734,11 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
     var starting: Bool? = nil
     /// Starting it failed (shown in the chat; sends get the same error).
     var startError: String? = nil
+    /// The node refused the start with a code (launcher_missing / claude_missing in the new tab's shell, #1642): then
+    /// `startError` is the hub's whole sentence for it, in the user's language, its remedy last. Nil from older hubs.
+    var startErrorCode: String? = nil
+    /// The refusal's details as strings (launcher, where, missing, pane_shell…).
+    var startErrorArgs: [String: String]? = nil
     /// The todo this session is linked to, filled by the hub (docs/protocol/protocol.md).
     var todo: SessionTodoRef? = nil
     /// It works for a task the main conversation started while Settings › Assistant › Notify Main-Chat Tasks Only in the Main Chat was on (#1731):
@@ -855,7 +907,7 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
              spaceKind = "space_kind", spaceID = "space_id", spaceName = "space_name", spaceIndex = "space_index", parentSpaceID = "parent_space_id",
              slotID = "slot_id", slotName = "slot_name", slotIndex = "slot_index", paneIndex = "pane_index", seenAt = "seen_at", stateSince = "state_since", queued, background, loop, goal, subagents, workflows, ports,
              updatedAt = "updated_at", lastText = "last_text", asks, awaitsReply = "awaits_reply", backgroundWaiting = "background_waiting", activity, activityAt = "activity_at", pendingInteractions = "pending_interactions", rev, suggestion,
-             starting, startError = "start_error", todo, quiet, hubGroup = "app_hub_group",
+             starting, startError = "start_error", startErrorCode = "start_error_code", startErrorArgs = "start_error_args", todo, quiet, hubGroup = "app_hub_group",
              attentionReason = "attention_reason", failureReason = "failure_reason",
              turnError = "turn_error", turnErrorKind = "turn_error_kind", turnErrorCode = "turn_error_code", externalURL = "external_url", channels, origin, compaction, work,
              runtime, runtimeFallback = "runtime_fallback", manager
@@ -943,6 +995,8 @@ nonisolated struct Session: Codable, Identifiable, Hashable, Sendable {
         suggestion = try c.decodeIfPresent(String.self, forKey: .suggestion)
         starting = try c.decodeIfPresent(Bool.self, forKey: .starting)
         startError = try c.decodeIfPresent(String.self, forKey: .startError)
+        startErrorCode = try? c.decodeIfPresent(String.self, forKey: .startErrorCode)
+        startErrorArgs = try? c.decodeIfPresent([String: String].self, forKey: .startErrorArgs)
         todo = try c.decodeIfPresent(SessionTodoRef.self, forKey: .todo)
         quiet = try c.decodeIfPresent(Bool.self, forKey: .quiet) ?? false
         attentionReason = try c.decodeIfPresent(String.self, forKey: .attentionReason)

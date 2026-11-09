@@ -84,9 +84,17 @@ nonisolated enum SessionModes {
         }
     }
 
-    /// What applying a model pick sends: the alias, unless the session already runs it.
+    /// The launcher whose /model list and typed IDs a session's switch offers: the session's own, plain claude when it
+    /// started without one (the web's `sessionLauncher`).
+    static func launcher(_ s: Session?) -> String {
+        guard let l = s?.launcher, !l.isEmpty else { return "claude" }
+        return l
+    }
+
+    /// What applying a model pick sends: the alias, unless the session already runs it (Default too, while it runs a
+    /// typed ID: that is not the default, #1644).
     @MainActor static func modelPatch(_ picked: String, current: String?) -> String? {
-        picked == PromptItems.claudeModelID(current) ? nil : picked
+        picked == PromptItems.runningModelID(current) ? nil : picked
     }
 
     static func modeTint(_ id: String?) -> Color {
@@ -165,6 +173,8 @@ struct SessionModeBar: View {
     let key: SessionKey
     var session: Session?
     @State private var changing = false
+    /// "Other Model…": a model ID typed by hand (#1644).
+    @State private var typingModel = false
 
     var body: some View {
         #if DEBUG || PERF_SIGNPOST
@@ -203,13 +213,17 @@ struct SessionModeBar: View {
                 if SessionModes.switchesModel(session) {
                     let busy = SessionModes.modelBusy(session)
                     Section("Model [Assistant View c98e11]") {
-                        Picker("Model [Assistant View c98e11]", selection: Binding(get: { PromptItems.claudeModelID(session?.model) }, set: { id in change(model: id) })) {
-                            ForEach(PromptItems.claudeModels, id: \.id) { m in
+                        // A typed model (#1644) is a row of its own, by its ID: no alias is ticked for it.
+                        Picker("Model [Assistant View c98e11]", selection: Binding(get: { PromptItems.runningModelID(session?.model) }, set: { id in change(model: id) })) {
+                            ForEach(PromptItems.runningModels(session?.model), id: \.id) { m in
                                 Text(m.name).tag(m.id)
                             }
                         }
                         .pickerStyle(.inline)
                         .disabled(busy != nil)
+                        Button { typingModel = true } label: { Label("Other Model…", systemImage: Theme.Icon.keyboard) }
+                            .disabled(busy != nil)
+                            .accessibilityIdentifier("sessionModes.otherModel")
                         // A menu draws no section footers: the note is a row of its own (not tappable).
                         Text(busy ?? String(localized: "The model you pick also becomes the default for new sessions"))
                     }
@@ -226,6 +240,7 @@ struct SessionModeBar: View {
         }
         .disabled(changing)
         .animation(Theme.Motion.standard, value: changing)
+        .sheet(isPresented: $typingModel) { SessionTypedModelSheet(key: key, session: session) }
     }
 
     /// The effort chip read out, with ", ultracode on" while it carries the mark (#1307).
@@ -269,6 +284,8 @@ struct SessionModesMenu: View {
     var setsModes = true
     /// Only the effort can change, among the session's own levels (a Codex thread on its app-server, `Session.setsEffortOnly`).
     var setsEffortOnly = false
+    /// "Other Model…" where a model can be picked: the composer opens `SessionTypedModelSheet` (#1644).
+    var otherModel: (() -> Void)? = nil
 
     /// The button's title for this conversation; the effort carries the workflow mark while ultracode is on (#1307).
     static func title(_ session: Session?, setsModes: Bool) -> SessionModes.ComposerTitle? {
@@ -288,15 +305,25 @@ struct SessionModesMenu: View {
         }
         Section("Model [Assistant View c98e11]") {
             if picksModel {
-                Picker("Model [Assistant View c98e11]", selection: Binding(get: { PromptItems.claudeModelID(session?.model) }, set: { id in
-                    guard id != PromptItems.claudeModelID(session?.model) else { return }
-                    model.sendNow(key, text: "/model \(id)", images: []) // photos and quotes stay for the message
+                // A typed model (#1644) is a row of its own, by its ID: no alias is ticked for it, and Default switches back.
+                Picker("Model [Assistant View c98e11]", selection: Binding(get: { PromptItems.runningModelID(session?.model) }, set: { id in
+                    guard case .send(let text) = PromptItems.modelPick(id, running: session?.model) else { return }
+                    model.sendNow(key, text: text, images: []) // photos and quotes stay for the message
                 })) {
-                    ForEach(PromptItems.claudeModels, id: \.id) { m in
+                    ForEach(PromptItems.runningModels(session?.model), id: \.id) { m in
                         Text(m.name).tag(m.id)
                     }
                 }
                 .pickerStyle(.inline)
+                if let otherModel {
+                    // Goes through POST …/modes (the node's checks), not a typed `/model` message.
+                    let busy = SessionModes.modelBusy(session)
+                    Button(action: otherModel) {
+                        Label { Text("Other Model…"); if let busy { Text(busy) } } icon: { ThemedIcon(Theme.Icon.keyboard) }
+                    }
+                    .disabled(busy != nil)
+                    .accessibilityIdentifier("sessionModes.otherModel")
+                }
             } else {
                 Text(SessionModes.modelName(session?.model) ?? String(localized: "Unknown model")) // what it runs; changed where it was started
             }
@@ -331,6 +358,22 @@ struct SessionModesMenu: View {
     private func change(mode: String? = nil, effort: String? = nil) {
         guard mode != session?.permissionMode || effort != session?.effort else { return }
         Task { await model.setModes(key, permissionMode: mode, effort: effort) }
+    }
+}
+
+/// "Other Model…" for a running Claude Code session (#1644): a model ID typed by hand, with the IDs typed before for its
+/// launcher on that computer, goes through POST …/modes (the node types `/model <id>` behind its own checks), never as a
+/// message.
+struct SessionTypedModelSheet: View {
+    @Environment(AppModel.self) private var model
+    let key: SessionKey
+    var session: Session?
+
+    var body: some View {
+        TypedModelSheet(machine: key.machineRef, launcher: SessionModes.launcher(session), initial: PromptItems.unlistedModel(session?.model) ?? "",
+                        note: String(localized: "The model you pick also becomes the default for new sessions")) { id in
+            Task { await model.setModes(key, model: id) }
+        }
     }
 }
 

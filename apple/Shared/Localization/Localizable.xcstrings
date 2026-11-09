@@ -1,6 +1,282 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "A check or start with it that works clears this.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A check or start with it that works clears this."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックか起動に一度成功すると、この表示は消えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用它检查或启动成功一次，这条提示就会消失。"
+          }
+        }
+      }
+    },
+    "A model ID can't contain line breaks or control characters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model ID can't contain line breaks or control characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDに改行や制御文字は使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有换行或控制字符"
+          }
+        }
+      }
+    },
+    "A model ID can't contain spaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model ID can't contain spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDにスペースは使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有空格"
+          }
+        }
+      }
+    },
+    "A model the list doesn't show, by its ID, such as one your gateway serves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A model the list doesn't show, by its ID, such as one your gateway serves."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストにないモデルもIDで指定できます（ゲートウェイのモデルなど）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表里没有的模型可以直接输入 ID，比如网关提供的模型。"
+          }
+        }
+      }
+    },
+    "A start with it that works clears this; otherwise it clears by itself after 6 hours.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A start with it that works clears this; otherwise it clears by itself after 6 hours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これで起動に一度成功すると、この表示は消えます。そうでなければ 6 時間後に自動で消えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用它成功启动一次，这条提示就会消失；否则 6 小时后自动消失。"
+          }
+        }
+      }
+    },
+    "Couldn't forget “%@”: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't forget “%1$@”: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」を削除できませんでした：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能忘记「%1$@」：%2$@"
+          }
+        }
+      }
+    },
+    "Define it in a startup file the terminal's shell reads (for bash, ~/.bashrc), then start again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define it in a startup file the terminal's shell reads (for bash, ~/.bashrc), then start again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのシェルが読む起動ファイル（bash なら ~/.bashrc）で定義してから、もう一度起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端的 shell 会读到的启动文件里定义它（bash 是 ~/.bashrc），然后再启动一次。"
+          }
+        }
+      }
+    },
+    "Didn't answer in its last check": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Didn't answer in its last check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のチェックで応答がありませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次检查时没有响应"
+          }
+        }
+      }
+    },
+    "Enter Model ID…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Model ID…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを入力…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入模型 ID…"
+          }
+        }
+      }
+    },
+    "Enter a model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを入力してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入模型 ID"
+          }
+        }
+      }
+    },
+    "Failed its last check on this computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed its last check on this computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピューターでの前回のチェックに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台电脑上的上次检查没通过"
+          }
+        }
+      }
+    },
+    "Fix its key, gateway or CLI on that computer, or pick another launcher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix its key, gateway or CLI on that computer, or pick another launcher."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのコンピューターでキー、ゲートウェイ、CLI を直すか、別のランチャーを選んでください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到那台电脑上修好它的 Key、网关或命令行工具，或者换一个启动器。"
+          }
+        }
+      }
+    },
     "Folded [Chat Layout]": {
       "localizations": {
         "en": {
@@ -19,6 +295,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "折叠"
+          }
+        }
+      }
+    },
+    "Forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘记"
           }
         }
       }
@@ -67,6 +366,121 @@
         }
       }
     },
+    "Its CLI is too old": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its CLI is too old"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI のバージョンが古すぎます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令行工具版本太旧"
+          }
+        }
+      }
+    },
+    "Its gateway can't use this model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its gateway can't use this model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイがこのモデルを使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关用不了这个模型"
+          }
+        }
+      }
+    },
+    "Its key or sign-in was rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its key or sign-in was rejected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーまたはサインインが拒否されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key 或登录被拒绝了"
+          }
+        }
+      }
+    },
+    "Its latest check on this computer failed, and automatic repair didn't fix it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its latest check on this computer failed, and automatic repair didn't fix it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピューターでの最新のチェックに失敗し、自動修復でも直りませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在这台电脑上最近一次检查失败了，自动修复也没修好。"
+          }
+        }
+      }
+    },
+    "Letters, digits and . _ - / : @ [ ], starting with a letter or digit; a gateway's latest alias can start with ~.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letters, digits and . _ - / : @ [ ], starting with a letter or digit; a gateway's latest alias can start with ~."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英数字と . _ - / : @ [ ] が使え、英字か数字で始めます。ゲートウェイの latest エイリアスは ~ で始められます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母、数字和 . _ - / : @ [ ]，以字母或数字开头；网关的 latest 别名可以用 ~ 开头。"
+          }
+        }
+      }
+    },
     "Lines Shown: %lld": {
       "localizations": {
         "en": {
@@ -111,6 +525,52 @@
         }
       }
     },
+    "Model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID"
+          }
+        }
+      }
+    },
+    "Model IDs you typed that ran on this computer. Swipe left on one to forget it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model IDs you typed that ran on this computer. Swipe left on one to forget it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータで入力して実行したモデルIDです。左にスワイプすると削除できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台电脑上输入并跑起来过的模型 ID。向左滑动可以忘掉。"
+          }
+        }
+      }
+    },
     "New Conversation Layout": {
       "localizations": {
         "en": {
@@ -129,6 +589,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "新对话布局"
+          }
+        }
+      }
+    },
+    "Not Available in the Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Available in the Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでは使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端里用不了"
+          }
+        }
+      }
+    },
+    "Not available in this computer's terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available in this computer's terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピューターのターミナルでは使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台电脑的终端里用不了"
+          }
+        }
+      }
+    },
+    "Not in the list; this start uses the ID as typed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in the list; this start uses the ID as typed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストにありません。今回の開始は入力どおりのIDを使います"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表里没有，这次新建按输入的 ID 用"
           }
         }
       }
@@ -173,6 +702,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "开"
+          }
+        }
+      }
+    },
+    "Or add it to Persona as a model provider: those work in any terminal.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or add it to Persona as a model provider: those work in any terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または Persona にモデルプロバイダーとして追加してください。どのターミナルでも使えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或者在 Persona 里把它添加为模型供应商：这样在任何终端里都能用。"
+          }
+        }
+      }
+    },
+    "Other Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のモデル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他模型"
+          }
+        }
+      }
+    },
+    "Other Model…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Model…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のモデル…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他模型…"
+          }
+        }
+      }
+    },
+    "Persona found “%@” in this computer's login shell, but the shell new terminal tabs run doesn't have it: another shell, a container, or a startup file that stops early. New agents start in those tabs.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona found “%1$@” in this computer's login shell, but the shell new terminal tabs run doesn't have it: another shell, a container, or a startup file that stops early. New agents start in those tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona はこのコンピューターのログインシェルで「%1$@」を見つけましたが、新しいターミナルタブで動くシェルにはありません（別のシェル、コンテナ、途中で終わる起動ファイルなど）。新しい Agent はこれらのタブで起動します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persona 是在这台电脑的登录 shell 里找到「%1$@」的，但新开的终端标签页运行的 shell 里没有它：可能是另一种 shell、在容器里，或者启动文件提前返回了。新的 Agent 就是在这些标签页里启动的。"
           }
         }
       }
@@ -239,6 +860,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示 %lld 行"
+          }
+        }
+      }
+    },
+    "Shows how to fix it": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows how to fix it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直し方を表示します"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看怎么修好"
+          }
+        }
+      }
+    },
+    "Start with a letter or digit (or ~ and then one)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start with a letter or digit (or ~ and then one)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英字か数字で始めてください（または ~ の後に英字か数字）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要以字母或数字开头（或 ~ 后接字母或数字）"
           }
         }
       }
@@ -376,6 +1043,259 @@
           "stringUnit": {
             "state": "translated",
             "value": "读不到这台电脑的设置：%1$@"
+          }
+        }
+      }
+    },
+    "This chat uses it from the next message.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat uses it from the next message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話では次のメッセージから使います。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个对话从下一条消息开始使用它。"
+          }
+        }
+      }
+    },
+    "Too long: at most %lld bytes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too long: at most %lld bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長すぎます：%lld バイトまで"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "太长了：最多 %lld 字节"
+          }
+        }
+      }
+    },
+    "Try Anyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Anyway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それでも使う"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然使用"
+          }
+        }
+      }
+    },
+    "Type a model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type a model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDを手入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入模型 ID"
+          }
+        }
+      }
+    },
+    "Typed Before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed Before"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前入力したもの"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入过的"
+          }
+        }
+      }
+    },
+    "Typed model ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed model ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手入力のモデルID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入的模型 ID"
+          }
+        }
+      }
+    },
+    "Typed model ID: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed model ID: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手入力のモデルID：%1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入的模型 ID：%1$@"
+          }
+        }
+      }
+    },
+    "Unavailable on This Computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable on This Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピューターでは使えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台电脑上用不了"
+          }
+        }
+      }
+    },
+    "Use Default Model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Default Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのモデルを使う"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改用默认模型"
+          }
+        }
+      }
+    },
+    "Use [Typed Model Sheet 5d2e7a]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        }
+      }
+    },
+    "Used for this start only. Once it runs, it's listed under Typed Before.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used for this start only. Once it runs, it's listed under Typed Before."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回の開始にだけ使います。実行されると「以前入力したもの」に表示されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只用于这次新建。跑起来后会列在「输入过的」里。"
           }
         }
       }
@@ -8377,6 +9297,42 @@
       },
       "extractionState" : "manual"
     },
+    "%lld places" : {
+      "comment" : "Saved places count",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld place"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld places"
+                }
+              }
+            }
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 件"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 个"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "%lld projects" : {
       "localizations" : {
         "en" : {
@@ -11630,6 +12586,29 @@
       },
       "extractionState" : "manual"
     },
+    "A reminder goes off when you cross this circle. Indoors your phone's location is often 50–100 m off, so a smaller circle can miss." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A reminder goes off when you cross this circle. Indoors your phone's location is often 50–100 m off, so a smaller circle can miss."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この円を出入りしたときにリマインダーが通知されます。屋内では位置が 50〜100 m ずれることが多いため、小さい円だと通知されないことがあります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进出这个圆圈时提醒会响。在室内，手机定位常有 50–100 米的偏差，圈太小可能会错过。"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "A terminal needs you" : {
       "localizations" : {
         "en" : {
@@ -12917,6 +13896,29 @@
           }
         }
       }
+    },
+    "Add home, the office and other places you go, so a reminder like “remind me to buy milk on the way home” goes off at the right spot." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add home, the office and other places you go, so a reminder like “remind me to buy milk on the way home” goes off at the right spot."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自宅や職場などよく行く場所を追加すると、「帰り道に牛乳を買うよう知らせて」のようなリマインダーが正しい場所で通知されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加家、公司和其他常去的地方，「回家路上提醒我买牛奶」这样的提醒就会在对的地方响。"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "Add item" : {
       "localizations" : {
@@ -15250,6 +16252,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请在系统设置中允许 Persona 使用麦克风"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Allow Persona to use your location in Settings › Privacy & Security › Location Services, or search for the address." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow Persona to use your location in Settings › Privacy & Security › Location Services, or search for the address."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「設定 › プライバシーとセキュリティ › 位置情報サービス」で Persona に位置情報の使用を許可するか、住所を検索してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在「设置 › 隐私与安全性 › 定位服务」里允许 Persona 使用你的位置，或者直接搜索地址。"
           }
         }
       },
@@ -21006,6 +22031,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "这个 Agent 在 Persona 建的 worktree 里干活"
+          }
+        }
+      }
+    },
+    "Without the list, a model can still be used by its ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Without the list, a model can still be used by its ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストがなくてもモデルIDで指定できます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有列表也可以直接输入模型 ID"
           }
         }
       }
@@ -33425,6 +34473,29 @@
       },
       "extractionState" : "manual"
     },
+    "Couldn't Load Saved Places" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Load Saved Places"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う場所を読み込めませんでした"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法加载常用地点"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Couldn't Load Scheduled Tasks" : {
       "localizations" : {
         "en" : {
@@ -34344,6 +35415,29 @@
           }
         }
       }
+    },
+    "Couldn't get your location. Try again outdoors, or search for the address." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't get your location. Try again outdoors, or search for the address."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在地を取得できませんでした。屋外でもう一度試すか、住所を検索してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没拿到你的位置。到室外再试一次，或者直接搜索地址。"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "Couldn't import: %@" : {
       "localizations" : {
@@ -38367,6 +39461,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除 hub 上已存的信息"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Delete Place" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Place"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "場所を削除"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除地点"
           }
         }
       },
@@ -50107,6 +51224,29 @@
           }
         }
       }
+    },
+    "Home, Office…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home, Office…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自宅、職場…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "家、公司…"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "Host" : {
       "localizations" : {
@@ -62966,6 +64106,29 @@
       },
       "extractionState" : "manual"
     },
+    "Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Name (leave empty for an automatic one)" : {
       "localizations" : {
         "zh-Hans" : {
@@ -64385,6 +65548,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新建 Persona 对话"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "New Place" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Place"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい場所"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新地点"
           }
         }
       },
@@ -66086,6 +67272,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "还没有运行过"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "No Saved Places" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Saved Places"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う場所はありません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有常用地点"
           }
         }
       },
@@ -67950,6 +69159,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "还没有 Pin 消息"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "No places found for “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No places found for “%1$@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」に一致する場所が見つかりません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有找到「%1$@」。"
           }
         }
       },
@@ -78656,6 +79888,29 @@
         }
       }
     },
+    "Persona uses these for reminders like “remind me to buy milk on the way home”. It adds a place here only after you confirm it in a chat." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persona uses these for reminders like “remind me to buy milk on the way home”. It adds a place here only after you confirm it in a chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persona はこれらの場所を「帰り道に牛乳を買うよう知らせて」のようなリマインダーに使います。チャットで確認した場所だけがここに追加されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persona 用这些地点做「回家路上提醒我买牛奶」这样的提醒。只有你在对话里确认过，它才会把地点加到这里。"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Persona will use %@ from the next message" : {
       "localizations" : {
         "en" : {
@@ -84801,6 +86056,29 @@
         }
       }
     },
+    "Reminder Radius" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reminder Radius"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知の範囲"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提醒范围"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Reminder [Add Todo Intent 357f8a]" : {
       "localizations" : {
         "en" : {
@@ -84865,6 +86143,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "提醒事项"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
+    "Reminders already set for this place keep going off where they are." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reminders already set for this place keep going off where they are."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この場所に設定済みのリマインダーは、元の位置で引き続き通知されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已经为这个地点设好的提醒，还会在原来的位置响。"
           }
         }
       },
@@ -89870,6 +91171,29 @@
       },
       "extractionState" : "manual"
     },
+    "Saved Places" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved Places"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う場所"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常用地点"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Saved environment will be cleared when you save" : {
       "localizations" : {
         "en" : {
@@ -90929,6 +92253,29 @@
           }
         }
       }
+    },
+    "Search for an Address or Place" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search for an Address or Place"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "住所や場所を検索"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索地址或地点"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "Search names or numbers" : {
       "localizations" : {
@@ -120039,6 +121386,29 @@
       },
       "extractionState" : "manual"
     },
+    "Use Current Location" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Current Location"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在地を使用"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用当前位置"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Use Launcher's" : {
       "localizations" : {
         "en" : {
@@ -123862,6 +125232,29 @@
           }
         }
       }
+    },
+    "What you call it in a chat, as in “remind me when I get home”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What you call it in a chat, as in “remind me when I get home”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットでの呼び方です。「家に着いたら知らせて」の「家」のように。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在对话里怎么叫它，比如「到家提醒我」里的「家」。"
+          }
+        }
+      },
+      "extractionState" : "manual"
     },
     "What you say goes to this chat" : {
       "localizations" : {
@@ -131171,6 +132564,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」已存在"
+          }
+        }
+      }
+    },
+    "“%@” can't be in a model ID. Use letters, digits and . _ - / : @ [ ]": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” can't be in a model ID. Use letters, digits and . _ - / : @ [ ]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルIDに「%1$@」は使えません。英数字と . _ - / : @ [ ] を使ってください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 ID 里不能有「%1$@」，只能用字母、数字和 . _ - / : @ [ ]"
           }
         }
       }

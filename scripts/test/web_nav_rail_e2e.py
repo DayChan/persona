@@ -31,6 +31,10 @@ QUESTIONS = 16  # the 15 of the history + the widget one
 WIDE = {"width": 1600, "height": 900}
 PHONE = {"width": 390, "height": 844}
 IDLE_FADE_MS = 2000
+# NavRail's `duration-200`: the idle class flips at IDLE_FADE_MS, then opacity eases to 0.35. A single read after a
+# fixed wait can land inside that ease (still near 1) and fail on a rail that does dim.
+FADE_MS = 200
+DIMMED = 0.35
 
 
 def ok(msg):
@@ -134,13 +138,26 @@ def case(browser, base, token, shots, base_url):
     ok("wide: the ticks are keyboard reachable (Shift+Tab / Enter) with the preview on focus")
     shot(page, shots, "rail-wide-light-focus")
 
-    # quiet for a while: the rail dims (and stays there, clickable) — with the pointer and the focus off it
+    # quiet for a while: the rail dims (and stays there, clickable) — with the pointer and the focus off it.
+    # Poll until the fade has settled. The bound covers the idle delay plus the opacity transition, with slack for
+    # the timer to arm; it returns as soon as the opacity is the dimmed value, so it does not sleep the whole bound.
     page.mouse.move(WIDE["width"] * 0.7, WIDE["height"] / 2)
     page.evaluate("document.querySelector('textarea')?.focus()")
-    page.wait_for_timeout(IDLE_FADE_MS + 700)
-    opacity = float(rail(page).evaluate("el => getComputedStyle(el).opacity"))
-    if not 0.25 <= opacity <= 0.45:
-        fail(f"the idle rail dims (opacity {opacity})")
+    seen = {"opacity": None}
+    # A smooth scroll can still be emitting after the jump looks landed, and each event restarts the 2s idle timer,
+    # so the bound is a full idle cycle past the fade — not a single sample. The loop returns as soon as it settles.
+    end = time.time() + (IDLE_FADE_MS + FADE_MS + IDLE_FADE_MS) / 1000 + 1.5
+
+    def dimmed():
+        seen["opacity"] = float(rail(page).evaluate("el => getComputedStyle(el).opacity"))
+        return abs(seen["opacity"] - DIMMED) <= 0.02
+
+    while time.time() < end:
+        if dimmed():
+            break
+        page.wait_for_timeout(50)
+    else:
+        fail(f"the idle rail dims (opacity {seen['opacity']})")
     ticks.nth(5).click()
     wait_for(page, lambda: near_top("第 6 个问题"), "a dimmed tick did not jump")
     ok("wide: the rail dims when idle and a dimmed tick still jumps")

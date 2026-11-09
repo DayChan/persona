@@ -8,26 +8,48 @@ struct AssistantAvatar: View {
         var title: String { String(localized: "Mochi") }
     }
 
-    @Environment(\.tabIsActive) private var inFront
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var size: CGFloat
     var design: Design = .mochi
     var state: PersonaState = .idle
     /// Hold still in Reduce Motion and Low Power Mode.
     var still = false
 
-    private var moving: Bool { !still && inFront && [.thinking, .working, .needsYou].contains(state) }
+    #if os(macOS)
+    @Environment(\.tabIsActive) private var inFront
+    #endif
+
+    private var held: Bool { still || reduceMotion }
+    private func moving(eligible: Bool) -> Bool {
+        !held && eligible && [.thinking, .working, .needsYou].contains(state)
+    }
 
     var body: some View {
         #if DEBUG || PERF_SIGNPOST
         let _ = PerfTrace.body("PersonaAvatar")
         #endif
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving)) { tl in
-            PersonaFace(size: size, design: PersonaFace.Design(rawValue: design.rawValue) ?? .mochi, state: state,
-                        time: tl.date.timeIntervalSinceReferenceDate, moving: moving,
-                        blink: still || !inFront ? nil : Theme.Motion.blink)
+        #if os(macOS)
+        // Preserve the Mac's existing continuous-animation branch.
+        TimelineView(.animation(minimumInterval: Theme.Motion.personaFrameInterval, paused: !moving(eligible: inFront))) { tl in
+            face(at: tl.date, eligible: inFront)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+        #else
+        VisibleWork { eligible in
+            TimelineView(VisiblePeriodicSchedule(interval: Theme.Motion.personaFrameInterval, paused: !moving(eligible: eligible))) { tl in
+                face(at: tl.date, eligible: eligible)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+        #endif
+    }
+
+    private func face(at date: Date, eligible: Bool) -> some View {
+        PersonaFace(size: size, design: PersonaFace.Design(rawValue: design.rawValue) ?? .mochi, state: state,
+                    time: date.timeIntervalSinceReferenceDate, moving: moving(eligible: eligible),
+                    blink: held || !eligible ? nil : Theme.Motion.blink)
     }
 }
 

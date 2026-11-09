@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -121,7 +122,9 @@ func (s *Service) sendQuietNotice(id string) {
 	}
 	c, ok := s.session(ctx, machine, to)
 	if !ok || c.Status == proto.StatusWorking || c.Starting || s.queuedFor(to) > 0 {
-		s.queueRelay(to, msg)
+		if !s.queueNotice(id, n, to, msg) {
+			return
+		}
 		s.publish(ctx) // shown waiting above the composer
 		if ok && c.Status != proto.StatusWorking && !c.Starting {
 			s.drainRelays(machine, []proto.Session{c})
@@ -130,9 +133,45 @@ func (s *Service) sendQuietNotice(id string) {
 	}
 	if err := s.deliverRelay(ctx, machine, to, msg); err != nil {
 		s.logf("task %s: quiet notice: %v; queued", id, err)
-		s.queueRelay(to, msg)
-		s.publish(ctx)
+		if s.queueNotice(id, n, to, msg) {
+			s.publish(ctx)
+		}
 	}
+}
+
+// queueNotice queues msg, task id's notice n, behind conversation to's turn. When the relay queue can't be read
+// nothing is queued (false): n waits again and is tried after quietNoticeDelay, as a first change is; a newer change
+// of the task that came meanwhile goes out in its place and says n's state among the earlier ones.
+func (s *Service) queueNotice(id string, n *quietNotice, to string, msg relayMsg) bool {
+	if s.queueRelay(to, msg) > 0 {
+		return true
+	}
+	b := &s.quiet
+	b.mu.Lock()
+	if b.pending == nil {
+		b.pending = map[string]*quietNotice{}
+	}
+	cur, newer := b.pending[id]
+	if newer {
+		earlier := slices.Clone(n.earlier)
+		if n.state != cur.state {
+			earlier = appendOnce(earlier, noticeStates[n.state])
+		}
+		for _, e := range cur.earlier {
+			earlier = appendOnce(earlier, e)
+		}
+		cur.earlier = earlier
+	} else {
+		b.pending[id] = n
+	}
+	b.mu.Unlock()
+	if newer {
+		s.logf("task %s: quiet notice: the relay queue can't be read; a newer one waits", id)
+		return false
+	}
+	s.logf("task %s: quiet notice: the relay queue can't be read; trying again in %s", id, quietNoticeDelay)
+	time.AfterFunc(quietNoticeDelay, func() { s.sendQuietNotice(id) })
+	return false
 }
 
 // renderNotice is n's text; reporting: for the reporting conversation that opened the task, not the main one.

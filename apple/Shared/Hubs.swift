@@ -337,6 +337,7 @@ nonisolated enum HubRoute {
     static let healthProbe: Probe = { config in
         var req = URLRequest(url: APIClient(config: config).url("/api/v1/health", direct: true), timeoutInterval: 3)
         req.httpMethod = "GET"
+        RequestClientMetadata.current.apply(to: &req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }

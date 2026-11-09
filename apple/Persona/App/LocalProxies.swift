@@ -397,6 +397,7 @@ final class LocalProxies {
         guard let local = forward.localURL, let url = Self.healthURL(hub: hub, via: local) else { throw LocalProxyCheck.notAHub(target) }
         var req = URLRequest(url: url, timeoutInterval: 10)
         req.httpMethod = "GET"
+        RequestClientMetadata.current.apply(to: &req)
         let data: Data, resp: URLResponse
         do {
             // A redirect is not followed: it would leave the proxy (an http port that sends to https).

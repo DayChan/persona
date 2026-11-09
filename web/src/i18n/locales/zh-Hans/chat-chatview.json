@@ -9,6 +9,7 @@
   "session": "会话",
   "continue_text": "继续",
   "start_failed": "启动失败：{error}",
+  "start_failed_title": "启动失败",
   "starting_agent": "正在启动 Agent",
   "loading_earlier": "加载更早的消息",
   "started_in": "在 {path} 开始",

@@ -123,13 +123,19 @@ func (s *Service) briefFeed(session, task, title string, f *briefFacts) {
 
 func (s *Service) briefRoutes() {
 	// POST /api/v1/later/{id}/handled: the Handled button of a question in a `brief` item's later list. It leaves the queue; a
-	// question already handled, dropped (its to-do ended, or 7 days) or unknown is 409.
+	// question already handled, dropped (its to-do ended, or 7 days) or unknown is 409. A queue that can't be read or
+	// written is 503, and the question stays.
 	s.handle("POST /api/v1/later/{id}/handled", func(w http.ResponseWriter, r *http.Request) {
 		if !fullRole(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot change the queue"))
 			return
 		}
-		if !s.laterHandled(r.Context(), r.PathValue("id"), time.Now()) {
+		ok, err := s.laterHandled(r.Context(), r.PathValue("id"), time.Now())
+		if err != nil {
+			apierr.Write(w, http.StatusServiceUnavailable, i18n.Err("http-status.unavailable"))
+			return
+		}
+		if !ok {
 			apierr.Write(w, http.StatusConflict, i18n.Err("assistant-feishu_cards.already_handled"))
 			return
 		}
@@ -138,7 +144,8 @@ func (s *Service) briefRoutes() {
 
 	// POST /api/v1/todos/{id}/accept {"asked_at"}: the Accept button of a `brief` item. It verifies the task when asked_at is
 	// the round that waits now; a button of an earlier round, or a task already verified, is 409. A decision whose
-	// recommendation could not be sent to the task's agent is 502, and nothing was taken (conclusion.go).
+	// recommendation could not be sent to the task's agent is 502, and asks that cannot be read or an acceptance that
+	// cannot be saved is 503; either way nothing was taken (conclusion.go, errAcceptStore).
 	s.handle("POST /api/v1/todos/{id}/accept", func(w http.ResponseWriter, r *http.Request) {
 		if !fullRole(r) {
 			apierr.Write(w, http.StatusForbidden, errors.New("read-only role cannot change todos"))
@@ -152,6 +159,10 @@ func (s *Service) briefRoutes() {
 			return
 		}
 		ok, err := s.acceptTryFromBrief(r.Context(), r.PathValue("id"), in.AskedAt)
+		if errors.Is(err, errAcceptStore) { // nothing accepted: the button works again once the store answers
+			apierr.Write(w, http.StatusServiceUnavailable, i18n.Err("http-status.unavailable"))
+			return
+		}
 		if err != nil { // a decision's recommendation that did not reach the agent: nothing taken, the button works again
 			apierr.Write(w, http.StatusBadGateway, errors.New(i18n.T(s.botLang(r.Context()), "assistant-reports.accept_not_sent",
 				i18n.Args{"error": clip(oneLine(err.Error()), 120)})))

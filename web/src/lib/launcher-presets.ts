@@ -4,7 +4,7 @@
 // another of its models; the hub fills in the name, the address, the kind and the rest.
 import { formatList, t } from "../i18n";
 import { api, ApiError } from "./api";
-import type { TestResult } from "./providers";
+import type { ProviderAPI, TestResult } from "./providers";
 
 export interface PresetModel {
   id: string;
@@ -17,7 +17,7 @@ export interface LauncherPreset {
   name: string;
   description?: string;
   kind: "launcher" | "api";
-  api?: "messages" | "responses";
+  api?: ProviderAPI;
   base_url: string;
   model?: string;
   small_model?: string;
@@ -130,7 +130,7 @@ export function presetBody(p: LauncherPreset, name: string, key: string, model: 
 
 /** Whether the preset uses a protocol supported by the connection test. */
 export function presetTestable(p: LauncherPreset): boolean {
-  return !p.api || p.api === "messages" || p.api === "responses";
+  return !p.api || p.api === "messages" || p.api === "responses" || p.api === "chat";
 }
 
 /** POST /api/v1/launchers/test's body for a preset: the hub fills in its address and, without one here, its default model. */

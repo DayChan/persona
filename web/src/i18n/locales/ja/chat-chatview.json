@@ -9,6 +9,7 @@
   "session": "セッション",
   "continue_text": "続けて",
   "start_failed": "起動できませんでした：{error}",
+  "start_failed_title": "起動できませんでした",
   "starting_agent": "エージェントを起動中",
   "loading_earlier": "以前のメッセージを読み込み中",
   "started_in": "{path}で開始",

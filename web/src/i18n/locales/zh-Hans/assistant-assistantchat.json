@@ -31,5 +31,10 @@
   "new_main": "新建主对话",
   "new_main_body": "现在的主对话会归档，改名为「{title}」，之后在「已归档」里能找到。新的主对话从你发的下一条消息开始。",
   "carry_summary": "带上旧对话的摘要",
-  "carry_summary_hint": "没压缩过的只带最近几条；想带完整摘要，可以先压缩上下文。"
+  "carry_summary_hint": "没压缩过的只带最近几条；想带完整摘要，可以先压缩上下文。",
+  "typed_before": "输入过的",
+  "other_model": "其他模型…",
+  "model_id_placeholder": "模型 ID，比如 vendor/model-name",
+  "forget_typed": "忘记输入过的模型",
+  "forget_failed": "没能忘记「{id}」：{error}"
 }

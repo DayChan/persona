@@ -114,7 +114,7 @@ type LauncherEnv struct {
 type ManagedLauncher struct {
 	Kind       string `json:"kind,omitempty"`  // launcher (default) or api
 	Agent      string `json:"agent,omitempty"` // claude (default), codex, or agy
-	API        string `json:"api,omitempty"`   // messages or responses for direct API providers
+	API        string `json:"api,omitempty"`   // messages, responses, or chat for direct API providers
 	Name       string `json:"name"`
 	BaseURL    string `json:"base_url"`
 	Model      string `json:"model"`

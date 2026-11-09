@@ -28,7 +28,7 @@ import (
 // toolNames are the tools only assistant conversations get; their descriptions and schemas are in prompts/mcp
 // (docs/assistant/prompts.md).
 var toolNames = []string{"ask_user", "notify_user", "schedule_followup", "schedule_routine", "delete_routine", "list_followups",
-	"cancel_followup", "machines_list", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
+	"cancel_followup", "list_places", "save_place", "machines_list", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
 	"kb_search", "kb_list", "kb_get", "kb_update", "persona_settings", "secret_run",
 	"model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback",
 	"conversations_list", "conversation_read", "conversation_rename", "conversation_archive", "conversation_unarchive",
@@ -115,6 +115,10 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolInteractionAnswer(ctx, self, args)
 	case "secret_run":
 		return s.toolSecretRun(ctx, machine, self, args) // secret_run.go
+	case "list_places":
+		return s.toolListPlaces(ctx) // places.go
+	case "save_place":
+		return s.toolSavePlace(ctx, args)
 	case "inbox_draft":
 		return s.toolInboxDraft(ctx, self, args)
 	case "inbox_suggest":

@@ -617,7 +617,7 @@ nonisolated extension APIClient {
     }
 
     private struct PlanResponse: Decodable { var plan: TaskPlan }
-    private struct TodosResponse: Decodable { var todos: [TodoItem] }
+    nonisolated private struct TodosResponse: Decodable, Sendable { var todos: [TodoItem] }
     private struct ItemResponse: Decodable { var item: FeedItem }
 
     /// A conversation's feed after `since` (nil: all of it), with the plans its `plan` items name.
@@ -629,7 +629,7 @@ nonisolated extension APIClient {
     }
 
     func todos() async throws -> [TodoItem] {
-        try await get("/api/v1/todos", as: TodosResponse.self).todos
+        try await getDecodedOffMain("/api/v1/todos", as: TodosResponse.self).todos
     }
 
     /// Starts an open plan; `edits` replace the fields the user changed (by index), `remember` lets this kind start

@@ -64,7 +64,7 @@ struct MachineSpacesView: View {
     }
 
     private func summary(_ m: Machine, sessions: [Session], spaces: Int) -> some View {
-        HStack(spacing: Theme.Space.m) {
+        CountsHeading(spacing: Theme.Space.m) {
             ThemedIcon(m.symbol)
                 .font(Theme.Font.title)
                 .foregroundStyle(m.online ? Theme.accent : .secondary)
@@ -79,7 +79,7 @@ struct MachineSpacesView: View {
                 // Two counts, two plural rules: localize each piece, join with a neutral separator.
                 Text(verbatim: "\(String(localized: "\(spaces) projects")) · \(String(localized: "\(sessions.count) agents"))").font(Theme.Font.label).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 4)
+        } counts: {
             StateCounts(group: SpaceGroup(id: "m-" + m.id, machineID: m.id, spaceID: "-", name: m.name, index: 0, sessions: sessions))
         }
         .padding(.vertical, Theme.Space.xxs)
@@ -109,12 +109,12 @@ private struct BusySpaceRow: View {
     var body: some View {
         let lead = group.sessions.min { ($0.state.priority, -($0.updatedAt ?? .distantPast).timeIntervalSince1970) < ($1.state.priority, -($1.updatedAt ?? .distantPast).timeIntervalSince1970) }
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            HStack(spacing: Theme.Space.s) {
+            CountsHeading {
                 ThemedIcon(Theme.Icon.spaceFilled).foregroundStyle(muted ? Color.secondary : group.state.color)
                 Text(group.name).font(Theme.Font.heading).lineLimit(1)
                 if pinned { ThemedIcon(Theme.Icon.pinned).font(Theme.Font.label).foregroundStyle(Theme.accent).accessibilityLabel("Pinned [Personal Agent List View fb47db]") }
                 if muted { ThemedIcon(Theme.Icon.muted).font(Theme.Font.label).foregroundStyle(.secondary).accessibilityLabel("Muted [Chats View b66705]") }
-                Spacer(minLength: 4)
+            } counts: {
                 StateCounts(group: group).opacity(muted ? 0.6 : 1)
             }
             if let lead {

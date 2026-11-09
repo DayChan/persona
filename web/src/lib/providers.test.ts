@@ -62,6 +62,20 @@ describe("formProblems", () => {
     // editing one that has a key: left empty keeps it
     expect(formProblems(ready({ api_key: "" }), false, true).connect).toBe("");
   });
+  it("ignores unsupported chat draft values without weakening other protocols' validation", () => {
+    const draft = ready({ kind: "api", api: "chat", headers: "invalid", headers_touched: true, proxy: "invalid", no_proxy: "example.com", env: "invalid", env_touched: true, timeout_ms: "bad", compact_window: "bad", max_context: "bad", effort: "high", opus_model: "tier-a", sonnet_model: "tier-b", haiku_model: "tier-c", fable_model: "tier-d", subagent_force: true });
+    expect(formProblems(draft, true).advanced).toBe("");
+    expect(formProblems({ ...draft, api: "responses" }, true).advanced).not.toBe("");
+    for (const body of [providerBody(draft, null), providerBody(draft, { name: "gw", kind: "api", api: "chat", model: "m1" }), probeBody(draft, null)]) {
+      expect(body).not.toHaveProperty("headers");
+      expect(body).not.toHaveProperty("proxy");
+      for (const key of ["no_proxy", "env", "timeout_ms", "compact_window", "max_context", "effort", "opus_model", "sonnet_model", "haiku_model", "fable_model", "subagent_force"]) expect(body).not.toHaveProperty(key);
+    }
+    const responses = providerBody({ ...draft, api: "responses" }, null);
+    expect(responses).toMatchObject({ headers: "invalid", proxy: "invalid", no_proxy: "example.com", opus_model: "tier-a", subagent_force: true });
+    const models = [formModel({ id: "m1", context_window: 16000, efforts: ["high"], default_effort: "high" })];
+    expect(providerBody({ ...draft, models }, null).models).toEqual([{ id: "m1", context_window: 16000, efforts: ["high"], default_effort: "high" }]);
+  });
   it("checks the models step", () => {
     expect(formProblems(ready({ model: "", models: [] }), true).models).toBe("至少勾选或添加一个模型");
     expect(formProblems(ready({ model: "" }), true).models).toBe("选一个默认模型");
@@ -69,6 +83,12 @@ describe("formProblems", () => {
     expect(formProblems(ready({ models: [formModel({ id: "m1" }), formModel({ id: "m1" })] }), true).models).toMatch(/重复/);
     expect(formProblems(ready({ models: [{ ...formModel({ id: "m1" }), context_window: "12k" }] }), true).models).toMatch(/上下文窗口/);
     expect(formProblems(ready({ models: [formModel({ id: "m1", efforts: ["low"], default_effort: "max" })] }), true).models).toMatch(/默认思考档位/);
+    const mismatch = ready({ kind: "api", api: "chat", models: [formModel({ id: "m1", efforts: ["low"], default_effort: "high" })] });
+    expect(formProblems(mismatch, true).models).toMatch(/默认思考档位/);
+    expect(formProblems({ ...mismatch, api: "messages" }, true).models).toMatch(/默认思考档位/);
+    expect(formProblems({ ...mismatch, api: "responses" }, true).models).toMatch(/默认思考档位/);
+    expect(providerBody(mismatch, null).models).toEqual([{ id: "m1", efforts: ["low"], default_effort: "high" }]);
+    expect(mismatch.models[0].efforts).toEqual(["low"]);
     // an unchecked duplicate does not count
     expect(formProblems(ready({ models: [formModel({ id: "m1" }), formModel({ id: "m1" }, false)] }), true).models).toBe("");
   });
@@ -111,9 +131,16 @@ describe("providerBody", () => {
     f.models[1] = { ...f.models[1], checked: false };
     expect(providerBody(f, stored).models).toEqual([{ id: "m1", context_window: 1000000, efforts: ["high", "max"], default_effort: "high" }]);
   });
-  it("direct API providers send no launcher-only fields", () => {
-    const b = providerBody(ready({ kind: "api", api: "responses", small_model: "s", args: "--x" }), null);
-    expect(b).toMatchObject({ kind: "api", api: "responses", small_model: "", args: [], auth: "api_key" });
+  it.each(["responses", "chat"] as const)("%s direct API providers send no launcher-only fields", (api) => {
+    const b = providerBody(ready({ kind: "api", api, small_model: "s", args: "--x" }), null);
+    expect(b).toMatchObject({ kind: "api", api, small_model: "", args: [], auth: "api_key" });
+  });
+  it("retains the protocol when editing and still requires a key for new chat providers", () => {
+    const old: ProviderView = { name: "chat", kind: "api", api: "chat", model: "m1", base_url: "https://gw.example.com", has_key: true };
+    const form = formFromView(old);
+    expect(providerBody(form, old)).toMatchObject({ kind: "api", api: "chat", auth: "api_key" });
+    expect(formProblems({ ...form, api_key: "" }, true).connect).toBe("要填 API Key");
+    expect(formProblems(form, false, true).connect).toBe("");
   });
 });
 
@@ -140,6 +167,20 @@ describe("probes", () => {
   it("tests with the default, else the first checked model", () => {
     expect(testModel(ready())).toBe("m1");
     expect(testModel(ready({ model: "", models: [formModel({ id: "a" }, false), formModel({ id: "b" })] }))).toBe("b");
+  });
+  it("keeps existing Chat effort metadata and drops only inconsistent new discovery metadata", () => {
+    const old = [formModel({ id: "a", efforts: ["high"], default_effort: "high" }), formModel({ id: "empty" })];
+    const found = [
+      { id: "a", context_window: 100, efforts: ["low"], default_effort: "low" },
+      { id: "empty", context_window: 200, efforts: ["low"], default_effort: "low" },
+      { id: "bad", context_window: 300, efforts: ["low"], default_effort: "high" },
+      { id: "good", context_window: 400, efforts: ["high"], default_effort: "high" },
+    ];
+    const merged = mergeDiscovered(old, found, true);
+    expect(merged[0]).toMatchObject({ context_window: "100", efforts: ["high"], default_effort: "high" });
+    expect(merged[1]).toMatchObject({ context_window: "200", efforts: [], default_effort: "" });
+    expect(merged[2]).toMatchObject({ context_window: "300", efforts: [], default_effort: "" });
+    expect(merged[3]).toMatchObject({ context_window: "400", efforts: ["high"], default_effort: "high" });
   });
   it("merges discovered models without losing what was typed", () => {
     const first = mergeDiscovered([], [{ id: "a", context_window: 200000 }, { id: "b" }]);

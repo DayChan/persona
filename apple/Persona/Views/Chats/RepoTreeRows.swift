@@ -9,7 +9,7 @@ struct HostHeading: View {
     @Environment(\.compactList) private var compact
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
+        CountsHeading {
             ThemedIcon(symbol)
                 .font(Theme.Font.secondaryStrong)
                 .foregroundStyle(Color.primary)
@@ -17,7 +17,7 @@ struct HostHeading: View {
                 .background(Theme.Fill.chip, in: .rect(cornerRadius: Theme.Radius.badge))
             // Compact List's spaces and repositories are titled at the heading's size: the machine goes a level up.
             Text(title).font(compact ? Theme.Font.title : Theme.Font.heading).foregroundStyle(Color.primary).textCase(nil).lineLimit(1)
-            Spacer(minLength: Theme.Space.xs)
+        } counts: {
             StateCounts(group: group)
         }
     }
@@ -72,7 +72,7 @@ struct ChildSpacesRow: View {
     @Environment(\.compactList) private var compact
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
+        CountsHeading {
             ThemedIcon(Theme.Icon.childSpaces)
                 .font(compact ? CompactList.meta : Theme.Font.caption)
                 .foregroundStyle(.secondary)
@@ -82,8 +82,9 @@ struct ChildSpacesRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize()
-            Spacer(minLength: Theme.Space.xs)
+        } counts: {
             StateCounts(group: group)
+        } trailing: {
             FoldChevron(folded: !open)
         }
         .padding(.vertical, compact ? 0 : Theme.Space.xxs)
