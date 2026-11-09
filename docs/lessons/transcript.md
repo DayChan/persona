@@ -60,6 +60,16 @@ Use synthetic conversations for screenshots, not the user's real main conversati
 - Parsing `<persona-context>` must not assume all attributes are present or in a fixed order (2026-11-03, #876). iOS once recognized it only when all three of `kind`, `title`, and `url` were present. Lark /agent contexts had no `url`, so the tag went unrecognized, leaving the whole prompt and large blank areas in the bubble.
   Truncating user messages for pagination must also avoid cutting through tags: a cut in the middle leaves an unclosed `<persona-context`, which every client displays as body text (`lightContexts` in `transcript/contexts.go` trims only the body of each block).
 
+## Refusal fallback is session state, not a model setting (#2203)
+
+A `system/model_refusal_fallback` row with session scope can explain a model-route 404 several turns later. Preserve
+its original models, category, scope and raw record; do not infer a configuration mistake from the synthetic error's
+`<synthetic>` model. Quick metadata tails can lose the fallback row, so reconstruct active state through the existing
+incremental scan and clear it on evidence of a model change. A non-session fallback must not leak into the next turn.
+Tests need the system row followed by a real-shaped synthetic assistant error, plus a later turn, a model change and
+an out-of-window record. A new error code alone does not change old clients' error buttons: document that client work
+and the item-cache version bump separately.
+
 ## A tail window may contain no words at all (2026-11-04, #1163)
 
 When listing offline sessions, the node reads only the last 384 KB of a transcript (`quickTail`) to get its title and last words. Claude Code now writes an entire `api-request-blob` on one transcript line, 300–500 KB per line;

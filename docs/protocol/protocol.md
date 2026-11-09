@@ -489,9 +489,10 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
  "updated_at":"...","last_text":"first 200 characters of the last assistant text",
      "turn_error":"API Error: Connection lost mid-response… (only when stopped and this turn was interrupted by a model API error, otherwise absent; its task counts as \"interrupted\", #1516. Claude Code: the hub recognizes it from the start of the last line; Codex: the node reports it from task_complete.error / a failed turn/completed, #2185)",
      "turn_error_kind":"transient (optional: only when the agent itself states the error kind, Codex's codex_error_info: transient is worth a \"continue\", user needs the user to act, usage_limit is a subscription limit until it resets; otherwise judged from the turn_error text, docs/assistant/agent-work.md \"Triage\"; for Claude Code's \"Not logged in\", a wrong Key or a wrong model the hub fills in user)",
+     "model_fallback":{"subtype":"model_refusal_fallback","original_model":"primary-model","fallback_model":"fallback-model","category":"synthetic-policy","scope":"session","explanation":"Upstream refused the request","raw":"<original JSONL record>"}, // optional: active refusal fallback; cleared by a confirmed model change
      "turn_error_resets_at":"...",   // optional, with turn_error_kind usage_limit: when that subscription limit resets (RFC3339). Absent when the reset is not known
      "turn_error_resumes":true,   // optional: the CLI continues by itself once the limit resets. Absent or false: nothing of the CLI will, though the hub may still schedule a continuation (work.wake_at)
-     "turn_error_code":"not_logged_in (optional: only when the hub recognizes the problem from turn_error: not_logged_in / auth_failed / model_route / rate_limited; clients use it to draw a \"fix it\" card, see the new-user onboarding plan section 5.2)","pending_interactions":1,
+     "turn_error_code":"not_logged_in (optional: only when the hub recognizes the problem from turn_error: not_logged_in / auth_failed / model_route / rate_limited / model_fallback_unavailable; the last means an active refusal fallback is unavailable, not a wrong configured model; clients use it to draw a \"fix it\" card, see the new-user onboarding plan section 5.2)","pending_interactions":1,
  "work":{"phase":"blocked","on":"external","line":"Wait for the deploy to finish, then run the production tests","wait":"deploy finished","then":"run the production tests","every_minutes":5,
          "wake_at":"...","resets_at":"...","attempts":1,"max":6,"turn_at":"...","at":"...","by":"model"},
      // Work state (docs/assistant/agent-work.md): phase working | blocked | done; blocked's on is user (waiting for your decision; questions / link /
@@ -580,6 +581,7 @@ Provider responses carry only the description and `has_key`, never secrets. Defa
  "ts":"...","role":"user|assistant|system",
  "kind":"text|thinking|tool_use|tool_result|notice|image|fold|turn_duration",
  "text":"…",                                           // text of text / thinking / notice / tool_result
+ "model_refusal":{"subtype":"model_refusal_fallback","original_model":"primary-model","fallback_model":"fallback-model","category":"synthetic-policy","scope":"session","explanation":"Upstream refused the request","raw":"<original JSONL record>"}, // optional, kind=notice: original refusal values; unknown model_refusal_* subtypes are preserved too
  "tool_use_id":"toolu_…",                             // shared by tool_use and tool_result; the App merges them into one card by it
  "tool_name":"Bash", "tool_input":{...},              // tool_use only
  "is_error":false,                                    // tool_result only

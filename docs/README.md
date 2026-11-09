@@ -11,7 +11,7 @@ and the [architecture](server/architecture.md). The [protocol](protocol/protocol
 | Directory | Scope | Entry points |
 | --- | --- | --- |
 | [server/](server/) | Hub architecture, managers' infrastructure, mesh, computers and usage | [Server](server/server.md), [mesh](server/mesh.md), [machines](server/machines.md) |
-| [apple/](apple/) | iPhone, Apple Watch, Mac and Vision Pro; native design and phone data | [iOS and watch](apple/ios.md), [icons](apple/icons.md), [sidebars](apple/sidebar.md), [Mac](apple/mac.md), [design](apple/mac-design.md), [Vision Pro](apple/vision.md) |
+| [apple/](apple/) | iPhone, Apple Watch, Mac and Vision Pro; native design and phone data | [iOS and watch](apple/ios.md), [icons](apple/icons.md), [sidebars](apple/sidebar.md), [Mac](apple/mac.md) (frozen), [design](apple/mac-design.md), [Vision Pro](apple/vision.md) |
 | [android/](android/) | Android modules and design system | [Android](android/android.md), [design](android/android-design.md) |
 | [web/](web/) | Browser client and workspace board | [Web](web/web.md), [workspace board](web/workspace-board.md) |
 | [assistant/](assistant/) | Main chat, managers, knowledge, Inbox, tasks, models, prompts and voice | [Assistant](assistant/assistant.md), [managers](assistant/managers.md), [knowledge](assistant/knowledge.md) |

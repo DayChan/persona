@@ -41,6 +41,10 @@ func listKeySized(list []proto.Session, size int) string {
 		w.quote(s.SpaceID, '/')
 		w.quote(s.SpaceKind, '\n')
 		writeUltracodeKey(&w, s)
+		// A completed background scan can discover a fallback without a new transcript revision or status.
+		if s.ModelFallback != nil || s.TurnErrorCode != "" {
+			fmt.Fprintf(&w.b, "model-fallback:%+v/%q\n", s.ModelFallback, s.TurnErrorCode)
+		}
 		if s.Activity != "" { // a new step shows at once, not with the next 10 s of updated_at
 			w.b.WriteString("activity:")
 			w.str(s.Activity, '/')

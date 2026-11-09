@@ -139,6 +139,7 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 				m.turnErr.set(&s)
 				s.Activity, s.ActivityAt = m.activityOf()
 				setContext(&s, m)
+				s.ModelFallback = m.modelFallback
 				if a.Agent != "codex" && a.Agent != traexAgent {
 					s.PermissionMode, s.Effort = n.currentModes(id, m)
 				}

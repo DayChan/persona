@@ -478,6 +478,7 @@ On failure from `POST /api/v1/assistant/conversations` or a session-send endpoin
 - `no_machine`, `claude_missing`, `launcher_missing`, and `machine_pending` return 409; `node_unreachable` is unchanged (coded 502, `ErrOffline` 503); `assistant_offline` is unchanged (503).
 - `detail` contains the original text; clients show it only in "Details."
 - For turns with `turn_error_kind: "user"`, sessions also carry `turn_error_code` (`not_logged_in` / `auth_failed` / `model_route` / `rate_limited`), which clients use to render cards.
+- `model_fallback_unavailable` identifies a model-route failure after Claude Code switched the session following an upstream refusal (#2203). Readiness explains the chain and recommends a new conversation or `/model` in the terminal, with no model-settings or test-message action. This session-only failure does not put readiness into setup mode or prevent creating a new conversation. Existing client error cards still need to adopt this code and hide their old Retry/Continue actions; the ordinary refusal notice already carries localized recovery guidance.
 - `errNoAssistantMachine` (`start.go:29`) and `memory()` (`profile.go:465`) use the same code; do not let them drift apart. Update voice-prompt goldens (`server/internal/voice/testdata/prompts/refused.failed.*.golden`, all three languages) too.
 - Old clients still display `error`, now localized rather than raw English. Check that iOS `isQuiet` does not treat 409 as a silent error.
 
@@ -663,6 +664,7 @@ Separate P1 issues: "Chat only" mode (after decision 9), node `claude.install`, 
 ### 7.3 iOS / macOS work assigned to a Mac
 
 Each issue references the protocol in section 5 and states "The Linux development machine cannot compile Swift; note in the PR if Xcode 26.0 was not verified." UI uses only the design system (`.surface`, `EmptyStateView(action:)`, `Theme.*`); do not raise the `TokenRatchetTests` baseline. Single-line buttons; light and dark screenshots.
+The native Mac app is frozen ([mac.md](../apple/mac.md)): in M1–M4 and M6, the Mac gets only what the shared iOS code brings, with no Mac-only work and no Mac screenshots or acceptance beyond keeping an existing Mac flow working (M2's paste-link pairing). M5 is Persona Link, which is not frozen.
 
 | # | Title | Changes | Acceptance |
 | --- | --- | --- | --- |

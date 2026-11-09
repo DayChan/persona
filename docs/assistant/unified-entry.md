@@ -32,12 +32,13 @@ The prototype is the UI and interaction standard; compare screen by screen durin
   | Tier | Examples | Behavior |
   | --- | --- | --- |
   | Instant | Add a reminder, create an event, check weather | Not a task; Persona calls phone / mail tools directly. Render a result card (with Undo) in the chat, without adding it to the dock |
-  | Auto-start | Read-only: research, organize material, read code to answer a question | `task_plan` starts directly; card says "Auto-started · Read-only" |
+  | Auto-start | Read-only: research, read code to answer a question | `task_plan` queues dispatch with `permission: plan`; a launcher unable to honor that mode fails to start. The plan card collapses to "Started N tasks" |
   | Plan first | Change code, start multiple Agents, first start in this project | Show a plan card in the chat, with editable labels for each item; start only after "Start" |
 
 - Tasks you explicitly request in the chat (a direct instruction, "have an Agent do it," "go ahead and start," #2559) also start directly. Persona sets `user_requested: true` for that `task_plan` item, and the card shows progress only.
   Inferred tasks you did not request still wait for Start. If any item in a plan needs to wait, the whole plan waits. "Start tasks I request in chat directly" under Settings › Assistant (`assistant.start_requested_tasks`, on by default) can disable this.
 - The plan card offers "Start These Directly," remembered per "project × read-only / file changes." Similar tasks no longer ask. Stored in settings `tasks.trust`; entries can be viewed and deleted in Settings.
+- Read-only tasks always retain `permission: plan`, including after card edits and on retries. Health-space plans still wait for Start. Runtime support and the current card labels are described in [To-dos](todos.md#read-only-planned-tasks).
 - `task_plan` **does not block**: once the plan is handed to you, the turn ends immediately and you can continue talking about something else. When you tap Start, hub starts the Agents directly; Persona sees the result in the next message's live snapshot.
 
 ### Task cards

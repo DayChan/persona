@@ -1,6 +1,6 @@
 # Plan: Discord connector (the user's own bot)
 
-Status: design settled (2026-11-05), revised after review before anything shipped (2026-11-08: REST first, the Gateway only from D3), D1 in progress. Tracking issue: #917 (#2828 before the 2026-11-08 repository rebuild); #1106, #1426, #1730 and #2057 below refer to the history before that rebuild.
+Status: design settled (2026-11-05), revised after review before anything shipped (2026-11-08: REST first, the Gateway only from D3), D1 merged (2026-11-09, nwverse/persona-extensions#181, `discord` 0.1.0), D2 next. Tracking issue: #917 (#2828 before the 2026-11-08 repository rebuild); #1106, #1426, #1730 and #2057 below refer to the history before that rebuild.
 Discord is a **connector** (a data source: knowledge base, Inbox, assistant tools), not a channel (an entry point for talking to Persona, `docs/extensions/channels.md`);
 making the same bot a channel too is a separate issue. The first version is **read-only**. The framework is in `docs/extensions/connectors.md` (capability list, Inbox, knowledge base, gates) and `docs/protocol/connector-protocol.md` (protocol v2);
 extension manifest, permissions and sandbox are in `docs/extensions/extensions.md`. This doc only covers what is specific to Discord. The code lives in the public extension repository `nwverse/persona-extensions` (`extensions/discord/`), like Telegram (#2057).
@@ -191,7 +191,7 @@ One PR per step; PRs in the extension repository write `Refs nwverse/persona#917
 | D3 | The Gateway (doorbell + interactions) and the "Send to Persona" message command (`saved`): first verify with a real account that the interaction in a DM carries the full message text |
 | D4 | Conversation page, attachments |
 
-This repository: this plan (the first PR); one row in the table in `docs/extensions/connectors.md` after D1 merges; the Discord brand mark (all three platforms, or wait for #1426, data-driven brands).
+This repository: this plan (the first PR); one row in the table in `docs/extensions/connectors.md` after D1 merges (done); the Discord brand mark (all three platforms, or wait for #1426, data-driven brands).
 
 ## Not doing / later
 

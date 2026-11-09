@@ -217,7 +217,7 @@ use it only on the intranet / VPN, and put an HTTPS reverse proxy in front befor
   Pages put away sit in a **More · N** row at the end of **Pages**: folded by default, it opens in place, opens by itself while one of its pages is the current page, and when folded shows a dot if a page inside has a badge. The icon rail and the phone drawer's grid show a **⋯** instead,
   which opens a menu of those pages (the last row, **Arrange sidebar…**, goes to settings; picking a page in the drawer closes the drawer like any other page). Pages nobody has arranged: built-in pages stay in the sidebar; extension pages (`nav_page`) take at most 3 places (`EXTENSION_CAP`) and later ones go under **More**,
   so installing more extensions doesn't make the list longer; pages switched on by hand count toward the 3. A page the saved order doesn't know yet goes right before the page that follows it by default (a new extension's page still lands before **Settings**). ⌘K **Go to** still lists every page.
-  Stored only in this browser (`localStorage` `sidebar.pages`, like pinned conversations), so phone and laptop can differ. Mac / iOS / Android don't have it yet (separate PRs).
+  Stored only in this browser (`localStorage` `sidebar.pages`, like pinned conversations), so phone and laptop can differ. iOS and Android don't have it yet (separate PRs); the native Mac app is frozen ([mac.md](../apple/mac.md)).
   **Every sidebar group can fold** (#1417): **Pages** (Overview…Settings; the heading was added in #2524) and the whole Agents block ("+" stays on the title row; the grouping segments fold with the block) can fold too.
   These two do not follow "Fold / unfold all groups", so their headings stay visible when everything is folded. Persona chats, personal Agents, pinned, starting, every group under every grouping mode, idle spaces, **Other agents** and **Recent (not running)** all use the same
   `Section` (`folded` / `onToggle` are required): clicking the heading folds / unfolds, the fold state is stored in this browser (`localStorage` `fold:<key>`) and survives reload; on touch screens without hover the fold arrow is always shown.
@@ -1141,6 +1141,17 @@ The page reports its own errors to `POST /api/v1/error-reports` (`lib/error-repo
 - **Gate**: sent only while the hub's hello `features` has `error_reports`. Before the first hello reports are kept; a hello without it (or a `{"enabled": false}` answer) drops what was kept, and nothing more is kept on that page.
 - **Console**: whatever the hub's features say, an error a boundary catches is logged with its component stack (`createRoot`'s `onCaughtError`, `lib/caught-error.ts`; React's own handler logs the error alone). Production names are minified; the frames map back with a source-mapped build of the same commit.
 - **Queue**: `localStorage` `persona.errorReports`, at most 50, none older than 7 days; what an earlier page load left is sent with `previous_launch`. Sent on the hello with the feature and 2 seconds after a new report, 20 a request; a 2xx removes them, a network failure, 5xx, 408 or 429 keeps them for the next try, any other 4xx drops them. The same message and top frame within 5 seconds is kept once. Reporting never throws, and an error while reporting is not reported.
+
+## On computers
+
+On a Mac, Windows or Linux computer, the web app is Persona's interface. The native Mac app is frozen ([mac.md](../apple/mac.md)).
+
+- **In the browser**: open the hub's address and sign in.
+- **As an app**: in Chrome or Edge, use **Install** in **Settings › General › This browser › Install as app** when the browser offers it, otherwise the browser's own install menu; these need https, or localhost.
+  Safari on a Mac adds it with **File › Add to Dock**. Either way it opens in its own window with Persona's icon ("Install as an App" below).
+- **Needs-you signals** (tab count, icon badge, alert sound, system notifications) work only while a Persona page is open in some tab or window. There is no Web Push, so nothing arrives once every Persona page is closed ("Attention signals" below).
+- **The phone keeps getting pushes** while the web app is open: the web app does not register as a desktop client (`register_desktop`), so the phone's **Phone Muted** does not apply ("Attention signals" below).
+- **Persona Link**, on a computer whose Agents the hub should reach, connects it to the hub and does what a browser cannot ([link.md](../operations/link.md), "On computers: the web app and Persona Link"). A computer you only browse from does not need it.
 
 ## Install as an App (PWA, #1772)
 
