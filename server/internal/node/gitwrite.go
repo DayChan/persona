@@ -22,20 +22,22 @@ import (
 
 // Codes a Git panel write refuses with (rpc.Error.Code; the hub answers 409 with them).
 const (
-	gitCodeNotRepo       = "git_not_repo"       // the folder is not in a Git repository
-	gitCodeDetached      = "git_detached"       // HEAD is detached: no branch to commit to or push
-	gitCodeNothingStaged = "git_nothing_staged" // a commit with nothing staged
-	gitCodeHook          = "git_hook_failed"    // a commit refused before it was made (a pre-commit or commit-msg hook, signing); its output is the message
-	gitCodeIdentity      = "git_identity"       // git has no user.name / user.email on that machine
-	gitCodeNoUpstream    = "git_no_upstream"    // a push of a branch with no upstream, without set_upstream
-	gitCodeNoRemote      = "git_no_remote"      // no remote to push to
-	gitCodeRejected      = "git_push_rejected"  // the remote has commits this branch does not: pull first
-	gitCodeAuth          = "git_auth"           // the remote refused the credentials, or there are none
-	gitCodeConflict      = "git_conflict"       // uncommitted changes would be overwritten (Data.files)
-	gitCodeBusy          = "git_busy"           // another git holds the repository's lock (the agent's own)
-	gitCodeNoBranch      = "git_no_branch"      // no such branch, or a new branch's name is taken or not valid
-	gitCodeNoStash       = "git_no_stash"       // no such stash entry, or nothing to stash
-	gitCodeFailed        = "git_failed"         // anything else git refused; its words are the message
+	gitCodeNotRepo          = "git_not_repo"          // the folder is not in a Git repository
+	gitCodeDetached         = "git_detached"          // HEAD is detached: no branch to commit to or push
+	gitCodeNothingStaged    = "git_nothing_staged"    // a commit with nothing staged
+	gitCodeHook             = "git_hook_failed"       // a commit refused before it was made (a pre-commit or commit-msg hook, signing); its output is the message
+	gitCodeIdentity         = "git_identity"          // git has no user.name / user.email on that machine
+	gitCodeNoUpstream       = "git_no_upstream"       // a push of a branch with no upstream, without set_upstream
+	gitCodeNoRemote         = "git_no_remote"         // no remote to push to
+	gitCodeRejected         = "git_push_rejected"     // the remote has commits this branch does not: pull first
+	gitCodeAuth             = "git_auth"              // the remote refused the credentials, or there are none
+	gitCodeConflict         = "git_conflict"          // uncommitted changes would be overwritten (Data.files)
+	gitCodeBusy             = "git_busy"              // another git holds the repository's lock (the agent's own)
+	gitCodeNoBranch         = "git_no_branch"         // no such branch, or a new branch's name is taken or not valid
+	gitCodeStashStale       = "git_stash_stale"       // refresh and reselect: the index no longer names the selected object
+	gitCodeStashUnsupported = "git_stash_unsupported" // safe stash mutation is unavailable on this repository
+	gitCodeNoStash          = "git_no_stash"          // no such stash entry, or nothing to stash
+	gitCodeFailed           = "git_failed"            // anything else git refused; its words are the message
 )
 
 // gitWrite dispatches the Git panel's writes and pull request calls.
@@ -50,7 +52,8 @@ func (n *Node) gitWrite(ctx context.Context, method string, params json.RawMessa
 		Create      bool     `json:"create"`
 		From        string   `json:"from"`
 		Op          string   `json:"op"`
-		Index       int      `json:"index"`
+		Index       *int     `json:"index"`
+		OID         string   `json:"oid"`
 		Untracked   bool     `json:"untracked"`
 		Title       string   `json:"title"`
 		Body        string   `json:"body"`
@@ -76,7 +79,11 @@ func (n *Node) gitWrite(ctx context.Context, method string, params json.RawMessa
 	case "git.switch":
 		return n.gitSwitch(ctx, p.Cwd, p.Branch, p.Create, p.From)
 	case "git.stash":
-		return n.gitStash(ctx, p.Cwd, p.Op, p.Index, p.Message, p.Untracked)
+		index := -1
+		if p.Index != nil {
+			index = *p.Index
+		}
+		return n.gitStash(ctx, p.Cwd, p.Op, index, p.Message, p.Untracked, p.OID)
 	case "git.pr":
 		return n.gitPR(ctx, p.Cwd)
 	case "git.pr_create":
@@ -105,6 +112,7 @@ type gitResult struct {
 
 type GitStashEntry struct {
 	Index   int       `json:"index"`
+	OID     string    `json:"oid"`
 	Message string    `json:"message"`
 	Date    time.Time `json:"date"`
 }
@@ -469,14 +477,13 @@ func cmpOr(a, b string) string {
 }
 
 // gitStash: push (the uncommitted changes, untracked too when asked, with a message), list, apply, pop or drop entry
-// index. An apply or pop that conflicts lists the files; git keeps the entry then.
-func (n *Node) gitStash(ctx context.Context, cwd, op string, index int, message string, untracked bool) (*gitResult, error) {
+// index and full object ID. An apply or pop that conflicts keeps the entry.
+func (n *Node) gitStash(ctx context.Context, cwd, op string, index int, message string, untracked bool, oid string) (*gitResult, error) {
 	root, done, err := n.writeRepo(ctx, cwd)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-	ref := "stash@{" + strconv.Itoa(index) + "}"
 	var args []string
 	switch op {
 	case "list":
@@ -494,13 +501,29 @@ func (n *Node) gitStash(ctx context.Context, cwd, op string, index int, message 
 			args = append(args, "-m", m)
 		}
 	case "apply", "pop", "drop":
-		if index < 0 {
-			return nil, &rpc.Error{Code: gitCodeNoStash, Message: "no stash " + ref}
+		if !stashOIDPattern.MatchString(oid) || index < 0 {
+			return nil, staleStash()
 		}
-		if _, err := git(ctx, root, "rev-parse", "--verify", "-q", ref); err != nil {
-			return nil, &rpc.Error{Code: gitCodeNoStash, Message: "no stash " + ref}
+		if op == "apply" {
+			entries, err := stashList(ctx, root)
+			if err != nil {
+				return nil, err
+			}
+			if index >= len(entries) || entries[index].OID != oid {
+				return nil, staleStash()
+			}
+			// A terminal writer may now move the stack; only the selected content is applied.
+			args = []string{"stash", "apply", oid}
+		} else {
+			if err := mutateStash(ctx, root, op, index, oid); err != nil {
+				return nil, err
+			}
+			res, err := n.settled(ctx, root, &gitResult{})
+			if err == nil {
+				res.Stash, err = stashList(ctx, root)
+			}
+			return res, err
 		}
-		args = []string{"stash", op, "-q", ref}
 	default:
 		return nil, &rpc.Error{Code: gitCodeFailed, Message: "unknown stash op " + op}
 	}
@@ -519,22 +542,22 @@ func (n *Node) gitStash(ctx context.Context, cwd, op string, index int, message 
 }
 
 func stashList(ctx context.Context, root string) ([]GitStashEntry, error) {
-	out, err := git(ctx, root, "stash", "list", "--format=%gd%x1f%gs%x1f%cI")
+	out, err := git(ctx, root, "stash", "list", "--format=%gd%x1f%H%x1f%gs%x1f%cI")
 	if err != nil {
 		return nil, gitRefusal("stash", "", err.Error(), err, nil)
 	}
 	list := []GitStashEntry{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		f := strings.Split(line, "\x1f")
-		if len(f) < 3 {
+		if len(f) < 4 {
 			continue
 		}
 		i, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(f[0], "stash@{"), "}"))
 		if err != nil {
 			continue
 		}
-		e := GitStashEntry{Index: i, Message: f[1]}
-		e.Date, _ = time.Parse(time.RFC3339, f[2])
+		e := GitStashEntry{Index: i, OID: f[1], Message: f[2]}
+		e.Date, _ = time.Parse(time.RFC3339, f[3])
 		list = append(list, e)
 	}
 	return list, nil

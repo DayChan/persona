@@ -8,6 +8,10 @@
 
 - Keep React state updaters free of mutations to refs. Echo matching claims transcript IDs, so do it in the effect, then pass captured IDs and a timestamp into a pure pending-message filter. Exercise sending and transcript delivery under StrictMode to catch double-invocation failures.
 
+## A cancelled frame must clear its pending marker (#2060)
+
+- An animation-frame ref used as a coalescing guard must be reset to zero whenever cleanup cancels it, including the final unmount cleanup. React StrictMode replays initial effects: a cancelled nonzero marker can then prevent every later scroll, resize and transcript change from scheduling another measurement. Test the empty-to-loaded transition under StrictMode, and exercise the actual browser; non-StrictMode component tests can miss a navigator that never appears.
+
 ## Render-count tests must separate store pushes from live clocks (#1989)
 
 A Profiler counts every commit beneath it, including status clocks and deferred mount work unrelated to the store update under test. Drain mount timers before taking the baseline, keep time fixed during the measured push sequence, and explicitly flush the real store's batched notifications inside `act`. Freezing timers without delivering those notifications can make a zero-redraw test pass vacuously: retain all negative assertions and add a positive control proving a current-conversation update still redraws and changes the DOM. Clear timers and restore real time after unmounting each test.
@@ -160,6 +164,8 @@ An auth status push rerenders the sign-in group and replaces inline completion c
 - **File and Git panel keys must include the directory**: without an Agent, `sid` is empty, so two empty workspace cards on one machine share the same `mid/sid` key. Open files or a commit in A, then the same panel type from B, and React retains A's preview or Git subview, leaking state across directories. Generate stable keys from machine, session, and directory. Regression tests must cover same machine, empty sid, different cwd, not just static card HTML.
 - **Separate workflow state from Agent presentation**: session refreshes recalculate only Agent count and state inside a card, never card order or columns. Board writes use revisions; on conflicts, restore and refetch. Foreground polling and refresh on visibility recovery discover changes; hidden pages stop polling.
 
+- **Stash confirmation must retain identity (#1480)**: keep the listed object ID in the selected row and confirmation, send it with the index, and disable unsafe actions when an older node omits it. A stale refusal refreshes the list but never retries the action; the user must reselect. List responses can contain a null status, so do not publish them as a repository status. Component regressions should use the actual write hook and HTTP client, including cancel, error and refresh paths.
+
 ### File upload queues also belong to a credential generation (#1366)
 
 A panel can stay mounted when another tab replaces its credential. Capture the opaque generation and matching authorization when admitting files, including when opening the native chooser. Retire queued files, conflicts and retry controls on replacement or sign-out; fence dispatch, progress and completion independently of React cleanup. Settle cancellation before asking XHR to abort, since transports can ignore abort or deliver late callbacks. An already dispatched server write may still finish.
@@ -180,6 +186,7 @@ Exercise the actual hook and upload helper together with a synthetic XHR transpo
 
 ## New sessions and multimodal input
 
+- Worktree preparation belongs to one New Agent opening and admitted target/credential. Retire it on dismiss, unmount or ownership changes, and fence success, failure and finally even if fetch ignores abort. Abort cannot prove a remote checkout was not created; never remove user files as rollback. Keep the existing launch flow behind that boundary. A successful current preparation acknowledges only its submitted prompt revision and attachment IDs; later edits survive, and launch previews need independent ownership. Regress the actual component through launch and REST with deferred synthetic responses (#1496).
 - 2026-11-02: New Agent navigation must not wait for the creation HTTP request. Generate a local temporary ID, preserve text / attachments, close the dialog, and show the local session first. Create remotely, encode images, and upload files in subsequent tasks. Never fetch transcript using the temporary ID; call `/messages` only after real session creation succeeds.
 - Ordinary Agent creation uses `async:true` and `name_hint`; send initial content only once through `/messages`. Creation `prompt` is string-only; an extra `images` field cannot make it multimodal. Retry messages with the same `client_msg_id`; never recreate an already-created session. Creation is not idempotent, so uncertain results require checking the list first.
 - The unified default launcher may be Codex; do not infer Agent type from launcher name. Use the old synchronous text creation only when creation explicitly returns `codex_needs_prompt`. Never silently turn initial attachments into later steer messages or fake initialization messages. Failed content must be editable, with attachment removal and retry.

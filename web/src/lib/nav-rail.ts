@@ -1,7 +1,7 @@
-// The question navigation rail's model (#1739, docs/web/web.md "Question rail"): which turns of a chat become ticks,
-// the thresholds that gate the rail, and the trimming of its preview cards. Pure functions over the chat's lines, so
-// they run in node tests (nav-rail.test.ts); the NavRail component measures the DOM and draws.
+// Genuine loaded user inputs for the edge navigator. The data-source adapter can replace this projection with
+// the independent index without coupling the rail's gestures to transcript loading.
 
+import { NAV_RAIL_METRICS } from "../ui/nav-rail-metrics";
 import { isLoopTick, isOwnMessage, type ChatLine, type UserMessage } from "./turns";
 
 /** One of your questions in the loaded conversation: what a tick knows. */
@@ -16,18 +16,11 @@ export interface NavRailTick {
   answerExcerpt?: string;
 }
 
-/** Fewer questions than this and the rail stays away: a short chat is one or two screens, a map of it adds nothing. */
-export const NAV_RAIL_MIN_TICKS = 4;
-/** The chat column's width (ChatView's `max-w-[880px]`): the rail lives in the free margin beside it. */
-export const NAV_RAIL_COLUMN = 880;
-/** Free margin at one side below which the rail stays away (a tick's reach plus its clearance to the column). */
-export const NAV_RAIL_MIN_GUTTER = 44;
-/** Vertical room one tick takes (a 2px line in a 9px hit area); 9px stays legible tick by tick. */
-export const NAV_RAIL_TICK_PITCH = 9;
-/** What the pitch may compress to when the rail is short of room; closer ticks merge into noise. */
-export const NAV_RAIL_TICK_MIN_PITCH = 5;
-/** The rail needs room for its opening count of ticks before it shows at all. */
-export const NAV_RAIL_MIN_HEIGHT = NAV_RAIL_MIN_TICKS * NAV_RAIL_TICK_PITCH;
+/** Even a single loaded input is a useful position and selection target. */
+export const NAV_RAIL_MIN_TICKS = 1;
+export const NAV_RAIL_TICK_PITCH = NAV_RAIL_METRICS.tickPitch;
+export const NAV_RAIL_TICK_MIN_PITCH = NAV_RAIL_METRICS.minTickPitch;
+export const NAV_RAIL_MIN_HEIGHT = NAV_RAIL_METRICS.minHeight;
 /** The answer excerpt's cap: the preview card clamps to three lines anyway; this keeps the string itself bounded. */
 export const NAV_RAIL_EXCERPT_MAX = 200;
 /** The question line's cap for the label; the card truncates to one line, the label carries the whole preview. */
@@ -83,40 +76,51 @@ export function navRailExcerpt(raw: string): string {
     .slice(0, NAV_RAIL_EXCERPT_MAX);
 }
 
-/** Whether the chat area leaves the rail room: the centered column (NAV_RAIL_COLUMN) with at least NAV_RAIL_MIN_GUTTER
- *  free on the side the rail sits in. `width` is the content width (clientWidth — a classic scrollbar is not margin).
- *  Panels and narrow windows take the margin away and the rail goes with it. */
-export function hasNavRailRoom(width: number): boolean {
-  return width > NAV_RAIL_COLUMN && (width - NAV_RAIL_COLUMN) / 2 >= NAV_RAIL_MIN_GUTTER;
-}
-
 export interface NavRailPlan {
-  /** The first tick drawn (earlier ones are dropped; a placeholder stands for them). */
   start: number;
-  /** The pitch in use. */
   pitch: number;
-  /** How many earlier ticks were dropped. */
   hidden: number;
+  count: number;
 }
 
-/** Fitting the ticks in the rail's height: at the normal pitch while they fit, compressed while that stays legible,
- *  and only the newest run otherwise — one slot kept for the "earlier questions" placeholder. */
-export function planNavRailTicks(count: number, height: number): NavRailPlan {
-  if (count <= 0 || height <= 0) return { start: 0, pitch: NAV_RAIL_TICK_PITCH, hidden: 0 };
-  if (count * NAV_RAIL_TICK_PITCH <= height) return { start: 0, pitch: NAV_RAIL_TICK_PITCH, hidden: 0 };
-  const pitch = Math.floor(height / count);
-  if (pitch >= NAV_RAIL_TICK_MIN_PITCH) return { start: 0, pitch, hidden: 0 };
-  const slots = Math.max(2, Math.floor(height / NAV_RAIL_TICK_MIN_PITCH));
-  const shown = Math.min(count, slots - 1);
-  return { start: count - shown, pitch: NAV_RAIL_TICK_MIN_PITCH, hidden: count - shown };
+/** Bound the DOM, not the navigable history: keep a window around the selected input. Keyboard navigation and
+ *  the rail's wheel can move this window in either direction; older inputs are never permanently discarded. */
+export function planNavRailTicks(count: number, height: number, focus = count - 1): NavRailPlan {
+  if (count <= 0 || height <= 0) return { start: 0, pitch: NAV_RAIL_TICK_PITCH, hidden: 0, count: 0 };
+  const capacity = Math.max(1, Math.floor(height / NAV_RAIL_TICK_MIN_PITCH));
+  const shown = Math.min(count, capacity);
+  const start = Math.max(0, Math.min(Math.floor(focus) - Math.floor(shown / 2), count - shown));
+  return { start, pitch: Math.min(NAV_RAIL_TICK_PITCH, height / shown), hidden: count - shown, count: shown };
 }
 
-/** The tick being read: the last question whose line has started above the threshold (a little under the scroller's
- *  top, so a jump that just landed keeps its own tick). `topAt(i)` returning null means the line is not on the page —
- *  it is above the view, which counts as read past. */
-export function pickActiveTick(count: number, thresholdTop: number, topAt: (i: number) => number | null): number {
-  for (let i = count - 1; i >= 0; i--) {
-    if ((topAt(i) ?? Number.NEGATIVE_INFINITY) <= thresholdTop) return i;
+/** The input owning the viewport. Missing anchors are unknown, not evidence that an input has been read past. */
+export function pickActiveTick(count: number, thresholdTop: number, topAt: (i: number) => number | null): number | null {
+  let first: number | null = null;
+  let found: number | null = null;
+  for (let i = 0; i < count; i++) {
+    const top = topAt(i);
+    if (top === null) continue;
+    first ??= i;
+    if (top <= thresholdTop) found = i;
   }
-  return 0;
+  return found ?? first;
+}
+
+/** Cached monotone offsets make normal scrolling logarithmic, without per-message DOM reads. */
+export function activeNavRailOffset(offsets: { index: number; top: number }[], top: number): number | null {
+  if (!offsets.length) return null;
+  let lo = 0;
+  let hi = offsets.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (offsets[mid].top <= top) lo = mid + 1;
+    else hi = mid;
+  }
+  return offsets[Math.max(0, lo - 1)].index;
+}
+
+/** Explicit data-source seam: an index adapter may load missing content before resolving a selection. */
+export interface NavRailSource {
+  ticks: NavRailTick[];
+  select: (id: string) => void | Promise<void>;
 }

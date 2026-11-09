@@ -234,7 +234,7 @@ func (s *Service) deliverNotes(ctx context.Context, it *InboxItem) {
 		return
 	}
 	if !enabled {
-		w := b.releaseInboxAgent(it, time.Now())
+		w := b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), time.Now())
 		b.mu.Unlock()
 		if w != nil {
 			s.saveWrites(ctx, []*inboxWrite{w}, "the disabled AI twin's work")
@@ -722,7 +722,7 @@ func (s *Service) actOnSuggestion(ctx context.Context, id string, in suggestionR
 		b.chainAdd(it, confirmedEntry(l, text, edited, now))
 	}
 	if !enabled && !execute {
-		b.releaseInboxAgent(it, now)
+		b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now)
 		b.settle(w)
 	}
 	last := it.Last
@@ -831,7 +831,7 @@ func (s *Service) confirmAgent(ctx context.Context, it *InboxItem, g *InboxSugge
 		_ = res
 	}
 	if !enabled {
-		b.releaseInboxAgent(it, now)
+		b.releaseInboxAgent(it, HandlingFailed, i18n.T(b.userLang(), "assistant-inbox_agent.disabled"), now)
 	}
 	out := it.listed()
 	b.mu.Unlock()

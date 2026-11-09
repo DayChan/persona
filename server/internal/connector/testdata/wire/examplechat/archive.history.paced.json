@@ -1,0 +1,6 @@
+{
+  "pace": {
+    "retry_after_ms": 30000,
+    "reason": "Synthetic rate limit: try again in 30 seconds"
+  }
+}

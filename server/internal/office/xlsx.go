@@ -43,8 +43,9 @@ func Xlsx(src []byte, title string) ([]byte, error) {
 	return writeXlsx(spec, title)
 }
 
-// XlsxFromCSV is a one-sheet workbook of CSV src, its first row the header; numbers stay numbers (but not an id
-// like 007).
+// XlsxFromCSV is a one-sheet workbook of CSV src, its first row the header. Integers stay
+// numeric only when serialization keeps them exact, decimals when it changes no more than
+// 15-digit rounding; IDs like 007 stay text.
 func XlsxFromCSV(src []byte, name, title string) ([]byte, error) {
 	r := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(src, []byte("\xef\xbb\xbf"))))
 	r.FieldsPerRecord = -1
@@ -60,7 +61,7 @@ func XlsxFromCSV(src []byte, name, title string) ([]byte, error) {
 		row := make([]any, len(rec))
 		for i, v := range rec {
 			row[i] = v
-			if f, err := strconv.ParseFloat(v, 64); err == nil && !leadingZero(v) && !math.IsInf(f, 0) && !math.IsNaN(f) {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && !leadingZero(v) && !math.IsInf(f, 0) && !math.IsNaN(f) && csvNumberExact(v, f) {
 				row[i] = json.Number(v)
 			}
 		}
@@ -70,7 +71,7 @@ func XlsxFromCSV(src []byte, name, title string) ([]byte, error) {
 }
 
 func leadingZero(v string) bool {
-	v = strings.TrimPrefix(v, "-")
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "-"), "+")
 	return len(v) > 1 && v[0] == '0' && v[1] != '.'
 }
 

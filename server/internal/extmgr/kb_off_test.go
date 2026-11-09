@@ -3,6 +3,7 @@ package extmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -48,6 +49,12 @@ func TestKBOffAtTheSources(t *testing.T) {
 	if _, _, err := h.kbSourcesCall(ctx, assistantwire.AppCall{AppID: assistantwire.AppConnectors, Method: assistantwire.ConnectorsChanges,
 		Params: json.RawMessage(`{"id":"example"}`)}); err == nil || f.calls != 0 {
 		t.Fatalf("changes read with the knowledge base off: %v", err)
+	}
+	for _, m := range []string{assistantwire.ConnectorsHistoryChats, assistantwire.ConnectorsHistory, assistantwire.ConnectorsHistoryAnchors} {
+		if _, ok, err := h.kbSourcesCall(ctx, assistantwire.AppCall{AppID: assistantwire.AppConnectors, Method: m,
+			Params: json.RawMessage(`{"id":"example","query":{"chat":"g1"}}`)}); !ok || !errors.Is(err, errKBOff) || f.calls != 0 {
+			t.Fatalf("%s with the knowledge base off: %v", m, err)
+		}
 	}
 	if _, err := h.kbFor("example").PendingPosts(ctx, 10); err == nil || err.Error() != "这个管理者没开知识库" {
 		t.Fatalf("posts: %v", err)

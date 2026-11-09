@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -797,7 +798,7 @@ func TestCapabilityRequiresResidentSupervisor(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XPC_SERVICE_NAME", "")
 	t.Setenv("INVOCATION_ID", "")
-	if ok, reason := New("old", func() {}).Capability(); ok || reason == "" {
+	if ok, reason := New("old", func() {}, Options{}).Capability(); ok || reason == "" {
 		t.Fatal("unsupervised node advertised safe update")
 	}
 	var m *Manager
@@ -894,6 +895,262 @@ func TestNewProcessCrashAndMissingConfirmationRollbackWithoutHub(t *testing.T) {
 			restored := start()
 			defer func() { _ = restored.Process.Kill(); _ = restored.Wait() }()
 			waitFor(t, 5*time.Second, func() bool { b, _ := os.ReadFile(proof); return bytes.Contains(b, []byte(`"version":"old"`)) })
+		})
+	}
+}
+
+// onlyPS makes PATH a folder with just ps: what a container without systemd has, and no systemd-run.
+func onlyPS(t *testing.T, script string) {
+	t.Helper()
+	bin := t.TempDir()
+	if script == "" {
+		ps, err := exec.LookPath("ps")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(ps, filepath.Join(bin, "ps")); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := os.WriteFile(filepath.Join(bin, "ps"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+}
+
+func TestDeclaredSupervisorEnablesUpdatesWithoutServiceManager(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("a declared supervisor counts on Linux and macOS only")
+	}
+	t.Setenv("XPC_SERVICE_NAME", "")
+	t.Setenv("INVOCATION_ID", "")
+	onlyPS(t, "")
+	declared := New("old", func() {}, Options{Supervised: true})
+	t.Cleanup(declared.Close)
+	if ok, reason := declared.Capability(); !ok {
+		t.Fatalf("a node whose supervisor said so cannot take updates: %s", reason)
+	}
+	if declared.Executable() == "" {
+		t.Fatal("no executable resolved")
+	}
+	undeclared := New("old", func() {}, Options{})
+	t.Cleanup(undeclared.Close)
+	if ok, _ := undeclared.Capability(); ok {
+		t.Fatal("a node nobody restarts advertised safe update")
+	}
+}
+
+func TestDeclaredSupervisorNeedsPsThatReportsStartTimes(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("a declared supervisor counts on Linux and macOS only")
+	}
+	t.Setenv("XPC_SERVICE_NAME", "")
+	t.Setenv("INVOCATION_ID", "")
+	// BusyBox's ps fails on -p / -o lstart; another may answer with nothing.
+	for name, script := range map[string]string{
+		"busybox": "#!/bin/sh\necho \"ps: invalid option -- 'p'\" >&2\nexit 1\n",
+		"empty":   "#!/bin/sh\nexit 0\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			onlyPS(t, script)
+			m := New("old", func() {}, Options{Supervised: true})
+			t.Cleanup(m.Close)
+			if ok, reason := m.Capability(); ok || reason != psNoStart {
+				t.Fatalf("got %v %q, want the ps reason", ok, reason)
+			}
+		})
+	}
+	// The hub shows the node's reason in the app's language by matching this original text.
+	if got := i18n.T(i18n.ZhHans, "devices-deploy.node_ps_no_start"); got != psNoStart {
+		t.Fatalf("hub catalog has %q for the node's %q", got, psNoStart)
+	}
+}
+
+// superviseFixture runs the fixture the way a container's entry script runs the node: `node --attach --supervised`,
+// started again shortly after every exit, with neither systemd's nor launchd's environment.
+type fixtureSupervisor struct {
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	starts  int
+	stopped bool
+	done    chan struct{}
+}
+
+func superviseFixture(t *testing.T, exe string, env []string) *fixtureSupervisor {
+	t.Helper()
+	s := &fixtureSupervisor{done: make(chan struct{})}
+	go func() {
+		defer close(s.done)
+		for {
+			s.mu.Lock()
+			if s.stopped {
+				s.mu.Unlock()
+				return
+			}
+			cmd := exec.Command(exe, "node", "--attach", "--supervised")
+			cmd.Env = env
+			if err := cmd.Start(); err != nil {
+				s.mu.Unlock()
+				t.Error(err)
+				return
+			}
+			s.cmd, s.starts = cmd, s.starts+1
+			s.mu.Unlock()
+			_ = cmd.Wait()
+			time.Sleep(50 * time.Millisecond) // sleep-ok: the supervisor's own restart delay, not a wait for state
+		}
+	}()
+	t.Cleanup(func() {
+		s.mu.Lock()
+		s.stopped = true
+		if s.cmd != nil {
+			_ = s.cmd.Process.Kill()
+		}
+		s.mu.Unlock()
+		<-s.done
+	})
+	return s
+}
+
+func (s *fixtureSupervisor) current() (pid, starts int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cmd.Process.Pid, s.starts
+}
+
+type fixtureProof struct {
+	Version string
+	PID     int
+}
+
+// proofOf reads what the running fixture wrote about itself; false while there is none (or it is being written).
+func proofOf(path string) (fixtureProof, bool) {
+	var p fixtureProof
+	b, err := os.ReadFile(path)
+	return p, err == nil && json.Unmarshal(b, &p) == nil
+}
+
+// A node whose supervisor is neither systemd nor launchd (a container's entry script) is updated the same way: the new
+// program runs in place, and when it never confirms, the detached watchdog puts the old one back and stops it, and the
+// supervisor's restart runs the old program again.
+func TestDeclaredSupervisorUpdateConfirmsOrRollsBack(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("a declared supervisor counts on Linux and macOS only")
+	}
+	old, next := fixtures(t)
+	data, err := os.ReadFile(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range []string{"confirmed", "unconfirmed", "startup-crash"} {
+		t.Run(outcome, func(t *testing.T) {
+			dir, err := os.MkdirTemp("/tmp", "nu-declared-*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			dir, err = filepath.EvalSymlinks(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exe := filepath.Join(dir, "node")
+			if err := copyFile(old, exe); err != nil {
+				t.Fatal(err)
+			}
+			oldHash := hash(t, exe)
+			proof := filepath.Join(dir, "proof")
+			// The fake systemd-run on PATH records any call: a declared supervisor must not use it.
+			systemdLog := filepath.Join(dir, "systemd-run-called")
+			env := append(os.Environ(), "HOME="+dir, "PERSONA_HOME="+dir, "INVOCATION_ID=", "XPC_SERVICE_NAME=",
+				"FIXTURE_PROOF="+proof, "NODE_UPDATE_FAKE_SYSTEMD_LOG="+systemdLog)
+			if outcome == "startup-crash" {
+				env = append(env, "FIXTURE_CRASH=next")
+			}
+			s := superviseFixture(t, exe, env)
+			waitFor(t, 5*time.Second, func() bool { b, _ := os.ReadFile(proof); return bytes.Contains(b, []byte(`"version":"old"`)) })
+			firstPID, _ := s.current()
+
+			peer, c := fixturePeer(t, filepath.Join(dir, "fixture.sock"))
+			var begin proto.NodeUpdateBeginResult
+			call(t, peer, "begin", spec(data, "next"), &begin)
+			for offset := int64(0); offset < int64(len(data)); {
+				end := min(offset+MaxChunk, int64(len(data)))
+				var got proto.NodeUpdateChunkResult
+				call(t, peer, "chunk", proto.NodeUpdateChunkParams{ID: begin.ID, Offset: offset, Data: data[offset:end]}, &got)
+				offset = got.Offset
+			}
+			var accepted proto.NodeUpdateCommitResult
+			call(t, peer, "commit", proto.NodeUpdateCommitParams{ID: begin.ID}, &accepted)
+			if !accepted.Accepted {
+				t.Fatal("commit not accepted")
+			}
+			p, err := loadPending(markerPath(exe))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.WatchPID < 2 || p.WatchStart == "" {
+				t.Fatal("the detached watchdog did not record itself")
+			}
+			if outcome != "confirmed" {
+				if err := locked(exe, func() error {
+					p, err := loadPending(markerPath(exe))
+					if err != nil {
+						return err
+					}
+					p.Deadline = time.Now().Add(800 * time.Millisecond)
+					return savePending(p)
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = peer.Call(ctx, "response-written", proto.NodeUpdateCommitParams{ID: begin.ID}, nil)
+			cancel()
+			_ = c.Close()
+			peer.Close(io.EOF)
+
+			switch outcome {
+			case "confirmed":
+				// The new program replaced the old one in the same process: the supervisor saw nothing exit.
+				waitFor(t, 8*time.Second, func() bool { p, ok := proofOf(proof); return ok && p.Version == "next" })
+				if got, _ := proofOf(proof); got.PID != firstPID {
+					t.Fatalf("new version runs as pid %d, not in place of %d", got.PID, firstPID)
+				}
+				peer, c := fixturePeer(t, filepath.Join(dir, "fixture.sock"))
+				call(t, peer, "confirm", proto.NodeUpdateConfirmParams{Version: "next"}, nil)
+				_ = c.Close()
+				peer.Close(io.EOF)
+				if _, err := os.Stat(markerPath(exe)); !os.IsNotExist(err) {
+					t.Fatal("pending transaction not confirmed")
+				}
+				if pid, starts := s.current(); pid != firstPID || starts != 1 {
+					t.Fatalf("the supervisor restarted the node (%d starts)", starts)
+				}
+				data, err := os.ReadFile(next)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if sum := sha256.Sum256(data); hash(t, exe) != hex.EncodeToString(sum[:]) {
+					t.Fatal("installed file is not the new version")
+				}
+			default:
+				// Nobody confirms: the watchdog restores the old file and stops the node; the supervisor's restart
+				// runs the old program, which clears the transaction.
+				if outcome == "unconfirmed" {
+					waitFor(t, 5*time.Second, func() bool { p, ok := proofOf(proof); return ok && p.Version == "next" && p.PID == firstPID })
+				}
+				waitFor(t, 10*time.Second, func() bool {
+					p, ok := proofOf(proof)
+					pid, _ := s.current()
+					return ok && p.Version == "old" && p.PID == pid && pid != firstPID
+				})
+				waitFor(t, 5*time.Second, func() bool { _, err := os.Stat(markerPath(exe)); return os.IsNotExist(err) })
+				if hash(t, exe) != oldHash {
+					t.Fatal("old executable was not restored")
+				}
+			}
+			if _, err := os.Stat(systemdLog); !os.IsNotExist(err) {
+				t.Fatal("a declared supervisor's update went through systemd-run")
+			}
 		})
 	}
 }

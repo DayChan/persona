@@ -132,7 +132,7 @@ func machineExtrasEqual(a, b map[string]extwire.MachineExtras) bool {
 
 // features are the hub's features with those of the extensions serving part of the API.
 func (h *Hub) features() []string {
-	out := append(slices.Clone(proto.Features), featureSessionsList, featureSessionsLookup, featureMachineRename)
+	out := append(slices.Clone(proto.Features), featureSessionsList, featureSessionsLookup, featureSessionsPaneSource, featureMachineRename)
 	out = append(out, h.agentSessionArchiveFeatures()...)
 	// The assistant's card interfaces that answer now (docs/assistant/assistant-views.md): assistant_views is declarative actions
 	// (expected_version), live cards and transcript cards; assistant_html_bridge is …/html-actions with both switches

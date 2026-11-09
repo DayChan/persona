@@ -9711,7 +9711,7 @@ def git_write_fresh():
         {"path": "WeatherWidget/WidgetView.swift", "index": "A", "worktree": ".", "added": 18, "deleted": 0, "binary": False},
         {"path": "Sources/App/main.swift", "index": "M", "worktree": "M", "added": 2, "deleted": 1, "binary": False},
         {"path": "docs/hourly.md", "index": "?", "worktree": "?", "added": 0, "deleted": 0, "binary": False}],
-        "stashes": [{"index": 0, "message": "On main: 试过的另一种配色", "date": ago(days=2)}],
+        "stashes": [{"index": 0, "oid": "a" * 40, "message": "On main: alternate palette", "date": ago(days=2)}],
         "branches": [("widget-hourly", False), ("main", False), ("origin/main", True), ("origin/release-2.4", True)],
         "pr": None, "pr_fail": None}
 GIT_W = git_write_fresh()
@@ -9835,11 +9835,12 @@ def git_write(h, p, body):
         if o == "push":
             if not w["files"]: return h.send_json({"error": "no local changes to save", "code": "git_no_stash"}, 409)
             msg = body.get("message") or ("WIP on %s" % w["branch"])
-            w["stashes"] = [{"index": 0, "message": "On %s: %s" % (w["branch"], msg), "date": ago(minutes=0)}] + [dict(s, index=s["index"] + 1) for s in w["stashes"]]
+            w["stashes"] = [{"index": 0, "oid": hashlib.sha1((msg + str(time.time_ns())).encode()).hexdigest(), "message": "On %s: %s" % (w["branch"], msg), "date": ago(minutes=0)}] + [dict(s, index=s["index"] + 1) for s in w["stashes"]]
             w["files"] = [] if body.get("untracked") else [f for f in w["files"] if f["index"] == "?"]
         elif o in ("pop", "drop", "apply"):
-            i = body.get("index", 0)
-            if i >= len(w["stashes"]): return h.send_json({"error": "no stash", "code": "git_no_stash"}, 409)
+            i = body.get("index", -1)
+            if not isinstance(i, int) or i < 0 or i >= len(w["stashes"]) or body.get("oid") != w["stashes"][i]["oid"]:
+                return h.send_json({"error": "Refresh and reselect the stash", "code": "git_stash_stale"}, 409)
             if o == "apply" or o == "pop":
                 w["files"].append({"path": "Sources/App/Theme.swift", "index": ".", "worktree": "M", "added": 6, "deleted": 2, "binary": False})
             if o != "apply":
