@@ -10,7 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const scheduleKey = "assistant.tasks"
+const (
+	scheduleKey     = "assistant.tasks"
+	scheduleRunsKey = "assistant.runs"
+)
 
 // scheduleOwnerLock is the session advisory lock key for the schedule retry owner.
 const scheduleOwnerLock int64 = 0x706d7363686564
@@ -19,7 +22,17 @@ const scheduleOwnerLock int64 = 0x706d7363686564
 // table as Setting. A legacy null value is returned unchanged: it means the list
 // has not yet been migrated. Revision zero is reserved for a missing row.
 func (d *DB) ReadSchedule(ctx context.Context) (tasks json.RawMessage, revision int64, found bool, err error) {
-	err = d.pool.QueryRow(ctx, `SELECT value, xmin::text::bigint FROM `+d.settingsTable()+` WHERE key = $1`, scheduleKey).Scan(&tasks, &revision)
+	return d.readScheduleList(ctx, scheduleKey)
+}
+
+// ReadScheduleRuns reads the run history and its row version. A missing row
+// has revision zero; an existing legacy null is returned unchanged.
+func (d *DB) ReadScheduleRuns(ctx context.Context) (json.RawMessage, int64, bool, error) {
+	return d.readScheduleList(ctx, scheduleRunsKey)
+}
+
+func (d *DB) readScheduleList(ctx context.Context, key string) (tasks json.RawMessage, revision int64, found bool, err error) {
+	err = d.pool.QueryRow(ctx, `SELECT value, xmin::text::bigint FROM `+d.settingsTable()+` WHERE key = $1`, key).Scan(&tasks, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, 0, false, nil
 	}
@@ -40,6 +53,16 @@ func scheduleJSON(raw json.RawMessage, allowNull bool) bool {
 // CompareSchedule writes a task array only if the row still has the observed
 // revision. Every ordinary settings update changes xmin, including old writers.
 func (d *DB) CompareSchedule(ctx context.Context, revision int64, tasks json.RawMessage) (bool, error) {
+	return d.compareScheduleList(ctx, scheduleKey, revision, tasks)
+}
+
+// CompareScheduleRuns writes a run history array if its row version matches.
+// Ordinary settings writes change that version, including writes by older builds.
+func (d *DB) CompareScheduleRuns(ctx context.Context, revision int64, runs json.RawMessage) (bool, error) {
+	return d.compareScheduleList(ctx, scheduleRunsKey, revision, runs)
+}
+
+func (d *DB) compareScheduleList(ctx context.Context, key string, revision int64, tasks json.RawMessage) (bool, error) {
 	if revision < 0 || !scheduleJSON(tasks, false) {
 		return false, errors.New("invalid schedule revision or task array")
 	}
@@ -49,7 +72,7 @@ func (d *DB) CompareSchedule(ctx context.Context, revision int64, tasks json.Raw
 	} else {
 		sql = `UPDATE ` + d.settingsTable() + ` SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND xmin::text::bigint = $3`
 	}
-	args := []any{scheduleKey, []byte(tasks)}
+	args := []any{key, []byte(tasks)}
 	if revision != 0 {
 		args = append(args, revision)
 	}
