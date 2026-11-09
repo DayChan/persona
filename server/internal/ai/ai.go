@@ -232,7 +232,9 @@ func (c *Client) messages(ctx context.Context, hc *http.Client, key string, r Re
 
 // respond calls the Responses API. It always streams: some compatible endpoints (Codex-backed relays) reject
 // stream=false, and the text is just the concatenated output_text deltas. The system prompt goes in as a developer
-// message rather than `instructions`, which those relays replace with their own.
+// message rather than `instructions`, which those relays replace with their own. Events are framed as SSE (an
+// event's data lines joined with "\n"), and a stream that ends before its terminal event (completed, incomplete or
+// failed) was cut: an error wrapping io.ErrUnexpectedEOF, not a short reply.
 func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Request) (reply Reply, answered bool, err error) {
 	input := []any{map[string]any{"role": "developer", "content": r.System}}
 	for _, m := range r.Messages {
@@ -261,13 +263,15 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 	}
 	var b strings.Builder
 	refused := false // a refusal content part came: the model declined, whatever else the stream says
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() {
-		data, ok := strings.CutPrefix(sc.Text(), "data:")
-		if !ok {
-			continue
+	// lines are the data lines of the event being read; event acts on the event they make up, and done says it ended
+	// the stream, with the reply and error to return.
+	var lines []string
+	event := func() (reply Reply, done bool, err error) {
+		if len(lines) == 0 {
+			return reply, false, nil
 		}
+		data := strings.Join(lines, "\n")
+		lines = lines[:0]
 		var ev struct {
 			Type    string `json:"type"`
 			Delta   string `json:"delta"`
@@ -293,8 +297,8 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 				} `json:"usage"`
 			} `json:"response"`
 		}
-		if json.Unmarshal([]byte(strings.TrimSpace(data)), &ev) != nil {
-			continue
+		if json.Unmarshal([]byte(data), &ev) != nil {
+			return reply, false, nil
 		}
 		finished := func() Reply {
 			r := Reply{Text: b.String(), Model: ev.Response.Model}
@@ -343,14 +347,31 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 			}
 			return reply, true, fmt.Errorf("ai: %s: %s", ev.Type, msg)
 		}
+		return reply, false, nil
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() { // ScanLines strips the \r of a CRLF line end too
+		line := sc.Text()
+		if line == "" { // a blank line ends the event
+			if got, done, err := event(); done {
+				return got, true, err
+			}
+		} else if value, ok := strings.CutPrefix(line, "data:"); ok { // comments and other fields are skipped
+			lines = append(lines, strings.TrimPrefix(value, " "))
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return reply, true, fmt.Errorf("ai: read stream: %w", err)
 	}
-	if b.Len() == 0 {
-		return reply, true, errors.New("ai: stream ended without a reply")
+	if got, done, err := event(); done { // the last event, sent without a blank line after it
+		return got, true, err
 	}
-	return Reply{Text: b.String()}, true, nil
+	// No terminal event: the connection was cut, and whatever text came is only part of the answer.
+	if b.Len() == 0 {
+		return reply, true, fmt.Errorf("ai: stream ended without a reply: %w", io.ErrUnexpectedEOF)
+	}
+	return reply, true, fmt.Errorf("ai: stream ended before the response completed: %w", io.ErrUnexpectedEOF)
 }
 
 // JSON asks for a JSON object and decodes the first one in the reply into out.
