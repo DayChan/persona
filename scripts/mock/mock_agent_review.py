@@ -14,9 +14,9 @@ The routes answer for the demo chat the Review e2e also uses (the weather app on
 
 import threading
 
-# The demo chat (machine "macbook", the weather app's session) the card goes on.
+# The demo chat (machine "macbook", the weather app's idle session) the card goes on.
 MACHINE = "macbook"
-SESSION = "a1f3c2d4-0000-4000-8000-000000000001"
+SESSION = "a1f3c2d4-0000-4000-8000-000000000006"
 REVIEWER = "e5f6a7b8-0000-4000-8000-000000000003"
 
 FINDINGS = """**P0 · Forecast.swift:42** — retry 只认 HTTP 429，超时（URLError.timedOut）不重试，弱网下刷新会直接失败。

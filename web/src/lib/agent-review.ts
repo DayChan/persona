@@ -5,7 +5,7 @@
 import { t } from "../i18n";
 import { api, enc } from "./api";
 import { stateOf } from "./format";
-import type { Interaction, Session } from "./types";
+import type { Session } from "./types";
 
 /** The hub feature that says this hub starts independent reviews (hello `features`). */
 export const AGENT_REVIEW_FEATURE = "agent_review";
@@ -17,21 +17,9 @@ export interface AgentReviewStart {
   started_at: string;
 }
 
-/** What GET …/review answers: whether a review is under way, and the findings card once they are in. */
-export interface AgentReviewState {
-  running: boolean;
-  started_at?: string;
-  pending?: Interaction | null;
-}
-
 /** Starts a fresh read-only reviewer of the session's work, on its own machine and in its directory. */
 export function startAgentReview(mid: string, sid: string): Promise<AgentReviewStart> {
   return api<AgentReviewStart>(`/machines/${enc(mid)}/sessions/${enc(sid)}/review`, { method: "POST" });
-}
-
-/** Whether a review is under way and what it left waiting, as the hub says. */
-export function agentReviewState(mid: string, sid: string): Promise<AgentReviewState> {
-  return api<AgentReviewState>(`/machines/${enc(mid)}/sessions/${enc(sid)}/review`);
 }
 
 /** Why a review cannot start yet: the agent is at work, waits on an answer, or is still starting. The menu item stays,

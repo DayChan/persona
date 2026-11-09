@@ -13301,7 +13301,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send_json({"error": "no such machine"}, 404)
             return self.send_json(mock_agent_review.state())
         if p == "/mock/agent-review" and AGENT_REVIEW:
-            return self.send_json(mock_agent_review.control(q))
+            # keep_blank_values: ?refuse= (empty) resets the refusal, which parse_qs drops by default
+            return self.send_json(mock_agent_review.control(parse_qs(urlparse(self.path).query, keep_blank_values=True)))
         if p == "/api/v1/fleet":
             return self.send_json({"fleet": mock_fleet() if MOCK_FLEET else {"phase": "", "needsYou": 0, "working": 0, "unread": 0, "items": []}})
         if p == "/api/v1/interactions/history":

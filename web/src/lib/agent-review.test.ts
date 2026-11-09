@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 // The independent review's endpoints (#1808): starting one posts to the session's review address with an empty body,
-// the state read parses what the hub says, and busyReason says why the menu item is disabled while the agent works.
+// and busyReason says why the menu item is disabled while the agent works.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { t } from "../i18n";
-import { agentReviewState, busyReason, startAgentReview } from "./agent-review";
+import { busyReason, startAgentReview } from "./agent-review";
 import type { Session } from "./types";
 
 const agent = (o: Partial<Session>): Session => ({ machine_id: "m", session_id: "s", title: "Demo", cwd: "/code", status: "idle", ...o });
@@ -34,16 +34,6 @@ describe("starting an independent review", () => {
   it("throws the hub's own words back (the menu toasts them as they come)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ error: "这个 Agent 正在忙", code: "session_busy" }), { status: 409 }))));
     await expect(startAgentReview("m", "s")).rejects.toMatchObject({ message: "这个 Agent 正在忙" });
-  });
-});
-
-describe("the review's state", () => {
-  it("reads whether one runs and the findings card it left", async () => {
-    const pending = { id: "review_1", machine_id: "m", session_id: "s", kind: "review", tool_name: "persona_review", summary: "3 findings", findings: "…", findings_count: 3, review_session: "r1" };
-    const { calls } = hub({ running: false, pending });
-    await expect(agentReviewState("m", "s")).resolves.toEqual({ running: false, pending });
-    expect(calls[0]!.url).toBe("/api/v1/machines/m/sessions/s/review");
-    expect(calls[0]!.init?.method).toBeUndefined(); // a GET, as a read is
   });
 });
 

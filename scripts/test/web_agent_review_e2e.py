@@ -12,8 +12,8 @@ Needs a running web page against the fake hub with MOCK_AGENT_REVIEW=1 (scripts/
     (cd web && PERSONA_HUB_URL=http://127.0.0.1:18873 npx vite --port 5193 --strictPort &)
     python3 scripts/test/web_agent_review_e2e.py http://127.0.0.1:5193 --hub http://127.0.0.1:18873 [--shots <dir>]
 
-Prints one line per check and a verdict; exits 1 on the first failure. Runs light and dark at desktop width, and light
-at phone width; --shots saves each state there. --channel msedge, or --executable <path>, where there is no Chrome.
+Prints one line per check and a verdict; exits 1 on the first failure. Runs light and dark at desktop and phone
+widths; --shots saves each state there. --channel msedge, or --executable <path>, where there is no Chrome.
 """
 import argparse
 import json
@@ -24,7 +24,8 @@ import urllib.request
 from playwright.sync_api import expect, sync_playwright
 
 SIZES = {"wide": {"width": 1440, "height": 900}, "narrow": {"width": 390, "height": 844}}
-MID, SID = "macbook", "a1f3c2d4-0000-4000-8000-000000000001"  # a chat whose folder is /Users/me/code/weather
+MID, SID = "macbook", "a1f3c2d4-0000-4000-8000-000000000006"  # the weather app's idle chat
+BUSY = "a1f3c2d4-0000-4000-8000-000000000001"  # the same folder's chat, working
 
 
 def ok(msg):
@@ -62,6 +63,7 @@ def run(browser, base, hub, token, size, theme, shots):
         mock(hub, token, "?state=" + ("card" if card else "none") + "&count=1&refuse=&running=0")
         page.goto(f"{base}/s/{MID}/{SID}")
         page.wait_for_selector("[data-composer], textarea")
+        page.wait_for_function("dark => document.documentElement.classList.contains('dark') === dark", arg=theme == "dark")
 
     def menu_item():
         page.get_by_role("button", name="更多").first.click()
@@ -80,7 +82,20 @@ def run(browser, base, hub, token, size, theme, shots):
     ok(f"{tag}: the menu entry starts a review of this session")
     page.keyboard.press("Escape")
 
+    # a busy chat keeps the entry, disabled with its reason
+    mock(hub, token, "?state=none&refuse=")
+    page.goto(f"{base}/s/{MID}/{BUSY}")
+    page.wait_for_selector("[data-composer], textarea")
+    page.get_by_role("button", name="更多").first.click()
+    busy = page.get_by_role("menuitem", name="独立审查这项工作")
+    expect(busy).to_be_visible()
+    expect(busy).to_be_disabled()
+    expect(busy).to_contain_text("它正在忙")
+    ok(f"{tag}: a busy chat keeps the entry, disabled with its reason")
+    page.keyboard.press("Escape")
+
     # a refusal comes back in the hub's own words
+    open_chat(card=False)
     mock(hub, token, "?refuse=session_busy")
     item = menu_item()
     item.click()
@@ -143,7 +158,7 @@ def main():
         os.makedirs(a.shots, exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=a.executable) if a.executable else p.chromium.launch(channel=a.channel)
-        for size, theme in (("wide", "light"), ("wide", "dark"), ("narrow", "light")):
+        for size, theme in (("wide", "light"), ("wide", "dark"), ("narrow", "light"), ("narrow", "dark")):
             run(browser, a.base, a.hub, a.token, size, theme, a.shots)
         browser.close()
     print("PASS web agent review", flush=True)

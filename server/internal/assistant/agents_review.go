@@ -586,7 +586,7 @@ func (s *Service) reviewAsks(ctx context.Context, machine, sid string) []string 
 	}
 	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if err := s.call(qctx, machine, DeviceSessionItems, map[string]any{"session_id": sid, "turns": reviewAskTurns}, &res); err != nil {
+	if err := s.call(qctx, machine, DeviceSessionItems, map[string]any{"session_id": sid, "turns": reviewAskTurns, "lazy_images": true}, &res); err != nil {
 		s.logf("review %s/%s: the asks could not be read: %v", machine, short(sid), err)
 		return nil
 	}
@@ -627,12 +627,7 @@ func parseReviewFindings(text string) (string, *int) {
 	if v, err := strconv.Atoi(text[found[len(found)-1][2]:found[len(found)-1][3]]); err == nil {
 		count = &v
 	}
-	clean := text[:found[0][0]]
-	for i := 1; i < len(found); i++ {
-		clean += text[found[i-1][1]:found[i][0]]
-	}
-	clean += text[found[len(found)-1][1]:]
-	return strings.TrimSpace(clean), count
+	return strings.TrimSpace(reviewMarker.ReplaceAllString(text, "")), count
 }
 
 // ---- watching the reviewer ----
@@ -708,7 +703,7 @@ func (s *Service) reviewReply(ctx context.Context, machine, sid string) string {
 	}
 	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if err := s.call(qctx, machine, DeviceSessionItems, map[string]any{"session_id": sid, "turns": 1}, &res); err != nil {
+	if err := s.call(qctx, machine, DeviceSessionItems, map[string]any{"session_id": sid, "turns": 1, "lazy_images": true}, &res); err != nil {
 		s.logf("review: the reviewer %s/%s could not be read: %v", machine, short(sid), err)
 		return ""
 	}
