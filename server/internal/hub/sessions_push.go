@@ -327,6 +327,7 @@ func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var full []byte
+	var projected [2][]byte // full as compat.ProjectJSON leaves it for apps without and with the canonical contracts
 	for c := range h.clients {
 		var b []byte
 		if c.listMode {
@@ -341,7 +342,15 @@ func (h *Hub) broadcastSessions(m *Machine, list []proto.Session) {
 			if full == nil {
 				full = sessionsMessage(m.cfg.ID, enc)
 			}
-			b = full
+			canonical, k := c.canonical(), 0
+			if canonical {
+				k = 1
+			}
+			if projected[k] == nil {
+				projected[k] = compat.ProjectJSON(full, canonical)
+			}
+			c.queueProjected(projected[k])
+			continue
 		}
 		if b != nil {
 			c.queue(b)
@@ -367,7 +376,17 @@ func (h *Hub) snapshotSessions(c *client, m *Machine) {
 // queue puts b on the client's way out; a client 512 messages behind is dropped (it would miss this one for good
 // now that nothing is sent twice) and resyncs when it reconnects.
 func (c *client) queue(b []byte) {
-	b = compat.ProjectJSON(b, c.canonicalContracts.Load() || c.urlFeatures[compat.Feature])
+	c.queueProjected(compat.ProjectJSON(b, c.canonical()))
+}
+
+// canonical: the app takes the canonical contracts, which compat.ProjectJSON leaves as they are.
+func (c *client) canonical() bool {
+	return c.canonicalContracts.Load() || c.urlFeatures[compat.Feature]
+}
+
+// queueProjected is queue for b already as compat.ProjectJSON leaves it for the app: a message queued to several apps
+// is projected once.
+func (c *client) queueProjected(b []byte) {
 	select {
 	case c.out <- b:
 	default:

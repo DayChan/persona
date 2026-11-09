@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -199,4 +200,31 @@ func memoRow(rng *rand.Rand, id int) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// The whole list is put together and projected once per push for each kind of older app: one that takes the
+// canonical contracts gets it as it is, the others as compat.ProjectJSON projects it for them, as queue did per app.
+func TestWholeListProjectedOncePerKind(t *testing.T) {
+	h := newTestHub(t)
+	m := newMachine(h, MachineConfig{ID: "box", Name: "Box", Kind: "local"})
+	h.machines, h.byID["box"] = append(h.machines, m), m
+	m.sessions = []proto.Session{{MachineID: "box", SessionID: "s1", Work: &proto.WorkState{Link: &proto.WorkLink{URL: "persona://pair"}}}}
+	var apps []*client
+	for _, canonical := range []bool{false, true, false, true} {
+		c := &client{out: make(chan []byte, 4), subs: map[[2]string]bool{}, role: roleFull}
+		c.canonicalContracts.Store(canonical)
+		h.clients[c] = struct{}{}
+		apps = append(apps, c)
+	}
+	h.sessionsChanged(m)
+	full := sessionsMessage("box", encodeStamped(m.sessions, h.machineOwner("box")))
+	if string(compat.ProjectJSON(full, false)) == string(full) {
+		t.Fatal("the list is not one an older app gets projected")
+	}
+	for i, c := range apps {
+		want := compat.ProjectJSON(full, c.canonical())
+		if got := <-c.out; string(got) != string(want) {
+			t.Fatalf("app %d:\n got %s\nwant %s", i, got, want)
+		}
+	}
 }
