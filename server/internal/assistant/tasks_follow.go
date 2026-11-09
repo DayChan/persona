@@ -77,36 +77,52 @@ func (s *Service) taskAgentsReached(ctx context.Context, t Todo) (agents []proto
 	return s.taskAgentsReachedFirst(ctx, t, "")
 }
 
-// taskAgentsReachedFirst gives the event's machine the shared deadline first, so
-// a stalled earlier agent cannot hide the turn that triggered this check.
+// taskAgentsReachedFirst asks distinct machines concurrently under one deadline.
+// A stalled machine cannot consume another machine's chance to answer.
 func (s *Service) taskAgentsReachedFirst(ctx context.Context, t Todo, first string) (agents []proto.Session, reached bool) {
 	ctx, cancel := context.WithTimeout(ctx, agentReachMax)
 	defer cancel()
-	reached = true
-	lists, asked := map[string][]proto.Session{}, map[string]bool{}
-	ask := func(machine string) {
-		if asked[machine] {
-			return
+	type result struct {
+		machine string
+		list    []proto.Session
+		ok      bool
+	}
+	var machines []string
+	asked := map[string]bool{}
+	add := func(machine string) {
+		if !asked[machine] {
+			asked[machine] = true
+			machines = append(machines, machine)
 		}
-		asked[machine] = true
-		list, ok := s.sessionsReached(ctx, machine)
-		if !ok {
-			reached = false
-			return
-		}
-		lists[machine] = list
 	}
 	if first != "" {
 		for _, a := range t.Agents {
 			if a.MachineID == first && a.ReleasedAt == nil && a.DismissedAt == nil {
-				ask(first)
+				add(first)
 				break
 			}
 		}
 	}
 	for _, a := range t.Agents {
 		if a.ReleasedAt == nil && a.DismissedAt == nil {
-			ask(a.MachineID)
+			add(a.MachineID)
+		}
+	}
+	results := make(chan result, len(machines))
+	for _, machine := range machines {
+		go func() {
+			list, ok := s.sessionsReached(ctx, machine)
+			results <- result{machine: machine, list: list, ok: ok}
+		}()
+	}
+	reached = true
+	lists := make(map[string][]proto.Session, len(machines))
+	for range machines {
+		r := <-results
+		if !r.ok {
+			reached = false
+		} else {
+			lists[r.machine] = r.list
 		}
 	}
 	for _, a := range t.Agents {
