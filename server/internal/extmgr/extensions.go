@@ -368,7 +368,8 @@ func (ps *extensions) view(ctx context.Context, p *extension.Extension) Extensio
 		v.Status, v.NeedsSetup = extensionNeedsSetup, append(v.NeedsSetup, needsTriageModelSetup(ps.h.contextLang(ctx)))
 	}
 	if ps.h != nil {
-		ps.voiceView(ctx, p, &v) // runs, but no conversation starts without an upstream (voice_extension.go)
+		ps.voiceView(ctx, p, &v)    // runs, but no conversation starts without an upstream (voice_extension.go)
+		ps.imessageView(ctx, p, &v) // no connector until its one Mac is picked (imessage_extension.go)
 	}
 	if ps.h != nil {
 		ps.h.extensionUpgrades().decorate(ctx, &v, p)

@@ -27,6 +27,7 @@ Click sounds and the Agent cursor only apply to Cua Driver. LCU has no separate 
 - **Per machine**: once the extension is on, each Mac's machine page gains Control Computer, with **Let the Assistant Control This Computer**
   (`PUT /api/v1/machines/{mid}/computer`), stored in `machines` in extension config. Controllable Computers on the extension page is the same value: Macs only, one switch each (name, online status, Cua status), effective immediately (`format: machine`, [extensions.md](extensions.md)).
 - **Confirm before acting**: extension config `confirm` (Confirm on Phone Before Acting), off by default; see "Write operations".
+- **From the extension page**: **Set Up** beside a Mac opens that machine's existing Control Computer section. Install Cua Driver there, grant **Accessibility** and **Screen & System Audio Recording** (Screen Recording on older macOS), then **Check Again**. These are macOS permissions for Cua Driver, not a Persona hub switch.
 
 **With the extension off**:
 - The hub never asks any node about cua-driver (the node never probes on its own).
@@ -468,7 +469,9 @@ Flags used:
   - `cua` extension Ask Before First Operating an App (`app_approval`), on by default.
   - The first time the assistant operates an App on a Mac (or views the whole screen), the phone shows a card: "Let the assistant operate Calculator on MacBook", options Allow / "Don't ask again for Calculator" / Deny.
   - Always Allow is stored by bundle id in hub settings (`computer.apps`, per machine), preventing future prompts.
-  - Allowed Apps for Assistant in Control Computer lists each one; Remove asks again next time (`GET` / `DELETE /api/v1/machines/{mid}/computer/apps[/{bundle}]`).
+  - Allowed Apps for Assistant in Control Computer lists each one; Remove deletes the saved approval. Future prompts follow `app_approval`; removing a record does not enable that setting (`GET` / `DELETE /api/v1/machines/{mid}/computer/apps[/{bundle}]`).
+  - The web sends `?expected_manager=<manager id>` and requires the hub's successful `X-Persona-Computer-Apps-Owner` response acknowledgement before enabling revocation. The hub checks the expected owner against the same routing target it relays to, returning `409 machine_owner_changed` before a stale confirmation reaches any receiver, including an older manager that ignores the query. Updated managers also check their immutable identity before settings access.
+  - The web's guarded mutation is `DELETE /api/v1/machines/{mid}/computer/apps/revoke/{encoded identifier}` with the required expected owner. A capable hub checks then translates it to the established DELETE for older managers; updated managers also accept the guarded path directly. Legacy receivers cannot match that path as an ordinary DELETE, so a hub downgrade cannot turn an earlier acknowledgement into an unsafe mutation. Reads remain visible through an older hub with a clear update notice and disabled revoke controls. Legacy clients using the original GET/DELETE routes without a precondition keep their behavior.
 - **Identifying Apps** (`callApps`, `computer_apps.go`):
   - `app` in `computer_state`; absent means whole screen, also asks once.
   - Each step's `app` in `computer_run` (or the call-level `app`).

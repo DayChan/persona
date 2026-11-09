@@ -36,7 +36,7 @@ func TestItemMatchesTheContract(t *testing.T) {
 	}
 	at := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
 	w := kbwire.Item{Kind: KindMeeting, Source: "example", ID: "m1", Title: "Weekly", URL: "https://example.com/m1", At: at, Where: "calendar",
-		Projects: []string{"p"}, Note: "n", Seen: at, Tagging: kbwire.Tagging{Importance: "P1", Relevance: 70,
+		Projects: []string{"p"}, Note: "n", Seen: at, Signals: []string{kbwire.SignalViewed}, Tagging: kbwire.Tagging{Importance: "P1", Relevance: 70,
 			Tags: []string{"t"}, Locked: true, TaggedAt: at, Pinned: "fact", LockedFields: []string{"note"}}}
 	got := ItemFromWire(w)
 	if !reflect.DeepEqual(jsonOf(t, got), jsonOf(t, w)) {

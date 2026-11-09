@@ -140,7 +140,31 @@ are still dispatched to connectors by the hub (the manager asks through `app.cal
 ### Knowledge-base ingestion
 
 - `Archive`: one cursor per account; `Changes(cursor)` returns changed conversations. The hub stores the cursor in `cursors/<id>.json`; conversation ids are `<connector id>-<conversation id>`.
+- **What the knowledge base's selection reads** (#1523): the selection decides which chats and documents are kept by
+  what the connector reports, so every connector that reports it behaves the same. A batch's chat (`kbwire.SourceChat`)
+  has a kind (the kind rules match dm / group / bot / official / system; other kinds such as mail, issue or pr match
+  none) and the owner's flags `muted`, `collapsed` and `done`; a message has `mine`, `mentioned` (the owner by name: the
+  connector decides what counts) and `mentioned_all` (an @all / @everyone, reported apart so the selection's
+  `include_all` can decide), on `Changes` batches as on history pages; a document (`kbwire.Item`) has `signals`, the ones it can tell of `mentions`,
+  `comment_mentions`, `authored` and `viewed`. All of them are optional: a connector that cannot tell one leaves it out,
+  and its chats or documents never match that rule.
 - `Chats`: for sources like Lark with per-conversation cursors and attachments, provide `kb.Source` directly; archiving, compression and tagging stay unchanged. Older history is imported separately (`docs/assistant/knowledge.md`, "History import").
+- `History` (capability `history`, requires `archive`): a conversation's older history, which `Changes` never reaches.
+  `HistoryChats` lists the conversations that can be imported (kind dm / group / bot / official / system, the
+  `muted` / `collapsed` / `done` flags, a rough message count; a conversation id is unique across the connector's archive sources, since a query names it by
+  id alone); `History` reads one page of one conversation (before / after / around a position, or the
+  newest page). Optional `HistoryAnchors` (capability `history_anchors`) searches for the messages the owner sent or
+  was mentioned in, so a conversation can be imported as windows around them (each anchor says the source its
+  conversation is filed under, since one the account left is often missing from `HistoryChats`). All read-only. The knowledge base drives
+  the import through the hub's bus methods `connectors.history_chats`, `connectors.history` and
+  `connectors.history_anchors` (`assistantwire/kb.go`); extmgr routes them only to a connector that archives into the
+  knowledge base now and declares the capability, checks the query and cuts its limit to 200, and passes the answer and
+  any error back as they are. `connectors.archives` says which connectors have them (`history`, `history_anchors`).
+  What the caller relies on (`docs/protocol/connector-protocol.md` "History"): a page's limit is a hint and a source may
+  answer more, so the caller goes on from the cursors it answers; `more` false or an empty page is the start of the
+  conversation, unless the answer is paced or unreadable (`HistoryPage.AtStart`); a conversation the account can no longer read is `unreadable` (skip it, not a failure); `pace` asks the
+  caller to wait (`retry_after_ms`) or stop for a person (`stop`, `reason`); a read that timed out is never retried by
+  the caller.
 - `Items`: Lark documents, meetings and calendar events.
 
 ### Settings › Connectors
@@ -252,7 +276,7 @@ type Batch struct {
 - `Items`: merge into `Batch.Items`; `DocTitle` (document-title lookup by link) is not a "change", so remains an optional query (later merged into "Links" in the v1 plan).
 - Lark conversations: an adapter `connector.PerChat(kb.Source)` wraps per-conversation cursors into a composite cursor, moving the engine's conversation-selection logic into the adapter.
   **Lark is the largest source and this is the highest-risk step, so do it last**, with the M0 comparison baseline (then the hub's connector_baseline_test.go, removed with the hub's Lark source in #1571) and real-data comparison required.
-- **Kept separate**: backfill (reading older history, the opposite direction from "since last time") remains optional `Backfill`; attachments (`Download`) remain optional `Media`.
+- **Kept separate**: reading older history (the opposite direction from "since last time") is its own optional capability, `history` (`History`, read through the hub's `connectors.history*` bus methods), not part of `Changes`; the older `kb.Backfiller` / `Engine.Backfill` path is unused and is to be replaced by a history driver in the knowledge base. Attachments (`Download`) remain optional `Media`.
   Forcing them into `Changes` makes one cursor represent two directions and harder to understand.
 
 Size: **medium** (almost mechanical for four connectors) **to large** (Lark). Moments moves with Lark.

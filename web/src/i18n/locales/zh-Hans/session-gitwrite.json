@@ -69,5 +69,9 @@
   "refused_not_signed_in": "那台电脑上的 GitHub CLI（gh）没登录：在那台电脑上运行 gh auth login",
   "refused_git_not_pushed": "先推送分支：拉取请求需要所有提交都在 GitHub 上",
   "refused_git_no_pr": "这个分支没有拉取请求",
-  "refused_git_not_github": "这个仓库没有 GitHub 远端"
+  "refused_git_not_github": "这个仓库没有 GitHub 远端",
+  "stash_refresh": "刷新",
+  "stash_old_node": "请更新此电脑上的 Persona，以安全地应用、弹出或删除储藏。",
+  "refused_git_stash_stale": "储藏列表已更改。请刷新后重新选择储藏。",
+  "refused_git_stash_unsupported": "此仓库不支持安全删除储藏。"
 }

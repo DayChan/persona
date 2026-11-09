@@ -455,8 +455,8 @@ func TestClosedTaskReopensWhenItsAgentWorksAgain(t *testing.T) {
 	}
 }
 
-// Only a task the hub closed (judged done, reviewed) opens again, and only for an agent that still belongs to it: not
-// one the user closed (done by hand while its agent still started, #2954), not one whose start failed (that goes
+// Only a task the hub judged done or its supervisor accepted opens again, and only for an agent that still belongs to it: not
+// a cancelled task or one the user closed (done by hand while its agent still started, #2954), not one whose start failed (that goes
 // through Retry), not one the agent was released or dismissed from, and not when the agent works for an open todo now.
 func TestWhichClosedTaskReopens(t *testing.T) {
 	done := time.Now().Add(-time.Hour)
@@ -467,6 +467,10 @@ func TestWhichClosedTaskReopens(t *testing.T) {
 	s1 := TodoAgent{MachineID: "box", SessionID: "s1"}
 	failed := task(db.DoneByAuto, s1)
 	failed.StartError = "no such launcher"
+	accepted := task(db.DoneByReview, s1)
+	accepted.Supervision = &Supervision{State: reviewAccepted}
+	legacyCancelled := task(db.DoneByReview, s1)
+	legacyCancelled.Supervision = &Supervision{State: reviewCancelled}
 	for _, c := range []struct {
 		name    string
 		todos   []Todo
@@ -474,6 +478,9 @@ func TestWhichClosedTaskReopens(t *testing.T) {
 	}{
 		{"judged done", []Todo{task(db.DoneByAuto, s1)}, true},
 		{"reviewed", []Todo{task(db.DoneByReview, s1)}, true},
+		{"accepted", []Todo{accepted}, true},
+		{"cancelled", []Todo{task(db.DoneByCancelled, s1)}, false},
+		{"legacy cancelled", []Todo{legacyCancelled}, false},
 		{"closed by the user", []Todo{task("", s1)}, false},
 		{"start failed", []Todo{failed}, false},
 		{"released", []Todo{task(db.DoneByAuto, TodoAgent{MachineID: "box", SessionID: "s1", ReleasedAt: &released})}, false},

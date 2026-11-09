@@ -617,7 +617,8 @@ struct WatchInteractionView: View {
                     }
                 case .plan:
                     Text(WatchText.shown(interaction.plan ?? "")).font(.footnote)
-                    Button("Approve & Run") { act(Resolution(approve: true, mode: "bypassPermissions")) }
+                    // acceptEdits like the phone's lock-screen buttons: commands still ask. Auto-run stays on the phone.
+                    Button("Approve & Run") { act(Resolution(approve: true, mode: "acceptEdits")) }
                         .lineLimit(1).minimumScaleFactor(0.8).buttonStyle(.borderedProminent).tint(Theme.accent)
                     Button("Send Back [Notification Actions a20f13]") { act(Resolution(approve: false, feedback: "请重新考虑这个计划")) }.lineLimit(1) // i18n-ignore: feedback sent to the agent
                 case .permission:

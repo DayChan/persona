@@ -582,7 +582,7 @@ func (t *tracker) send(ctx context.Context, r *voiceRun, message string) error {
 }
 
 // words is what the model is told: text, and short for a service that holds a commentary to an append's tokens (it
-// refuses text, and short is sent instead: session.go, deliver).
+// refuses text, and short is sent instead: session_speak.go, deliver).
 type words struct{ text, short string }
 
 func plainWords(text string) words { return words{text: text, short: clipTokens(text, appendTokens)} }

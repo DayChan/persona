@@ -46,6 +46,9 @@ func OpenReadOnly(dir string) (*Store, error) {
 		if err := f.Close(); err != nil {
 			return err
 		}
+		if entry.Name() == recordingJournal {
+			return errors.New("knowledge archive requires writable recording recovery")
+		}
 		if entry.Name() == ingestJournal {
 			return errors.New("knowledge archive requires writable ingestion recovery")
 		}

@@ -1,5 +1,6 @@
 {
   "disabled": "The AI twin is off",
+  "never": "Kept for you by your Never AI twin rule",
   "timeout": "Timed out without a suggestion",
   "no_draft": "Finished without a suggestion",
   "start_failed": "Could not start, so it was not handled",

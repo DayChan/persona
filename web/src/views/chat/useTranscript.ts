@@ -250,6 +250,12 @@ export function useTranscript(mid: string, sid: string, opts: { starting?: boole
       }
       apply(e.items ?? []);
       if (e.to_seq) covered.current = Math.max(covered.current, e.to_seq);
+      if (e.more_after) {
+        gapTimer.current ??= window.setTimeout(() => {
+          gapTimer.current = undefined;
+          void fillGap().catch(() => {});
+        }, 1500);
+      }
     };
 
     const off = listenSession(mid, sid, {

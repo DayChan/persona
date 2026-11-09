@@ -5,6 +5,7 @@
         "id": "primary.user_example_a",
         "name": "Example A",
         "kind": "dm",
+        "muted": true,
         "updated_at": "2026-11-04T08:24:00.000Z"
       },
       "messages": [
@@ -12,6 +13,7 @@
           "id": "880000000002",
           "position": "2",
           "mine": false,
+          "mentioned": true,
           "type": "TEXT",
           "text": "Synthetic question: are you free today?",
           "at": "2026-11-04T08:22:00.000Z",
@@ -47,6 +49,34 @@
           "type": "TEXT",
           "text": "Synthetic reply from the account owner",
           "at": "2026-11-04T08:24:00.000Z"
+        }
+      ]
+    },
+    {
+      "chat": {
+        "id": "primary.group_example_team",
+        "name": "Example team",
+        "kind": "group",
+        "muted": true,
+        "updated_at": "2026-11-04T08:30:00.000Z"
+      },
+      "messages": [
+        {
+          "id": "880000000101",
+          "position": "101",
+          "mine": false,
+          "mentioned_all": true,
+          "type": "TEXT",
+          "text": "Synthetic notice to everyone: the meeting moves to 3 pm",
+          "at": "2026-11-04T08:30:00.000Z",
+          "sender_id": "user_example_b",
+          "sender_handles": [
+            {
+              "kind": "examplechat",
+              "value": "user_example_b"
+            }
+          ],
+          "sender_name": "Example B"
         }
       ]
     }

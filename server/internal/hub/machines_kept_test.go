@@ -207,12 +207,16 @@ func TestAManagerKeepsItsOwnList(t *testing.T) {
 		m.mu.Unlock()
 		return s.Name == "Studio box" && s.Online && same
 	})
-	// The removal too: it lets it go, and the hub shows it no more.
-	if kept, err := h.removeKeptMachine(ctx, "lap"); !kept || err != nil {
-		t.Fatalf("remove: %v %v", kept, err)
+	// The removal too, from the admin page: it lets it go, the hub shows it no more, and its credential is revoked.
+	lapToken, _ := linkToken(t, h, "lap")
+	if w := adminMachinesRequest(h, "DELETE", "/api/v1/admin/machines/lap", ""); w.Code != 200 {
+		t.Fatalf("remove: %d %s", w.Code, w.Body.String())
 	}
 	if ids := ownListIDs(t, file); len(ids) != 1 || h.keptBy("lap") != "" || h.machineByID("lap") != nil {
 		t.Fatalf("after the removal: own list %v", ids)
+	}
+	if _, ok := h.authenticate(ctx, lapToken); ok {
+		t.Fatal("its Persona Link credential still works after the removal")
 	}
 
 	// The manager away: an edit of what it keeps is answered as such, nothing changes.

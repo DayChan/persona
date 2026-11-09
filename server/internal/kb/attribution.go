@@ -111,7 +111,7 @@ func heldBy(t *Tagging, field string) string {
 // tagging reads an entity's tagging; nil when it does not exist.
 func (s *Store) tagging(kind, id string) (*Tagging, error) {
 	var t Tagging
-	exists, err := readJSON(s.entityPath(kind, id), &t)
+	exists, err := s.readEntityJSON(kind, id, &t)
 	if err != nil || !exists {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (e *Engine) before(kind, id string, fields []string) (map[string]json.RawMe
 		return out, nil
 	}
 	current := map[string]json.RawMessage{}
-	if _, err := readJSON(e.Store.entityPath(kind, id), &current); err != nil {
+	if _, err := e.Store.readEntityJSON(kind, id, &current); err != nil {
 		return nil, err
 	}
 	for _, f := range fields {
@@ -392,6 +392,13 @@ func (e *Engine) claim(kind, id string, u Update, by string, evidence []Evidence
 // editTagging changes the tagging fields of an entity's metadata in place (other fields as they are on disk); it
 // writes and notifies only when edit says it changed something and the file differs.
 func (s *Store) editTagging(kind, id string, edit func(*Tagging) bool) (err error) {
+	if kind == KindRecording {
+		s.recFilesMu.Lock()
+		if err := s.recoverRecordingLocked(id); err != nil {
+			s.recFilesMu.Unlock()
+			return err
+		}
+	}
 	s.metaMu.Lock()
 	if kind == KindChat {
 		s.mu.Lock()
@@ -402,6 +409,9 @@ func (s *Store) editTagging(kind, id string, edit func(*Tagging) bool) (err erro
 			s.mu.Unlock()
 		}
 		s.metaMu.Unlock()
+		if kind == KindRecording {
+			s.recFilesMu.Unlock()
+		}
 		if err == nil && changed {
 			s.notify(kind, id, "metadata")
 		}

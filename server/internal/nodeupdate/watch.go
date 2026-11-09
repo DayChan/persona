@@ -177,6 +177,9 @@ func (m *Manager) cleanStaleStages(keep string) error {
 	return nil
 }
 
+// startWatchdog runs the rollback watchdog from the old executable (backup): a transient user service under systemd,
+// else a detached process in a session of its own (launchd, or a supervisor declared with node --attach --supervised),
+// which outlives the node it may have to stop.
 func startWatchdog(backup, path, id string) error {
 	if runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "" {
 		return startSystemdWatchdog(backup, path, id)

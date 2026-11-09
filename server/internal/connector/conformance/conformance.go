@@ -16,6 +16,7 @@ import (
 	wireschema "github.com/nwverse/persona/sdk/go/wire"
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/connector/serve"
+	"github.com/nwverse/persona/server/internal/connectorwire"
 	"github.com/nwverse/persona/server/internal/extension"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -197,6 +198,47 @@ func check(t testing.TB, c connector.Connector, inPlugin bool) {
 			t.Fatalf("changes: %v", err)
 		}
 		same(t, "changes", serve.ChangesResult{Batches: b, Next: next, More: more}, got)
+	}
+	if h, ok := connector.As[connector.History](c); ok {
+		var got serve.HistoryChatsResult
+		decode(t, call(serve.MHistoryChats, struct{}{}), &got)
+		chats, err := h.HistoryChats(ctx)
+		if err != nil {
+			t.Fatalf("history chats: %v", err)
+		}
+		if chats == nil {
+			chats = []connectorwire.HistoryChat{}
+		}
+		same(t, "history chats", serve.HistoryChatsResult{Chats: chats}, got)
+		if len(chats) > 0 {
+			q := serve.HistoryParams{Chat: chats[0].ID, Limit: 20}
+			var through connectorwire.HistoryPage
+			decode(t, call(serve.MHistory, q), &through)
+			page, err := h.History(ctx, q)
+			if err != nil {
+				t.Fatalf("history %s: %v", q.Chat, err)
+			}
+			same(t, "history", page, through)
+			if page.Older != "" {
+				q.Before = page.Older
+				through = connectorwire.HistoryPage{}
+				decode(t, call(serve.MHistory, q), &through)
+				if page, err = h.History(ctx, q); err != nil {
+					t.Fatalf("history %s before %s: %v", q.Chat, q.Before, err)
+				}
+				same(t, "older history", page, through)
+			}
+		}
+	}
+	if a, ok := connector.As[connector.HistoryAnchors](c); ok {
+		q := serve.HistoryAnchorsParams{Limit: 20}
+		var got connectorwire.HistoryAnchors
+		decode(t, call(serve.MHistoryAnchors, q), &got)
+		anchors, err := a.HistoryAnchors(ctx, q)
+		if err != nil {
+			t.Fatalf("history anchors: %v", err)
+		}
+		same(t, "history anchors", anchors, got)
 	}
 }
 

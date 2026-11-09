@@ -207,7 +207,7 @@ func TestFewRequestsLeftReadsNoThreads(t *testing.T) {
 	f.mu.Unlock()
 	var ns []notification
 	_ = json.Unmarshal([]byte(f.notifications), &ns)
-	c.applyNotifications(context.Background(), ns, time.Now())
+	c.applyNotifications(context.Background(), ns, true, time.Now())
 	if len(f.requests) != before {
 		t.Fatalf("threads were read with few requests left: %v", f.requests[before:])
 	}
