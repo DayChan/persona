@@ -152,6 +152,62 @@ func (n *Node) scanOffline() []proto.Session {
 	return out
 }
 
+// codexAssistantsAtRest lists the assistant's Codex conversations whose process has been let go (assistantIdleTimeout).
+// scanOffline reads only Claude's projects and codexSessions keeps the assistant's out of Agents, so such a conversation
+// had no row at all, and every client turned its composer off, with nothing left to send the message that resumes it (#2126).
+func (n *Node) codexAssistantsAtRest(seen map[string]bool) []proto.Session {
+	if n.state == nil || n.codices == nil {
+		return nil
+	}
+	n.state.mu.Lock()
+	cwds := map[string]string{}
+	for id, st := range n.state.Sessions {
+		if !seen[id] && validID(id) && identity.IsAssistantDir(st.Cwd) {
+			cwds[id] = st.Cwd
+		}
+	}
+	n.state.mu.Unlock()
+	keep := n.keptSessions()
+	type cand struct {
+		id, path string
+		st       os.FileInfo
+	}
+	var cands []cand
+	for id := range cwds {
+		path := n.codexPath(id)
+		if path == "" {
+			continue
+		}
+		st, err := os.Stat(path)
+		if err != nil || !keep[id] && time.Since(st.ModTime()) > offlineWindow {
+			continue
+		}
+		cands = append(cands, cand{id, path, st})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].st.ModTime().After(cands[j].st.ModTime()) })
+	var out []proto.Session
+	quiet := 0
+	for _, c := range cands {
+		if !keep[c.id] {
+			if quiet++; quiet > maxAssistantOffline {
+				continue
+			}
+		}
+		m := n.meta(c.path, c.st)
+		s := proto.Session{
+			SessionID: c.id, Title: m.title, Cwd: cwds[c.id], Status: proto.StatusOffline, Model: m.model, Agent: "codex",
+			LastText: snippet(m.lastText), UpdatedAt: lastUsed(m, c.st), Rev: c.st.Size(),
+		}
+		s.Activity, s.ActivityAt = m.activityOf()
+		setContext(&s, m)
+		s.PermissionMode, s.Effort = n.currentModes(c.id, m)
+		untitled(&s, m)
+		n.decorate(&s)
+		out = append(out, s)
+	}
+	return out
+}
+
 var nonAlnum = lazyre.New(`[^A-Za-z0-9]`)
 
 // maxAssistantOffline is how many of the assistant directory's quiet transcripts the list keeps, apart from the 80

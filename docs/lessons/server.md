@@ -930,6 +930,7 @@ and add that directory to image workflow PR paths.
 - `plugin.Digest` is what users consented to (stored in `plugins.granted`, compared on install / upgrade). New manifest fields (here `node`) enter digests as `omitempty` pointers:
   plugins lacking the field must produce byte-identical old digests, or every installed plugin appears to request more permissions after hub upgrade. `TestDigestWithoutNodeIsAsBefore` recomputes using the old structure and compares.
 - "More permissions" (`MorePermissions`) mustn't inspect only `Permissions` in `granted`: node permissions aren't there; compare old/new manifests (`NodeAdds`).
+- Top-level secrets are absent from the consent digest too (#1829). Compare secret names through the same helper in `MorePermissions` and `AddedIn`: otherwise the marketplace candidate permits an automatic upgrade that its own preview rejects as asking for more. Cover required and optional hub-only secrets, unchanged names, and the persisted once-per-version consent notice without changing existing digests.
 
 ## State surviving node connections can't belong to `Node` (2026-11-05, #1830)
 

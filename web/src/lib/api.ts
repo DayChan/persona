@@ -160,7 +160,8 @@ async function request<T>(path: string, init: ApiOptions): Promise<T> {
     data = text ? JSON.parse(text) : {};
     isJson = typeof data === "object" && data !== null && !Array.isArray(data);
   } catch {
-    data = { error: text };
+    // a proxy's HTML error page says nothing a person can use: the status stands in for it
+    data = { error: /^\s*</.test(text) ? "" : text };
     isJson = false;
   }
   if (!res.ok) {

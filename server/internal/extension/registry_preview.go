@@ -185,7 +185,7 @@ func (r *Registry) PreviewMarket(ctx context.Context, mk *Market, marketID strin
 func MorePermissions(cur *Extension, m *Manifest) bool {
 	was := cur.Full
 	return !cur.Record.Granted.Covers(m.Permissions) || (m.Runtime != nil && was.Runtime == nil) || NodeAdds(was, m) ||
-		len(NewTools(was, m)) > 0 ||
+		len(NewTools(was, m)) > 0 || len(newSecrets(was, m)) > 0 ||
 		slices.ContainsFunc(m.Topics(), func(t string) bool { return !slices.Contains(was.Topics(), t) }) ||
 		slices.ContainsFunc(m.Surfaces(), func(t string) bool { return !slices.Contains(was.Surfaces(), t) }) ||
 		len(newChannels(was, m)) > 0 || len(newSendsAsUser(was, m)) > 0 ||

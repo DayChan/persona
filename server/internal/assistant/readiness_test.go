@@ -370,9 +370,18 @@ func TestReadinessProbe(t *testing.T) {
 	f.mu.Lock()
 	f.checks = nil
 	f.mu.Unlock()
-	if r4 := getReadiness(t, s, "probe=1", ""); r4.Probe == nil || !r4.Probe.OK || readinessStep(t, r4, StepModel).State != StepOK ||
+	r4 := getReadiness(t, s, "probe=1", "")
+	if r4.Probe == nil || !r4.Probe.OK || readinessStep(t, r4, StepModel).State != StepOK ||
 		len(f.checked) != 2 || r4.Mode != ReadinessFull {
 		t.Fatalf("again later: %+v, checked %v", r4, f.checked)
+	}
+	if first := readinessStep(t, r4, StepFirstMessage); first.State != StepOK || r4.Next != nil {
+		t.Fatalf("probe ok should complete first_message: first = %+v, next = %v", first, r4.Next)
+	}
+	// Stays ok on later reads without probe and persists AnsweredAt.
+	r5 := getReadiness(t, s, "", "")
+	if first := readinessStep(t, r5, StepFirstMessage); first.State != StepOK || r5.Next != nil {
+		t.Fatalf("persisted first_message: %+v", first)
 	}
 }
 
