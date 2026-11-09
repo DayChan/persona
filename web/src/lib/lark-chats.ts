@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
 import { api, ApiError, enc, errorText } from "./api";
 import { larkPath } from "./lark-accounts";
 import { itemHeaders } from "./manager-choice";
+import { sameValue } from "./stable-lines";
 
 // ── Show messages on home ──────────────────────────────────────
 
@@ -93,16 +94,6 @@ export function mergeConversations(have: readonly LarkConversation[], batch: rea
   return out;
 }
 
-/** Whether two JSON values say the same (a chat's fields, its `tags`, anything nested the hub adds later). */
-function sameJSON(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== "object" || typeof b !== "object" || !a || !b || Array.isArray(a) !== Array.isArray(b)) return false;
-  const x = a as Record<string, unknown>;
-  const y = b as Record<string, unknown>;
-  const keys = Object.keys(x);
-  return keys.length === Object.keys(y).length && keys.every((k) => k in y && sameJSON(x[k], y[k]));
-}
-
 /** `next` with every chat that did not change kept as the object `prev` already holds, and `prev` itself when nothing
  * changed: a refresh that reads the same chats again then gives React nothing to redraw. */
 function keepUnchanged(prev: LarkConversation[], next: LarkConversation[]): LarkConversation[] {
@@ -111,7 +102,7 @@ function keepUnchanged(prev: LarkConversation[], next: LarkConversation[]): Lark
   let same = prev.length === next.length;
   const out = next.map((c, i) => {
     const was = old.get(c.id);
-    const kept = was && sameJSON(was, c) ? was : c;
+    const kept = was && sameValue(was, c) ? was : c;
     if (kept !== prev[i]) same = false;
     return kept;
   });

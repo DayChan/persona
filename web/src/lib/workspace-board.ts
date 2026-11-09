@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import { api, ApiError, errorText } from "./api";
+import { sameValue } from "./stable-lines";
 import type { Session } from "./types";
 
 export interface BoardColumn { id: string; title: string }
@@ -85,8 +86,6 @@ export interface BoardSnapshot {
   board: BoardState | null; discovery: WorkspaceList; loading: boolean; busy: boolean; readonly: boolean; error: string; discoveryError: string;
 }
 type Transport = <T>(path: string, init?: RequestInit & { json?: unknown }) => Promise<T>;
-/** Hub payloads are plain JSON, so equal text means nothing a view reads has changed. */
-function sameJSON<T>(a: T, b: T): boolean { return a === b || JSON.stringify(a) === JSON.stringify(b); }
 export class BoardModel {
   private state: BoardSnapshot = { board: null, discovery: { workspaces: [] }, loading: true, busy: false, readonly: false, error: "", discoveryError: "" };
   private listeners = new Set<() => void>();
@@ -105,7 +104,7 @@ export class BoardModel {
       this.request<BoardState>("/workspace-board").then((board) => {
         if (read !== this.reads || this.state.busy) return;
         if (!this.state.board || board.revision >= this.state.board.revision) this.set({
-          board: sameJSON<BoardState | null>(board, this.state.board) ? this.state.board : board,
+          board: sameValue(board, this.state.board) ? this.state.board : board,
           readonly: board.can_write === undefined ? this.state.readonly : !board.can_write, error: "",
         });
       }).catch((e) => {
@@ -113,7 +112,7 @@ export class BoardModel {
         this.set({ error: boardError(e), ...(e instanceof ApiError && e.status === 403 ? { readonly: true } : {}) });
       }),
       this.request<WorkspaceList>("/workspaces").then((discovery) => {
-        if (read === this.reads) this.set({ discovery: sameJSON(discovery, this.state.discovery) ? this.state.discovery : discovery, discoveryError: "" });
+        if (read === this.reads) this.set({ discovery: sameValue(discovery, this.state.discovery) ? this.state.discovery : discovery, discoveryError: "" });
       }).catch((e) => { if (read === this.reads) this.set({ discoveryError: errorText(e) }); }),
     ]);
     if (read === this.reads) this.set({ loading: false });
