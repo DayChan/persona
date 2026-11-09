@@ -6,6 +6,7 @@ package ai
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -276,6 +277,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 			Type    string `json:"type"`
 			Delta   string `json:"delta"`
 			Message string `json:"message"`
+			Code    string `json:"code"` // an error event's
 			// Part is the content part of response.content_part.added/done: type output_text or refusal.
 			Part struct {
 				Type string `json:"type"`
@@ -283,6 +285,7 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 			Response struct {
 				Model string `json:"model"`
 				Error *struct {
+					Code    string `json:"code"`
 					Message string `json:"message"`
 				} `json:"error"`
 				IncompleteDetails *struct {
@@ -341,9 +344,12 @@ func (c *Client) respond(ctx context.Context, hc *http.Client, key string, r Req
 			}
 			return reply, true, fmt.Errorf("ai: %s: %s", ev.Type, msg)
 		case "response.failed", "error":
-			msg := ev.Message
-			if ev.Response.Error != nil {
-				msg = ev.Response.Error.Message
+			msg, code := ev.Message, ev.Code
+			if e := ev.Response.Error; e != nil {
+				msg, code = e.Message, cmp.Or(e.Code, code)
+			}
+			if limit := streamLimitFor(ev.Type, code, msg); limit != nil { // a limit told after the 200 holds the gate too
+				return reply, false, limit
 			}
 			return reply, true, fmt.Errorf("ai: %s: %s", ev.Type, msg)
 		}

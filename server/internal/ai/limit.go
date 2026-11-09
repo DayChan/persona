@@ -288,9 +288,60 @@ func retryAfter(v string) time.Duration {
 
 var quotaWords = lazyre.New(`quota|usage limit|exhaust|insufficient|credit|billing`)
 
+// streamLimit is a Responses stream that answered 200 and then reported a limit in its response.failed or error
+// event, as relays and Codex-style backends do. It holds the connection like the HTTP answer; its text is the
+// event's as before.
+type streamLimit struct{ reason, event, code, msg string }
+
+func (e *streamLimit) Error() string { return fmt.Sprintf("ai: %s: %s", e.event, e.msg) }
+
+// streamCodes are the in-stream error codes that report a limit, and which one.
+var streamCodes = map[string]string{
+	"rate_limit_exceeded": ReasonBusy, "slow_down": ReasonBusy, "server_is_overloaded": ReasonBusy,
+	"insufficient_quota": ReasonQuota, "credit_balance_exhausted": ReasonQuota,
+	"organization_spend_limit_exceeded": ReasonQuota, "project_spend_limit_exceeded": ReasonQuota,
+}
+
+// streamLimitFor is the limit an in-stream failure's code reports, nil for any other failure.
+func streamLimitFor(event, code, msg string) *streamLimit {
+	code = strings.TrimSpace(code)
+	reason, ok := streamCodes[strings.ToLower(code)]
+	if !ok {
+		return nil
+	}
+	return &streamLimit{reason: reason, event: event, code: code, msg: msg}
+}
+
+var tryAgainIn = lazyre.New(`(?i)try again in\s*(\d+(?:\.\d+)?)\s*(ms|seconds?|s)\b`)
+
+// tryAgain is the wait a stream's limit message asks for ("Please try again in 1.5s"), which a stream has instead
+// of Retry-After; 0 when it names none.
+func tryAgain(msg string) time.Duration {
+	m := tryAgainIn.FindStringSubmatch(msg)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0
+	}
+	unit := time.Second
+	if strings.EqualFold(m[2], "ms") {
+		unit = time.Millisecond
+	}
+	if d := n * float64(unit); d < float64(afterMost) {
+		return time.Duration(d)
+	}
+	return afterMost
+}
+
 // classify: whether err is an answer that holds the connection, why, for how long the upstream asked, and what it
 // said (for the log line).
 func classify(err error) (reason string, after time.Duration, detail string) {
+	var s *streamLimit
+	if errors.As(err, &s) {
+		return s.reason, tryAgain(s.msg), "stream " + s.code + ": " + s.msg[:min(len(s.msg), 120)]
+	}
 	var h *httpError
 	if !errors.As(err, &h) {
 		return "", 0, ""

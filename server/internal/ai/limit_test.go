@@ -377,6 +377,49 @@ func TestResponsesAPIIsGatedToo(t *testing.T) {
 	}
 }
 
+// A Responses stream can report a limit after its 200 (relays and Codex-style backends put it in the response.failed
+// or error event's code): it holds the connection like the HTTP answer. Any other failure is sent again as before.
+func TestResponsesStreamLimitsPause(t *testing.T) {
+	for _, c := range []struct {
+		name, event, reason, detail string
+		pause                       time.Duration
+	}{
+		{"rate limit", `{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"Rate limit reached. Please try again in 20s."}}}`,
+			ReasonBusy, "(stream rate_limit_exceeded: Rate limit reached. Please try again in 20s.)", 20 * time.Second},
+		{"quota", `{"type":"response.failed","response":{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}}`,
+			ReasonQuota, "(stream insufficient_quota: You exceeded your current quota)", quotaPause},
+		{"error event", `{"type":"error","code":"rate_limit_exceeded","message":"Rate limit reached"}`,
+			ReasonBusy, "(stream rate_limit_exceeded: Rate limit reached)", busyFirst},
+		{"other failure", `{"type":"response.failed","response":{"error":{"code":"server_error","message":"boom"}}}`, "", "", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			clk := fakeClock(t)
+			u := newUpstream(t, answer(200, "data: "+c.event+"\n\n"))
+			cl := New(Config{API: "responses", BaseURL: u.srv.URL, APIKey: "k", Model: "m"})
+			var errs [2]error
+			for i := range errs {
+				_, errs[i] = cl.Complete(context.Background(), "s", "u", 10)
+			}
+			p := Held(cl.Config())
+			if c.reason == "" {
+				if u.sent.Load() != 2 || p != nil || IsPaused(errs[0]) || errs[1] == nil || errs[1].Error() != "ai: response.failed: boom" {
+					t.Fatalf("sent %d, held %+v, errs %v", u.sent.Load(), p, errs)
+				}
+				return
+			}
+			if !IsPaused(errs[0]) || !IsPaused(errs[1]) || Transient(errs[0]) || u.sent.Load() != 1 {
+				t.Fatalf("sent %d, errs %v", u.sent.Load(), errs)
+			}
+			if p == nil || p.Reason != c.reason || !p.Until.Equal(now().Add(c.pause)) {
+				t.Fatalf("held = %+v, want %s for %s", p, c.reason, c.pause)
+			}
+			if logs := clk.lines(); len(logs) != 1 || !strings.Contains(logs[0], c.detail) {
+				t.Fatalf("logs = %q", logs)
+			}
+		})
+	}
+}
+
 func TestOtherErrorsDoNotPause(t *testing.T) {
 	fakeClock(t)
 	u := newUpstream(t, answer(500, `{"error":{"message":"boom"}}`))
@@ -420,6 +463,17 @@ func TestClassify(t *testing.T) {
 	}
 	if d := retryAfter("999999"); d != afterMost {
 		t.Errorf("retryAfter(huge) = %s", d)
+	}
+	for msg, want := range map[string]time.Duration{
+		"Please try again in 1.5s.": 1500 * time.Millisecond, "try again in 250ms": 250 * time.Millisecond,
+		"Try again in 20 seconds": 20 * time.Second, "try again in 99999999s": afterMost, "Rate limit reached": 0,
+	} {
+		if d := tryAgain(msg); d != want {
+			t.Errorf("tryAgain(%q) = %s, want %s", msg, d, want)
+		}
+	}
+	if got, _, _ := classify(fmt.Errorf("wrapped: %w", streamLimitFor("error", "Slow_Down", "m"))); got != ReasonBusy {
+		t.Errorf("a wrapped stream limit: %q", got)
 	}
 }
 
