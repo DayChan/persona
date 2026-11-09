@@ -240,8 +240,11 @@ struct TodoCalendarTimeline: View {
     var pickDay: (Date) -> Void
     var add: (TodoCalendarSlot) -> Void
 
+    @Environment(\.displayScale) private var displayScale
     private let calendar = Calendar.current
     private let hour = Theme.CalendarGrid.hour
+    /// One device pixel: the grid's lines (0.5 pt is nothing on a 1x screen).
+    private var pixel: CGFloat { 1 / displayScale }
     private var gutter: CGFloat { narrow ? Theme.CalendarGrid.gutterNarrow : Theme.CalendarGrid.gutter }
     /// How long a to-do's block is on the axis.
     private var blockMinutes: Double { Double(Theme.Size.tapTarget / hour) * 60 }
@@ -250,7 +253,7 @@ struct TodoCalendarTimeline: View {
         VStack(spacing: Theme.Space.flush) {
             if showsDayHeader { dayHeader }
             allDayRow
-            Rectangle().fill(Theme.CalendarGrid.lineStrong).frame(height: Theme.Size.hairline)
+            Rectangle().fill(Theme.CalendarGrid.lineStrong).frame(height: pixel)
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     TimelineView(.everyMinute) { context in
@@ -277,7 +280,7 @@ struct TodoCalendarTimeline: View {
     private var dayHeader: some View {
         let names = TodoCalendar.weekdaySymbols(calendar: calendar, narrow: narrow)
         return HStack(spacing: Theme.Space.flush) {
-            Color.clear.frame(width: gutter)
+            Spacer().frame(width: gutter)
             ForEach(Array(days.enumerated()), id: \.offset) { i, day in
                 let today = calendar.isDateInToday(day)
                 Button { pickDay(day) } label: {
@@ -355,7 +358,6 @@ struct TodoCalendarTimeline: View {
             VStack(spacing: Theme.Space.flush) {
                 ForEach(0..<24, id: \.self) { h in
                     hourRow(h, hideLabel: todayShown && abs(Double(h * 60) - nowMinutes) < Double(TodoCalendar.nowLabelRoom))
-                        .frame(height: hour, alignment: .top)
                         .id(h)
                 }
             }
@@ -367,6 +369,10 @@ struct TodoCalendarTimeline: View {
                         .offset(x: gutter + column * CGFloat(i))
                 }
             }
+        }
+        .frame(height: hour * 24)
+        // over the axis, so its height (half above the line) moves nothing under it
+        .overlay(alignment: .topLeading) {
             if todayShown {
                 Text(now.formatted(date: .omitted, time: .shortened))
                     .font(Theme.Font.labelHeavy)
@@ -378,31 +384,36 @@ struct TodoCalendarTimeline: View {
                     .offset(y: y(nowMinutes))
             }
         }
-        .frame(height: hour * 24)
     }
 
+    /// An hour of the axis: its line at the top, its time centered on the line. Both over the row, so the hour's line is
+    /// exactly where the to-dos due at that hour start, with a label or without.
     private func hourRow(_ h: Int, hideLabel: Bool) -> some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle().fill(Theme.CalendarGrid.line)
-                .frame(height: Theme.Size.hairline)
-                .padding(.leading, gutter)
-            if h > 0 && !hideLabel {
-                Text(hourLabel(h))
-                    .font(Theme.Font.label)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .padding(.trailing, Theme.Space.sm)
-                    .frame(width: gutter, alignment: .trailing)
-                    .alignmentGuide(.top) { d in d[VerticalAlignment.center] }
+        Color.clear
+            .frame(height: hour)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Theme.CalendarGrid.line)
+                    .frame(height: pixel)
+                    .padding(.leading, gutter)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+            .overlay(alignment: .topLeading) {
+                if h > 0 && !hideLabel {
+                    Text(hourLabel(h))
+                        .font(Theme.Font.label)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.trailing, Theme.Space.sm)
+                        .frame(width: gutter, alignment: .trailing)
+                        .alignmentGuide(.top) { d in d[VerticalAlignment.center] }
+                }
+            }
     }
 
     private func hourLabel(_ h: Int) -> String {
         let date = calendar.date(bySettingHour: h, minute: 0, second: 0, of: days.first ?? .now) ?? .now
-        return narrow ? date.formatted(.dateTime.hour()) : date.formatted(date: .omitted, time: .shortened)
+        // a phone's week has the hour alone ("14", not the formatter's hour with its Chinese unit, which the narrow gutter cut short)
+        return narrow ? String(h) : date.formatted(date: .omitted, time: .shortened)
     }
 
     private func y(_ minutes: Double) -> CGFloat { CGFloat(minutes / 60) * hour }
@@ -418,7 +429,7 @@ struct TodoCalendarTimeline: View {
                 })
                 .accessibilityIdentifier("todo.calendar.axis")
             if days.count > 1 {
-                Rectangle().fill(Theme.CalendarGrid.line).frame(width: Theme.Size.hairline)
+                Rectangle().fill(Theme.CalendarGrid.line).frame(width: pixel)
             }
             if narrow {
                 ForEach(TodoCalendar.clusters(mine, minutes: blockMinutes), id: \.first?.id) { group in
@@ -432,7 +443,7 @@ struct TodoCalendarTimeline: View {
                     }
                     .buttonStyle(.plain)
                     .frame(width: width - Theme.Space.xs, height: Theme.Size.tapTarget - Theme.Space.xxs)
-                    .offset(x: Theme.Space.xxs, y: y(start) + Theme.Size.hairline)
+                    .offset(x: Theme.Space.xxs, y: y(start) + pixel)
                 }
             } else {
                 ForEach(TodoCalendar.lanes(mine, minutes: blockMinutes)) { placed in
@@ -441,7 +452,7 @@ struct TodoCalendarTimeline: View {
                     Button { open(placed.entry) } label: { CalendarEntryBlock(entry: placed.entry) }
                         .buttonStyle(.plain)
                         .frame(width: lane - Theme.Space.xxs, height: Theme.Size.tapTarget - Theme.Space.xxs)
-                        .offset(x: Theme.Space.xxs + lane * CGFloat(placed.lane), y: y(start) + Theme.Size.hairline)
+                        .offset(x: Theme.Space.xxs + lane * CGFloat(placed.lane), y: y(start) + pixel)
                 }
             }
             if calendar.isDate(now, inSameDayAs: day) {
@@ -467,7 +478,10 @@ struct TodoCalendarMonth: View {
     var open: (CalendarEntry) -> Void
     var pickDay: (Date) -> Void
 
+    @Environment(\.displayScale) private var displayScale
     private let calendar = Calendar.current
+    /// One device pixel: the grid's lines.
+    private var pixel: CGFloat { 1 / displayScale }
 
     var body: some View {
         let days = TodoCalendar.days(.month, anchor: anchor, calendar: calendar)
@@ -495,12 +509,12 @@ struct TodoCalendarMonth: View {
                                         .frame(maxWidth: .infinity)
                                         .frame(height: cell)
                                         .overlay(alignment: .leading) {
-                                            if c > 0 { Rectangle().fill(Theme.CalendarGrid.line).frame(width: Theme.Size.hairline) }
+                                            if c > 0 { Rectangle().fill(Theme.CalendarGrid.line).frame(width: pixel) }
                                         }
                                 }
                             }
                             .overlay(alignment: .top) {
-                                Rectangle().fill(Theme.CalendarGrid.line).frame(height: Theme.Size.hairline)
+                                Rectangle().fill(Theme.CalendarGrid.line).frame(height: pixel)
                             }
                         }
                     }
@@ -523,6 +537,7 @@ struct TodoCalendarMonth: View {
                 .background {
                     if today { Circle().fill(Theme.accent) }
                 }
+                .frame(maxWidth: .infinity, alignment: wide ? .leading : .center)
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 ForEach(fit.shown) { e in
                     if wide {

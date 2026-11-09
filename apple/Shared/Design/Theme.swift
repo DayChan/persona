@@ -534,10 +534,10 @@ nonisolated enum Theme {
         /// An hour on the time axis: a to-do's block (`Size.tapTarget` high) takes most of one, so two an hour apart
         /// never overlap.
         static let hour: CGFloat = 52
-        /// The column of hours at the left of a day: "09:00" and the now line's "14:20" fit.
-        static let gutter: CGFloat = 50
-        /// The same on a phone's week, whose seven columns need the room: the hours alone.
-        static let gutterNarrow: CGFloat = 34
+        /// The column of hours at the left of a day: "09:00", "11:00 AM" and the now line's "2:20 PM" fit.
+        static let gutter: CGFloat = 60
+        /// The same on a phone's week, whose seven columns need the room: the hours alone, and the moment's "14:20".
+        static let gutterNarrow: CGFloat = 40
         /// A day of the month grid, at the least: its date and two lines.
         static let monthCell: CGFloat = 92
         /// The width from which the week shows each to-do's own block with its time and state (iPad, Mac); narrower,

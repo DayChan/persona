@@ -18,6 +18,10 @@ final class TodoCalendarTests: XCTestCase {
         // The view and the mode are switched here, not by launch arguments: a value in the argument domain could not be
         // changed by the taps below.
         app.launchArguments = ["-pairURL", pair, "-tab", "assistant", "-openAssistantPage", "todos"]
+        // An iPad on its side: the calendar beside the sidebar is wide enough for the full week (Theme.CalendarGrid.wide).
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        if pad { XCUIDevice.shared.orientation = .landscapeLeft }
+        defer { if pad { XCUIDevice.shared.orientation = .portrait } }
         app.launchPinned()
         let calendarSwitch = app.buttons["日历"]
         XCTAssertTrue(calendarSwitch.waitForExistence(timeout: 60))
@@ -92,7 +96,9 @@ final class TodoCalendarTests: XCTestCase {
     }
 
     @MainActor private func shot(_ name: String) {
-        let s = app.screenshot()
+        // The screen's, not the app's: on an iPad on its side the app's comes back as the portrait frame buffer cut to
+        // the screen's height. The screen's may also come back upright-portrait; it is turned to how it is held.
+        let s = XCUIScreen.main.screenshot()
         let a = XCTAttachment(screenshot: s)
         a.name = name
         a.lifetime = .keepAlways
@@ -100,7 +106,22 @@ final class TodoCalendarTests: XCTestCase {
         if let dir = ProcessInfo.processInfo.environment["PERSONA_SHOTS"] {
             let look = ProcessInfo.processInfo.environment["PERSONA_SHOTS_APPEARANCE"].map { "-" + $0 } ?? ""
             let device = UIDevice.current.userInterfaceIdiom == .pad ? "-ipad" : ""
-            try? s.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + device + look + ".png"))
+            let png = upright(s.image).pngData() ?? s.pngRepresentation
+            try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + device + look + ".png"))
+        }
+    }
+
+    /// The image as the device is held: a portrait frame buffer of a device turned left (its top on the right) is
+    /// turned a quarter counterclockwise.
+    @MainActor private func upright(_ image: UIImage) -> UIImage {
+        guard XCUIDevice.shared.orientation == .landscapeLeft, let cg = image.cgImage, cg.width < cg.height else { return image }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: h, height: w), format: format).image { ctx in
+            ctx.cgContext.translateBy(x: 0, y: w)
+            ctx.cgContext.rotate(by: -.pi / 2)
+            UIImage(cgImage: cg).draw(in: CGRect(x: 0, y: 0, width: w, height: h))
         }
     }
 }

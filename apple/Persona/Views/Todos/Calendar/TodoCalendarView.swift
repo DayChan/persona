@@ -9,17 +9,29 @@ enum TodosViewMode: String, CaseIterable {
 struct TodosModeBar: View {
     @Binding var view: TodosViewMode
     @Binding var mode: TodoCalendarMode
+    @StoredValue("todos.calendar.showDone") private var showDone = true
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
             SegmentedChoice(String(localized: "View"), [(value: TodosViewMode.list, label: String(localized: "List")), (value: .calendar, label: String(localized: "Calendar"))], selection: $view)
+                .labelsHidden()
                 .fixedSize()
                 .accessibilityIdentifier("todos.view")
             Spacer(minLength: Theme.Space.s)
             if view == .calendar {
                 SegmentedChoice(String(localized: "Calendar"), TodoCalendarMode.allCases.map { (value: $0, label: $0.label) }, selection: $mode)
+                    .labelsHidden()
                     .fixedSize()
                     .accessibilityIdentifier("todo.calendar.mode")
+                Menu {
+                    Toggle(String(localized: "Show Done"), isOn: $showDone)
+                } label: {
+                    ThemedIcon(Theme.Icon.options)
+                }
+                .menuStyle(.button)
+                .themedButton()
+                .accessibilityLabel(Text("Calendar Options"))
+                .accessibilityIdentifier("todo.calendar.options")
             }
         }
         .padding(.horizontal, Theme.Space.page)
@@ -43,6 +55,9 @@ extension TodoCalendarMode {
 struct TodoCalendarView: View {
     @Environment(\.tabIsActive) private var inFront
     @Environment(\.locale) private var locale
+    @Environment(\.displayScale) private var displayScale
+    /// One device pixel: the calendar's edges.
+    private var pixel: CGFloat { 1 / displayScale }
     var todos: [TodoItem]
     @Binding var mode: TodoCalendarMode
     /// The day shown, or one of the week or month shown (the page's "+" makes a to-do due on it).
@@ -66,14 +81,14 @@ struct TodoCalendarView: View {
                     .frame(maxHeight: .infinity)
                     .background(Theme.CalendarGrid.ground)
                     .overlay(alignment: .top) {
-                        Rectangle().fill(Theme.CalendarGrid.line).frame(height: Theme.Size.hairline)
+                        Rectangle().fill(Theme.CalendarGrid.line).frame(height: pixel)
                     }
                     #if os(iOS)
                     .simultaneousGesture(paging)
                     #endif
+                undatedBar
             }
         }
-        .overlay(alignment: .bottom) { undatedBar }
         .sheet(item: $adding) { slot in
             TodoQuickAddSheet(slot: slot)
         }
@@ -124,11 +139,17 @@ struct TodoCalendarView: View {
 
     private var header: some View {
         HStack(spacing: Theme.Space.s) {
-            Text(TodoCalendar.title(mode, anchor: anchor, calendar: calendar, locale: locale))
-                .font(Theme.Font.title)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("todo.calendar.title")
+            let title = TodoCalendar.title(mode, anchor: anchor, calendar: calendar, locale: locale)
+            // a phone's week ("Nov 8 – 14" with the buttons beside it) steps down a size rather than cut its dates
+            ViewThatFits(in: .horizontal) {
+                Text(title).font(Theme.Font.title)
+                Text(title).font(Theme.Font.heading)
+            }
+            .lineLimit(1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("todo.calendar.title")
             Spacer(minLength: Theme.Space.s)
             Button { go(to: .now) } label: {
                 Text("Today").lineLimit(1)
@@ -143,15 +164,6 @@ struct TodoCalendarView: View {
                 .themedButton()
                 .accessibilityLabel(Text("Next"))
                 .accessibilityIdentifier("todo.calendar.next")
-            Menu {
-                Toggle(String(localized: "Show Done"), isOn: $showDone)
-            } label: {
-                ThemedIcon(Theme.Icon.options)
-            }
-            .menuStyle(.button)
-            .themedButton()
-            .accessibilityLabel(Text("Calendar Options"))
-            .accessibilityIdentifier("todo.calendar.options")
         }
         .padding(.horizontal, Theme.Space.page)
         .padding(.vertical, Theme.Space.s)
@@ -201,12 +213,16 @@ struct TodoCalendarView: View {
                 }
                 .font(Theme.Font.caption)
                 .lineLimit(1)
-                .padding(.horizontal, Theme.Space.l)
+                .padding(.horizontal, Theme.Space.page)
                 .padding(.vertical, Theme.Space.s)
-                .surface(interactive: true, in: .capsule)
+                .frame(maxWidth: .infinity)
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .padding(.bottom, Theme.Space.s)
+            .background(Theme.CalendarGrid.ground)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Theme.CalendarGrid.line).frame(height: pixel)
+            }
             .accessibilityIdentifier("todo.calendar.undated")
         }
     }
