@@ -73,6 +73,7 @@ export function TagEditor({ entry, open, onClose, onSaved }: { entry: KBEntry; o
   const set = <K extends keyof TagForm>(k: K, v: TagForm[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
+    if (saving) return; // Enter in the tags field saves too: a second one while the first save is out
     setSaving(true);
     setError("");
     try {

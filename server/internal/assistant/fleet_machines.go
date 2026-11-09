@@ -84,13 +84,27 @@ func (s *Service) nodeSession(machine, id string) (proto.Session, bool) {
 	return s.devs.Session(machine, id)
 }
 
-// nodeSessions are a machine's sessions as its node listed them.
+// nodeSessions are a machine's sessions as its node listed them: a copy of the whole list, the caller's own. A caller
+// that keeps a few rows, or only asks whether one is there, reads them with nodeSessionsWhere instead.
 func (s *Service) nodeSessions(machine string) []proto.Session {
 	if s.devs == nil {
 		return nil
 	}
 	list, _ := s.devs.Sessions(machine)
 	return list
+}
+
+// nodeSessionsWhere are those of a machine's sessions keep accepts, copied out without the rest (Devices.SessionsWhere:
+// keep reads each in place, under the devices' lock), and how many its node listed.
+func (s *Service) nodeSessionsWhere(machine string, keep func(*proto.Session) bool) (kept []proto.Session, listed int) {
+	if s.devs == nil {
+		return nil, 0
+	}
+	kept, _ = s.devs.SessionsWhere(machine, func(sess *proto.Session) bool {
+		listed++
+		return keep(sess)
+	})
+	return kept, listed
 }
 
 // assistantSessions are this manager's assistant's conversations on machine m (isAssistant), copied out of its node's

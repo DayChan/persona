@@ -95,6 +95,9 @@ export function Routines({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       const r = await api<{ task: Task }>(`/assistant/tasks/${enc(task.id)}`, { method: "PUT", json: taskBody(next, task) });
       setTasks((list) => list?.map((x) => (x.id === task.id ? r.task : x)) ?? list);
     } catch (e) {
+      // put the row back first: the reload below fails too when the hub is unreachable, and keeps the list it has.
+      // Only while it still shows this change: a newer toggle or load already replaced it otherwise.
+      setTasks((list) => list?.map((x) => (x === next ? task : x)) ?? list);
       toast(errorText(e), "error");
       void load();
     }
@@ -118,6 +121,8 @@ export function Routines({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       navigate({ name: "persona", sid: r.session_id });
     } catch (e) {
       toast(e instanceof ApiError && e.status === 409 ? e.message || t("assistant-taskeditor.still_running") : errorText(e), "error");
+      // the one-off did not run: bring it back, as toggle does, whether or not the reload can read the list
+      if (task.repeat === "once") setTasks((list) => (list && !list.some((x) => x.id === task.id) ? [...list, task] : list));
       void load();
     }
   };

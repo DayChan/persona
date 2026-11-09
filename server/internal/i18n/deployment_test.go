@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -52,5 +53,32 @@ func TestDeploymentTextPreservesUnknownAndData(t *testing.T) {
 	want := T(En, "devices-deploy.still_old", Args{"version": version})
 	if got := DeploymentText(En, source); got != want {
 		t.Fatalf("version was translated: %q", got)
+	}
+}
+
+// A template's literals only skip texts its pattern cannot match: on its own catalog's texts (each template filled in)
+// match is the pattern's answer. A text no template is worded as, the usual node or SSH error, fits none of them, so
+// it runs no regexp.
+func TestTemplateLiteralsOnlySkipMisses(t *testing.T) {
+	unknown := []string{"ssh: connect to host example port 22: Connection refused", "connection reset by peer", "Ready"}
+	for name, forms := range map[string][]deploymentTemplate{"deployment": deploymentTemplates(), "inbox": inboxTemplates(),
+		"computer": computerTemplates()} {
+		texts := append([]string{"", "7"}, unknown...)
+		for _, f := range forms {
+			texts = append(texts, strings.Join(f.literals, "7")) // a count, and opaque text, for each placeholder
+		}
+		for i := range forms {
+			f := &forms[i]
+			for _, text := range texts {
+				if got, want := f.match(text), f.pattern.FindStringSubmatch(text); !slices.Equal(got, want) {
+					t.Fatalf("%s %s on %q: match %q, pattern %q", name, f.key, text, got, want)
+				}
+			}
+			for _, text := range unknown {
+				if f.fits(text) {
+					t.Errorf("%s %s fits %q: it would run its regexp on every unknown text", name, f.key, text)
+				}
+			}
+		}
 	}
 }

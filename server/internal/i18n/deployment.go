@@ -20,6 +20,33 @@ type deploymentTemplate struct {
 	pattern *regexp.Regexp
 	names   []string
 	fixed   int
+	// literals are the template's text around its placeholders, one more than names ("" where two placeholders meet
+	// or one starts or ends it).
+	literals []string
+}
+
+// fits: text holds the template's literal text where every match does (the pattern is anchored at both ends): it starts
+// with the first literal, ends with the last and holds the others. Only a text that fits may match.
+func (t *deploymentTemplate) fits(text string) bool {
+	last := len(t.literals) - 1
+	if !strings.HasPrefix(text, t.literals[0]) || !strings.HasSuffix(text, t.literals[last]) {
+		return false
+	}
+	for _, l := range t.literals[1:max(1, last)] {
+		if !strings.Contains(text, l) {
+			return false
+		}
+	}
+	return true
+}
+
+// match is the pattern's submatches in text, nil when it does not match. A text is tried against a catalog's hundreds
+// of templates in turn, and nearly all of them do not fit it: those cost a few string comparisons, not a regexp run.
+func (t *deploymentTemplate) match(text string) []string {
+	if !t.fits(text) {
+		return nil
+	}
+	return t.pattern.FindStringSubmatch(text)
 }
 
 var deploymentPlaceholders = lazyre.New(`\{(\w+)\}`)
@@ -49,8 +76,10 @@ func makeCatalogTemplates(eligible func(string) bool) []deploymentTemplate {
 			pattern.WriteString("(?s)^")
 			names := []string{}
 			at, fixed := 0, 0
+			var literals []string
 			for _, loc := range deploymentPlaceholders.FindAllStringIndex(text, -1) {
 				literal := text[at:loc[0]]
+				literals = append(literals, literal)
 				pattern.WriteString(regexp.QuoteMeta(literal))
 				fixed += len(literal)
 				name := text[loc[0]+1 : loc[1]-1]
@@ -65,7 +94,8 @@ func makeCatalogTemplates(eligible func(string) bool) []deploymentTemplate {
 			pattern.WriteString(regexp.QuoteMeta(text[at:]))
 			fixed += len(text[at:])
 			pattern.WriteString("$")
-			out = append(out, deploymentTemplate{base, regexp.MustCompile(pattern.String()), names, fixed})
+			literals = append(literals, text[at:])
+			out = append(out, deploymentTemplate{base, regexp.MustCompile(pattern.String()), names, fixed, literals})
 		}
 	}
 	// A more specific template (e.g. not_back_why) must precede its shorter, open-ended counterpart.
@@ -85,8 +115,10 @@ func deploymentText(l Lang, text string, depth int) string {
 	if text == "" || depth >= 8 {
 		return text
 	}
-	for _, form := range deploymentTemplates() {
-		match := form.pattern.FindStringSubmatch(text)
+	forms := deploymentTemplates()
+	for i := range forms { // by index: a range value copies each template, for every text
+		form := &forms[i]
+		match := form.match(text)
 		if match == nil {
 			continue
 		}

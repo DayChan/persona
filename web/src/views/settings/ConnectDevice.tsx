@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 import { api, errorText } from "../../lib/api";
 import { BASE } from "../../lib/base";
 import { clock, loopbackOnly, pairedDevice, secondsLeft, webBase, type PairCodeReply } from "../../lib/connect-device";
+import { documentPage, visiblePoll } from "../../lib/visible-poll";
 import { Button, copyText, Dialog, Loading } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { Segmented } from "../assistant/parts";
@@ -56,7 +57,11 @@ export function ConnectDevice({ open, onClose, onPaired }: { open: boolean; onCl
   useEffect(() => {
     if (!live) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    const poll = setInterval(() => {
+    // Every 3 s while the tab is shown, and once on coming back, so a device paired meanwhile shows at once. make() has
+    // just read the list, so visiblePoll's immediate first read is skipped.
+    let started = false;
+    const stop = visiblePoll(() => {
+      if (!started) return;
       api<{ tokens?: Credential[] }>("/auth/tokens")
         .then((r) => {
           const d = pairedDevice(known.current, r.tokens ?? []);
@@ -65,8 +70,9 @@ export function ConnectDevice({ open, onClose, onPaired }: { open: boolean; onCl
           onPaired();
         })
         .catch(() => {});
-    }, POLL_MS);
-    return () => (clearInterval(tick), clearInterval(poll));
+    }, POLL_MS, documentPage);
+    started = true;
+    return () => (clearInterval(tick), stop());
   }, [live]);
 
   const qr = target === "app" ? code?.qr : code?.web_qr;

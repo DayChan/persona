@@ -91,7 +91,10 @@ export function History({ origin, onToggleSidebar }: { origin?: string; onToggle
       toast(on ? t("assistant-history.archived_toast", { title: conversationTitle(s) }) : t("assistant-history.unarchived_toast", { title: conversationTitle(s) }), "ok");
     } catch (e) {
       toast(errorText(e), "error");
-      setMarked(({ [s.session_id]: _, ...rest }) => rest); // as it was
+      // as it was, in what was read too: the reload below can fail as well (the hub is unreachable), and one the node
+      // no longer lists goes by what was read
+      setFetched((list) => list?.map((x) => (x.session_id === s.session_id ? { ...x, archived: s.archived } : x)) ?? list);
+      setMarked(({ [s.session_id]: _, ...rest }) => rest);
     }
     await after();
   };

@@ -11692,7 +11692,7 @@ _PLUGIN_VIEW = ["id", "name", "kind", "status", "error", "version", "source", "e
 # ---------- MOCK_EXTENSIONS: declarative UI (docs/extensions/extensions.md "Declarative UI") ----------
 # example-gateway draws a page (plugin_page "home") and a section on every launcher's page (launcher_section "panel"),
 # with every kind of item; its buttons answer (a toast, a new view, a link), the form's values come back.
-_UI_STATE = {"note": "", "auto": "true", "plan": "team", "refreshed": 0, "capsule_refreshed": 0}
+_UI_STATE = {"note": "", "auto": "true", "plan": "team", "refreshed": 0, "capsule_refreshed": 0, "test_key": True}
 
 
 _DAYS = ["10-29", "10-30", "10-31", "11-01", "11-02", "11-03", "11-04"]
@@ -11773,9 +11773,12 @@ def _ui_view(ui, launcher=""):
         {"title": "Key", "footer": "停用后，用这个 Key 的启动器会立刻失败。", "items": [
             {"type": "row", "title": "工作", "subtitle": "sk-…3fa9 · 今天 1.2 万 token", "value": "¥ 12.30", "badge": {"text": "有效", "tone": "positive"},
              "action": {"id": "key:work"}},
-            {"type": "row", "title": "测试", "subtitle": "sk-…77c0 · 7 天没用", "badge": {"text": "快过期", "tone": "caution"}},
+            {"type": "row", "title": "测试", "subtitle": "sk-…77c0 · 7 天没用", "badge": {"text": "快过期", "tone": "caution"}
+             if _UI_STATE["test_key"] else {"text": "停用", "tone": "neutral"}},
             {"type": "divider"},
-            {"type": "button", "title": "停用测试 Key", "role": "destructive", "action": {"id": "disable:test", "confirm": "停用后不能恢复，确定停用？"}}]},
+            # Disabling answers with the page where the button is another one (its own key): drawn new, usable at once (#1937).
+            {"type": "button", "key": "disable-test", "title": "停用测试 Key", "role": "destructive", "action": {"id": "disable:test", "confirm": "停用后不能恢复，确定停用？"}}
+            if _UI_STATE["test_key"] else {"type": "button", "key": "enable-test", "title": "启用测试 Key", "action": {"id": "enable:test"}}]},
         {"title": "设置", "items": [
             {"type": "field", "name": "note", "label": "备注", "kind": "text", "value": _UI_STATE["note"], "placeholder": "写点什么"},
             {"type": "field", "name": "token", "label": "管理 Token", "kind": "secret", "placeholder": "不回显"},
@@ -11901,7 +11904,11 @@ def _ui_action(ui, action, values):
     if action.startswith("key:"):
         return {"open_url": "https://example.com/console/keys"}
     if action.startswith("disable:"):
-        return {"toast": "已停用"}
+        _UI_STATE["test_key"] = False
+        return {"toast": "已停用", "view": _ui_view(ui)}
+    if action.startswith("enable:"):
+        _UI_STATE["test_key"] = True
+        return {"toast": "已启用", "view": _ui_view(ui)}
     return {}
 
 

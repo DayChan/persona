@@ -205,14 +205,27 @@ final class ExtensionMarketTests: XCTestCase {
         let saved = app.textFields.matching(NSPredicate(format: "value CONTAINS %@", words)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5), "the saved value is not in the new view:\n\(app.debugDescription)")
 
-        // A confirm asks first.
+        // A confirm asks first. A run that failed after disabling left the key disabled in the mock: enabled first.
         let disable = app.buttons["plugin-ui-action-disable:test"]
+        let leftover = app.buttons["plugin-ui-action-enable:test"]
+        for _ in 0..<6 where !(disable.exists && disable.isHittable) && !(leftover.exists && leftover.isHittable) { app.swipeDown() }
+        if leftover.exists { leftover.tap(); XCTAssertTrue(disable.waitForExistence(timeout: 10)) }
         for _ in 0..<6 where !(disable.exists && disable.isHittable) { app.swipeDown() }
         disable.tap()
         XCTAssertTrue(app.staticTexts["停用后不能恢复，确定停用？"].waitForExistence(timeout: 5), "no confirmation:\n\(app.debugDescription)")
         shot(app, "confirm")
         app.buttons["plugin-ui-confirm"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已停用"].waitForExistence(timeout: 10))
+        // The view it answers with has another button in its place, usable at once: drawn while the action still ran,
+        // it stayed disabled (#1937). Using it puts the key back for the next run.
+        let enable = app.buttons["plugin-ui-action-enable:test"]
+        XCTAssertTrue(enable.waitForExistence(timeout: 10), "the answer's view is not drawn:\n\(app.debugDescription)")
+        let usable = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: enable)
+        wait(for: [usable], timeout: 5)
+        shot(app, "answered")
+        enable.tap()
+        XCTAssertTrue(app.staticTexts["已启用"].waitForExistence(timeout: 10), "the new button does nothing:\n\(app.debugDescription)")
+        XCTAssertTrue(disable.waitForExistence(timeout: 10))
     }
 
     /// A plugin page's secret field, filled in and left: the page goes away without iOS offering to save the secret as
