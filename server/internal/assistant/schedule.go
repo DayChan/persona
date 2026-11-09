@@ -280,7 +280,8 @@ type schedule struct {
 	// In memory only: a hub restart pushes a wait once more.
 	waitTold map[string]string
 	// limitWait: tests' wait before retrying a run a usage limit stopped (nil: until the reset, limitRetryWait).
-	limitWait func(reset, now time.Time) time.Duration
+	limitWait         func(reset, now time.Time) time.Duration
+	limitWatchTimeout time.Duration // test override for the retry watcher deadline
 	// limitActive contains claims owned by this process, never claims restored from storage.
 	limitActive map[string]bool
 }
@@ -2019,7 +2020,11 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		}
 		s.sched.mu.Unlock()
 	}
-	ctx, cancel := context.WithTimeout(parent, runWatchTimeout)
+	timeout := runWatchTimeout
+	if (t.limitRetry || t.manualLimitRetry) && s.sched.limitWatchTimeout > 0 {
+		timeout = s.sched.limitWatchTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	var ended, ran bool
 	if t.limitBeforeKnown {
@@ -2028,9 +2033,6 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		ended, ran = s.waitTurnEnd(ctx, m.ID, run.SessionID)
 	}
 	if !ended {
-		if parent.Err() == nil && (t.limitRetry || t.manualLimitRetry) {
-			s.reportUnconfirmedRetry(run, t, m)
-		}
 		return
 	}
 	text := s.lastTurnAPIError(ctx, m.ID, run.SessionID)
@@ -2038,7 +2040,6 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		if c, ok := s.session(ctx, m.ID, run.SessionID); ok {
 			if (t.limitRetry || t.manualLimitRetry) && strings.TrimSpace(c.TurnError) != "" {
 				// The session error has no stable link to this send, even after activity was observed.
-				s.reportUnconfirmedRetry(run, t, m)
 				return
 			}
 			text = c.TurnError
@@ -2058,8 +2059,7 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		return
 	}
 	if t.limitRetry || t.manualLimitRetry {
-		// A matching prompt can also belong to a later turn; without a receiver turn ID, report uncertainty.
-		s.reportUnconfirmedRetry(run, t, m)
+		// A matching prompt can also belong to a later turn; without a receiver turn ID, do not attribute it.
 		return
 	}
 	full := text
@@ -2124,24 +2124,6 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	if _, err := s.runTask(cur, time.Now(), time.Now(), false, true); err != nil {
 		s.logf("task %s retry: %v", t.ID, err)
 	}
-}
-
-// reportUnconfirmedRetry leaves a still-running turn alone; an idle or unreadable one is reported as uncertain.
-func (s *Service) reportUnconfirmedRetry(run ScheduleRun, t Task, m Device) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if current, ok := s.session(ctx, m.ID, run.SessionID); ok && (current.Starting || current.Status == proto.StatusWorking || current.State == proto.StateWorking || current.State == proto.StateNeedsYou) {
-		return
-	}
-	l := s.lang(ctx)
-	message := i18n.T(l, "assistant-schedule.retry_delivery_unknown")
-	s.updateRun(run, runFailed, message)
-	name := t.labelIn(l)
-	if t.Space == SpaceHealth {
-		name, _ = healthNotice(l)
-	}
-	s.push(ctx, Notification{Subtitle: m.Name, DeviceID: m.ID, SessionID: run.SessionID,
-		Title: i18n.T(l, "assistant-schedule.run_failed", i18n.Args{"name": name}), Body: message})
 }
 
 // runLimit: the run's conversation (sid on machine) stopped on a subscription's usage limit whose reset is known
