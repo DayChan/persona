@@ -2035,14 +2035,35 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 	if !ended {
 		return
 	}
-	text := s.lastTurnAPIError(ctx, m.ID, run.SessionID)
-	if text == "" {
-		if c, ok := s.session(ctx, m.ID, run.SessionID); ok {
-			if (t.limitRetry || t.manualLimitRetry) && strings.TrimSpace(c.TurnError) != "" {
-				// The session error has no stable link to this send, even after activity was observed.
-				return
+	text := ""
+	if t.limitRetry || t.manualLimitRetry {
+		if !ran {
+			return // a fast turn with no observed activity cannot be attributed safely
+		}
+		items, read := s.lastTurnItems(ctx, m.ID, run.SessionID)
+		ask, _ := turnExchange(items)
+		if !read || !runAsk(ask, t.Prompt) {
+			return
+		}
+		for _, item := range slices.Backward(items) {
+			if item.Role != "assistant" || strings.TrimSpace(item.Text) == "" {
+				continue
 			}
-			text = c.TurnError
+			candidate := strings.TrimSpace(item.Text)
+			if apiErrorText(candidate) || cutOff(candidate) {
+				text = candidate
+			}
+			break
+		}
+		if text == "" {
+			return // session-only errors cannot be linked to this retry
+		}
+	} else {
+		text = s.lastTurnAPIError(ctx, m.ID, run.SessionID)
+		if text == "" {
+			if c, ok := s.session(ctx, m.ID, run.SessionID); ok {
+				text = c.TurnError
+			}
 		}
 	}
 	if text == "" {
@@ -2056,10 +2077,6 @@ func (s *Service) watchScheduledRun(run ScheduleRun, t Task, m Device) {
 		}
 	}
 	if text == "" {
-		return
-	}
-	if t.limitRetry || t.manualLimitRetry {
-		// A matching prompt can also belong to a later turn; without a receiver turn ID, do not attribute it.
 		return
 	}
 	full := text

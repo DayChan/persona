@@ -190,7 +190,8 @@ func (s *Service) originSet(ctx context.Context, machine, id, origin, ref string
 	b := &s.origins
 	b.mu.Lock()
 	changed := false
-	err := s.changeOriginsLocked(ctx, func(current map[string]*convOrigin) bool {
+	// The conversation was already sent; client disconnect must not discard its source.
+	err := s.changeOriginsLocked(context.WithoutCancel(ctx), func(current map[string]*convOrigin) bool {
 		changed = false
 		if o := current[id]; o != nil && o.By == originByStart {
 			return false // an established start is never replaced by a stale manager

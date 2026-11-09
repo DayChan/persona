@@ -1216,7 +1216,7 @@ func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
 	f.nodes = map[string]nodeAnswer{DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
 		var params map[string]any
 		_ = json.Unmarshal(raw, &params)
-		if params["limit"] == float64(8) {
+		if params["turns"] != nil {
 			select {
 			case observed <- struct{}{}:
 			default:
@@ -1254,6 +1254,88 @@ func TestLimitRetryWatcherSeesFastFailureDuringRecordOutage(t *testing.T) {
 	}
 }
 
+func TestLimitRetryObservedWorkingFailureIsReported(t *testing.T) {
+	for _, mode := range []string{"automatic", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			s, f, st, now := limitRetryFixture(t)
+			s.turnPoll = 10 * time.Millisecond
+			s.sched.limitWait = func(time.Time, time.Time) time.Duration { return time.Hour }
+			sc, err := s.lockedSchedule(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tasks := slices.Clone(sc.tasks)
+			tasks[0].LimitRetry = nil
+			err = s.saveLocked(sc, tasks)
+			sc.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			task, _ := taskByID(s, "limit")
+			task.limitRetry, task.manualLimitRetry, task.limitBeforeKnown, task.limitBeforeID = mode == "automatic", mode == "manual", true, "before"
+			run := ScheduleRun{RefID: task.ID, At: now, Status: runOK, MachineID: "server", SessionID: "s1", Retried: mode == "automatic", Manual: mode == "manual", RetryOf: "failed", of: task.LastRun}
+			run.ID = s.recordRun(run)
+			seen, notified, done := make(chan struct{}, 1), make(chan struct{}, 1), make(chan struct{})
+			s.hub = &limitNotifyHub{fakeHub: f, onNotify: func() {
+				select {
+				case notified <- struct{}{}:
+				default:
+				}
+			}}
+			f.setSessions("server", proto.Session{SessionID: "s1", Status: proto.StatusWorking, State: proto.StateWorking, UpdatedAt: now})
+			f.mu.Lock()
+			f.nodes = map[string]nodeAnswer{DeviceSessionGet: func(machine string, _ json.RawMessage) (any, error) {
+				for _, c := range f.sessions[machine] {
+					if c.SessionID == "s1" {
+						if c.Status == proto.StatusWorking {
+							select {
+							case seen <- struct{}{}:
+							default:
+							}
+						}
+						return map[string]any{"session": c, "ok": true}, nil
+					}
+				}
+				return map[string]any{"ok": false}, nil
+			}}
+			f.mu.Unlock()
+			go func() { s.watchScheduledRun(run, task, Device{ID: "server"}); close(done) }()
+			awaitBusSignal(t, seen)
+			f.mu.Lock()
+			f.items = []proto.Item{{ID: "prompt", Role: "user", Kind: "text", Text: "Example"}, {ID: "failure", Role: "assistant", Kind: "text", Text: limitText}}
+			for i := range f.sessions["server"] {
+				f.sessions["server"][i].Status, f.sessions["server"][i].State, f.sessions["server"][i].TurnError = proto.StatusDone, proto.StateIdle, limitText
+			}
+			f.mu.Unlock()
+			select {
+			case <-notified:
+			case <-done:
+				t.Fatal("observed transcript error was not notified")
+			case <-time.After(5 * time.Second):
+				t.Fatal("watcher did not report error")
+			}
+			awaitBusSignal(t, done)
+			restarted := newServiceOn(t, f, st)
+			runs := scheduleRuns(restarted)
+			if !slices.ContainsFunc(runs, func(r ScheduleRun) bool {
+				return r.ID == run.ID && r.Status == runFailed && strings.Contains(r.Error, "hit your")
+			}) {
+				t.Fatalf("error not recorded: %+v", runs)
+			}
+			current, _ := taskByID(restarted, "limit")
+			if mode == "automatic" && current.LimitRetry != nil {
+				t.Fatal("automatic retry armed another retry")
+			}
+			if mode == "manual" && (current.LimitRetry == nil || current.LimitRetry.Failed.ID != run.ID) {
+				t.Fatal("manual replacement did not retain the new limit wait")
+			}
+			if got := scheduleSendCount(f); got != 0 {
+				t.Fatalf("watcher resent %d messages", got)
+			}
+		})
+	}
+}
+
 func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
 	s, f, st, now := limitRetryFixture(t)
 	s.turnPoll = 10 * time.Millisecond
@@ -1277,7 +1359,7 @@ func TestLimitRetryWatcherSurvivesInitialRecordFailure(t *testing.T) {
 	}, DeviceSessionItems: func(_ string, raw json.RawMessage) (any, error) {
 		var params map[string]any
 		_ = json.Unmarshal(raw, &params)
-		if params["limit"] == float64(8) {
+		if params["turns"] != nil {
 			select {
 			case observed <- struct{}{}:
 			default:

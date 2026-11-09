@@ -187,6 +187,38 @@ func TestOriginsPostgresManagersMerge(t *testing.T) {
 	}
 }
 
+type originContextStore struct{ *memStore }
+
+func (st *originContextStore) Setting(ctx context.Context, key string, out any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return st.memStore.Setting(ctx, key, out)
+}
+
+func (st *originContextStore) PutSetting(ctx context.Context, key string, value any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return st.memStore.PutSetting(ctx, key, value)
+}
+
+func TestOriginStartPersistsAfterRequestCancellation(t *testing.T) {
+	st := &originContextStore{memStore: &memStore{}}
+	f := readyHub()
+	s := newServiceOn(t, f, st)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // the node already accepted the conversation before the client disconnected
+	s.originSet(ctx, "server", "accepted-session", OriginTask, "task")
+	var saved map[string]*convOrigin
+	if _, err := st.Setting(t.Context(), originsKey, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if o := saved["accepted-session"]; o == nil || o.By != originByStart || o.MachineID != "server" {
+		t.Fatalf("accepted start lost its origin: %+v", o)
+	}
+}
+
 // originOf is a conversation's origin and ref in the last snapshot the hub got.
 func originOf(f *fakeHub, id string) (string, string) {
 	for _, v := range f.lastSnapshot().Sessions {
