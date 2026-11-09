@@ -18,9 +18,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = ROOT / "schema" / "extension"
 GENERATOR = ROOT / "scripts" / "gen" / "extension_schema.py"
-# The newest UI version the showcase snapshots (examples/showcase) cover: its pages for UI version 6 come from the
-# extension (persona-extensions, #5477); until they are copied here, examples/View.v6-*.json show the newer components.
-SHOWCASE_UI = 5
+# The newest UI version the showcase snapshots (examples/showcase) cover. The UI version 6 pages (image, controls,
+# chart-v6, spark, row-actions, grid, carousel, inputs-v6, styles, home-demo, markets-demo, card-v6) were written here
+# with the Android renderer (#5475); the extension's own snapshots (persona-extensions, #5477) replace them when copied.
+SHOWCASE_UI = 6
 
 
 def load_schemas():

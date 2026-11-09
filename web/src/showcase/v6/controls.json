@@ -1,0 +1,184 @@
+{
+  "title": "控件",
+  "sections": [
+    {
+      "title": "开关",
+      "items": [
+        {
+          "type": "row",
+          "key": "sw.on",
+          "title": "主灯",
+          "icon": "light",
+          "icon_color": "amber",
+          "control": {
+            "kind": "switch",
+            "name": "light.main",
+            "on": true,
+            "action": {
+              "id": "toggle",
+              "values": {
+                "entity": "light.main"
+              }
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw.off",
+          "title": "落地灯",
+          "subtitle": "客厅",
+          "icon": "light",
+          "control": {
+            "kind": "switch",
+            "name": "light.floor",
+            "on": false,
+            "action": {
+              "id": "toggle",
+              "values": {
+                "entity": "light.floor"
+              }
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw.disabled",
+          "title": "台灯",
+          "subtitle": "离线",
+          "icon": "plug",
+          "control": {
+            "kind": "switch",
+            "name": "light.desk",
+            "on": false,
+            "disabled": true,
+            "action": {
+              "id": "toggle"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw.fail",
+          "title": "会失败的开关",
+          "subtitle": "拨了以后回滚",
+          "icon": "warning",
+          "icon_color": "red",
+          "control": {
+            "kind": "switch",
+            "name": "fail",
+            "on": false,
+            "action": {
+              "id": "fail"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sw.detail",
+          "title": "空调",
+          "subtitle": "点行进详情，拨开关是另一件事",
+          "icon": "fan",
+          "control": {
+            "kind": "switch",
+            "name": "climate.power",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail",
+              "title": "空调"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "滑块",
+      "items": [
+        {
+          "type": "row",
+          "key": "sl.brightness",
+          "title": "亮度",
+          "icon": "sun",
+          "control": {
+            "kind": "slider",
+            "name": "brightness",
+            "value": 60,
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit": "%",
+            "action": {
+              "id": "brightness"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "sl.kelvin",
+          "title": "色温",
+          "icon": "light",
+          "control": {
+            "kind": "slider",
+            "name": "kelvin",
+            "value": 4000,
+            "min": 2700,
+            "max": 6500,
+            "step": 100,
+            "display": "4000 K",
+            "unit": "K",
+            "action": {
+              "id": "kelvin"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "步进",
+      "items": [
+        {
+          "type": "row",
+          "key": "st.temp",
+          "title": "温度",
+          "subtitle": "16–30 °C",
+          "icon": "thermometer",
+          "control": {
+            "kind": "stepper",
+            "name": "temperature",
+            "value": 22.5,
+            "min": 16,
+            "max": 30,
+            "step": 0.5,
+            "unit": "°C",
+            "action": {
+              "id": "temperature"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "st.fan",
+          "title": "风速",
+          "icon": "wind",
+          "control": {
+            "kind": "stepper",
+            "name": "fan",
+            "value": 2,
+            "min": 1,
+            "max": 5,
+            "step": 1,
+            "unit": "档",
+            "action": {
+              "id": "fan"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

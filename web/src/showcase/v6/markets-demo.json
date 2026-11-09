@@ -1,0 +1,640 @@
+{
+  "title": "示例科技",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "stat_grid",
+          "key": "quote",
+          "stats": [
+            {
+              "label": "最新",
+              "value": "10.60",
+              "detail": "+4.95%",
+              "tone": "positive"
+            },
+            {
+              "label": "今开",
+              "value": "10.10"
+            },
+            {
+              "label": "最高",
+              "value": "10.80"
+            },
+            {
+              "label": "成交量",
+              "value": "15.0 万"
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "key": "k",
+          "kind": "candlestick",
+          "title": "日 K",
+          "unit": "元",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "10-01",
+                  "value": 8.99,
+                  "open": 9.0,
+                  "high": 9.1,
+                  "low": 8.82,
+                  "close": 8.99,
+                  "volume": 179000
+                },
+                {
+                  "label": "10-02",
+                  "value": 8.98,
+                  "open": 8.99,
+                  "high": 9.14,
+                  "low": 8.95,
+                  "close": 8.98,
+                  "volume": 191000
+                },
+                {
+                  "label": "10-03",
+                  "value": 8.99,
+                  "open": 8.98,
+                  "high": 9.1,
+                  "low": 8.95,
+                  "close": 8.99,
+                  "volume": 174000
+                },
+                {
+                  "label": "10-04",
+                  "value": 8.88,
+                  "open": 8.99,
+                  "high": 9.01,
+                  "low": 8.74,
+                  "close": 8.88,
+                  "volume": 70000
+                },
+                {
+                  "label": "10-05",
+                  "value": 8.97,
+                  "open": 8.88,
+                  "high": 9.04,
+                  "low": 8.8,
+                  "close": 8.97,
+                  "volume": 100000
+                },
+                {
+                  "label": "10-06",
+                  "value": 9.08,
+                  "open": 8.97,
+                  "high": 9.23,
+                  "low": 8.96,
+                  "close": 9.08,
+                  "volume": 69000
+                },
+                {
+                  "label": "10-07",
+                  "value": 8.89,
+                  "open": 9.08,
+                  "high": 9.12,
+                  "low": 8.88,
+                  "close": 8.89,
+                  "volume": 178000
+                },
+                {
+                  "label": "10-08",
+                  "value": 8.8,
+                  "open": 8.89,
+                  "high": 9.0,
+                  "low": 8.77,
+                  "close": 8.8,
+                  "volume": 119000
+                },
+                {
+                  "label": "10-09",
+                  "value": 8.91,
+                  "open": 8.8,
+                  "high": 9.0,
+                  "low": 8.68,
+                  "close": 8.91,
+                  "volume": 177000
+                },
+                {
+                  "label": "10-10",
+                  "value": 9.04,
+                  "open": 8.91,
+                  "high": 9.11,
+                  "low": 8.81,
+                  "close": 9.04,
+                  "volume": 81000
+                },
+                {
+                  "label": "10-11",
+                  "value": 9.2,
+                  "open": 9.04,
+                  "high": 9.26,
+                  "low": 9.0,
+                  "close": 9.2,
+                  "volume": 133000
+                },
+                {
+                  "label": "10-12",
+                  "value": 8.9,
+                  "open": 9.2,
+                  "high": 9.3,
+                  "low": 8.88,
+                  "close": 8.9,
+                  "volume": 87000
+                },
+                {
+                  "label": "10-13",
+                  "value": 9.15,
+                  "open": 8.9,
+                  "high": 9.22,
+                  "low": 8.73,
+                  "close": 9.15,
+                  "volume": 60000
+                },
+                {
+                  "label": "10-14",
+                  "value": 8.98,
+                  "open": 9.15,
+                  "high": 9.32,
+                  "low": 8.97,
+                  "close": 8.98,
+                  "volume": 156000
+                },
+                {
+                  "label": "10-15",
+                  "value": 9.33,
+                  "open": 8.98,
+                  "high": 9.4,
+                  "low": 8.97,
+                  "close": 9.33,
+                  "volume": 110000
+                },
+                {
+                  "label": "10-16",
+                  "value": 9.55,
+                  "open": 9.33,
+                  "high": 9.6,
+                  "low": 9.31,
+                  "close": 9.55,
+                  "volume": 145000
+                },
+                {
+                  "label": "10-17",
+                  "value": 9.23,
+                  "open": 9.55,
+                  "high": 9.63,
+                  "low": 9.06,
+                  "close": 9.23,
+                  "volume": 94000
+                },
+                {
+                  "label": "10-18",
+                  "value": 9.08,
+                  "open": 9.23,
+                  "high": 9.25,
+                  "low": 9.07,
+                  "close": 9.08,
+                  "volume": 184000
+                },
+                {
+                  "label": "10-19",
+                  "value": 8.88,
+                  "open": 9.08,
+                  "high": 9.18,
+                  "low": 8.8,
+                  "close": 8.88,
+                  "volume": 108000
+                },
+                {
+                  "label": "10-20",
+                  "value": 9.23,
+                  "open": 8.88,
+                  "high": 9.37,
+                  "low": 8.81,
+                  "close": 9.23,
+                  "volume": 158000
+                },
+                {
+                  "label": "10-21",
+                  "value": 8.99,
+                  "open": 9.23,
+                  "high": 9.31,
+                  "low": 8.95,
+                  "close": 8.99,
+                  "volume": 129000
+                },
+                {
+                  "label": "10-22",
+                  "value": 9.26,
+                  "open": 8.99,
+                  "high": 9.44,
+                  "low": 8.88,
+                  "close": 9.26,
+                  "volume": 65000
+                },
+                {
+                  "label": "10-23",
+                  "value": 9.08,
+                  "open": 9.26,
+                  "high": 9.33,
+                  "low": 8.92,
+                  "close": 9.08,
+                  "volume": 85000
+                },
+                {
+                  "label": "10-24",
+                  "value": 8.79,
+                  "open": 9.08,
+                  "high": 9.11,
+                  "low": 8.71,
+                  "close": 8.79,
+                  "volume": 62000
+                },
+                {
+                  "label": "10-25",
+                  "value": 8.99,
+                  "open": 8.79,
+                  "high": 9.05,
+                  "low": 8.74,
+                  "close": 8.99,
+                  "volume": 78000
+                },
+                {
+                  "label": "10-26",
+                  "value": 8.73,
+                  "open": 8.99,
+                  "high": 9.03,
+                  "low": 8.62,
+                  "close": 8.73,
+                  "volume": 63000
+                },
+                {
+                  "label": "10-27",
+                  "value": 8.82,
+                  "open": 8.73,
+                  "high": 8.89,
+                  "low": 8.65,
+                  "close": 8.82,
+                  "volume": 183000
+                },
+                {
+                  "label": "10-28",
+                  "value": 9.06,
+                  "open": 8.82,
+                  "high": 9.08,
+                  "low": 8.75,
+                  "close": 9.06,
+                  "volume": 99000
+                },
+                {
+                  "label": "10-29",
+                  "value": 8.95,
+                  "open": 9.06,
+                  "high": 9.1,
+                  "low": 8.84,
+                  "close": 8.95,
+                  "volume": 108000
+                },
+                {
+                  "label": "10-30",
+                  "value": 8.74,
+                  "open": 8.95,
+                  "high": 9.06,
+                  "low": 8.64,
+                  "close": 8.74,
+                  "volume": 159000
+                },
+                {
+                  "label": "10-31",
+                  "value": 9.01,
+                  "open": 8.74,
+                  "high": 9.12,
+                  "low": 8.67,
+                  "close": 9.01,
+                  "volume": 86000
+                },
+                {
+                  "label": "11-01",
+                  "value": 8.77,
+                  "open": 9.01,
+                  "high": 9.1,
+                  "low": 8.73,
+                  "close": 8.77,
+                  "volume": 160000
+                },
+                {
+                  "label": "11-02",
+                  "value": 8.63,
+                  "open": 8.77,
+                  "high": 8.91,
+                  "low": 8.53,
+                  "close": 8.63,
+                  "volume": 135000
+                },
+                {
+                  "label": "11-03",
+                  "value": 8.66,
+                  "open": 8.63,
+                  "high": 8.82,
+                  "low": 8.46,
+                  "close": 8.66,
+                  "volume": 92000
+                },
+                {
+                  "label": "11-04",
+                  "value": 8.51,
+                  "open": 8.66,
+                  "high": 8.76,
+                  "low": 8.36,
+                  "close": 8.51,
+                  "volume": 78000
+                },
+                {
+                  "label": "11-05",
+                  "value": 8.39,
+                  "open": 8.51,
+                  "high": 8.67,
+                  "low": 8.36,
+                  "close": 8.39,
+                  "volume": 64000
+                },
+                {
+                  "label": "11-06",
+                  "value": 8.14,
+                  "open": 8.39,
+                  "high": 8.46,
+                  "low": 8.1,
+                  "close": 8.14,
+                  "volume": 71000
+                },
+                {
+                  "label": "11-07",
+                  "value": 7.96,
+                  "open": 8.14,
+                  "high": 8.2,
+                  "low": 7.87,
+                  "close": 7.96,
+                  "volume": 93000
+                },
+                {
+                  "label": "11-08",
+                  "value": 7.74,
+                  "open": 7.96,
+                  "high": 7.98,
+                  "low": 7.67,
+                  "close": 7.74,
+                  "volume": 144000
+                },
+                {
+                  "label": "11-09",
+                  "value": 7.85,
+                  "open": 7.74,
+                  "high": 7.96,
+                  "low": 7.65,
+                  "close": 7.85,
+                  "volume": 95000
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "持仓",
+      "items": [
+        {
+          "type": "chart",
+          "key": "alloc",
+          "kind": "donut",
+          "center": "¥52,800",
+          "series": [
+            {
+              "points": [
+                {
+                  "label": "示例科技",
+                  "value": 21200,
+                  "display": "¥21,200"
+                },
+                {
+                  "label": "示例银行",
+                  "value": 15800,
+                  "display": "¥15,800"
+                },
+                {
+                  "label": "示例能源",
+                  "value": 9600,
+                  "display": "¥9,600"
+                },
+                {
+                  "label": "现金",
+                  "value": 6200,
+                  "display": "¥6,200"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "自选",
+      "items": [
+        {
+          "type": "row",
+          "key": "m0",
+          "title": "示例银行",
+          "subtitle": "000002",
+          "value": "7.12",
+          "badge": {
+            "text": "-1.20%",
+            "color": "red"
+          },
+          "spark": {
+            "values": [
+              7.89,
+              7.74,
+              7.68,
+              7.55,
+              7.4,
+              7.35,
+              7.45,
+              7.52,
+              7.58,
+              7.47,
+              7.46,
+              7.37,
+              7.25,
+              7.11,
+              7.01,
+              7.11,
+              7.18,
+              7.25,
+              7.32,
+              7.21,
+              7.13,
+              7.14,
+              7.18,
+              7.26,
+              7.35,
+              7.21,
+              7.22,
+              7.25,
+              7.23,
+              7.12
+            ],
+            "color": "red"
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail",
+              "title": "示例银行"
+            }
+          },
+          "actions": [
+            {
+              "title": "移出自选",
+              "icon": "minus",
+              "role": "destructive",
+              "action": {
+                "id": "unwatch",
+                "confirm": "把示例银行移出自选？"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "m1",
+          "title": "示例能源",
+          "subtitle": "000003",
+          "value": "21.61",
+          "badge": {
+            "text": "+0.31%",
+            "color": "green"
+          },
+          "spark": {
+            "values": [
+              21.12,
+              21.35,
+              21.62,
+              22.02,
+              22.25,
+              22.65,
+              22.25,
+              22.24,
+              22.66,
+              22.82,
+              23.21,
+              22.87,
+              22.86,
+              22.65,
+              22.71,
+              22.8,
+              22.38,
+              22.15,
+              21.98,
+              22.37,
+              22.63,
+              22.34,
+              22.63,
+              22.33,
+              22.46,
+              22.15,
+              21.73,
+              22.07,
+              21.84,
+              21.61
+            ],
+            "color": "green"
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail",
+              "title": "示例能源"
+            }
+          },
+          "actions": [
+            {
+              "title": "移出自选",
+              "icon": "minus",
+              "role": "destructive",
+              "action": {
+                "id": "unwatch",
+                "confirm": "把示例能源移出自选？"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "m2",
+          "title": "示例消费",
+          "subtitle": "000004",
+          "value": "54.93",
+          "badge": {
+            "text": "-0.08%",
+            "color": "red"
+          },
+          "spark": {
+            "values": [
+              55.59,
+              56.25,
+              56.16,
+              55.57,
+              54.4,
+              54.7,
+              54.58,
+              55.09,
+              54.76,
+              55.3,
+              54.74,
+              55.35,
+              55.8,
+              55.55,
+              55.58,
+              55.93,
+              55.19,
+              55.25,
+              55.87,
+              55.29,
+              55.91,
+              56.27,
+              56.99,
+              56.56,
+              55.58,
+              56.19,
+              56.82,
+              56.64,
+              55.66,
+              54.93
+            ],
+            "color": "red"
+          },
+          "action": {
+            "id": "open",
+            "push": {
+              "state": "detail",
+              "title": "示例消费"
+            }
+          },
+          "actions": [
+            {
+              "title": "移出自选",
+              "icon": "minus",
+              "role": "destructive",
+              "action": {
+                "id": "unwatch",
+                "confirm": "把示例消费移出自选？"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

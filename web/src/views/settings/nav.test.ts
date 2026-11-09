@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FROM_LIST, LIST_GROUPS, openedFromList, redirectLegacySettings, settingsAt, settingsHref, TAB_INFO, TABS } from "./nav";
+import { FROM_LIST, NAV_GROUPS, openedFromList, redirectLegacySettings, searchSettings, settingsAt, settingsHref, TAB_INFO, TABS } from "./nav";
 
 describe("settings location", () => {
   it("names no category on plain /settings: the phone's list (通用 on a wide screen)", () => {
@@ -25,7 +25,7 @@ describe("settings location", () => {
     for (const t of TABS) expect(settingsAt(settingsHref(t, null, true).split("?")[1] ?? "").tab).toBe(t);
   });
   it("lists each category once on the phone's first page", () => {
-    const listed = LIST_GROUPS.flatMap((g) => g.tabs);
+    const listed = NAV_GROUPS.flatMap((g) => g.tabs);
     expect([...listed].sort()).toEqual([...TABS].sort());
   });
   it("knows a category was opened from the list (Back goes to it)", () => {
@@ -42,12 +42,18 @@ describe("settings location", () => {
     expect(redirectLegacySettings("?tab=translate", "")).toBe("/settings?tab=general#settings-translation");
     expect(redirectLegacySettings("?tab=assistant&manager=work", "")).toBe("/settings?tab=persona&manager=work");
   });
+  it("keeps Sent out of top-level navigation and redirects both legacy URL forms", () => {
+    expect(TABS).not.toContain("sent");
+    expect(settingsAt("?tab=sent")).toEqual({ tab: "connectors", sub: "-sent", section: null });
+    expect(settingsHref("connectors", "-sent", false)).toBe("/settings?tab=connectors&connector=-sent");
+    expect(redirectLegacySettings("?tab=sent&manager=work", "")).toBe("/settings?tab=connectors&manager=work&connector=-sent");
+    for (const path of ["/settings/sent", "/settings/sent/"]) {
+      expect(redirectLegacySettings("", "", path)).toBe("/settings?tab=connectors&connector=-sent");
+    }
+    expect(redirectLegacySettings("?tab=connectors&connector=-sent", "")).toBeNull();
+  });
   it("keeps the legacy purpose in the canonical model URL", () => {
     expect(settingsAt("?tab=model-config&purpose=agent.triage&manager=work")).toEqual({ tab: "models", sub: "agent.triage", section: "model-config" });
-  });
-  it("uses the requested order for the combined model and agent categories", () => {
-    expect(TABS.slice(0, 5)).toEqual(["general", "persona", "notifications", "models", "agents"]);
-    expect(LIST_GROUPS[1].tabs).toEqual(["models", "agents"]);
   });
   it("opens a link from before the rename (?tab=plugins&plugin=…) as 扩展", () => {
     expect(settingsAt("?tab=plugins&plugin=wechat")).toEqual({ tab: "extensions", sub: "wechat", section: null });
@@ -61,11 +67,51 @@ describe("settings location", () => {
   });
   it("puts channels immediately before connectors in both layouts", () => {
     expect(TABS[TABS.indexOf("connectors") - 1]).toBe("channels");
-    const listed = LIST_GROUPS.flatMap((g) => g.tabs);
+    const listed = NAV_GROUPS.flatMap((g) => g.tabs);
     expect(listed[listed.indexOf("connectors") - 1]).toBe("channels");
   });
   it("gives every category a one-line hint, and no group shares a name with one of its rows (#3636)", () => {
     for (const k of TABS) expect(TAB_INFO[k].hint.trim()).not.toBe("");
-    for (const g of LIST_GROUPS) for (const k of g.tabs) expect(TAB_INFO[k].label).not.toBe(g.title);
+    for (const g of NAV_GROUPS) for (const k of g.tabs) expect(TAB_INFO[k].label).not.toBe(g.title);
+  });
+});
+
+describe("settings sidebar groups", () => {
+  it("has the four sections in order", () => {
+    expect(NAV_GROUPS).toHaveLength(4);
+    expect(NAV_GROUPS.map((g) => g.tabs)).toEqual([
+      ["general", "notifications", "shortcuts"],
+      ["persona", "models", "agents"],
+      ["channels", "connectors", "extensions"],
+      ["devices", "hub", "managers"],
+    ]);
+  });
+});
+
+describe("settings search", () => {
+  it("matches a category by label", () => {
+    expect(searchSettings("模型").tabs).toContain("models");
+    expect(searchSettings("Agent").tabs).toContain("agents");
+  });
+  it("matches a category by hint", () => {
+    expect(searchSettings("邮箱").tabs).toContain("connectors");
+  });
+  it("matches a page group by its heading", () => {
+    const r = searchSettings("外观");
+    expect(r.groups.some((g) => g.tab === "general" && g.anchor === "appearance")).toBe(true);
+  });
+  it("matches a models/agents section", () => {
+    expect(searchSettings("Codex").groups.some((g) => g.tab === "agents" && g.anchor === "settings-codex")).toBe(true);
+  });
+  it("finds the Sent entry under Connectors by its label and existing hint", () => {
+    for (const q of ["以你的名义发出", "为什么放行"]) {
+      const result = searchSettings(q);
+      expect(result.tabs).not.toContain("sent");
+      expect(result.groups).toContainEqual(expect.objectContaining({ tab: "connectors", anchor: "sent" }));
+    }
+  });
+  it("returns nothing for an unknown query", () => {
+    expect(searchSettings("zzz-no-such-setting")).toEqual({ tabs: [], groups: [] });
+    expect(searchSettings("  ")).toEqual({ tabs: [], groups: [] });
   });
 });

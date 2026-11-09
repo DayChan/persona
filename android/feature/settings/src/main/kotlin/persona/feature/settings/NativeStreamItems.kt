@@ -37,7 +37,7 @@ internal fun NativeStreamItem(item: ExtensionViewItem, display: ExtensionViewSta
                               press: NativePress, edit: (String, String) -> Unit): Boolean {
     val node = state.tree?.nodes?.get(item.key) ?: return false
     when (item.type) {
-        "row" -> NativeRow(node, item, state, local, modifier, press, edit)
+        "row" -> NativeRow(node, item, state, local, modifier, handle, press, edit)
         "image" -> NativeImage(node, local, modifier)
         "grid", "carousel" -> NativeTiles(node, state, local, modifier, press, edit)
         "field" -> if (item.kind in setOf("text", "number", "multiline") || item.detail != null) {
@@ -60,13 +60,13 @@ private fun ExtensionViewHandle.withoutNative() = ExtensionViewHandle(press, edi
 
 @Composable
 private fun NativeRow(node: JsonObject, item: ExtensionViewItem, state: NativeStreamState, local: NativeExtensionLocal,
-                      modifier: Modifier, press: NativePress, edit: (String, String) -> Unit) {
+                      modifier: Modifier, handle: (String) -> ExtensionViewHandle, press: NativePress, edit: (String, String) -> Unit) {
     val key = node.getValue("key").jsonPrimitive.content
     val control = node["control"] as? JsonObject
     Column(modifier.fillMaxWidth()) {
         NativeActionContainer(node, local, press) {
             JRow(item.title.orEmpty(), subtitle = item.subtitle, value = item.value,
-                leadingIcon = item.icon?.let(ExtensionIcons::of), leading = rowLeading(item),
+                leadingIcon = item.icon?.let(ExtensionIcons::of), leading = rowLeading(item, handle(key)),
                 trailing = {
                     item.badge?.let { JTag(it.text, ExtensionViewText.tone(it.tone)) }
                     if (control?.text("kind") == "switch") NativeControl(key, item.title.orEmpty(), control, state, local, press, edit)

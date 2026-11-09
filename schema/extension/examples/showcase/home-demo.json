@@ -1,0 +1,357 @@
+{
+  "title": "家",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "stat_grid",
+          "key": "now",
+          "stats": [
+            {
+              "label": "室内",
+              "value": "22.5°C",
+              "spark": {
+                "values": [
+                  22.26,
+                  22.1,
+                  22.26,
+                  22.33,
+                  22.09,
+                  22.34,
+                  22.27,
+                  22.09,
+                  21.91,
+                  22.19,
+                  22.03,
+                  21.97,
+                  22.01,
+                  21.94,
+                  22.05,
+                  21.81,
+                  21.78,
+                  21.85,
+                  21.94,
+                  22.02,
+                  21.89,
+                  21.99,
+                  22.3,
+                  22.3
+                ],
+                "color": "orange"
+              }
+            },
+            {
+              "label": "湿度",
+              "value": "48%",
+              "spark": {
+                "values": [
+                  48.35,
+                  49.11,
+                  48.64,
+                  48.2,
+                  49.24,
+                  48.87,
+                  48.76,
+                  48.54,
+                  49.63,
+                  49.77,
+                  50.65,
+                  49.99,
+                  49.57,
+                  49.93,
+                  49.6,
+                  49.99,
+                  50.06,
+                  49.22,
+                  48.45,
+                  48.37,
+                  48.49,
+                  47.86,
+                  47.41,
+                  46.41
+                ],
+                "color": "blue"
+              }
+            },
+            {
+              "label": "今日用电",
+              "value": "12.4 kWh",
+              "detail": "−8%",
+              "tone": "positive"
+            }
+          ]
+        },
+        {
+          "type": "carousel",
+          "key": "scenes",
+          "width": "narrow",
+          "tiles": [
+            {
+              "key": "h-sc0",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "h-sc1",
+              "title": "观影",
+              "icon": "tv",
+              "color": "indigo",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "h-sc2",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "h-sc3",
+              "title": "离家",
+              "icon": "lock",
+              "color": "gray",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "摄像头",
+      "items": [
+        {
+          "type": "image",
+          "key": "door",
+          "src": {
+            "ref": "camera.front_door"
+          },
+          "alt": "门口摄像头",
+          "aspect": "wide",
+          "caption": "门口 · 10 秒前"
+        }
+      ]
+    },
+    {
+      "title": "房间",
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "4 个房间，2 间开着灯"
+        },
+        {
+          "type": "grid",
+          "key": "rooms",
+          "max_columns": 2,
+          "tiles": [
+            {
+              "key": "h-room0",
+              "title": "客厅",
+              "subtitle": "2 盏灯开着",
+              "value": "22.5°C",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "h-room0",
+                "on": true,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "客厅"
+                }
+              }
+            },
+            {
+              "key": "h-room1",
+              "title": "卧室",
+              "subtitle": "关",
+              "value": "21°C",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "h-room1",
+                "on": false,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "卧室"
+                }
+              }
+            },
+            {
+              "key": "h-room2",
+              "title": "厨房",
+              "subtitle": "1 盏灯开着",
+              "value": "24°C",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "h-room2",
+                "on": true,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "厨房"
+                }
+              }
+            },
+            {
+              "key": "h-room3",
+              "title": "书房",
+              "subtitle": "关",
+              "value": "20.5°C",
+              "icon": "light",
+              "color": "amber",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "h-room3",
+                "on": false,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "书房"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "客厅",
+      "items": [
+        {
+          "type": "row",
+          "key": "h-main",
+          "title": "主灯",
+          "icon": "light",
+          "icon_color": "amber",
+          "control": {
+            "kind": "switch",
+            "name": "main",
+            "on": true,
+            "action": {
+              "id": "toggle"
+            }
+          },
+          "actions": [
+            {
+              "title": "重命名",
+              "icon": "edit",
+              "action": {
+                "id": "rename"
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "key": "h-bri",
+          "title": "亮度",
+          "control": {
+            "kind": "slider",
+            "name": "bri",
+            "value": 60,
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit": "%",
+            "action": {
+              "id": "set"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "h-ac",
+          "title": "空调",
+          "icon": "thermometer",
+          "icon_color": "teal",
+          "control": {
+            "kind": "stepper",
+            "name": "ac",
+            "value": 24,
+            "min": 16,
+            "max": 30,
+            "step": 0.5,
+            "unit": "°C",
+            "action": {
+              "id": "set"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "h-lock",
+          "title": "门锁",
+          "subtitle": "已锁",
+          "icon": "lock",
+          "icon_color": "green",
+          "badge": {
+            "text": "安全",
+            "color": "green"
+          },
+          "action": {
+            "id": "lock",
+            "push": {
+              "title": "门锁"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "key": "h-robot",
+          "title": "扫地机",
+          "subtitle": "充电中 · 82%",
+          "thumbnail": {
+            "ref": "map",
+            "aspect": "wide"
+          },
+          "action": {
+            "id": "robot",
+            "push": {
+              "title": "扫地机"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

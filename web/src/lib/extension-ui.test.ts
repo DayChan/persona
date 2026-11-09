@@ -161,7 +161,7 @@ describe("UI 版本 2：上下文", () => {
     vi.stubGlobal("navigator", { language: "zh-CN" });
     const c = uiContext({ machine: "m1", size: "compact" });
     expect(c).toMatchObject({ platform: "web", ui_version: UI_VERSION, locale: "zh-CN", machine: "m1", size: "compact" });
-    expect(UI_VERSION).toBe(5);
+    expect(UI_VERSION).toBe(6);
     expect(c.tz).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
     expect(uiContext()).not.toHaveProperty("launcher");
     expect(uiContext({ launcher: "work" }).launcher).toBe("work");

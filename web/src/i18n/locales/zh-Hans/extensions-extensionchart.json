@@ -6,5 +6,14 @@
   "summary_series_other": "{kind}，{count} 个点，{series}",
   "series_sep": "、",
   "label": "标签",
-  "value": "值"
+  "value": "值",
+  "kind_area": "面积图",
+  "kind_candlestick": "K 线图",
+  "kind_donut": "环形图",
+  "kind_pie": "饼图",
+  "open": "开盘",
+  "high": "最高",
+  "low": "最低",
+  "close": "收盘",
+  "volume": "成交量"
 }

@@ -1,0 +1,225 @@
+{
+  "title": "横向卡片",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "carousel",
+          "key": "scenes",
+          "title": "场景（narrow）",
+          "width": "narrow",
+          "tiles": [
+            {
+              "key": "c.scene.home",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "home"
+                }
+              }
+            },
+            {
+              "key": "c.scene.away",
+              "title": "离家",
+              "icon": "lock",
+              "color": "indigo",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "away"
+                }
+              }
+            },
+            {
+              "key": "c.scene.sleep",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "sleep"
+                }
+              }
+            },
+            {
+              "key": "c.scene.movie",
+              "title": "观影",
+              "icon": "tv",
+              "color": "pink",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "movie"
+                }
+              }
+            },
+            {
+              "key": "c.scene.morning",
+              "title": "起床",
+              "icon": "sun",
+              "color": "amber",
+              "action": {
+                "id": "scene",
+                "values": {
+                  "scene": "morning"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "carousel",
+          "key": "rooms",
+          "title": "房间（regular）",
+          "tiles": [
+            {
+              "key": "c.room.0",
+              "title": "客厅",
+              "subtitle": "3 盏灯开着",
+              "value": "24 °C",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "客厅"
+                }
+              }
+            },
+            {
+              "key": "c.room.1",
+              "title": "卧室",
+              "value": "22 °C",
+              "icon": "light",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "卧室"
+                }
+              }
+            },
+            {
+              "key": "c.room.2",
+              "title": "厨房",
+              "subtitle": "有人",
+              "value": "25 °C",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "厨房"
+                }
+              }
+            },
+            {
+              "key": "c.room.3",
+              "title": "书房",
+              "value": "21 °C",
+              "icon": "light",
+              "color": "teal",
+              "active": false,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "书房"
+                }
+              }
+            },
+            {
+              "key": "c.room.4",
+              "title": "车库",
+              "subtitle": "门已关",
+              "icon": "car",
+              "color": "gray",
+              "active": false,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "车库"
+                }
+              }
+            },
+            {
+              "key": "c.room.5",
+              "title": "阳台",
+              "value": "19 °C",
+              "icon": "leaf",
+              "color": "green",
+              "active": false,
+              "action": {
+                "id": "open_room",
+                "push": {
+                  "state": "detail",
+                  "title": "阳台"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "carousel",
+          "key": "cams",
+          "title": "摄像头（wide）",
+          "width": "wide",
+          "tiles": [
+            {
+              "key": "c.cam.front",
+              "title": "前门",
+              "subtitle": "刚刚",
+              "image": {
+                "ref": "camera.front_door"
+              },
+              "action": {
+                "id": "open_camera",
+                "values": {
+                  "camera": "front"
+                }
+              }
+            },
+            {
+              "key": "c.cam.garden",
+              "title": "院子",
+              "subtitle": "1 分钟前",
+              "image": {
+                "ref": "photo.garden"
+              },
+              "action": {
+                "id": "open_camera",
+                "values": {
+                  "camera": "garden"
+                }
+              }
+            },
+            {
+              "key": "c.cam.map",
+              "title": "扫地机",
+              "subtitle": "正在清扫客厅",
+              "image": {
+                "ref": "vacuum.map"
+              },
+              "badge": {
+                "text": "工作中",
+                "color": "teal"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

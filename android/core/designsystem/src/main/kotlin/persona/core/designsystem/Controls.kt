@@ -505,6 +505,11 @@ fun JTag(text: String, modifier: Modifier = Modifier, status: Status? = null) =
 fun JTag(text: String, tone: Tone, modifier: Modifier = Modifier, animated: Boolean = false) =
     JTagColored(text, modifier, PersonaTheme.palette.tone(tone).takeIf { tone != Tone.Neutral }, animated)
 
+/** A small label in a named colour ([JHue], UI version 6): a category ("客厅") rather than a meaning. */
+@Composable
+fun JTag(text: String, hue: JHue, modifier: Modifier = Modifier, animated: Boolean = false) =
+    JTagColored(text, modifier, PersonaTheme.palette.hue(hue), animated)
+
 @Composable
 internal fun JTagColored(text: String, modifier: Modifier, tone: StatusColors?, animated: Boolean = false) {
     val palette = PersonaTheme.palette

@@ -11,6 +11,7 @@ import { t } from "../../i18n";
 import { cx, EASE, IconButton, Loading } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
 import { lazyPage } from "../../lib/lazy-page";
+import { NEW_ICON_GLYPH } from "./icon-map";
 
 // The extension page is its own chunk (#1794): App.tsx reaches this file for the sidebar's and the nav page's icons and
 // titles, and the first screen draws no extension UI. A page, a card and a section each wait under their own Suspense
@@ -19,7 +20,7 @@ const ExtensionUI = lazyPage(() => import("../settings/ExtensionView").then((m) 
 
 /** A nav_page's icon from the fixed vocabulary, as one of the web's icons (unknown: the extension's). */
 const NAV_ICON: Record<UIIcon, IconName> = { extension: "extension", plugin: "extension", chart: "chart", gauge: "gauge", list: "list", bell: "bell", doc: "read", calendar: "calendar", money: "money",
-  branch: "branch", code: "code", pull_request: "pullRequest", merge: "merge" };
+  branch: "branch", code: "code", pull_request: "pullRequest", merge: "merge", ...NEW_ICON_GLYPH };
 export const navIcon = (icon?: string): IconName => NAV_ICON[uiIcon(icon)];
 
 /** A badge's tone as the sidebar's badge colors. */

@@ -1,0 +1,268 @@
+{
+  "title": "网格",
+  "sections": [
+    {
+      "title": "房间（最多 2 列）",
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "点格子进房间，右上角的开关管这间的灯；长按看更多。"
+        },
+        {
+          "type": "grid",
+          "key": "rooms",
+          "max_columns": 2,
+          "tiles": [
+            {
+              "key": "room0",
+              "title": "客厅",
+              "subtitle": "2 盏灯开着",
+              "value": "22.5°C",
+              "icon": "sofa",
+              "color": "blue",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "room0.lights",
+                "on": true,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "客厅"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关灯",
+                  "icon": "power",
+                  "action": {
+                    "id": "off"
+                  }
+                }
+              ]
+            },
+            {
+              "key": "room1",
+              "title": "卧室",
+              "subtitle": "关",
+              "value": "21°C",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "room1.lights",
+                "on": false,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "卧室"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关灯",
+                  "icon": "power",
+                  "action": {
+                    "id": "off"
+                  }
+                }
+              ]
+            },
+            {
+              "key": "room2",
+              "title": "厨房",
+              "subtitle": "1 盏灯开着",
+              "value": "24°C",
+              "icon": "home",
+              "color": "orange",
+              "active": true,
+              "control": {
+                "kind": "switch",
+                "name": "room2.lights",
+                "on": true,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "厨房"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关灯",
+                  "icon": "power",
+                  "action": {
+                    "id": "off"
+                  }
+                }
+              ]
+            },
+            {
+              "key": "room3",
+              "title": "书房",
+              "subtitle": "关",
+              "value": "20.5°C",
+              "icon": "light",
+              "color": "amber",
+              "active": false,
+              "control": {
+                "kind": "switch",
+                "name": "room3.lights",
+                "on": false,
+                "action": {
+                  "id": "toggle"
+                }
+              },
+              "action": {
+                "id": "room",
+                "push": {
+                  "title": "书房"
+                }
+              },
+              "actions": [
+                {
+                  "title": "全部关灯",
+                  "icon": "power",
+                  "action": {
+                    "id": "off"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "场景（最多 4 列）",
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "点一下执行场景，正在用的那个亮着。"
+        },
+        {
+          "type": "grid",
+          "key": "scenes",
+          "tiles": [
+            {
+              "key": "scene0",
+              "title": "回家",
+              "icon": "home",
+              "color": "green",
+              "active": true,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "scene1",
+              "title": "离家",
+              "icon": "lock",
+              "color": "gray",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "scene2",
+              "title": "观影",
+              "icon": "tv",
+              "color": "indigo",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "scene3",
+              "title": "睡觉",
+              "icon": "moon",
+              "color": "purple",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "scene4",
+              "title": "起床",
+              "icon": "sun",
+              "color": "amber",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            },
+            {
+              "key": "scene5",
+              "title": "全关",
+              "icon": "power",
+              "color": "red",
+              "active": false,
+              "action": {
+                "id": "scene"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "带图的格子",
+      "items": [
+        {
+          "type": "text",
+          "style": "caption",
+          "text": "有图时图铺在格子上半部分。"
+        },
+        {
+          "type": "grid",
+          "key": "cams",
+          "tiles": [
+            {
+              "key": "cam1",
+              "title": "门口",
+              "subtitle": "10 秒前",
+              "image": {
+                "ref": "camera.front_door"
+              },
+              "badge": {
+                "text": "有人",
+                "tone": "caution"
+              },
+              "action": {
+                "id": "cam"
+              }
+            },
+            {
+              "key": "cam2",
+              "title": "院子",
+              "subtitle": "1 分钟前",
+              "image": {
+                "ref": "garden"
+              },
+              "action": {
+                "id": "cam"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

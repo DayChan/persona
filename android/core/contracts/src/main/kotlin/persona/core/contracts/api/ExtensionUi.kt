@@ -40,6 +40,13 @@ interface ExtensionUi {
         extension: String, ui: String, action: String, context: ExtensionUiContext? = null, state: String? = null,
         values: Map<String, String>? = null,
     ): ExtensionUiResult
+
+    /**
+     * `GET /api/v1/extensions/{id}/-/image/{token}` (UI version 6): a picture an extension serves itself (`ui.image`), at
+     * the [path] the hub wrote into the view for its `ref`. Only that hub-signed path is fetched with the device's
+     * credentials; an extension's `url` never is. A path that has expired (410) throws [ExtensionImageExpired].
+     */
+    suspend fun uiImage(path: String): ByteArray = throw UnsupportedOperationException("uiImage")
 }
 
 /**
@@ -300,6 +307,106 @@ data class ExtensionViewItem(
     val suggestions: Boolean? = null,
     /** code: an https link to lines on the site, `{start}` and `{end}` filled in. */
     @SerialName("line_url") val lineUrl: String? = null,
+    // UI version 6 (#5464): pictures, controls, more charts, a row's actions, grids and carousels, more fields, colours
+    /** image: where the picture comes from. */
+    val src: ExtensionImageSource? = null,
+    /** image: read out, and shown when the picture does not load. */
+    val alt: String? = null,
+    /** image: `square | landscape | wide | portrait | auto` (landscape when none). */
+    val aspect: String? = null,
+    /** image: `fill` (cropped, the default) or `fit` (all of it). */
+    val fit: String? = null,
+    /** image: tapping does nothing (else the picture opens full screen). */
+    @SerialName("no_zoom") val noZoom: Boolean? = null,
+    /** row: a switch, a slider or a stepper. */
+    val control: ExtensionRowControl? = null,
+    /** row: extra actions, in its menu and (some) under a swipe. */
+    val actions: List<ExtensionRowAction>? = null,
+    /** row, metric: a small trend line. */
+    val spark: ExtensionSpark? = null,
+    /** row, metric, empty: the icon's named colour. */
+    @SerialName("icon_color") val iconColor: String? = null,
+    /** grid, carousel */
+    val tiles: List<ExtensionTile>? = null,
+    @SerialName("max_columns") val maxColumns: Int? = null,
+    /** carousel: `narrow | regular | wide`. */
+    val width: String? = null,
+    /** field (date, time, datetime): the first and last allowed, written like the value. */
+    val earliest: String? = null,
+    val latest: String? = null,
+    /** chart (donut): the words in the hole. */
+    val center: String? = null,
+    /** chart (candlestick): `green` (default) or `red`, a rising candle's colour. */
+    val rising: String? = null,
+)
+
+/**
+ * A picture's source (UI version 6): an https [url] loaded without credentials, or the extension's own [ref], for which
+ * the hub writes [path] (its own address, loaded with the device's credentials). [width] and [height] shape `auto`.
+ */
+@Serializable
+data class ExtensionImageSource(
+    val url: String? = null,
+    val ref: String? = null,
+    val path: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+)
+
+/**
+ * A control in a row or a tile (UI version 6): [kind] `switch` ([on]), `slider` or `stepper` ([value] from [min] to
+ * [max] by [step]); changing it sends [action] with `{name: the new value}`.
+ */
+@Serializable
+data class ExtensionRowControl(
+    val kind: String = "",
+    val name: String = "",
+    val on: Boolean? = null,
+    val value: Double? = null,
+    val min: Double? = null,
+    val max: Double? = null,
+    val step: Double? = null,
+    val unit: String? = null,
+    val display: String? = null,
+    val disabled: Boolean? = null,
+    val action: ExtensionViewAction = ExtensionViewAction(),
+)
+
+/** One of a row's or a tile's extra actions (UI version 6); [swipe] ones also go under a swipe. */
+@Serializable
+data class ExtensionRowAction(
+    val title: String = "",
+    val icon: String? = null,
+    val role: String? = null,
+    val swipe: Boolean? = null,
+    val action: ExtensionViewAction = ExtensionViewAction(),
+)
+
+/** A small trend line (UI version 6): [values] only, in a named [color] or a [tone], [fill] shading under it. */
+@Serializable
+data class ExtensionSpark(
+    val values: List<Double> = emptyList(),
+    val color: String? = null,
+    val tone: String? = null,
+    val fill: Boolean? = null,
+)
+
+/** A tile of a grid or a carousel (UI version 6). */
+@Serializable
+data class ExtensionTile(
+    val key: String? = null,
+    val title: String = "",
+    val subtitle: String? = null,
+    val value: String? = null,
+    val icon: String? = null,
+    val image: ExtensionImageSource? = null,
+    val color: String? = null,
+    val badge: ExtensionViewBadge? = null,
+    val active: Boolean? = null,
+    val spark: ExtensionSpark? = null,
+    val control: ExtensionRowControl? = null,
+    val actions: List<ExtensionRowAction>? = null,
+    val action: ExtensionViewAction? = null,
 )
 
 @Serializable
@@ -370,11 +477,13 @@ data class ExtensionComposerButton(val title: String = "", val action: Extension
 data class ExtensionEmptyButton(val title: String = "", val action: ExtensionViewAction = ExtensionViewAction())
 
 @Serializable
-data class ExtensionViewAvatar(val url: String? = null, val text: String? = null)
+data class ExtensionViewAvatar(val url: String? = null, val text: String? = null,
+                               /** UI version 6: the extension's own picture; the hub writes [path] for it. */
+                               val ref: String? = null, val path: String? = null)
 
-/** [aspect]: `square` (default) or `wide`. */
+/** [aspect]: `square` (default) or `wide`; since UI version 6 a [ref] (with the hub's [path]) in place of [url]. */
 @Serializable
-data class ExtensionViewThumbnail(val url: String = "", val aspect: String? = null)
+data class ExtensionViewThumbnail(val url: String? = null, val aspect: String? = null, val ref: String? = null, val path: String? = null)
 
 /** [align]: `start` (default) or `end` (numbers). */
 @Serializable
@@ -386,18 +495,25 @@ data class ExtensionChartSeries(
     val name: String? = null,
     val tone: String? = null,
     val points: List<ExtensionChartPoint> = emptyList(),
+    /** UI version 6: a named colour. */
+    val color: String? = null,
 )
 
 /** A value at a label (a day, a model); [display] is how to write it ("¥1.20"), else the app writes it with the unit. */
 @Serializable
-data class ExtensionChartPoint(val label: String = "", val value: Double = 0.0, val display: String? = null)
+data class ExtensionChartPoint(
+    val label: String = "", val value: Double = 0.0, val display: String? = null,
+    /** UI version 6: a candlestick's. */
+    val open: Double? = null, val high: Double? = null, val low: Double? = null, val close: Double? = null, val volume: Double? = null,
+)
 
 /** One number of a stat_grid; [tone] colours its detail. */
 @Serializable
-data class ExtensionStat(val label: String = "", val value: String = "", val detail: String? = null, val tone: String? = null)
+data class ExtensionStat(val label: String = "", val value: String = "", val detail: String? = null, val tone: String? = null,
+                         /** UI version 6 */ val spark: ExtensionSpark? = null)
 
 @Serializable
-data class ExtensionViewBadge(val text: String = "", val tone: String? = null)
+data class ExtensionViewBadge(val text: String = "", val tone: String? = null, /** UI version 6: a named colour. */ val color: String? = null)
 
 /**
  * A button's action: [confirm] asks first, [submit] sends the page's fields with it. With [push] (UI version 3) it is not
@@ -471,3 +587,6 @@ class ExtensionUiNotFound(message: String) : Exception(message)
  * the item's own page instead; elsewhere it reads as any failure, in the hub's words.
  */
 class ExtensionUiForbidden(message: String) : Exception(message)
+
+/** A picture's hub path has expired (410): the page is drawn again, which signs its pictures anew. */
+class ExtensionImageExpired : Exception("expired")

@@ -1,0 +1,443 @@
+{
+  "title": "样式",
+  "sections": [
+    {
+      "items": [
+        {
+          "type": "text",
+          "text": "大标题（title）",
+          "style": "title"
+        },
+        {
+          "type": "text",
+          "text": "小标题（headline）",
+          "style": "headline"
+        },
+        {
+          "type": "text",
+          "text": "正文：标题和小标题之后照常是正文。",
+          "style": "body"
+        }
+      ]
+    },
+    {
+      "title": "11 种颜色",
+      "items": [
+        {
+          "type": "row",
+          "key": "color.red",
+          "title": "红",
+          "subtitle": "red",
+          "icon": "star",
+          "icon_color": "red",
+          "badge": {
+            "text": "红",
+            "color": "red"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.orange",
+          "title": "橙",
+          "subtitle": "orange",
+          "icon": "star",
+          "icon_color": "orange",
+          "badge": {
+            "text": "橙",
+            "color": "orange"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.amber",
+          "title": "琥珀",
+          "subtitle": "amber",
+          "icon": "star",
+          "icon_color": "amber",
+          "badge": {
+            "text": "琥珀",
+            "color": "amber"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.yellow",
+          "title": "黄",
+          "subtitle": "yellow",
+          "icon": "star",
+          "icon_color": "yellow",
+          "badge": {
+            "text": "黄",
+            "color": "yellow"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.green",
+          "title": "绿",
+          "subtitle": "green",
+          "icon": "star",
+          "icon_color": "green",
+          "badge": {
+            "text": "绿",
+            "color": "green"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.teal",
+          "title": "青",
+          "subtitle": "teal",
+          "icon": "star",
+          "icon_color": "teal",
+          "badge": {
+            "text": "青",
+            "color": "teal"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.blue",
+          "title": "蓝",
+          "subtitle": "blue",
+          "icon": "star",
+          "icon_color": "blue",
+          "badge": {
+            "text": "蓝",
+            "color": "blue"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.indigo",
+          "title": "靛",
+          "subtitle": "indigo",
+          "icon": "star",
+          "icon_color": "indigo",
+          "badge": {
+            "text": "靛",
+            "color": "indigo"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.purple",
+          "title": "紫",
+          "subtitle": "purple",
+          "icon": "star",
+          "icon_color": "purple",
+          "badge": {
+            "text": "紫",
+            "color": "purple"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.pink",
+          "title": "粉",
+          "subtitle": "pink",
+          "icon": "star",
+          "icon_color": "pink",
+          "badge": {
+            "text": "粉",
+            "color": "pink"
+          }
+        },
+        {
+          "type": "row",
+          "key": "color.gray",
+          "title": "灰",
+          "subtitle": "gray",
+          "icon": "star",
+          "icon_color": "gray",
+          "badge": {
+            "text": "灰",
+            "color": "gray"
+          }
+        }
+      ]
+    },
+    {
+      "title": "45 个新图标",
+      "items": [
+        {
+          "type": "grid",
+          "key": "icons",
+          "max_columns": 4,
+          "tiles": [
+            {
+              "key": "icon.home",
+              "title": "home",
+              "icon": "home",
+              "color": "red"
+            },
+            {
+              "key": "icon.sofa",
+              "title": "sofa",
+              "icon": "sofa",
+              "color": "orange"
+            },
+            {
+              "key": "icon.light",
+              "title": "light",
+              "icon": "light",
+              "color": "amber"
+            },
+            {
+              "key": "icon.power",
+              "title": "power",
+              "icon": "power",
+              "color": "yellow"
+            },
+            {
+              "key": "icon.fan",
+              "title": "fan",
+              "icon": "fan",
+              "color": "green"
+            },
+            {
+              "key": "icon.thermometer",
+              "title": "thermometer",
+              "icon": "thermometer",
+              "color": "teal"
+            },
+            {
+              "key": "icon.droplet",
+              "title": "droplet",
+              "icon": "droplet",
+              "color": "blue"
+            },
+            {
+              "key": "icon.lock",
+              "title": "lock",
+              "icon": "lock",
+              "color": "indigo"
+            },
+            {
+              "key": "icon.unlock",
+              "title": "unlock",
+              "icon": "unlock",
+              "color": "purple"
+            },
+            {
+              "key": "icon.door",
+              "title": "door",
+              "icon": "door",
+              "color": "pink"
+            },
+            {
+              "key": "icon.window",
+              "title": "window",
+              "icon": "window",
+              "color": "gray"
+            },
+            {
+              "key": "icon.camera",
+              "title": "camera",
+              "icon": "camera",
+              "color": "red"
+            },
+            {
+              "key": "icon.video",
+              "title": "video",
+              "icon": "video",
+              "color": "orange"
+            },
+            {
+              "key": "icon.play",
+              "title": "play",
+              "icon": "play",
+              "color": "amber"
+            },
+            {
+              "key": "icon.pause",
+              "title": "pause",
+              "icon": "pause",
+              "color": "yellow"
+            },
+            {
+              "key": "icon.stop",
+              "title": "stop",
+              "icon": "stop",
+              "color": "green"
+            },
+            {
+              "key": "icon.speaker",
+              "title": "speaker",
+              "icon": "speaker",
+              "color": "teal"
+            },
+            {
+              "key": "icon.tv",
+              "title": "tv",
+              "icon": "tv",
+              "color": "blue"
+            },
+            {
+              "key": "icon.plug",
+              "title": "plug",
+              "icon": "plug",
+              "color": "indigo"
+            },
+            {
+              "key": "icon.battery",
+              "title": "battery",
+              "icon": "battery",
+              "color": "purple"
+            },
+            {
+              "key": "icon.bolt",
+              "title": "bolt",
+              "icon": "bolt",
+              "color": "pink"
+            },
+            {
+              "key": "icon.sun",
+              "title": "sun",
+              "icon": "sun",
+              "color": "gray"
+            },
+            {
+              "key": "icon.moon",
+              "title": "moon",
+              "icon": "moon",
+              "color": "red"
+            },
+            {
+              "key": "icon.cloud",
+              "title": "cloud",
+              "icon": "cloud",
+              "color": "orange"
+            },
+            {
+              "key": "icon.rain",
+              "title": "rain",
+              "icon": "rain",
+              "color": "amber"
+            },
+            {
+              "key": "icon.snow",
+              "title": "snow",
+              "icon": "snow",
+              "color": "yellow"
+            },
+            {
+              "key": "icon.wind",
+              "title": "wind",
+              "icon": "wind",
+              "color": "green"
+            },
+            {
+              "key": "icon.leaf",
+              "title": "leaf",
+              "icon": "leaf",
+              "color": "teal"
+            },
+            {
+              "key": "icon.car",
+              "title": "car",
+              "icon": "car",
+              "color": "blue"
+            },
+            {
+              "key": "icon.location",
+              "title": "location",
+              "icon": "location",
+              "color": "indigo"
+            },
+            {
+              "key": "icon.robot",
+              "title": "robot",
+              "icon": "robot",
+              "color": "purple"
+            },
+            {
+              "key": "icon.wifi",
+              "title": "wifi",
+              "icon": "wifi",
+              "color": "pink"
+            },
+            {
+              "key": "icon.shield",
+              "title": "shield",
+              "icon": "shield",
+              "color": "gray"
+            },
+            {
+              "key": "icon.trend_up",
+              "title": "trend_up",
+              "icon": "trend_up",
+              "color": "red"
+            },
+            {
+              "key": "icon.trend_down",
+              "title": "trend_down",
+              "icon": "trend_down",
+              "color": "orange"
+            },
+            {
+              "key": "icon.wallet",
+              "title": "wallet",
+              "icon": "wallet",
+              "color": "amber"
+            },
+            {
+              "key": "icon.bank",
+              "title": "bank",
+              "icon": "bank",
+              "color": "yellow"
+            },
+            {
+              "key": "icon.heart",
+              "title": "heart",
+              "icon": "heart",
+              "color": "green"
+            },
+            {
+              "key": "icon.plus",
+              "title": "plus",
+              "icon": "plus",
+              "color": "teal"
+            },
+            {
+              "key": "icon.minus",
+              "title": "minus",
+              "icon": "minus",
+              "color": "blue"
+            },
+            {
+              "key": "icon.trash",
+              "title": "trash",
+              "icon": "trash",
+              "color": "indigo"
+            },
+            {
+              "key": "icon.edit",
+              "title": "edit",
+              "icon": "edit",
+              "color": "purple"
+            },
+            {
+              "key": "icon.refresh",
+              "title": "refresh",
+              "icon": "refresh",
+              "color": "pink"
+            },
+            {
+              "key": "icon.share",
+              "title": "share",
+              "icon": "share",
+              "color": "gray"
+            },
+            {
+              "key": "icon.info",
+              "title": "info",
+              "icon": "info",
+              "color": "red"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

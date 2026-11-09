@@ -1,0 +1,110 @@
+{
+  "title": "图片",
+  "sections": [
+    {
+      "title": "扩展自己的图（ref，经 hub 取）",
+      "items": [
+        {
+          "type": "image",
+          "key": "cam",
+          "src": {
+            "ref": "camera.front_door",
+            "width": 1280,
+            "height": 720
+          },
+          "alt": "前门摄像头的画面",
+          "caption": "前门 · 刚刚",
+          "aspect": "wide"
+        },
+        {
+          "type": "image",
+          "key": "map",
+          "src": {
+            "ref": "vacuum.map"
+          },
+          "alt": "扫地机的地图",
+          "aspect": "square",
+          "fit": "fit",
+          "no_zoom": true,
+          "caption": "fit：完整显示，不能点开"
+        }
+      ]
+    },
+    {
+      "title": "比例",
+      "items": [
+        {
+          "type": "image",
+          "key": "landscape",
+          "src": {
+            "ref": "photo.garden"
+          },
+          "alt": "院子（4:3，默认）"
+        },
+        {
+          "type": "image",
+          "key": "portrait",
+          "src": {
+            "ref": "photo.garden"
+          },
+          "alt": "院子（3:4）",
+          "aspect": "portrait"
+        },
+        {
+          "type": "image",
+          "key": "auto",
+          "src": {
+            "ref": "camera.front_door",
+            "width": 1280,
+            "height": 720
+          },
+          "alt": "按图片自己的尺寸",
+          "aspect": "auto"
+        }
+      ]
+    },
+    {
+      "title": "取不到的图",
+      "items": [
+        {
+          "type": "image",
+          "key": "broken",
+          "src": {
+            "url": "https://example.com/missing.jpg"
+          },
+          "alt": "这张图取不到：显示说明文字",
+          "aspect": "wide"
+        }
+      ]
+    },
+    {
+      "title": "行里的图",
+      "items": [
+        {
+          "type": "row",
+          "key": "thumb",
+          "title": "快递到了",
+          "subtitle": "前门 · 18:02",
+          "thumbnail": {
+            "ref": "camera.front_door",
+            "aspect": "wide"
+          },
+          "badge": {
+            "text": "门口",
+            "color": "amber"
+          }
+        },
+        {
+          "type": "row",
+          "key": "avatar",
+          "title": "家人",
+          "subtitle": "到家",
+          "avatar": {
+            "ref": "person.a",
+            "text": "家"
+          }
+        }
+      ]
+    }
+  ]
+}
