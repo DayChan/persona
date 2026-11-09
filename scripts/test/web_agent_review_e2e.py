@@ -21,7 +21,7 @@ import os
 import sys
 import urllib.request
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
 SIZES = {"wide": {"width": 1440, "height": 900}, "narrow": {"width": 390, "height": 844}}
 MID, SID = "macbook", "a1f3c2d4-0000-4000-8000-000000000006"  # the weather app's idle chat
@@ -48,6 +48,8 @@ def run(browser, base, hub, token, size, theme, shots):
     narrow = size == "narrow"
     ctx = browser.new_context(viewport=SIZES[size], device_scale_factor=2, has_touch=narrow, locale="zh-CN")
     page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
     page.set_default_timeout(20000)
     # the app's theme is its own localStorage pick, not the browser's color scheme
     page.goto(f"{base}/overview?token=" + token)
@@ -63,7 +65,12 @@ def run(browser, base, hub, token, size, theme, shots):
         mock(hub, token, "?state=" + ("card" if card else "none") + "&count=1&refuse=&running=0")
         page.goto(f"{base}/s/{MID}/{SID}")
         expect(page).to_have_url(f"{base}/s/{MID}/{SID}")
-        page.wait_for_selector("[data-composer], textarea")
+        try:
+            page.wait_for_selector("[data-composer], textarea")
+        except PlaywrightTimeoutError:
+            print(f"{tag}: composer missing at {page.url}; page errors: {errors}", flush=True)
+            print(page.locator("body").inner_text(timeout=5000)[:2000], flush=True)
+            raise
         page.wait_for_function("dark => document.documentElement.classList.contains('dark') === dark", arg=theme == "dark")
 
     def menu_item():
@@ -165,6 +172,8 @@ def run(browser, base, hub, token, size, theme, shots):
     expect(card).not_to_contain_text("条发现")
     shot("no-count")
     ok(f"{tag}: a review without a count says 审查完成")
+    if errors:
+        fail(f"{tag}: uncaught page errors: {errors}")
     ctx.close()
 
 
