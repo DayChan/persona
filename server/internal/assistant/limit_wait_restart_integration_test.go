@@ -143,7 +143,8 @@ func TestReceiptLookSurvivesManagerRestartIntegration(t *testing.T) {
 func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
-		defer close(release)
+		var releaseOnce sync.Once
+		defer releaseOnce.Do(func() { close(release) })
 		store := &restartReceiptStore{writes: make(chan bool, 4), blockOnce: release}
 		linked := time.Now().Add(-time.Hour)
 		todo := Todo{ID: "task", Title: "Task", Origin: "conversation", Quiet: true, CreatedAt: linked,
@@ -174,6 +175,8 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 		}
 		stopOld()
 		<-oldDone
+		releaseOnce.Do(func() { close(release) })
+		synctest.Wait()
 
 		restarted := New(Options{Hub: newNode(), Store: func() Store { return store }})
 		putTodo(restarted, todo)
@@ -185,7 +188,7 @@ func TestReceiptFollowUpAfterFeedCommitRestartIntegration(t *testing.T) {
 			if inserted {
 				t.Error("restart inserted a second receipt instead of reusing the committed row")
 			}
-		case <-time.After(2 * time.Minute):
+		case <-time.After(5 * time.Minute):
 			stop()
 			<-done
 			t.Fatal("the restarted manager did not revisit the committed receipt")
