@@ -215,7 +215,7 @@ struct RecentScreenshotMenuItems: View {
                     if let thumb = offer.thumbnail {
                         Image(uiImage: thumb).renderingMode(.original)
                     } else {
-                        Image(systemName: Theme.Icon.screenshot)
+                        ThemedIcon(Theme.Icon.screenshot)
                     }
                 }
             }
@@ -232,7 +232,7 @@ struct RecentScreenshotMenuItems: View {
                         Text("Allow full photo access in Settings")
                     }
                 } icon: {
-                    Image(systemName: Theme.Icon.screenshot)
+                    ThemedIcon(Theme.Icon.screenshot)
                 }
             }
             .accessibilityIdentifier("composer-recent-screenshot-guide")
