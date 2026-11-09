@@ -104,6 +104,7 @@ try {
     assert.equal(await page.locator(`${RAIL} button[data-tick]`).count(), COUNT);
     await page.mouse.move(box.x + 40, box.y + box.height / 2);
     await page.waitForFunction(() => !document.querySelector("[data-nav-preview]"));
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-nav-mark]")].every(mark => parseFloat(getComputedStyle(mark).width) === 6));
     await shot("oldest-loaded-and-positioned");
     assert.deepEqual(run.pageErrors, []);
     run.oldestPositioned = true;
