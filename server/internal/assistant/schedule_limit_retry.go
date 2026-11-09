@@ -172,10 +172,10 @@ func (s *Service) refreshLimitSchedule(ctx context.Context) bool {
 
 // runLimitRetries drives a scan directly in tests; the scheduler holds an owner while it scans.
 func (s *Service) runLimitRetries(ctx context.Context, now time.Time) {
-	s.scanLimitRetries(ctx, now, nil)
+	s.scanLimitRetries(ctx, now, nil, ctx.Done())
 }
 
-func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone <-chan struct{}) {
+func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone, workerStop <-chan struct{}) {
 	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
 		return
@@ -223,7 +223,7 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 		go func() {
 			defer s.sched.inflight.Done()
 			defer s.sched.limitInflight.Done()
-			s.dispatchLimitRetry(cur, w, now, ownerDone)
+			s.dispatchLimitRetry(cur, w, now, ownerDone, workerStop)
 		}()
 		return // the scheduler spaces overdue sends; unavailable conversations do not block the rest
 	}
@@ -233,24 +233,26 @@ func (s *Service) scanLimitRetries(ctx context.Context, now time.Time, ownerDone
 var errLimitRetryNotSent = errors.New("retry conversation's machine is unavailable")
 
 // dispatchLimitRetry is separated from the durable claim so tests can stop an owner at the boundary.
-func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Time, ownerDone <-chan struct{}) {
+func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Time, ownerDone, workerStop <-chan struct{}) {
 	select {
 	case <-ownerDone:
-		s.sched.mu.Lock()
-		delete(s.sched.limitActive, w.Failed.ID)
-		s.sched.mu.Unlock()
+		s.forgetLimitActive(w.Failed.ID)
+		return
+	case <-workerStop:
+		s.forgetLimitActive(w.Failed.ID)
 		return // leave the claim for the next owner to report
 	default:
 	}
 	if _, err := s.runTask(cur, now, now, false, true); err != nil {
 		s.logf("task %s retry: %v", cur.ID, err)
-		if errors.Is(err, errLimitRetryNotSent) {
+		if errors.Is(err, errLimitRetryNotSent) || errors.Is(err, errTaskBusy) {
 			for !s.releaseUnsentLimitClaim(cur.ID, w) {
 				select {
 				case <-ownerDone:
-					s.sched.mu.Lock()
-					delete(s.sched.limitActive, w.Failed.ID)
-					s.sched.mu.Unlock()
+					s.forgetLimitActive(w.Failed.ID)
+					return
+				case <-workerStop:
+					s.forgetLimitActive(w.Failed.ID)
 					return
 				case <-time.After(time.Second):
 				}
@@ -263,6 +265,8 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 		select {
 		case <-ownerDone:
 			return
+		case <-workerStop:
+			return
 		default:
 		}
 		reportCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -273,10 +277,124 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 	for !s.finishLimitClaim(cur.ID, w) {
 		select {
 		case <-ownerDone:
-			s.sched.mu.Lock()
-			delete(s.sched.limitActive, w.Failed.ID)
-			s.sched.mu.Unlock()
+			s.forgetLimitActive(w.Failed.ID)
+			return
+		case <-workerStop:
+			s.forgetLimitActive(w.Failed.ID)
 			return // the durable claim remains for the next owner
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (s *Service) forgetLimitActive(id string) {
+	s.sched.mu.Lock()
+	delete(s.sched.limitActive, id)
+	s.sched.mu.Unlock()
+}
+
+var errManualTaskGone = errors.New("scheduled task is gone")
+
+// admitManualTask claims an existing retry before a manual send; the owner tracks it until its result is settled.
+func (s *Service) admitManualTask(ctx context.Context, id string, now time.Time) (Task, *scheduleLimitRetry, <-chan struct{}, <-chan struct{}, error) {
+	sc, err := s.lockedSchedule(ctx)
+	if err != nil {
+		return Task{}, nil, nil, nil, err
+	}
+	defer sc.mu.Unlock()
+	i := sc.indexLocked(id)
+	if i < 0 {
+		return Task{}, nil, nil, nil, errManualTaskGone
+	}
+	t := sc.tasks[i]
+	var wait *scheduleLimitRetry
+	if t.LimitRetry != nil {
+		if t.LimitRetry.Claimed || sc.sending[id] || sc.scheduledSending[id] > 0 {
+			return Task{}, nil, nil, nil, errTaskBusy
+		}
+		if s.store() != nil && !sc.ownerHeld {
+			return Task{}, nil, nil, nil, errScheduleUnavailable
+		}
+		select {
+		case <-sc.ownerDone:
+			return Task{}, nil, nil, nil, errScheduleUnavailable
+		case <-sc.workerStop:
+			return Task{}, nil, nil, nil, errScheduleUnavailable
+		default:
+		}
+		copy := *t.LimitRetry
+		wait = &copy
+	}
+	tasks := slices.Clone(sc.tasks)
+	tasks[i].LastRun = now.UTC()
+	if t.Repeat == repeatOnce {
+		tasks[i].Enabled = false
+	}
+	if wait != nil {
+		claim := *wait
+		claim.Claimed = true
+		tasks[i].LimitRetry = &claim
+	}
+	if err := s.saveLocked(sc, tasks); err != nil {
+		return Task{}, nil, nil, nil, err
+	}
+	if wait != nil {
+		i = sc.indexLocked(id)
+		if i < 0 || sc.tasks[i].LimitRetry == nil || !sc.tasks[i].LimitRetry.Claimed || sc.tasks[i].LimitRetry.Failed.ID != wait.Failed.ID {
+			return Task{}, nil, nil, nil, errScheduleUnavailable
+		}
+		if sc.limitActive == nil {
+			sc.limitActive = make(map[string]bool)
+		}
+		sc.limitActive[wait.Failed.ID] = true
+		sc.inflight.Add(1)
+		sc.limitInflight.Add(1)
+		t.manualLimitRetry, t.limitRetryRunID = true, wait.Failed.ID
+	}
+	return t, wait, sc.ownerDone, sc.workerStop, nil
+}
+
+func (s *Service) settleManualLimitRetry(id string, w scheduleLimitRetry, sendErr error, ownerDone, workerStop <-chan struct{}) {
+	if sendErr != nil && !errors.Is(sendErr, errTaskBusy) && !errors.Is(sendErr, errLimitRetryNotSent) {
+		s.forgetLimitActive(w.Failed.ID)
+		select {
+		case <-ownerDone:
+			return
+		case <-workerStop:
+			return
+		default:
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		s.recoverLimitClaim(ctx, id, w, time.Now(), "assistant-schedule.retry_delivery_unknown")
+		cancel()
+		return
+	}
+	for {
+		select {
+		case <-ownerDone:
+			s.forgetLimitActive(w.Failed.ID)
+			return
+		case <-workerStop:
+			s.forgetLimitActive(w.Failed.ID)
+			return
+		default:
+		}
+		finished := false
+		if sendErr != nil {
+			finished = s.releaseUnsentLimitClaim(id, w)
+		} else {
+			finished = s.finishLimitClaim(id, w)
+		}
+		if finished {
+			return
+		}
+		select {
+		case <-ownerDone:
+			s.forgetLimitActive(w.Failed.ID)
+			return
+		case <-workerStop:
+			s.forgetLimitActive(w.Failed.ID)
+			return
 		case <-time.After(time.Second):
 		}
 	}
@@ -284,7 +402,9 @@ func (s *Service) dispatchLimitRetry(cur Task, w scheduleLimitRetry, now time.Ti
 
 // releaseUnsentLimitClaim makes a proven-unsent retry eligible again, without recreating a canceled task.
 func (s *Service) releaseUnsentLimitClaim(id string, w scheduleLimitRetry) bool {
-	sc, err := s.lockedSchedule(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
 		return false
 	}
@@ -356,7 +476,9 @@ func (s *Service) consumeLimitRetry(ctx context.Context, id string, w scheduleLi
 
 // finishLimitClaim clears the claim only after runTask has recorded its result.
 func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
-	sc, err := s.lockedSchedule(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sc, err := s.lockedSchedule(ctx)
 	if err != nil {
 		return false
 	}
@@ -369,7 +491,7 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 	// recordRun keeps outcomes in memory on storage failure; flush this retry's result before dropping its claim.
 	var pending *ScheduleRun
 	for _, r := range sc.runs {
-		if r.RetryOf == w.Failed.ID || r.ID == "retry_unknown_"+w.Failed.ID {
+		if (r.RetryOf == w.Failed.ID && r.Status != runSkipped) || r.ID == "retry_unknown_"+w.Failed.ID {
 			copy := r
 			pending = &copy
 			break
@@ -389,7 +511,7 @@ func (s *Service) finishLimitClaim(id string, w scheduleLimitRetry) bool {
 		}
 	}
 	if !slices.ContainsFunc(sc.runs, func(r ScheduleRun) bool {
-		return r.RetryOf == w.Failed.ID || r.ID == "retry_unknown_"+w.Failed.ID
+		return (r.RetryOf == w.Failed.ID && r.Status != runSkipped) || r.ID == "retry_unknown_"+w.Failed.ID
 	}) {
 		return false
 	}
@@ -420,7 +542,7 @@ func (s *Service) recoverLimitClaim(ctx context.Context, id string, w scheduleLi
 	runID := "retry_unknown_" + w.Failed.ID
 	known := false
 	err = s.mutateScheduleRunsLocked(ctx, sc, func(runs []ScheduleRun) []ScheduleRun {
-		known = slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == w.Failed.ID })
+		known = slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.RetryOf == w.Failed.ID && r.Status != runSkipped })
 		if !known && !slices.ContainsFunc(runs, func(r ScheduleRun) bool { return r.ID == runID }) {
 			runs = append(runs, ScheduleRun{ID: runID, Kind: task.kind(), RefID: id, Title: task.label(), Due: w.At, At: now.UTC(), Status: runFailed,
 				Error: message, MachineID: w.Failed.MachineID, SessionID: w.Failed.SessionID, Retried: true})
