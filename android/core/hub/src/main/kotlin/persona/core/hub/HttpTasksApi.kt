@@ -17,6 +17,9 @@ import persona.core.contracts.PlanTask
 import kotlinx.serialization.builtins.ListSerializer
 import persona.core.contracts.TaskPlan
 import persona.core.contracts.Todo
+import persona.core.contracts.TodoDecision
+import persona.core.contracts.TodoDecisionResponse
+import persona.core.contracts.TodoDecisionsResponse
 import persona.core.contracts.TodosResponse
 import persona.core.contracts.api.AssistantViewAnswer
 import persona.core.contracts.api.TasksApi
@@ -78,6 +81,18 @@ class HttpTasksApi internal constructor(
     override suspend fun deleteTodo(id: String) {
         call(path("todos", id), "DELETE")
     }
+
+    override suspend fun todoDecisions(todoId: String): List<TodoDecision> =
+        JsonCodec.decodeFromJsonElement<TodoDecisionsResponse>(call(path("todos", todoId, "decisions", query = mapOf("all" to "1"))))
+            .decisions.orEmpty()
+
+    override suspend fun addTodoDecision(todoId: String, question: String, choice: String, reason: String, supersedesId: String): TodoDecision =
+        JsonCodec.decodeFromJsonElement<TodoDecisionResponse>(call(path("todos", todoId, "decisions"), "POST", buildJsonObject {
+            put("question", question.trim())
+            put("choice", choice.trim())
+            reason.trim().takeIf { it.isNotEmpty() }?.let { put("reason", it) }
+            supersedesId.takeIf { it.isNotEmpty() }?.let { put("supersedes_id", it) }
+        })).decision
 
     override suspend fun linkTodoAgent(todoId: String, machineId: String, sessionId: String) {
         call(path("todos", todoId, "agents", machineId, sessionId), "PUT", JsonObject(emptyMap()))

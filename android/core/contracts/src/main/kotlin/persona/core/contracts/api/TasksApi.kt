@@ -19,6 +19,11 @@ interface TasksApi {
     suspend fun linkTodoSpace(todoId: String, machineId: String, space: String): Unit = error("linkTodoSpace not implemented")
     /** "Remove from to-do": the project and the agents it brought leave the todo. */
     suspend fun unlinkTodoSpace(todoId: String, machineId: String, space: String): Unit = error("unlinkTodoSpace not implemented")
+    /** A to-do's decisions (#1618), oldest first, the revised ones included (`GET /api/v1/todos/{id}/decisions?all=1`). */
+    suspend fun todoDecisions(todoId: String): List<persona.core.contracts.TodoDecision> = error("todoDecisions not implemented")
+    /** Records a decision by hand; with [supersedesId], one that revises that earlier decision. A blank reason is not sent. */
+    suspend fun addTodoDecision(todoId: String, question: String, choice: String, reason: String = "", supersedesId: String = ""):
+        persona.core.contracts.TodoDecision = error("addTodoDecision not implemented")
 
     /** A conversation's feed after [since] (an ISO time; null: all of it), with the plans its `plan` items name. */
     suspend fun feed(conversation: String, since: String?): FeedResponse

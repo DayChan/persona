@@ -54,7 +54,7 @@ class TasksStore(
     private val scope: CoroutineScope,
     private val cache: TodoCache? = null,
     private val clock: Clock = Clock.systemDefaultZone(),
-) {
+) : TodoDecisionsSource {
     private val _todos = MutableStateFlow<List<Todo>>(emptyList())
     val todos: StateFlow<List<Todo>> = _todos.asStateFlow()
     /** Guards [answered] with the list: the cached list never replaces one the hub has given. */
@@ -192,6 +192,18 @@ class TasksStore(
         val ids = _todos.value.mapTo(HashSet()) { it.id }
         routes.update { r -> r.filterValues { it in ids }.takeIf { it.size != r.size } ?: r }
     }
+
+    /** A hub's router answers 404 for a route it doesn't have (isLegacySpacesRoute): one from before decisions shows none. */
+    override suspend fun decisions(todoId: String): List<persona.core.contracts.TodoDecision>? = try {
+        api.todoDecisions(todoId)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        if (isLegacySpacesRoute(e)) null else throw e
+    }
+
+    override suspend fun addDecision(todoId: String, question: String, choice: String, reason: String, supersedesId: String) =
+        api.addTodoDecision(todoId, question, choice, reason, supersedesId)
 
     suspend fun linkTodoAgent(todoId: String, machineId: String, sessionId: String) {
         api.linkTodoAgent(todoId, machineId, sessionId)
