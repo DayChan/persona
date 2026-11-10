@@ -87,6 +87,7 @@ func (n *Node) watchCodexCards(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+		n.releaseExitedCodex(ctx)
 		n.joinCodexPanes(ctx)
 		n.syncCodexCards(ctx)
 	}

@@ -124,6 +124,8 @@ func (f *remoteFixture) serve(w http.ResponseWriter, r *http.Request) {
 				}
 				result = map[string]any{"data": ids}
 			}
+		case "thread/unsubscribe":
+			result = map[string]any{"status": "unsubscribed"}
 		case "thread/read":
 			if thread == ephemeral {
 				// What Codex 0.166's TUI leaves loaded after naming a thread.

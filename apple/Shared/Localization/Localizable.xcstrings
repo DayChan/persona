@@ -9265,28 +9265,6 @@
       },
       "extractionState" : "manual"
     },
-    "%@ · No workspace" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · No workspace"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · 未关联空间"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · ワークスペース未関連付け"
-          }
-        }
-      }
-    },
     "%@ · Pushes only when it alerts you" : {
       "localizations" : {
         "en" : {

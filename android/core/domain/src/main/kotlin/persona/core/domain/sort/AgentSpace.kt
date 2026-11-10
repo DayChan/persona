@@ -1,14 +1,9 @@
 package persona.core.domain.sort
 
-import persona.core.contracts.CoreText
-
 /** Space detail always includes pinned members and preserves the terminal's tab order, and each tab's pane order. */
 data class AgentSpace(val id: String, val name: String, val members: List<AgentSession>) {
     val machineId: String get() = members.first().session.machineId
-    val preferenceKey: String get() = if (members.first().session.spaceId.isNullOrBlank()) id else "$machineId/$name"
-    val title: CoreText get() = if (!members.first().session.spaceId.isNullOrBlank()) CoreText.plain(name)
-        else CoreText.of(CoreText.Key.AgentsProjectWithoutSpace,
-            name.takeIf { it.isNotEmpty() }?.let { CoreText.plain(it) } ?: CoreText.of(CoreText.Key.RepoOther))
+    val preferenceKey: String get() = "$machineId/$name"
     val cwd: String get() = members.first().session.cwd
     val priority: Int get() = members.minOf { it.state.priority }
     val updatedAt get() = members.mapNotNull { it.updatedAt }.maxOrNull()
@@ -19,14 +14,9 @@ data class AgentSpace(val id: String, val name: String, val members: List<AgentS
 
 fun agentSpaces(sessions: List<AgentSession>): List<AgentSpace> = sessions
     .filter { it.isLive && !it.session.assistant }
-    .groupBy { row -> row.session.let { s ->
-        s.spaceId?.takeIf { it.isNotBlank() }?.let { "${s.machineId}/$it" }
-            ?: "${s.machineId}/-/repo/${row.repoPlace.repo}"
-    } }
-    .map { (id, members) -> AgentSpace(id, members.first().let { row ->
-        if (row.session.spaceId.isNullOrBlank()) row.repoPlace.name
-        else row.session.spaceName ?: row.session.folderName
-    },
+    .groupBy { "${it.session.machineId}/${it.session.spaceId ?: "-"}" }
+    // Sessions without a space share one group: "-", not the first one's folder, which could pass for a workspace.
+    .map { (id, members) -> AgentSpace(id, members.first().session.let { if (it.spaceId.isNullOrEmpty()) "-" else it.spaceName ?: it.folderName },
         // the tabs in order, a tab's agents by their place in it (#2320: the initiator first)
         members.sortedWith(compareBy<AgentSession> { it.session.slotIndex ?: 0 }.thenBy { it.session.slotId.orEmpty() }.thenBy(PaneOrder) { it.session })) }
     .sortedWith(compareBy<AgentSpace> { it.priority }.thenByDescending { it.updatedAt }.thenBy { it.id })

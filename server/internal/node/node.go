@@ -154,6 +154,7 @@ type Node struct {
 	typing    typingLocks     // one send at a time per session (sendsafe_turns.go)
 	sendOrder sendQueue       // sends waiting for a start, in the order they came (sendsafe_turns.go)
 	cx        codexCards      // Codex questions and approvals listed to the hub (codexask.go)
+	cxExit    codexExits      // Codex threads whose pane's Codex exited (codex_exit.go)
 	kept      map[string]bool // sessions always listed (node.configure keep_sessions)
 	forked    map[string]bool // sessions "Branch to new chat" made (fork.go): listed however short they are
 	starts    startLog        // sessions starting in the background (starting.go)

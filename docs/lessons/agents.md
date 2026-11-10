@@ -4,9 +4,12 @@ Pitfalls, odd behavior, and the trade-offs made at the time (formerly in `CLAUDE
 
 - A Codex app-server thread can have a repository root without a Herdr pane or space (#2965). Resolve unique workspace
   matches after Git metadata enrichment and repeat child inheritance afterward. Never infer terminal routing or choose
-  arbitrarily between equally matching spaces. On iOS and Android, unresolved sessions must retain repository identity:
-  grouping every missing space as `-` and naming that bucket after its first session mixes repositories and impersonates
-  a real workspace. Both list and detail views must use the same fallback key.
+  arbitrarily between equally matching spaces. On iOS and Android the group of sessions without a space is named `-`:
+  naming it after its first session's folder made it look like a real workspace.
+- A Codex TUI on the shared daemon that exits leaves its thread loaded, and an observer's subscription keeps it loaded for
+  good (#2965): Persona joined every daemon pane and never unsubscribed, so exited conversations stayed "finished" in their
+  workspace. Release a thread (`thread/unsubscribe`, forget the remembered join) once its pane is gone, and list it as not
+  running meanwhile; "loaded on an app-server" is not "running".
 
 - Task placement must preserve locality (#1175): a failed launcher check is not permission to move an explicitly targeted task to another computer with the original absolute directory. Persist fixed placement by default through preview, card edits and retries; require an explicit flexible policy for portable work. Returning from background dispatch only proves the work was queued, not that a native Agent received its first prompt.
 

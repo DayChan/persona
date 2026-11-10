@@ -8,27 +8,12 @@ import org.junit.Test
 private val MachineSpaceTree = AgentListSettings(grouping = AgentGrouping.MachineSpace)
 
 class AgentSpaceTest {
-    @Test fun unresolvedProjectsKeepRepositoryIdentityAndNeverImpersonateAWorkspace() {
-        fun row(id: String, cwd: String, root: String? = null, space: String? = null) = AgentSession(
-            Session(machineId = "machine", sessionId = id, cwd = cwd, repoRoot = root,
-                state = "working", spaceId = space, spaceName = if (space == null) null else "project"))
-        val rows = listOf(
-            row("hosted", "/code/project", space = "workspace"),
-            row("root", "/code/project"),
-            row("tree", "/trees/task", root = "/code/project"),
-            row("other", "/elsewhere/project"),
-            row("empty", ""),
-        )
-        val spaces = agentSpaces(rows)
-        assertEquals(4, spaces.size)
-        assertEquals(4, spaces.map { it.preferenceKey }.toSet().size)
-        assertEquals(setOf("root", "tree"), spaces.single { s -> s.members.any { it.session.sessionId == "root" } }
-            .members.map { it.session.sessionId }.toSet())
-        val groups = buildAgentList(rows, settings = AgentListSettings(grouping = AgentGrouping.Space)).groups
-        assertEquals(1, groups.count { it.title.shown == "project" })
-        assertEquals(spaces.map { it.id }.toSet(), agentSpaces(rows.reversed()).map { it.id }.toSet())
-        val blankSpace = rows[1].copy(session = rows[1].session.copy(spaceId = ""))
-        assertEquals(agentSpaces(listOf(rows[1])).single().id, agentSpaces(listOf(blankSpace)).single().id)
+    @Test fun sessionsWithoutASpaceAreNamedDashNotAfterTheirFolder() {
+        val row = AgentSession(Session(machineId = "machine", sessionId = "loose", cwd = "/code/project", state = "working"))
+        assertEquals("-", agentSpaces(listOf(row)).single().name)
+        assertEquals("-", agentSpaces(listOf(AgentSession(row.session.copy(spaceId = "")))).single().name)
+        val placed = AgentSession(row.session.copy(spaceId = "workspace", spaceName = "Project"))
+        assertEquals("Project", agentSpaces(listOf(placed)).single().name)
     }
 
     @Test fun detailKeepsTabOrderAndMuteExceptionsOverrideSpace() {

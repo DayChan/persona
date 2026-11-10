@@ -13,7 +13,8 @@ and it can also be started from the phone ("Starting from the phone"). Supported
   in different spaces remain unresolved. An exact directory match works without Git; a match based only on
   subdirectory containment requires a shared, nonempty repository root. A non-Git workspace does not claim threads merely because their
   directories are below it, which prevents a broad workspace such as the home directory from absorbing unrelated
-  conversations. This assigns space metadata only, never a pane, tab or terminal capability.
+  conversations. This assigns space metadata only, never a pane, tab or terminal capability. A thread that is not
+  running (offline history, or one whose terminal's Codex exited, "Sessions on the daemon") is never associated.
   Child threads inherit the root's space after association. Workspace directories and explicitly placed terminal
   sessions provide the evidence; names alone do not. Git metadata uses the existing nonblocking cache, so a cold
   repository-only match can appear on the next inventory pass.
@@ -98,6 +99,13 @@ not screen reading or typing into the terminal. Panes it cannot join retain the 
   - Disable the terminal route for these panes: do not inspect their screens for approvals or recognize blocking questions from their rollout. One question must not produce two cards or two answers.
 - **Panes that cannot join**: launches with `-c` / `--profile` and similar arguments (0.163 runs in its own process rather than the daemon in this case), already-running non-daemon sessions, 0.153 (auto-connects only
   if the socket already exists), and the internal Codex fork retain the terminal route.
+- **When the TUI exits** (#2965): the thread stays loaded on the daemon, and Persona's subscription kept it there for good (the daemon
+  unloads a thread only when it has no subscribers and is idle), so the list showed it as a finished live conversation in its workspace.
+  Once the pane has had no Codex for that thread for 10 seconds, the node sends `thread/unsubscribe {threadId}`, drops its cards and
+  forgets a remembered join (`Joined`) so no reconnect subscribes it again. While idle it lists as not running (`status: offline`,
+  still `codex_app_server`, so a phone message is still a turn on the daemon and lists as working while it runs); resumed in a pane it
+  is live again. The daemon unloads it after its own idle timeout, and it is then ordinary history (`node/codex_exit.go`).
+  Not covered: a thread whose TUI exited while no node was running is not known as exited; it lists as finished until the daemon unloads it.
 - **Daemon restart, disconnect, or version change**: disconnect clears join state, and these panes immediately fall back to the terminal route (screen cards, typing), with existing cards removed. The TUI displays
   "Reconnecting to server…", reconnects when the new daemon starts, and reloads the thread. The node reconnects to the new daemon every 2–5 seconds and rejoins; pending requests replay as new cards.
   Persona does not block the TUI: requests also go to it, so users can answer on the computer at any time.

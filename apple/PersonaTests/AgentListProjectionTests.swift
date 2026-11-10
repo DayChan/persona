@@ -3,20 +3,6 @@ import Testing
 @testable import Persona
 
 @MainActor struct AgentListProjectionTests {
-    @Test func unresolvedRepositoryDoesNotRequestWholeMachineCounts() throws {
-        var s = try session("unplaced", state: "working")
-        s.spaceID = nil
-        s.spaceName = nil
-        var settings = AgentListProjection.Settings()
-        settings.grouping = "space"
-        settings.pagedGroups = [s.group]
-        let result = AgentListProjection.build(input([s], settings: settings))
-        let group = try #require(result.active.first)
-        #expect(!group.bounded)
-        #expect(result.scopes[group.id] == nil)
-        #expect(group.count(.working) == 1)
-    }
-
     private func session(_ id: String, state: String = "idle", group: String = "", cwd: String = "/code/project") throws -> Session {
         let fields: [String: Any] = ["machine_id": "fixture-box", "session_id": id, "title": id, "cwd": cwd,
                                     "status": "idle", "state": state, "space_id": "space-one", "space_name": "project"]

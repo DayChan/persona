@@ -545,6 +545,9 @@ func (n *Node) codexSessionsIn(seen map[string]bool, pass *codexListPass) []prot
 		}
 		if c, t, err := n.codexOwner(id); err == nil {
 			s.SourceKind, s.SourceInstanceID, s.Status, s.Attached = "codex_app_server", c.spec.ID, t.status, t.joined
+			if n.codexExitedIdle(id, t.status) { // its terminal's Codex quit; the daemon just has not unloaded it yet (codex_exit.go)
+				s.Status = proto.StatusOffline
+			}
 			if t.failure != "" { // turn/completed said it failed: before the rollout read has it
 				reported(t.failure, t.failureKind, m.turnErr).set(&s)
 			}

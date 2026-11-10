@@ -356,7 +356,7 @@ private fun buildFlatAgentList(
                 val spoken = labels.mapNotNull { (state, label) -> stateCounts.getValue(state).takeIf { it > 0 }?.let { CoreText.of(label, it) } } +
                     (stateCounts.getValue(AgentState.Idle) + stateCounts.getValue(AgentState.Unknown))
                         .takeIf { it > 0 }?.let { listOf(CoreText.of(Key.CountIdle, it)) }.orEmpty()
-                return AgentListGroup(space.id, space.title, rows, visible, folded,
+                return AgentListGroup(space.id, CoreText.plain(space.name), rows, visible, folded,
                     if (isQuiet) "quiet" else null, stateCounts, CoreText.joined(CoreText.of(Key.ListSeparator), spoken))
             }
             result += active.map { spaceGroup(it, false) }

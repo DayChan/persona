@@ -15,7 +15,8 @@ type codexSpace struct {
 }
 
 func unplacedCodexRoot(s proto.Session) bool {
-	return s.Agent == "codex" && strings.HasPrefix(s.SourceKind, "codex_") &&
+	// A thread that is not running (history, or one whose terminal's Codex exited) stays out of workspaces.
+	return s.Agent == "codex" && strings.HasPrefix(s.SourceKind, "codex_") && s.Status != proto.StatusOffline &&
 		!s.Assistant && !s.IsCodexSubagent() && s.SpaceID == "" && s.WorkspaceID == "" && s.PaneID == ""
 }
 

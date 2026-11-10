@@ -4,37 +4,6 @@ import Testing
 
 /// The Agents list's quick filters and what a space header says when folded (AgentsListTests drives the screens).
 @MainActor struct AgentFilterTests {
-    @Test func unresolvedProjectsKeepRepositoryIdentityAndNeverImpersonateAWorkspace() {
-        var hosted = session("hosted", state: "working")
-        hosted.cwd = "/code/project"
-        hosted.spaceName = "project"
-        var root = hosted
-        root.sessionID = "root"
-        root.spaceID = nil
-        root.spaceName = nil
-        var tree = root
-        tree.sessionID = "tree"
-        tree.cwd = "/trees/task"
-        tree.repoRoot = "/code/project"
-        var other = root
-        other.sessionID = "other"
-        other.cwd = "/elsewhere/project"
-        var empty = root
-        empty.sessionID = "empty"
-        empty.cwd = ""
-        let rows = [hosted, root, tree, other, empty]
-        let groups = SpaceGroup.build(rows)
-        #expect(groups.count == 4)
-        #expect(groups.filter { $0.name == "project" }.count == 1)
-        let project = groups.first { $0.sessions.contains { $0.sessionID == "root" } }
-        #expect(Set(project?.sessions.map(\.sessionID) ?? []) == Set(["root", "tree"]))
-        #expect(project?.todoSpace == nil)
-        #expect(Set(groups.map(\.id)) == Set(SpaceGroup.build(Array(rows.reversed())).map(\.id)))
-        var blank = root
-        blank.spaceID = ""
-        #expect(SpaceGroup.build([root]).first?.id == SpaceGroup.build([blank]).first?.id)
-    }
-
     private func session(_ id: String, state: String, updated: TimeInterval = 0, since: TimeInterval = 0) -> Session {
         let f = ISO8601DateFormatter()
         let json = """
@@ -52,9 +21,11 @@ import Testing
         s.spaceID = nil
         #expect(SpaceGroup.build([s]).count == 1)
         #expect(SpaceGroup.build([s]).first?.todoSpace == nil)
+        #expect(SpaceGroup.build([s]).first?.name == "-") // not the session's folder, which reads like a workspace
         s.spaceID = ""
         #expect(SpaceGroup.build([s]).count == 1)
         #expect(SpaceGroup.build([s]).first?.todoSpace == nil)
+        #expect(SpaceGroup.build([s]).first?.name == "-")
         s.spaceID = "workspace"
         s.spaceName = "Project"
         #expect(SpaceGroup.build([s]).first?.todoSpace == "Project")
