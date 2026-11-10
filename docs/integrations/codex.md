@@ -101,10 +101,13 @@ not screen reading or typing into the terminal. Panes it cannot join retain the 
   if the socket already exists), and the internal Codex fork retain the terminal route.
 - **When the TUI exits** (#2965): the thread stays loaded on the daemon, and Persona's subscription kept it there for good (the daemon
   unloads a thread only when it has no subscribers and is idle), so the list showed it as a finished live conversation in its workspace.
-  Once the pane has had no Codex for that thread for 10 seconds, the node sends `thread/unsubscribe {threadId}`, drops its cards and
-  forgets a remembered join (`Joined`) so no reconnect subscribes it again. While idle it lists as not running (`status: offline`,
-  still `codex_app_server`, so a phone message is still a turn on the daemon and lists as working while it runs); resumed in a pane it
-  is live again. The daemon unloads it after its own idle timeout, and it is then ordinary history (`node/codex_exit.go`).
+  Once the pane has had no Codex for that thread for 10 seconds, the node marks it exited and forgets a remembered join (`Joined`), so no
+  reconnect or restart subscribes it again; while it is idle it sends `thread/unsubscribe {threadId}` and drops its cards. The unsubscribe
+  runs in the background with a 15-second limit, so an app-server that stops answering never holds up the card loop.
+  While idle the thread lists as not running (`status: offline`, still `codex_app_server`). A phone message is still a turn on the daemon:
+  it joins without remembering the join, lists as working while the turn runs, and is let go again once the thread is idle (a 30-second
+  hold covers the gap before the turn shows as running). Resumed in a pane it is live again. The mark goes when the thread's app-server,
+  connected, no longer has it loaded (it is ordinary history then); while that app-server reconnects the mark stays (`node/codex_exit.go`).
   Not covered: a thread whose TUI exited while no node was running is not known as exited; it lists as finished until the daemon unloads it.
 - **Daemon restart, disconnect, or version change**: disconnect clears join state, and these panes immediately fall back to the terminal route (screen cards, typing), with existing cards removed. The TUI displays
   "Reconnecting to server…", reconnects when the new daemon starts, and reloads the thread. The node reconnects to the new daemon every 2–5 seconds and rejoins; pending requests replay as new cards.

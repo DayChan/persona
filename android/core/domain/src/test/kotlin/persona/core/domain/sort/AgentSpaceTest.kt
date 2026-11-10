@@ -8,14 +8,6 @@ import org.junit.Test
 private val MachineSpaceTree = AgentListSettings(grouping = AgentGrouping.MachineSpace)
 
 class AgentSpaceTest {
-    @Test fun sessionsWithoutASpaceAreNamedDashNotAfterTheirFolder() {
-        val row = AgentSession(Session(machineId = "machine", sessionId = "loose", cwd = "/code/project", state = "working"))
-        assertEquals("-", agentSpaces(listOf(row)).single().name)
-        assertEquals("-", agentSpaces(listOf(AgentSession(row.session.copy(spaceId = "")))).single().name)
-        val placed = AgentSession(row.session.copy(spaceId = "workspace", spaceName = "Project"))
-        assertEquals("Project", agentSpaces(listOf(placed)).single().name)
-    }
-
     @Test fun detailKeepsTabOrderAndMuteExceptionsOverrideSpace() {
         val idle = AgentSession(Session(machineId = "machine", sessionId = "idle", state = "idle", spaceId = "workspace", spaceName = "项目", slotIndex = 1))
         val active = AgentSession(idle.session.copy(sessionId = "active", state = "working", slotIndex = 2))

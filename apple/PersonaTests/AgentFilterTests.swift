@@ -21,11 +21,9 @@ import Testing
         s.spaceID = nil
         #expect(SpaceGroup.build([s]).count == 1)
         #expect(SpaceGroup.build([s]).first?.todoSpace == nil)
-        #expect(SpaceGroup.build([s]).first?.name == "-") // not the session's folder, which reads like a workspace
         s.spaceID = ""
         #expect(SpaceGroup.build([s]).count == 1)
         #expect(SpaceGroup.build([s]).first?.todoSpace == nil)
-        #expect(SpaceGroup.build([s]).first?.name == "-")
         s.spaceID = "workspace"
         s.spaceName = "Project"
         #expect(SpaceGroup.build([s]).first?.todoSpace == "Project")

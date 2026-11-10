@@ -4,8 +4,7 @@ Pitfalls, odd behavior, and the trade-offs made at the time (formerly in `CLAUDE
 
 - A Codex app-server thread can have a repository root without a Herdr pane or space (#2965). Resolve unique workspace
   matches after Git metadata enrichment and repeat child inheritance afterward. Never infer terminal routing or choose
-  arbitrarily between equally matching spaces. On iOS and Android the group of sessions without a space is named `-`:
-  naming it after its first session's folder made it look like a real workspace.
+  arbitrarily between equally matching spaces.
 - A Codex TUI on the shared daemon that exits leaves its thread loaded, and an observer's subscription keeps it loaded for
   good (#2965): Persona joined every daemon pane and never unsubscribed, so exited conversations stayed "finished" in their
   workspace. Release a thread (`thread/unsubscribe`, forget the remembered join) once its pane is gone, and list it as not

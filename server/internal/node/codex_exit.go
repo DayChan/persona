@@ -14,19 +14,37 @@ import (
 // the thread's clients (codex_daemon.go): when the TUI quits, Persona is still subscribed to it, so the daemon never
 // unloads it ("no subscribers and idle" never comes), and the list kept showing it as a finished live conversation in
 // its workspace instead of not running. Once the pane has had no Codex for this thread for codexExitGrace, the node
-// unsubscribes (thread/unsubscribe), forgets a remembered join so no reconnect subscribes it again, and lists the
-// thread as not running while it is idle. A new turn on it (a message from the phone) lists it as working again; it
-// returns to a pane when the TUI resumes it. The daemon unloads it after its own idle timeout, and it is then ordinary
-// history.
+// marks the thread exited, forgets a remembered join so no reconnect subscribes it again, unsubscribes
+// (thread/unsubscribe), and lists it as not running while it is idle.
+//
+// A message from the phone to an exited thread is still a turn on the daemon: it joins without remembering the join
+// (codexJoinRemembers), lists as working while the turn runs, and is let go again once it is idle. The mark goes when
+// the thread is back in a pane, or when its app-server, connected, no longer has it loaded (it is ordinary history).
 
 // codexExitGrace: a pane must be without this thread's Codex this long before the node lets the thread go, so a
 // refresh that briefly misses the pane does not release a running session.
 var codexExitGrace = 10 * time.Second
 
+// codexLeaveTimeout bounds one thread/unsubscribe: an app-server that keeps its socket open but stops answering must
+// not hold a release (and the thread's join lock) for ever.
+var codexLeaveTimeout = 15 * time.Second
+
+// codexSendHold: after a message or a join from the phone, an exited thread stays subscribed this long even while it
+// reads as idle, so its turn has time to show as running before the release pass looks at it.
+var codexSendHold = 30 * time.Second
+
 type codexExits struct {
-	mu     sync.Mutex
-	inPane map[string]time.Time // session id → when a pane last ran its Codex
-	exited map[string]bool      // session id → its pane's Codex exited while the thread stayed loaded
+	mu      sync.Mutex
+	inPane  map[string]time.Time // session id → when a pane last ran its Codex
+	exited  map[string]bool      // session id → its pane's Codex exited while the thread stayed loaded
+	held    map[string]time.Time // session id → subscribed by the phone: not released before this
+	leaving map[string]bool      // session id → a thread/unsubscribe is running in the background
+}
+
+func (e *codexExits) initLocked() {
+	if e.inPane == nil {
+		e.inPane, e.exited, e.held, e.leaving = map[string]time.Time{}, map[string]bool{}, map[string]time.Time{}, map[string]bool{}
+	}
 }
 
 // codexPaneThreads is the session ids of the live Codex panes (botmux's sessions stay botmux's, as in joinCodexPanes).
@@ -42,7 +60,9 @@ func (n *Node) codexPaneThreads() map[string]bool {
 	return ids
 }
 
-// releaseExitedCodex notes which Codex panes run which threads and lets go of the threads whose pane's Codex exited.
+// releaseExitedCodex notes which Codex panes run which threads, marks the threads whose pane's Codex exited, and lets
+// go of every marked thread that is subscribed and idle. Unsubscribing runs in the background, bounded by
+// codexLeaveTimeout, so a silent app-server never holds up the card loop this runs in.
 func (n *Node) releaseExitedCodex(ctx context.Context) {
 	if n.codices == nil {
 		return
@@ -51,12 +71,11 @@ func (n *Node) releaseExitedCodex(ctx context.Context) {
 	now := time.Now()
 	e := &n.cxExit
 	e.mu.Lock()
-	if e.inPane == nil {
-		e.inPane, e.exited = map[string]time.Time{}, map[string]bool{}
-	}
+	e.initLocked()
 	for id := range panes {
 		e.inPane[id] = now
 		delete(e.exited, id)
+		delete(e.held, id)
 	}
 	var gone []string
 	for id, at := range e.inPane {
@@ -65,33 +84,67 @@ func (n *Node) releaseExitedCodex(ctx context.Context) {
 			gone = append(gone, id)
 		}
 	}
-	var unloaded []string
+	e.mu.Unlock()
+	marked := false
+	for _, id := range gone {
+		if _, _, err := n.codexOwner(id); err == nil {
+			e.mu.Lock()
+			e.exited[id] = true
+			e.mu.Unlock()
+			marked = true
+		}
+	}
+	e.mu.Lock()
+	var exited []string
 	for id := range e.exited {
-		unloaded = append(unloaded, id)
+		exited = append(exited, id)
 	}
 	e.mu.Unlock()
-	// A thread no app-server holds any more is history: the mark has done its work.
-	for _, id := range unloaded {
-		if _, _, err := n.codexOwner(id); errors.Is(err, errCodexNoOwner) {
+	for _, id := range exited {
+		n.forgetCodexJoin(id)
+		c, t, err := n.codexOwner(id)
+		if errors.Is(err, errCodexNoOwner) {
+			// Not loaded on any connected app-server: history now, unless its app-server is only reconnecting (it
+			// may still have the thread, and the mark keeps it listed as not running meanwhile).
+			if src, ok := n.codexSource(id); !ok || !n.codexRemoteConnecting(src.home) {
+				e.mu.Lock()
+				delete(e.exited, id)
+				delete(e.held, id)
+				e.mu.Unlock()
+			}
+			continue
+		}
+		if err != nil || !t.joined || !n.codexReleasable(id, t.status) {
+			continue
+		}
+		e.mu.Lock()
+		busy := e.leaving[id]
+		e.leaving[id] = true
+		e.mu.Unlock()
+		if busy {
+			continue
+		}
+		go func() {
+			lctx, cancel := context.WithTimeout(ctx, codexLeaveTimeout)
+			defer cancel()
+			if err := c.leave(lctx, id, n.codexReleasable); err != nil {
+				n.logf("codex %s: its pane's Codex exited; unsubscribing on app-server %s failed: %v", id, c.spec.ID, err)
+			} else {
+				n.logf("codex %s: its pane's Codex exited; let go on app-server %s", id, c.spec.ID)
+			}
 			e.mu.Lock()
-			delete(e.exited, id)
+			delete(e.leaving, id)
 			e.mu.Unlock()
-		}
+			n.notifyCodex()
+		}()
 	}
-	changed := false
-	for _, id := range gone {
-		if n.releaseCodex(ctx, id) {
-			changed = true
-		}
-	}
-	if changed {
+	if marked {
 		n.notifyCodex()
 	}
 }
 
-// releaseCodex lets go of thread id after its pane's Codex exited: no remembered join, no subscription. False when
-// no app-server holds the thread (it is history already).
-func (n *Node) releaseCodex(ctx context.Context, id string) bool {
+// forgetCodexJoin drops a remembered join of id, so no reconnect or restart subscribes it again.
+func (n *Node) forgetCodexJoin(id string) {
 	n.codices.mu.Lock()
 	_, remembered := n.codices.config.Joined[id]
 	delete(n.codices.config.Joined, id)
@@ -99,21 +152,31 @@ func (n *Node) releaseCodex(ctx context.Context, id string) bool {
 	if remembered {
 		n.rememberCodex()
 	}
-	c, t, err := n.codexOwner(id)
-	if err != nil {
+}
+
+// codexReleasable: exited thread id may be let go now: idle, and not just subscribed by the phone.
+func (n *Node) codexReleasable(id, status string) bool {
+	if status == proto.StatusWorking || status == proto.StatusBlocked {
 		return false
 	}
-	n.cxExit.mu.Lock()
-	n.cxExit.exited[id] = true
-	n.cxExit.mu.Unlock()
-	if t.joined {
-		if err := c.leave(ctx, id); err != nil {
-			n.logf("codex %s: its pane's Codex exited; unsubscribing on app-server %s failed: %v", id, c.spec.ID, err)
-		} else {
-			n.logf("codex %s: its pane's Codex exited; unsubscribed on app-server %s", id, c.spec.ID)
-		}
+	e := &n.cxExit
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.exited[id] && !time.Now().Before(e.held[id])
+}
+
+// codexJoinRemembers says whether a join from the phone (a message, Join live) is remembered across reconnects: not
+// for an exited thread, whose subscription is the phone's for this turn only; that one is held for codexSendHold.
+// Call it before joining, so a release that starts meanwhile sees the hold.
+func (n *Node) codexJoinRemembers(id string) bool {
+	e := &n.cxExit
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.exited[id] {
+		return true
 	}
-	return true
+	e.held[id] = time.Now().Add(codexSendHold)
+	return false
 }
 
 // codexExitedIdle: id's pane's Codex exited and nothing runs on the thread now, so it lists as not running.
@@ -126,12 +189,13 @@ func (n *Node) codexExitedIdle(id, status string) bool {
 	return n.cxExit.exited[id]
 }
 
-// leave is thread/unsubscribe: this connection stops being a client of the thread, and its cards go (nobody here can
-// answer them any more; the daemon keeps the requests for whoever resumes it).
-func (c *codexRemote) leave(ctx context.Context, id string) error {
+// leave is thread/unsubscribe when still(id, status) holds under the thread's join lock: this connection stops being
+// a client of the thread, and its cards go (nobody here can answer them any more; the daemon keeps the requests for
+// whoever resumes it). A join waiting for the lock (a message from the phone) subscribes it again afterwards.
+func (c *codexRemote) leave(ctx context.Context, id string, still func(id, status string) bool) error {
 	defer c.joins.lock(id)()
 	owner, t, err := c.n.codexOwner(id)
-	if err != nil || owner != c || !t.joined {
+	if err != nil || owner != c || !t.joined || !still(id, t.status) {
 		return nil
 	}
 	var reply struct {

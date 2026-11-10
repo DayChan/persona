@@ -61,10 +61,8 @@ nonisolated struct SpaceGroup: Identifiable, Sendable {
                 } else {
                     todoSpace = nil
                 }
-                // Sessions without a space share one group: "-", not the first one's folder, which could pass for a workspace.
-                let name = s.spaceID.map { !$0.isEmpty } == true ? (s.spaceName ?? s.folderName) : "-"
                 groups[key] = SpaceGroup(id: key, machineID: s.machineID, spaceID: spaceID, group: s.group,
-                                         name: name, index: s.spaceIndex ?? 0, sessions: [], todoSpace: todoSpace)
+                                         name: s.spaceName ?? s.folderName, index: s.spaceIndex ?? 0, sessions: [], todoSpace: todoSpace)
             }
             groups[key]!.sessions.append(s)
         }

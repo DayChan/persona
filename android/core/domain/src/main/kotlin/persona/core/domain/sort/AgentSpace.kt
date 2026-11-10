@@ -15,8 +15,7 @@ data class AgentSpace(val id: String, val name: String, val members: List<AgentS
 fun agentSpaces(sessions: List<AgentSession>): List<AgentSpace> = sessions
     .filter { it.isLive && !it.session.assistant }
     .groupBy { "${it.session.machineId}/${it.session.spaceId ?: "-"}" }
-    // Sessions without a space share one group: "-", not the first one's folder, which could pass for a workspace.
-    .map { (id, members) -> AgentSpace(id, members.first().session.let { if (it.spaceId.isNullOrEmpty()) "-" else it.spaceName ?: it.folderName },
+    .map { (id, members) -> AgentSpace(id, members.first().session.let { it.spaceName ?: it.folderName },
         // the tabs in order, a tab's agents by their place in it (#2320: the initiator first)
         members.sortedWith(compareBy<AgentSession> { it.session.slotIndex ?: 0 }.thenBy { it.session.slotId.orEmpty() }.thenBy(PaneOrder) { it.session })) }
     .sortedWith(compareBy<AgentSpace> { it.priority }.thenByDescending { it.updatedAt }.thenBy { it.id })

@@ -560,7 +560,7 @@ func (n *Node) attachCodex(ctx context.Context, id string) error {
 	if err != nil {
 		return refusal("codex_read_only", err.Error(), nil)
 	}
-	return c.join(ctx, id, true)
+	return c.join(ctx, id, n.codexJoinRemembers(id)) // an exited thread's join is not kept (codex_exit.go)
 }
 
 func (n *Node) sendCodex(ctx context.Context, id, text string, images []proto.Image) error {
@@ -573,7 +573,7 @@ func (n *Node) sendCodex(ctx context.Context, id, text string, images []proto.Im
 	if err != nil {
 		return refusal("codex_read_only", firstNonEmpty(err.Error(), "仅查看"), nil)
 	}
-	if err = c.join(ctx, id, true); err != nil {
+	if err = c.join(ctx, id, n.codexJoinRemembers(id)); err != nil { // an exited thread's join is not kept (codex_exit.go)
 		return refusal("codex_read_only", err.Error(), nil)
 	}
 	paths, err := n.saveImages(images)
