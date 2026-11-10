@@ -362,7 +362,7 @@ struct SpaceView: View {
 
     /// The most urgent first; the agents of one tab together where the first of them is, in the order of their panes.
     private var sessions: [Session] {
-        TabPanes.grouped(model.allSessions.filter { SpaceGroup.key(for: $0) == spaceKey && $0.state.isLive }
+        TabPanes.grouped(model.allSessions.filter { !$0.assistant && SpaceGroup.key(for: $0) == spaceKey && $0.state.isLive }
             .sorted { ($0.state.priority, $0.slotIndex ?? 0, $0.sessionID) < ($1.state.priority, $1.slotIndex ?? 0, $1.sessionID) })
     }
 
