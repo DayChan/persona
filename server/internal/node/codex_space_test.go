@@ -68,6 +68,10 @@ func TestCodexSessionListMatchesHerdrSpace(t *testing.T) {
 func TestCodexSpaceAssociationBoundaries(t *testing.T) {
 	base := t.TempDir()
 	repo, other, tree := filepath.Join(base, "project"), filepath.Join(base, "other", "project"), filepath.Join(base, "tree")
+	notes := filepath.Join(base, "notes")
+	if err := os.MkdirAll(filepath.Join(notes, "sub"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	root := proto.Session{SessionID: "root", Agent: "codex", SourceKind: "codex_app_server", Cwd: repo, RepoRoot: repo}
 	space := host.Space{ID: "workspace", Label: "Project", Cwd: repo}
 	for _, tc := range []struct {
@@ -78,6 +82,13 @@ func TestCodexSpaceAssociationBoundaries(t *testing.T) {
 		want   string
 	}{
 		{name: "exact directory", row: root, spaces: []host.Space{space}, want: space.ID},
+		{name: "non-git exact directory", row: proto.Session{Agent: "codex", SourceKind: "codex_app_server", Cwd: notes},
+			spaces: []host.Space{{ID: "notes", Cwd: notes}}, want: "notes"},
+		{name: "non-git subdirectory never guesses", row: proto.Session{Agent: "codex", SourceKind: "codex_app_server", Cwd: filepath.Join(notes, "sub")},
+			spaces: []host.Space{{ID: "notes", Cwd: notes}}},
+		{name: "git subdirectory shares verified root", row: func() proto.Session { s := root; s.Cwd = filepath.Join(repo, "src"); return s }(), spaces: []host.Space{space}, peers: []proto.Session{
+			{SpaceKind: host.HerdrCore, SpaceID: space.ID, PaneID: "pane", Cwd: repo, RepoRoot: repo},
+		}, want: space.ID},
 		{name: "same name different path", row: root, spaces: []host.Space{{ID: "other", Cwd: other}}},
 		{name: "ambiguous directory", row: root, spaces: []host.Space{space, {ID: "second", Cwd: repo}}},
 		{name: "explicit placement", row: func() proto.Session { s := root; s.SpaceID = "explicit"; return s }(), spaces: []host.Space{space}, want: "explicit"},

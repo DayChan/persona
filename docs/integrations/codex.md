@@ -10,7 +10,10 @@ and it can also be started from the phone ("Starting from the phone"). Supported
 
 - App-server threads without terminal placement can join a uniquely matching Herdr workspace (#2965). Explicit
   host placement wins. A matching directory takes precedence over a shared repository root; equally good matches
-  in different spaces remain unresolved. This assigns space metadata only, never a pane, tab or terminal capability.
+  in different spaces remain unresolved. An exact directory match works without Git; a match based only on
+  subdirectory containment requires a shared, nonempty repository root. A non-Git workspace does not claim threads merely because their
+  directories are below it, which prevents a broad workspace such as the home directory from absorbing unrelated
+  conversations. This assigns space metadata only, never a pane, tab or terminal capability.
   Child threads inherit the root's space after association. Workspace directories and explicitly placed terminal
   sessions provide the evidence; names alone do not. Git metadata uses the existing nonblocking cache, so a cold
   repository-only match can appear on the next inventory pass.
