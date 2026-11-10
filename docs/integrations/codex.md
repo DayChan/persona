@@ -30,7 +30,10 @@ and it can also be started from the phone ("Starting from the phone"). Supported
   rollout until its first message, so the newest unclaimed rollout in the directory was the conversation just closed there: a new Codex
   opened by hand in Herdr App (which names no thread) showed that conversation on the phone until its first message. Until it writes, the pane
   has no session and is not listed, as a fresh Claude pane. Panes seen within 30 seconds of node starting have no known age and are guessed as
-  before; a pane missing for 3 seconds is forgotten, so Codex started again in the same terminal counts from then (`noteCodexPanes`).
+  before. A pane missing from the list is forgotten at once (the list keeps a host's last answer when its refresh fails, so a missing pane
+  is gone), so Codex started again in the same terminal, however quickly, counts from then (`noteCodexPanes`). The age is when the node
+  noticed the pane, up to one refresh after Codex started: a first turn that finished before that leaves the pane unlisted until its next
+  message writes the rollout again.
 - **Sub-Agent rollouts are not sessions**: Codex thread_spawn sub-Agents (and an internal Codex fork's tool-review guardian, below) each write their own rollout,
   in the same directory and cwd as the main chat, with newer writes. Identify them from `session_meta` only: `thread_source` is `subagent`, or `source` is `{"subagent": …}`.
   Their parent chat is `session_id` (fall back to `parent_thread_id`). Skip them when guessing sessions; if herdr reports a sub-Agent id, replace it with the main chat's

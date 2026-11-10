@@ -492,17 +492,16 @@ func threadTitles(home string) map[string]string {
 	return c.titles
 }
 
-// codexPaneGone: a Codex pane missing from the list this long is gone; a Codex in it later is a new one.
-const codexPaneGone = 3 * time.Second
-
 // codexPaneStartup: panes that show up this soon after node started were there before it (a slow host answers late).
 var codexPaneStartup = 30 * time.Second
 
-type codexPaneSeen struct{ at, missing time.Time }
+type codexPaneSeen struct{ at time.Time }
 
 // noteCodexPanes remembers when each Codex pane's Codex appeared, as notePanes does for claude: panes seen within
-// codexPaneStartup of the first call were there before node started (zero: their age is unknown). A pane missing for
-// codexPaneGone is forgotten, so a Codex started again in the same terminal counts from then. Callers hold n.mu.
+// codexPaneStartup of the first call were there before node started (zero: their age is unknown). A pane not in the
+// list is forgotten at once, so a Codex started again in the same terminal, however quickly, counts from then. The list
+// is every host's last answer (a host whose refresh failed keeps its previous one, refreshHostInventory), so a pane
+// missing from it is gone, not a missed refresh. Callers hold n.mu.
 func (n *Node) noteCodexPanes(panes []host.Agent) {
 	now, here := time.Now(), make(map[string]bool, len(panes))
 	if n.codexSeen == nil {
@@ -510,21 +509,16 @@ func (n *Node) noteCodexPanes(panes []host.Agent) {
 	}
 	for _, a := range panes {
 		here[a.PaneID] = true
-		s, ok := n.codexSeen[a.PaneID]
-		if !ok && now.Sub(n.codexFrom) >= codexPaneStartup {
-			s.at = now
+		if _, ok := n.codexSeen[a.PaneID]; !ok {
+			s := codexPaneSeen{}
+			if now.Sub(n.codexFrom) >= codexPaneStartup {
+				s.at = now
+			}
+			n.codexSeen[a.PaneID] = s
 		}
-		s.missing = time.Time{}
-		n.codexSeen[a.PaneID] = s
 	}
-	for p, s := range n.codexSeen {
-		if here[p] {
-			continue
-		}
-		if s.missing.IsZero() {
-			s.missing = now
-			n.codexSeen[p] = s
-		} else if now.Sub(s.missing) >= codexPaneGone {
+	for p := range n.codexSeen {
+		if !here[p] {
 			delete(n.codexSeen, p)
 		}
 	}

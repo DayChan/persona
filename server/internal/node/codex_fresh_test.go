@@ -43,30 +43,30 @@ func TestCodexPaneFromBeforeNodeStartedIsGuessedAsBefore(t *testing.T) {
 	}
 }
 
-// Codex quit and started again in the same terminal is a new Codex once the pane was gone for codexPaneGone; a pane
-// missing from one list keeps its age.
-func TestCodexPaneAgeAcrossAGap(t *testing.T) {
+// Codex quit and started again in the same terminal is a new Codex, however soon it comes back: the list it is missing
+// from is every host's last answer, so a pane not in it is gone (review of #2975).
+func TestCodexRestartedInTheSameTerminalDoesNotTakeTheClosedConversation(t *testing.T) {
 	old := codexPaneStartup
 	codexPaneStartup = 0
 	t.Cleanup(func() { codexPaneStartup = old })
-	n := &Node{}
-	pane := host.Agent{Agent: "codex", PaneID: "hc:term-3"}
+	n := &Node{home: t.TempDir()}
+	pane := host.Agent{Agent: "codex", PaneID: "hc:term-3", Cwd: "/work/app"}
 	n.noteCodexPanes(nil)
 	n.noteCodexPanes([]host.Agent{pane})
 	first := n.codexPaneSince(pane.PaneID)
-	n.noteCodexPanes(nil) // missed once
-	n.noteCodexPanes([]host.Agent{pane})
+	n.noteCodexPanes([]host.Agent{pane}) // still there: same age
 	if got := n.codexPaneSince(pane.PaneID); !got.Equal(first) {
-		t.Fatalf("a brief gap restarted its age: %v, was %v", got, first)
+		t.Fatalf("a pane still listed restarted its age: %v, was %v", got, first)
 	}
+	// Its conversation is written up to the quit, then the terminal is back at its shell.
+	writeMetaRollout(t, n.codexHome(), threadOld, `{"id":"`+threadOld+`","cwd":"/work/app","source":"cli"}`, time.Now())
 	n.noteCodexPanes(nil)
-	s := n.codexSeen[pane.PaneID]
-	s.missing = time.Now().Add(-codexPaneGone)
-	n.codexSeen[pane.PaneID] = s
-	n.noteCodexPanes(nil) // gone
-	time.Sleep(time.Millisecond)
+	time.Sleep(time.Second) // codex typed again
 	n.noteCodexPanes([]host.Agent{pane})
 	if got := n.codexPaneSince(pane.PaneID); !got.After(first) {
 		t.Fatalf("a Codex started again counts from %v, the first one's %v", got, first)
+	}
+	if got := n.codexSession(pane, map[string]host.Agent{}); got != "" {
+		t.Fatalf("the Codex started again took %s, the conversation just closed", got)
 	}
 }
