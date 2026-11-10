@@ -387,14 +387,20 @@ func dirStamp(dir string) int64 {
 }
 
 // codexSession picks the rollout of a Codex pane herdr could not identify: the newest conversation in its directory
-// not taken (a subagent's rollout there is newer than its conversation's, but never what the pane runs).
+// not taken (a subagent's rollout there is newer than its conversation's, but never what the pane runs). A Codex that
+// appeared in its pane after node started runs nothing written before it appeared (codexPaneSince): a new thread has
+// no rollout until its first message, and the newest one in the directory then is the conversation just closed there.
 func (n *Node) codexSession(a host.Agent, taken map[string]host.Agent) string {
 	cwd := a.ForegroundCwd
 	if cwd == "" {
 		cwd = a.Cwd
 	}
 	home := n.codexPaneHome(a.PaneID)
+	since := n.codexPaneSince(a.PaneID)
 	for _, r := range rollouts(home) {
+		if !since.IsZero() && r.mtime.Before(since) {
+			break // newest first: the rest are older still
+		}
 		id := n.codexPublicID(home, r.id)
 		if _, used := taken[id]; !used && !r.sub && r.cwd != "" && (r.cwd == cwd || r.cwd == a.Cwd) {
 			return id
@@ -484,4 +490,49 @@ func threadTitles(home string) map[string]string {
 		c.titles, c.titlesAt = titles, st.ModTime()
 	}
 	return c.titles
+}
+
+// codexPaneGone: a Codex pane missing from the list this long is gone; a Codex in it later is a new one.
+const codexPaneGone = 3 * time.Second
+
+// codexPaneStartup: panes that show up this soon after node started were there before it (a slow host answers late).
+var codexPaneStartup = 30 * time.Second
+
+type codexPaneSeen struct{ at, missing time.Time }
+
+// noteCodexPanes remembers when each Codex pane's Codex appeared, as notePanes does for claude: panes seen within
+// codexPaneStartup of the first call were there before node started (zero: their age is unknown). A pane missing for
+// codexPaneGone is forgotten, so a Codex started again in the same terminal counts from then. Callers hold n.mu.
+func (n *Node) noteCodexPanes(panes []host.Agent) {
+	now, here := time.Now(), make(map[string]bool, len(panes))
+	if n.codexSeen == nil {
+		n.codexSeen, n.codexFrom = map[string]codexPaneSeen{}, now
+	}
+	for _, a := range panes {
+		here[a.PaneID] = true
+		s, ok := n.codexSeen[a.PaneID]
+		if !ok && now.Sub(n.codexFrom) >= codexPaneStartup {
+			s.at = now
+		}
+		s.missing = time.Time{}
+		n.codexSeen[a.PaneID] = s
+	}
+	for p, s := range n.codexSeen {
+		if here[p] {
+			continue
+		}
+		if s.missing.IsZero() {
+			s.missing = now
+			n.codexSeen[p] = s
+		} else if now.Sub(s.missing) >= codexPaneGone {
+			delete(n.codexSeen, p)
+		}
+	}
+}
+
+// codexPaneSince is when pane's Codex appeared; zero when not known (there since before node started).
+func (n *Node) codexPaneSince(pane string) time.Time {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.codexSeen[pane].at
 }

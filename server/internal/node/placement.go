@@ -405,6 +405,7 @@ func (n *Node) setAgentsAt(agents []host.Agent, epoch uint64, heard map[string]b
 		unknown = append(unknown, a)
 	}
 	n.notePanes(unknown)
+	n.noteCodexPanes(codex)
 	n.mu.Unlock()
 	for _, a := range pi {
 		if id := n.piSession(a); id != "" {

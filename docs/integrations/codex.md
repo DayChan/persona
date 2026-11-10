@@ -26,6 +26,11 @@ and it can also be started from the phone ("Starting from the phone"). Supported
   among duplicates, prefer the id recorded by herdr / at startup, otherwise the most recently written. Resolve panes identifiable by title first; only then guess panes without a thread name (new threads) from
   "the newest unclaimed rollout in the same working directory" (`codexSession`). Before 2026-10-31, recognition relied only on guessing: 4 of 5 Codex sessions in the same directory on one machine were misidentified,
   the active one showed another session with a gray dot and none of the new turn's messages (9 of 26 Codex panes on that machine were misidentified overall).
+- A Codex that appeared in its pane after node started is guessed only among rollouts written since it appeared (#2965). A new thread has no
+  rollout until its first message, so the newest unclaimed rollout in the directory was the conversation just closed there: a new Codex
+  opened by hand in Herdr App (which names no thread) showed that conversation on the phone until its first message. Until it writes, the pane
+  has no session and is not listed, as a fresh Claude pane. Panes seen within 30 seconds of node starting have no known age and are guessed as
+  before; a pane missing for 3 seconds is forgotten, so Codex started again in the same terminal counts from then (`noteCodexPanes`).
 - **Sub-Agent rollouts are not sessions**: Codex thread_spawn sub-Agents (and an internal Codex fork's tool-review guardian, below) each write their own rollout,
   in the same directory and cwd as the main chat, with newer writes. Identify them from `session_meta` only: `thread_source` is `subagent`, or `source` is `{"subagent": …}`.
   Their parent chat is `session_id` (fall back to `parent_thread_id`). Skip them when guessing sessions; if herdr reports a sub-Agent id, replace it with the main chat's

@@ -130,6 +130,8 @@ type Node struct {
 	bgScans   map[string]*bgScan         // transcript path -> incremental background-task scan
 	panePIDs  map[string]panePID         // pane -> its claude pid (machines without herdr's claude integration)
 	paneSeen  map[string]time.Time       // claude pane without a host session id -> first seen (zero: there when node started)
+	codexSeen map[string]codexPaneSeen   // Codex pane -> when its Codex appeared (codex.go noteCodexPanes)
+	codexFrom time.Time                  // when noteCodexPanes first ran
 	modes     map[string]sessionModes    // session id -> mode / effort set from the app (modes.go)
 	terms     map[string]*termStream     // session id -> its terminal streaming to the hub (terminal.go)
 	fulls     map[string]*fullClient     // client id -> a full herdr client running for the web (fullclient.go)
