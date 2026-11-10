@@ -3820,27 +3820,33 @@ if os.environ.get("MOCK_ASK_LONG") == "1":
                 for n in range(1, 9)]},
             {"question": "整理完发给谁？", "header": "发送", "multi_select": True, "options": [
                 {"label": "组里"}, {"label": "老板"}, {"label": "只给我"}]}]})
-# MOCK_ASK_LONG=perm: the main conversation waits on a Feishu permission card instead, its command a very long
-# `python3 -c …` script: the card is taller than the dock on every width, its buttons must still be reachable.
+# A very long `python3 -c …` script for a Feishu permission card (MOCK_ASK_LONG=perm|agent): taller than the dock on
+# every width, so its buttons have to stay reachable.
+def _long_lark_cmd(verb):
+    return "python3 -c \"import json, subprocess\n" + "".join(
+        "r%d = subprocess.run(['lark-cli', 'im', 'messages', '%s', '--chat-id', 'oc_example_%d', '--page-size', '50'], capture_output=True, text=True)\nprint(json.dumps(json.loads(r%d.stdout)['items'][:5], ensure_ascii=False, indent=2))\n" % (n, verb, n, n)
+        for n in range(1, 13)) + "\""
+
+
+def _long_lark_card(ix_id, machine, session, title, tool, verb, minutes, **extra):
+    cmd = _long_lark_cmd(verb)
+    return {"id": ix_id, "machine_id": machine, "session_id": session, "session_title": title, "kind": "permission",
+            "created_at": ago(minutes=minutes), "expires_at": later(minutes=29), "tool_name": tool, "summary": cmd,
+            "tool_input": {"command": cmd}, **extra}
+
+
+# MOCK_ASK_LONG=perm: the main conversation waits on a long Feishu permission card instead.
 if os.environ.get("MOCK_ASK_LONG") == "perm":
-    _long_cmd = "python3 -c \"import json, subprocess\n" + "".join(
-        "r%d = subprocess.run(['lark-cli', 'im', 'messages', 'list', '--chat-id', 'oc_example_%d', '--page-size', '50'], capture_output=True, text=True)\nprint(json.dumps(json.loads(r%d.stdout)['items'][:5], ensure_ascii=False, indent=2))\n" % (n, n, n)
-        for n in range(1, 13)) + "\""
-    INTERACTIONS.append({
-        "id": "ix_perm_long", "machine_id": "server", "session_id": ASK1, "session_title": "Persona",
-        "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=29), "tool_name": "mcp__lark__run",
-        "summary": _long_cmd, "tool_input": {"command": _long_cmd}})
-# MOCK_ASK_LONG=agent: the same long Feishu permission card on an agent's chat (the tests session on the MacBook), whose
-# cards a phone folds under the composer (PendingCards) rather than in the main chat's tray.
+    INTERACTIONS.append(_long_lark_card("ix_perm_long", "server", ASK1, "Persona", "mcp__lark__run", "list", 1))
+# MOCK_ASK_LONG=agent: two long Feishu permission cards on an agent's chat (the tests session on the MacBook) and no
+# other card there, whose cards a phone and a side panel fold under the composer (PendingCards): the first open, the
+# second behind "1 more".
 if os.environ.get("MOCK_ASK_LONG") == "agent":
-    _long_cmd = "python3 -c \"import json, subprocess\n" + "".join(
-        "r%d = subprocess.run(['lark-cli', 'im', 'messages', 'list', '--chat-id', 'oc_example_%d', '--page-size', '50'], capture_output=True, text=True)\nprint(json.dumps(json.loads(r%d.stdout)['items'][:5], ensure_ascii=False, indent=2))\n" % (n, n, n)
-        for n in range(1, 13)) + "\""
     INTERACTIONS[:] = [x for x in INTERACTIONS if x["session_id"] != TESTS]
-    INTERACTIONS.append({
-        "id": "ix_perm_long_agent", "machine_id": "macbook", "session_id": TESTS, "session_title": "补齐网络层的单元测试",
-        "cwd": "/Users/me/code/weather", "kind": "permission", "created_at": ago(minutes=1), "expires_at": later(minutes=29),
-        "tool_name": "mcp__lark__run", "summary": _long_cmd, "tool_input": {"command": _long_cmd}})
+    for _ix_id, _tool, _verb, _minutes in (("ix_perm_long_agent", "mcp__lark__run", "list", 2),
+                                           ("ix_perm_long_agent_2", "mcp__lark__send", "send", 1)):
+        INTERACTIONS.append(_long_lark_card(_ix_id, "macbook", TESTS, "补齐网络层的单元测试", _tool, _verb, _minutes,
+                                            cwd="/Users/me/code/weather"))
 
 if os.environ.get("MOCK_SETTINGS_INPUT"):
     INTERACTIONS.append({
@@ -4206,6 +4212,8 @@ MOCK_INTERACTIONS = INTERACTIONS + [
      "tool_name": "Bash", "tool_use_id": "toolu_check",
      "tool_input": {"command": "python3 -m unittest discover", "description": "验证格式转换与元数据保留"}},
 ]
+if os.environ.get("MOCK_ASK_LONG") == "agent":  # only the two long cards on the tests session (see above)
+    MOCK_INTERACTIONS = [x for x in MOCK_INTERACTIONS if x["session_id"] != TESTS or x["id"].startswith("ix_perm_long_agent")]
 # MOCK_SCRIPT_ASK=1: a card on no session (#4059), as `personad ask` run outside herdr sends it (session_id empty).
 if os.environ.get("MOCK_SCRIPT_ASK") == "1":
     MOCK_INTERACTIONS.insert(0, {"id": "ix_script_ask", "machine_id": "macbook", "session_id": "",
@@ -17103,7 +17111,7 @@ def features():
 MOCK_HELP.append("MOCK_EXTENSION_PICKERS=1  （配合 MOCK_EXTENSIONS=1）多一个扩展「Example 聊天」：设置里选一台电脑（format machine）、选启动器（format launcher，代答的那个已经不在了）、整数带步进（#2385）")
 MOCK_HELP.append("MOCK_EXTENSION_OPS=1|fail  （配合 MOCK_EXTENSIONS）扩展的安装 / 升级 / 卸载分步骤推进度（extension_operation 事件）：后台预览、停在等你同意、同意后同一个操作接着装；fail：每个扩展第一次安装停在「启动」、第一次卸载停在「删除」，都能重试；MOCK_EXTENSION_OPS_STEP=秒 每步的时长；MOCK_EXTENSION_INSTALL_DELAY=秒 没有分步骤的旧 hub 安装 / 卸载要这么久才回（#3307）")
 MOCK_HELP.append("MOCK_MANAGER_NAS=1  （默认的三个管理者）NAS 归离线的「家里」：像 hub 一样显示成离线，error 是 hub 的「助手暂时连不上，稍后再试」；它的一个 agent（备份脚本）状态 unknown")
-MOCK_HELP.append("MOCK_ASK_LONG=1|perm|agent  卡片比输入区上方的盒子还高（#3112）：1 主对话的 ask_user 提问卡（八个带说明的选项）；perm 主对话的飞书授权卡（超长命令）；agent 同一张授权卡在 MacBook 上补测试的 Agent 对话里（手机和侧边面板）")
+MOCK_HELP.append("MOCK_ASK_LONG=1|perm|agent  卡片比输入区上方的盒子还高（#3112）：1 主对话的 ask_user 提问卡（八个带说明的选项）；perm 主对话的飞书授权卡（超长命令）；agent MacBook 上补测试的 Agent 对话里两张这样的授权卡、没有别的卡（手机和侧边面板把第二张折在「还有 1 件」后面）")
 MOCK_HELP.append("MOCK_MANAGER_OUTDATED=1  设置 › 管理者：「工作」带 needs_update（它还不读自己的 manager.json，hub 在它在线时这样标）")
 MOCK_HELP.append("MOCK_MANAGERS=1  只有 hub 自己的管理者（没有切换、不分组，电脑、会话、卡片和合并的列表照样带 manager）；默认三个装好的（一个离线）：电脑、收件箱、扩展带 manager，会话和卡片跟它的电脑走；默认管理者换成别的时，模拟助手发的实时消息带它的 manager；助手页按 X-Persona-Manager 切换（工作：还没有主对话、有自己的说明，PUT 改它的；家里：503 assistant_offline；不认识的 404 no_manager）；POST /api/v1/managers/{id}/machines、…/sources 移电脑 / 邮箱，删掉的管理者的电脑回到 hub 自己的")
 MOCK_HELP.append("MOCK_MANAGER_EXPIRED=1  设置 › 管理者：多一个安装码过期了还没装的（码已过期，可以拿新的安装码），和一个过期超过 7 天的（像 hub 一样不在名册里）")

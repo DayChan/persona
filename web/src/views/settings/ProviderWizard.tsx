@@ -386,7 +386,7 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
             <TextField label={t("settings-providerwizard.name")} value={f.name} onChange={set("name")} disabled={!isNew} mono placeholder={t("settings-providerwizard.name_placeholder", { example: "my_gateway" })}
               error={isNew ? launcherNameProblem(f.name) : undefined} hint={t("settings-providerwizard.name_hint")} />
             {isNew && (
-              <Labelled label={t("settings-providerwizard.kind")} hint={f.kind === "api" ? t("settings-providerwizard.kind_api_hint") : t("settings-providerwizard.kind_launcher_hint")}>
+              <Labelled label={t("settings-providerwizard.kind")} hint={f.kind === "api" ? t("settings-providerwizard.kind_api_hint") : t("settings-providerwizard.kind_launcher_hint", { agent: f.agent === "codex" ? "Codex" : f.agent === "agy" ? "Antigravity" : f.agent === "omp" ? "omp" : "Claude Code" })}>
                 <Segmented<"launcher" | "codex" | "agy" | "omp" | "api">
                   label={t("settings-providerwizard.kind")}
                   value={f.kind === "api" ? "api" : f.agent === "codex" ? "codex" : f.agent === "agy" ? "agy" : f.agent === "omp" ? "omp" : "launcher"}
@@ -425,7 +425,7 @@ export function ProviderWizard({ existing, onClose, onSaved }: { existing: Provi
                     {t("settings-providerwizard.discover")}
                   </Button>
                 </div>
-                <p className="text-[11px] text-ink-3">{hasLegacyChat ? t("settings-providerwizard.chat_probe_legacy") : t("settings-providerwizard.test_cost")}</p>
+                <p className="text-[11px] text-ink-3">{hasLegacyChat ? t("settings-providerwizard.chat_probe_legacy") : testModel(f) ? t("settings-providerwizard.test_cost_current", { model: testModel(f) }) : t("settings-providerwizard.test_cost")}</p>
                 {test && (
                   <p role="status" className={cx("flex items-start gap-1.5 text-[12px]", test.ok ? "text-green" : "text-red")}>
                     <Icon name={test.ok ? "check" : "warning"} size={12} stroke={2.4} className="mt-0.5 shrink-0" />

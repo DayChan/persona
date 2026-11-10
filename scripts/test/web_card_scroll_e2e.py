@@ -5,17 +5,27 @@ to what the box had left, its answer buttons cut off and nothing to scroll), its
 hit, and scrolling the box (the wheel on a desktop, a finger on a phone) brings its last line into view, where it
 can be picked.
 
-Needs a running web page against the fake hub with one of the two cards, and Playwright for Python:
+Where the cards sit differs: Persona's main chat draws them straight in its tray (MOCK_ASK_LONG=perm or =1, the
+default --path /persona: guards #2026, a card squeezed by the tray); an agent's chat on a phone or in a side panel
+folds them under the composer (MOCK_ASK_LONG=agent with --path /s/macbook/<session> or 'panel:<agent title>': guards
+#3112, a fold that clips and leaves the buttons below it). The agent's chat has two long cards: the second is checked
+too, after tapping "1 more" to open its fold.
 
-    MOCK_ASK_LONG=perm PORT=18972 python3 scripts/mock/mock_hub.py &      # =1: the ask_user card; =agent: an agent's chat
-    (cd web && PERSONA_HUB_URL=http://127.0.0.1:18972 npx vite --port 5972 --strictPort &)
-    uv run --no-project --with playwright==1.58.0 python3 scripts/test/web_card_scroll_e2e.py http://127.0.0.1:5972 \
-        [--browser chromium|webkit|all] [--theme light|dark|both] [--path /persona|/s/<machine>/<session>|panel:<agent>] [--shots <dir>]
+Needs a running web page against the fake hub, Playwright for Python and its bundled browsers:
 
-Checks 1440×900, 1280×720 and a 390×844 phone (touch; Chromium only, WebKit's phone uses the wheel). Prints one line
-per check and a verdict; exits 1 on the first failure. --shots saves each size before and after scrolling.
+    MOCK_ASK_LONG=agent PORT=18973 python3 scripts/mock/mock_hub.py &      # =perm / =1: the main chat's tray
+    (cd web && PERSONA_HUB_URL=http://127.0.0.1:18973 npx vite --port 5973 --strictPort &)
+    uv run --no-project --with playwright==1.58.0 python3 -m playwright install chromium webkit
+    uv run --no-project --with playwright==1.58.0 python3 scripts/test/web_card_scroll_e2e.py http://127.0.0.1:5973 \
+        --path /s/macbook/a1f3c2d4-0000-4000-8000-000000000002 [--browser chromium|webkit|all] [--theme light|dark|both] [--shots <dir>]
+
+Checks 1440×900, 1280×720 and a 390×844 phone (touch events in Chromium; WebKit's phone uses the wheel), in English
+(the tray's labels). Defaults: Chromium, light. Prints one line per check and a verdict; exits 1 on the first failure.
+--shots saves each card before and after scrolling. Not for a very short box (a phone on its side): the swipe starts
+just over the buttons and could land outside it.
 """
 import argparse
+import json
 import os
 import sys
 
@@ -28,9 +38,13 @@ SIZES = [("desktop", 1440, 900), ("small-window", 1280, 720), ("phone", 390, 844
 
 # The card on screen: its heights, the box it scrolls in, the answer button (Allow / Send) and whether a finger on its
 # middle lands on it, and the card's last line (the always-allow note, the last option) likewise.
-STATE = """() => {
-  const cards = [...document.querySelectorAll('div:has(> [data-card-actions])')];
-  const card = cards.find((c) => /lark|这周先处理/.test(c.getAttribute('aria-label') || '')) || cards[0];
+LONG = "lark|这周先处理"  # the long cards' titles (MOCK_ASK_LONG), in English and Chinese
+STATE = """(done = []) => {
+  const long = new RegExp('""" + LONG + """');
+  const card = [...document.querySelectorAll('div:has(> [data-card-actions])')].find((c) => {
+    const l = c.getAttribute('aria-label') || '';
+    return long.test(l) && !done.includes(l) && !c.closest('[inert]');
+  });
   if (!card) return null;
   let box = card.parentElement;
   while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
@@ -48,7 +62,7 @@ STATE = """() => {
     // what shows under the buttons while the box has more below (at its end the box's own padding is under them)
     under: (() => { if (!footer || !box) return null; const f = footer.getBoundingClientRect(), b = box.getBoundingClientRect();
       return card.getBoundingClientRect().bottom > b.bottom + 1 ? b.bottom - f.bottom : null; })(),
-    lastText: last && last.textContent, inner: innerHeight };
+    lastText: last && last.textContent, title: card.getAttribute('aria-label'), inner: innerHeight };
 }"""
 
 
@@ -61,7 +75,7 @@ def fail(msg):
     sys.exit(1)
 
 
-def scroll_box(page, cdp, s, touch):
+def scroll_box(page, cdp, s, touch, done):
     """Scrolls the card's box down in small steps, by a finger (touch) or the wheel from the card's upper part, until the
     card's last line can be hit (other cards may follow it in the box: don't run past it)."""
     x = s["cx"]
@@ -69,7 +83,7 @@ def scroll_box(page, cdp, s, touch):
     y0 = s["head"] if s["head"] is not None and s["head"] > 80 else max(s["main"]["y"] - 60, 80)
     page.mouse.move(x, y0)
     for _ in range(30):
-        st = page.evaluate(STATE)
+        st = page.evaluate(STATE, done)
         if st["last"] and st["last"]["hit"]:
             return
         if touch:
@@ -82,9 +96,15 @@ def scroll_box(page, cdp, s, touch):
             page.mouse.wheel(0, 60)
         page.wait_for_timeout(200)
         # the title may have scrolled away: keep the pointer over the card
-        nxt = page.evaluate(STATE)
+        nxt = page.evaluate(STATE, done)
         if nxt["head"] is None or nxt["head"] < 80:
             y0 = max(nxt["main"]["y"] - 60, 80)
+
+
+def go(page, path):
+    """In-page navigation (a pushState and its popstate), as a link in the app would: a second page load would cut the
+    first page's requests off, which WebKit reports as page errors."""
+    page.evaluate(f"history.pushState(null, '', {json.dumps(path)}); dispatchEvent(new PopStateEvent('popstate'))")
 
 
 def check(browser, engine, base, label, w, h, shots, path="/persona", theme="light"):
@@ -92,7 +112,7 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
     touch = phone and engine == "chromium"
     ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=2 if phone else 1,
                               is_mobile=phone and engine == "chromium", has_touch=phone, user_agent=UA if phone else None,
-                              color_scheme=theme)
+                              color_scheme=theme, locale="en-US")
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -101,7 +121,7 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
     if path.startswith("panel:"):
         # an agent's chat in the side panel over Persona's main chat (from its Agents tray): a phone's width, its cards
         # folded under the composer as on a phone
-        page.goto(base + "/persona")
+        go(page, "/persona")
         page.wait_for_selector("[data-chat-dock]", timeout=20000)
         page.wait_for_timeout(800)
         page.locator("[data-chat-dock] button").filter(has_text="Agents").first.click()
@@ -109,7 +129,7 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
         page.locator("[data-chat-dock]").get_by_text(path[len("panel:"):]).first.click()
         page.wait_for_timeout(1500)
     else:
-        page.goto(base + path)
+        go(page, path)
         page.wait_for_selector("[data-chat-dock]", timeout=20000)
         page.wait_for_timeout(800)
     # Persona's main chat keeps what waits on you in the "Pending" tray over the composer: open it
@@ -117,13 +137,41 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
     if not page.locator(CARD).count() and tray.count():
         tray.first.click()
     page.wait_for_selector(CARD, timeout=20000)
-    # the long card in view in its tray, as reading down to it would leave it
-    page.evaluate("() => [...document.querySelectorAll('div:has(> [data-card-actions])')].find((c) => /lark|这周先处理/.test(c.getAttribute('aria-label') || ''))?.scrollIntoView({ block: 'start' })")
-    page.wait_for_timeout(1200)
     what = f"{engine} {label} {w}x{h} {theme}"
-    s = page.evaluate(STATE)
-    if shots:
-        page.screenshot(path=os.path.join(shots, f"{s['kind']}{'-' + path.split(':')[0].strip('/').split('/')[0] if path != '/persona' else ''}-{engine}-{w}x{h}-{theme}-1-top.png"))
+    where = path.split(":")[0].strip("/").split("/")[0] if path != "/persona" else "persona"
+    cdp = ctx.new_cdp_session(page) if touch else None
+    first = check_card(page, cdp, touch, what, shots and os.path.join(shots, f"{where}-{engine}-{w}x{h}-{theme}-1"), [])
+    if path != "/persona":
+        # the agent's second long card: behind "1 more" where the cards fold (phone, side panel), else right under
+        fold = page.locator("[data-chat-cards-fold]")
+        if fold.count():
+            if touch:
+                b = fold.first.bounding_box()
+                page.touchscreen.tap(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+            else:
+                fold.first.click()
+            page.wait_for_timeout(1200)
+            ok(f"{what}: opened the folded cards")
+        check_card(page, cdp, touch, what, shots and os.path.join(shots, f"{where}-{engine}-{w}x{h}-{theme}-2"), [first])
+    if errors:
+        fail(f"{what}: page errors: {errors[:3]}")
+    ctx.close()
+
+
+def check_card(page, cdp, touch, what, shot, done):
+    """One long card a user can reach (not one already checked): full height, buttons on screen, scrolled to its last
+    line (and its last option picked). Returns its title."""
+    # in view in its box, as reading down to it would leave it
+    page.evaluate("""(done) => { const long = new RegExp('""" + LONG + """');
+      [...document.querySelectorAll('div:has(> [data-card-actions])')].find((c) => { const l = c.getAttribute('aria-label') || '';
+        return long.test(l) && !done.includes(l) && !c.closest('[inert]'); })?.scrollIntoView({ block: 'start' }); }""", done)
+    page.wait_for_timeout(1200)
+    s = page.evaluate(STATE, done)
+    if not s:
+        fail(f"{what}: no long card to check{' besides ' + repr(done) if done else ''} (a fake hub with MOCK_ASK_LONG?)")
+    what = f"{what} {s['title']!r}"
+    if shot:
+        page.screenshot(path=f"{shot}-{s['kind']}-top.png")
     if s["card"][1] > s["card"][0] + 1:
         fail(f"{what}: the card is squeezed to {s['card'][0]} of its {s['card'][1]} px")
     ok(f"{what}: the {s['kind']} card keeps its full height ({s['card'][0]} px)")
@@ -139,11 +187,9 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
         if not s["last"] or not s["last"]["hit"]:
             fail(f"{what}: the card fits its box, yet its last line ({s['lastText']!r}) is out of sight ({s['last']})")
         ok(f"{what}: the card fits its box, its last line on screen")
-        ctx.close()
-        return
-    cdp = ctx.new_cdp_session(page) if touch else None
-    scroll_box(page, cdp, s, touch)
-    t = page.evaluate(STATE)
+        return s["title"]
+    scroll_box(page, cdp, s, touch, done)
+    t = page.evaluate(STATE, done)
     if t["box"][0] <= s["box"][0] and not (s["last"] and s["last"]["hit"]):
         fail(f"{what}: {'swiping' if touch else 'the wheel'} did not scroll the card's box ({s['box']} → {t['box']})")
     if not t["last"] or not t["last"]["hit"]:
@@ -158,15 +204,14 @@ def check(browser, engine, base, label, w, h, shots, path="/persona", theme="lig
             page.mouse.click(t["last"]["x"], t["last"]["y"])
         # read at once: a single-choice pick moves on to the next question 380 ms later (QuestionCard)
         page.wait_for_timeout(120)
-        pressed = page.evaluate("() => { const c = [...document.querySelectorAll('div:has(> [data-card-actions])')].find((c) => /这周先处理/.test(c.getAttribute('aria-label') || '')); const o = [...c.querySelectorAll('button[aria-pressed]')]; return o[o.length - 1].getAttribute('aria-pressed'); }")
+        pressed = page.evaluate("""(title) => { const c = [...document.querySelectorAll('div:has(> [data-card-actions])')].find((c) => c.getAttribute('aria-label') === title);
+          const o = [...c.querySelectorAll('button[aria-pressed]')]; return o[o.length - 1].getAttribute('aria-pressed'); }""", t["title"])
         if pressed != "true":
             fail(f"{what}: tapping the last option did not pick it")
         ok(f"{what}: the last option is picked")
-    if shots:
-        page.screenshot(path=os.path.join(shots, f"{t['kind']}{'-' + path.split(':')[0].strip('/').split('/')[0] if path != '/persona' else ''}-{engine}-{w}x{h}-{theme}-2-scrolled.png"))
-    if errors:
-        fail(f"{what}: page errors: {errors[:3]}")
-    ctx.close()
+    if shot:
+        page.screenshot(path=f"{shot}-{t['kind']}-scrolled.png")
+    return t["title"]
 
 
 def main():
