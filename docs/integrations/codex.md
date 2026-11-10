@@ -34,6 +34,12 @@ and it can also be started from the phone ("Starting from the phone"). Supported
   is gone), so Codex started again in the same terminal, however quickly, counts from then (`noteCodexPanes`). The age is when the node
   noticed the pane, up to one refresh after Codex started: a first turn that finished before that leaves the pane unlisted until its next
   message writes the rollout again.
+- A pane binding (a phone start or resume, a hook) holds only while the pane runs the Codex it was made for: the node notes the pane's age
+  when it binds (a resume binds before its Codex shows, so it takes the first age the pane gets) and drops the binding once the age changes,
+  since another Codex runs there now (`codexBinding`). Bindings kept in the hub state from before node started belong to panes of unknown age.
+- A thread only the guess (`codexSession`) put in a pane is marked as guessed: the guess runs again on every refresh and can move to another
+  thread of the directory, so a guessed pane is never joined on the app-server (it stays on the terminal route, "Connection" says why) and its
+  thread is never released as exited on the guess's word ("When the TUI exits" below).
 - **Sub-Agent rollouts are not sessions**: Codex thread_spawn sub-Agents (and an internal Codex fork's tool-review guardian, below) each write their own rollout,
   in the same directory and cwd as the main chat, with newer writes. Identify them from `session_meta` only: `thread_source` is `subagent`, or `source` is `{"subagent": …}`.
   Their parent chat is `session_id` (fall back to `parent_thread_id`). Skip them when guessing sessions; if herdr reports a sub-Agent id, replace it with the main chat's
@@ -109,7 +115,8 @@ not screen reading or typing into the terminal. Panes it cannot join retain the 
   if the socket already exists), and the internal Codex fork retain the terminal route.
 - **When the TUI exits** (#2965): the thread stays loaded on the daemon, and Persona's subscription kept it there for good (the daemon
   unloads a thread only when it has no subscribers and is idle), so the list showed it as a finished live conversation in its workspace.
-  Once the pane has had no Codex for that thread for 10 seconds, the node marks it exited and forgets a remembered join (`Joined`), so no
+  Only threads a pane named (herdr's id, a binding still valid, the title) are followed; a guessed one never is, though one already followed
+  stays followed while any pane has it. Once the pane has had no Codex for that thread for 10 seconds, the node marks it exited and forgets a remembered join (`Joined`), so no
   reconnect or restart subscribes it again; while it is idle it sends `thread/unsubscribe {threadId}` and drops its cards. The unsubscribe
   runs in the background with a 15-second limit, so an app-server that stops answering never holds up the card loop.
   While idle the thread lists as not running (`status: offline`, still `codex_app_server`). A phone message is still a turn on the daemon:

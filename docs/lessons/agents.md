@@ -11,6 +11,8 @@ Pitfalls, odd behavior, and the trade-offs made at the time (formerly in `CLAUDE
   running meanwhile; "loaded on an app-server" is not "running".
 - Guessing a Codex pane's thread as "the newest unclaimed rollout in its directory" picks the conversation just closed there when a new
   Codex has not written its rollout yet (before its first message, #2965). Only consider rollouts written since the pane's Codex appeared.
+  A pane binding must end with the Codex it was made for, and nothing that acts on a thread (joining it, letting it go) may rely on a guess:
+  the guess moves between a directory's threads from one refresh to the next.
 
 - Task placement must preserve locality (#1175): a failed launcher check is not permission to move an explicitly targeted task to another computer with the original absolute directory. Persist fixed placement by default through preview, card edits and retries; require an explicit flexible policy for portable work. Returning from background dispatch only proves the work was queued, not that a native Agent received its first prompt.
 

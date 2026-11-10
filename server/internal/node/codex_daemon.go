@@ -42,7 +42,9 @@ func (n *Node) joinCodexPanes(ctx context.Context) {
 	var ids []string
 	for id, a := range n.agents {
 		// botmux's sessions stay botmux's: it delivers their messages, and its Codex may run on an app-server too.
-		if a.Agent == "codex" && a.PaneID != "" && host.ParsePane(a.PaneID).Kind != host.Botmux {
+		// A thread only a guess put in the pane (codexSession) is not joined: it may not be what the pane runs, and
+		// nothing would let it go (codex_exit.go follows named panes only). The pane stays on the terminal route.
+		if a.Agent == "codex" && a.PaneID != "" && host.ParsePane(a.PaneID).Kind != host.Botmux && !n.codexGuessed[id] {
 			ids = append(ids, id)
 		}
 	}
@@ -108,6 +110,9 @@ func (n *Node) codexRoute(id string) (route, note string) {
 	case err == nil:
 		if note := n.cx.joinNote(id); note != "" {
 			return codexRouteTerminal, note
+		}
+		if n.codexGuessedPane(id) {
+			return codexRouteTerminal, "无法确认这个终端运行的是哪个线程，未接入 app-server"
 		}
 		return codexRouteTerminal, "正在接入它所在的 app-server"
 	case errors.Is(err, errCodexNoOwner):

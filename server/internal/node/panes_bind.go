@@ -128,6 +128,10 @@ func (n *Node) bindPane(pane, id string) {
 	}
 	n.mu.Lock()
 	n.panes[pane] = id
+	// The binding is for the Codex the pane runs now; a pane not listed yet (a resume binds before its Codex shows)
+	// takes the first age it gets (codexBinding).
+	seen, listed := n.codexSeen[pane]
+	n.stampBinding(pane, paneBindAge{at: seen.at, set: listed})
 	n.mu.Unlock()
 	n.state.setPane(id, pane)
 }

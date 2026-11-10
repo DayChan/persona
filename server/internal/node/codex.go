@@ -530,3 +530,50 @@ func (n *Node) codexPaneSince(pane string) time.Time {
 	defer n.mu.Unlock()
 	return n.codexSeen[pane].at
 }
+
+// paneBindAge is the age (codexPaneSeen.at) of the Codex a pane binding was made for; set false: not known yet, the
+// first age the pane gets is taken (a resume binds before its Codex shows).
+type paneBindAge struct {
+	at  time.Time
+	set bool
+}
+
+// stampBinding notes the age pane's binding was made for. Callers hold n.mu.
+func (n *Node) stampBinding(pane string, age paneBindAge) {
+	if n.bindAge == nil {
+		n.bindAge = map[string]paneBindAge{}
+	}
+	n.bindAge[pane] = age
+}
+
+// codexBinding is the thread a start, a resume or a hook bound to Codex pane, while the pane still runs the Codex it
+// was bound for. Once another Codex runs there (its age changed: Codex quit and was started again in the terminal) the
+// binding names a closed thread, and it is dropped (#2965). Bindings kept from before node started belong to panes of
+// unknown age (zero). Call it after noteCodexPanes.
+func (n *Node) codexBinding(pane string) string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	id := n.panes[pane]
+	if id == "" {
+		return ""
+	}
+	seen := n.codexSeen[pane]
+	b, ok := n.bindAge[pane]
+	if !ok || !b.set {
+		n.stampBinding(pane, paneBindAge{at: seen.at, set: true})
+		return id
+	}
+	if !b.at.Equal(seen.at) {
+		delete(n.panes, pane)
+		delete(n.bindAge, pane)
+		return ""
+	}
+	return id
+}
+
+// codexGuessedPane: id's pane got it only from a guess (codexSession), so nothing says that Codex runs this thread.
+func (n *Node) codexGuessedPane(id string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.codexGuessed[id]
+}

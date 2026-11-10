@@ -47,14 +47,16 @@ func (e *codexExits) initLocked() {
 	}
 }
 
-// codexPaneThreads is the session ids of the live Codex panes (botmux's sessions stay botmux's, as in joinCodexPanes).
+// codexPaneThreads is the session ids of the live Codex panes (botmux's sessions stay botmux's, as in joinCodexPanes),
+// each true when something names the pane's thread (herdr, a binding still valid, the title) and false when only a
+// guess put it there (codexSession).
 func (n *Node) codexPaneThreads() map[string]bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	ids := map[string]bool{}
 	for id, a := range n.agents {
 		if a.Agent == "codex" && a.PaneID != "" && host.ParsePane(a.PaneID).Kind != host.Botmux {
-			ids[id] = true
+			ids[id] = !n.codexGuessed[id]
 		}
 	}
 	return ids
@@ -72,14 +74,20 @@ func (n *Node) releaseExitedCodex(ctx context.Context) {
 	e := &n.cxExit
 	e.mu.Lock()
 	e.initLocked()
-	for id := range panes {
+	for id, named := range panes {
+		// A thread only a guess put in a pane is not followed: the guess may move to another thread of the directory on
+		// the next refresh, and the thread it left would read as exited while it runs (review of #2975). One already
+		// followed stays followed while any pane has it.
+		if _, followed := e.inPane[id]; !named && !followed {
+			continue
+		}
 		e.inPane[id] = now
 		delete(e.exited, id)
 		delete(e.held, id)
 	}
 	var gone []string
 	for id, at := range e.inPane {
-		if !panes[id] && now.Sub(at) >= codexExitGrace {
+		if _, here := panes[id]; !here && now.Sub(at) >= codexExitGrace {
 			delete(e.inPane, id)
 			gone = append(gone, id)
 		}

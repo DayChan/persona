@@ -111,58 +111,60 @@ type Node struct {
 	onAgentsList map[string]bool
 	// lastPanes: the pane each session was last seen live in (it is no longer live when its agent exits or is
 	// suspended), to tell the two apart when a send finds it gone on a host that cannot resume it.
-	lastPanes map[string]string
-	launches  map[string]claudeLaunch    // herdr pane -> how Persona started its Claude, for herdr's restore (herdrresume.go)
-	resumes   resumeLocks                // one resume report at a time per herdr pane (herdrresume.go reportResume)
-	panes     map[string]string          // pane id -> session id (learned from hooks)
-	layouts   map[string]layout          // host kind -> space / slot names from its last snapshot
-	shellTabs *shellTabs                 // the sweep's memory; nil: the process's own (shelltabs.go)
-	procs     map[string]*assistantProc  // headless assistant conversations (assistant.go)
-	titles    map[string]string          // session id -> title given before its transcript existed (rename.go retitle)
-	spare     *assistantProc             // warm process waiting for the next new conversation
-	akeys     map[string]*assistantProc  // the key a Codex conversation's MCP server reports until its thread exists
-	lastList  string                     // serialized last sessions.changed payload
-	sent      sentList                   // the last sessions.changed as written, not written twice (sessions_sent.go)
-	listRows  atomic.Int32               // rows the last sessionList gathered before its keep pass: the next one's size
-	lastRevs  map[string]int64           // session id -> rev as last pushed (sessions.changed or sessions.revs)
-	metas     map[string]quickMeta       // transcript path -> cached meta; deleted ones leave it (meta_prune.go)
-	goneDirs  map[string]time.Time       // cwd -> newest mtime of a deleted transcript pruned from metas (dirsByUse)
-	bgScans   map[string]*bgScan         // transcript path -> incremental background-task scan
-	panePIDs  map[string]panePID         // pane -> its claude pid (machines without herdr's claude integration)
-	paneSeen  map[string]time.Time       // claude pane without a host session id -> first seen (zero: there when node started)
-	codexSeen map[string]codexPaneSeen   // Codex pane -> when its Codex appeared (codex.go noteCodexPanes)
-	codexFrom time.Time                  // when noteCodexPanes first ran
-	modes     map[string]sessionModes    // session id -> mode / effort set from the app (modes.go)
-	terms     map[string]*termStream     // session id -> its terminal streaming to the hub (terminal.go)
-	fulls     map[string]*fullClient     // client id -> a full herdr client running for the web (fullclient.go)
-	focus     focusState                 // focus sync for the full views (focus.go)
-	suggests  map[string]*suggestState   // session id -> Claude's suggested next message (suggestion.go)
-	driving   map[string]bool            // session id -> Persona is working its TUI (a picker it opened is not "blocked")
-	dialogs   paneDialogs                // pane -> the dialog its last screen read showed (dialogstatus.go)
-	firstWait sync.WaitGroup             // first messages being checked (firstprompt.go)
-	engLists  sync.WaitGroup             // new engines' session lists being built in the background (useEngine)
-	lostFirst lostPrompts                // session id -> why its first message did not go in (firstprompt.go)
-	events    *herdrEvents               // herdr's event stream (herdrevents.go)
-	hostSig   map[string]*watcherSignals // change signals of the registered watcher hosts, by host kind (herdrevents.go)
-	cdirs     *claudeDirs                // Claude Code config directories in use (claudedirs.go)
-	hooks     *hookTurns                 // per-session turn counters from Persona's hooks (hookturn.go)
-	live      liveReplies                // the replies Claude is showing, from its MessageDisplay hook (livereply.go)
-	bgWait    bgWatch                    // whether background commands only wait (bgwait.go)
-	codices   *codexRegistry
-	usageWin  usageWindowsState // subscription rate-limit windows (usagewindows.go, #2432)
-	machineID string
-	sends     sentLog         // recent client_msg_ids (sendsafe.go)
-	echoes    echoLog         // sends tied to their transcript lines (echo.go)
-	typing    typingLocks     // one send at a time per session (sendsafe_turns.go)
-	sendOrder sendQueue       // sends waiting for a start, in the order they came (sendsafe_turns.go)
-	cx        codexCards      // Codex questions and approvals listed to the hub (codexask.go)
-	cxExit    codexExits      // Codex threads whose pane's Codex exited (codex_exit.go)
-	kept      map[string]bool // sessions always listed (node.configure keep_sessions)
-	forked    map[string]bool // sessions "Branch to new chat" made (fork.go): listed however short they are
-	starts    startLog        // sessions starting in the background (starting.go)
-	ups       uploads         // files arriving from the phone (upload.go)
-	sysOnce   sync.Once       // system: read once (metrics.go)
-	sys       proto.System
+	lastPanes    map[string]string
+	launches     map[string]claudeLaunch    // herdr pane -> how Persona started its Claude, for herdr's restore (herdrresume.go)
+	resumes      resumeLocks                // one resume report at a time per herdr pane (herdrresume.go reportResume)
+	panes        map[string]string          // pane id -> session id (learned from hooks)
+	layouts      map[string]layout          // host kind -> space / slot names from its last snapshot
+	shellTabs    *shellTabs                 // the sweep's memory; nil: the process's own (shelltabs.go)
+	procs        map[string]*assistantProc  // headless assistant conversations (assistant.go)
+	titles       map[string]string          // session id -> title given before its transcript existed (rename.go retitle)
+	spare        *assistantProc             // warm process waiting for the next new conversation
+	akeys        map[string]*assistantProc  // the key a Codex conversation's MCP server reports until its thread exists
+	lastList     string                     // serialized last sessions.changed payload
+	sent         sentList                   // the last sessions.changed as written, not written twice (sessions_sent.go)
+	listRows     atomic.Int32               // rows the last sessionList gathered before its keep pass: the next one's size
+	lastRevs     map[string]int64           // session id -> rev as last pushed (sessions.changed or sessions.revs)
+	metas        map[string]quickMeta       // transcript path -> cached meta; deleted ones leave it (meta_prune.go)
+	goneDirs     map[string]time.Time       // cwd -> newest mtime of a deleted transcript pruned from metas (dirsByUse)
+	bgScans      map[string]*bgScan         // transcript path -> incremental background-task scan
+	panePIDs     map[string]panePID         // pane -> its claude pid (machines without herdr's claude integration)
+	paneSeen     map[string]time.Time       // claude pane without a host session id -> first seen (zero: there when node started)
+	codexSeen    map[string]codexPaneSeen   // Codex pane -> when its Codex appeared (codex.go noteCodexPanes)
+	codexFrom    time.Time                  // when noteCodexPanes first ran
+	bindAge      map[string]paneBindAge     // pane -> the age of the Codex its binding (n.panes) was made for (codex.go codexBinding)
+	codexGuessed map[string]bool            // Codex session ids placed in a pane only by a guess (codexSession), not by a name
+	modes        map[string]sessionModes    // session id -> mode / effort set from the app (modes.go)
+	terms        map[string]*termStream     // session id -> its terminal streaming to the hub (terminal.go)
+	fulls        map[string]*fullClient     // client id -> a full herdr client running for the web (fullclient.go)
+	focus        focusState                 // focus sync for the full views (focus.go)
+	suggests     map[string]*suggestState   // session id -> Claude's suggested next message (suggestion.go)
+	driving      map[string]bool            // session id -> Persona is working its TUI (a picker it opened is not "blocked")
+	dialogs      paneDialogs                // pane -> the dialog its last screen read showed (dialogstatus.go)
+	firstWait    sync.WaitGroup             // first messages being checked (firstprompt.go)
+	engLists     sync.WaitGroup             // new engines' session lists being built in the background (useEngine)
+	lostFirst    lostPrompts                // session id -> why its first message did not go in (firstprompt.go)
+	events       *herdrEvents               // herdr's event stream (herdrevents.go)
+	hostSig      map[string]*watcherSignals // change signals of the registered watcher hosts, by host kind (herdrevents.go)
+	cdirs        *claudeDirs                // Claude Code config directories in use (claudedirs.go)
+	hooks        *hookTurns                 // per-session turn counters from Persona's hooks (hookturn.go)
+	live         liveReplies                // the replies Claude is showing, from its MessageDisplay hook (livereply.go)
+	bgWait       bgWatch                    // whether background commands only wait (bgwait.go)
+	codices      *codexRegistry
+	usageWin     usageWindowsState // subscription rate-limit windows (usagewindows.go, #2432)
+	machineID    string
+	sends        sentLog         // recent client_msg_ids (sendsafe.go)
+	echoes       echoLog         // sends tied to their transcript lines (echo.go)
+	typing       typingLocks     // one send at a time per session (sendsafe_turns.go)
+	sendOrder    sendQueue       // sends waiting for a start, in the order they came (sendsafe_turns.go)
+	cx           codexCards      // Codex questions and approvals listed to the hub (codexask.go)
+	cxExit       codexExits      // Codex threads whose pane's Codex exited (codex_exit.go)
+	kept         map[string]bool // sessions always listed (node.configure keep_sessions)
+	forked       map[string]bool // sessions "Branch to new chat" made (fork.go): listed however short they are
+	starts       startLog        // sessions starting in the background (starting.go)
+	ups          uploads         // files arriving from the phone (upload.go)
+	sysOnce      sync.Once       // system: read once (metrics.go)
+	sys          proto.System
 
 	// usageRetried: when a conversation's message was last sent again after its transcript's usage was repaired
 	// (assistant_usage.go): once in a while at most. Under mu; nil until the first.
@@ -487,6 +489,7 @@ func (n *Node) fetchState(ctx context.Context) bool {
 	for pane, id := range panes {
 		if _, ok := n.panes[pane]; !ok {
 			n.panes[pane] = id
+			n.stampBinding(pane, paneBindAge{set: true}) // a pane from before node started: its age is unknown (zero)
 		}
 	}
 	n.mu.Unlock()

@@ -478,9 +478,7 @@ func (n *Node) setAgentsAt(agents []host.Agent, epoch uint64, heard map[string]b
 			id = mainThread(home, id) // a subagent's id stands for its conversation
 		}
 		if id == "" {
-			n.mu.Lock()
-			id = n.panes[a.PaneID]
-			n.mu.Unlock()
+			id = n.codexBinding(a.PaneID) // only while the pane runs the Codex it was bound for
 		}
 		if named := n.codexByTitle(a, id, m); named != "" {
 			id = named
@@ -503,6 +501,7 @@ func (n *Node) setAgentsAt(agents []host.Agent, epoch uint64, heard map[string]b
 		}
 		m[id] = a
 	}
+	guessed := map[string]bool{} // threads only a guess put in a pane: never joined or let go on its word (codex_exit.go)
 	for _, a := range unnamed {
 		n.mu.Lock()
 		starting := n.codexStarting[a.PaneID]
@@ -512,6 +511,7 @@ func (n *Node) setAgentsAt(agents []host.Agent, epoch uint64, heard map[string]b
 		}
 		if id := n.codexSession(a, m); id != "" {
 			m[id] = a
+			guessed[id] = true
 		}
 	}
 	n.mu.Lock()
@@ -534,6 +534,7 @@ func (n *Node) setAgentsAt(agents []host.Agent, epoch uint64, heard map[string]b
 	}
 	n.agents = m
 	n.onAgentsList = onList
+	n.codexGuessed = guessed
 	if n.lastPanes == nil {
 		n.lastPanes = map[string]string{}
 	}
