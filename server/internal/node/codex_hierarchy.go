@@ -139,6 +139,7 @@ func resolveCodexHierarchy(sessions []proto.Session) {
 		if rootIndex >= 0 {
 			root := sessions[rootIndex]
 			s.RepoRoot, s.SpaceID, s.SpaceKind, s.SpaceName = root.RepoRoot, root.SpaceID, root.SpaceKind, root.SpaceName
+			s.SpaceIndex, s.ParentSpaceID = root.SpaceIndex, root.ParentSpaceID
 		}
 	}
 }

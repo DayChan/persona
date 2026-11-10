@@ -49,11 +49,17 @@ nonisolated struct SpaceGroup: Identifiable, Sendable {
     /// Its agents that only wait in the background (#6045): counted apart, with a clock (`StateCounts`).
     var waitingInBackground: Int { sessions.filter(\.waitsInBackground).count }
 
+    /// Keep unresolved repositories separate, including independent checkouts with the same folder name.
+    static func key(for s: Session) -> String {
+        if let space = s.spaceID, !space.isEmpty { return "\(s.machineRef.path)/\(space)" }
+        return "\(s.machineRef.path)/-/repo/\(RepoPlace.of(s).repo)"
+    }
+
     static func build(_ sessions: [Session]) -> [SpaceGroup] {
         var groups: [String: SpaceGroup] = [:]
         for s in sessions where s.state.isLive {
-            let spaceID = s.spaceID ?? "-"
-            let key = "\(s.machineRef.path)/\(spaceID)"
+            let spaceID = s.spaceID.flatMap { $0.isEmpty ? nil : $0 } ?? "-"
+            let key = Self.key(for: s)
             if groups[key] == nil {
                 let todoSpace: String?
                 if let id = s.spaceID, !id.isEmpty {
@@ -61,8 +67,16 @@ nonisolated struct SpaceGroup: Identifiable, Sendable {
                 } else {
                     todoSpace = nil
                 }
+                let name: String
+                if let id = s.spaceID, !id.isEmpty {
+                    name = s.spaceName ?? s.folderName
+                } else {
+                    let repository = RepoPlace.of(s).name
+                    let label = repository.isEmpty ? String(localized: "Other") : repository
+                    name = String(localized: "\(label) · No workspace")
+                }
                 groups[key] = SpaceGroup(id: key, machineID: s.machineID, spaceID: spaceID, group: s.group,
-                                         name: s.spaceName ?? s.folderName, index: s.spaceIndex ?? 0, sessions: [], todoSpace: todoSpace)
+                                         name: name, index: s.spaceIndex ?? 0, sessions: [], todoSpace: todoSpace)
             }
             groups[key]!.sessions.append(s)
         }
@@ -1562,7 +1576,9 @@ private struct AgentsList: View {
             .labelOnlyMenu()
             .accessibilityLabel("More actions for \(g.name) [Chats View 661d12]")
         }
-        .task(id: spaceScope(g)) { await model.sessionLists.loadCounts(spaceScope(g)) }
+        .task(id: spaceScope(g)) {
+            if g.spaceID != "-" { await model.sessionLists.loadCounts(spaceScope(g)) }
+        }
     }
 
     /// The ⋯ on a space's or a repository's header.

@@ -286,6 +286,7 @@ internal class AgentsViewModel(
             AgentGrouping.MachineSpace -> {
                 val id = members.map { it.session.spaceId?.takeIf(String::isNotEmpty) ?: it.session.workspaceId.orEmpty() }
                     .distinct().singleOrNull() ?: return
+                if (id.isEmpty()) return // An empty group filter counts the entire machine, not an unresolved repository.
                 SessionListFilter(machineId = machine, group = id)
             }
             else -> return // Pin/mute ranks and custom to-do sections are not server groups.

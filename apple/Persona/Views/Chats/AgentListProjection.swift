@@ -132,7 +132,10 @@ nonisolated struct AgentListProjection: Sendable {
         if settings.grouping == "space" {
             let groups = SpaceGroup.build(result.unpinned).map { group in
                 var group = group
-                let scope = settings.scope(machine: group.machineID, hub: group.group, space: group.spaceID == "-" ? "" : group.spaceID)
+                // An empty group filter means the entire machine on the server,
+                // not this unresolved repository's membership.
+                guard group.spaceID != "-" else { return group }
+                let scope = settings.scope(machine: group.machineID, hub: group.group, space: group.spaceID)
                 result.scopes[group.id] = scope
                 group.bounded = settings.pagedGroups.contains(group.group)
                 return group

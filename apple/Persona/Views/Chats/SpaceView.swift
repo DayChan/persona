@@ -362,7 +362,7 @@ struct SpaceView: View {
 
     /// The most urgent first; the agents of one tab together where the first of them is, in the order of their panes.
     private var sessions: [Session] {
-        TabPanes.grouped(model.allSessions.filter { $0.spaceKey == spaceKey && $0.state.isLive }
+        TabPanes.grouped(model.allSessions.filter { SpaceGroup.key(for: $0) == spaceKey && $0.state.isLive }
             .sorted { ($0.state.priority, $0.slotIndex ?? 0, $0.sessionID) < ($1.state.priority, $1.slotIndex ?? 0, $1.sessionID) })
     }
 
@@ -416,13 +416,13 @@ struct SpaceView: View {
                         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.accent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5])))
                     }
                     .buttonStyle(.plain)
-                    .disabled(first == nil)
+                    .disabled(first?.spaceID?.isEmpty != false)
                 }
             }
             .padding(Theme.Space.l)
         }
         .themedGroupedPage()
-        .navigationTitle(first?.spaceName ?? String(localized: "Space [Space View 3347e0]"))
+        .navigationTitle(SpaceGroup.build(sessions).first?.name ?? String(localized: "Space [Space View 3347e0]"))
         .navigationBarTitleDisplayMode(.large)
         .pageToolbar {
             if let g = SpaceGroup.build(sessions).first {
@@ -435,7 +435,7 @@ struct SpaceView: View {
             }
         }
         .sheet(isPresented: $showNew) {
-            if let first, let ws = first.spaceID {
+            if let first, let ws = first.spaceID, !ws.isEmpty {
                 NewChatView(preset: SpacePreset(machineID: first.machineRef.path, cwd: first.cwd, workspaceID: ws, spaceName: first.spaceName ?? "", host: first.hostKind ?? first.spaceKind)) { s in
                     showNew = false
                     started = s.key

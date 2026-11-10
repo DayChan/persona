@@ -129,6 +129,7 @@ private fun resourceOf(key: CoreText.Key): Int = when (key) {
     CoreText.Key.AgentsNoTodo -> R.string.designsystem_core_agents_no_todo
     CoreText.Key.AgentsManual -> R.string.designsystem_core_agents_manual
     CoreText.Key.AgentsQuietSpaces -> R.string.designsystem_core_agents_quiet_spaces
+    CoreText.Key.AgentsProjectWithoutSpace -> R.string.designsystem_core_agents_project_without_space
     CoreText.Key.CountNeedsYou -> -R.plurals.designsystem_core_count_needs_you
     CoreText.Key.CountWorking -> -R.plurals.designsystem_core_count_working
     CoreText.Key.CountUnread -> -R.plurals.designsystem_core_count_unread

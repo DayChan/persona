@@ -285,6 +285,9 @@ func (n *Node) sessionList(ctx context.Context, refreshAgents bool) []proto.Sess
 		return nil
 	}
 	out = out[:j]
+	if n.placeUnassignedCodex(out) {
+		resolveCodexHierarchy(out)
+	}
 	sortNewestFirst(out)
 	return out
 }

@@ -428,4 +428,5 @@
     <string name="designsystem_core_always_scope_edit_directory">这段对话中，这个目录里的所有文件编辑</string>
     <string name="designsystem_core_always_scope_tool">这段对话里对这个工具的所有调用</string>
     <string name="designsystem_core_always_scope_approved">批准的范围在这段对话中持续有效</string>
+    <string name="designsystem_core_agents_project_without_space">%1$s · 未关联空间</string>
 </resources>

@@ -34,7 +34,7 @@ internal fun SpaceScreen(
 ) {
     val cards = remember(pending) { pending.firstBySession() }
     Box(Modifier.fillMaxSize()) {
-        JListPage(title = space?.name ?: title.ifBlank { stringResource(R.string.agents_space) }, onBack = onDismiss,
+        JListPage(title = space?.title?.text() ?: title.ifBlank { stringResource(R.string.agents_space) }, onBack = onDismiss,
             subtitle = machines.firstOrNull { it.id == space?.machineId }?.displayName,
             actions = { space?.let { spaceMenu(it) } }) {
             if (space == null) {

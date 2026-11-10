@@ -428,4 +428,5 @@
     <string name="designsystem_core_always_scope_edit_directory">この会話中、このディレクトリ内のすべてのファイル編集</string>
     <string name="designsystem_core_always_scope_tool">この会話内でのこのツールのすべての呼び出し</string>
     <string name="designsystem_core_always_scope_approved">許可した範囲はこの会話中、引き続き許可されます</string>
+    <string name="designsystem_core_agents_project_without_space">%1$s · ワークスペース未関連付け</string>
 </resources>

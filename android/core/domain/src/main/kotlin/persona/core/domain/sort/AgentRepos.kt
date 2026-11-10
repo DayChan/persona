@@ -103,17 +103,17 @@ fun gitPlaceOf(repoRoot: String?, worktree: String?): RepoPlace? {
     return RepoPlace(repo, baseName(repo), tree, main = tree == repo)
 }
 
-private val AgentSession.place: RepoPlace
+internal val AgentSession.repoPlace: RepoPlace
     get() = gitPlaceOf(session.repoRoot, session.worktree) ?: repoOf(session.cwd, session.repoRoot)
 
 /** The repositories of [rows] by name in natural order (then path), each computer's apart; ids are `repo/<machine>/<path>`, `tree/<machine>/<path>`. */
 fun agentRepos(rows: List<AgentSession>): List<AgentRepo> =
-    rows.groupBy { it.session.machineId to it.place.repo }.map { (key, members) ->
+    rows.groupBy { it.session.machineId to it.repoPlace.repo }.map { (key, members) ->
         val (machine, repo) = key
-        val place = members.first().place
+        val place = members.first().repoPlace
         val name = place.name.ifEmpty { UnnamedRepo }
-        val trees = members.groupBy { it.place.worktree }.map { (path, inTree) ->
-            val main = inTree.first().place.main
+        val trees = members.groupBy { it.repoPlace.worktree }.map { (path, inTree) ->
+            val main = inTree.first().repoPlace.main
             // Orca's sidebar and git name a working tree by its branch.
             val branch = inTree.firstNotNullOfOrNull { it.session.branch?.takeIf(String::isNotEmpty) }
             AgentWorktree("tree/$machine/$path", branch ?: if (path == repo) name else baseName(path), path, main, inTree, branch)

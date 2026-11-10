@@ -457,4 +457,5 @@
     <string name="designsystem_core_always_scope_edit_directory">All file edits in this directory in this conversation</string>
     <string name="designsystem_core_always_scope_tool">All uses of this tool in this conversation</string>
     <string name="designsystem_core_always_scope_approved">The approved scope remains allowed in this conversation</string>
+    <string name="designsystem_core_agents_project_without_space">%1$s · No workspace</string>
 </resources>

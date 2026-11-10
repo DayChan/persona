@@ -2,6 +2,12 @@
 
 Pitfalls, odd behavior, and the trade-offs made at the time (formerly in `CLAUDE.md`, index in `docs/lessons/README.md`). Add new lessons to the matching section; create a section if none fits.
 
+- A Codex app-server thread can have a repository root without a Herdr pane or space (#2965). Resolve unique workspace
+  matches after Git metadata enrichment and repeat child inheritance afterward. Never infer terminal routing or choose
+  arbitrarily between equally matching spaces. On iOS and Android, unresolved sessions must retain repository identity:
+  grouping every missing space as `-` and naming that bucket after its first session mixes repositories and impersonates
+  a real workspace. Both list and detail views must use the same fallback key.
+
 - Task placement must preserve locality (#1175): a failed launcher check is not permission to move an explicitly targeted task to another computer with the original absolute directory. Persist fixed placement by default through preview, card edits and retries; require an explicit flexible policy for portable work. Returning from background dispatch only proves the work was queued, not that a native Agent received its first prompt.
 
 - A successful session deletion must survive a node reclassifying an unchanged offline transcript as `interrupted`. Apply persisted deletion notes to that status too, using machine/session ID and last-use time; neither a shared project name nor a missing worktree means another conversation was deleted (#5933).

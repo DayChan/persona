@@ -8,6 +8,13 @@ and it can also be started from the phone ("Starting from the phone"). Supported
 
 ## Recognition
 
+- App-server threads without terminal placement can join a uniquely matching Herdr workspace (#2965). Explicit
+  host placement wins. A matching directory takes precedence over a shared repository root; equally good matches
+  in different spaces remain unresolved. This assigns space metadata only, never a pane, tab or terminal capability.
+  Child threads inherit the root's space after association. Workspace directories and explicitly placed terminal
+  sessions provide the evidence; names alone do not. Git metadata uses the existing nonblocking cache, so a cold
+  repository-only match can appear on the next inventory pass.
+
 - herdr reports Codex panes as `agent: "codex"`. With herdr's Codex integration installed (`~/.codex/herdr-agent-state.sh`, registered on
   SessionStart in `~/.codex/hooks.json`), `agent_session.value` is the Codex session id.
 - Panes without a session id (started before the integration was installed, or herdr recorded the id only at startup and `/resume` later switched threads in Codex):
